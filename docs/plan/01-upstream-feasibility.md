@@ -69,6 +69,11 @@ Measure cold load, warm inference/query, batch throughput, resident/mapped memor
 
 ## P0-03 — Codex lifecycle seam
 
+The [native CLI trace](../evaluations/p0-07-cli-trace.md) now observes completion,
+tool receipt/file effects, retry and rejection through the unmodified retained
+loop. It provides a baseline for this task; controller injection, owner loss and
+in-app root/child pause remain unimplemented and P0-03 remains planned.
+
 1. Trace CLI input to controller, context, model request, tools and completion in the pinned code. Identify injectable persistence/model/policy/execution boundaries.
 2. Wrap a tiny internal command/event path with workspace/task IDs, deterministic responses, cancellation and visible outcomes.
 3. Exercise owner-connection loss and checkpoint hooks. Keep useful internal protocol machinery; defer public API/schema support.

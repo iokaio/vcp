@@ -20,4 +20,9 @@ Under [ADR-013](../docs/adr/013-upstream-reuse-and-vendoring.md), normal builds 
 experiment with DiskANN enabled; its dependency checker rejects the identified
 server/provider/PostgreSQL packages. See [the native library procedure](../docs/development/munarium-baseline.md).
 
+`node scripts/upstream/trace-cli.cjs --binary <built codex.exe>` from the repository root runs five native CLI
+cases against a synthetic loopback provider, with independent request and file
+observations. See [the trace procedure](../docs/development/native-cli-trace.md)
+for the explicit unsandboxed patch fixture and qualification limits.
+
 Resolve paths from the script's location, document real tool prerequisites, reject unknown inputs, and return failures to callers. Missing tools, model assets, or environments must be reported as not run. Add working entry points with their owning implementation; do not add no-op success scripts to satisfy the tree.

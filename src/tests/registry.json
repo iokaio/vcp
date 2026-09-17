@@ -1,13 +1,21 @@
 {
   "schema_version": 1,
   "suites": {
-    "fast": ["repository", "harness", "experiments", "upstream-inventory", "upstream-source", "upstream-boundaries"],
+    "fast": ["repository", "harness", "experiments", "upstream-inventory", "upstream-source", "upstream-boundaries", "cli-trace-fixtures"],
     "repository": ["repository"],
     "harness": ["harness"],
     "experiments": ["experiments"],
-    "upstream": ["upstream-inventory", "upstream-source", "upstream-boundaries"]
+    "upstream": ["upstream-inventory", "upstream-source", "upstream-boundaries", "cli-trace-fixtures"]
   },
   "cases": {
+    "cli-trace-fixtures": {
+      "task_ids": ["P0-07"],
+      "args": ["--test", "src/tests/contracts/cli-trace.test.cjs"],
+      "backends": ["none"],
+      "requires": [{"kind": "file", "value": "src/tests/node_modules/@iarna/toml/package.json"}],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
     "upstream-inventory": {
       "task_ids": ["P0-07"],
       "args": ["--test", "src/tests/contracts/upstream-inventory.test.cjs", "src/tests/contracts/upstream-selection.test.cjs", "src/tests/contracts/dependency-closure.test.cjs", "src/tests/contracts/upstream-effects.test.cjs"],
