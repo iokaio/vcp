@@ -10,7 +10,7 @@
   "cases": {
     "upstream-inventory": {
       "task_ids": ["P0-07"],
-      "args": ["--test", "src/tests/contracts/upstream-inventory.test.cjs", "src/tests/contracts/upstream-selection.test.cjs"],
+      "args": ["--test", "src/tests/contracts/upstream-inventory.test.cjs", "src/tests/contracts/upstream-selection.test.cjs", "src/tests/contracts/dependency-closure.test.cjs"],
       "backends": ["none"],
       "requires": [{"kind": "file", "value": "src/tests/node_modules/@iarna/toml/package.json"}],
       "timeout_ms": 30000,

@@ -4,6 +4,7 @@
 param(
     [Parameter(Mandatory, ParameterSetName = 'Baseline')][string]$SourceRoot,
     [Parameter(Mandatory, ParameterSetName = 'Baseline')][ValidatePattern('^[a-f0-9]{40}$')][string]$Commit,
+    [Parameter(ParameterSetName = 'Baseline')][ValidateSet('Codex', 'Munarium')][string]$Candidate = 'Codex',
     [Parameter(Mandatory, ParameterSetName = 'Selected')][switch]$SelectedCodex,
     [Parameter(Mandatory)][string]$OutputRoot,
     [string]$TargetRoot,
@@ -34,14 +35,16 @@ $record = [ordered]@{
     schema_version = 1
     task_id = 'P0-07'
     candidate_commit = $Commit
+    candidate = $Candidate.ToLowerInvariant()
     mode = $Mode
     status = 'prepared'
     started_at = [DateTime]::UtcNow.ToString('o')
     ended_at = $null
     command = @()
     exit_code = $null
-    limitations = @('Codex baseline qualification only; no VCP integration or release qualification.')
+    limitations = @("$Candidate baseline qualification only; no VCP integration or release qualification.")
     source_kind = $(if ($SelectedCodex) { 'committed-selection' } else { 'unmodified-upstream' })
+    runner_sha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 $manifest = Join-Path $runDirectory 'manifest.json'
 function Save-Record { $record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifest -Encoding utf8 }
@@ -55,6 +58,15 @@ try {
     if (-not $IsWindows) { Not-Run 'Native Windows is required.' }
     foreach ($tool in @('git', 'rustup', 'cargo')) {
         if (-not (Get-Command $tool -CommandType Application -ErrorAction SilentlyContinue)) { Not-Run "Missing prerequisite: $tool" }
+    }
+    if ($Candidate -eq 'Munarium') {
+        $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $node) { Not-Run 'Node 24 is required for the dependency-closure check.' }
+        $nodeVersion = & $node.Source --version
+        if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v(\d+)\.' -or [int]$Matches[1] -lt 24) { Not-Run 'Node 24 or later is required.' }
+        $record.node = $nodeVersion
+        $record.dependency_checker_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'scripts/upstream/dependency-closure.cjs') -Algorithm SHA256).Hash.ToLowerInvariant()
+        $record.dependency_policy_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'src/tests/support/dependency-closure.cjs') -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     if ($SelectedCodex) {
         $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -74,7 +86,8 @@ try {
         $dirty = & git @gitArguments status --porcelain=v1 --untracked-files=all
         if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Unmodified baseline requires a clean source checkout.' }
     }
-    $toolchainFile = Join-Path $source 'codex-rs/rust-toolchain.toml'
+    $workspace = Join-Path $source $(if ($Candidate -eq 'Codex') { 'codex-rs' } else { 'server' })
+    $toolchainFile = Join-Path $workspace 'rust-toolchain.toml'
     $toolchainText = Get-Content -LiteralPath $toolchainFile -Raw
     if ($toolchainText -notmatch '(?m)^channel\s*=\s*"(\d+\.\d+\.\d+)"\s*$') { throw 'Expected an immutable stable Rust toolchain.' }
     $toolchain = $Matches[1]
@@ -103,7 +116,10 @@ try {
     $record.total_memory_bytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
     $record.platform = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
     $env:CARGO_TARGET_DIR = $target
-    if ($Mode -eq 'Build') {
+    if ($Candidate -eq 'Munarium') {
+        $verb = $(if ($Mode -eq 'Build') { 'build' } else { 'test' })
+        $cargoArguments = @("+$toolchain", $verb, '--locked', '-p', 'munarium-core', '-p', 'munarium-store-mem', '-p', 'munarium-datastore', '--features', 'munarium-datastore/vector-diskann', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
+    } elseif ($Mode -eq 'Build') {
         $cargoArguments = @("+$toolchain", 'build', '--locked', '-p', 'codex-cli', '--bin', 'codex', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
     } else {
         $cargoArguments = @("+$toolchain", 'test', '--locked', '-p', 'codex-apply-patch', '-p', 'codex-execpolicy', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
@@ -111,8 +127,22 @@ try {
     $record.command = @('cargo') + $cargoArguments
     $record.status = 'running'; Save-Record
     Write-Host ($record.command -join ' ')
-    Push-Location -LiteralPath (Join-Path $source 'codex-rs')
-    try { & cargo @cargoArguments *> (Join-Path $runDirectory 'command.log'); $code = $LASTEXITCODE }
+    Push-Location -LiteralPath $workspace
+    try {
+        & cargo @cargoArguments *> (Join-Path $runDirectory 'command.log'); $code = $LASTEXITCODE
+        if ($Candidate -eq 'Munarium' -and $code -eq 0) {
+            $treeArguments = @("+$toolchain", 'tree', '--locked', '--offline', '-p', 'munarium-core', '-p', 'munarium-store-mem', '-p', 'munarium-datastore', '--features', 'munarium-datastore/vector-diskann', '--target', 'x86_64-pc-windows-msvc', '--edges', 'normal,build', '--prefix', 'none', '--format', '{p}')
+            $record.dependency_command = @('cargo') + $treeArguments
+            $treeLog = Join-Path $runDirectory 'dependencies.log'
+            & cargo @treeArguments > $treeLog 2> (Join-Path $runDirectory 'dependencies.stderr.log')
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot capture the native dependency closure.' }
+            $closure = Join-Path $runDirectory 'dependencies.json'
+            & $node.Source (Join-Path $repository 'scripts/upstream/dependency-closure.cjs') $treeLog $closure
+            if ($LASTEXITCODE -ne 0) { throw 'Munarium dependency boundary failed.' }
+            $record.dependency_log_sha256 = (Get-FileHash -LiteralPath $treeLog -Algorithm SHA256).Hash.ToLowerInvariant()
+            $record.dependency_record_sha256 = (Get-FileHash -LiteralPath $closure -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+    }
     finally { Pop-Location }
     $record.exit_code = $code
     $record.status = $(if ($code -eq 0) { 'pass' } else { 'fail' })

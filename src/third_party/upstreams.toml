@@ -42,4 +42,6 @@ tree = "0ad0030922f10d61a22d627cee9fb6073a224e8e"
 inventory_sha256 = "d13a4b07c517c0e6ab41e44c9ff63ea6ad90e94d77a4cfed0aa57fd665a45cfe"
 toolchain = "1.98.0-x86_64-pc-windows-msvc"
 owner_task = "P0-07"
-selection_state = "Not selected or imported; 79 kernel/in-memory backend tests passed on Windows; local inference remains P0-02"
+component_notes = "components/munarium.md"
+candidate_paths = ["server/src/munarium-core", "server/src/munarium-store-mem", "server/src/munarium-datastore", "server/contract/matrix/VERSION", "server/contract/datastore", "server/Cargo.toml", "server/Cargo.lock", "server/rust-toolchain.toml", "LICENSE", "NOTICE"]
+selection_state = "Not imported; 200 native kernel/store/datastore tests passed with Tantivy 0.22.1 and DiskANN 0.56.0; 1 performance benchmark ignored; local inference remains P0-02"

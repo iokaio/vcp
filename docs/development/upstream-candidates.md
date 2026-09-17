@@ -72,6 +72,10 @@ or use another user's shared target directory.
 
 ## Review before selection
 
+The [Munarium local-library command](munarium-baseline.md) extends native
+qualification to the kernel, in-memory backend and datastore, with both Tantivy
+and DiskANN enabled and an explicit normal/build dependency boundary check.
+
 The current root license declarations for Codex, Gemini CLI and Munarium are
 Apache-2.0. This does not license every nested component under Apache. The
 Codex inventory includes a symlink at `codex-rs/vendor/bubblewrap/LICENSE`,

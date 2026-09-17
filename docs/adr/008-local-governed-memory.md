@@ -23,6 +23,12 @@ Qualify Munarium seams and exact local model/runtime and DiskANN provider at P0.
 
 ## Qualification evidence
 
+[Native Munarium baseline results](../evaluations/p0-07-munarium-datastore.md)
+establish Windows API/artifact feasibility for Tantivy 0.22.1 and DiskANN 0.56.0
+in an unmodified library candidate, with 200 tests passed and one benchmark
+ignored. This does not yet select a VCP embedding runtime, memory backend or
+production retrieval envelope.
+
 M01–M07/E13/E14/E20/U09 cover contradictory claims, origin replay, narrow scopes, exact-vector oracle, real CPU embeddings, reopen, deletion during lag and model changes. Fake vectors cannot qualify recall or offline compute.
 
 Attach exact source/package, fixture, configuration and environment identities, actual commands and pass/fail/not-run outcomes. No linked plan or ADR is itself passing evidence.
