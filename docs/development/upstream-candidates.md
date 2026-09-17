@@ -62,6 +62,8 @@ It grants Git command-scoped trust only to the explicitly supplied disposable
 checkout; it never changes global Git configuration. Outputs stay outside the
 source root, in a UUID evidence directory plus a reusable `target/` cache.
 `-TargetRoot` can reuse an explicitly chosen cache outside the source checkout.
+An output/cache path inside the source is rejected before allocation with exit
+2 and diagnostic `BASELINE_OUTPUT_IN_SOURCE`, independent of terminal formatting.
 Compiler logs, actual command, versions, host description, exit status and log
 hash are retained. Build/test failures preserve nonzero exits. A terminated host
 may leave a `running` manifest; it is not a pass. Do not delete failed evidence

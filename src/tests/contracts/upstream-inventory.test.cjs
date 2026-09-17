@@ -2,6 +2,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
@@ -26,8 +27,9 @@ test('baseline command refuses build output inside the unmodified source root', 
       '-SourceRoot', fixture.root, '-Commit', '0'.repeat(40), '-OutputRoot', path.join(fixture.root, 'output')],
     { encoding: 'utf8', timeout: 20000, windowsHide: true });
     assert.equal(result.error, undefined);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /outside the unmodified source checkout/);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /\[BASELINE_OUTPUT_IN_SOURCE\]/);
+    assert.equal(fs.existsSync(path.join(fixture.root, 'output')), false);
   } finally { fixture.cleanup(); }
 });
 test('hashes original bytes and rejects changed, truncated or extra batch output', () => {

@@ -14,10 +14,12 @@ $source = (Resolve-Path -LiteralPath $SourceRoot).Path
 $output = [IO.Path]::GetFullPath($OutputRoot)
 $target = $(if ($TargetRoot) { [IO.Path]::GetFullPath($TargetRoot) } else { Join-Path $output 'target' })
 if ($output -eq $source -or $output.StartsWith($source.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'Evidence and target output must be outside the unmodified source checkout.'
+    [Console]::Error.WriteLine('[BASELINE_OUTPUT_IN_SOURCE] Evidence and target output must be outside the unmodified source checkout.')
+    exit 2
 }
 if ($target -eq $source -or $target.StartsWith($source.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'Target output must be outside the unmodified source checkout.'
+    [Console]::Error.WriteLine('[BASELINE_OUTPUT_IN_SOURCE] Target output must be outside the unmodified source checkout.')
+    exit 2
 }
 $runDirectory = Join-Path $output ([guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $runDirectory -Force | Out-Null
