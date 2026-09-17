@@ -19,7 +19,9 @@ if ($SelectedCodex) {
     $selection = Get-Content -LiteralPath (Join-Path $repository 'src/third_party/components/codex-selection.json') -Raw | ConvertFrom-Json
     $Commit = $selection.commit
 }
-$source = (Resolve-Path -LiteralPath $SourceRoot).Path
+# Use the same normalization for all three paths: Resolve-Path alone retains
+# Windows 8.3 aliases while GetFullPath expands them on the native runtime.
+$source = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $SourceRoot).Path)
 $output = [IO.Path]::GetFullPath($OutputRoot)
 $target = $(if ($TargetRoot) { [IO.Path]::GetFullPath($TargetRoot) } else { Join-Path $output 'target' })
 if ($output -eq $source -or $output.StartsWith($source.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {

@@ -65,6 +65,10 @@ source root, in a UUID evidence directory plus a reusable `target/` cache.
 `-TargetRoot` can reuse an explicitly chosen cache outside the source checkout.
 An output/cache path inside the source is rejected before allocation with exit
 2 and diagnostic `BASELINE_OUTPUT_IN_SOURCE`, independent of terminal formatting.
+Source, evidence and target paths use the same native full-path normalization,
+including Windows 8.3 aliases, before containment checks. A regression exercises
+both evidence and target rejection through a short source alias; hosts without
+short aliases report that specific case skipped rather than claiming coverage.
 Compiler logs, actual command, versions, host description, exit status and log
 hash are retained. Build/test failures preserve nonzero exits. A terminated host
 may leave a `running` manifest; it is not a pass. Do not delete failed evidence

@@ -95,6 +95,13 @@ Git long-path support, installs Node 24.10.0 and Rust 1.95.0, and provisions Car
 dependencies without a restored VCP build cache. Visual Studio, SDK, CMake and
 Ninja discovery uses the same native build runner as local qualification.
 
+The runner's organization group (`wingroup` at initial qualification) must grant repository access to `iokaio/vcp`
+and allow public repositories. GitHub groups permit only private repositories
+by default; a ready runner can remain unavailable to this public checkout.
+If the group restricts workflows, it must permit `.github/workflows/ci.yml`.
+See [GitHub's larger-runner access procedure](https://docs.github.com/en/actions/how-tos/using-larger-runners/controlling-access-to-larger-runners).
+An unassigned queued job provides no native qualification evidence.
+
 The Windows job runs the fast suite, verifies imported Git bytes/modes, builds
 the committed CLI, runs patch/policy tests and executes the five synthetic
 [CLI trace cases](native-cli-trace.md). A separate maintenance step fetches the
