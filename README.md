@@ -25,7 +25,9 @@ The complete first-release scope includes these capabilities together. A basic c
 
 ## Architecture and data boundaries
 
-The proposed foundation is a Rust engine and CLI built from selected, pinned OpenAI Codex components, with selected Gemini CLI adaptations and Munarium-derived memory concepts and code. Exact imports, toolchain versions, and dependency choices must pass the plan's upstream and native Windows feasibility work before they are treated as supported.
+The planned foundation is a Codex-derived Rust engine and CLI with maximum reasonable reuse of a working pinned baseline, plus selected Gemini CLI adaptations and Munarium-derived memory concepts and code. Exact imports, retained modules, replacements, toolchain versions, and dependency choices must pass upstream and native Windows feasibility work before they are treated as supported.
+
+Selected Codex source will be copied into `src/third_party/codex/` and committed as ordinary repository files, with reviewed VCP patches already applied. It participates in VCP's build. No submodule or subtree workflow is planned, and normal builds will not fetch Codex or reapply patches. The provenance manifest and ordered patch series support independent reconstruction and reviewed upstream updates. [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md) defines the convention and remaining engineering decisions. No Codex source has been imported yet.
 
 One engine owns task state, authorization, the canonical store, and cost accounting. UI clients and adapters do not create competing schedulers or bypass those controls. SQLite is the proposed default canonical store; a files/journal preference is evaluated against the same durability and portability contracts.
 

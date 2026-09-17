@@ -31,6 +31,8 @@ Follow [the code layout](code-layout.md): `docs/` contains documentation, `src/`
 
 Keep upstream adapters thin and classified as pure computation, read-only I/O or effectful. Record removed telemetry/auth discovery, replaced model helpers and authority differences. Preserve original source/fixture provenance for attributed ports.
 
+Follow [ADR-013](../adr/013-upstream-reuse-and-vendoring.md) for the Codex foundation: selected source is copied and committed under `src/third_party/codex/`, with local patches already applied and included in the VCP build. Use no submodule or subtree workflow. The provenance manifest and ordered patches reconstruct and verify that committed source during explicit maintenance; they are not a fetch-and-patch step in normal builds. P0-07 qualifies the unmodified upstream Windows baseline; P0-08 integrates VCP services and records which modules remain or are replaced.
+
 ## Work-item procedure
 
 Before editing code, record the task ID, completed prerequisites, concrete source paths and governing ADRs. Split implementation by observable behavior rather than by arbitrary file count. A normal change includes the contract/type addition, production path, error behavior, focused regression fixture and an inspector/event consequence where relevant.

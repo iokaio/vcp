@@ -17,10 +17,12 @@ Test unknown suite rejection, nonzero child exit propagation, isolated fixture r
 ## P0-07 — Immutable upstream selection
 
 1. Pin Codex, Gemini CLI and Munarium to exact commits; record selected paths, dependencies, licenses, notices, patch origin and local owner. Treat mutable URLs as discovery inputs.
-2. Build selected upstream components on native Windows before modifications. Record compiler/native dependencies, commands, resource use and known upstream failures.
+2. Build selected upstream components on native Windows before modifications, including the unmodified Codex engine/CLI baseline. Use an isolated temporary checkout; record compiler/native dependencies, commands, resource use and known upstream failures.
 3. Classify each selected module's I/O, model/network helpers and ambient credential discovery. Establish the VCP replacements required for each effectful seam.
+4. Follow [ADR-013](../adr/013-upstream-reuse-and-vendoring.md): import the selected Codex source as ordinary tracked files under `src/third_party/codex/`, retaining useful upstream-relative workspace structure. Include original license/NOTICE material and root attribution with the import. Do not introduce a submodule, gitlink, nested Git repository, or subtree workflow.
+5. Define the concrete provenance schema, source-selection/path mapping, original/resulting hashes, and explicit reconstruction procedure. Record any exclusions or normalization. Build from the committed source; keep import/verification helpers under planned `scripts/upstream/`, separate from ordinary compilation. Commit only when that implementation task authorizes it.
 
-Test a clean source reconstruction from the manifest and a file-hash/notice comparison. Include selected embedding assets and crypto dependencies in provenance as they are chosen. Done when another Windows environment can reconstruct the selected inputs without copying an unrecorded developer cache.
+Test both a clean VCP clone containing the imported files and an independent reconstruction from the pinned upstream selection and ordered patches, comparing paths, file hashes, and notices. Once patches are added, the reconstructed result must equal the committed, already-patched source. A build must not fetch Codex or apply those patches again; ordinary dependency provisioning remains documented separately. Include selected embedding assets and crypto dependencies in provenance as they are chosen. Done when another Windows environment can build the committed inputs and independently reconstruct them without an unrecorded developer cache.
 
 ## P0-02 — Local Munarium and search spike
 
@@ -60,6 +62,8 @@ Run E07/E08/R04 against real processes, including a grandchild, an output flood 
 1. Keep the functioning CLI/loop structure and insert candidate OpenRouter, budget, store and memory adapters. Use deterministic provider responses initially.
 2. Exercise read, prepared patch, verification and task summary through the retained engine. Trace every helper/model call and remove bypasses.
 3. Compare preserving a cohesive module with extraction where coupling prevents VCP contracts. Rehearse importing one representative upstream fix and record effort/patch size.
+4. Record C01–C06 destinations and C07 retained tests, supporting libraries, concrete build entry point, and kept/replaced modules in the source map and ADR-013. These responsibility names do not limit reuse to small extracts. Keep one authoritative engine/build graph and explicitly account for credential/network effects.
+5. Store every local difference from the pinned Codex selection in the ordered `src/third_party/patches/codex/` series. Update it with the committed patched source and manifest hashes; prove reconstruction in a disposable directory. Remove/disable upstream telemetry and implicit credential discovery, routing needed operations through VCP authority rather than discarding all credential-library primitives.
 
 Pass R02–R05/R08 prototype cases, with user edits preserved and one authoritative store/ledger/controller. A clean-looking fork without working seams is not the deliverable.
 

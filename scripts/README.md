@@ -8,7 +8,10 @@ This directory is reserved for repository automation. No build, test, or packagi
 | `test.ps1` | Dispatch suites, cases, and backends; preserve exit status and run evidence | P0-01, extended by feature owners |
 | `package.ps1` | Assemble qualified artifacts, licenses, notices, and checksums | P8-04 |
 | `evals/` | Orchestrate explicitly configured evaluations and collect results | P5-08/P8-05 |
+| `upstream/` | Explicit source import, patch reconstruction, and provenance verification | P0-07/P0-08, rehearsed in P8-06 |
 
 The [delivery contract](../docs/plan/00-delivery-contract.md) specifies the proposed test command interface. The [layout](../docs/plan/code-layout.md) separates automation from reusable test code and graders under `src/`.
+
+Under [ADR-013](../docs/adr/013-upstream-reuse-and-vendoring.md), normal builds consume the committed, already-patched Codex source. They must not fetch Codex, advance its pin, or apply the patch series. Reconstruction from a pinned upstream selection plus patches runs separately in a disposable directory as explicit maintenance/verification work; the helpers are not implemented yet.
 
 Resolve paths from the script's location, document real tool prerequisites, reject unknown inputs, and return failures to callers. Missing tools, model assets, or environments must be reported as not run. Add working entry points with their owning implementation; do not add no-op success scripts to satisfy the tree.
