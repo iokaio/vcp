@@ -4,7 +4,7 @@ Status: planned. Owns P7-01, P7-02 and P7-03. Skill discovery follows P2-01/P2-0
 
 ## Code organization
 
-Under `vcp-extensions`, separate `skill_manifest`, `discovery`, `activation`, `catalog`, `mcp/client`, `mcp/server_registry`, `mcp/schema`, `mcp/auth` and `mcp/invocation`. Package built-in skill bodies/assets under a proposed `skills/builtin/` directory with a versioned catalog. Keep generic skills as content plus metadata; they do not become a second tool executor.
+Under `vcp-extensions`, separate `skill_manifest`, `discovery`, `activation`, `catalog`, `mcp/client`, `mcp/server_registry`, `mcp/schema`, `mcp/auth` and `mcp/invocation`. Package built-in skill bodies/assets under a proposed `src/skills/builtin/` directory with a versioned catalog. Keep generic skills as content plus metadata; they do not become a second tool executor.
 
 `SkillDescriptor` carries ID/version/source/license, short description, activation cues, applicable environments, required tools and body hash. `ActivatedSkill` records the selected version and reason in the context manifest. `McpToolIdentity` binds server identity, connection generation, tool name and schema revision; it cannot be replaced by a plain display name.
 

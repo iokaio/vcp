@@ -4,7 +4,7 @@ Status: planned. Owns P5-08 and P8-01 through P8-06. This file contains two stag
 
 ## Code and evidence organization
 
-Implement reusable evaluation runners/graders under `evals/`, fault campaigns under `tests/recovery/`, actual Windows process/install cases under `tests/platform/`, and packaging under proposed `scripts/package.ps1` plus selected workspace packaging configuration. Keep private owner inputs and full run artifacts outside version control; commit synthetic fixtures and redacted evidence summaries only.
+Implement evaluation orchestration under `scripts/evals/`, reusable graders and task definitions under `src/evals/`, fault campaigns under `src/tests/recovery/`, actual Windows process/install cases under `src/tests/platform/`, and packaging under proposed `scripts/package.ps1` plus selected workspace packaging configuration. Keep private owner inputs and full run artifacts outside version control; commit synthetic fixtures under `src/` and redacted evidence summaries under `docs/evaluations/` only, following [the code layout](code-layout.md).
 
 Add CI jobs incrementally for formatting/build/contracts, backend parity, Windows process/recovery, real local embedding, deterministic acceptance and packaging. Jobs needing assets or an interactive console state prerequisites explicitly. Paid OpenRouter evaluation runs are separated from ordinary PR checks and require a configured budget.
 

@@ -4,7 +4,7 @@ Status: deferred. Owns P9-01 through P9-03. Starts after P8-05; it is not a Wind
 
 ## Code organization
 
-Extend `vcp-protocol` with `jsonrpc`, `handshake`, `methods`, `errors`, `schema` and `compatibility`. Add `vcp-engine/server` adapters for stdio and local Windows pipes. Generate `packages/protocol-ts/`; implement hand-written connection/subscription ergonomics in `packages/sdk-ts/`. Keep generated types distinct from edited SDK source, and preserve the CLI's direct internal path.
+Extend `vcp-protocol` with `jsonrpc`, `handshake`, `methods`, `errors`, `schema` and `compatibility`. Add `vcp-engine/server` adapters for stdio and local Windows pipes. Generate `src/packages/protocol-ts/`; implement hand-written connection/subscription ergonomics in `src/packages/sdk-ts/`. Keep generated types distinct from edited SDK source, and preserve the CLI's direct internal path.
 
 Public protocol adapters translate to existing typed commands; they do not introduce new task state, budgeting, policy or memory ownership. Reuse selected C01 schema/lifecycle machinery with explicit VCP wire adaptations and fixture evidence.
 

@@ -1,0 +1,140 @@
+# Code layout
+
+Status: layout convention adopted; product implementation remains planned. This file defines repository paths used by the [implementation plan](README.md). The [architecture](../architecture/vcp-what.md) remains authoritative for product behavior, and the [delivery contract](00-delivery-contract.md) defines engineering rules.
+
+## Initial roots and current state
+
+Use `docs/` for documentation, `src/` for source code and its test assets, and `scripts/` for build and test automation. Root-level community files and `.github/` are the exceptions needed for project discovery and contribution workflows.
+
+Today `docs/architecture/` and `docs/plan/` contain the design and plan. `src/README.md` and `scripts/README.md` reserve the two implementation roots and explain their status. The remaining paths below are targets, not files or capabilities already implemented. Create directories with their first useful content; do not add empty crates or passing placeholder runners.
+
+## Target directory tree
+
+```text
+vcp/
+  README.md
+  LICENSE
+  NOTICE
+  THIRD_PARTY_NOTICES.md
+  CONTRIBUTING.md
+  CODE_OF_CONDUCT.md
+  SECURITY.md
+  SUPPORT.md
+  TRADEMARK.md
+  .gitignore
+  .gitattributes
+  .github/
+    ISSUE_TEMPLATE/
+    pull_request_template.md
+    workflows/                 future CI invoking the same scripts as developers
+  docs/
+    README.md
+    architecture/              design, requirements, and supporting research
+    plan/                      execution segments, this layout, and traceability
+    adr/                       decisions with evidence and alternatives
+    development/               toolchain, upstream mapping, and contributor setup
+    protocol/                  later public API and compatibility documentation
+    operations/                installation, data, recovery, and release guides
+    evaluations/               reviewed, redacted result summaries only
+  src/
+    README.md
+    Cargo.toml                 proposed Rust workspace manifest; selected in P0
+    Cargo.lock                 committed application dependency resolution
+    rust-toolchain.toml        qualified compiler and component pins
+    crates/                    VCP Rust packages or mapped cohesive modules
+    tests/
+      support/                 deterministic helpers and external-effect oracles
+      fixtures/                synthetic repositories, events, and service inputs
+      contracts/               shared backend and service behavior
+      recovery/                crash, interruption, and replay cases
+      platform/windows/        real native process and filesystem checks
+      end-to-end/              compiled CLI scenarios with controlled providers
+    evals/
+      tasks/                   evaluation definitions and private fixture references
+      fixtures/                synthetic held-out inputs and truth sets
+      graders/                 executable scoring and artifact checks
+    skills/builtin/            versioned skill content, manifests, and assets
+    third_party/
+      upstreams.toml           origins, exact commits, licenses, paths, and owners
+      codex/                   selected cohesive upstream workspace/components
+      gemini-cli/              selected extracts and licensed comparison fixtures
+      munarium/                selected kernel/local-memory code and fixtures
+      patches/                 reproducible changes to retained upstream source
+      licenses/                original license and notice texts for imports
+    packages/                  deferred TypeScript surfaces
+      protocol-ts/             generated protocol bindings
+      sdk-ts/                  client connection/subscription code
+      vscode/                  extension host and presentation
+  scripts/
+    README.md
+    build.ps1                  planned native build entry point
+    test.ps1                   planned suite/case/backend dispatcher
+    package.ps1                planned release assembly and checksums
+    evals/                     planned evaluation orchestration
+  artifacts/                   ignored local build, test, and evaluation output
+```
+
+The optional `artifacts/` directory is generated output, not a fourth tracked content root. Runtime history, stores, indexes, model caches, vaults, credentials, and developer recovery keys belong in configured local data locations outside the source tree. Do not use a Git checkout as a cloud vault.
+
+## Rust responsibility map
+
+Logical names describe ownership; they do not require a crate per row. P0-07/P0-08 map them to actual files under `src/` after selecting a working Codex baseline. Retain cohesive upstream modules and tests when possible, and record the mapping in `docs/development/` with provenance in `src/third_party/upstreams.toml`.
+
+| Proposed path under `src/crates/` | Responsibility | Owning plan segments |
+|---|---|---|
+| `vcp-domain/` | IDs, entities, errors, state transitions, and invariants | [02](02-engine-state-and-capture.md) |
+| `vcp-protocol/` | Typed internal commands/events; public schemas later | [02](02-engine-state-and-capture.md), [17](17-deferred-api-and-sdk.md) |
+| `vcp-engine/` | Session controller, scheduling, completion, recovery, delegation | [02](02-engine-state-and-capture.md), [05](05-openrouter-and-session-loop.md), [06](06-windows-tools-and-recovery.md), [14](14-visible-delegation.md) |
+| `vcp-context/` | Instructions, manifests, token planning, and compaction | [04](04-context-and-instructions.md) |
+| `vcp-models/` | Normalized requests, OpenRouter transport, and catalog | [05](05-openrouter-and-session-loop.md) |
+| `vcp-routing/` | Group selection, profiles, escalation, and optimization | [12](12-routing-and-optimization.md) |
+| `vcp-budget/` | Reservations, settlement, and root/child cost attribution | [03](03-storage-and-budget.md) |
+| `vcp-policy/` | Authority, trust, approvals, and dispatch admission | [06](06-windows-tools-and-recovery.md) |
+| `vcp-tools/` | File, search, patch, process, and Git contracts | [06](06-windows-tools-and-recovery.md) |
+| `vcp-exec/` | Workers, process trees, PTY, and OS adapters | [06](06-windows-tools-and-recovery.md) |
+| `vcp-repository/` | Workspace identity, file revisions, and Git context | [04](04-context-and-instructions.md), [06](06-windows-tools-and-recovery.md) |
+| `vcp-store/` | Canonical backends, artifacts, migrations, snapshots, keys, vaults, restore | [02](02-engine-state-and-capture.md), [03](03-storage-and-budget.md), [10](10-history-and-pruning.md), [11](11-encrypted-portability.md) |
+| `vcp-memory/` | Ingestion, claims, governance, pruning, and retrieval orchestration | [08](08-memory-and-ingestion.md), [09](09-local-search-and-generations.md), [10](10-history-and-pruning.md) |
+| `vcp-search-tantivy/` | Lexical index schema, stable IDs, and generations | [09](09-local-search-and-generations.md) |
+| `vcp-search-diskann/` | Vector provider, filters, and generation lifecycle | [09](09-local-search-and-generations.md) |
+| `vcp-extensions/` | Skills and MCP; deferred hook/import integration | [13](13-skills-and-mcp.md), [19](19-deferred-extensions-and-platforms.md) |
+| `vcp-audit/` | Projections, inspectors, redaction, and export | [02](02-engine-state-and-capture.md), [07](07-cli-and-inspection.md), [10](10-history-and-pruning.md) |
+| `vcp-cli/` | Interactive CLI, JSONL presentation, and task ownership | [07](07-cli-and-inspection.md), [10](10-history-and-pruning.md), [11](11-encrypted-portability.md), [14](14-visible-delegation.md) |
+
+A conventional Rust crate may have `Cargo.toml`, its own `src/`, and `tests/`; the nested `src` is normal. Put backend-specific migrations with the owning store package. Keep pure unit tests with their modules and use `src/tests/` for shared contracts and cross-package scenarios. The workspace must register shared test targets explicitly: merely creating `src/tests/` does not make Cargo discover them.
+
+## Dependency and upstream boundaries
+
+- Domain and internal protocol types do not depend on presentation, network clients, or concrete stores.
+- The engine calls injected model, budget, policy, store, memory, and execution interfaces. Every effect follows the same authority and durability rules, including effects from retained upstream code.
+- CLI and future client packages issue commands and consume projections; they do not own a second scheduler, model gateway, or cost ledger.
+- Memory accepts canonical records independently of search-index visibility. Embedding and search implementations stay local.
+- Keep vendored source and patch history identifiable. For an attributed port placed directly in a VCP module, record both the original and destination paths. Preserve upstream notices, fixtures, and relevant modification markers.
+- A retained upstream workspace may remain under `src/third_party/codex/` if flattening it would harm reuse. P0 chooses one authoritative build graph and documents the concrete manifest; do not maintain two independent engines to fit the diagram.
+
+## Scripts and generated material
+
+Run repository automation from the root through `scripts/`. PowerShell is the initial build/test interface because native Windows is the first delivery target. Supporting automation may use another pinned tool when justified; document that prerequisite. Product logic, reusable test helpers, and graders belong in `src/`, while scripts dispatch them and collect results.
+
+Build/test scripts must resolve paths relative to their own location, report the concrete commands, propagate nonzero exits, reject unknown options, and distinguish missing prerequisites from passing checks. The planned test interface and suites are in [segment 00](00-delivery-contract.md); packaging is owned by [segment 15](15-integration-and-release.md). Live evaluations require a configured spend cap and must not run as an implicit ordinary check.
+
+Keep build output and raw run evidence in ignored `artifacts/` or tool-native ignored output directories. Place reviewed, redacted evidence summaries in `docs/evaluations/`. Generated protocol bindings belong in the deferred `src/packages/protocol-ts/` package with their generator inputs and regeneration command identified. Do not commit downloaded models, real owner repositories, or private task transcripts as test fixtures.
+
+## Applying the layout to the plan
+
+| Earlier shorthand | Repository-relative target |
+|---|---|
+| `crates/` | `src/crates/` |
+| `tests/` | `src/tests/` |
+| `evals/` task definitions, fixtures, graders | `src/evals/` |
+| `evals/` runner scripts | `scripts/evals/` |
+| `evals/reports/` reviewed summaries | `docs/evaluations/` |
+| `skills/builtin/` | `src/skills/builtin/` |
+| `third_party/` | `src/third_party/` |
+| `packages/` | `src/packages/` |
+
+Unqualified logical names such as `vcp-store/snapshot` still mean modules in the P0 source map, not an additional root directory. Paths quoted from another repository retain their original spelling and are not VCP destinations.
+
+P0 establishes the actual source workspace, provenance map, and first runnable scripts. Feature segments add code and tests in the mapped locations. P8 adds installation/operations guides, reviewed acceptance evidence, and packaging. Deferred packages are created only when their work is scheduled.
+
+When a concrete layout changes, update this file, the affected segment paths, the source map, script entry points, and contributor instructions together. Directory creation never counts as completing a product work item.

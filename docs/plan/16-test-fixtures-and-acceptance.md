@@ -5,7 +5,7 @@ Status: planned. This is shared implementation guidance, not a claim that tests 
 ## Test code organization
 
 ```text
-tests/
+src/tests/
   support/             fake clock/IDs, scripted provider, temp roots, fault barriers
   fixtures/
     repositories/      small versioned source trees and intended defects/changes
@@ -14,15 +14,16 @@ tests/
   recovery/            child-process crash/reopen and external-effect oracles
   platform/windows/    paths, process jobs, PTY, console close and filesystem behavior
   end-to-end/          compiled CLI with real store/broker and controlled providers
-evals/
+src/evals/
   tasks/               task manifests and private owner-fixture references
   graders/             executable artifact/check graders and human rubrics
   fixtures/            retrieval truth sets and held-out task metadata
-  reports/             tracked redacted report summaries only
+docs/evaluations/      tracked redacted report summaries only
+scripts/evals/         evaluation orchestration and result collection
 scripts/test.ps1        suite/case/backend dispatcher with real exit propagation
 ```
 
-These logical test directories may be attached to the retained Codex workspace/package test targets after P0 mapping. Avoid copying the same conformance logic into each backend's test module. The shared suite instantiates both implementations and uses independently defined expected behavior.
+Follow [the code layout](code-layout.md). These logical test directories may be attached to the retained Codex workspace/package test targets after P0 mapping. Register shared test targets explicitly in the chosen workspace; directory names alone do not make Cargo discover them. Keep pure unit tests alongside their source modules. Avoid copying the same conformance logic into each backend's test module. The shared suite instantiates both implementations and uses independently defined expected behavior.
 
 ## Harness contracts to code first
 

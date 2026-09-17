@@ -30,7 +30,7 @@ Tests: duplicate proposal after a lost acknowledgement, missing or wrong-scope e
 
 ## Tests and fixture design
 
-Create `tests/fixtures/memory/` with two workspaces containing similar symbols but different conventions; verified commands and later failures; explicit and inferred architecture claims; contradictory source versions; and a complete activity stream with repeated delivery.
+Create `src/tests/fixtures/memory/` with two workspaces containing similar symbols but different conventions; verified commands and later failures; explicit and inferred architecture claims; contradictory source versions; and a complete activity stream with repeated delivery.
 
 | Test | Observable expectation |
 |---|---|

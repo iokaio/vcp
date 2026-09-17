@@ -23,7 +23,7 @@ The adapter accepts only an admitted attempt; a provider SDK helper cannot creat
 4. Implement bounded retries/backoff/deadlines with a new attempt/reservation per billable retry. Pre-send failures and ambiguous post-send failures have distinct accounting transitions. Honor pinned-model/fallback and provider-data restrictions.
 5. Load dated catalog snapshots and tested compatibility records. Stale/missing price or capability states are visible; refresh cannot mutate an active attempt's meaning.
 
-Tests in `tests/contracts/provider/`: malformed/truncated stream, interleaved tool fragments, duplicate terminal event, rate limit, timeout before and after send, cancellation during usage delivery, unsupported role/tool schema, fallback to smaller context and missing cost fields. Assert no tool dispatch from an incomplete call and no request without a durable reservation. Use scripted local transport before a separately budgeted live smoke test. E11/E12/R05 apply.
+Tests in `src/tests/contracts/provider/`: malformed/truncated stream, interleaved tool fragments, duplicate terminal event, rate limit, timeout before and after send, cancellation during usage delivery, unsupported role/tool schema, fallback to smaller context and missing cost fields. Assert no tool dispatch from an incomplete call and no request without a durable reservation. Use scripted local transport before a separately budgeted live smoke test. E11/E12/R05 apply.
 
 ## P2-05 — Retained Codex loop with VCP boundaries
 
@@ -35,7 +35,7 @@ Implement in observable increments:
 4. Loop limits: explicit step/output/deadline bounds and wait/input/budget-exhausted states. A model repeating a failed action does not authorize unbounded retries.
 5. Memory/routing seams: inject interfaces and visible not-ready states during scaffolding. Integrate real memory/groups in later owning segments; do not add a second loop to enable them.
 
-Tests in `tests/end-to-end/coding_loop/` drive a deterministic read/change/test sequence, a user correction during streaming, out-of-order tool completion and a process with partial effects. An independent effect observer checks actual filesystem changes and request counts. Both storage backends must recover the same acknowledged state.
+Tests in `src/tests/end-to-end/coding_loop/` drive a deterministic read/change/test sequence, a user correction during streaming, out-of-order tool completion and a process with partial effects. An independent effect observer checks actual filesystem changes and request counts. Both storage backends must recover the same acknowledged state.
 
 ## P2-06 — Verification and honest completion
 

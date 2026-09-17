@@ -56,6 +56,6 @@ Inject kills before/after each index component write, manifest finalization and 
 | M06 upgrade | New tokenizer/model/dimensions/library produces a new compatible generation or explicit rejection |
 | M07 resource failure | Disk full, missing artifact, memory cap and locked files preserve canonical records and report failed work |
 
-Proposed fixture locations: `tests/fixtures/search/`, `tests/contracts/search/`, `tests/recovery/index_publication/` and `evals/fixtures/retrieval/`. Run `search`, `memory`, `recovery` and actual local-model integration before claiming the segment complete.
+Proposed fixture locations: `src/tests/fixtures/search/`, `src/tests/contracts/search/`, `src/tests/recovery/index_publication/` and `src/evals/fixtures/retrieval/`. Run `search`, `memory`, `recovery` and actual local-model integration before claiming the segment complete.
 
 Done when local hybrid retrieval is useful on a declared truth set, every returned passage has current authority/provenance, and crashes/upgrades/deletion never expose an incoherent or unauthorized generation.

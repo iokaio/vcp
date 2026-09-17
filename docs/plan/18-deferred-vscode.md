@@ -4,7 +4,7 @@ Status: deferred. Owns P4-01 through P4-05. Starts after P8 and P9; file/phase n
 
 ## Code organization
 
-Under `packages/vscode/`, separate extension-host modules `engine_connection`, `workspace_map`, `trust`, `document_context`, `edit_bridge`, `commands` and `diagnostics` from webview presentation `session`, `agents`, `diff`, `inspector` and `questions`. Bind transport to `sdk-ts`; never expose provider or recovery keys to the webview.
+Under `src/packages/vscode/`, separate extension-host modules `engine_connection`, `workspace_map`, `trust`, `document_context`, `edit_bridge`, `commands` and `diagnostics` from webview presentation `session`, `agents`, `diff`, `inspector` and `questions`. Bind transport to `sdk-ts`; never expose provider or recovery keys to the webview.
 
 Reuse qualified G07 editor-context/diff utilities and inspect Cline/Continue candidates where useful. Engine scheduling, policy, canonical memory and cost remain in Rust. Editor packages must not embed a second model gateway.
 

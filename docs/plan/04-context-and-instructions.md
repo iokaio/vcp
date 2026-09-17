@@ -38,6 +38,6 @@ A repository-map experiment may borrow Aider concepts after pinning and comparis
 | Handoff | Model role/tool serialization differs | Valid pairs and constraints preserved; incompatible opaque fields labelled |
 | Reopen | Workspace moved; files changed while VCP was closed | Identity rebind and observed-change record; actor remains unknown |
 
-Store fixtures under `tests/fixtures/context/` with small exact expected manifests and version markers. Assert inclusion/authority properties rather than exact model prose. Run `context`, relevant `tools`, and E02/E04/R02/R07. Later U01/U03/U07 test the same behavior with real tasks.
+Store fixtures under `src/tests/fixtures/context/` with small exact expected manifests and version markers. Assert inclusion/authority properties rather than exact model prose. Run `context`, relevant `tools`, and E02/E04/R02/R07. Later U01/U03/U07 test the same behavior with real tasks.
 
 Done when every dispatched model request is attributable to versioned inputs, source/steering changes prevent stale actions, and compaction/handoff preserve task correctness without discarding full retained history.

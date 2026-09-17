@@ -15,7 +15,7 @@ Status: planned. Read with [the architecture](../architecture/vcp-what.md) and [
 
 ## Repository and module boundaries
 
-Use the logical packages in architecture section 3.3 as responsibility names. Segment 01 records where they live in the selected Codex-derived workspace. An existing cohesive upstream module can implement several logical boundaries; avoid a competing engine beside an unchanged upstream engine.
+Follow [the code layout](code-layout.md): `docs/` contains documentation, `src/` contains source and test assets, and `scripts/` contains build/test automation. Use the logical packages in architecture section 3.3 as responsibility names. Segment 01 records where they live under `src/` in the selected Codex-derived workspace. An existing cohesive upstream module can implement several logical boundaries; avoid a competing engine beside an unchanged upstream engine. Contributor sign-off and source attribution follow [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 | Logical area | Proposed source responsibility | Dependency rule |
 |---|---|---|

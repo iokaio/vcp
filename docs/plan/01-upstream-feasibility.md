@@ -4,7 +4,7 @@ Status: planned. Owns P0-01 through P0-09. Read [delivery conventions](00-delive
 
 ## Outcome and code surface
 
-Produce a reproducible Codex-derived Windows baseline and evidence that local Munarium/Tantivy/DiskANN plus encrypted portable storage can fit it. Proposed outputs: pinned workspace/toolchain configuration, `third_party/upstreams.toml`, component/patch notes, prototype binaries under the chosen workspace, `tests/fixtures/`, `scripts/test.ps1`, and ADR-001/003/008/013/015/019. These are prototypes, not completed VCP release capabilities.
+Produce a reproducible Codex-derived Windows baseline and evidence that local Munarium/Tantivy/DiskANN plus encrypted portable storage can fit it. Follow [the code layout](code-layout.md). Proposed outputs: pinned workspace/toolchain configuration under `src/`, `src/third_party/upstreams.toml`, component/patch notes, prototype source under the chosen workspace, `src/tests/fixtures/`, `scripts/build.ps1`, `scripts/test.ps1`, and ADR-001/003/008/013/015/019. Build outputs remain ignored; the concrete source map and setup instructions go in `docs/development/`. These are prototypes, not completed VCP release capabilities.
 
 ## P0-01 — Requirements and experiment harness
 
@@ -75,4 +75,4 @@ Test out-of-order tool results, argument rewrites, stale confirmations, resource
 
 Collect every P0 prerequisite result. Accept concrete source/toolchain mappings, local model/runtime, Windows capability scope, storage recommendation, encrypted format and writer/key trust contract. Capture failed alternatives and replacement scope; do not label unrun prototypes qualified.
 
-Handoff includes a reproducible native build, component map, ADR decisions, fixture/report locations and a concrete list of packages/modules segment 02 will edit. All later source paths may be adjusted to this map without changing ownership or contracts in the plan.
+Handoff includes a reproducible native build, component map, ADR decisions, fixture/report locations and a concrete list of packages/modules segment 02 will edit. All later source paths may be adjusted within the `src/` layout to this map without changing ownership or contracts in the plan. Update the layout document, affected segments, and scripts together when the concrete mapping changes.

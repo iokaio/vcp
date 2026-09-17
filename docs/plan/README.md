@@ -1,15 +1,16 @@
 # VCP implementation and testing plan
 
-Plan revision 1 — September 17, 2026. Status: planned; no implementation or runtime test result is implied.
+Plan revision 2 — September 17, 2026. Status: planned; code layout and open-source contribution conventions established, with no implementation or runtime test result implied.
 
-Start with [the delivery contract](00-delivery-contract.md), [test infrastructure and acceptance](16-test-fixtures-and-acceptance.md), then [upstream feasibility](01-upstream-feasibility.md). These files expand [architecture draft 0.4](../architecture/vcp-what.md) into coding and testing work. The architecture remains authoritative for product behavior; this directory owns the detailed execution instructions.
+Start with [the code layout](code-layout.md), [the delivery contract](00-delivery-contract.md), [test infrastructure and acceptance](16-test-fixtures-and-acceptance.md), then [upstream feasibility](01-upstream-feasibility.md). These files expand [architecture draft 0.4](../architecture/vcp-what.md) into coding and testing work. The architecture remains authoritative for product behavior; this directory owns the detailed execution instructions and repository layout.
 
-The repository currently contains documentation only. Every source path, fixture, runner and command described here is a proposed implementation target. Preserve useful Codex modules instead of creating empty replacement crates merely to match a diagram. Pin upstream revisions and map logical modules to actual files in segment 01.
+The repository currently contains documentation, community files, contribution templates, and orientation READMEs in `src/` and `scripts/`. Product source paths, fixtures, runners and commands described here remain proposed implementation targets. Use `docs/` for documentation, `src/` for source and test assets, and `scripts/` for build/test automation. Preserve useful Codex modules instead of creating empty replacement crates merely to match a diagram. Pin upstream revisions and map logical modules to actual files under `src/` in segment 01. Follow [CONTRIBUTING.md](../../CONTRIBUTING.md) for licensing, sign-off, provenance, and review.
 
 ## Segment index
 
 | File | Deliverable | Architecture work owned |
 |---|---|---|
+| [Code layout](code-layout.md) | Initial roots, target tree, logical package locations and placement rules | Shared repository convention; no additional product work item |
 | [00 Delivery contract](00-delivery-contract.md) | Shared working rules, source boundaries, check commands and evidence | Supporting guidance |
 | [01 Upstream feasibility](01-upstream-feasibility.md) | Native Windows Codex baseline, Munarium/search/storage/crypto prototypes | P0-01 through P0-09 |
 | [02 Engine state and capture](02-engine-state-and-capture.md) | Domain state, internal events, full artifacts and projections | P1-01, P1-02, P1-03, P1-06 |
@@ -57,4 +58,4 @@ The first usable release includes coding, automatic selection across groups, per
 4. Run the relevant deterministic and Windows integration suites. Run paid evaluations only with an explicit configured evaluation budget.
 5. Record actual commands, versions, exit status and artifact locations. Mark the item complete only when its exit criteria pass; describe partial results explicitly.
 
-Do not mark whole segments done from this document's existence. Keep decision records in `docs/adr/` and generated run evidence under ignored local artifact roots; neither location is created by this planning task.
+Do not mark whole segments done from this document's existence. Keep decision records in `docs/adr/`, reviewed redacted summaries in `docs/evaluations/`, and raw run evidence under ignored local artifact roots such as `artifacts/`. Create these locations when their owning work produces content; the layout and community files do not complete any product work item.

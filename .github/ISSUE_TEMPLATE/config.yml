@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private security reporting
+    url: https://github.com/iokaio/vcp/blob/main/SECURITY.md
+    about: Read the private reporting channels before sharing a suspected vulnerability.
+  - name: Support and project status
+    url: https://github.com/iokaio/vcp/blob/main/SUPPORT.md
+    about: Review current scope and guidance for non-sensitive questions.

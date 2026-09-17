@@ -33,6 +33,7 @@ Read the design in these groups:
 - [Tools](#9-tools-and-execution), [permissions](#10-permissions-and-isolation), [memory governance](#11-governed-memory), [persistence](#12-canonical-storage-files-or-sqlite), and [retrieval](#13-tantivy-diskann-and-hybrid-retrieval).
 - [Audit and recovery](#14-observability-durability-and-recovery), [extensions](#15-instructions-skills-hooks-and-mcp), [delegation](#16-multi-agent-work-and-integration), and [user interfaces](#17-cli-and-programmatic-clients).
 - [VS Code](#18-vs-code-extension), [configuration and operations](#19-configuration-packaging-and-operations), [verification](#20-testing-evaluation-and-performance), [implementation plan](#21-implementation-plan), and [decisions and risks](#22-adrs-open-decisions-and-risks).
+- [Repository code layout](../plan/code-layout.md) and [contribution conventions](../../CONTRIBUTING.md).
 
 ### 0.1 Baseline decisions
 
@@ -242,45 +243,28 @@ Use TypeScript for the later VS Code extension and client bindings. Keep interna
 
 ### 3.3 Logical packages
 
-The following is a proposed repository layout, not files already created:
+The [code layout plan](../plan/code-layout.md) defines repository paths and the complete logical-package responsibility map. Its initial roots are `docs/` for documentation, `src/` for source and test assets, and `scripts/` for build/test automation. The following is the target structure, not a claim that implementation files already exist:
 
 ```text
-crates/
-  vcp-domain/          IDs, entities, errors, state transitions, invariants
-  vcp-protocol/        internal commands/events; public JSON-RPC later
-  vcp-engine/          session controllers, scheduling, task completion
-  vcp-context/         instructions, manifests, token planning, compaction
-  vcp-models/          normalized model API, OpenRouter adapter, catalog
-  vcp-routing/         role selection, profiles, escalation, evaluation data
-  vcp-budget/          reservations, settlement, root/child attribution
-  vcp-policy/          grants, denials, approval and trust evaluation
-  vcp-tools/           file/search/patch/process/Git tool contracts
-  vcp-exec/            worker control, PTY/process lifecycle, OS adapters
-  vcp-repository/      workspace identity, file versions, Git and diagnostics
-  vcp-store/           canonical store and artifact interfaces
-  vcp-memory/          claims, governance, retrieval orchestration
-  vcp-search-tantivy/  lexical schemas, generations and stable-ID mapping
-  vcp-search-diskann/  vector provider, filters, generation lifecycle
-  vcp-extensions/     instruction/skill/hook/MCP discovery and lifecycle
-  vcp-audit/          event projection, inspectors, redaction, export
-  vcp-cli/            commands and TUI
-packages/
-  protocol-ts/        later: generated schemas/types
-  sdk-ts/             later: typed client and subscriptions
-  vscode/             later: extension host and presentation
-evals/
-  tasks/ fixtures/ graders/ reports/
-tests/
-  contracts/ recovery/ platform/ end-to-end/
 docs/
-  architecture/ adr/ protocol/ operations/
-third_party/
-  upstreams.toml      selected origins, commits, licenses, patches and owners
-  codex/              only components selected for vendoring
-  gemini-cli/         reference/fixture origins or selected licensed extracts
-  munarium/           selected kernel/local retrieval code and test origins
-  patches/            reproducible local changes to vendored components
-THIRD_PARTY_NOTICES   notices included in distributed artifacts
+  architecture/ plan/ adr/ development/ protocol/ operations/ evaluations/
+src/
+  crates/             VCP logical packages; actual cohesive modules mapped in P0
+  tests/              support, fixtures, contracts, recovery, platform, end-to-end
+  evals/              tasks, fixtures, and graders
+  skills/builtin/     versioned development skill content and manifests
+  packages/           deferred protocol-ts, sdk-ts, and vscode packages
+  third_party/
+    upstreams.toml    selected origins, commits, licenses, patches and owners
+    codex/            selected cohesive workspace/components
+    gemini-cli/       reference/fixture origins or selected licensed extracts
+    munarium/         selected kernel/local retrieval code and test origins
+    patches/          reproducible local changes to vendored components
+    licenses/         original license and notice texts for imported material
+scripts/
+  build.ps1 test.ps1 package.ps1
+  evals/              evaluation orchestration
+THIRD_PARTY_NOTICES.md  notices included in distributed artifacts
 ```
 
 Logical boundaries can begin as modules in fewer crates to avoid excessive build overhead. The rule is dependency direction: domain/protocol cannot depend on a UI or concrete storage backend; policy/budget checks cannot be bypassed by calling an adapter.
@@ -1702,7 +1686,7 @@ Allow export of a redacted diagnostic bundle containing versions, event metadata
 
 **VCP's distribution license is Apache-2.0, confirmed by the owner.** Codex, Gemini CLI and the inspected Munarium root use Apache-2.0. Verify selected files/dependencies/model assets and retain required copyright/license/NOTICE and modification notices in source and Windows packages. VCP's project license does not replace third-party notices or model-asset terms. [Codex license](https://github.com/openai/codex/blob/main/LICENSE), [Gemini CLI license](https://github.com/google-gemini/gemini-cli/blob/main/LICENSE), [Munarium license](https://github.com/iokaio/munarium/blob/main/LICENSE).
 
-Before an import, record the following in the proposed `third_party/upstreams.toml` and its linked component note:
+Before an import, record the following in the proposed `src/third_party/upstreams.toml` and its linked component note:
 
 | Field group | Required information |
 |---|---|

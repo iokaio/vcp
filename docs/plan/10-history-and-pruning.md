@@ -39,7 +39,7 @@ History queries include full tool/child artifacts with paged access, source link
 | Restore old encrypted snapshot | Newer lineage's deletion policy prevents resurrection; isolated historical restore is labelled |
 | Both backend preferences | Identical selected IDs, protected sets and logical deletion epochs |
 
-Store fixtures in `tests/fixtures/retention/`; use a frozen clock and synthetic sensitive text rather than real private history. Run `retention`, `memory`, `store`, `recovery` and U05/M05/M07. Segment 11 adds retained-cloud-copy and restoration tests.
+Store fixtures in `src/tests/fixtures/retention/`; use a frozen clock and synthetic sensitive text rather than real private history. Run `retention`, `memory`, `store`, `recovery` and U05/M05/M07. Segment 11 adds retained-cloud-copy and restoration tests.
 
 ## Exit
 

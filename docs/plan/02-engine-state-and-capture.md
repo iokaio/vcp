@@ -53,6 +53,6 @@ Tests: drop and rebuild projections, duplicate input events, interrupted project
 
 ## Verification and exit
 
-Run proposed suites `fast`, `store` for artifact/reference integration, and `cli` once consumers exist. Retain event fixtures under `tests/fixtures/events/`, artifact cases under `tests/contracts/artifacts/`, and projector recovery under `tests/recovery/projections/` in the selected workspace.
+Run proposed suites `fast`, `store` for artifact/reference integration, and `cli` once consumers exist. Retain event fixtures under `src/tests/fixtures/events/`, artifact cases under `src/tests/contracts/artifacts/`, and projector recovery under `src/tests/recovery/projections/` in the selected workspace.
 
 Done when downstream modules can operate using typed commands/state and complete artifact references; capture failure cannot produce a false success; and a fresh process reconstructs the same acknowledged task state without replaying external work.
