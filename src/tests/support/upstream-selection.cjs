@@ -156,6 +156,10 @@ function reconstruct({ repository, source, output, component, selection }) {
     if (process.platform !== 'win32') fs.chmodSync(destination, entry.result.mode === '100755' ? 0o755 : 0o644);
   }
   const expectedFiles = applyPatches(output, prepared, patches).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  const resultingNames = new Set(expectedFiles.map(entry => entry.path));
+  for (const required of [...selection.licenses, ...selection.closure]) {
+    if (!resultingNames.has(required)) throw Error('Patch series removed required selection input: ' + required);
+  }
   const originals = new Map(prepared.map(entry => [entry.path, entry]));
   const files = expectedFiles.map(entry => {
     const previous = originals.get(entry.path);

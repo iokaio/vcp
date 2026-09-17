@@ -51,6 +51,12 @@ workspace member, platform, optional feature or native voice configuration.
 
 ## Setup and ordinary build
 
+Clone with `git clone -c core.longpaths=true https://github.com/iokaio/vcp.git`.
+The setting is local to that clone. Some retained upstream snapshots exceed
+Windows Git's default path limit when nested under VCP. Existing Windows clones
+can set `git config --local core.longpaths true` before pulling the source import.
+Keep the checkout root short; tool-specific path limits still need qualification.
+
 Use native Windows x64, Git, PowerShell 7, Node 24, Visual Studio C++ x64 build
 tools and Windows SDK, with CMake and Ninja. The script discovers Visual Studio
 using `vswhere` and initializes its developer environment. Install the immutable
@@ -103,6 +109,8 @@ index without author identity, commits or metadata inside reconstructed source.
 Ordered `git apply --check --index` and `git apply --index` preserve executable
 modes, followed by a full comparison with independently read index blobs. Unsafe
 paths, case collisions, undeclared links and unsupported file kinds are rejected.
+Tampered patch digests fail before output allocation. Patches that remove declared
+license or closure inputs fail reconstruction; a partial tree is not accepted.
 
 Retained upstream Markdown has its original site/tree-relative links. VCP's
 link checker excludes that imported subtree and verifies VCP docs normally;

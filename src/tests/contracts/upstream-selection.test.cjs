@@ -35,6 +35,17 @@ test('reconstruction reproduces pinned bytes and detects changed, extra and miss
     const absent = path.join(fixture.root, 'absent');
     assert.throws(() => reconstruct({ repository, source: repository, output: absent, component, selection: bad }), /ENOENT/);
     assert.equal(fs.existsSync(absent), false);
+    const patchRoot = path.join(fixture.root, 'src/third_party/patches/fixture');
+    fs.mkdirSync(patchRoot, { recursive: true });
+    const originalLicense = execFileSync('git', ['show', commit + ':LICENSE'], { cwd: repository }).toString();
+    const lines = originalLicense.trimEnd().split('\n');
+    const deletion = Buffer.from('diff --git a/LICENSE b/LICENSE\ndeleted file mode 100644\n--- a/LICENSE\n+++ /dev/null\n@@ -1,' + lines.length + ' +0,0 @@\n' + lines.map(line => '-' + line + '\n').join(''));
+    fs.writeFileSync(path.join(patchRoot, 'delete.patch'), deletion);
+    const removingLicense = { ...selection, patches: [{ path: 'src/third_party/patches/fixture/delete.patch', sha256: sha256(deletion) }] };
+    const tampered = { ...removingLicense, patches: [{ ...removingLicense.patches[0], sha256: '0'.repeat(64) }] };
+    assert.throws(() => reconstruct({ repository: fixture.root, source: repository, output: absent, component, selection: tampered }), /Patch digest mismatch/);
+    assert.equal(fs.existsSync(absent), false);
+    assert.throws(() => reconstruct({ repository: fixture.root, source: repository, output: absent, component, selection: removingLicense }), /removed required selection input: LICENSE/);
     assert.throws(() => validateSelection({ ...selection, include: ['../outside'] }, component));
     assert.throws(() => validateSelection({ ...selection, patches: [{ path: 'README.md', sha256: '0'.repeat(64) }] }, component));
   } finally { fixture.cleanup(); }

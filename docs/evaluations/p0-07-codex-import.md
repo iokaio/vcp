@@ -33,6 +33,12 @@ passes. The final pre-commit deterministic run
 `02ad3705-4602-4fb7-96ed-c1873c39782c` passed all five cases and 28 regression tests;
 its manifest/logs are under `artifacts/tests/`.
 
+Final review added rejection of tampered patch digests before allocation and
+patches deleting declared license/closure inputs. Run
+`458c3b78-e8f8-44b2-9bb7-0ed6d5714ede` passed all five cases and 28 tests after
+those changes. CI run `35266499206` passed on the initial import commit, with the
+actual job label `ubuntu-8core`; the PR records checks for the final head.
+
 ## Native build
 
 `pwsh -NoProfile -File scripts/build.ps1 -TargetRoot artifacts/upstream/codex-target`
@@ -40,7 +46,7 @@ passed with exit 0. Cargo built the copied source in 9m50s. Evidence:
 `artifacts/build/81cfc2ae-ba01-47a1-8650-2c7dc024bf85/manifest.json` and `command.log`.
 Log SHA-256: `0e7ee6883b53d6c55e2cb061432df1c78085736aa9341f7d22f8710aa4cbf7cf`.
 This preparation run had uncommitted source; committed/clean-clone verification
-is recorded separately when executed.
+is recorded separately below.
 
 Host: native Windows 10.0.26200, 12 logical processors, 68,622,794,752 RAM bytes;
 Rust/Cargo 1.95.0, MSVC 14.50.35717, CMake 4.2.3-msvc3, Ninja 1.12.1.
@@ -52,7 +58,34 @@ also passed: 102 retained patch/policy tests, no failures or ignored tests.
 Evidence: `artifacts/build/616039f3-e002-4c9b-ab8e-c7d588139e73/manifest.json`;
 log SHA-256 `74ac6247a12821a2ffa0612bce55da1cc2081cbaed2fc7bc943200b7eb4d436e`.
 
+## Clean committed clone
+
+A fresh clone at `artifacts/qualification-clone-02` checked out VCP commit
+`5615f063382a68bfd081f47f14f12e3658565b44` using `git clone -c core.longpaths=true
+--no-hardlinks --single-branch --branch feat/01-codex-source-import`. The pinned
+development dependency was installed with `npm ci --prefix
+artifacts/qualification-clone-02/src/tests --ignore-scripts --no-audit --no-fund
+--registry=https://registry.npmjs.org`. File and Git-index verification passed.
+
+`pwsh -NoProfile -File artifacts/qualification-clone-02/scripts/build.ps1 -OutputRoot artifacts/clean-clone-build -TargetRoot artifacts/upstream/codex-target`
+passed with exit 0 in 8m59s of Cargo time. The manifest records `vcp_dirty: false`,
+and Git status remained clean afterward. Source/selection hashes match the
+independently reconstructed tree. Only the existing external dependency cache
+was reused; the build consumed committed source from the fresh clone, with no
+upstream acquisition or patch application.
+
+Evidence: `artifacts/clean-clone-build/b79847e1-5ac5-4f7f-ae3f-7678abbe43c1/manifest.json`;
+log SHA-256 `68230237d2c3afdf16810d16fe4415b209b5e82663d719b6b4081ceebe558d5a`.
+Subsequent changes in this PR tighten reconstruction validation and document
+Windows setup; they do not change the imported Cargo source or its build inputs.
+
 ## Limits
+
+The first nested clean-clone attempt failed checkout of five long upstream
+snapshot paths under Windows Git's default limit; Git did not populate its index.
+That failed clone was preserved. A fresh clone with repository-local
+`core.longpaths=true` is the documented setup; no global configuration or source
+snapshot names were changed.
 
 Unchanged upstream fixtures and documents contain intentional/pre-existing
 whitespace. `git diff --check` excludes only `src/third_party/codex`; the source

@@ -97,5 +97,5 @@ This is a static discovery map, not a complete effect audit. P0-03/P0-08 must
 observe actual requests and effects at the retained seams, including helper
 calls, retries, review, compaction and maintenance. Upstream interrupt/suspend
 APIs alone do not satisfy VCP's in-app `/pause`, child lifetime or durable resume
-contract. The real source map and import manifest follow only after selection
-and qualification.
+contract. The [current source selection](codex-source.md) records the imported
+baseline; dynamic integration qualification remains outstanding.

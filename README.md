@@ -70,7 +70,7 @@ Research notes are indexed separately under [architecture documentation](docs/ar
 To read the design or contribute documentation, Git and a text editor are enough:
 
 ```powershell
-git clone https://github.com/iokaio/vcp.git
+git clone -c core.longpaths=true https://github.com/iokaio/vcp.git
 Set-Location vcp
 git switch -c docs/my-change
 ```
