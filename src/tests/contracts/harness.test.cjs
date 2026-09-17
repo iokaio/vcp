@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { runSuite, parseSelection, redactor, environment } = require('../support/harness.cjs');
 function registry(code, overrides = {}) {
   return { schema_version: 1, suites: { fast: ['sample'] }, cases: { sample: {
@@ -108,4 +109,23 @@ test('ordinary checks cannot inherit provider credentials or Node startup inject
   try { assert.equal(environment().NODE_OPTIONS, undefined); }
   finally { if (prior === undefined) delete process.env.NODE_OPTIONS; else process.env.NODE_OPTIONS = prior; }
   assert.ok(Object.keys(environment()).every(key => !/TOKEN|KEY|SECRET/i.test(key)));
+});
+test('PowerShell wrapper selects one Node executable when PATH has two installations', t => {
+  const root = temporary(t);
+  const directories = ['first', 'second'].map(name => path.join(root, name));
+  for (const directory of directories) {
+    fs.mkdirSync(directory);
+    const executable = path.join(directory, process.platform === 'win32' ? 'node.exe' : 'node');
+    try { fs.linkSync(process.execPath, executable); }
+    catch (error) { if (error.code !== 'EXDEV') throw error; fs.copyFileSync(process.execPath, executable); }
+  }
+  const env = environment();
+  const key = Object.keys(env).find(k => k.toUpperCase() === 'PATH') || 'PATH';
+  env[key] = [...directories, env[key]].join(path.delimiter);
+  const result = spawnSync('pwsh', ['-NoProfile', '-File', path.resolve(__dirname, '../../../scripts/test.ps1'), '-Suite', 'absent'],
+    { cwd: root, env, encoding: 'utf8', timeout: 20000, windowsHide: true });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /Unknown suite: absent/);
+  assert.equal(fs.existsSync(path.join(root, 'artifacts')), false);
 });

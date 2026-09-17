@@ -8,7 +8,7 @@ param(
     [string]$OutputRoot
 )
 $ErrorActionPreference = 'Stop'
-$nodeCommand = Get-Command node -CommandType Application -ErrorAction SilentlyContinue
+$nodeCommand = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $nodeCommand) {
     Write-Error 'Node.js 24 is required for the delivery harness; tests were not run.' -ErrorAction Continue
     exit 3
