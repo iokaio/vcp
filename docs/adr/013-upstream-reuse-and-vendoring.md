@@ -1,6 +1,6 @@
 # ADR-013 — Upstream reuse and committed vendoring
 
-Status: repository policy recorded; source selection and implementation qualification remain planned.
+Status: repository policy implemented for the initial Codex source selection; VCP integration qualification remains planned.
 
 This record makes the source-management convention explicit for the existing maximum-reuse direction in [architecture section 0.2](../architecture/vcp-what.md#02-open-source-reuse-policy). It does not mark P0 or an upstream import complete. [P0-07 and P0-08](../plan/01-upstream-feasibility.md) will add the exact revisions, retained modules, replacements, dependency closure, and native Windows evidence. P8-06 owns the release-stage update rehearsal.
 
@@ -28,7 +28,7 @@ The C01–C06 inventory in [architecture section 3.5](../architecture/vcp-what.m
 | C06 | Terminal and headless CLI infrastructure | `vcp-cli` |
 | C07 | Relevant upstream regression tests and fixtures | Owning modules and shared contract suites |
 
-Retain suitable runtime, HTTP, serialization, PTY, credential, and terminal libraries after revision-specific dependency and license review. No exact retained-file list or reuse percentage is established yet.
+Retain suitable runtime, HTTP, serialization, PTY, credential, and terminal libraries after revision-specific dependency and license review. The initial [retained-file list](../../src/third_party/components/codex-files.json) establishes a baseline; the integrated retained/replaced map remains P0-08 work.
 
 VCP supplies or replaces the OpenRouter model gateway, routing, budgets and cost ledger, canonical storage, Munarium-derived local memory with Tantivy/DiskANN, and encrypted portability. Adapters must leave one authoritative controller, store, and ledger. Pointing an upstream provider at another base URL does not establish the required tool-call, attribution, accounting, or recovery behavior.
 
@@ -44,7 +44,7 @@ Remove or disable upstream telemetry and implicit credential discovery from VCP 
 | `src/third_party/licenses/` and retained source notices | Applicable original license and NOTICE texts, plus required modification markers on changed files |
 | VCP modules containing attributed ports | Original and destination paths, revision, attribution, and reproducible port/change history linked from the manifest |
 
-These are required records; P0 still implements the manifest schema, import/verification tooling, and exact hash/selection procedure. Record path mappings, exclusions, and any content normalization explicitly so reconstruction has one unambiguous expected result. Do not invent commit hashes or create a manifest that claims an import exists before it does.
+The initial manifest schema and reconstruction tooling implement the source records above; qualification evidence remains per component. Record path mappings, exclusions and content normalization explicitly so reconstruction has one unambiguous expected result. Do not invent commit hashes or claim an import before it exists.
 
 Changes to vendored source and its patch records must be reviewed together. A patch may be updated or replaced in the ordered series, but applying the recorded series to the selected pristine revision must reproduce the committed result. Do not maintain an unrecorded second set of edits or apply patches twice during a build.
 
@@ -68,6 +68,6 @@ The trade-off is a larger VCP source tree and responsibility for keeping patches
 
 ## Current evidence and unresolved work
 
-At this documentation revision, `src/` contains only its README. No Codex code, `.gitmodules`, provenance manifest, patch series, or runtime build graph exists. Codex is the selected foundation direction; its exact revision and module set are still unqualified. Existing notices record community-document adaptations, not an imported Codex runtime.
+The [current source selection and build](../development/codex-source.md) retain the pinned Codex Cargo workspace as 7,937 ordinary files. Machine-readable selection/result records, reconstruction checks and a native build command exist. The ordered code-patch array is empty; the license-symlink materialization is explicit. Root and retained notices identify the imported source. There is no gitlink, nested repository or `.gitmodules` dependency.
 
 P0 must resolve and record the retained module set, exact source selection, dependency pins, build integration, effect replacements, supported native dependencies, provenance schema, and reconstruction checks. These open engineering choices do not reopen the committed-copy convention or imply that source has already been imported.

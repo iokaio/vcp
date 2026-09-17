@@ -1,8 +1,9 @@
 # P0-07 candidate acquisition and byte inventory
 
 Status: investigation in progress. The immutable candidates are recorded in
-[upstreams.toml](../../src/third_party/upstreams.toml). No source selection is
-imported or supported yet. This is preparation for
+[upstreams.toml](../../src/third_party/upstreams.toml). The [Codex selection](codex-source.md)
+is now imported as a qualification baseline; the other candidates remain external.
+These results contribute to
 [upstream qualification](upstream-qualification.md), not a replacement for its
 native build, closure, reconstruction and integration gates.
 

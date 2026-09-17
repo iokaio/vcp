@@ -16,10 +16,42 @@ VCP's code of conduct is project-specific wording informed by the community stan
 
 This adaptation does not import Munarium runtime code. Statements in Munarium's original notice about its components, migrations, and enterprise distribution describe that project, not VCP.
 
-## Future code, dependencies, and assets
+## OpenAI Codex source baseline
 
-Codex is the planned engine/CLI foundation, to be copied and committed under `src/third_party/codex/` as defined in [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md). The exact revision, selected files, and dependency closure remain unqualified. Gemini CLI adaptations, Munarium runtime components, Tantivy, DiskANN, and embedding assets likewise require selection and qualification. No Codex source, other runtime dependency graph, or model bundle exists in this checkout yet. Design decisions do not count as shipped third-party material.
+The source at `src/third_party/codex/` is selected from
+[openai/codex at 3d3ae4965ab370217e871b3a7f0d15589557ee4b](https://github.com/openai/codex/tree/3d3ae4965ab370217e871b3a7f0d15589557ee4b).
+It retains the upstream [Apache-2.0 license](src/third_party/codex/LICENSE) and
+[NOTICE](src/third_party/codex/NOTICE): Copyright 2025 OpenAI, with Ratatui-derived
+code under MIT and the original Florian Dehau/Ratatui Developers attribution.
+[Component notes](src/third_party/components/codex.md) and
+[source-selection records](src/third_party/components/codex-selection.json)
+identify all retained paths, closure inputs, notices and hashes.
 
-When importing material, record its exact origin and version, destination files, license identifier, copyright, modifications, and required notices. Preserve full third-party license and notice texts under the planned `src/third_party/licenses/` or alongside the imported source, with an entry in `src/third_party/upstreams.toml`. Add applicable attribution here and in `NOTICE` with the source import, and recheck this inventory against the actual shipped dependency and asset graph before a release. The current documentation clarification adds no Codex attribution entry because it adds no Codex source.
+Selected bundled components retain their separate terms: bubblewrap
+[LGPL-2.0-or-later source and license](src/third_party/codex/codex-rs/vendor/bubblewrap/COPYING),
+WezTerm [MIT](src/third_party/codex/third_party/wezterm/LICENSE), bundled skill
+licenses, and native voice [notices and license texts](src/third_party/codex/third_party/voice/NOTICE.md).
+The license symlink `codex-rs/vendor/bubblewrap/LICENSE` is explicitly materialized
+as a regular copy of `COPYING` for Windows; no code content is modified.
+Individual source copyright headers remain intact. No voice DLLs, Microsoft
+redistributables, model assets or VCP release package are distributed by this import.
+
+## Development TOML parser
+
+`src/tests/package-lock.json` pins `@iarna/toml` 2.2.5 from the public npm registry
+with its integrity digest. It is an installed development tool for provenance
+manifests, not copied engine source. Copyright (c) 2016 Rebecca Turner; ISC license,
+retained in the installed package's `LICENSE`. Its public package URL and digest
+are recorded in the [development lockfile](src/tests/package-lock.json).
+`npm ci --prefix src/tests --ignore-scripts --no-audit --no-fund` reproduces installation.
+
+## Remaining dependencies and assets
+
+The Codex Cargo lockfile retains dependency identities/checksums for its source
+baseline. A release must inventory the actual enabled transitive graph and retain
+all applicable notices and corresponding-source obligations; this source record
+is not release qualification. Gemini adaptations, Munarium runtime imports,
+Tantivy, DiskANN and embedding assets remain selection work. Record exact origin,
+license, selected paths and modifications as those components land.
 
 The root project license does not replace another component's terms. Names belonging to other projects remain their owners' names; see [TRADEMARK.md](TRADEMARK.md).

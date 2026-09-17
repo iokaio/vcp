@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.bat text eol=crlf
 *.cmd text eol=crlf
+# Preserve imported source bytes independently of a contributor's autocrlf setting.
+/src/third_party/codex/** -text

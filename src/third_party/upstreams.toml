@@ -1,19 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
-# Immutable investigation candidates, not an import or support declaration.
+# Immutable candidates and explicit source selections; qualification is separate.
 schema_version = 1
 
 [[upstream]]
 id = "codex"
 origin = "https://github.com/openai/codex"
 commit = "3d3ae4965ab370217e871b3a7f0d15589557ee4b"
-state = "candidate"
+state = "imported_unqualified"
+selection = "components/codex-selection.json"
+acquired_on = "2026-09-17"
+reuse_form = "committed source preserving upstream-relative workspace"
+component_notes = "components/codex.md"
 root_license = "Apache-2.0"
 license_scope = "Root license only; bundled component terms must be retained separately"
 tree = "b54522de663019e332772544ae53054aa3ecb92d"
 inventory_sha256 = "0731feb5908c07319e74229723db80320517dd80afbb94bc6cec0768100f8259"
 toolchain = "1.95.0-x86_64-pc-windows-msvc"
 owner_task = "P0-07"
-selection_state = "Not selected or imported; unmodified Windows CLI build and 102 boundary tests passed"
+selection_state = "Cohesive source imported for qualification; VCP adapters and product boundaries are not implemented"
 
 [[upstream]]
 id = "gemini-cli"

@@ -1,6 +1,6 @@
 # Upstream selection and feasibility experiments
 
-Status: P0 procedure with [candidate acquisition and inventory tooling](upstream-candidates.md) implemented. No upstream import, native dependency envelope or local model has been qualified. Read [ADR-013](../adr/013-upstream-reuse-and-vendoring.md), [segment 01](../plan/01-upstream-feasibility.md) and [architecture reuse boundaries](../architecture/vcp-what.md#38-boundaries-around-borrowed-components).
+Status: P0 procedure with [candidate tooling](upstream-candidates.md) and [Codex source selection, reconstruction and build](codex-source.md) implemented. Product integration and local models remain unqualified. Read [ADR-013](../adr/013-upstream-reuse-and-vendoring.md), [segment 01](../plan/01-upstream-feasibility.md) and [architecture reuse boundaries](../architecture/vcp-what.md#38-boundaries-around-borrowed-components).
 
 ## Experiment record
 
@@ -10,7 +10,7 @@ For Codex, keep baseline and adapted runs separately identifiable. For Gemini po
 
 ## Proposed source-selection manifest
 
-P0-07 will implement and validate a versioned manifest. Each component entry needs:
+The [current Codex schema](codex-source.md#selection-and-retained-structure) implements source selection and hashes. The broader qualification record requires each group below; effect/integration and release evidence remain separate gates:
 
 | Field group | Proposed contents and validation |
 |---|---|

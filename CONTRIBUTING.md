@@ -35,7 +35,7 @@ The pull request template asks about four kinds of provenance. Answer each, usin
 
 For a selected source import or attributed port, update the planned `src/third_party/upstreams.toml` record when that manifest is introduced. Retain original notices and license texts, mark modifications in changed upstream files, and add relevant attribution to [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [NOTICE](NOTICE). Include fixture and model-asset provenance as well as production dependencies. A link to a repository alone is not an immutable source record.
 
-Codex imports follow [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md): copied source under `src/third_party/codex/` is committed with reviewed patches already applied. Review changes to that tree together with the ordered patch series, immutable source-selection/hash records, and notices. Prove that an isolated reconstruction matches the committed result. Do not introduce a submodule/subtree workflow or make normal builds fetch Codex and apply patches. This is planned import work; no Codex source exists in the current checkout.
+Codex imports follow [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md): copied source under `src/third_party/codex/` is committed with reviewed patches already applied. Review changes to that tree together with the ordered patch series, immutable source-selection/hash records, and notices. Prove that an isolated reconstruction matches the committed result. Do not introduce a submodule/subtree workflow or make normal builds fetch Codex and apply patches. The [current selection and commands](docs/development/codex-source.md) document the imported qualification baseline.
 
 ## Development workflow
 
@@ -57,7 +57,7 @@ For documentation and community-file changes:
 - Update affected plan references together. If dependencies change, check unique task ownership, valid dependencies, absence of cycles, and first-release coverage.
 - Run `git diff --check` and inspect the complete diff, including new files.
 
-Run `pwsh -NoProfile -File scripts/test.ps1 -Suite fast` for repository and harness checks, also run in CI. Install Git, PowerShell 7 and Node.js 24 or later; see [delivery harness setup](docs/development/delivery-harness.md). There is no Cargo workspace, application build runner or product runtime suite yet. Other planned suites are not implemented.
+Run `pwsh -NoProfile -File scripts/test.ps1 -Suite fast` for deterministic delivery and source checks, also run in CI. Install Git, PowerShell 7 and Node.js 24 or later and run `npm ci --prefix src/tests --ignore-scripts --no-audit --no-fund`; see [delivery harness setup](docs/development/delivery-harness.md). The imported Codex Cargo workspace has a [native baseline build](docs/development/codex-source.md); VCP product suites remain unimplemented.
 
 As source lands, run focused tests for changed behavior, shared contracts for affected backends, and native Windows checks where real process/filesystem behavior matters. Preserve relevant upstream tests and explain intentional differences. A mock is not evidence of OS enforcement. See [test fixtures and acceptance](docs/plan/16-test-fixtures-and-acceptance.md) for the test contracts.
 

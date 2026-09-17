@@ -18,3 +18,13 @@ libraries, commercial distribution, or support commitments.
 
 See THIRD_PARTY_NOTICES.md for the source revision and attribution scope.
 Third-party material retains its own copyright and applicable license terms.
+
+Selected source under src/third_party/codex/ is derived from:
+OpenAI Codex
+Copyright 2025 OpenAI
+Licensed under the Apache License, Version 2.0, except separately identified
+bundled components. The original LICENSE, NOTICE and bundled terms are retained.
+
+The upstream NOTICE identifies code derived from Ratatui under the MIT license:
+Copyright (c) 2016-2022 Florian Dehau
+Copyright (c) 2023-2025 The Ratatui Developers

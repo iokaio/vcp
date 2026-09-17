@@ -121,7 +121,7 @@ A conventional Rust crate may have `Cargo.toml`, its own `src/`, and `tests/`; t
 
 No Git submodule, gitlink, nested `.git`, or Git subtree workflow is planned. Normal builds consume the committed source without fetching Codex or applying patches. Explicit maintenance checks reconstruct it in a temporary directory from the pinned selection in `src/third_party/upstreams.toml` plus the ordered series in `src/third_party/patches/codex/`, then compare the result with the committed tree. Keep source, selection/hash records, patches, and applicable notices synchronized in each change. Other retained upstreams use separately identified patch records under `src/third_party/patches/` as needed.
 
-P0-07 owns revision selection and the unmodified native Windows baseline; P0-08 integrates VCP adapters and records retained modules versus replacements. Neither the exact manifest schema nor the retained-file list exists yet. `src/` still contains only its README; this policy adds no upstream source or working build.
+P0-07 owns revision selection and the unmodified native Windows baseline; P0-08 integrates VCP adapters and records retained modules versus replacements. The [current Codex source map](../development/codex-source.md) identifies the committed Cargo workspace at `src/third_party/codex/codex-rs/Cargo.toml`, its pinned toolchain, 7,937 selected files, development-only Node tools and native build/reconstruction commands. Logical `vcp-*` modules below remain integration destinations, not existing replacement crates.
 
 ## Scripts and generated material
 

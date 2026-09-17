@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "component": "codex",
+  "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
+  "owner_task": "P0-07",
+  "destination": "src/third_party/codex",
+  "result_inventory": "src/third_party/components/codex-files.json",
+  "include": [
+    "codex-rs/", "third_party/", "docs/", "scripts/", "patches/", "bazel/",
+    "LICENSE", "NOTICE", "README.md", "justfile", "BUILD.bazel", "MODULE.bazel", "MODULE.bazel.lock",
+    ".bazelrc", ".bazelversion", ".bazelignore", ".gitattributes", "defs.bzl", "rbe.bzl",
+    "workspace_root_test_launcher.bat.tpl", "workspace_root_test_launcher.sh.tpl"
+  ],
+  "materialize_links": {
+    "codex-rs/vendor/bubblewrap/LICENSE": "codex-rs/vendor/bubblewrap/COPYING"
+  },
+  "patches": [],
+  "licenses": ["LICENSE", "NOTICE", "codex-rs/vendor/bubblewrap/COPYING", "third_party/wezterm/LICENSE", "third_party/voice/NOTICE.md"],
+  "closure": ["codex-rs/Cargo.toml", "codex-rs/Cargo.lock", "codex-rs/rust-toolchain.toml", "MODULE.bazel.lock"]
+}

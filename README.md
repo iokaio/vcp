@@ -2,7 +2,7 @@
 
 VCP is an open-source experiment in a local coding agent that combines repository-aware coding, model selection through OpenRouter, persistent memory, and visible delegated work. The first planned release is a native Windows command-line application, licensed under Apache 2.0.
 
-**Status: early implementation.** The repository includes architecture, implementation plans, and an executable delivery harness with repository and regression checks. There is no runnable VCP application, installable package, or application build yet. Capabilities below describe the intended product; they are not release claims.
+**Status: early implementation.** The repository includes architecture, implementation plans, delivery checks, and a committed Codex source baseline with a native Windows build command. VCP's product adapters and installable package are not implemented. Capabilities below describe the intended product; they are not release claims.
 
 ## What VCP is intended to do
 
@@ -27,7 +27,7 @@ The complete first-release scope includes these capabilities together. A basic c
 
 The planned foundation is a Codex-derived Rust engine and CLI with maximum reasonable reuse of a working pinned baseline, plus selected Gemini CLI adaptations and Munarium-derived memory concepts and code. Exact imports, retained modules, replacements, toolchain versions, and dependency choices must pass upstream and native Windows feasibility work before they are treated as supported.
 
-Selected Codex source will be copied into `src/third_party/codex/` and committed as ordinary repository files, with reviewed VCP patches already applied. It participates in VCP's build. No submodule or subtree workflow is planned, and normal builds will not fetch Codex or reapply patches. The provenance manifest and ordered patch series support independent reconstruction and reviewed upstream updates. [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md) defines the convention and remaining engineering decisions. No Codex source has been imported yet.
+Selected Codex source is copied into `src/third_party/codex/` as ordinary repository files. The [native baseline build and source records](docs/development/codex-source.md) consume those files directly, without fetching Codex or applying patches. [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md) defines independent reconstruction and upstream maintenance. This baseline still has upstream behavior; VCP integration remains P0-03/P0-08 work.
 
 One engine owns task state, authorization, the canonical store, and cost accounting. UI clients and adapters do not create competing schedulers or bypass those controls. SQLite is the proposed default canonical store; a files/journal preference is evaluated against the same durability and portability contracts.
 
@@ -81,7 +81,7 @@ Read the contribution guide, make a focused change, verify its relative links an
 git diff --check
 ```
 
-Run `pwsh -NoProfile -File scripts/test.ps1 -Suite fast` with Git, PowerShell 7 and Node.js 24 or later. This runs repository and harness checks. There is no application build or runtime test command yet; `scripts/build.ps1` and `scripts/package.ps1` remain planned interfaces. Compiler, native dependency, and local embedding requirements will be pinned during feasibility work and documented with the real commands.
+With Git, PowerShell 7 and Node.js 24 or later, run `npm ci --prefix src/tests --ignore-scripts --no-audit --no-fund`, then `pwsh -NoProfile -File scripts/test.ps1 -Suite fast`. This checks repository, harness and imported-source contracts. `scripts/build.ps1` builds the selected Codex baseline with the [documented Rust/native prerequisites](docs/development/codex-source.md). Packaging and VCP product runtime suites remain planned.
 
 ## Delivery roadmap
 

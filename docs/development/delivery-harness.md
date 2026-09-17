@@ -2,15 +2,18 @@
 
 The first executable checks implement the runner portion of plan 00 and P0-01.
 They validate repository contracts and the evidence recorder. They do not build
-VCP or qualify any product feature. No upstream source is imported by this work.
+VCP or qualify any product feature. The current source check also verifies the
+[imported Codex baseline](codex-source.md).
 
 ## Setup and commands
 
 Install Git, PowerShell 7, and Node.js 24 or later. CI pins Node 24.10.0.
-No npm install, private credentials, model assets, or paid calls are required.
+The pinned development-only TOML parser requires the install below. Private
+credentials, model assets and paid calls are not required.
 From the checkout run:
 
 ```powershell
+npm ci --prefix src/tests --ignore-scripts --no-audit --no-fund
 pwsh -NoProfile -File scripts/test.ps1 -Suite fast
 pwsh -NoProfile -File scripts/test.ps1 -Suite repository
 pwsh -NoProfile -File scripts/test.ps1 -Suite harness
@@ -21,7 +24,9 @@ pwsh -NoProfile -File scripts/test.ps1 -Suite upstream
 An absolute script path also works from another directory. `-Case repository`,
 `-Case harness`, `-Case experiments` or `-Case upstream-inventory` selects a case within `fast`. These cases support only
 `-Backend none`; storage and other product suites remain unimplemented and are
-rejected. The `upstream` suite currently tests inventory/path validation and baseline output guards; it does not build any upstream. [Candidate qualification](upstream-candidates.md) has separate native commands. `-OutputRoot` selects a local evidence directory (a relative override
+rejected. The `upstream` suite tests inventory/reconstruction, baseline guards and
+committed-source bytes; it does not compile upstream code. [Baseline setup](codex-source.md)
+has separate native commands. `-OutputRoot` selects a local evidence directory (a relative override
 is relative to the caller); the default is the checkout's ignored
 `artifacts/tests/`. Keep overrides out of tracked or cloud-synchronized paths.
 
@@ -50,6 +55,10 @@ Repeated invocations retain separate evidence. Manifests are replaced atomically
 after file synchronization; this is not a hardware power-loss durability claim.
 An interrupted recorder may leave a `running` manifest or temporary file; neither
 is passing evidence. Inspect retained logs when an attempt fails.
+
+Tracked diff identity is streamed into SHA-256 rather than buffered, supporting
+large source imports. External Git diff/textconv helpers are disabled. A failed
+or cancelled hashing command cannot produce a successful source identity.
 
 | Outcome | Exit behavior |
 |---|---|
@@ -89,7 +98,9 @@ The repository case checks Markdown inline relative links and heading anchors,
 agent-guidance equality, original harness SPDX headers, task ownership,
 architecture/ledger dependencies, cycles, completion prerequisites, and the
 56-item first-release closure. It is not a full CommonMark parser or an external
-URL checker. Regression tests exercise dependency parsing and recorder failures,
+URL checker. Imported Codex Markdown retains upstream links and is excluded from
+that VCP-specific link check; its full file set and hashes are checked separately.
+Regression tests exercise dependency parsing and recorder failures,
 backend aggregation, missing prerequisites, cancellation, bounded output,
 redaction, and isolated run identities.
 
