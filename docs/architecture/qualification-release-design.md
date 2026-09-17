@@ -1,6 +1,6 @@
 # Qualification, evaluation and release design
 
-Status: proposed implementation design for P0 harness work, P5-08, P6-04 and P8. It expands [architecture testing](vcp-what.md#20-testing-evaluation-and-performance), [ADR-018](../adr/018-release-acceptance.md), [plan 15](../plan/15-integration-and-release.md) and [plan 16](../plan/16-test-fixtures-and-acceptance.md). No runner, package or measured result exists yet.
+Status: proposed implementation design for P0 harness work, P5-08, P6-04 and P8. It expands [architecture testing](vcp-what.md#20-testing-evaluation-and-performance), [ADR-018](../adr/018-release-acceptance.md), [plan 15](../plan/15-integration-and-release.md) and [plan 16](../plan/16-test-fixtures-and-acceptance.md). The [delivery harness](../development/delivery-harness.md) implements the initial registry, recorder and deterministic checks. No VCP package or product qualification result exists yet.
 
 ## Harness architecture
 
