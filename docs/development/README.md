@@ -3,6 +3,7 @@
 These guides describe how to implement and qualify the planned system. The [delivery harness](delivery-harness.md) is executable. No Rust compiler pin, upstream source import or passing product-runtime result exists yet.
 
 - [Implementation workflow](implementation-workflow.md): turn a ledger task into a concrete source change, contract checks and reviewable evidence.
+- [Experiment fixtures](experiment-fixtures.md): deterministic P0 helpers, synthetic workloads, independent graders and proposed measurement sizes.
 - [Upstream qualification](upstream-qualification.md): immutable source selection, native baseline experiments, effect inventory and reconstruction.
 - [Qualification and release design](../architecture/qualification-release-design.md): test runner/result contracts, independent fault oracles and packaged acceptance.
 - [Code layout](../plan/code-layout.md): responsibility boundaries and proposed paths.

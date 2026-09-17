@@ -5,7 +5,7 @@ This directory owns repository automation. `test.ps1` and `test-runner.cjs` impl
 | Entry point (planned unless noted) | Responsibility | Work owner |
 |---|---|---|
 | `build.ps1` | Build the selected native Windows workspace and report prerequisites | P0-07/P0-08 |
-| `test.ps1` (implemented) | Run `fast`, `repository` and `harness`; preserve exit status and evidence | P0-01, extended by feature owners |
+| `test.ps1` (implemented) | Run `fast`, `repository`, `harness` and `experiments`; preserve exit status and evidence | P0-01, extended by feature owners |
 | `package.ps1` | Assemble qualified artifacts, licenses, notices, and checksums | P8-04 |
 | `evals/` | Orchestrate explicitly configured evaluations and collect results | P5-08/P8-05 |
 | `upstream/` | Explicit source import, patch reconstruction, and provenance verification | P0-07/P0-08, rehearsed in P8-06 |

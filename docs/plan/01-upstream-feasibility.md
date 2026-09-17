@@ -1,6 +1,6 @@
 # 01 — Native Windows foundation and upstream feasibility
 
-Status: in progress for P0-01; remaining tasks planned. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
+Status: P0-01 complete; P0-07 candidate qualification in progress; remaining tasks planned. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
 
 Use the [upstream experiment procedure](../development/upstream-qualification.md) for manifest/reconstruction details and the [qualification harness design](../architecture/qualification-release-design.md) for result records and fault supervision. [ADR-001](../adr/001-runtime-topology.md), [ADR-003](../adr/003-canonical-storage.md), [ADR-008](../adr/008-local-governed-memory.md), [ADR-015](../adr/015-portability-and-storage-choice.md) and [ADR-019](../adr/019-cloud-encryption-and-keys.md) now record the confirmed directions and pending experiments separately.
 
@@ -10,7 +10,7 @@ Produce a reproducible Codex-derived Windows baseline and evidence that local Mu
 
 ## P0-01 — Requirements and experiment harness
 
-Implementation progress: the [delivery harness](../development/delivery-harness.md) now provides registry validation, process execution, result manifests and regression checks. Scripted provider, fake clock, workload fixtures and threshold proposals remain outstanding; this task is not complete.
+Implementation: the [delivery harness](../development/delivery-harness.md) provides registry validation, process execution, result manifests and regression checks. [Experiment helpers and fixtures](../development/experiment-fixtures.md) add the scripted provider, fake clock, owned roots, observation log, analysis/review/generation truth sets and measurement proposals. [Executed evidence](../evaluations/p0-01-experiment-harness.md) qualifies P0-01 only; no product acceptance result is implied.
 
 1. Record A01–A17, FR-01–FR-17, I-01–I-19 and the 19 ADRs. Link each to the owner segment and initial test IDs.
 2. Create the minimal runner/result manifest from segment 00, plus fake clock, scripted model responses and isolated temporary-root helpers. The initial runner can invoke upstream commands; it need not bootstrap a new engine.

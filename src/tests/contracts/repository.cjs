@@ -87,6 +87,16 @@ function checkRepository(root) {
     if (row.state === 'complete' && row.deps.some(dep => states.get(dep) !== 'complete')) errors.push('Incomplete prerequisite: ' + row.id);
   }
   if (ledger.length !== 68 || owners.size !== 68 || architecture.size !== 68) errors.push('Task inventory must contain 68 items');
+  const ledgerText = read('docs/plan/20-traceability.md');
+  for (const [prefix, count] of [['A', 17], ['FR-', 17], ['I-', 19]]) {
+    const ids = [...ledgerText.matchAll(new RegExp('^\\| (' + prefix + '\\d{2}) ', 'gm'))].map(m => m[1]);
+    for (let n = 1; n <= count; n++) {
+      const id = prefix + String(n).padStart(2, '0');
+      if (ids.filter(found => found === id).length !== 1) errors.push('Requirement coverage missing or duplicated: ' + id);
+    }
+    if (ids.length !== count) errors.push('Unexpected requirement inventory: ' + prefix);
+  }
+  if (files.filter(file => /^docs\/adr\/\d{3}-[^/]+\.md$/.test(file)).length !== 19) errors.push('ADR inventory must contain 19 records');
   errors.push(...graphErrors(nodes));
   const closure = new Set();
   function include(id) { if (closure.has(id)) return; closure.add(id); for (const dep of nodes.get(id) || []) include(dep); }
