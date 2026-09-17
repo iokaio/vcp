@@ -94,6 +94,11 @@ VCP runs its own checks, not Munarium component gates. Evidence is uploaded even
 after failures and retained for 14 days. Runner availability is an organization
 prerequisite; a queued or skipped job is not a passing check.
 
+The additional `win8core` job runs the same fast suite plus the committed native
+CLI build, patch/policy tests, scripted CLI traces and independent reconstruction.
+See [Windows CI setup](codex-source.md#native-windows-ci) for its commands,
+prerequisites and evidence scope.
+
 The repository case checks Markdown inline relative links and heading anchors,
 agent-guidance equality, original harness SPDX headers, task ownership,
 architecture/ledger dependencies, cycles, completion prerequisites, and the
@@ -105,7 +110,8 @@ backend aggregation, missing prerequisites, cancellation, bounded output,
 redaction, and isolated run identities.
 
 Native Windows execution of these checks establishes harness portability only.
-P0-07 must still build a pinned upstream baseline on Windows. P0-01 now adds
+P0-07's [executed baseline results](../evaluations/p0-07-common-rust.md) cover
+selected native builds and tests, with wider qualification still open. P0-01 adds
 [experiment helpers and fixtures](experiment-fixtures.md), with proposed
 measurement sizes and ownership of final acceptance thresholds. Product tests,
 storage conformance, local inference, fault campaigns, and release qualification

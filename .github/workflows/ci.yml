@@ -37,3 +37,61 @@ jobs:
           path: artifacts/tests/
           if-no-files-found: error
           retention-days: 14
+  windows:
+    name: Native Windows qualification
+    runs-on: win8core
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Process-scoped configuration also covers checkout's first Git operation.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+      - name: Install pinned development tools
+        run: |
+          npm ci --prefix src/tests --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup toolchain install 1.95.0 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run deterministic delivery checks on Windows
+        run: ./scripts/test.ps1 -Suite fast
+      - name: Verify imported Git modes and bytes
+        run: node scripts/upstream/reconstruct.cjs verify-index --component codex
+      - name: Build committed native CLI
+        run: ./scripts/build.ps1
+      - name: Test native patch and policy boundaries
+        run: ./scripts/build.ps1 -Mode BoundaryTests
+      - name: Trace native CLI against the local scripted provider
+        run: node scripts/upstream/trace-cli.cjs --binary artifacts/codex-target/x86_64-pc-windows-msvc/debug/codex.exe
+      - name: Independently reconstruct the immutable source selection
+        run: |
+          $selection = Get-Content src/third_party/components/codex-selection.json -Raw | ConvertFrom-Json
+          git init artifacts/upstream/codex-candidate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C artifacts/upstream/codex-candidate fetch --depth=1 https://github.com/openai/codex.git $selection.commit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/upstream/reconstruct.cjs reconstruct --component codex --source artifacts/upstream/codex-candidate --output artifacts/codex-reconstructed --record artifacts/codex-reconstructed.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node -e "const fs = require('node:fs'); require('node:assert/strict').deepEqual(JSON.parse(fs.readFileSync('artifacts/codex-reconstructed.json')), JSON.parse(fs.readFileSync('src/third_party/components/codex-files.json'))); console.log('Independent reconstruction matches committed inventory');"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain Windows evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/tests/
+            artifacts/build/
+            artifacts/cli-trace/
+            artifacts/codex-reconstructed.json
+          if-no-files-found: error
+          retention-days: 14
