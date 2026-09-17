@@ -9,3 +9,5 @@ Raw evidence stays in ignored local artifact directories or CI artifacts.
   build and selected Codex, Gemini and Munarium tests; import gate remains open.
 - [P0-07 Codex source import](p0-07-codex-import.md): copied source, independent
   reconstruction, provenance checks and native build evidence.
+- [P0-07 Munarium datastore](p0-07-munarium-datastore.md): 200 native tests with
+  Tantivy/DiskANN enabled and the selected library dependency boundary.

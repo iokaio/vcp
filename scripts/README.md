@@ -16,4 +16,8 @@ Under [ADR-013](../docs/adr/013-upstream-reuse-and-vendoring.md), normal builds 
 
 [Candidate commands](../docs/development/upstream-candidates.md) describe the implemented acquisition/inventory and native baseline workflow. Those experiments do not import source or establish a VCP application build.
 
+`build-baseline.ps1 -Candidate Munarium` selects the pinned kernel/store/datastore
+experiment with DiskANN enabled; its dependency checker rejects the identified
+server/provider/PostgreSQL packages. See [the native library procedure](../docs/development/munarium-baseline.md).
+
 Resolve paths from the script's location, document real tool prerequisites, reject unknown inputs, and return failures to callers. Missing tools, model assets, or environments must be reported as not run. Add working entry points with their owning implementation; do not add no-op success scripts to satisfy the tree.

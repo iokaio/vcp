@@ -48,6 +48,11 @@ Keep import/reconstruction as explicit maintenance commands. The comparison fail
 
 ## P0-02 — Local Munarium and search spike
 
+Prerequisite evidence: [Munarium's native datastore baseline](../evaluations/p0-07-munarium-datastore.md)
+passes 200 upstream tests with Tantivy and DiskANN enabled. The [source/closure map](../development/munarium-baseline.md)
+identifies usable libraries and filesystem effects. It has no embedding runtime,
+VCP workspace policy or measured production envelope; P0-02 remains planned.
+
 1. Locate the pinned kernel/gates, in-memory backend, conformance scenarios and actual local embedding implementation. Extract a minimal record/evidence/governance example behind candidate VCP interfaces.
 2. Build a small local corpus into Tantivy and DiskANN; query exact symbols and semantic intent, close the process and reopen on disk.
 3. Measure CPU inference, embedding dimensions/model identity, index build peak RAM, startup and query time. Exercise missing model assets and network-disabled inference.
