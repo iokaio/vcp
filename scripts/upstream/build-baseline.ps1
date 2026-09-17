@@ -9,6 +9,7 @@ param(
     [Parameter(Mandatory)][string]$OutputRoot,
     [string]$TargetRoot,
     [ValidateSet('Build', 'BoundaryTests')][string]$Mode = 'Build',
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$ExperimentToolchain,
     [ValidateRange(1, 16)][int]$Jobs = 4
 )
 $ErrorActionPreference = 'Stop'
@@ -90,7 +91,13 @@ try {
     $toolchainFile = Join-Path $workspace 'rust-toolchain.toml'
     $toolchainText = Get-Content -LiteralPath $toolchainFile -Raw
     if ($toolchainText -notmatch '(?m)^channel\s*=\s*"(\d+\.\d+\.\d+)"\s*$') { throw 'Expected an immutable stable Rust toolchain.' }
-    $toolchain = $Matches[1]
+    $upstreamToolchain = $Matches[1]
+    $toolchain = $(if ($ExperimentToolchain) { $ExperimentToolchain } else { $upstreamToolchain })
+    $record.upstream_toolchain = $upstreamToolchain
+    $record.experiment_toolchain = $(if ($ExperimentToolchain) { $ExperimentToolchain } else { $null })
+    if ($ExperimentToolchain) {
+        $record.limitations += 'Explicit compiler experiment; this does not change or qualify the upstream toolchain pin.'
+    }
     $installed = & rustup toolchain list
     if ($LASTEXITCODE -ne 0 -or -not ($installed | Where-Object { $_ -match ('^' + [regex]::Escape($toolchain) + '-x86_64-pc-windows-msvc(?:\s|$)') })) {
         Not-Run "Install Rust $toolchain for x86_64-pc-windows-msvc before running this experiment."

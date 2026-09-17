@@ -43,8 +43,11 @@ task ownership/dependencies, imported bytes and `git diff --check` pass.
 An initial wrapper probe failed before launching cases because it passed a
 missing inventory object; the wrapper was corrected to load and validate the
 declared result inventory and fail on differences. The first tool trace then
-failed because `workspace-write` was downgraded to read-only on this Windows
-installation, yielding a patch rejection. Both evidence directories remain
+failed because `workspace-write` was downgraded to read-only with Windows sandbox
+support disabled in the isolated configuration, yielding a patch rejection.
+Source inspection of `config/src/config_toml.rs::derive_permission_profile`
+confirms that downgrade; this experiment did not attempt sandbox provisioning
+and cannot diagnose an installation failure. Both evidence directories remain
 under ignored `artifacts/cli-trace/`. The final cases explicitly preserve
 read-only denial and identify unsandboxed patch execution separately; the
 underlying Windows setup/enforcement gap has not been fixed or counted as passing.

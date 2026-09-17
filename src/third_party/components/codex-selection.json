@@ -6,15 +6,48 @@
   "destination": "src/third_party/codex",
   "result_inventory": "src/third_party/components/codex-files.json",
   "include": [
-    "codex-rs/", "third_party/", "docs/", "scripts/", "patches/", "bazel/",
-    "LICENSE", "NOTICE", "README.md", "justfile", "BUILD.bazel", "MODULE.bazel", "MODULE.bazel.lock",
-    ".bazelrc", ".bazelversion", ".bazelignore", ".gitattributes", "defs.bzl", "rbe.bzl",
-    "workspace_root_test_launcher.bat.tpl", "workspace_root_test_launcher.sh.tpl"
+    "codex-rs/",
+    "third_party/",
+    "docs/",
+    "scripts/",
+    "patches/",
+    "bazel/",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "justfile",
+    "BUILD.bazel",
+    "MODULE.bazel",
+    "MODULE.bazel.lock",
+    ".bazelrc",
+    ".bazelversion",
+    ".bazelignore",
+    ".gitattributes",
+    "defs.bzl",
+    "rbe.bzl",
+    "workspace_root_test_launcher.bat.tpl",
+    "workspace_root_test_launcher.sh.tpl"
   ],
   "materialize_links": {
     "codex-rs/vendor/bubblewrap/LICENSE": "codex-rs/vendor/bubblewrap/COPYING"
   },
-  "patches": [],
-  "licenses": ["LICENSE", "NOTICE", "codex-rs/vendor/bubblewrap/COPYING", "third_party/wezterm/LICENSE", "third_party/voice/NOTICE.md"],
-  "closure": ["codex-rs/Cargo.toml", "codex-rs/Cargo.lock", "codex-rs/rust-toolchain.toml", "MODULE.bazel.lock"]
+  "patches": [
+    {
+      "path": "src/third_party/patches/codex/0001-chatgpt-recursion-limit.patch",
+      "sha256": "4c4cebdef1802da9032bf09f0ec5c81f54276cd2ca12a1310d4cccddc4412168"
+    }
+  ],
+  "licenses": [
+    "LICENSE",
+    "NOTICE",
+    "codex-rs/vendor/bubblewrap/COPYING",
+    "third_party/wezterm/LICENSE",
+    "third_party/voice/NOTICE.md"
+  ],
+  "closure": [
+    "codex-rs/Cargo.toml",
+    "codex-rs/Cargo.lock",
+    "codex-rs/rust-toolchain.toml",
+    "MODULE.bazel.lock"
+  ]
 }

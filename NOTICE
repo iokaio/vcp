@@ -24,6 +24,9 @@ OpenAI Codex
 Copyright 2025 OpenAI
 Licensed under the Apache License, Version 2.0, except separately identified
 bundled components. The original LICENSE, NOTICE and bundled terms are retained.
+VCP's recorded compatibility patch raises the codex-chatgpt crate recursion limit;
+the modified source carries a modification notice. See the ordered patch record
+under src/third_party/patches/codex/ and THIRD_PARTY_NOTICES.md.
 
 The upstream NOTICE identifies code derived from Ratatui under the MIT license:
 Copyright (c) 2016-2022 Florian Dehau

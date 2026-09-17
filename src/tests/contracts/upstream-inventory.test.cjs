@@ -42,3 +42,16 @@ test('hashes original bytes and rejects changed, truncated or extra batch output
   assert.throws(() => attachContent(entries, Buffer.concat([batch, Buffer.from('extra')])));
   assert.throws(() => attachContent(entries, Buffer.from(`${object} blob 6\nHello\n\n`)), /identity mismatch/);
 });
+test('compiler experiments reject mutable aliases before allocating output', () => {
+  const fixture = ownedRoot(os.tmpdir());
+  try {
+    const output = path.join(fixture.container, 'experiment-output');
+    const result = spawnSync('pwsh', ['-NoProfile', '-File', path.resolve(__dirname, '../../../scripts/upstream/build-baseline.ps1'),
+      '-SourceRoot', fixture.root, '-Commit', '0'.repeat(40), '-OutputRoot', output, '-ExperimentToolchain', 'stable'],
+    { encoding: 'utf8', timeout: 20000, windowsHide: true });
+    assert.equal(result.error, undefined);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /ExperimentToolchain/);
+    assert.equal(fs.existsSync(output), false);
+  } finally { fixture.cleanup(); }
+});

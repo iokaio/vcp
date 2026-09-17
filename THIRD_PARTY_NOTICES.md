@@ -32,7 +32,10 @@ Selected bundled components retain their separate terms: bubblewrap
 WezTerm [MIT](src/third_party/codex/third_party/wezterm/LICENSE), bundled skill
 licenses, and native voice [notices and license texts](src/third_party/codex/third_party/voice/NOTICE.md).
 The license symlink `codex-rs/vendor/bubblewrap/LICENSE` is explicitly materialized
-as a regular copy of `COPYING` for Windows; no code content is modified.
+as a regular copy of `COPYING` for Windows. VCP's ordered
+[compatibility patch](src/third_party/patches/codex/README.md) raises the
+`codex-chatgpt` crate recursion limit and adds a modification notice; original
+copyright and license terms remain unchanged.
 Individual source copyright headers remain intact. No voice DLLs, Microsoft
 redistributables, model assets or VCP release package are distributed by this import.
 
