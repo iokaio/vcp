@@ -1,14 +1,23 @@
 {
   "schema_version": 1,
   "suites": {
-    "fast": ["repository", "harness"],
+    "fast": ["repository", "harness", "experiments"],
     "repository": ["repository"],
-    "harness": ["harness"]
+    "harness": ["harness"],
+    "experiments": ["experiments"]
   },
   "cases": {
     "repository": {
       "task_ids": ["P0-01"],
       "args": ["src/tests/contracts/repository.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
+    "experiments": {
+      "task_ids": ["P0-01"],
+      "args": ["--test", "src/tests/contracts/experiments.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 30000,

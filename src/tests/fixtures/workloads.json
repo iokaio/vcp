@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "fixture_version": "checkout-v1",
+  "seed": 17092026,
+  "model_visible_root": "src/tests/fixtures/repositories/checkout",
+  "cases": [
+    { "id": "analysis-checkout", "task": "Explain receipt composition and domain boundaries without editing files.", "acceptance": "U01", "grader": "analysis-map" },
+    { "id": "review-shipping", "task": "Review shipping against its documented boundary and identify a minimal correction.", "acceptance": "U02", "grader": "review-boundary" },
+    { "id": "generate-label", "task": "Implement label.cjs exporting normalizeWorkspaceLabel as documented, preserving existing files.", "acceptance": "U03", "grader": "label-behavior" }
+  ]
+}

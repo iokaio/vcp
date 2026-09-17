@@ -14,10 +14,11 @@ From the checkout run:
 pwsh -NoProfile -File scripts/test.ps1 -Suite fast
 pwsh -NoProfile -File scripts/test.ps1 -Suite repository
 pwsh -NoProfile -File scripts/test.ps1 -Suite harness
+pwsh -NoProfile -File scripts/test.ps1 -Suite experiments
 ```
 
-An absolute script path also works from another directory. `-Case repository`
-or `-Case harness` selects a case within `fast`. These cases support only
+An absolute script path also works from another directory. `-Case repository`,
+`-Case harness` or `-Case experiments` selects a case within `fast`. These cases support only
 `-Backend none`; storage and other product suites remain unimplemented and are
 rejected. `-OutputRoot` selects a local evidence directory (a relative override
 is relative to the caller); the default is the checkout's ignored
@@ -92,8 +93,8 @@ backend aggregation, missing prerequisites, cancellation, bounded output,
 redaction, and isolated run identities.
 
 Native Windows execution of these checks establishes harness portability only.
-P0-07 must still build a pinned upstream baseline on Windows. P0-01 must still
-add the scripted provider, deterministic clock, product-oriented synthetic
-fixtures and acceptance thresholds before it can be complete. Product tests,
+P0-07 must still build a pinned upstream baseline on Windows. P0-01 now adds
+[experiment helpers and fixtures](experiment-fixtures.md), with proposed
+measurement sizes and ownership of final acceptance thresholds. Product tests,
 storage conformance, local inference, fault campaigns, and release qualification
 remain future work under the [test guide](../plan/16-test-fixtures-and-acceptance.md).

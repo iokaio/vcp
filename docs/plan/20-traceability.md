@@ -1,6 +1,6 @@
 # 20 — Work-item, requirement and test traceability
 
-Status: planned. Ownership inventory from architecture draft 0.4 and the task headings in this directory, expanded with implementation/design traceability on September 17, 2026. All 68 architecture items have exactly one implementation owner. There are 56 first-release items and 12 deferred items (P4, P9 and P10). P0-01 is in progress with the [delivery harness](../development/delivery-harness.md); all other tasks remain planned and dependencies are unchanged.
+Status: planned. Ownership inventory from architecture draft 0.4 and the task headings in this directory, expanded with implementation/design traceability on September 17, 2026. All 68 architecture items have exactly one implementation owner. There are 56 first-release items and 12 deferred items (P4, P9 and P10). P0-01 has [completed infrastructure evidence](../evaluations/p0-01-experiment-harness.md). P0-07 candidate qualification is in progress; remaining tasks are planned and dependencies are unchanged.
 
 Use this ledger with [the segment index](README.md) and [the shared test guide](16-test-fixtures-and-acceptance.md). Dependencies below retain the architecture's exact IDs; slash suffixes share the preceding phase, and an ellipsis denotes an inclusive range. A whole segment is not an additional dependency.
 
@@ -10,8 +10,8 @@ Each linked task supplies code organization, implementation increments and testi
 
 | Work item | Required dependencies | Detailed owner | Architecture acceptance evidence | State |
 |---|---|---|---|---|
-| P0-01 Requirements and ADRs | None | [Implementation and tests](01-upstream-feasibility.md#p0-01--requirements-and-experiment-harness) | CLI/Windows priority, Apache-2.0, local embeddings, plaintext active files, encrypted cloud backups and complete usable milestone preserved | in_progress |
-| P0-07 Upstream pins | P0-01 | [Implementation and tests](01-upstream-feasibility.md#p0-07--immutable-upstream-selection) | Immutable manifest, reproducible source selection, R08; ambiguous secondary projects off critical path | Planned |
+| P0-01 Requirements and ADRs | None | [Implementation and tests](01-upstream-feasibility.md#p0-01--requirements-and-experiment-harness) | CLI/Windows priority, Apache-2.0, local embeddings, plaintext active files, encrypted cloud backups and complete usable milestone preserved | complete |
+| P0-07 Upstream pins | P0-01 | [Implementation and tests](01-upstream-feasibility.md#p0-07--immutable-upstream-selection) | Immutable manifest, reproducible source selection, R08; ambiguous secondary projects off critical path | in_progress |
 | P0-02 Local memory/runtime spike | P0-07 | [Implementation and tests](01-upstream-feasibility.md#p0-02--local-munarium-and-search-spike) | CPU inference, index reopen, local network boundary, resource/install measurements; U09 | Planned |
 | P0-03 Internal lifecycle seam | P0-07 | [Implementation and tests](01-upstream-feasibility.md#p0-03--codex-lifecycle-seam) | Typed boundary and Windows close/recovery fixture; no new public API/TS SDK required | Planned |
 | P0-04 Portable storage comparison | P0-01/02 | [Implementation and tests](01-upstream-feasibility.md#p0-04--storage-and-encrypted-portability-comparison) | M01/M02/M08/U04; encrypted interoperability, wrong-key/tamper/truncation tests; size, transfer churn and restore time with encryption enabled | Planned |
@@ -91,6 +91,31 @@ Special staging relationships:
 - [P3-05](10-history-and-pruning.md#p3-05--browsing-and-cli-controls) and [P3-06](11-encrypted-portability.md#p3-06--user-commands-and-diagnostics) follow the relevant P5 implementations, while basic CLI work starts earlier.
 - [P5-08](15-integration-and-release.md#p5-08--integrated-memory-acceptance) is the early stage of segment 15 and precedes [P6-04](12-routing-and-optimization.md#p6-04--profile-qualification); it does not require final P8 completion.
 - [P7-04](14-visible-delegation.md#p7-04--graph-and-workspace-ownership) can begin after [P6-03](12-routing-and-optimization.md#p6-03--escalation-and-model-handoff) and [P2-07](06-windows-tools-and-recovery.md#p2-07--pause-and-unknown-effect-reconciliation); final routing qualification and delegation integration are jointly rechecked for release.
+
+## Owner-answer coverage
+
+All owner answers remain binding within their stated release scope. Initial
+case IDs are planned product observations, not passing harness results.
+
+| Answer | Owning plans | Initial evidence |
+|---|---|---|
+| A01 License and distribution | [15](15-integration-and-release.md) | R08, U01–U09 and package/notice inventory |
+| A02 Complete coding, routing and memory | [05](05-openrouter-and-session-loop.md), [08](08-memory-and-ingestion.md), [12](12-routing-and-optimization.md) | U01–U09 |
+| A03 CLI first, public clients later | [07](07-cli-and-inspection.md), later [17](17-deferred-api-and-sdk.md)/[18](18-deferred-vscode.md) | E09, U01; public variants deferred |
+| A04 Native Windows | [01](01-upstream-feasibility.md), [06](06-windows-tools-and-recovery.md), [15](15-integration-and-release.md) | E07, E08, R04 |
+| A05 Codex reuse and local Munarium | [01](01-upstream-feasibility.md), [08](08-memory-and-ingestion.md), [09](09-local-search-and-generations.md) | R02–R05, R08, U09 |
+| A06 Portable state and backend preference | [03](03-storage-and-budget.md), [11](11-encrypted-portability.md) | M01, M08, U04 |
+| A07 Scoped history and pruning | [07](07-cli-and-inspection.md), [10](10-history-and-pruning.md) | M05, U05 |
+| A08 Automatic governed memory | [08](08-memory-and-ingestion.md), [10](10-history-and-pruning.md) | M01, M05, U05 |
+| A09 Local memory, OpenRouter coding | [05](05-openrouter-and-session-loop.md), [09](09-local-search-and-generations.md) | E11, M03, U09 |
+| A10 Profiles and interactive optimization | [12](12-routing-and-optimization.md) | E12, E19, U07 |
+| A11 Autonomy controls | [06](06-windows-tools-and-recovery.md) | E06, R03 |
+| A12 Full history and age notification | [02](02-engine-state-and-capture.md), [10](10-history-and-pruning.md) | E17, U05 |
+| A13 Pause and workspace resume | [06](06-windows-tools-and-recovery.md), [07](07-cli-and-inspection.md), [14](14-visible-delegation.md) | E08, E10, U06, including pause without closing |
+| A14 Instructions, skills, MCP | [04](04-context-and-instructions.md), [13](13-skills-and-mcp.md) | E02, E03, E16, U08 |
+| A15 Visible delegation | [14](14-visible-delegation.md) | E15, U02, U03, U06 |
+| A16 Analysis, review and generation | [01](01-upstream-feasibility.md), [15](15-integration-and-release.md), [16](16-test-fixtures-and-acceptance.md) | U01, U02, U03; [initial fixtures](../development/experiment-fixtures.md) |
+| A17 Plaintext active state, encrypted vault | [01](01-upstream-feasibility.md), [11](11-encrypted-portability.md), [15](15-integration-and-release.md) | M08, U04, I-19 |
 
 ## Functional requirement coverage
 
