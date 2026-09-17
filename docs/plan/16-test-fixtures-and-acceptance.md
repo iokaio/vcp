@@ -1,6 +1,6 @@
 # 16 — Test code, fixture design and owner acceptance
 
-Status: planned. This is shared implementation guidance, not a claim that tests exist. P0 establishes the harness; each owning segment adds its fixtures/tests with the behavior. Segment 15 conducts final campaigns. See [the coverage ledger](20-traceability.md).
+Status: product test guidance planned; [delivery harness checks](../development/delivery-harness.md) exist. Product tests described below remain unimplemented. P0 establishes the harness; each owning segment adds its fixtures/tests with the behavior. Segment 15 conducts final campaigns. See [the coverage ledger](20-traceability.md).
 
 The [qualification design](../architecture/qualification-release-design.md) specifies runner/result records, independent supervision, held-out comparisons and package evidence. Use [architecture invariants](../architecture/vcp-what.md#21-invariants-enforced-outside-the-model) as hard assertions and [ADR-018](../adr/018-release-acceptance.md) to distinguish owner acceptance from test execution. The [implementation workflow](../development/implementation-workflow.md) explains how to attach these checks to a reviewable increment.
 

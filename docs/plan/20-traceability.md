@@ -1,16 +1,16 @@
 # 20 — Work-item, requirement and test traceability
 
-Status: planned. Ownership inventory from architecture draft 0.4 and the task headings in this directory, expanded with implementation/design traceability on September 17, 2026. All 68 architecture items have exactly one implementation owner. There are 56 first-release items and 12 deferred items (P4, P9 and P10). No task state or dependency is advanced by this documentation revision.
+Status: planned. Ownership inventory from architecture draft 0.4 and the task headings in this directory, expanded with implementation/design traceability on September 17, 2026. All 68 architecture items have exactly one implementation owner. There are 56 first-release items and 12 deferred items (P4, P9 and P10). P0-01 is in progress with the [delivery harness](../development/delivery-harness.md); all other tasks remain planned and dependencies are unchanged.
 
 Use this ledger with [the segment index](README.md) and [the shared test guide](16-test-fixtures-and-acceptance.md). Dependencies below retain the architecture's exact IDs; slash suffixes share the preceding phase, and an ellipsis denotes an inclusive range. A whole segment is not an additional dependency.
 
 ## Work-item ownership and readiness
 
-Each linked task supplies code organization, implementation increments and testing instructions. Evidence IDs refer to current architecture/workbook cases with the release scoping below. Update status with actual evidence links during implementation; no source code or runtime test was produced by this planning revision.
+Each linked task supplies code organization, implementation increments and testing instructions. Evidence IDs refer to current architecture/workbook cases with the release scoping below. Update status with actual evidence links during implementation; the delivery harness is executable, while product runtime evidence remains outstanding.
 
 | Work item | Required dependencies | Detailed owner | Architecture acceptance evidence | State |
 |---|---|---|---|---|
-| P0-01 Requirements and ADRs | None | [Implementation and tests](01-upstream-feasibility.md#p0-01--requirements-and-experiment-harness) | CLI/Windows priority, Apache-2.0, local embeddings, plaintext active files, encrypted cloud backups and complete usable milestone preserved | Planned |
+| P0-01 Requirements and ADRs | None | [Implementation and tests](01-upstream-feasibility.md#p0-01--requirements-and-experiment-harness) | CLI/Windows priority, Apache-2.0, local embeddings, plaintext active files, encrypted cloud backups and complete usable milestone preserved | in_progress |
 | P0-07 Upstream pins | P0-01 | [Implementation and tests](01-upstream-feasibility.md#p0-07--immutable-upstream-selection) | Immutable manifest, reproducible source selection, R08; ambiguous secondary projects off critical path | Planned |
 | P0-02 Local memory/runtime spike | P0-07 | [Implementation and tests](01-upstream-feasibility.md#p0-02--local-munarium-and-search-spike) | CPU inference, index reopen, local network boundary, resource/install measurements; U09 | Planned |
 | P0-03 Internal lifecycle seam | P0-07 | [Implementation and tests](01-upstream-feasibility.md#p0-03--codex-lifecycle-seam) | Typed boundary and Windows close/recovery fixture; no new public API/TS SDK required | Planned |

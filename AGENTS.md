@@ -11,12 +11,12 @@ agent tools. Keep them synchronized when changing either. They contain project
 instructions suitable for a public checkout; never put local secrets, private
 operational details, or machine-specific dependencies in them.
 
-VCP is currently in design and planning. The checkout contains documentation,
-community policies, contribution templates, and orientation READMEs in `src/`
-and `scripts/`. There is no implemented application, Cargo workspace, build/test
-runner, or CI workflow yet. Recheck the actual tree as implementation lands and
-update these statements with it. A planned command, directory, or feature is not
-evidence of implementation or a passing test.
+VCP is in early implementation. The checkout contains documentation, community
+policies, contribution templates, and the delivery harness under `src/tests/` and
+`scripts/`, with repository and harness CI checks. There is no implemented VCP
+application, Cargo workspace or application build yet. Recheck the actual tree
+as implementation lands. A planned command, directory or feature is not evidence
+of implementation or a passing test.
 
 ## Read the applicable sources of truth
 
@@ -221,9 +221,8 @@ runtime scaffolding for documentation edits.
 | Plan or layout | Check affected paths; when mappings change, check unique task ownership, valid dependencies, acyclicity, and release coverage |
 | Future implementation | Use real package commands and scripts once present; select relevant contract, Windows, recovery, and integration checks |
 
-Do not run Munarium's component gates as VCP commands. The commands in
-[scripts/README.md](scripts/README.md) and the delivery contract are planned
-interfaces until implemented. Discover current manifests and scripts first.
+Do not run Munarium's component gates as VCP commands. [scripts/README.md](scripts/README.md) distinguishes the implemented delivery
+harness from future build, product-test and packaging interfaces. Discover current manifests and scripts first.
 Future scripts must resolve their own paths, reject unknown inputs, expose real
 commands, propagate nonzero exits, and mark missing prerequisites as not run.
 
