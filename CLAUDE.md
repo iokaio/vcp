@@ -14,7 +14,8 @@ operational details, or machine-specific dependencies in them.
 VCP is in early implementation. The checkout contains documentation, community
 policies, contribution templates, and the delivery harness under `src/tests/` and
 `scripts/`, with repository and harness CI checks. There is no implemented VCP
-application, Cargo workspace or application build yet. Recheck the actual tree
+application. A committed Codex Cargo workspace and native baseline build now exist;
+see `docs/development/codex-source.md`. Recheck the actual tree
 as implementation lands. A planned command, directory or feature is not evidence
 of implementation or a passing test.
 
@@ -185,8 +186,9 @@ in VCP's build. No submodule, gitlink, nested repository, or subtree workflow is
 planned. Normal builds consume committed source without fetching Codex or applying
 patches. Explicit maintenance reconstructs it in a disposable directory from the
 immutable selection plus `src/third_party/patches/codex/` and compares the result.
-Update source, ordered patches, hashes, and notices together. Nothing is imported
-yet; this policy does not authorize an import or commit in a documentation task.
+Update source, ordered patches, hashes, and notices together. Codex is imported
+as an unqualified baseline; this policy does not authorize unrelated imports or
+commits in a documentation task.
 
 P0-07 builds the selected unmodified native Windows baseline; P0-08 inserts VCP
 adapters and records retained modules, replacements, and maintenance effort.
@@ -197,8 +199,8 @@ helper-model path remains subject to VCP accounting and policy.
 
 Before importing code, tests, or assets, record origin, exact revision, license,
 selected paths, modifications, and dependency closure through the P0 provenance
-process. Use the planned `src/third_party/upstreams.toml` and component notes
-when introduced. Retain copyright, license, NOTICE, and required modification
+process. Use `src/third_party/upstreams.toml` and its component notes. Retain
+copyright, license, NOTICE, and required modification
 notices. An attributed port is not independent authorship.
 
 Update [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [NOTICE](NOTICE) when

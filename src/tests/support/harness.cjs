@@ -44,7 +44,25 @@ function parseSelection(argv, registry) {
   for (const id of ids) if (backends.some(b => !registry.cases[id].backends.includes(b))) throw Error('Unsupported backend for case: ' + id);
   return { suite, ids, backends, outputRoot: options['--output-root'] };
 }
-function sourceIdentity(root) {
+function hashCommand(executable, args, { cwd, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const child = spawn(executable, args, { cwd, signal, windowsHide: true,
+      env: environment(), stdio: ['ignore', 'pipe', 'pipe'] });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 120000);
+    child.stdout.on('data', bytes => hash.update(bytes));
+    // Drain diagnostics without buffering source-dependent output.
+    child.stderr.resume();
+    child.on('error', error => { clearTimeout(timer); reject(error); });
+    child.on('close', (code, exitSignal) => {
+      clearTimeout(timer);
+      if (timedOut || code !== 0 || exitSignal) reject(Error('Source hashing command failed: ' + (timedOut ? 'timeout' : code ?? exitSignal)));
+      else resolve(hash.digest('hex'));
+    });
+  });
+}
+async function sourceIdentity(root, signal) {
   const git = args => execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
   const status = git(['status', '--porcelain=v1', '-z', '--untracked-files=all']);
   const untracked = git(['ls-files', '--others', '--exclude-standard', '-z']).toString().split('\0').filter(Boolean).sort();
@@ -53,7 +71,7 @@ function sourceIdentity(root) {
     git_version: git(['--version']).toString().trim(),
     dirty: status.length > 0,
     status_sha256: digest(status),
-    tracked_diff_sha256: digest(git(['diff', '--binary', 'HEAD'])),
+    tracked_diff_sha256: await hashCommand('git', ['diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD'], { cwd: root, signal }),
     untracked_sha256: digest(JSON.stringify(untracked.map(p => [p, digest(fs.readFileSync(path.join(root, p)))])))
   };
 }
@@ -216,4 +234,4 @@ async function runSuite({ root, registry, selection, outputRoot, source, signal,
   writeManifest(manifestPath, manifest);
   return { manifest, manifestPath, exitCode };
 }
-module.exports = { digest, parseSelection, sourceIdentity, writeManifest, redactor, runSuite, environment };
+module.exports = { digest, parseSelection, sourceIdentity, hashCommand, writeManifest, redactor, runSuite, environment };

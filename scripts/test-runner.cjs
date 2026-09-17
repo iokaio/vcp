@@ -19,7 +19,7 @@ async function main() {
   process.on('SIGTERM', cancel);
   try {
     const result = await runSuite({
-      root, registry, selection, source: sourceIdentity(root),
+      root, registry, selection, source: await sourceIdentity(root, stop.signal),
       outputRoot: selection.outputRoot || path.join(root, 'artifacts', 'tests'),
       signal: stop.signal,
       announce: (command) => console.log('Run: ' + JSON.stringify(command))

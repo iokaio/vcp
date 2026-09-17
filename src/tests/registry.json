@@ -1,19 +1,27 @@
 {
   "schema_version": 1,
   "suites": {
-    "fast": ["repository", "harness", "experiments", "upstream-inventory"],
+    "fast": ["repository", "harness", "experiments", "upstream-inventory", "upstream-source"],
     "repository": ["repository"],
     "harness": ["harness"],
     "experiments": ["experiments"],
-    "upstream": ["upstream-inventory"]
+    "upstream": ["upstream-inventory", "upstream-source"]
   },
   "cases": {
     "upstream-inventory": {
       "task_ids": ["P0-07"],
-      "args": ["--test", "src/tests/contracts/upstream-inventory.test.cjs"],
+      "args": ["--test", "src/tests/contracts/upstream-inventory.test.cjs", "src/tests/contracts/upstream-selection.test.cjs"],
       "backends": ["none"],
-      "requires": [],
+      "requires": [{"kind": "file", "value": "src/tests/node_modules/@iarna/toml/package.json"}],
       "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
+    "upstream-source": {
+      "task_ids": ["P0-07"],
+      "args": ["scripts/upstream/reconstruct.cjs", "verify", "--component", "codex"],
+      "backends": ["none"],
+      "requires": [{"kind": "file", "value": "src/tests/node_modules/@iarna/toml/package.json"}],
+      "timeout_ms": 60000,
       "max_output_bytes": 2097152
     },
     "repository": {

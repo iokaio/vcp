@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { runSuite, parseSelection, redactor, environment } = require('../support/harness.cjs');
+const { runSuite, parseSelection, redactor, environment, hashCommand } = require('../support/harness.cjs');
 function registry(code, overrides = {}) {
   return { schema_version: 1, suites: { fast: ['sample'] }, cases: { sample: {
     args: ['-e', code], task_ids: ['P0-01'], backends: ['none'], requires: [],
@@ -22,6 +22,14 @@ function run(t, config, extra = {}) {
   return runSuite({ root: temporary(t), outputRoot: temporary(t), registry: config,
     selection: extra.selection || parseSelection([], config), source: { fixture: 'synthetic' }, ...extra });
 }
+test('source hashing streams beyond the old 64 MiB buffer and rejects partial failure', async () => {
+  const hash = require('node:crypto').createHash('sha256');
+  const chunk = Buffer.alloc(1024 * 1024, 120);
+  for (let i = 0; i < 65; i++) hash.update(chunk);
+  const actual = await hashCommand(process.execPath, ['-e', 'const fs=require("node:fs");const b=Buffer.alloc(1024*1024,120);for(let i=0;i<65;i++)fs.writeSync(1,b);']);
+  assert.equal(actual, hash.digest('hex'));
+  await assert.rejects(hashCommand(process.execPath, ['-e', 'console.log("partial");process.exit(7)']), /failed: 7/);
+});
 test('rejects invalid requests before allocating evidence', async t => {
   const config = registry('process.exit(0)');
   for (const args of [['--suite', 'absent'], ['--case', 'absent'], ['--backend', 'both'],

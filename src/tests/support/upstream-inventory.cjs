@@ -38,7 +38,7 @@ function parseTree(bytes) {
   }
   return entries.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 }
-function attachContent(entries, batch) {
+function attachContent(entries, batch, onContent = () => {}) {
   let offset = 0;
   const result = [];
   for (const entry of entries) {
@@ -51,6 +51,7 @@ function attachContent(entries, batch) {
     const content = batch.subarray(offset, offset + entry.bytes);
     const actualObject = crypto.createHash('sha1').update('blob ' + content.length + '\0').update(content).digest('hex');
     if (actualObject !== entry.object) throw Error('Git blob identity mismatch');
+    onContent(entry, content);
     const item = { ...entry, sha256: sha256(content), kind: entry.mode === '120000' ? 'symlink' : 'file' };
     if (item.kind === 'symlink') item.link_target = content.toString('utf8');
     result.push(item);
@@ -59,7 +60,7 @@ function attachContent(entries, batch) {
   if (offset !== batch.length) throw Error('Unexpected trailing object data');
   return result;
 }
-function inventory(root, commit) {
+function inventory(root, commit, onContent) {
   if (!/^[a-f0-9]{40}$/.test(commit)) throw Error('An immutable full commit ID is required');
   const git = (args, input) => execFileSync('git', args, {
     cwd: root, input, stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: MAX_BYTES + 16 * 1024 * 1024
@@ -68,7 +69,7 @@ function inventory(root, commit) {
   const tree = git(['rev-parse', commit + '^{tree}']).toString().trim();
   const entries = parseTree(git(['ls-tree', '-rlz', commit]));
   const content = git(['cat-file', '--batch'], entries.map(e => e.object + '\n').join(''));
-  const files = attachContent(entries, content);
+  const files = attachContent(entries, content, onContent);
   return { schema_version: 1, commit, tree, encoding: 'UTF-8 paths; original Git blob bytes, no normalization',
     digest: 'SHA-256', files_sha256: sha256(JSON.stringify(files)), files };
 }
