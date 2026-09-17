@@ -28,7 +28,7 @@ Propose separate quality thresholds for analysis findings, review precision/reca
 
 ## P0-07 — Immutable upstream selection
 
-Implementation progress: [candidate pins and commands](../development/upstream-candidates.md) provide original-byte inventories and an executable native Windows baseline experiment. [Native results](../evaluations/p0-07-native-candidates.md) record Codex's CLI build and 102 patch/policy tests, Munarium's 79 kernel/store tests, and Gemini's 213 policy/scheduler/tool tests. The [committed Codex selection](../development/codex-source.md) adds 7,937 files, license/closure records, independent reconstruction and a direct native build command. Complete effect classification, other selected component closure and qualification on another Windows environment remain outstanding; P0-07 stays in progress.
+Implementation progress: [candidate pins and commands](../development/upstream-candidates.md) provide original-byte inventories and an executable native Windows baseline experiment. [Native results](../evaluations/p0-07-native-candidates.md) record Codex's CLI build and 102 patch/policy tests, Munarium's 79 kernel/store tests, and Gemini's 213 policy/scheduler/tool tests. The [committed Codex selection](../development/codex-source.md) adds 7,937 files, license/closure records, independent reconstruction and a direct native build command. Complete effect classification and other selected component closure remain outstanding; P0-07 stays in progress.
 
 The [static boundary inventory](../evaluations/p0-07-boundary-inventory.md) checks all 154 Codex workspace packages, their proposed ownership and 25 source anchors. The [adapter guide](../development/codex-boundaries.md) and [Gemini candidate record](../../src/third_party/components/gemini-cli.md) identify concrete next inputs. These checks do not qualify runtime effects or complete the remaining P0-07 gate.
 
@@ -37,10 +37,12 @@ records the failed unmodified Rust 1.98.0 build, a minimal attributed compatibil
 patch, independent reconstruction and follow-up native checks. It does not yet
 qualify a combined Codex/Munarium workspace or another Windows environment.
 
-The [native Windows CI job](../development/codex-source.md#native-windows-ci)
-targets the owner-provided `win8core` runner for committed-source build, native
-patch/policy tests, CLI traces and independent reconstruction. Its remote results
-must be recorded before counting the second-environment acceptance criterion.
+The [hosted Windows results](../evaluations/p0-07-hosted-windows.md) establish
+committed-source build and independent reconstruction on a second Windows
+environment. The `win8core` job passed 40 regressions, 102 native patch/policy
+tests and five CLI traces. It also exposed and verified a fix for short-path
+output containment. Other component selections and effect qualification remain
+open; this result does not complete P0-07 or the later VCP lifecycle work.
 
 1. Pin Codex, Gemini CLI and Munarium to exact commits; record selected paths, dependencies, licenses, notices, patch origin and local owner. Treat mutable URLs as discovery inputs.
 2. Build selected upstream components on native Windows before modifications, including the unmodified Codex engine/CLI baseline. Use an isolated temporary checkout; record compiler/native dependencies, commands, resource use and known upstream failures.
