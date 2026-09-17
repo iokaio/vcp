@@ -1,0 +1,711 @@
+{
+  "schema_version": 1,
+  "component": "codex",
+  "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
+  "verification": "static_only",
+  "scope": "Conservative package boundary ownership; capability lists are review surfaces, not proof of effects or their absence. No VCP runtime adapter is implemented by this inventory.",
+  "seams": [
+    {
+      "id": "owner-submit",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/session/mod.rs",
+      "symbol": "async fn submit_with_id",
+      "observation": "Submission enters the retained session; attach VCP task/workspace and authority revision before scheduling."
+    },
+    {
+      "id": "interrupt",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/session/handlers.rs",
+      "symbol": "pub async fn interrupt",
+      "observation": "Interrupt delegates to session task abort; this is not durable VCP pause or tree-wide admission fencing."
+    },
+    {
+      "id": "queued-child-input",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/session/handlers.rs",
+      "symbol": "pub async fn inter_agent_communication",
+      "observation": "Inter-agent input can schedule idle work; pause must fence queued/background starts as well as current tasks."
+    },
+    {
+      "id": "main-model",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/client.rs",
+      "symbol": "pub async fn stream(",
+      "observation": "Main streaming admission, usage attribution and cancellation must enter the VCP gateway."
+    },
+    {
+      "id": "websocket-prewarm",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/client.rs",
+      "symbol": "pub async fn prewarm_websocket",
+      "observation": "Prewarm can create provider traffic before normal streaming; do not exempt it from authority/accounting observation."
+    },
+    {
+      "id": "memory-summary-api",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/client.rs",
+      "symbol": "pub async fn summarize_memories",
+      "observation": "The API helper is a separate remote path from the main coding stream."
+    },
+    {
+      "id": "memory-stage-one",
+      "group": "model-assisted-memory",
+      "package": "codex-memories-write",
+      "path": "memories/write/src/runtime.rs",
+      "symbol": "ModelClient::new(",
+      "observation": "Background memory work constructs a model client and streams a stage-one prompt; replace independent admission."
+    },
+    {
+      "id": "remote-compaction",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/compact_remote_v2.rs",
+      "symbol": "async fn run_remote_compact_task",
+      "observation": "Compaction requests require the same capability, budget and provenance boundary as coding."
+    },
+    {
+      "id": "review-child",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/session/review.rs",
+      "symbol": "async fn spawn_review_thread",
+      "observation": "A review thread is still governed child work with root budget, authority and pause lifetime."
+    },
+    {
+      "id": "guardian-turn",
+      "group": "guardian-review",
+      "package": "codex-guardian-reviewer",
+      "path": "ext/guardian-reviewer/src/execution.rs",
+      "symbol": "pub async fn start_review_turn",
+      "observation": "Guardian review must not become an unaccounted helper or substitute for user authority."
+    },
+    {
+      "id": "guardian-retry",
+      "group": "guardian-review",
+      "package": "codex-guardian-reviewer",
+      "path": "ext/guardian-reviewer/src/retry.rs",
+      "symbol": "pub async fn run_with_retry",
+      "observation": "Retries revalidate current authority and maintain request/usage attribution."
+    },
+    {
+      "id": "provider-auth",
+      "group": "provider-transport",
+      "package": "codex-model-provider",
+      "path": "model-provider/src/auth.rs",
+      "symbol": "async fn resolve_provider_auth_for_scope",
+      "observation": "Provider auth resolution includes upstream account/identity paths that must not bypass explicit VCP configuration."
+    },
+    {
+      "id": "environment-key-export",
+      "group": "credentials",
+      "package": "codex-login",
+      "path": "login/src/lib.rs",
+      "symbol": "pub use auth::read_openai_api_key_from_env",
+      "observation": "The exported ambient-key helper is not authorized VCP credential discovery."
+    },
+    {
+      "id": "auth-environment-telemetry",
+      "group": "credentials",
+      "package": "codex-login",
+      "path": "login/src/auth_env_telemetry.rs",
+      "symbol": "env_var_present(OPENAI_API_KEY_ENV_VAR)",
+      "observation": "Even credential-presence telemetry is an upstream effect to remove or explicitly replace."
+    },
+    {
+      "id": "policy-amendment",
+      "group": "tools-policy",
+      "package": "codex-execpolicy",
+      "path": "execpolicy/src/amend.rs",
+      "symbol": "pub fn blocking_append_allow_prefix_rule",
+      "observation": "Policy amendment performs writes; parsing/matching reuse does not authorize saved permission changes."
+    },
+    {
+      "id": "global-metrics",
+      "group": "telemetry-diagnostics",
+      "package": "codex-otel",
+      "path": "otel/src/lib.rs",
+      "symbol": "pub fn install_global_metrics",
+      "observation": "Global telemetry setup must not create a hidden exporter outside VCP ownership."
+    },
+    {
+      "id": "realtime-provider",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/client.rs",
+      "symbol": "async fn create_realtime_call_with_headers",
+      "observation": "Retained realtime APIs do not authorize an extra VCP provider/service route."
+    },
+    {
+      "id": "mcp-stdio",
+      "group": "skills-mcp-plugins",
+      "package": "codex-rmcp-client",
+      "path": "rmcp-client/src/rmcp_client.rs",
+      "symbol": "pub async fn new_stdio_client(",
+      "observation": "MCP startup can launch a local process; use an explicitly configured server identity and execution authority."
+    },
+    {
+      "id": "mcp-http",
+      "group": "skills-mcp-plugins",
+      "package": "codex-rmcp-client",
+      "path": "rmcp-client/src/rmcp_client.rs",
+      "symbol": "pub async fn new_streamable_http_client(",
+      "observation": "Remote MCP transport needs explicit endpoint, redirect, authentication and cancellation policy."
+    },
+    {
+      "id": "mcp-tool",
+      "group": "skills-mcp-plugins",
+      "package": "codex-rmcp-client",
+      "path": "rmcp-client/src/rmcp_client.rs",
+      "symbol": "pub async fn call_tool(",
+      "observation": "Tool calls and results retain VCP schema/authority/receipt boundaries; tool text cannot create instructions."
+    },
+    {
+      "id": "mcp-auth-discovery",
+      "group": "skills-mcp-plugins",
+      "package": "codex-rmcp-client",
+      "path": "rmcp-client/src/auth_status.rs",
+      "symbol": "pub async fn discover_streamable_http_oauth",
+      "observation": "Authentication discovery is network activity even before tool invocation."
+    },
+    {
+      "id": "exec-dispatch",
+      "group": "execution-sandbox",
+      "package": "codex-exec-server",
+      "path": "exec-server/src/client.rs",
+      "symbol": "pub async fn exec(&self",
+      "observation": "Dispatch must follow durable VCP admission with prepared arguments, environment and workspace identity."
+    },
+    {
+      "id": "exec-termination",
+      "group": "execution-sandbox",
+      "package": "codex-exec-server",
+      "path": "exec-server/src/client.rs",
+      "symbol": "pub async fn terminate(",
+      "observation": "Termination is separately observed; stopping a child does not roll back already observed effects."
+    },
+    {
+      "id": "sqlite-state",
+      "group": "stores-history",
+      "package": "codex-state",
+      "path": "state/src/runtime.rs",
+      "symbol": "pub async fn init(sqlite:",
+      "observation": "Upstream state initialization must not create a competing authoritative VCP store or memory ledger."
+    },
+    {
+      "id": "local-thread-store",
+      "group": "stores-history",
+      "package": "codex-thread-store",
+      "path": "thread-store/src/lib.rs",
+      "symbol": "pub use local::LocalThreadStore;",
+      "observation": "Retain useful storage-neutral interfaces while adapting local persistence to VCP receipts, history and recovery."
+    }
+  ],
+  "groups": [
+    {
+      "id": "controller",
+      "packages": [
+        "codex-core",
+        "codex-core-plugins"
+      ],
+      "capabilities": [
+        "model",
+        "scheduler",
+        "filesystem",
+        "process",
+        "network",
+        "credential",
+        "telemetry"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-03",
+        "P0-08"
+      ],
+      "gate": "One VCP controller; persist authority revisions, pause the root/child tree, reject stale completions and reconcile before explicit resume."
+    },
+    {
+      "id": "cli",
+      "packages": [
+        "codex-cli",
+        "codex-exec",
+        "codex-tui",
+        "codex-arg0",
+        "codex-utils-cli",
+        "codex-terminal-detection",
+        "codex-utils-elapsed",
+        "codex-utils-sleep-inhibitor"
+      ],
+      "capabilities": [
+        "filesystem",
+        "process",
+        "scheduler",
+        "clock"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-03",
+        "P0-08"
+      ],
+      "gate": "VCP owns startup configuration, explicit pause/resume and owning-CLI loss; upstream subcommands are not automatically VCP surfaces."
+    },
+    {
+      "id": "provider-transport",
+      "packages": [
+        "codex-api",
+        "codex-client",
+        "codex-model-provider",
+        "codex-model-provider-info",
+        "codex-models-manager",
+        "codex-backend-client",
+        "codex-websocket-client",
+        "codex-http-client",
+        "codex-utils-rustls-provider"
+      ],
+      "capabilities": [
+        "network",
+        "model",
+        "credential",
+        "telemetry"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-03",
+        "P0-08"
+      ],
+      "gate": "OpenRouter-only coding/model gateway; capability and atomic budget admission for main/helper/retry/prewarm paths; explicit transport and catalog authority."
+    },
+    {
+      "id": "credentials",
+      "packages": [
+        "codex-login",
+        "codex-keyring-store",
+        "codex-secrets",
+        "codex-aws-auth",
+        "codex-agent-identity",
+        "codex-workload-identity"
+      ],
+      "capabilities": [
+        "credential",
+        "filesystem",
+        "network",
+        "process"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-08"
+      ],
+      "gate": "Disable ambient key/token/account/command discovery. Retained credential primitives require explicit VCP configuration and authority."
+    },
+    {
+      "id": "telemetry-diagnostics",
+      "packages": [
+        "codex-analytics",
+        "codex-otel",
+        "codex-otel-trace-websocket",
+        "codex-feedback",
+        "codex-diagnostics",
+        "codex-rollout-trace",
+        "codex-response-debug-context"
+      ],
+      "capabilities": [
+        "telemetry",
+        "network",
+        "filesystem"
+      ],
+      "handling": "disable-upstream-route",
+      "owner_tasks": [
+        "P0-08"
+      ],
+      "gate": "Remove/disable upstream telemetry and remote feedback. Any retained local diagnostic output follows VCP redaction, scope and retention policy."
+    },
+    {
+      "id": "stores-history",
+      "packages": [
+        "codex-state",
+        "codex-thread-store",
+        "codex-agent-graph-store",
+        "codex-attachment-store",
+        "codex-rollout",
+        "codex-message-history",
+        "codex-home"
+      ],
+      "capabilities": [
+        "filesystem",
+        "scheduler",
+        "clock"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-03",
+        "P0-08"
+      ],
+      "gate": "Replace competing canonical writes with the VCP store/receipt contract; preserve complete observed history and protected recovery/accounting references."
+    },
+    {
+      "id": "configuration",
+      "packages": [
+        "codex-config",
+        "codex-config-schema",
+        "codex-cloud-config",
+        "codex-external-agent-migration",
+        "codex-install-context",
+        "codex-utils-home-dir"
+      ],
+      "capabilities": [
+        "filesystem",
+        "credential",
+        "instruction",
+        "network"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-08"
+      ],
+      "gate": "Explicit VCP settings and workspace identity; disable cloud/default-provider discovery and deferred foreign-configuration import entry points."
+    },
+    {
+      "id": "tools-policy",
+      "packages": [
+        "codex-tools",
+        "codex-apply-patch",
+        "codex-execpolicy",
+        "codex-shell-command"
+      ],
+      "capabilities": [
+        "filesystem",
+        "process",
+        "instruction"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-05",
+        "P0-08"
+      ],
+      "gate": "Prepared revision-checked effects, current policy and durable dispatch/receipts; policy-file amendment and migration are writes, not pure matching."
+    },
+    {
+      "id": "execution-sandbox",
+      "packages": [
+        "codex-exec-server",
+        "codex-windows-sandbox",
+        "codex-windows-sandbox-service",
+        "codex-sandboxing",
+        "codex-linux-sandbox",
+        "codex-bwrap",
+        "codex-mxc-sandbox",
+        "codex-process-hardening",
+        "codex-utils-pty",
+        "codex-shell-escalation"
+      ],
+      "capabilities": [
+        "process",
+        "filesystem",
+        "network",
+        "credential"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-05",
+        "P0-08"
+      ],
+      "gate": "Qualify native Windows job/PTY, child-tree termination and actual access restrictions; do not infer Windows enforcement from Unix code or mocks."
+    },
+    {
+      "id": "private-transport",
+      "packages": [
+        "codex-app-server",
+        "codex-app-server-transport",
+        "codex-app-server-daemon",
+        "codex-app-server-client",
+        "codex-uds",
+        "codex-stdio-to-uds",
+        "codex-network-proxy",
+        "codex-tcp-tunnel",
+        "codex-responses-api-proxy"
+      ],
+      "capabilities": [
+        "network",
+        "process",
+        "scheduler",
+        "credential",
+        "filesystem"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-03",
+        "P0-08"
+      ],
+      "gate": "Keep useful private protocol machinery while retaining one owner. Public APIs, independent daemons and upstream provider proxies are not VCP entry points."
+    },
+    {
+      "id": "workspace-files",
+      "packages": [
+        "codex-file-system",
+        "codex-file-search",
+        "codex-file-watcher",
+        "codex-worktree",
+        "codex-git-utils",
+        "codex-utils-git-discovery",
+        "codex-utils-absolute-path",
+        "codex-utils-path",
+        "codex-utils-path-uri"
+      ],
+      "capabilities": [
+        "filesystem",
+        "process"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-05",
+        "P0-08"
+      ],
+      "gate": "Workspace-scoped reads and prepared writes; account for Git subprocesses, watchers, junction/path races and preservation of user edits."
+    },
+    {
+      "id": "delegation-scheduling",
+      "packages": [
+        "codex-agent-extension",
+        "codex-goal-extension",
+        "codex-queue-extension",
+        "codex-agent-roles",
+        "codex-git-attribution",
+        "codex-history-notes-extension"
+      ],
+      "capabilities": [
+        "scheduler",
+        "model",
+        "filesystem",
+        "instruction"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-03",
+        "P0-08"
+      ],
+      "gate": "Visible children share root budget/store/authority; fence queued/background work on pause and preserve independently paused children."
+    },
+    {
+      "id": "model-assisted-memory",
+      "packages": [
+        "codex-memories-read",
+        "codex-memories-write",
+        "codex-memories-extension"
+      ],
+      "capabilities": [
+        "model",
+        "network",
+        "filesystem",
+        "scheduler"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-08"
+      ],
+      "gate": "Replace upstream memory ownership with governed VCP memory. Stage-one/background summarization calls must use the same admitted model gateway."
+    },
+    {
+      "id": "guardian-review",
+      "packages": [
+        "codex-guardian-reviewer",
+        "codex-guardian-v2",
+        "codex-user-verification"
+      ],
+      "capabilities": [
+        "model",
+        "network",
+        "scheduler",
+        "instruction"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-03",
+        "P0-08"
+      ],
+      "gate": "Review/helper requests consume admitted budget; model-produced assessment cannot create user authority or bypass VCP permission ceilings."
+    },
+    {
+      "id": "skills-mcp-plugins",
+      "packages": [
+        "codex-skills",
+        "codex-skills-extension",
+        "codex-mcp",
+        "codex-mcp-extension",
+        "codex-rmcp-client",
+        "codex-plugin",
+        "codex-utils-plugins",
+        "codex-hooks"
+      ],
+      "capabilities": [
+        "instruction",
+        "filesystem",
+        "network",
+        "credential",
+        "process"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-08",
+        "P0-09"
+      ],
+      "gate": "Skills/MCP use VCP trust, schema, auth, cancellation and budget boundaries. Executable hooks remain deferred despite retained upstream code."
+    },
+    {
+      "id": "embedded-code-host",
+      "packages": [
+        "codex-code-mode",
+        "codex-code-mode-host",
+        "codex-code-mode-runtime",
+        "codex-v8-poc"
+      ],
+      "capabilities": [
+        "process",
+        "filesystem",
+        "network",
+        "scheduler"
+      ],
+      "handling": "disable-upstream-route",
+      "owner_tasks": [
+        "P0-08"
+      ],
+      "gate": "No independent code-execution path may bypass the VCP tool broker; optional upstream runtimes are not implicitly enabled by this import."
+    },
+    {
+      "id": "upstream-services",
+      "packages": [
+        "codex-chatgpt",
+        "codex-cloud-tasks",
+        "codex-cloud-tasks-client",
+        "codex-connectors",
+        "codex-connectors-extension",
+        "codex-lmstudio",
+        "codex-ollama",
+        "codex-utils-oss",
+        "codex-realtime-webrtc",
+        "codex-voice-host",
+        "codex-image-generation-extension",
+        "codex-web-search-extension"
+      ],
+      "capabilities": [
+        "model",
+        "network",
+        "credential",
+        "process",
+        "filesystem"
+      ],
+      "handling": "disable-upstream-route",
+      "owner_tasks": [
+        "P0-08"
+      ],
+      "gate": "Disable non-VCP provider/service routes. Retained tools need explicit VCP capability/policy integration; this does not authorize remote embedding fallback."
+    },
+    {
+      "id": "protocol-data",
+      "packages": [
+        "codex-protocol",
+        "codex-app-server-protocol",
+        "codex-app-server-protocol-noop-macros",
+        "codex-experimental-api-macros",
+        "codex-exec-server-protocol",
+        "codex-code-mode-protocol",
+        "codex-core-api",
+        "codex-extension-api",
+        "codex-extension-items",
+        "codex-backend-openapi-models",
+        "codex-history",
+        "codex-features",
+        "codex-context-fragments",
+        "codex-guardian-context",
+        "codex-prompts",
+        "codex-collaboration-mode-templates"
+      ],
+      "capabilities": [
+        "data",
+        "instruction"
+      ],
+      "handling": "retain-data",
+      "owner_tasks": [
+        "P0-03",
+        "P0-08"
+      ],
+      "gate": "Retain representations/templates where compatible. Types and model text carry no authority; public API/schema exports remain deferred."
+    },
+    {
+      "id": "rendering-codecs",
+      "packages": [
+        "codex-ansi-escape",
+        "codex-mermaid",
+        "codex-utils-string",
+        "codex-utils-redacted-string",
+        "codex-utils-json-to-toml",
+        "codex-utils-fuzzy-match",
+        "codex-utils-stream-parser",
+        "codex-utils-template",
+        "codex-utils-output-truncation",
+        "codex-utils-approval-presets",
+        "codex-utils-sandbox-summary"
+      ],
+      "capabilities": [
+        "data"
+      ],
+      "handling": "retain-data",
+      "owner_tasks": [
+        "P0-08"
+      ],
+      "gate": "Retain deterministic formatting/parsing where compatible; display truncation and summaries must not overwrite canonical history or establish authority."
+    },
+    {
+      "id": "resource-helpers",
+      "packages": [
+        "codex-async-utils",
+        "codex-utils-cache",
+        "codex-utils-image",
+        "codex-utils-audio",
+        "codex-utils-readiness"
+      ],
+      "capabilities": [
+        "filesystem",
+        "scheduler",
+        "clock",
+        "data"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-03",
+        "P0-08"
+      ],
+      "gate": "Account for local resource, timer and task lifetimes; no background helper outlives owner pause or retains restricted/deleted context through caches."
+    },
+    {
+      "id": "build-and-test",
+      "packages": [
+        "codex-build-info",
+        "codex-utils-cargo-bin",
+        "codex-test-binary-support",
+        "core_test_support",
+        "app_test_support",
+        "codex-exec-server-test-support",
+        "codex-app-server-test-client",
+        "codex-cloud-tasks-mock-client",
+        "codex-thread-manager-sample"
+      ],
+      "capabilities": [
+        "filesystem",
+        "process",
+        "network",
+        "data"
+      ],
+      "handling": "test-build-only",
+      "owner_tasks": [
+        "P0-07",
+        "P0-08"
+      ],
+      "gate": "Use explicit synthetic fixtures and isolated build/test resources. Test clients, samples and helper binaries are not VCP product entry points."
+    }
+  ]
+}

@@ -11,3 +11,4 @@ Raw evidence stays in ignored local artifact directories or CI artifacts.
   reconstruction, provenance checks and native build evidence.
 - [P0-07 Munarium datastore](p0-07-munarium-datastore.md): 200 native tests with
   Tantivy/DiskANN enabled and the selected library dependency boundary.
+- [P0-07 boundary inventory](p0-07-boundary-inventory.md): static coverage of 154 Codex packages and 25 source anchors; runtime enforcement remains unqualified.

@@ -1,16 +1,24 @@
 {
   "schema_version": 1,
   "suites": {
-    "fast": ["repository", "harness", "experiments", "upstream-inventory", "upstream-source"],
+    "fast": ["repository", "harness", "experiments", "upstream-inventory", "upstream-source", "upstream-boundaries"],
     "repository": ["repository"],
     "harness": ["harness"],
     "experiments": ["experiments"],
-    "upstream": ["upstream-inventory", "upstream-source"]
+    "upstream": ["upstream-inventory", "upstream-source", "upstream-boundaries"]
   },
   "cases": {
     "upstream-inventory": {
       "task_ids": ["P0-07"],
-      "args": ["--test", "src/tests/contracts/upstream-inventory.test.cjs", "src/tests/contracts/upstream-selection.test.cjs", "src/tests/contracts/dependency-closure.test.cjs"],
+      "args": ["--test", "src/tests/contracts/upstream-inventory.test.cjs", "src/tests/contracts/upstream-selection.test.cjs", "src/tests/contracts/dependency-closure.test.cjs", "src/tests/contracts/upstream-effects.test.cjs"],
+      "backends": ["none"],
+      "requires": [{"kind": "file", "value": "src/tests/node_modules/@iarna/toml/package.json"}],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
+    "upstream-boundaries": {
+      "task_ids": ["P0-07"],
+      "args": ["scripts/upstream/check-boundaries.cjs"],
       "backends": ["none"],
       "requires": [{"kind": "file", "value": "src/tests/node_modules/@iarna/toml/package.json"}],
       "timeout_ms": 30000,
