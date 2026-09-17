@@ -4,15 +4,17 @@ Status: layout convention adopted; product implementation remains planned. This 
 
 ## Initial roots and current state
 
-Use `docs/` for documentation, `src/` for source code and its test assets, and `scripts/` for build and test automation. Root-level community files and `.github/` are the exceptions needed for project discovery and contribution workflows.
+Use `docs/` for documentation, `src/` for source code and its test assets, and `scripts/` for build and test automation. Root-level community and agent guidance files plus `.github/` are the exceptions needed for project discovery and contribution workflows. Keep root `AGENTS.md` and `CLAUDE.md` identical.
 
-Today `docs/architecture/` and `docs/plan/` contain the design and plan. `src/README.md` and `scripts/README.md` reserve the two implementation roots and explain their status. The remaining paths below are targets, not files or capabilities already implemented. Create directories with their first useful content; do not add empty crates or passing placeholder runners.
+Today `docs/architecture/` and `docs/plan/` contain the design and plan, and `docs/adr/` records ADR-013's source-management policy. `src/README.md` and `scripts/README.md` reserve the two implementation roots and explain their status. Source packages, manifests, fixtures, and runners below remain targets, not implemented capabilities. Create directories with their first useful content; do not add empty crates or passing placeholder runners.
 
 ## Target directory tree
 
 ```text
 vcp/
   README.md
+  AGENTS.md                    repository guidance for AI agents
+  CLAUDE.md                    identical guidance for Claude-compatible tools
   LICENSE
   NOTICE
   THIRD_PARTY_NOTICES.md
@@ -31,7 +33,7 @@ vcp/
     README.md
     architecture/              design, requirements, and supporting research
     plan/                      execution segments, this layout, and traceability
-    adr/                       decisions with evidence and alternatives
+    adr/                       ADR-013 recorded; further decisions added as resolved
     development/               toolchain, upstream mapping, and contributor setup
     protocol/                  later public API and compatibility documentation
     operations/                installation, data, recovery, and release guides
@@ -56,10 +58,10 @@ vcp/
     skills/builtin/            versioned skill content, manifests, and assets
     third_party/
       upstreams.toml           origins, exact commits, licenses, paths, and owners
-      codex/                   selected cohesive upstream workspace/components
+      codex/                   committed copied source, with reviewed patches applied
       gemini-cli/              selected extracts and licensed comparison fixtures
       munarium/                selected kernel/local-memory code and fixtures
-      patches/                 reproducible changes to retained upstream source
+      patches/codex/           ordered patches reproducing committed Codex changes
       licenses/                original license and notice texts for imports
     packages/                  deferred TypeScript surfaces
       protocol-ts/             generated protocol bindings
@@ -71,6 +73,7 @@ vcp/
     test.ps1                   planned suite/case/backend dispatcher
     package.ps1                planned release assembly and checksums
     evals/                     planned evaluation orchestration
+    upstream/                  planned explicit import/reconstruction helpers
   artifacts/                   ignored local build, test, and evaluation output
 ```
 
@@ -111,6 +114,14 @@ A conventional Rust crate may have `Cargo.toml`, its own `src/`, and `tests/`; t
 - Memory accepts canonical records independently of search-index visibility. Embedding and search implementations stay local.
 - Keep vendored source and patch history identifiable. For an attributed port placed directly in a VCP module, record both the original and destination paths. Preserve upstream notices, fixtures, and relevant modification markers.
 - A retained upstream workspace may remain under `src/third_party/codex/` if flattening it would harm reuse. P0 chooses one authoritative build graph and documents the concrete manifest; do not maintain two independent engines to fit the diagram.
+
+## Codex source ownership and build participation
+
+[ADR-013](../adr/013-upstream-reuse-and-vendoring.md) fixes the repository convention: copy the selected pinned Codex source into `src/third_party/codex/` and commit it as ordinary VCP files, with reviewed patches already applied. Preserve useful upstream-relative structure such as `codex-rs/`. This is the engine/CLI foundation in the VCP build, not a reference-only checkout or a requirement to rewrite it into separate `vcp-*` crates.
+
+No Git submodule, gitlink, nested `.git`, or Git subtree workflow is planned. Normal builds consume the committed source without fetching Codex or applying patches. Explicit maintenance checks reconstruct it in a temporary directory from the pinned selection in `src/third_party/upstreams.toml` plus the ordered series in `src/third_party/patches/codex/`, then compare the result with the committed tree. Keep source, selection/hash records, patches, and applicable notices synchronized in each change. Other retained upstreams use separately identified patch records under `src/third_party/patches/` as needed.
+
+P0-07 owns revision selection and the unmodified native Windows baseline; P0-08 integrates VCP adapters and records retained modules versus replacements. Neither the exact manifest schema nor the retained-file list exists yet. `src/` still contains only its README; this policy adds no upstream source or working build.
 
 ## Scripts and generated material
 

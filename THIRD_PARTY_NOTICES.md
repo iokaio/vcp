@@ -18,8 +18,8 @@ This adaptation does not import Munarium runtime code. Statements in Munarium's 
 
 ## Future code, dependencies, and assets
 
-Codex, Gemini CLI, Munarium runtime components, Tantivy, DiskANN, and embedding assets are candidates in the architecture. No runtime dependency graph or model bundle exists in this checkout yet. Their appearance in design documents is not a claim that their code is already shipped.
+Codex is the planned engine/CLI foundation, to be copied and committed under `src/third_party/codex/` as defined in [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md). The exact revision, selected files, and dependency closure remain unqualified. Gemini CLI adaptations, Munarium runtime components, Tantivy, DiskANN, and embedding assets likewise require selection and qualification. No Codex source, other runtime dependency graph, or model bundle exists in this checkout yet. Design decisions do not count as shipped third-party material.
 
-When importing or distributing material, record its exact origin and version, destination files, license identifier, copyright, modifications, and required notices. Preserve full third-party license and notice texts under the planned `src/third_party/licenses/` or alongside the imported source, with an entry in `src/third_party/upstreams.toml`. Update this inventory from the actual shipped dependency and asset graph before a release.
+When importing material, record its exact origin and version, destination files, license identifier, copyright, modifications, and required notices. Preserve full third-party license and notice texts under the planned `src/third_party/licenses/` or alongside the imported source, with an entry in `src/third_party/upstreams.toml`. Add applicable attribution here and in `NOTICE` with the source import, and recheck this inventory against the actual shipped dependency and asset graph before a release. The current documentation clarification adds no Codex attribution entry because it adds no Codex source.
 
 The root project license does not replace another component's terms. Names belonging to other projects remain their owners' names; see [TRADEMARK.md](TRADEMARK.md).

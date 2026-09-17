@@ -2,6 +2,8 @@
 
 Contributions to the design, documentation, test scenarios, and implementation are welcome. VCP is currently in planning; read the [project status](README.md) and [implementation plan](docs/plan/README.md) before proposing runtime changes.
 
+AI agents working in this repository must also follow [AGENTS.md](AGENTS.md) or its identical [CLAUDE.md](CLAUDE.md) counterpart. Keep both guidance files synchronized when updating project instructions.
+
 ## Choose and scope a change
 
 Use [Issues](https://github.com/iokaio/vcp/issues) for non-sensitive defects, questions, and proposals. Search existing issues first. For implementation work, identify the task ID, completed dependencies, and acceptance criteria in the [traceability ledger](docs/plan/20-traceability.md). Discuss changes to confirmed product requirements or major source boundaries before investing in a large implementation. Small corrections can go straight to a pull request.
@@ -32,6 +34,8 @@ The pull request template asks about four kinds of provenance. Answer each, usin
 - Employer or contractual restrictions: confirm that any required permission to contribute has been obtained, without disclosing confidential agreements.
 
 For a selected source import or attributed port, update the planned `src/third_party/upstreams.toml` record when that manifest is introduced. Retain original notices and license texts, mark modifications in changed upstream files, and add relevant attribution to [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [NOTICE](NOTICE). Include fixture and model-asset provenance as well as production dependencies. A link to a repository alone is not an immutable source record.
+
+Codex imports follow [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md): copied source under `src/third_party/codex/` is committed with reviewed patches already applied. Review changes to that tree together with the ordered patch series, immutable source-selection/hash records, and notices. Prove that an isolated reconstruction matches the committed result. Do not introduce a submodule/subtree workflow or make normal builds fetch Codex and apply patches. This is planned import work; no Codex source exists in the current checkout.
 
 ## Development workflow
 

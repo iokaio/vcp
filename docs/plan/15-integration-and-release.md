@@ -47,6 +47,8 @@ Test install on a clean Windows environment, missing dependency/model, path chan
 
 Use the pinned component manifest to select a representative Codex/Gemini/Munarium update. Review selected code/dependency changes, reapply attributed ports/patches, rebuild and rerun affected upstream plus VCP R suites. Track patch size, failed assumptions and update effort.
 
+For Codex, follow [ADR-013](../adr/013-upstream-reuse-and-vendoring.md): prepare the new source selection and patches in an isolated directory, compare the reconstruction with the proposed committed tree, and verify the resulting source through the VCP build. Review the copied source, immutable pin, hashes, patch series, and notices together. Ordinary builds consume that committed result without fetching Codex or applying patches; upstream revision changes are explicit maintenance work.
+
 Check source/licenses/notices for shipped code, models and native assets, including crypto dependencies. Record exact build inputs with the package. Do not auto-update vendored code at runtime or preserve a green test by silently changing upstream expected behavior.
 
 ## P8-05 — Owner acceptance and release evaluation

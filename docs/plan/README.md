@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Plan revision 2 — September 17, 2026. Status: planned; code layout and open-source contribution conventions established, with no implementation or runtime test result implied.
+Plan revision 3 — September 17, 2026. Status: planned; code layout, contribution guidance, and committed Codex vendoring clarified, with no implementation or runtime test result implied.
 
 Start with [the code layout](code-layout.md), [the delivery contract](00-delivery-contract.md), [test infrastructure and acceptance](16-test-fixtures-and-acceptance.md), then [upstream feasibility](01-upstream-feasibility.md). These files expand [architecture draft 0.4](../architecture/vcp-what.md) into coding and testing work. The architecture remains authoritative for product behavior; this directory owns the detailed execution instructions and repository layout.
 
@@ -11,6 +11,7 @@ The repository currently contains documentation, community files, contribution t
 | File | Deliverable | Architecture work owned |
 |---|---|---|
 | [Code layout](code-layout.md) | Initial roots, target tree, logical package locations and placement rules | Shared repository convention; no additional product work item |
+| [ADR-013: committed vendoring](../adr/013-upstream-reuse-and-vendoring.md) | Codex copied-source policy, build participation, patch reconstruction and updates | Repository policy for P0-07/P0-08/P8-06; component qualification remains planned |
 | [00 Delivery contract](00-delivery-contract.md) | Shared working rules, source boundaries, check commands and evidence | Supporting guidance |
 | [01 Upstream feasibility](01-upstream-feasibility.md) | Native Windows Codex baseline, Munarium/search/storage/crypto prototypes | P0-01 through P0-09 |
 | [02 Engine state and capture](02-engine-state-and-capture.md) | Domain state, internal events, full artifacts and projections | P1-01, P1-02, P1-03, P1-06 |
