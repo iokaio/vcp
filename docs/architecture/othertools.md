@@ -2,7 +2,7 @@
 
 **Claude Code · OpenAI Codex · Google Gemini CLI / Antigravity CLI · Meta Muse Code · Cursor · GitHub Copilot · OpenCode · and the wider field**
 
-*Technical architecture reference — compiled September 16, 2026*
+*Technical architecture reference and VCP research/design workbook — expanded September 16, 2026*
 
 ---
 
@@ -10,11 +10,19 @@
 
 This document deconstructs the leading AI coding agents ("harnesses") as software systems: process topology, agent loop, tool layer, context and memory management, permission and sandbox model, extension surfaces, multi-agent orchestration, persistence, and observability. It is written for architects who want to understand *how these tools are built*, not how to use them.
 
+The VCP-specific research starts in [section 14](#14-vcp-requirements-and-evidence-rules), with a common investigation template in [section 15](#15-the-dossier-required-for-every-tool), individual tool investigations in [section 16](#16-tool-by-tool-deep-dive-workbooks), [Munarium memory](#17-munarium-and-the-vcp-memory-design), [OpenRouter and cost routing](#18-openrouter-and-the-vcp-model-strategy), and a [proposed VCP architecture](#19-proposed-vcp-architecture). [Section 20](#20-evaluation-plan-and-acceptance-evidence) defines experiments; [section 21](#21-decisions-deliverables-and-implementation-order) turns their results into a design. All VCP interfaces and defaults below are proposals, not implemented features.
+
+**Reuse direction updated September 16, 2026:** the owner's subsequent instruction authorizes borrowing from the projects in [open-source.md](open-source.md), especially Codex and Gemini CLI. The current [architecture reuse policy](vcp-what.md#02-open-source-reuse-policy), component mappings, and E/M/R acceptance gates supersede the earlier no-code-borrowing constraint. Retain attribution and source revisions for reused code, ports, prompts, and fixtures; VCP's OpenRouter and local-memory requirements remain in force.
+
+**Current product scope:** the owner's design answers are recorded in [vcp-what.md section 0.4](vcp-what.md#04-owner-decisions-and-their-design-consequences). They supersede older VCP proposals here: native Windows CLI first; API/editor/other platforms and hooks/imports later; Apache-2.0; maximum reasonable Codex reuse plus selected Munarium code; local embeddings; full history and automatic scoped memory; required MCP/skills/visible delegation; project optimization; pause/resume; and portable cloud-folder snapshots with storage choice. Use that design's current backlog and U01–U09 acceptance suites rather than treating this workbook's earlier implementation order as binding.
+
+**Encryption clarification, September 17:** active local files, SQLite/files history and memory/indexes need no VCP encryption. Every cloud-bound VCP backup payload, manifest and index must be encrypted locally before entering the sync folder, with a developer-held recovery key stored separately. Decryption occurs on the destination machine. Provider-managed encryption or HTTPS alone is insufficient. [The current encryption/key design](vcp-what.md#1211-local-plaintext-encrypted-vaults-and-developer-keys) and ADR-019 supersede earlier encryption proposals here.
+
 Three caveats apply throughout:
 
 1. **Source visibility differs.** Codex, Gemini CLI, OpenCode, Cline, and Aider are open source, so their internals are directly inspectable. Claude Code, Antigravity CLI, Muse Code, Cursor, and Copilot are closed source (Claude Code ships a native binary; its documentation and Agent SDK expose the loop's semantics in detail). For closed tools, the deconstruction relies on official documentation, protocol schemas, vendor engineering posts, and reputable third-party teardowns; those sections are labelled accordingly.
-2. **The field moves monthly.** Version numbers, model names, and pricing in this document were checked against sources dated May–September 2026 and should be treated as a snapshot. Items marked *(reported)* come from secondary sources and have not been independently verified against source code.
-3. **Agent = model + harness.** Since mid-2025 the industry consensus has been that frontier model quality has largely converged and that the harness — the loop, the tools, the context strategy, the safety envelope — now determines most of the observable differences between tools [[F1]](#references). Meta's decision to co-train Muse Spark inside the Muse Code harness makes this explicit [[M2]](#references).
+2. **Evidence has different confidence levels.** Sections 1–13 preserve the original survey, which mixes vendor documentation, secondary reports, and architectural interpretation. This expansion does not certify every original version number, price, adoption statistic, internal implementation detail, or feature matrix cell. Use the directly linked primary sources and explicit evidence rules in sections 14–21 before relying on a claim in VCP's design. No competitor runtime benchmarks or crash-recovery experiments were performed for this document.
+3. **Agent = model + harness + environment.** Tool design, context selection, execution policy, and model capability all affect results. Their relative contribution must be measured on comparable tasks; model quality convergence and universal superiority of one harness are not assumptions for VCP.
 
 ---
 
@@ -22,8 +30,8 @@ Three caveats apply throughout:
 
 | Tool | Vendor | Primary surface(s) | Language / runtime | License | Model policy |
 |---|---|---|---|---|---|
-| Claude Code | Anthropic | Terminal, VS Code/JetBrains, desktop app, web (claude.ai/code), iOS, GitHub Action, Agent SDK | Native binary (formerly Node/TypeScript) | Proprietary | Anthropic-hosted only |
-| Codex | OpenAI | Terminal (TUI), VS Code, desktop app, web (chatgpt.com/codex), mobile, cloud sandboxes, SDK | Rust (`codex-rs` Cargo workspace) with thin npm wrapper | Apache-2.0 | OpenAI-hosted only |
+| Claude Code | Anthropic | Terminal, VS Code/JetBrains, desktop app, web (claude.ai/code), iOS, GitHub Action, Agent SDK | Native binary (formerly Node/TypeScript) | Proprietary | Claude models; multiple documented hosting options (section 14.3) |
+| Codex | OpenAI | Terminal (TUI), VS Code, desktop app, web (chatgpt.com/codex), mobile, cloud sandboxes, SDK | Rust (`codex-rs` Cargo workspace) with thin npm wrapper | Apache-2.0 | OpenAI default; configurable providers on supported surfaces (section 14.3) |
 | Gemini CLI | Google | Terminal, IDE via ACP, GitHub Action | TypeScript / Node.js monorepo | Apache-2.0 | Gemini (API key or enterprise license only after June 18, 2026) |
 | Antigravity CLI (`agy`) | Google | Terminal; shares harness with Antigravity 2.0 desktop | Go | Proprietary | Curated Gemini (plus other vendors, reported) |
 | Muse Code | Meta Superintelligence Labs | Terminal and CI | Single ~97 MB static binary | Proprietary | Muse Spark 1.3 (co-trained) |
@@ -402,7 +410,7 @@ Copilot's strength is distribution and GitHub-native governance (org policies, a
 - **Topology.** A **client/server** architecture in TypeScript on Bun: `opencode serve` starts a headless server with an OpenAPI-described HTTP/SSE interface; the terminal TUI, IDE extensions, a desktop app, and remote clients are all clients of it. This is why it can run on a remote box or inside CI and be driven from anywhere [[P2]](#references).
 - **Model layer.** Provider-agnostic via the Vercel AI SDK and a `models.dev` catalogue: 75+ providers including Anthropic, OpenAI, Google, OpenRouter, Bedrock, Vertex, Groq, and local models via Ollama/LM Studio; a GitHub Copilot authentication partnership (January 2026) allows Copilot subscriptions as a backend. Anthropic prohibits using Claude Pro/Max subscriptions in third-party harnesses, so Claude works only via API key [[P2]](#references)[[F5]](#references).
 - **Harness.** Primary agents (`build`, `plan`) and sub-agents defined in JSON or Markdown, each with its own model and permission set; `AGENTS.md`; `SKILL.md` skills sharing the Claude Code/Codex standard; MCP; **LSP integration** so the agent receives diagnostics from real language servers rather than re-parsing output; session persistence and sharing via `/share` links [[P2]](#references).
-- **Assessment.** The strongest option when model independence or self-hosting is a requirement; benchmark performance is entirely a function of the model chosen. Its OpenAPI server makes it the easiest harness to embed without an SDK.
+- **Assessment.** A useful reference when model independence or headless embedding is required. Its OpenAPI server provides a documented integration surface. Compare model quality together with context, tool, retry, and execution behavior; performance and ease of embedding require task-specific evaluation.
 
 ---
 
@@ -417,7 +425,7 @@ Copilot's strength is distribution and GitHub-native governance (org policies, a
 | **Devin / Windsurf** (Cognition) | Devin runs fully autonomous agents in cloud VMs that open PRs; Windsurf (acquired December 2025) is an agentic IDE whose 2.0 release (April 2026) added an Agent Command Center and Devin Cloud integration, converging IDE and cloud-agent surfaces [[F9]](#references). |
 | **Crush** (Charm, FSL-1.1-MIT, Go) | TUI-first multi-model agent with MCP and LSP; representative of the Go-based harness generation alongside Antigravity CLI [[F9]](#references). |
 | **Amazon Q Developer CLI / Kiro** | AWS's terminal agent and spec-driven IDE; Kiro's distinguishing architecture is **spec-first** (requirements → design → tasks documents) with agent hooks bound to file events. |
-| **Claw Code** (MIT) | A community clean-room Python/Rust reimplementation of Claude Code's architecture that community trackers report as the fastest repository ever to 100k stars (2026); included here as evidence that the *harness design* itself has become a reproducible artefact [[F4]](#references). |
+| **Claw Code** | Research lead with unresolved project identity and provenance; the original survey's clean-room characterization is not established. Complete the provenance gate in section 16.17 before using it as a VCP reference. |
 
 ---
 
@@ -427,7 +435,7 @@ Copilot's strength is distribution and GitHub-native governance (org policies, a
 |---|---|---|---|---|---|---|---|---|
 | Engine language | Native binary | Rust | TypeScript | Go | Native binary | TS/Electron + Rust svcs | TypeScript | TypeScript/Bun |
 | Open source | No | Yes | Yes | No | No | No | No | Yes |
-| Client/engine protocol | SDK over stdio (no public wire protocol) | JSON-RPC 2.0 app-server (stdio/WS/relay) | In-process cli↔core; ACP for editors | Shared harness w/ desktop (undocumented) | Event log + TUI (undocumented) | Proprietary | Proprietary | OpenAPI HTTP/SSE server |
+| Client/engine protocol | SDK over stdio | App-server protocol (version/surface dependent) | In-process cli↔core; ACP for editors | Shared harness w/ desktop (details require verification) | MSP and public SDK in developer preview | Proprietary | Surface-dependent | OpenAPI HTTP/SSE server |
 | Edit primitive | Exact-string `Edit`/`Write` | Structured `apply_patch` | `replace`/`write_file` | (inherited) | Reported search/replace | Inline diff streaming | Diff | Search/replace |
 | Shell sandbox | Seatbelt / bwrap | Seatbelt / bwrap / Win restricted token | Docker/Podman / Seatbelt | Reported | Reported; hooks on permissions | Cloud VM for cloud agents | GitHub Actions runner | Host permissions; container optional |
 | Permission modes | default/acceptEdits/plan/dontAsk/auto (classifier)/bypass | untrusted/on-request/never × readOnly/workspaceWrite/full; Guardian | Policy engine + approval modes | Inherited | Approval-gated plan; permission hooks | Per-action approvals | Per-action + org policy | Per-agent permission sets |
@@ -438,7 +446,7 @@ Copilot's strength is distribution and GitHub-native governance (org policies, a
 | Worktree isolation | `--worktree`, agent teams | Desktop worktree-per-task | Shadow-git checkpoints | — | Default fan-out mechanism | Agents Window (local/cloud/SSH/worktree) | Actions runner | — |
 | Persistent background agents | Background sub-agents | Automations, cloud tasks | — | Async sub-agent mode | Four session-long observers | Cloud Agents | Coding agent | — |
 | Durable event log | JSONL transcripts | Rollout files + W3C trace ctx | Session logs | — | Append-only, replay-exact | — | Actions logs | Sessions, `/share` |
-| Model choice | Anthropic only | OpenAI only | Gemini | Curated | Muse Spark | Curated + in-house | Curated, auto-routed | Any |
+| Model choice | Claude family; hosting varies | OpenAI default; configurable providers | Gemini | Curated | Muse Spark | Curated + in-house | Curated; routing varies | Multiple providers; capability dependent |
 
 ---
 
@@ -454,7 +462,7 @@ Three techniques now separate mature harnesses from naive ones: **deferred tool 
 Every harness now offers a deterministic control plane around the stochastic loop: hooks that run outside the context window, policy engines with pattern rules, OS sandboxes, and (Codex's Guardian, Claude Code's `auto` mode) model-based classifiers positioned as a *second* probabilistic layer that is cheaper and more constrained than the main model. Architecturally, the correct mental model is defense in depth: permission rule → hook → classifier → sandbox.
 
 ### 12.4 Event sourcing is becoming the substrate for trust
-Codex rollouts, Claude Code transcripts, OpenHands event streams, and above all Muse Code's write-ahead event log point toward a shared conclusion: a coding agent that can crash after twenty hours, be audited by a security team, and be replayed exactly needs an append-only record of intents and effects, not a chat history. Tools that separate *intent recorded* from *effect confirmed* (Muse Code) get restart-safety for free; tools that only log messages must reconstruct state heuristically.
+Codex rollouts, Claude Code transcripts, OpenHands event streams, and Muse Code's documented event log make durable execution records an important research topic. Recording intent separately from confirmed effects supports recovery, but does not guarantee it: external side effects, lost acknowledgements, and non-idempotent commands require reconciliation. Section 19.7 defines VCP's proposed distinction between trace replay, state reconstruction, and task re-execution.
 
 ### 12.5 Git worktrees are the parallelism primitive
 Rather than inventing new isolation mechanisms, the leading tools reach for git's own: one worktree per agent, detached from the lead's HEAD, merged after review. This keeps the developer's working copy untouched, makes conflicts explicit at merge time, and composes with existing CI.
@@ -483,7 +491,1133 @@ Meta trained Muse Spark inside Muse Code; Anthropic and OpenAI train their model
 
 ---
 
+## 14. VCP requirements and evidence rules
+
+### 14.1 What this research must produce
+
+[vcp-what.md](vcp-what.md) supplies the product direction, refined by the owner's clarification that memory will use local RAM and disk, Tantivy and DiskANN, with files versus SQLite still TBD. The purpose of studying other harnesses is to turn that direction into explicit contracts, measurable trade-offs, and an implementation sequence.
+
+| ID | Requirement from the VCP brief | Information needed to design it | Required design output |
+|---|---|---|---|
+| R1 | Build local memory inspired by Ioka Munarium Server, using RAM/disk, Tantivy, and DiskANN; files or SQLite TBD | Fact lifecycle, provenance, contradictions, historical views, lexical/vector retrieval, index consistency, durable writes and recovery | Original memory kernel, storage/index contracts, and a files-versus-SQLite decision |
+| R2 | Intelligently combine models through OpenRouter | Model capabilities, provider differences, task-specific quality, fallback behavior, context portability, latency and cost | Capability registry, routing policy, evaluation dataset, and provider adapter contract |
+| R3 | Expose more prompts, data, and operational detail | What the harness can actually observe; prompt assembly; tool inputs/results; model selection; compaction; redaction | Inspectable event schema, prompt manifests, cost ledger, and export/replay semantics |
+| R4 | Provide a CLI, VS Code extension, and API | Process ownership, streaming, cancellation, approvals, reconnect, editor state, remote workspace paths | One engine contract, three clients, compatibility/versioning rules |
+| R5 | Borrow suitable licensed open-source components, especially Codex and Gemini CLI | Component source/revision/license, dependency closure, integration boundaries, retained tests, maintenance burden | VCP contracts plus reuse/port decisions, source notices, and VCP-specific acceptance evidence; see architecture ADR-013/014 |
+| R6 | Familiar workflows with VCP-specific behavior | Session commands, planning, edits, reviews, checkpoints, steering, task completion | CLI grammar and equivalent editor/API workflows |
+| R7 | Offer low, med, and high cost goals | Per-task budgets, all child-agent costs, quality thresholds, escalation triggers, estimates versus actual charges | Versioned cost profiles with explicit limits and an explanation for each routing decision |
+
+Native Windows support, remote workers, team memory, and enterprise administration are **design candidates**, not requirements already settled by the brief. Local RAM/disk memory with Tantivy and DiskANN is the clarified direction; files versus SQLite remains open. Include Windows in the evaluation because the current VCP workspace is on Windows; explicitly decide the supported platform matrix before committing to a sandbox implementation.
+
+### 14.2 Evidence labels and source discipline
+
+Use these labels in future dossiers and architecture decision records (ADRs):
+
+| Label | Meaning | Suitable use |
+|---|---|---|
+| Documented | A directly inspected, attributable primary source describes the behavior | Establish the vendor's public contract; do not imply independent runtime validation |
+| Observed | A reproducible experiment demonstrates behavior for a pinned version/configuration | Support a narrowly scoped implementation decision |
+| Inferred | A plausible explanation derived from public behavior | Generate an experiment; do not present it as an internal implementation fact |
+| Unverified | Original survey, secondary report, inaccessible source, or unresolved contradiction | Research backlog only |
+| Proposed | VCP-specific choice or interface designed here | Candidate for an ADR and prototype |
+
+For each consequential claim, record the product surface, source URL and section, access date, product version or documentation revision if available, configuration, evidence label, and competing interpretations. A documentation access date is not a pinned software release. A public repository does not make every commercial surface open source.
+
+The investigation packets in section 16 contain **documented starting points, open questions, and proposed experiments**. They are not completed runtime audits. Exact module paths should be resolved at the selected release; a current branch name is insufficient evidence of a historical implementation.
+
+The owner's later reuse instruction supersedes the original no-code-borrowing rule. Inspect and reuse suitable licensed implementations, or make attributed ports, when they satisfy VCP's contracts with a manageable dependency and maintenance burden. Pin source revisions, preserve applicable notices, and retain provenance for code, prompts, fixtures, and assets actually selected. Closed-source products remain behavioral references. Refer to a protocol with attribution if compatibility is chosen; do not assume a similarly named command provides compatibility. The governing integration and update process is in [vcp-what.md](vcp-what.md#02-open-source-reuse-policy).
+
+### 14.3 Corrections and qualifications to the original survey
+
+These observations take precedence over conflicting summaries or matrix cells in sections 1–13.
+
+| Original shorthand | Qualification for VCP research |
+|---|---|
+| Codex is OpenAI-hosted only | Current advanced configuration documents custom model providers. Investigate each surface separately and test protocol compatibility; custom provider configuration is not a promise that every model works. [Official configuration](https://learn.chatgpt.com/docs/config-file/config-advanced) |
+| Claude Code is Anthropic-hosted only | Model family and inference host are different dimensions. Anthropic documents third-party enterprise deployment options. Record the actual model, endpoint, authentication, and feature availability. [Enterprise deployment](https://code.claude.com/docs/en/third-party-integrations) |
+| Muse Code has an undocumented client protocol | Meta publishes a developer-preview SDK and Muse Session Protocol declarations. The engine remains separate from the public SDK, and preview APIs carry a stability caveat. [Muse Code SDK](https://github.com/meta-models/muse-code-sdk) |
+| Gemini CLI is simply retired | Google's announcement distinguishes individual access from continuing enterprise/API-key access and explicitly says Antigravity does not initially have complete feature parity. [Google announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/) |
+| Amazon Q CLI and Kiro CLI are independent current targets | AWS documentation says Q CLI has become Kiro CLI. Study historical migration behavior separately from the current Kiro interface. [AWS command-line documentation](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line.html) |
+| Pi has a fixed tiny prompt and a universal extension/security model | The current project has moved to `earendil-works/pi`. Its README explicitly says it has no built-in access-restricting permission system. Pin the release and measure prompt size and extension behavior. [Pi repository](https://github.com/earendil-works/pi) |
+| An append-only log guarantees restart safety | Logging alone cannot make shell commands or external writes exactly-once. Recovery needs durable intent, effect reconciliation, idempotency where available, and an explicit unknown-outcome state. This is a VCP design constraint. |
+| A worktree is a sandbox | A worktree isolates Git working state. It does not isolate credentials, processes, network access, shared Git metadata, or all external files. Evaluate those boundaries independently. |
+| OpenCode performance depends entirely on the chosen model | This is not a valid experimental assumption: prompt assembly, edit tools, search, permissions, retries, and environment also affect outcomes. |
+| Every checkmark means equivalent skills/hooks/sub-agents | Names are insufficient. Compare activation, inheritance, authority, side effects, failure behavior, and lifecycle separately. |
+| Claw Code is established as a clean-room reference | Treat identity and provenance as unresolved until the intended project and source history are established. Popularity does not establish source rights or suitability for reuse. |
+
+Adoption numbers, subscription prices, model rankings, binary sizes, crate counts, and undocumented queue capacities are not design requirements. Retain them as historical context only until separately verified.
+
+## 15. The dossier required for every tool
+
+### 15.1 Capture a complete vertical slice
+
+For each tool, trace one task from user request to verified change. Document both the successful path and the paths for denial, timeout, cancellation, process failure, stale context, and budget exhaustion.
+
+| Investigation area | Questions that must be answered | Artifact to capture |
+|---|---|---|
+| Identity and scope | Which release, distribution, surface, OS, account tier, provider, and experimental flags? | Version/configuration manifest; documentation revision |
+| Process topology | Who owns the session, credentials, filesystem, subprocesses, and network connections? | Process/deployment diagram and trust boundaries |
+| Client protocol | Commands versus events; streaming units; acknowledgements; request IDs; reconnect cursors; approval ownership? | Message sequence diagram and redacted protocol transcript |
+| Agent loop | What constitutes a user turn or model step? Who decides to continue, stop, retry, or escalate? | State machine and terminal-reason taxonomy |
+| Prompt assembly | Which instructions apply, in which order, and with what trust? When do tools, skills, memory, files, and diagnostics load? | Ordered context manifest with byte/token counts and source hashes |
+| Context maintenance | Truncation versus compaction; preservation of tool-call pairs, goals, approvals, file versions, and unresolved work? | Before/after compaction manifest and information-loss cases |
+| Model adapter | Tool schemas, streaming fragments, structured output, reasoning metadata, caching, multimodal input, provider errors? | Capability matrix and adapter conformance cases |
+| Edit/execution tools | Patch preconditions, partial edits, encoding, line endings, shell state, PTY behavior, output caps, process-tree cancellation? | Tool contracts and filesystem/process observations |
+| Permissions/isolation | What is enforced outside the model? Can a hook rewrite inputs? What invalidates an approval? | Decision table and adversarial boundary cases |
+| Memory/search | Session versus durable facts; retrieval filters; provenance; deletion; stale branches; contradictory facts? | Data model and retrieval quality examples |
+| Parallelism | Shared state, child authority, cancellation propagation, depth limits, scheduling, merge responsibility? | Task graph and conflict/recovery transcript |
+| Persistence | What is durable before execution? What happens after an incomplete write or interrupted external effect? | Crash-point matrix and reconciled event trace |
+| Extensions | Discovery, lazy loading, trust, permissions, schema changes, hook timeout, plugin upgrade/uninstall? | Lifecycle contract and compatibility table |
+| Observability | Can a user reconstruct the prompt, tool result, model choice, spend, and omitted data? | Trace export plus documented visibility gaps |
+| Distribution | Install/update/rollback, offline startup, native dependencies, signing, credential storage, migration behavior? | Reproducible setup and rollback procedure |
+
+Do not fill gaps with invented internals. For closed products, document the observable contract and leave the mechanism unknown. For a feature requiring unavailable account access, record that limitation and continue with other evidence.
+
+### 15.2 Shared research fixtures
+
+Prepare small disposable repositories with known expected results:
+
+1. A single-file defect with a failing test, a pre-existing user edit, and an unrelated untracked file.
+2. A multi-package change with a generated file, dependency boundary, and tests that catch a partial fix.
+3. Nested instruction files with conflicting scopes, an untrusted document containing tool-like instructions, and a deliberately stale memory claim.
+4. A large repository slice with repeated symbol names, long tool output, and enough conversation to require compaction.
+5. A concurrent-edit fixture: two workers touch overlapping code while the editor holds an unsaved change.
+6. A controlled local service with idempotent and non-idempotent operations, delayed responses, disconnects, and duplicate deliveries.
+7. Path fixtures for spaces, Unicode, CRLF/LF, symlinks, Windows junctions, and paths outside the workspace.
+
+Use synthetic secrets and local mock endpoints. Preserve the initial Git state, dataset seed, environment manifest, expected behavior, and final diff. Do not benchmark against a developer's active workspace.
+
+### 15.3 Deliverable and stopping rule
+
+Each dossier must end with: **pattern/component worth adopting; evidence; limitations; VCP contract and reuse/port decision; alternatives; measured cost/quality effect; and a recommended ADR**. For selected code, add the source revision, license/notice manifest, dependency closure, adaptation tests, and maintenance owner. Stop researching a feature when there is enough evidence to choose and test VCP's contract. Do not reverse-engineer every hidden implementation detail merely to complete a comparison table.
+
+## 16. Tool-by-tool deep-dive workbooks
+
+The experiments below are future research tasks. Each tool also inherits the common dossier requirements in section 15.
+
+### 16.1 Claude Code: context economy and extensibility
+
+**Documented starting point.** Anthropic describes the agent loop, local session transcripts, compaction, deferred MCP tool definitions, and independently scoped sub-agents. Its permission documentation describes rule enforcement outside the model. These are useful references for context and authority boundaries. [How Claude Code works](https://code.claude.com/docs/en/how-claude-code-works), [permissions](https://code.claude.com/docs/en/permissions).
+
+**Investigate in depth:**
+
+- Trace instruction discovery and configuration precedence independently. Determine how nested files, imports, changed instructions, manual skills, and forked sub-agents affect the next request.
+- Measure schema and skill-description overhead with zero, ten, and one hundred available tools. Determine what is retained after tool discovery and compaction.
+- Map documented SDK messages to user turns, model steps, tool runs, permission decisions, and child sessions. Identify which usage totals overlap before summing them.
+- Determine hook ordering, input-rewrite behavior, timeouts, denial propagation, and whether modified tool arguments receive a fresh policy check.
+- Compare session resume, conversation fork, filesystem checkpoint restore, and Git rollback. Capture exactly which external effects each operation cannot undo.
+
+**Experiment/output.** Run a scoped-instruction task with a lazy skill, deferred tool, child investigation, forced compaction, and denied command. Produce a prompt-cost waterfall and a permission/lifecycle sequence diagram.
+
+**VCP decision.** Adopt small discovery manifests and explicit hook contracts if they reduce context cost without hiding provenance. Keep authoritative policy separate from model-visible instructions; avoid assuming a skill, hook, and sub-agent are interchangeable.
+
+### 16.2 OpenAI Codex: engine protocol and execution boundaries
+
+**Documented starting point.** The app-server documentation exposes session/thread operations, streamed items, turn control, and client responses to server requests. Use the documented protocol to study engine/client separation. Record version-specific fields rather than treating all methods in the original survey as stable. [Codex app server](https://learn.chatgpt.com/docs/app-server).
+
+**Investigate in depth:**
+
+- Trace initialization, capability negotiation, session start/resume, turn start, tool approval, cancellation, and completion. Distinguish server requests from notifications and client commands.
+- Establish behavior when a client disconnects during approval, two clients respond, or an event consumer is slow. Determine what can be recovered from persisted state.
+- Compare the boundaries among the terminal interface, core session runtime, app-server, and execution service using public architecture documents. Do not infer deployment topology from a crate directory alone.
+- Test patch failures against changed files, shell process-tree cancellation, timeout semantics, and path policy on each supported OS.
+- Review custom-provider configuration separately from the default OpenAI workflow, including supported wire APIs, tool formats, authentication, and missing model capabilities. [Advanced configuration](https://learn.chatgpt.com/docs/config-file/config-advanced)
+
+**Experiment/output.** Drive one disposable session through a terminal-like client and an editor-like client; interrupt a command, detach/reconnect, and reconstruct the final state. Produce VCP's transport comparison and approval correlation contract.
+
+**VCP decision.** Favor a shared engine and typed protocol with explicit state ownership. Choose VCP's own stable subset before implementing transport adapters; do not inherit every experimental RPC family.
+
+### 16.3 Gemini CLI: core separation, policy, and context imports
+
+**Documented starting point.** Google's core documentation is an entry point for API interaction, tool management, and agent responsibilities. The transition announcement defines continuing access conditions; it does not establish parity with Antigravity. [Gemini CLI core](https://geminicli.com/docs/core/), [transition announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
+
+**Investigate in depth:**
+
+- Trace the CLI/core boundary and distinguish an in-process API from a network server. Locate public contracts for settings, tool registration, and session persistence.
+- Examine the policy engine's precedence, argument matching, and approval modes. Test conflicting rules and whether repository configuration can broaden authority.
+- Determine import resolution, circular-import detection, nested instruction scope, and context compression behavior.
+- Investigate loop detection through observable repeated-tool and repeated-text cases. Separate deterministic repetition checks from any model-based continuation judgment.
+- Evaluate checkpoint restoration, including shell-generated files and external effects; compare ACP session behavior with the terminal workflow.
+
+**Experiment/output.** Use conflicting scoped instructions, a repeated failing tool, a large output, and a checkpoint restore. Produce a policy decision table and a context/import dependency graph.
+
+**VCP decision.** Reuse the architectural idea of a UI-independent core and transparent policy evaluation. Treat loop detection as bounded recovery with a visible stop reason, not an invitation to keep retrying.
+
+### 16.4 Antigravity CLI: asynchronous work across surfaces
+
+**Documented starting point.** Google describes a Go CLI sharing a harness with Antigravity desktop and supporting asynchronous agent workflows. The announcement establishes product direction, not a full wire contract or execution guarantee. [Google's architecture and transition announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
+
+**Investigate in depth:**
+
+- Establish current CLI, desktop, and SDK feature availability from their own versioned documentation. Track migration compatibility separately from new features.
+- Identify who owns background jobs when a terminal closes, how progress is delivered, and whether credentials and workspaces belong to the local or remote host.
+- Test steering, pause, cancel, attach, and result review while several jobs are active. Determine whether cancellation affects children and external commands.
+- Examine worktree support, shared mutable files, artifact handoff, plugin configuration migration, and missing equivalents for Gemini features.
+
+**Experiment/output.** Start two independent tasks, disconnect one client, steer the other, and resume observation. Produce a job lifecycle and surface-parity matrix.
+
+**VCP decision.** Treat background execution as a durable engine capability. Keep transport and UI changes from silently changing the task's execution environment or authority.
+
+### 16.5 Muse Code: observers, goal persistence, and recoverable execution
+
+**Documented starting point.** Meta's launch material describes persistent background agents and an append-only execution record. The public SDK repository adds MSP declarations, generated types, and conformance transcripts, while identifying its API as developer preview. Runtime guarantees still require fault-injection tests. [Meta launch description](https://research.meta.ai/blog/introducing-muse-code-and-muse-spark-1-2), [SDK and protocol](https://github.com/meta-models/muse-code-sdk).
+
+**Investigate in depth:**
+
+- Study MSP session ownership, host spawning/attachment, event ordering, approval messages, cancellation, and protocol version negotiation. Record schema fingerprints.
+- Determine each observer's trigger, input view, result-delivery mechanism, deduplication, and spend. Verify which agents are actually enabled for the pinned release.
+- Trace goal persistence through compaction and user steering. Distinguish an explicit user goal from an observer's inferred task.
+- Test worktree fan-out, dirty-parent handling, merge conflicts, child failure, and behavior outside Git. Never infer safe isolation from the presence of an isolation flag.
+- Kill a disposable host before tool dispatch, after dispatch, and after an effect but before result recording. Determine how unknown outcomes are presented and reconciled.
+
+**Experiment/output.** Compare an observer-free run with recall, goal tracking, and verification added individually. Collect useful interventions, false interventions, duplicated context, latency, and total cost.
+
+**VCP decision.** Evaluate event-triggered observers before paying for session-long model activity. Specify replay of recorded observations separately from re-execution; never promise exactly-once external effects from logging alone.
+
+### 16.6 Cursor: editor context and review
+
+**Documented starting point.** Cursor documents search tools and codebase context at the user-facing boundary. That does not establish the original survey's assertion that the editor and agent share one process or event loop. Investigate observable synchronization rather than assuming internal topology. [Cursor search documentation](https://cursor.com/docs/agent/tools/search).
+
+**Investigate in depth:**
+
+- Determine whether the agent sees disk content, unsaved buffers, selections, diagnostics, and recently edited files; identify version markers for each.
+- Compare lexical search and indexed search for recently changed, renamed, ignored, deleted, generated, and large files. Capture indexing lag and stale results.
+- Test streamed edit review when the developer types into the same file. Establish when a proposed diff is applied, rebased, rejected, or invalidated.
+- Separate local agents, CLI sessions, and cloud execution: credentials, filesystem location, environment setup, task continuation, and result transfer.
+- Investigate what users can export about context selection, routing, and billable work, and document visibility gaps rather than attributing hidden behavior.
+
+**Experiment/output.** Introduce an unsaved conflicting edit and rename an indexed symbol during a task. Produce an editor-context contract and a disk-versus-buffer conflict matrix.
+
+**VCP decision.** Make editor context explicit and versioned. The extension should report selected text and buffer versions to the engine; every write needs a freshness check.
+
+### 16.7 GitHub Copilot: three separate investigations
+
+**Documented starting point.** GitHub distinguishes local IDE agent mode from its cloud agent, which uses an ephemeral GitHub Actions environment and can work on a branch before creating a PR. This distinction matters for session ownership and external side effects. [About Copilot cloud agent](https://docs.github.com/en/copilot/concepts/agents/coding-agent/about-coding-agent).
+
+Treat IDE, CLI, and cloud behavior as separate dossiers:
+
+| Surface | Deep-dive questions | Experiment and design artifact |
+|---|---|---|
+| IDE agent mode | Which editor context is supplied? How are terminal tools approved? How do instruction files, diagnostics, and MCP affect requests? | Dirty-buffer edit and approval interruption; editor/tool sequence |
+| CLI | Which model choices and automatic routing are documented for the selected release? How do shell permissions, session resume, plugins, and cost reporting work? | Same task in interactive and headless modes; command/output and authority contract |
+| Cloud agent | What identity can read, push, or open a PR? Which setup steps and network rules apply? What triggers workflow execution and final publication? | Disposable issue-to-branch-to-draft-PR task; identity/effect graph and environment manifest |
+
+For all three, capture cancellation limits, account-dependent availability, instruction precedence, model attribution, and how human review changes the task. Verify billing against the applicable current documentation rather than retaining the survey's historical pricing shorthand.
+
+**VCP decision.** Separate local execution from external publication in the task model. A completed patch, a pushed branch, an opened PR, and a merged PR are different durable effects with different authority.
+
+### 16.8 OpenCode: provider portability and a headless service
+
+**Documented starting point.** OpenCode exposes a server API and documents multiple model providers. Its server documentation is a useful comparator for an HTTP-based engine API; provider breadth does not imply identical behavior across models. [Server API](https://opencode.ai/docs/server/), [providers](https://opencode.ai/docs/providers/).
+
+**Investigate in depth:**
+
+- Trace session creation, prompt submission, event streaming, approvals, and reconnect through documented HTTP endpoints. Examine authentication and binding defaults separately from remote deployment examples.
+- Compare provider capability discovery with actual tool-call success, structured output, context limits, and error normalization.
+- Establish how model changes affect prior tool messages, reasoning metadata, caching, and compaction. Determine whether a fallback is visible in the session record.
+- Examine per-agent configuration, planning versus execution permissions, LSP diagnostics, and lazy instruction/skill loading.
+- Study session storage, migrations, export/sharing, and how sharing affects source-code and credential exposure.
+
+**Experiment/output.** Run the same task using two providers through the same client, induce one provider failure, and reconnect the event consumer. Produce an adapter matrix and HTTP/SSE protocol trade-off report.
+
+**VCP decision.** Keep the provider adapter replaceable and the normalized event stream stable. Use explicit capability checks rather than treating an OpenAI-compatible endpoint as full semantic compatibility.
+
+### 16.9 Cline: planning boundaries and human review
+
+**Documented starting point.** Cline documents distinct Plan and Act modes with conversation continuity between them. The mode transition is a useful reference for separating exploration from execution while preserving context. [Plan and Act](https://docs.cline.bot/core-workflows/plan-and-act).
+
+**Investigate in depth:**
+
+- Determine which tools are available in each mode, how the restriction is enforced, and what changes when different models are assigned to planning and execution.
+- Trace the extension/UI-to-task boundary, approval messages, streamed edits, and interaction with unsaved editor buffers.
+- Verify the current checkpoint and context-condensation behavior from release-specific documentation; do not assume the earlier survey's named `condense` tool is present everywhere.
+- Examine task history, auto-approval scope, tool output limits, browser/MCP effects, and whether cost totals include retries and summary calls.
+
+**Experiment/output.** Build a plan with one model, execute with another, force context reduction, and interrupt a pending edit. Capture retained constraints and extra tokens required by the handoff.
+
+**VCP decision.** Define a model-independent task brief and explicit execution authority. A model switch should not reset approved scope or erase unresolved questions.
+
+### 16.10 Aider: compact repository context and edit reliability
+
+**Documented starting point.** Aider documents a repository map that selects useful code structure within a token budget. It is a concrete alternative to sending large file sets or requiring a semantic index for every task. [Repository map](https://aider.chat/docs/repomap.html).
+
+**Investigate in depth:**
+
+- Determine how symbols, references, selected files, and query relevance affect the map. Test unsupported languages, generated code, and monorepo boundaries.
+- Compare edit formats on the same model and task: malformed edits, ambiguous matches, stale content, retry cost, and partial application.
+- Investigate Git integration and checkpoint behavior with staged changes, untracked files, existing user edits, and repositories where automatic commits are disabled.
+- Study planner/editor separation where documented, including the context passed to an editing model and how errors return to the planner.
+
+**Experiment/output.** Compare lexical search alone, a symbol map, and retrieval-assisted context on multi-file fixes. Report task success, context tokens, wrong-file edits, and patch repair attempts.
+
+**VCP decision.** Start with inexpensive repository structure and exact source references. Choose edit primitives through model-specific conformance tests while keeping a single transactional write layer.
+
+### 16.11 Pi: minimal core and extensible policies
+
+**Documented starting point.** Pi separates a multi-provider model API, agent runtime, coding CLI, and terminal UI. Its current README states that access restriction is not a built-in permission feature. [Pi project](https://github.com/earendil-works/pi).
+
+**Investigate in depth:**
+
+- Measure the baseline prompt and built-in tool schema footprint for a pinned release; compare additions from skills, extensions, and project instructions.
+- Trace the runtime's state/events, model-switch normalization, session branching, compaction, and extension callbacks through public documentation.
+- Determine which behaviors are core, optional extensions, examples, or user-supplied code, especially MCP, delegation, and approval behavior.
+- Test extension failure, reentrancy, state mutation, and terminal rendering under heavy output.
+
+**Experiment/output.** Compare a minimal single-agent run with progressively added retrieval, skills, and review. Produce an overhead breakdown and a core-versus-extension boundary.
+
+**VCP decision.** Keep optional features out of the default prompt and execution path. Retain enforcement in VCP's trusted core even when workflow customization is extension-driven.
+
+### 16.12 OpenHands: durable sessions and remote execution
+
+**Documented starting point.** OpenHands documents a Software Agent SDK with agent, tool, conversation, persistence, and workspace concepts. Distinguish the current SDK from historical monolithic runtime designs and hosted product features. [Software Agent SDK](https://docs.openhands.dev/sdk).
+
+**Investigate in depth:**
+
+- Trace action/observation identity and durable conversation storage. Determine whether compaction changes stored history, a prompt projection, or both.
+- Investigate remote workspace creation, image/environment definitions, resource limits, credential injection, and artifact retrieval.
+- Establish what survives an agent-process failure versus a sandbox/container failure; distinguish a restored conversation from restored execution state.
+- Test asynchronous tool results, pending work, cancellation propagation, and session attachment from multiple clients.
+
+**Experiment/output.** Force compaction, terminate a disposable worker, resume the session, and compare artifacts with the pre-failure filesystem manifest.
+
+**VCP decision.** Separate the immutable record from its model-visible projection, and separate conversation recovery from workspace recovery. Remote execution should implement the same worker contract as local execution.
+
+### 16.13 Devin: long-running task lifecycle
+
+**Documented starting point.** Devin's guidance provides task-selection and delegation entry points. Use its documented workflow to study long-running task management; do not infer VM internals or hidden planning mechanisms. [When to use Devin](https://docs.devin.ai/essential-guidelines/when-to-use-devin).
+
+**Investigate in depth:**
+
+- Capture task specification, environment setup, progress states, human questions, intervention, and final review artifacts.
+- Determine how repository knowledge, reusable instructions, credentials, and environment snapshots persist across tasks.
+- Test time/cost limits, an unreachable dependency, user steering after a plan changes, and partial completion.
+- Distinguish task acceptance from successful tests, published branch, reviewed PR, and merged change.
+
+**Experiment/output.** Run a bounded multi-step task with a deliberately blocked dependency. Produce a lifecycle with explicit blocked, cancelled, partial, and complete outcomes.
+
+**VCP decision.** Make long-running goals inspectable through evidence and intermediate artifacts. Require checks tied to the current diff before marking implementation work complete.
+
+### 16.14 Windsurf / Cascade: editor continuity and workspace memory
+
+**Documented starting point.** The Windsurf Cascade documentation URL currently redirects into Devin Desktop documentation. Pin the product and release under investigation; historical names and current packaging should not be conflated. [Cascade documentation](https://docs.devin.ai/desktop/cascade/cascade).
+
+**Investigate in depth:**
+
+- Observe how editor activity, terminal output, diagnostics, selected code, and persistent workspace information influence the next step.
+- Compare user-authored rules with automatically retained memories: scope, visibility, editability, provenance, and staleness.
+- Test checkpoint behavior across agent edits, human edits, terminal commands, and a branch change.
+- Identify where workflow state lives when the editor reloads or a task is handed to another execution surface.
+
+**Experiment/output.** Change a coding convention in the repository after a previous session learned the old one. Produce a stale-memory behavior report and recovery UX.
+
+**VCP decision.** Surface retained knowledge and its evidence in the editor. Current authoritative files and explicit user corrections need a defined relationship to earlier memory.
+
+### 16.15 Crush: terminal UX and distribution
+
+**Documented starting point.** Crush's project documentation provides a multi-model terminal-agent reference with tool and integration configuration. Treat its current license and runtime dependencies as release-specific facts. [Crush repository](https://github.com/charmbracelet/crush).
+
+**Investigate in depth:**
+
+- Measure startup time, idle memory, rendering responsiveness, and terminal behavior on Windows, macOS, Linux, narrow windows, and non-interactive output.
+- Trace model/provider configuration, context limits, session storage, LSP diagnostics, MCP discovery, and approval behavior.
+- Test terminal resize, Unicode, pasted multiline input, huge command output, interrupted subprocesses, and loss of terminal attachment.
+- Inspect documented installation/update paths, native dependencies, and config migration.
+
+**Experiment/output.** Exercise a long build while streaming model output and accepting user steering. Produce a terminal accessibility/performance checklist and release packaging comparison.
+
+**VCP decision.** Keep rendering work independent of durable event production. A responsive TUI, a machine-readable stream, and a recoverable session are separate acceptance criteria.
+
+### 16.16 Amazon Q Developer CLI / Kiro: durable specifications
+
+**Documented starting point.** AWS says Q CLI has become Kiro CLI. Kiro documents specifications that organize requirements, design, and tasks; inspect current CLI and IDE capabilities separately. [Q-to-Kiro transition](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line.html), [Kiro specs](https://kiro.dev/docs/specs/).
+
+**Investigate in depth:**
+
+- Determine how requirements connect to design decisions, task dependencies, implementation evidence, and changed requirements.
+- Distinguish editable Markdown from authoritative workflow state. Test manual changes to a specification while an agent is running.
+- Examine steering documents and event-triggered hooks: debouncing, recursion prevention, repeated events, permissions, and cost limits.
+- Verify migration behavior for existing Q settings, credentials, commands, and sessions rather than assuming transparent compatibility.
+
+**Experiment/output.** Change a requirement after two implementation tasks finish. Produce a traceability graph showing invalidated tasks, stale verification, and the required replanning.
+
+**VCP decision.** Offer specification-driven work as an explicit workflow with versioned artifacts. Avoid imposing requirements/design/task documents on every small edit.
+
+### 16.17 Claw Code: identity and provenance gate
+
+**Starting point with unresolved provenance.** Multiple projects use similar names. The original survey's broad clean-room claim should not be a design premise. The currently discoverable repository is an identity/research lead, not an approved implementation reference. [Project README](https://github.com/ultraworkers/claw-code).
+
+**Investigate before any architecture study:**
+
+- Identify the exact owner, repository, release, license, claimed origin, and relationship to similarly named projects.
+- Establish whether the public architectural descriptions are independently authored and suitable for VCP's stated method.
+- Separate popularity claims and screenshots from attributable protocol or behavioral documentation.
+- If provenance remains unresolved, stop this track and obtain the same architectural evidence from Claude's official docs or another established public contract.
+
+**Experiment/output.** First produce a provenance note with an include/exclude decision. Only an included reference proceeds to the generic tool dossier.
+
+**VCP decision.** No unique VCP subsystem depends on this project. Reuse requires attributable source history and a suitable license for the selected components; unresolved provenance keeps it outside the implementation dependency graph.
+
+## 17. Munarium and the VCP memory design
+
+### 17.1 Confirmed reference and local storage direction
+
+**Confirmed reference:** [Ioka Munarium](https://github.com/iokaio/munarium), specifically its Server memory concepts. The owner's clarification sets VCP's direction: an independently designed memory layer using **RAM and local disk, Tantivy for lexical retrieval, and DiskANN for vector retrieval**. The authoritative persistence choice remains **files without a database, or embedded SQLite — TBD**. “Tantavi” is interpreted here as the [Tantivy search library](https://github.com/quickwit-oss/tantivy).
+
+Munarium supplies architectural inspiration. Running Munarium Server, adopting its PostgreSQL/pgvector persistence, and implementing its REST/gRPC protocol are not requirements of this VCP design. The no-direct-code-borrowing rule still applies to the harness and memory governance implementation; Tantivy and DiskANN are the specifically requested search-library building blocks.
+
+The Server README documents append-only supersession, governance on writes, retained disputes, a common sequence pin for historical reconstruction, provenance-bearing retrieval, and versioned runbook/index publication. These are the reference behaviors to study. [Munarium Server README](https://github.com/iokaio/munarium/blob/main/server/README.md).
+
+| Munarium-inspired concept | Proposed VCP adaptation | Independent acceptance evidence |
+|---|---|---|
+| Append-only claims and supersession chains | Corrections create a new claim version and an explicit predecessor link | Reconstruct both the original and corrected fact without rewriting history |
+| Governance on the write path | Validate scope, schema, evidence, chronology, and conflicting claims before acceptance | Every accepted claim has validation evidence; rejected conflicts remain inspectable |
+| Recorded disputes | Retain a disputed proposal and machine-readable findings | Explain why a memory proposal was not accepted |
+| One sequence pin for a historical view | Resolve claims, evidence links, decisions, and applicable index generations against a VCP memory sequence | A historical inspection cannot mix newer facts into an older view |
+| Provenance-bearing retrieval | Return stable claim/chunk IDs, source revisions, ranks, and index-generation IDs | Trace a prompt passage back to its evidence and selection |
+| Versioned build/verify/publish workflow | Build replacement indexes alongside the active generation; validate before switching readers | Interrupted rebuild leaves a valid active generation |
+| Scoped collections | Use repository/user scopes in canonical records and retrieval partitions/filters | Restricted records never become model-visible evidence |
+
+These adaptations are VCP proposals, not claims of Munarium compatibility. The complete set of governance checks, supported historical queries, and publication policy needs its own contract and tests.
+
+**Research entry points:** the public Server README, protocol descriptions, conformance scenarios, runbook lifecycle, and retrieval/governance documentation. Record the reference revision used, extract the behavioral requirements, and design original VCP contracts. Study Tantivy and DiskANN independently for their library APIs, storage responsibilities, release compatibility, and native packaging.
+
+### 17.2 Keep four different kinds of state separate
+
+| State | Purpose | Authority and retention |
+|---|---|---|
+| Session event history | What the user, model, tools, and policy engine actually did | Durable operational evidence; append events, with separately governed payload retention |
+| Working context | The bounded view assembled for one model request | Disposable projection; can be rebuilt from source artifacts and event references |
+| Repository index | Symbols, lexical matches, embeddings, file relationships | Derived cache; tied to content hashes and invalidated when files change |
+| Durable memory | Accepted project facts, decisions, preferences, and lessons with evidence | Versioned claims with scope, provenance, correction, and expiry rules |
+
+A compaction summary is not automatically an accepted memory. A retrieved passage is evidence, not an instruction. A model assertion is a proposal, not proof. A successful test describes the tested repository state and environment, not every future revision.
+
+### 17.3 Proposed coding-memory schema
+
+These names describe VCP's domain model; they are **not Munarium endpoint names or an asserted mapping to its wire format**.
+
+| Field group | Required information |
+|---|---|
+| Identity | Stable claim ID, version, claim type, creation event, proposing actor/model |
+| Scope | Tenant/user, repository identity, branch or commit applicability, optional path/symbol scope |
+| Content | Structured subject/predicate/value where possible; readable statement; units and conditions |
+| Evidence | Source URI/path, revision/content hash, passage/line range, tool-run or decision ID, observed time |
+| Governance | Proposed/accepted/disputed/superseded/expired state; validation results; actor responsible for acceptance |
+| Change | Supersedes/superseded-by IDs; contradiction group; valid-from/valid-to; reason for correction |
+| Retrieval | Tags, language, task category, lexical/vector index version, embedding model if used |
+| Trust and access | Origin class, visibility scope, sensitivity label, access policy, retention/tombstone state |
+
+Useful claim classes include build/test commands with working directory, module ownership, dependency constraints, architectural decisions, verified incident fixes, user preferences, and known environmental limitations. Avoid retaining credentials, entire transcripts by default, or inferred personal preferences as confirmed facts.
+
+Example: “The package tests run with command X from directory Y” should cite the relevant configuration hash or successful tool run. If that configuration changes, the memory becomes a candidate for revalidation. “The tests passed” should reference a specific diff/revision, command, exit result, and environment.
+
+### 17.4 Proposed memory lifecycle and adapter
+
+1. **Propose:** extract a small claim with evidence from a completed tool run or explicit user statement.
+2. **Validate:** check schema, source existence, repository scope, access rights, and evidence freshness. Apply deterministic checks where possible; model scoring may assist but does not establish truth.
+3. **Resolve:** accept, dispute, decline, or request review according to the claim class. A conflicting proposal should not silently replace an accepted claim.
+4. **Commit:** persist a versioned result and link it to the originating session event.
+5. **Retrieve:** filter by trusted identity, repository, applicability, and state before selecting evidence for the prompt.
+6. **Revalidate:** compare source revisions and applicability when the repository or task changes.
+7. **Correct/forget:** supersede legitimate changes; separately enforce deletion and retention requests across payloads, indexes, caches, and exports.
+
+Conceptual adapter operations:
+
+```text
+query(scope, question, revision, as_of, token_budget)
+  -> evidence[], claims[], retrieval_version, exclusions
+propose(claim, evidence_refs, originating_event_id, idempotency_key)
+  -> proposal_id, validation_findings
+resolve(proposal_id, decision, actor, expected_version)
+  -> accepted_or_disputed_version
+supersede(claim_id, replacement_proposal_id, reason, expected_version)
+  -> new_version
+forget(scope, selector, retention_policy)
+  -> tombstones, payload_deletion_status, index_invalidation_status
+health()
+  -> availability, protocol_version, supported_operations
+```
+
+Map these operations to the original local memory kernel and its selected persistence backend. Specify serialization, concurrency, idempotency, durable acknowledgement, historical visibility, and errors independently of Munarium's API. Keep storage and search adapters replaceable so the files/SQLite decision does not change claim semantics.
+
+**Consistency boundary.** A canonical memory commit, session event, Tantivy commit, and DiskANN update do not automatically share a transaction. Persist claim changes and durable indexing intent together in the authoritative store; if session storage is separate, correlate and reconcile using a stable proposal ID. Track durable sequence and searchable sequence separately. Report “saved, indexing pending” only after the canonical write is durable; RAM-only proposals remain explicitly unsaved. Section 17.9 defines the proposed publication and recovery protocol.
+
+### 17.5 Retrieval and context assembly
+
+Proposed retrieval order:
+
+- Apply identity and scope restrictions in the trusted memory boundary.
+- Select applicable accepted claims and source passages; include disputed claims only when relevant and clearly labelled.
+- Retrieve lexical candidates through Tantivy and semantic candidates through DiskANN; compare their contribution and fusion strategy during evaluation.
+- Revalidate repository-derived facts against current content or mark them stale.
+- Rerank and deduplicate under a memory token budget.
+- Return evidence references, index/ledger version, selection reasons, and exclusions for the prompt manifest.
+
+A branch name alone is not a stable revision. Capture the commit and a dirty-workspace fingerprint; unsaved editor buffers need their own version. Historical “as of” views are useful for explanation, but a current tool action still requires current authorization and file freshness.
+
+Memory results must enter the model context as attributed data. A retrieved instruction to run a shell command cannot grant permission. For shared memory, test both cross-repository leakage and revoked access to previously cached results.
+
+### 17.6 Failure modes and evaluation
+
+| Case | Required VCP behavior to test |
+|---|---|
+| Contradictory build commands | Preserve both evidence chains; resolve using applicable source revisions and validation, not recency alone |
+| Source deleted or branch changed | Invalidate/revalidate the claim; show why it was omitted or marked stale |
+| Duplicate write after timeout | Reconcile proposal identity; avoid duplicate accepted facts |
+| Local store unavailable, read-only, or disk full | Preserve the last durable view, report unsaved proposals, and continue only work that permits degraded memory |
+| Memory scope denies access | Preserve the denial; do not retry with broader scope or expose cached restricted passages |
+| Embedding model/index changed | Rebuild derived retrieval state with versioned rollout and comparable retrieval tests |
+| Forget request | Verify payload removal and index/cache invalidation; explain remaining permitted audit metadata |
+| Malicious content in a memory passage | Keep it as untrusted evidence; enforce tool authority independently |
+
+Measure retrieval precision and recall on held-out coding questions, useful-memory rate, stale-claim rate, contradiction detection, source coverage, retrieval latency, prompt tokens, storage growth, and end-to-end task success. Compare **no durable memory**, **plain Markdown memory**, and **governed memory**. Added memory complexity is justified only by demonstrated improvement.
+
+### 17.7 Storage tiers and search responsibilities
+
+Tantivy is an embedded full-text search library with BM25, configurable tokenization, incremental indexing, and memory-mapped directories. It is the lexical search component, not VCP's fact-governance layer. [Tantivy project](https://github.com/quickwit-oss/tantivy), [architecture guide](https://github.com/quickwit-oss/tantivy/blob/main/ARCHITECTURE.md).
+
+The current DiskANN repository describes a composable vector-indexing library with a `DataProvider` boundary and example memory/disk providers. Pin the exact release and provider: “DiskANN” alone does not specify persistence, crash recovery, update semantics, bindings, or platform support. A VCP storage adapter may be required. [DiskANN project](https://github.com/microsoft/DiskANN).
+
+| Layer | Responsibility | Persistence and authority |
+|---|---|---|
+| RAM | Active claim views, recent evidence, bounded embedding/query caches, pending work | Reconstructible caches; proposals awaiting durable commit are not accepted persistent memory |
+| Canonical store | Claims, versions, evidence references, disputes, policies, sequences, tombstones, idempotency keys, indexing intents | Authoritative disk state; custom files or SQLite, TBD |
+| Evidence/embedding artifacts | Source snapshots where retention permits, extracted chunks, embedding payloads and model/configuration metadata | Durable according to retention policy; file versus SQLite BLOB placement is part of the decision |
+| Tantivy | Lexical index over selected claims and source chunks, with scope/version fields | Derived index; recoverable from canonical records and retained evidence |
+| DiskANN | Similarity search over embeddings with stable vector-to-record mappings | Derived index; recoverable from retained vectors or rebuilt as a new generation with a recorded embedding configuration |
+| Generation manifest | Links canonical sequence, lexical generation, vector generation, schema/tokenizer/embedding versions | Authoritatively published record; readers pin a compatible view |
+
+Both persistence options still have on-disk search artifacts where the selected libraries/providers require them. SQLite is an option for VCP's canonical records and metadata; it does not imply replacing Tantivy with SQLite FTS or DiskANN with a SQLite vector extension. “No DB” means no database for canonical storage, not no disk writes or no structured index files.
+
+**RAM budget:** set explicit limits for hot claims, loaded chunks, vector caches, in-flight embedding batches, and index-building buffers. Account for mapped-file resident pages as well as heap memory. Eviction must not discard an acknowledged durable write. Measure cold start, warm queries, and rebuild peaks independently.
+
+### 17.8 Files versus SQLite: the decision still to make
+
+| Concern | Files, without a database | Embedded SQLite |
+|---|---|---|
+| Canonical records | Framed append-only journal plus checkpoints and manifests | Versioned claim/event rows and related tables |
+| Atomic changes | VCP defines commit records, checksums, flush order, writer locking, and recovery from partial writes | Use transactions for records, sequence allocation, idempotency, and indexing intent |
+| Current-state queries | Replay or maintain derived maps/snapshots | Indexed queries over current/historical records |
+| Payload storage | Content-addressed files with durable references | BLOBs or referenced external artifacts; choice remains open |
+| Concurrency | Initially one authoritative writer per store; define reader snapshots and process ownership | Specify writer ownership, connection lifecycle, transaction duration, and contention behavior |
+| Cleanup and migration | VCP designs journal compaction, manifest upgrade, tombstone propagation, and recovery | Schema migration plus retention/cleanup; external indexes still need their own lifecycle |
+| Recovery burden | More original storage-engine logic and fault-injection work | Less custom record-transaction machinery; durability configuration and filesystem assumptions still need testing |
+| Search consistency | Journal/checkpoint publication coordinates Tantivy and DiskANN | SQLite transaction coordinates canonical metadata, but does not atomically commit external index files |
+
+SQLite documents its own atomic-commit behavior and the filesystem assumptions behind it. Those guarantees do not extend a database transaction to unrelated Tantivy or DiskANN files. [SQLite atomic commit](https://www.sqlite.org/atomiccommit.html).
+
+Prototype both options behind the same memory contract. Choose using measured startup/replay time, ingestion throughput, query latency, write contention, memory/disk usage, recovery correctness, migration burden, deletion behavior, and implementation complexity. Do not commit to either before the evidence exists.
+
+### 17.9 Proposed write, index, and recovery protocol
+
+1. Validate a proposal, assign stable claim/chunk IDs, and check its idempotency key and expected predecessor version.
+2. Commit the canonical change and indexing intent together at memory sequence `N`. A files backend requires a recoverable journal transaction; a SQLite backend uses a database transaction.
+3. Acknowledge durable acceptance, then update the current RAM view. Keep `durable_seq` distinct from `searchable_seq`.
+4. Generate or reuse embeddings using a cache key that includes content hash, embedding model/version, dimensions, preprocessing, and distance/normalization choices. Persist vector artifacts if they are needed for reproducible rebuilds.
+5. Update or build the Tantivy and DiskANN generations through a declared sequence watermark. Record stable-ID mappings, deletions, tombstones, and each component's completion status.
+6. Validate generation compatibility and publish one durable manifest referring to completed lexical/vector artifacts and their common canonical view. Use an OS-tested publication protocol; individual library commits do not establish cross-index atomicity.
+7. Let existing readers finish on their pinned generation. New queries use the published generation; dispose of retired files only after readers and retention policy release them.
+8. On restart, recover canonical committed records first, reconcile incomplete index work by stable ID/sequence, and rebuild untrusted derived artifacts. Never promote partially built indexes merely because files exist.
+
+The implementation may use incremental updates or generation rebuilds according to the selected providers, but must preserve these observable guarantees. A current-state recheck must suppress deleted, superseded, or newly restricted candidates even while indexes lag. Strict read-after-write queries either wait for the required watermark or use a bounded canonical/RAM overlay; ordinary queries may use a labelled older view.
+
+An `as_of` claim lookup and historical full-text/vector search are separate capabilities. Accurate historical search requires an appropriate retained index generation or reconstruction of the historical corpus. The current index alone cannot guarantee retrieval of all records that were relevant before an update. Define retention and report unsupported historical queries explicitly.
+
+### 17.10 Hybrid retrieval and library-specific deep dives
+
+**Proposed query path:** resolve identity/repository scope and the requested memory view; search Tantivy and DiskANN within supported scope filters/partitions; recheck eligibility against the canonical view; fuse ranks; deduplicate; optionally rerank; then load authorized evidence and fit it to the prompt budget.
+
+Use rank fusion, such as reciprocal rank fusion, as an initial experiment rather than adding raw BM25 scores to vector distances with incompatible scales. Log each candidate's lexical/vector rank, fusion parameters, eligibility checks, and final inclusion reason. Exact identifier/path matches deserve their own evaluation alongside natural-language recall.
+
+| Component | Required deep-dive information and experiments |
+|---|---|
+| Tantivy | Schema/field design; code-aware tokenization for identifiers and paths; exact versus analyzed fields; BM25/phrase behavior; scope/version filters; commit/reload visibility; delete/merge behavior; writer memory and locking; segment compatibility across upgrades |
+| DiskANN | Exact implementation/release and provider; graph/vector persistence; RAM/SSD split; dimensions and distance metrics; normalization/quantization; insert/update/delete semantics; filtering support and recall; build/update memory; crash/reopen behavior; supported bindings and OS/CPU requirements |
+| Canonical records | Stable IDs across reindex/segment merges; version and tombstone resolution; scope changes; evidence retention; source/embedding integrity; reconstruction under a sequence pin |
+| Fusion | Lexical-only, vector-only, and combined retrieval; rank parameters; duplicate chunks; candidate budgets; reranking cost; recall loss under filters and narrow scopes |
+| Runtime integration | In-process library versus local worker/FFI if the engine is not Rust; ownership of buffers, crashes, cancellation, and index handles; packaging and upgrade compatibility |
+
+Never expose library-internal document ordinals as durable claim identities. For restricted scopes, enforce filtering or partitioning inside the trusted search boundary and reauthorize before returning text. If a chosen ANN path lacks adequate filtering, test partitioned search or an exact authorized-subset fallback; do not silently broaden access or hide poor filtered recall.
+
+### 17.11 Storage-specific experiments and decision outputs
+
+| ID | Experiment | Required result |
+|---|---|---|
+| M01 | Same governance scenarios against files and SQLite prototypes | Equivalent claims, disputes, supersession, idempotency, and historical claim views |
+| M02 | Kill the process between canonical commit, each index update, and manifest publication | Recover acknowledged records; reconcile/rebuild indexes without exposing an invalid generation |
+| M03 | Cold start and bounded-RAM operation across increasing corpus sizes | Measured startup, p50/p95 query latency, resident memory, mapped pages, disk footprint, and build peaks |
+| M04 | Exact symbols/paths, semantic questions, and narrow-scope queries | Lexical/vector/fused recall and provenance; compare ANN with exact vector search on a small truth set |
+| M05 | Supersede, delete, revoke scope, then query during index lag | No stale or restricted text returned; explicit watermark/overlay behavior |
+| M06 | Change tokenizer, embedding model, dimensions, or index-library version | Versioned rebuild, compatibility validation, safe reader handover, and supported rollback |
+| M07 | Full disk, corrupt segment, incomplete journal, locked database, or missing artifact | Distinguish canonical loss from recoverable index loss; report unsaved writes and degraded capabilities |
+| M08 | Back up and restore while queries and writes run | Restore a consistent canonical snapshot and matching generation, or explicitly rebuild derived indexes |
+
+Feed these results into ADR-008 and the event/artifact-storage ADR. The decision must preserve the confirmed RAM/disk plus Tantivy/DiskANN direction while resolving **files versus SQLite**, exact library/provider versions, artifact placement, memory limits, indexing visibility, historical-search scope, and backup/retention rules.
+
+## 18. OpenRouter and the VCP model strategy
+
+### 18.1 Separate three kinds of routing
+
+| Layer | Decision | Owner |
+|---|---|---|
+| Task strategy | One model, planner/editor pair, selective reviewer, or parallel workers? | VCP |
+| Model selection | Which model has the necessary capabilities and best measured quality/cost for this step? | VCP |
+| Provider selection | Which endpoint can serve that model under the required capability, privacy, availability, and price constraints? | VCP constraints plus OpenRouter routing |
+
+OpenRouter documents provider ordering/filtering and model fallback as separate mechanisms. Provider fallback does not by itself implement VCP's task-level quality escalation. If VCP also retries, it must bound the combined attempt count and preserve the actually served model/provider in its record. [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), [model fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks).
+
+Start with an explicit selected model and a constrained provider policy. Introduce automatic model fallback only after its capability, context, cost, and attribution effects are tested. Do not assume a model available in a vendor's own product is available through OpenRouter.
+
+### 18.2 Capability registry and model evidence
+
+OpenRouter's model API exposes model metadata, pricing fields, context information, and supported parameters. Treat advertised capabilities as inputs to compatibility checks; VCP still needs observed tool/edit reliability. [Model metadata API](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties).
+
+Persist a dated catalog snapshot with:
+
+- Exact model identifier, provider endpoint identity where available, version/alias behavior, availability, and fetch time.
+- Context and output limits, supported input/output modalities, tool calling, parallel calls, JSON schema support, reasoning controls, and caching features.
+- Decimal prices with explicit units/currency, cached-input/write distinctions if available, request/tool charges, and relevant limits.
+- Task-specific measured quality, patch validity, tool-call validity, latency distribution, retry rate, language/framework coverage, and confidence interval/sample count.
+- Compatibility exceptions and unsupported parameters. Unknown capability is distinct from false.
+
+Model strengths should come from VCP's repeatable evaluations, with external benchmarks used only as prior evidence. Record the harness configuration, prompt version, environment, and dataset split so a score is not mistaken for an intrinsic permanent model property.
+
+Refresh catalog data on a bounded schedule and record the snapshot used for a run. Expired or missing prices must produce an explicit policy decision; they should not silently become zero-cost estimates.
+
+### 18.3 Proposed low, med, and high profiles
+
+Profiles change resource allocation, not security policy or the definition of a correct result.
+
+| Dimension | low | med | high |
+|---|---|---|---|
+| Default strategy | One capable economical model | Same baseline, with selective planning/review | Stronger model or bounded parallel exploration for difficult work |
+| Escalation | One bounded escalation when evidence justifies it | Escalation for failed verification, complexity, or repeated tool-format trouble | Wider bounded escalation; independent review for selected tasks |
+| Observers | Disabled by default | Event-triggered recall/verification when useful | Additional observers only when measured benefit fits budget |
+| Parallel workers | Normally one writer | Small cap for disjoint tasks | Larger configured cap with explicit ownership and merge plan |
+| Context | Targeted files, symbols, and compact evidence | Larger evidence allocation when useful | More context only when it improves task quality |
+| Verification | Relevant deterministic checks | Same checks; selective second-model review | Same checks plus justified independent review |
+| Spend control | Lowest configured task cap | Intermediate configured cap | Highest configured cap; still bounded |
+
+Dollar limits, concurrency caps, token allocations, and escalation counts remain configurable and need calibration. “High” is not unlimited and “low” must not mean skipping a necessary test. If no affordable candidate meets the required capabilities, stop with a clear budget/capability reason.
+
+### 18.4 Proposed selection algorithm
+
+1. Classify the step using task metadata and deterministic signals where possible: research, planning, editing, diagnosis, review, or summarization.
+2. Derive hard constraints: tool support, context fit, output format, modalities, allowed providers, data policy, latency ceiling if required, and remaining budget.
+3. Filter candidates before ranking. A cheap model that cannot execute the tool protocol is not eligible.
+4. Rank eligible candidates using measured probability of verified success and expected total cost, including likely retries and downstream verification.
+5. Reserve a conservative maximum cost for the next bounded request, select the model/provider policy, and record the decision.
+6. Execute and normalize the response. Validate complete tool arguments before dispatch; stream fragments are not executable calls.
+7. Observe test results, patch validity, loop detection, and user feedback. Escalate only for defined signals and within the task budget.
+8. Record outcome data for later offline evaluation; do not silently alter production routing from one anecdotal success.
+
+An illustrative objective is:
+
+```text
+choose the lowest expected total cost
+subject to:
+  required capabilities and data policy
+  estimated probability of verified success >= task threshold
+  expected latency <= configured limit, if present
+  committed spend + reservations + request bound <= task cap
+```
+
+Model self-confidence alone is not a reliable escalation trigger. Useful signals include repeated invalid patches, failed tests after a bounded repair, unsupported tool arguments, unresolved cross-module dependencies, and a task-specific evaluation score.
+
+### 18.5 Budget accounting and concurrency
+
+OpenRouter documents token usage and cost reporting, including total account charge and upstream inference cost. Preserve those fields distinctly; do not add overlapping totals. [Usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting).
+
+Proposed accounting rules:
+
+- Maintain one root-task ledger across the main agent, children, reviewers, observers, compaction, memory extraction, embeddings, and retries. Track non-model infrastructure costs separately.
+- Use fixed-precision decimal or integer microcurrency amounts. Keep estimated, reserved, reported, reconciled, and unknown charges distinct.
+- Reserve cost atomically before concurrent requests start. An output token bound and applicable price ceilings are necessary to make a meaningful reservation.
+- Settle against provider-reported usage; retain an uncertainty reserve after an interrupted stream or missing usage response.
+- Stop scheduling new billable work when the cap would be exceeded. Cancellation may not prevent charges for already-started requests.
+- Retry unknown-billing requests only under a bounded policy; record possible duplicate charges. A local budget is a scheduling guarantee, not an absolute promise about a provider's final invoice.
+
+**Hypothetical arithmetic, not current pricing:** with input at $1/million tokens and output at $4/million, a request containing 20,000 input tokens and bounded to 5,000 output tokens reserves $0.04 before other charges. If it actually produces 2,000 output tokens, that token-only estimate is $0.028. If $0.10 remains and $0.08 is already reserved for two concurrent requests, a third $0.04 reservation must fail.
+
+### 18.6 Provider adapter and handoff contract
+
+Normalize at least these provider events:
+
+```text
+response.started
+text.delta
+tool_call.delta
+tool_call.completed
+usage.updated
+response.completed
+response.failed
+```
+
+The adapter owns authentication, request serialization, timeout/retry classification, stream assembly, tool-call ID mapping, and vendor-specific fields. The engine owns authorization, tool execution, budgets, and task state.
+
+For model handoff, supply an explicit task packet: user objective, constraints, accepted decisions, relevant file versions, evidence references, current diff, tool results needed for continuation, unresolved issues, and remaining budget. Preserve tool-call/result pairing. Do not forward provider-specific opaque reasoning blocks to an incompatible model or fabricate unavailable reasoning.
+
+Record every normalization, omission, truncation, compaction, and capability downgrade in the context manifest. Switching to a smaller context window requires reassembly before sending the request; it cannot be handled by blindly truncating the transcript.
+
+### 18.7 Routing experiments required before adopting multi-model defaults
+
+Compare the same tasks under:
+
+1. One economical model.
+2. One stronger model.
+3. Economical execution with bounded escalation.
+4. Planner/editor separation.
+5. Independent review only after selected triggers.
+6. Parallel workers for disjoint changes.
+
+Measure verified completion rate, total dollars including failures, wall time, tool-call validity, context transfer cost, conflicting changes, and human intervention. Select a strategy per task class and profile. Multi-model orchestration should earn its complexity through measured outcomes.
+
+## 19. Proposed VCP architecture
+
+Everything in this section is a design proposal. Names, schemas, commands, and defaults are illustrative contracts for review, not existing VCP functionality.
+
+### 19.1 One engine with explicit ownership
+
+```mermaid
+flowchart TB
+    CLI["CLI / TUI"] --> API["Versioned engine API"]
+    IDE["VS Code extension"] --> API
+    SDK["Headless client / SDK"] --> API
+    API --> Sessions["Session and turn controller"]
+    Sessions --> Context["Context assembler"]
+    Context --> Router["Model strategy and budget reservations"]
+    Router --> Adapter["OpenRouter adapter"]
+    Adapter --> Models["Model providers"]
+    Sessions --> Policy["Tool policy and approval service"]
+    Policy --> Exec["Execution broker"]
+    Exec --> Worker["Local or remote sandboxed worker"]
+    Exec --> MCP["MCP clients"]
+    Context --> Memory["Local governed-memory kernel"]
+    Memory --> Hot["Bounded RAM views and caches"]
+    Memory --> Backend["Canonical disk records: files or SQLite TBD"]
+    Memory --> Lexical["Tantivy lexical index"]
+    Memory --> Vector["DiskANN vector index"]
+    Context --> Index["Repository index"]
+    Sessions --> Events["Durable event store"]
+    Router --> Events
+    Policy --> Events
+    Exec --> Events
+    Memory --> Events
+    Events --> Inspect["Prompt / cost / evidence inspector"]
+    Inspect --> API
+```
+
+The engine owns sessions, permissions, model calls, budgets, and durable events. Clients submit commands and render the same state. Workers own execution resources and report observed effects. VCP's local memory kernel owns accepted claims and canonical persistence; Tantivy and DiskANN own derived search structures behind its adapters. The choice of canonical files versus SQLite remains TBD.
+
+Begin with a local engine launched by the CLI or extension. Support a reconnectable local service when multiple clients or background tasks require it. Keep the execution broker as a code boundary from the start, but make a separate worker process mandatory only where isolation or lifecycle management requires it.
+
+### 19.2 Components and contracts
+
+| Component | Owns | Must not silently own |
+|---|---|---|
+| Session controller | User turns, step scheduling, steering, completion and cancellation | Provider-specific serialization or UI state |
+| Context assembler | Ordered prompt manifest, scoped instructions, retrieval, compaction | Permission grants |
+| Strategy router | Candidate filtering, role assignment, escalation, routing explanation | Filesystem writes |
+| Provider adapter | Wire requests, streaming, errors, usage normalization | Tool authorization |
+| Tool registry/executor | Validated tool schemas, dispatch, result normalization | Trust decisions based only on model assertions |
+| Policy service | Scope, grants, denials, approval correlation, policy versions | UI-only enforcement |
+| Execution broker | Process lifecycle, sandbox capabilities, file preconditions, output artifacts | Unbounded host access by default |
+| Session store | Ordered durable events, recoverable projections, migrations | Assuming a stored intent proves an external effect |
+| Memory kernel and adapters | Governance, canonical RAM/disk views, evidence queries, Tantivy/DiskANN indexing and generation publication | Promoting every summary to accepted truth or treating a search index as the claim ledger |
+| Repository service | Workspace identity, content hashes, symbol/search cache, Git state | Treating ignored files as authorization policy |
+| Orchestrator | Task dependencies, child budgets, ownership, merge/review | Silent shared-write fallback |
+| Clients | Input, display, diff review, explicit editor context | Direct bypass of engine policy or competing session state |
+
+**Runtime decision:** evaluate TypeScript/Node for rapid CLI/extension/API development against Rust for process control, packaging, and OS integration. Go is a useful third comparator from terminal-oriented tools. Score actual startup, PTY behavior, distribution, developer productivity, and sandbox implementation effort. Do not select a language solely because a reference tool uses it, or assume VCP must use Rust because Munarium does.
+
+**Local storage decision still open:** compare a files-based journal/checkpoint store with embedded SQLite for authoritative events, task state, reservations, and memory records. Tantivy and DiskANN remain separate derived search components. Decide whether large evidence/vector artifacts use files or database BLOBs, and whether memory and session records share a commit boundary. Either backend must implement the same durability and recovery contracts; SQLite is not yet selected. A JSONL export is useful for interoperability, but need not be the authoritative store.
+
+### 19.3 Terminology and state transitions
+
+Use distinct names to avoid confusing vendor definitions of “turn”:
+
+- **Workspace:** a repository or directory plus execution location and policy scope.
+- **Session:** a durable conversation and configuration history.
+- **Task:** a user objective with acceptance evidence and a root budget.
+- **Turn:** one accepted user input and the work it initiates.
+- **Step:** one model request/response cycle.
+- **Tool run:** one authorized invocation with a separately tracked effect.
+- **Artifact:** a versioned file, diff, output, prompt manifest, test result, or report.
+
+Proposed turn states:
+
+```text
+queued -> assembling_context -> requesting_model -> processing_response
+processing_response -> awaiting_approval -> executing_tools
+processing_response -> executing_tools -> assembling_context
+processing_response -> verifying -> completed
+
+Any active state may enter:
+  paused | cancelling | blocked | budget_exhausted | failed
+cancelling -> cancelled, after workers report termination or unresolved effects
+paused/blocked -> queued, through an explicit resume event
+```
+
+An empty tool-call list is not sufficient evidence that an implementation task is complete. Completion records must identify the current artifact/diff, applicable checks, outcomes, and any explicitly accepted limitations. A failed verification may lead to another bounded repair step.
+
+Steering is a durable user-input event processed at a defined boundary. Cancellation stops new scheduling and propagates to running requests and process trees. If a remote effect may already have happened, record an unresolved outcome even if the UI shows the turn as cancelled.
+
+### 19.4 A versioned client API
+
+Compare JSON-RPC over stdio with HTTP commands plus SSE events using the protocol experiments. A reasonable initial proposal is JSON-RPC over stdio for local child-process clients, with an authenticated local service transport added for reconnect/multiple clients. Business semantics and event types must be transport-independent.
+
+| Proposed operation family | Minimum behavior |
+|---|---|
+| `initialize`, `capabilities/read` | Negotiate protocol/schema versions, supported transports, event types, tools, and execution capabilities |
+| `workspace/open`, `workspace/status` | Return canonical workspace identity, execution host, repository state, and effective policy |
+| `session/create`, `read`, `list`, `resume`, `fork` | Durable identity and explicit fork ancestry; no implied filesystem rollback |
+| `turn/start`, `steer`, `cancel` | Idempotent command identity; accepted state and eventually a terminal event |
+| `approval/respond` | Match an outstanding request, argument hash, policy version, identity, and expiry |
+| `events/subscribe` | Resume after a durable sequence cursor; report gaps and provide a snapshot when needed |
+| `artifact/read`, `diff/read` | Fetch versioned content with access checks and size limits |
+| `context/inspect`, `routing/explain`, `usage/read` | Expose prompt inputs, selection decisions, reservations, and reconciled usage |
+| `memory/query`, `memory/proposals` | Inspect evidence and proposed changes within authorized scope |
+| `session/export` | Produce a redaction-aware trace and artifact manifest |
+
+**Protocol invariants:**
+
+- Every command has a request ID and, for retryable mutations, an idempotency key. Reusing a key with a different payload is an error.
+- Every session event has a monotonic sequence assigned by its authoritative engine. Distributed workers supply causal IDs; wall-clock timestamps alone do not establish order.
+- Multiple observers may attach; only an authorized controller can answer a particular approval. Concurrent responses resolve atomically.
+- A slow client cannot lose terminal state. It may receive coalesced display deltas, but must be able to fetch durable artifacts and a current snapshot.
+- Disconnection is different from cancellation. Document whether a task continues and where the user can reattach.
+- Unknown capabilities are negotiated; incompatible major versions fail clearly. Generated schemas, examples, and conformance tests derive from the same VCP contract.
+
+MCP and ACP solve different integration problems: MCP provides tool/resource integration, while ACP defines an editor-agent interaction protocol. Evaluate ACP as a future client adapter; do not substitute an MCP tool endpoint for the whole session lifecycle. [MCP specification](https://modelcontextprotocol.io/specification/2025-11-25), [ACP overview](https://agentclientprotocol.com/protocol/v1/overview).
+
+### 19.5 CLI and VS Code behavior
+
+Illustrative command surface:
+
+```text
+vcp
+vcp run "fix the failing parser test" --cost med --budget-usd 2.00
+vcp run --file task.md --format jsonl
+vcp serve --stdio
+vcp sessions list
+vcp sessions resume <session-id>
+vcp inspect <session-id> --view prompts
+vcp inspect <session-id> --view costs
+vcp memory search "test command"
+vcp doctor
+```
+
+The $2.00 example is a user-supplied cap, not a recommended default. Interactive controls such as `/plan`, `/model`, `/cost`, `/context`, `/memory`, and `/compact` should map to engine commands rather than TUI-only behavior.
+
+For headless use, reserve stdout for structured output and stderr for diagnostics; specify exit codes for success, failed verification, missing approval, budget exhaustion, cancellation, and engine failure. If user input is required and no interactive client exists, return a durable pending state or fail according to explicit policy rather than hanging.
+
+The VS Code extension should provide:
+
+- A session/task view with streaming progress and visible model/cost profile.
+- Proposed diff review bound to exact document versions.
+- A prompt/context inspector showing included files, instructions, memory, tool schemas, and omissions.
+- A routing and spend view covering the whole task tree.
+- An approval UI showing action, scope, reason, and grant duration.
+- Session resume/attach, cancellation, and outstanding questions.
+
+Use versioned buffer snapshots for unsaved text. If the engine edits disk while a dirty buffer exists, it must detect the conflict and coordinate with the extension before applying the change. Multi-root workspaces and remote development need explicit workspace-to-execution-host mappings; a local path must not be interpreted on the wrong machine.
+
+### 19.6 Transparent prompts and event records
+
+Transparency means showing the information VCP assembled, sent, received, transformed, and acted on. It cannot expose inaccessible provider internals or guarantee visibility into a model's private reasoning.
+
+| Record | Required content |
+|---|---|
+| Context manifest | Ordered parts, origin/trust, file/claim revisions, token estimates, include/exclude reasons, truncation and compaction links |
+| Routing decision | Task role, profile, candidate set, hard exclusions, quality evidence version, chosen model, provider constraints, escalation reason |
+| Model exchange | Serialized request/response artifacts where permitted, endpoint metadata, model actually served, timing, stop/error reason, usage |
+| Tool proposal | Tool/schema version, normalized arguments, relevant file hashes, proposed effect class |
+| Policy decision | Matched rules, policy version, scope, approver identity if applicable, grant expiry, decision reason |
+| Tool outcome | Start/end, execution host, exit/error, output artifact references, observed file changes, cancellation or unknown-effect status |
+| Memory activity | Retrieval scope/version, evidence selected, proposals, findings, accepted/superseded IDs, synchronization status |
+| Verification | Command/check, environment, tested diff/revision, result, evidence artifact |
+| Task conclusion | Completed, blocked, cancelled, partial, failed, or budget exhausted; supporting evidence and outstanding work |
+
+Illustrative event envelope:
+
+```json
+{
+  "schema_version": "1",
+  "event_id": "evt_example_42",
+  "session_id": "ses_example",
+  "task_id": "task_example",
+  "turn_id": "turn_example",
+  "step_id": "step_example",
+  "agent_id": "agent_main",
+  "sequence": 42,
+  "occurred_at": "2026-09-16T12:00:00Z",
+  "type": "tool.completed",
+  "caused_by": "evt_example_41",
+  "policy_version": "policy_example",
+  "payload": {
+    "tool_run_id": "tool_example",
+    "outcome": "succeeded",
+    "result_artifact_id": "artifact_example"
+  },
+  "redactions": []
+}
+```
+
+All identifiers are placeholders. Causal relationships should connect routing, model requests, tool proposals, approvals, outcomes, and verification; do not force users to infer that relationship from adjacent log lines.
+
+**Retention and privacy:** separate safe metadata from protected content. Strip authentication headers and known credentials before ordinary logging; use local OS access controls for captured artifacts without requiring local file/database encryption. Encrypt all cloud-bound VCP exports/backups, including their manifests and indexes, with developer-controlled recovery material before publication; no plaintext fallback or secret key in the vault. Record which parts were omitted or redacted, by which rule, and how that limits replay. Do not claim that heuristic secret detection finds every secret.
+
+“Exact prompt” should mean the exact VCP-serialized request available under the selected capture policy. If content was not retained, say so. A provider may transform a request internally, and VCP cannot reconstruct an unobserved transformation. Store safe artifact references and protected integrity metadata; avoid publishing plain hashes of low-entropy secrets as a substitute for redaction.
+
+### 19.7 Durability, replay, and unknown effects
+
+Use a transactional event/state write for local decisions, with a durable dispatch record before invoking a worker. Record tool execution states such as:
+
+```text
+proposed -> authorized -> dispatch_recorded -> running
+running -> succeeded | failed | cancelled | outcome_unknown
+```
+
+On restart:
+
+1. Recover the latest consistent session projection and unapplied events.
+2. Reconnect to workers where possible and query known execution IDs.
+3. Reconcile incomplete file edits using before/after hashes and transaction records.
+4. Query external systems using documented operation identities where available.
+5. Mark unresolved actions as unknown; never replay a non-idempotent effect solely because its success record is missing.
+6. Resume scheduling only after required ambiguity is resolved or explicitly handled by policy.
+
+Distinguish three operations in the API and UI:
+
+- **Trace replay:** display recorded events and outputs; it executes nothing.
+- **State reconstruction:** rebuild VCP projections from recorded events; it does not claim to restore external systems.
+- **Task re-execution:** run new model/tool calls in a specified environment; it has new costs, effects, and potentially different results.
+
+A stored event plus a local file write cannot generally form a single transaction with a remote API. Exact replay of the event display is feasible; identical model output and exactly-once external effects require stronger assumptions and should not be promised.
+
+### 19.8 Tools, execution, and policy
+
+Start with a small set of versioned tools: bounded file reads, lexical search, directory listing, transactional patches, command execution/status/cancel, and explicit user questions. Add LSP, image, web, and MCP capabilities as needed by evaluated workflows.
+
+Each tool definition should include input/output schema, effect class, required capabilities, timeout, maximum output, cancellation behavior, retry/idempotency classification, and artifacts produced. Classify a shell command conservatively: the name of an executable or a “read only” annotation is not proof of harmless behavior.
+
+File changes need canonical paths, workspace checks, expected content hashes or document versions, encoding/line-ending preservation, and a defined all-or-partial application policy. Reject stale patches with actionable context instead of silently applying fuzzy changes to the wrong location.
+
+Command execution needs an explicit shell/executable, working directory, environment policy, process ID/group, stdin handling, timeout, output spooling, and process-tree cancellation. Shells differ across platforms; avoid implementing Windows execution by assuming Bash quoting.
+
+Proposed authority rules:
+
+| Boundary | VCP rule |
+|---|---|
+| Instructions versus authorization | Project instructions guide behavior; grants and denials are enforced by trusted code |
+| Deny versus allow | Applicable hard constraints remain effective even if a model, hook, plugin, or child asks for broader access |
+| Approval reuse | Bind grants to operation/scope, arguments or safe pattern, execution location, policy version, and expiry |
+| Changed arguments | Revalidate authorization after any hook or adapter rewrites an operation |
+| Filesystem isolation | Resolve traversal, symlinks/junctions, and canonical roots; check again at execution to reduce race conditions |
+| Network/credentials | Constrain independently from filesystem scope; keep provider keys out of ordinary worker environments |
+| Unavailable sandbox | Advertise missing isolation explicitly and apply configured policy; never claim a worktree provides OS isolation |
+| External publication | Track push, PR creation, deployment, messaging, and similar effects separately from local changes |
+
+Cost profiles must not broaden permissions. Permission mode and execution isolation are separate settings, with their effective values visible in every session.
+
+### 19.9 Multi-agent scheduling and merge responsibility
+
+Begin with a single agent. Add delegation only where task decomposition and evaluation show a benefit.
+
+- Every child receives a bounded task packet, acceptance criteria, allowed tools/scope, cancellation linkage, and a reservation from the root budget.
+- Record a dependency graph; schedule independent reads concurrently and serialize conflicting writes. A “reviewer” that only proposes findings should not need write access.
+- Use separate worktrees for independent write tasks when Git is available, and separate sandbox identities where required. Handle a non-Git workspace with an explicit supported alternative or reject isolated writing.
+- Record parent base revision and initial dirty state. A worktree from HEAD does not automatically include the user's uncommitted changes.
+- Return structured findings, evidence, changed-file lists, patch/base revision, verification, and cost. Keep full child transcripts inspectable without loading them into the parent prompt.
+- Merge through an explicit integration step that checks current state, reports conflicts, and reruns relevant verification. Child success does not imply integrated-task success.
+- Stop children on parent cancellation or budget exhaustion; record any running operation whose outcome remains unknown.
+
+Observers should consume bounded events such as “new task,” “repeated verification failure,” or “context about to compact.” Debounce triggers and cap their spend. A recall observer should not repeatedly query unchanged memory; a verification observer should not repeatedly review an unchanged diff.
+
+### 19.10 Skills, hooks, MCP, and plugins
+
+Define separate contracts rather than a single “extension” abstraction:
+
+| Mechanism | Loads or executes | Required controls |
+|---|---|---|
+| Instruction files | Scoped text added to context | Discovery/precedence rules, source hashes, trust labels, import-cycle detection |
+| Skills | Small discovery description; body/resources on activation | Versioned manifest, explicit activation record, token cost, allowed capability requests |
+| Hooks | Code at named lifecycle events | Timeouts, input/output schema, recursion limits, failure policy, argument reauthorization |
+| Sub-agent definitions | Task-role configuration | Inheritance rules, permissions, budget, depth/concurrency caps |
+| MCP servers | External tools/resources | Server identity, transport/authentication, schema version, discovery cache, timeout/cancel, per-tool policy |
+| Plugin bundles | A versioned package of the above | Dependency manifest, provenance, installation scope, upgrades, disable/uninstall, capability review |
+
+Keep tool annotations as hints, not authority. A dynamically changed tool schema or hook must invalidate affected cached decisions. Repository-local extensions require a workspace-trust decision before their executable parts run.
+
+The first VCP release need not support a public plugin marketplace. Start with local, explicitly configured capabilities and a clear manifest so distribution can evolve without changing core authority semantics.
+
+## 20. Evaluation plan and acceptance evidence
+
+### 20.1 Run controlled comparisons
+
+Use the fixtures from section 15, supplemented with representative VCP work: small bug fixes, multi-file refactors, unfamiliar-repository questions, test repair, dependency diagnosis, and long tasks that require compaction.
+
+Record the full experimental manifest: repository revision and initial dirty state, task text, expected outcome, OS/runtime, environment image where applicable, tool/harness version, model/provider identity, reasoning settings, prompt and policy versions, cost profile, catalog snapshot, memory/index state, and network conditions.
+
+Separate three comparisons:
+
+1. **Model comparison:** hold the VCP harness, tools, task, and context strategy constant.
+2. **Harness comparison:** hold the model and environment constant where the tools permit it; otherwise clearly label confounding factors.
+3. **Strategy comparison:** hold the task pool and total budget constant while comparing single-model, routed, multi-agent, and memory-assisted approaches.
+
+Start with a pilot, for example twenty tasks and several repetitions per configuration, to identify major failures and estimate variance. This is a proposed pilot size, not evidence of statistical sufficiency. Expand the sample according to the observed variance and the decision being made. Reserve held-out tasks for final comparison and keep task-level results, including failures.
+
+### 20.2 Required experiment matrix
+
+| ID | Experiment | Evidence to collect | Acceptance question |
+|---|---|---|---|
+| E01 | Same simple fix through CLI, API, and VS Code | Event sequence, diff, test artifact, effective policy | Do all clients drive the same engine behavior? |
+| E02 | Nested instructions, imports, and hostile retrieved text | Context manifests and attempted tool decisions | Are source precedence and authority boundaries explicit? |
+| E03 | Lazy tools/skills at increasing catalog sizes | Schema tokens, discovery failures, latency, task success | Does deferred loading save cost without hiding necessary capabilities? |
+| E04 | Forced compaction during a long task | Before/after manifests and retained goal/constraints | Can work continue without losing critical state or tool-result pairing? |
+| E05 | Stale patch and concurrent dirty editor buffer | File hashes, document versions, conflict event | Are human changes preserved and stale edits rejected? |
+| E06 | Denial, expired approval, and rewritten tool arguments | Policy version and correlated approval trace | Can any execution occur under a stale or mismatched grant? |
+| E07 | Path traversal, symlink/junction, shell/process boundary | OS-level filesystem/process observations | Are claimed isolation guarantees true on each supported platform? |
+| E08 | Cancel during model stream, command, and external request | Process-tree termination and unknown-effect records | Does cancellation stop scheduling and honestly describe residual effects? |
+| E09 | Disconnect and duplicate client command | Idempotency result, event cursor, reconstructed state | Can a client reconnect without duplicating work or approvals? |
+| E10 | Crash at each durable-dispatch boundary | Store recovery, worker identity, reconciled effects | Are incomplete effects inspected instead of blindly replayed? |
+| E11 | Provider timeout, rate limit, invalid tool call, and fallback | Attempt tree, actual model/provider, normalized error | Are retries bounded and capability/data policies preserved? |
+| E12 | Concurrent child/observer budget exhaustion | Atomic reservations and settled/unknown charges | Does the scheduler refuse unaffordable new work across the entire tree? |
+| E13 | Stale, contradictory, missing, and restricted memory | Claims, findings, retrieval scope, exclusions | Is memory evidence reliable and correctly scoped? |
+| E14 | Local memory-store failure, lost acknowledgement, and indexing lag | Durable/indexed sequences, pending indexing intents, reconciliation, degraded-mode events | Can VCP preserve accepted facts without duplicate promotions or invalid search generations? |
+| E15 | Two worktrees with overlapping changes | Base revisions, conflicts, integrated diff, tests | Is integration explicit and verification tied to the merged result? |
+| E16 | Plugin/hook failure and changed MCP schema | Timeouts, reauthorization, error events | Can extensions fail without bypassing policy or wedging the session? |
+| E17 | Trace export with synthetic secrets and omitted content | Redaction manifest, artifact access, replay limitations | Does the inspector reveal useful evidence without claiming missing data exists? |
+| E18 | Install, upgrade, store migration, and rollback | Version manifest, recovery/export, startup checks | Can users recover their sessions and understand incompatible versions? |
+| E19 | Single-model versus routed strategies | Verified success, total cost, latency, intervention | Does routing improve the measured quality/cost trade-off? |
+| E20 | No memory versus Markdown versus governed memory | Held-out recall, source coverage, stale-claim and task-success rates | Is the added memory system justified by useful outcomes? |
+
+These are acceptance tests for future prototypes. No “pass” is implied by their inclusion in this document. The local memory/storage decision additionally requires M01–M08 in section 17.11, including files/SQLite parity and Tantivy/DiskANN publication recovery.
+
+### 20.3 Metrics that support decisions
+
+| Metric | Definition or reporting rule |
+|---|---|
+| Verified completion rate | Tasks meeting predeclared acceptance criteria divided by attempted tasks; distinguish partial completion |
+| Total cost per successful task | All evaluation spend, including failed attempts and supporting agents, divided by successful tasks |
+| Latency | End-to-end wall time plus model, tool, approval, retrieval, and queue components; report distributions |
+| Human intervention | Clarifications, permission decisions, corrections, manual patch repair, and reruns reported separately |
+| Edit/tool reliability | Invalid calls, stale patches, partial writes, repair attempts, and unauthorized attempts/executions |
+| Context efficiency | Tokens by instructions, schemas, files, memory, history, summaries, and handoff |
+| Routing value | Success/cost/latency change against a fixed-model baseline, broken down by task class |
+| Memory value | Evidence-grounded useful recall, stale or unsupported claims, access-scope violations, and cost |
+| Trace completeness | Actions linked to proposals, decisions, outcomes, costs, and artifacts; unavailable fields explicitly marked |
+| Recovery correctness | Duplicated effects, unresolved outcomes, lost events, and preservation of user changes after fault injection |
+| Operational footprint | Startup, idle memory, disk growth, install size, update effort, and dependency burden |
+
+Use deterministic tests and artifact checks as primary task graders. Human review is still needed for maintainability and requirements not captured by tests. Model-based graders may assist, but should be blinded to the candidate where feasible and calibrated against independent review.
+
+### 20.4 Gates and comparison scorecard
+
+Before ranking convenience or cost, require the selected implementation to pass the declared authority, user-edit preservation, crash recovery, and budget-reservation tests. Any unauthorized execution, silent data loss, or fabricated completion in the test suite is a release blocker for that implementation.
+
+A **proposed** scorecard for candidates that pass those gates is:
+
+| Dimension | Initial weight | Notes |
+|---|---|---|
+| Verified task quality | 35% | Include difficult and long-context cases |
+| Total cost | 20% | Include retries, memory, review, and unsuccessful tasks |
+| Transparency and recovery | 20% | Audit trail usefulness and fault recovery evidence |
+| Latency and interaction | 15% | User steering, cancellation, and client responsiveness |
+| Implementation/operational simplicity | 10% | Dependency load, deployment, migrations, maintainability |
+
+Weights are product decisions, not measured results. Keep raw metrics and Pareto trade-offs visible so a single score cannot hide a serious weakness.
+
+## 21. Decisions, deliverables, and implementation order
+
+### 21.1 Provisional synthesis from the tool studies
+
+| VCP concern | Most relevant references | Candidate pattern | Condition for adoption |
+|---|---|---|---|
+| Shared CLI/editor/API engine | Codex, OpenCode, Muse SDK | Typed commands, correlated events, durable sessions | E01, E09 and protocol-version tests |
+| Efficient prompt assembly | Claude Code, Aider, Pi | Lazy capabilities, bounded repository map, explicit context manifest | E02–E04 and task-quality comparison |
+| Model independence | OpenCode, Cline, Pi | Provider adapter plus capability-tested normalized messages | E11 and E19 |
+| Governed memory | Ioka Munarium Server; Tantivy and DiskANN | Original local governance with versioned claims, RAM/disk state, hybrid indexes; files/SQLite TBD | E13, E14, E20 and M01–M08 |
+| Transparent execution | Muse Code, Codex, OpenHands | Durable event record and inspectable prompt/artifact projections | E10 and E17 |
+| Editor correctness | Cursor, Cline, Cascade, Copilot IDE | Versioned buffer context and conflict-aware diff application | E05 |
+| Parallel changes | Muse Code, Antigravity, worktree-based workflows | Bounded delegation with explicit integration | E12 and E15 |
+| Long-running work | Devin, OpenHands, Copilot cloud | Durable tasks, environment manifests, partial/blocked outcomes | E08–E10 |
+| Optional specification workflow | Kiro | Requirements/design/tasks with traceable verification | Requirement-change experiment in section 16.16 |
+| Terminal product quality | Crush, Pi, Aider | Responsive rendering over engine events | Cross-platform terminal and packaging checks |
+
+This is a research-priority map, not a ranking of products or a claim that each listed tool implements the proposed VCP contract exactly.
+
+### 21.2 ADR backlog
+
+| ADR | Decision | Evidence required before acceptance |
+|---|---|---|
+| ADR-001 | Engine runtime and process topology | Installation/startup spike, PTY behavior, sandbox feasibility, extension integration |
+| ADR-002 | Client protocol and versioning | Codex/OpenCode/MSP comparison, E01/E09, streaming/approval/reconnect contract |
+| ADR-003 | Event and artifact store | Files/SQLite transaction boundaries, payload placement, migration/retention, E10/E17/E18 and M02/M08 |
+| ADR-004 | Tool/edit/execution contract | Edit-format evaluation, file freshness, shell cancellation, E05/E07/E08 |
+| ADR-005 | Policy and sandbox model | Supported OS matrix, threat boundaries, approval semantics, E06/E07 |
+| ADR-006 | OpenRouter adapter and capability registry | Catalog/error/streaming contract, provider compatibility, E11 |
+| ADR-007 | Cost profiles and routing strategy | Budget math, complete accounting, held-out E12/E19 results |
+| ADR-008 | Local memory persistence and governance | Munarium-inspired invariants, files versus SQLite, pinned Tantivy/DiskANN providers, index publication, E13/E14/E20 and M01–M08 |
+| ADR-009 | Context and compaction | Instruction precedence, prompt manifests, E02–E04 |
+| ADR-010 | Multi-agent ownership and integration | Task graph, worktree/non-Git policy, cancellation, E12/E15 |
+| ADR-011 | Extension contract | Hook/skill/MCP semantics, trust, schema upgrades, E16 |
+| ADR-012 | CLI/editor experience and distribution | Command parity, dirty-buffer behavior, headless exit codes, E01/E05/E18 |
+
+Every ADR should state: problem, constraints, alternatives, selected choice, supporting evidence, rejected trade-offs, compatibility implications, operational cost, tests, and conditions that would reopen the decision.
+
+### 21.3 Design package required before full implementation
+
+The research is ready to become a VCP design when the following artifacts exist:
+
+1. Product requirements with explicit supported platforms, deployment model, users, and non-goals.
+2. A component/deployment diagram with state ownership and trust boundaries.
+3. Versioned domain models for sessions, tasks, events, tools, policies, routing, cost, memory, and artifacts.
+4. Client and worker protocol schemas with streaming, approval, cancellation, reconnect, and error examples.
+5. A provider capability/price registry format and a reproducible model-evaluation report.
+6. A local memory contract with Munarium-inspired governance, RAM budgets, files/SQLite persistence, Tantivy/DiskANN adapters, provenance, scope, conflicts, deletion, index publication, and recovery behavior.
+7. Prompt assembly and compaction rules with an inspectable manifest.
+8. CLI/API/VS Code flow designs for starting, steering, approving, reviewing, inspecting, resuming, and cancelling.
+9. An execution/isolation plan per supported OS, including degraded capabilities.
+10. Storage, migration, retention, export, and recovery procedures.
+11. Completed high-priority ADRs, an implementation backlog with dependencies, and an acceptance matrix linked to evidence.
+
+These artifacts can initially remain sections of this workbook. Split them into dedicated design documents when they become stable enough to version independently.
+
+### 21.4 Implementation sequence and exit criteria
+
+| Stage | Build or investigate | Exit criterion |
+|---|---|---|
+| 0. Evidence and decisions | Pin primary references; resolve product boundaries; run small protocol, edit, and memory spikes | ADR-001 through ADR-006 have enough evidence for a minimal vertical slice |
+| 1. Transparent single-agent engine | One OpenRouter-backed model, basic tools, policy, bounded spend, event/artifact store, headless API | A fix can be executed, verified, inspected, cancelled, and recovered without losing user edits |
+| 2. CLI and VS Code clients | Terminal experience, editor context/diffs, approval UI, prompt and cost inspection | E01/E05/E09 pass; equivalent work has the same engine semantics across clients |
+| 3. Durable memory | Original local memory kernel, files/SQLite comparison, Tantivy/DiskANN adapters, evidence UI, scoped retrieval and durable indexing | E13/E14/E20 and M01–M08 establish benefit, recovery correctness, and the persistence choice |
+| 4. Measured routing | Capability registry, cost profiles, bounded escalation, usage reconciliation | E11/E12/E19 justify routing defaults for selected task classes |
+| 5. Delegation and extensions | Child tasks, worktrees, integration, event-triggered observers, skills/hooks/MCP | E15/E16 pass and measured gains justify added complexity |
+| 6. Operational hardening | Packaging, migrations, remote execution if required, retention, compatibility | Declared platform and recovery matrix passes; unsupported cases are explicit |
+
+Do not delay transparency, policy, or cost accounting until after multi-agent orchestration. Their records are necessary to evaluate the orchestration itself.
+
+### 21.5 Open questions to settle without blocking all research
+
+| Question | Working assumption for this workbook | When it must be resolved |
+|---|---|---|
+| Which authoritative local persistence backend should VCP use? | Files without a database, or embedded SQLite; both remain candidates | Before ADR-003/008 are accepted |
+| Which Tantivy/DiskANN releases, providers, and bindings fit VCP? | Lexical and vector roles are selected; exact integrations need measured prototypes | Before native packaging and index-format commitments |
+| How much historical search and evidence retention is required? | Versioned claims and provenance are required design concepts; historical index retention is TBD | Before ADR-008 and backup/retention design |
+| Which OSes are first-class, especially native Windows versus WSL? | Include Windows in evaluation; advertise only tested guarantees | Before ADR-001/005/012 |
+| Is the first product personal/local or a shared team service? | Local engine with explicit identities and future scope boundaries | Before shared storage or remote access design |
+| What are actual low/med/high dollar and latency targets? | Configurable caps, with values calibrated from representative tasks | Before ADR-007 and default profiles |
+| Which languages and repositories define “good at coding”? | Start with representative user workloads and held-out tasks | Before model selection and performance claims |
+| What prompt/content retention should be enabled by default? | Safe metadata plus explicitly governed content capture | Before ADR-003 and shipping the inspector |
+| How much command/plugin compatibility is required? | Familiar concepts; VCP-native semantics unless compatibility is explicitly specified | Before promising imports or drop-in operation |
+| Does “transparent” include remote provider internals? | Only observable request/response data and exposed metadata | Document in the product contract |
+
+The design is sufficiently grounded when the major decisions have evidence, the failure paths have contracts, and a single task can be traced from user intent through model selection, execution, verification, memory, and cost. Remaining product choices should be visible ADR inputs, not assumptions hidden in implementation.
+
 ## References
+
+The identifiers below belong to the original survey. The expansion in sections 14–21 cites primary documentation directly at the relevant claims and research entry points; those sources were consulted on September 16, 2026. A referenced source is not evidence that its product was installed or its runtime behavior tested.
 
 **Cross-cutting / field**
 - [F1] Firecrawl, "Best AI Coding Agents in 2026: Harness, Cost, and Accuracy Compared," Aug 3, 2026. https://www.firecrawl.dev/blog/best-ai-coding-agents
@@ -570,4 +1704,4 @@ Meta trained Muse Spark inside Muse Code; Anthropic and OpenAI train their model
 
 ---
 
-*Prepared as a point-in-time architectural reference. Where a claim is marked (reported), it comes from vendor or secondary sources and has not been verified against source code. Version numbers, pricing, and model names should be re-checked before being used in procurement or design decisions.*
+*Prepared as a point-in-time architecture survey and VCP design workbook. Apply the evidence labels in section 14: documented vendor behavior, original survey reports, open research questions, and proposed VCP contracts have different status. Runtime experiments and implementation decisions remain future work; version numbers, prices, and model availability must be rechecked for the release being evaluated.*

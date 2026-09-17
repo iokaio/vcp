@@ -1,0 +1,209 @@
+# 20 — Work-item, requirement and test traceability
+
+Status: planned. Generated ownership inventory from architecture draft 0.4 and the task headings in this directory on September 17, 2026. All 68 architecture items have exactly one implementation owner. There are 56 first-release items and 12 deferred items (P4, P9 and P10).
+
+Use this ledger with [the segment index](README.md) and [the shared test guide](16-test-fixtures-and-acceptance.md). Dependencies below retain the architecture's exact IDs; slash suffixes share the preceding phase, and an ellipsis denotes an inclusive range. A whole segment is not an additional dependency.
+
+## Work-item ownership and readiness
+
+Each linked task supplies code organization, implementation increments and testing instructions. Evidence IDs refer to current architecture/workbook cases with the release scoping below. Update status with actual evidence links during implementation; no source code or runtime test was produced by this planning revision.
+
+| Work item | Required dependencies | Detailed owner | Architecture acceptance evidence | State |
+|---|---|---|---|---|
+| P0-01 Requirements and ADRs | None | [Implementation and tests](01-upstream-feasibility.md#p0-01--requirements-and-experiment-harness) | CLI/Windows priority, Apache-2.0, local embeddings, plaintext active files, encrypted cloud backups and complete usable milestone preserved | Planned |
+| P0-07 Upstream pins | P0-01 | [Implementation and tests](01-upstream-feasibility.md#p0-07--immutable-upstream-selection) | Immutable manifest, reproducible source selection, R08; ambiguous secondary projects off critical path | Planned |
+| P0-02 Local memory/runtime spike | P0-07 | [Implementation and tests](01-upstream-feasibility.md#p0-02--local-munarium-and-search-spike) | CPU inference, index reopen, local network boundary, resource/install measurements; U09 | Planned |
+| P0-03 Internal lifecycle seam | P0-07 | [Implementation and tests](01-upstream-feasibility.md#p0-03--codex-lifecycle-seam) | Typed boundary and Windows close/recovery fixture; no new public API/TS SDK required | Planned |
+| P0-04 Portable storage comparison | P0-01/02 | [Implementation and tests](01-upstream-feasibility.md#p0-04--storage-and-encrypted-portability-comparison) | M01/M02/M08/U04; encrypted interoperability, wrong-key/tamper/truncation tests; size, transfer churn and restore time with encryption enabled | Planned |
+| P0-05 Windows execution spike | P0-03/07 | [Implementation and tests](01-upstream-feasibility.md#p0-05--windows-execution-spike) | E07/E08/R04; no WSL fallback or untested OS guarantee | Planned |
+| P0-08 Codex integration baseline | P0-02/03/05/07 | [Implementation and tests](01-upstream-feasibility.md#p0-08--codex-integration-baseline) | Scripted read/patch/verify path, retained module map, representative fix-import effort; R02–R05/R08 | Planned |
+| P0-09 Gemini port fixtures | P0-03/07 | [Implementation and tests](01-upstream-feasibility.md#p0-09--gemini-fixture-and-port-boundaries) | Provider-neutral types and intentional divergences; R02/R03/R05 | Planned |
+| P0-06 Baseline qualification | P0-02…05, P0-08/09 | [Implementation and tests](01-upstream-feasibility.md#p0-06--qualification-and-handoff) | Evidence supports each advertised choice, including ADR-019; failure yields a bounded replacement plan | Planned |
+| P1-01 Domain state | P0-06 | [Implementation and tests](02-engine-state-and-capture.md#p1-01--domain-state) | Property tests for transitions, idempotency, stale state and stable workspace rebinding | Planned |
+| P1-02 Internal commands/events | P1-01, P0-03 | [Implementation and tests](02-engine-state-and-capture.md#p1-02--internal-commands-and-events) | Interactive/structured CLI semantics agree; future transport remains replaceable | Planned |
+| P1-03 Full capture/artifacts | P1-01 | [Implementation and tests](02-engine-state-and-capture.md#p1-03--full-capture-and-artifact-staging) | U05; prompt/UI limits do not silently truncate stored evidence; recording failure pauses new effects | Planned |
+| P1-04 Canonical backends | P1-01/03, P0-04/06 | [Implementation and tests](03-storage-and-budget.md#p1-04--storage-increments) | Same conformance suite for every offered backend; durable admission and reopen/restore | Planned |
+| P1-05 Budget ledger | P1-04 | [Implementation and tests](03-storage-and-budget.md#p1-05--ledger-increments) | Concurrent admission/restart tests; restore never resets liabilities | Planned |
+| P1-06 Projections and history | P1-02/04 | [Implementation and tests](02-engine-state-and-capture.md#p1-06--projections-and-history) | Trace/state replay differs from re-execution; gaps and unknown effects remain visible | Planned |
+| P2-01 Repository/context | P1-03/04 | [Implementation and tests](04-context-and-instructions.md#p2-01--discovery-and-initial-assembly) | E02/R02/R07; preserve existing edits and workspace scope | Planned |
+| P2-02 OpenRouter gateway | P1-05, P0-09 | [Implementation and tests](05-openrouter-and-session-loop.md#p2-02--provider-path) | E11/R05; fixed-model conformance scaffold and bounded live smoke run | Planned |
+| P2-03 Autonomy and grants | P1-01/04, P0-05/06 | [Implementation and tests](06-windows-tools-and-recovery.md#p2-03--effective-autonomy-and-grants) | E06/R03; existing grants respected, denials preserved and costs independent | Planned |
+| P2-04 Execution/tools | P2-03, P1-03/04 | [Implementation and tests](06-windows-tools-and-recovery.md#p2-04--tools-and-windows-worker) | E05/E07/E08/R02/R04; no direct-write bypass or stale overwrite | Planned |
+| P2-05 Session loop | P2-01…04, P0-08/09 | [Implementation and tests](05-openrouter-and-session-loop.md#p2-05--retained-codex-loop-with-vcp-boundaries) | Fixture change completes without duplicate calls, hidden helper calls or state drift | Planned |
+| P2-06 Verification/completion | P2-05 | [Implementation and tests](05-openrouter-and-session-loop.md#p2-06--verification-and-honest-completion) | U01–U03 scaffolds; edits invalidate earlier verification | Planned |
+| P2-07 Recovery and close handling | P2-04/05, P1-06 | [Implementation and tests](06-windows-tools-and-recovery.md#p2-07--pause-and-unknown-effect-reconciliation) | U06/E08/E10/E12; interrupted effects are not blindly replayed | Planned |
+| P2-08 Context continuity | P2-01/05, P1-05/06 | [Implementation and tests](04-context-and-instructions.md#p2-08--refresh-and-compaction) | E04/R07; preserve steering, constraints and tool/result pairing | Planned |
+| P3-01 Structured CLI | P2-06/07/08 | [Implementation and tests](07-cli-and-inspection.md#p3-01--structured-command-surface) | E01 for CLI modes; pending input/broken-pipe cases | Planned |
+| P3-02 Interactive terminal | P3-01 | [Implementation and tests](07-cli-and-inspection.md#p3-02--terminal-workflow) | Native Windows Unicode/resize/long-output/cancellation checks | Planned |
+| P3-03 Inspectors | P1-06, P2-06, P3-01 | [Implementation and tests](07-cli-and-inspection.md#p3-03--evidence-inspectors) | E17/U05; every action and supporting artifact is inspectable | Planned |
+| P3-04 Workspace continuation | P3-01, P2-07 | [Implementation and tests](07-cli-and-inspection.md#p3-04--workspace-continuation) | U06; multiple paused tasks, changed files and partial child results | Planned |
+| P3-05 History and pruning CLI | P3-03, P5-07 | [Implementation and tests](10-history-and-pruning.md#p3-05--browsing-and-cli-controls) | U05; 31-day fixture notifies without deleting; exact selected scope and protected records visible | Planned |
+| P3-06 Portable environment CLI | P3-04, P5-09/10 | [Implementation and tests](11-encrypted-portability.md#p3-06--user-commands-and-diagnostics) | U04; no secret in model prompts/logs/argv, missing-key/setup failures actionable, published ciphertext distinguished from verified restore | Planned |
+| P4-01 Engine connection | P9-02/03 | [Implementation and tests](18-deferred-vscode.md#p4-01--connection-and-workspace-mapping) | Reload/multi-root and host ownership tests | Planned |
+| P4-02 Session/child views | P4-01 | [Implementation and tests](18-deferred-vscode.md#p4-02--task-and-child-views) | E01 parity with established CLI behavior | Planned |
+| P4-03 Versioned edits | P4-01, P2-04 | [Implementation and tests](18-deferred-vscode.md#p4-03--versioned-document-edits) | E05/R02 dirty-buffer and concurrent typing tests | Planned |
+| P4-04 Inspectors | P4-02, P3-03/05 | [Implementation and tests](18-deferred-vscode.md#p4-04--inspectors) | Capture/access parity and safe webview messaging | Planned |
+| P4-05 Packaging | P4-01…04 | [Implementation and tests](18-deferred-vscode.md#p4-05--packaging-and-compatibility) | Clean install/reload and incompatible-version diagnostics | Planned |
+| P5-01 Munarium governance | P1-04, P0-02/07 | [Implementation and tests](08-memory-and-ingestion.md#p5-01--governed-writes) | E13/M01; inferred evidence labelled, contradictions retained and user corrections supersede | Planned |
+| P5-02 Activity/evidence ingestion | P5-01, P1-03 | [Implementation and tests](08-memory-and-ingestion.md#p5-02--activity-and-evidence-ingestion) | External actor unknown where unobserved; no cross-workspace leakage | Planned |
+| P5-03 Tantivy adapter | P0-02, P5-02 | [Implementation and tests](09-local-search-and-generations.md#p5-03--lexical-retrieval) | Lexical recall, delete/merge, version and watermark cases | Planned |
+| P5-04 Local embeddings/DiskANN | P0-02, P5-02, P1-05 | [Implementation and tests](09-local-search-and-generations.md#p5-04--local-vectors-and-diskann) | U09/M03/M04; network boundary, exact-search oracle, reopen/filter/delete and offline recall | Planned |
+| P5-05 Publication/recovery | P5-03/04, P1-04 | [Implementation and tests](09-local-search-and-generations.md#p5-05--coherent-publication-and-recovery) | M02/M05/M06; canonical commit cannot expose invalid/revoked search data | Planned |
+| P5-06 Retrieval/inspection | P5-05, P3-03 | [Implementation and tests](09-local-search-and-generations.md#p5-06--hybrid-query-and-inspection) | E20/M04; claim versus raw history distinguished and degradations visible | Planned |
+| P5-07 Pruning/retention | P5-05/06, P1-03/04 | [Implementation and tests](10-history-and-pruning.md#p5-07--retention-engine) | U05/M05/M07; protect live recovery/accounting, invalidate prompts and report snapshot retention | Planned |
+| P5-09 Portable snapshots | P5-05/07, P1-04 | [Implementation and tests](11-encrypted-portability.md#p5-09--key-lifecycle-and-publication) | U04/M08/I-19; interrupted/error paths never expose plaintext or keys, no recipient substitution, encryption finalized before publication | Planned |
+| P5-10 Restore and handoff | P5-09, P3-04 | [Implementation and tests](11-encrypted-portability.md#p5-10--restore-and-sequential-handoff) | U04 on two Windows environments; wrong/missing key and tampering rejected, recovery/rotation verified, no lost records or overwritten divergent work | Planned |
+| P5-08 Integrated memory acceptance | P5-01…07, P5-09/10 | [Implementation and tests](15-integration-and-release.md#p5-08--integrated-memory-acceptance) | E13/E14/E20/M01–M08/U04/U05/U09; useful local recall and transparent limits | Planned |
+| P6-01 Group registry | P2-02, P5-06 | [Implementation and tests](12-routing-and-optimization.md#p6-01--versioned-registry) | Group/profile distinction, unknown capability/price and stale research handled explicitly | Planned |
+| P6-02 Routing/profiles | P6-01, P1-05 | [Implementation and tests](12-routing-and-optimization.md#p6-02--deterministic-profile-policy) | Deterministic decisions from recorded inputs, quality floor and root budget intact | Planned |
+| P6-03 Escalation/handoff | P6-02, P2-05/08 | [Implementation and tests](12-routing-and-optimization.md#p6-03--escalation-and-model-handoff) | E04/E11/E12/U07; no dropped constraints or orphan tool results | Planned |
+| P6-05 Project optimizer | P6-03, P5-06, P3-02/03 | [Implementation and tests](12-routing-and-optimization.md#p6-05--optimize-workflow) | U07; sparse/biased/pruned history labelled; no silent budget increase, authority change or deletion | Planned |
+| P6-04 Profile qualification | P6-03/05, P5-08 | [Implementation and tests](12-routing-and-optimization.md#p6-04--profile-qualification) | E19/U07 with total failed-attempt and child/support costs; thresholds/defaults justified | Planned |
+| P7-01 Skill discovery | P2-01/03 | [Implementation and tests](13-skills-and-mcp.md#p7-01--discovery-and-activation) | E02/E03/U08; no executable config-import dependency | Planned |
+| P7-02 Bundled development skills | P7-01, P2-06 | [Implementation and tests](13-skills-and-mcp.md#p7-02--built-in-skill-catalog) | U01–U03/U08 across representative language families; unavailable Windows toolchains reported | Planned |
+| P7-03 MCP | P7-01, P2-03/04 | [Implementation and tests](13-skills-and-mcp.md#p7-03--mcp-lifecycle-and-tool-calls) | E16/R06/U08; schema drift and uncertain remote effects preserve policy | Planned |
+| P7-04 Task graph/worktrees | P6-03, P2-07 | [Implementation and tests](14-visible-delegation.md#p7-04--graph-and-workspace-ownership) | E12/E15/U06; no silent shared writes or orphan charge history | Planned |
+| P7-05 Integration/review | P7-04, P2-06 | [Implementation and tests](14-visible-delegation.md#p7-05--integration-and-review) | U02/U03/E15; successful child cannot bypass failed integrated verification | Planned |
+| P7-06 Visible progress and recovery | P7-04/05, P3-02/04 | [Implementation and tests](14-visible-delegation.md#p7-06--commentary-controls-and-recovery) | U06; child failures/blocks/costs always visible; quiet mode still announces delegation | Planned |
+| P8-01 Native Windows matrix | P3-06, P6-04, P7-02/03/06 | [Implementation and tests](15-integration-and-release.md#p8-01--native-windows-support-matrix) | E07/E08/E18/U09; unsupported environments clearly labelled | Planned |
+| P8-02 Recovery/portability campaign | P7-06, P5-07/10, P3-05/06 | [Implementation and tests](15-integration-and-release.md#p8-02--recovery-and-portability-campaign) | E10/E14/M02/M07/M08/U04–U06; acknowledge precise tested durability envelope | Planned |
+| P8-03 Full-history/export review | P3-05/06, P5-07/10 | [Implementation and tests](15-integration-and-release.md#p8-03--full-history-and-encryption-review) | U04/U05/I-19; vault observation under injected failures, fresh-machine key recovery, no false erasure or fully-synced claims | Planned |
+| P8-04 Windows distribution | P8-01, P5-10 | [Implementation and tests](15-integration-and-release.md#p8-04--windows-distribution) | Fresh-machine install and transfer with no hosted VCP dependency | Planned |
+| P8-06 Upstream maintenance | P7-06, P0-07, P2-05 | [Implementation and tests](15-integration-and-release.md#p8-06--upstream-maintenance-rehearsal) | R08; affected upstream/VCP suites pass and maintenance cost is recorded | Planned |
+| P8-05 Owner sign-off and release evaluation | P6-04, P8-01…04, P8-06 | [Implementation and tests](15-integration-and-release.md#p8-05--owner-acceptance-and-release-evaluation) | FR/I and U01–U09 complete; downloadable Apache-2.0 release is reviewable | Planned |
+| P9-01 Public protocol | P8-05, P1-02 | [Implementation and tests](17-deferred-api-and-sdk.md#p9-01--public-protocol) | R01/version compatibility and CLI/API parity | Planned |
+| P9-02 Server/attach | P9-01 | [Implementation and tests](17-deferred-api-and-sdk.md#p9-02--local-server-and-attachment) | Authenticated local ownership and cursor recovery; no hosted service | Planned |
+| P9-03 TypeScript SDK | P9-02 | [Implementation and tests](17-deferred-api-and-sdk.md#p9-03--sdk) | Real protocol fixture tests, generated schema drift checks | Planned |
+| P10-01 Hooks | P8-05, P7-03 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-01--hooks) | E16/R06 timeout, recursion, rewrite and recovery cases | Planned |
+| P10-02 Configuration imports | P8-05, P7-01/03 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-02--configuration-import) | Unsupported fields reported; imported data grants no authority | Planned |
+| P10-03 Optional observers | P8-05, P7-06 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-03--optional-observers) | Measured benefit, root cost and intervention-rate accounting | Planned |
+| P10-04 Other environments | P8-05 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-04--other-execution-environments) | Separate per-host path/process/credential and installation matrices | Planned |
+
+## First-release dependency closure
+
+The transitive dependency closure of [P8-05](15-integration-and-release.md#p8-05--owner-acceptance-and-release-evaluation) includes all 56 first-release tasks and none of the deferred 12. Maintain this property when changing dependencies.
+
+Special staging relationships:
+
+- [P1-06](02-engine-state-and-capture.md#p1-06--projections-and-history) follows [P1-04](03-storage-and-budget.md#p1-04--storage-increments) even though its file appears earlier in the reading order.
+- [P2-08](04-context-and-instructions.md#p2-08--refresh-and-compaction) follows [P2-05](05-openrouter-and-session-loop.md#p2-05--retained-codex-loop-with-vcp-boundaries); the context file is not a whole-file prerequisite of the loop.
+- [P5-06](09-local-search-and-generations.md#p5-06--hybrid-query-and-inspection) requires the common inspector interface [P3-03](07-cli-and-inspection.md#p3-03--evidence-inspectors); memory-specific inspection completes with retrieval.
+- [P3-05](10-history-and-pruning.md#p3-05--browsing-and-cli-controls) and [P3-06](11-encrypted-portability.md#p3-06--user-commands-and-diagnostics) follow the relevant P5 implementations, while basic CLI work starts earlier.
+- [P5-08](15-integration-and-release.md#p5-08--integrated-memory-acceptance) is the early stage of segment 15 and precedes [P6-04](12-routing-and-optimization.md#p6-04--profile-qualification); it does not require final P8 completion.
+- [P7-04](14-visible-delegation.md#p7-04--graph-and-workspace-ownership) can begin after [P6-03](12-routing-and-optimization.md#p6-03--escalation-and-model-handoff) and [P2-07](06-windows-tools-and-recovery.md#p2-07--pause-and-unknown-effect-reconciliation); final routing qualification and delegation integration are jointly rechecked for release.
+
+## Functional requirement coverage
+
+| Requirement | Implementation segments | Primary evidence |
+|---|---|---|
+| FR-01 Shared engine and CLI first | [02](02-engine-state-and-capture.md), [07](07-cli-and-inspection.md); later [17](17-deferred-api-and-sdk.md)/[18](18-deferred-vscode.md) | E01/E09, internal R01; later public-client parity |
+| FR-02 OpenRouter | [05](05-openrouter-and-session-loop.md), [12](12-routing-and-optimization.md) | E11/R05/U07 |
+| FR-03 Cost profiles | [03](03-storage-and-budget.md), [12](12-routing-and-optimization.md) | E12/E19/U07 |
+| FR-04 Governed memory | [08](08-memory-and-ingestion.md), [10](10-history-and-pruning.md) | E13/M01/M05/U05 |
+| FR-05 Tantivy/DiskANN | [09](09-local-search-and-generations.md) | M02/M03/M04/M05/M06/E20/U09 |
+| FR-06 Transparency | [02](02-engine-state-and-capture.md), [07](07-cli-and-inspection.md), [14](14-visible-delegation.md) | E17/U05/U06 |
+| FR-07 Reliable edits | [06](06-windows-tools-and-recovery.md), [14](14-visible-delegation.md); later [18](18-deferred-vscode.md) | E05/E07/E15/U03 |
+| FR-08 Pause/resume | [06](06-windows-tools-and-recovery.md), [07](07-cli-and-inspection.md), [14](14-visible-delegation.md) | E04/E08/E10/U06 |
+| FR-09 Bounded spend | [03](03-storage-and-budget.md), [05](05-openrouter-and-session-loop.md), [12](12-routing-and-optimization.md), [14](14-visible-delegation.md) | E12/U07; actual request/effect and ledger observations |
+| FR-10 Recovery | [03](03-storage-and-budget.md), [06](06-windows-tools-and-recovery.md), [11](11-encrypted-portability.md) | E10/E14/M02/M07/M08/U04/U06 |
+| FR-11 AGENTS.md/skills/MCP | [04](04-context-and-instructions.md), [13](13-skills-and-mcp.md) | E02/E03/E16/U08 |
+| FR-12 Visible delegation | [14](14-visible-delegation.md) | E12/E15/U02/U03/U06 |
+| FR-13 Maintainable reuse | [01](01-upstream-feasibility.md), [15](15-integration-and-release.md) | Applicable R01–R08 and source/notice/update evidence |
+| FR-14 Portable encrypted environment | [03](03-storage-and-budget.md), [11](11-encrypted-portability.md), [15](15-integration-and-release.md) | M01/M08/U04/I-19; developer recovery and vault observation |
+| FR-15 Full history/pruning | [02](02-engine-state-and-capture.md), [10](10-history-and-pruning.md) | U05/E17/M05 |
+| FR-16 Local memory compute | [01](01-upstream-feasibility.md), [09](09-local-search-and-generations.md), [15](15-integration-and-release.md) | U09/M03/M04 and actual network/resource observations |
+| FR-17 Project optimization | [12](12-routing-and-optimization.md) | E19/U07 and effective policy before/after/rollback |
+
+## Invariant verification ownership
+
+| Invariant | Owner segments | Independent assertion |
+|---|---|---|
+| I-01 No model/content-granted authority | 04, 06, 13 | Hostile data cannot produce a permitted dispatch |
+| I-02 Validated authorized durable dispatch | 05, 06 | Broker effects correlate to immutable authorized intent |
+| I-03 Idempotency identity | 02, 03 | Repeated command returns original result; changed payload rejected |
+| I-04 Reservation before billable request | 03, 05 | Transport request count has committed reservation for every attempt |
+| I-05 Root attribution | 03, 12, 14 | Supporting and child calls included once; unknown charges retained |
+| I-06 Preserve user changes | 04, 06, 14; later 18 | Independent initial/final staged/unstaged/untracked comparison |
+| I-07 Durable memory acceptance | 03, 08, 09 | Accepted canonical record survives restart; lag reported |
+| I-08 Scoped sourced retrieval | 08, 09, 10 | Every passage resolves to authorized current source/version |
+| I-09 Compaction preserves history | 02, 04 | Original full artifacts unchanged after projection compaction |
+| I-10 Stop scheduling on cancellation | 05, 06, 14 | No new dispatch after stop boundary; residual effects visible |
+| I-11 No blind uncertain-effect replay | 06, 11, 13, 14 | Independent non-idempotent marker is not duplicated after reopen |
+| I-12 Current completion evidence | 02, 05, 14 | Later edits invalidate checks; merged state actually verified |
+| I-13 Backend contract parity | 03, 08, 11 | Shared fixtures produce equivalent canonical outcomes |
+| I-14 Explicit unknown states | 02, 05, 07, 09, 12 | Missing capability/usage/content/index state not represented as success |
+| I-15 Complete restore and divergence | 11 | Corrupt/incomplete/stale/competing snapshots never silently overwrite |
+| I-16 Local embeddings/indexing | 01, 09, 15 | Real CPU embedding/index tests with embedding-network access disabled |
+| I-17 Protected pruning dependencies | 03, 10, 11 | Unsettled facts and live recovery remain intact or explicitly reconciled |
+| I-18 Visible bounded child work | 07, 14 | Attributed events, pause tree and reconstructed child graph agree |
+| I-19 Encrypted vault only | 01, 11, 15 | No plaintext/key in observed cloud-bound writes; independent crypto checks |
+
+All invariant cases are hard release gates within the declared support envelope. A high average coding score cannot offset a failure.
+
+## Research experiment coverage and release scoping
+
+The [research experiment matrix](../architecture/othertools.md#202-required-experiment-matrix) defines E01–E20. The current architecture controls which surfaces are in the first release.
+
+| Experiment | First-release implementation/test owner | Later-only extension |
+|---|---|---|
+| E01 Client behavior parity | 02, 07: interactive/JSONL CLI | 17, 18: API/SDK/editor |
+| E02 Instruction precedence | 04, 13: AGENTS.md/skills/hostile inputs | 19: imported instruction formats |
+| E03 Lazy capabilities | 04, 13: skill/tool discovery | None required |
+| E04 Compaction/handoff | 04, 12 | None required |
+| E05 Stale edits | 06, 14: disk and integration races | 18: dirty editor buffers |
+| E06 Grants/rewrites | 06, 13 | 19: hook rewrites |
+| E07 Platform boundaries | 01, 06, 15: native Windows | 19: other execution hosts |
+| E08 Cancellation | 05, 06, 13, 14 | Later client/host adapters |
+| E09 Duplicate/disconnected client | 02, 07: internal CLI cursor/idempotency | 17, 18: public attachment |
+| E10 Durable-dispatch crashes | 03, 06, 15 | New effectful adapters as added |
+| E11 Provider failure/fallback | 05, 12 | None required |
+| E12 Concurrent budget admission | 03, 05, 12, 14 | 19: optional observers |
+| E13 Memory governance | 08, 09, 10, 15 | None required |
+| E14 Storage/index recovery | 03, 08, 09, 15 | None required |
+| E15 Worktree integration | 14 | None required |
+| E16 Extension failure | 13: MCP and skill lifecycle | 19: hooks/importers |
+| E17 Trace inspection/export | 02, 07, 10, 11, 15 | 18: editor presentation parity |
+| E18 Install/upgrade | 03, 11, 15: Windows CLI/data | 18, 19: editor/other hosts |
+| E19 Routed strategy value | 12, 15 | 19: observer value comparison |
+| E20 Memory value | 09, 15 | None required |
+
+## Memory and reuse suites
+
+| Suite | Owning implementation/tests | Required evidence |
+|---|---|---|
+| M01 | 03, 08 | Files/SQLite governance and canonical parity |
+| M02 | 03, 09, 15 | Kill at canonical/index/generation publication barriers |
+| M03 | 01, 09, 15 | Actual CPU/RAM/mapped-memory/disk/start/query measurements |
+| M04 | 09, 15 | Exact symbols, semantic recall, narrow scope and exhaustive vector oracle |
+| M05 | 08, 09, 10 | Supersession/deletion/revocation during lag |
+| M06 | 09, 11 | Tokenizer/model/dimension/library rebuild and compatible handover |
+| M07 | 03, 09, 10, 15 | Canonical versus derived corruption and resource failure |
+| M08 | 01, 11, 15 | Consistent encrypted backup/restore during activity |
+| R01 | 01, 02, 07; later 17, 18 | Adapted lifecycle/CLI now; public schema/client behavior later |
+| R02 | 01, 04, 06, 14; later 18 | Prepared parsing/context/file conflicts; dirty buffers later |
+| R03 | 01, 06, 13 | Effective VCP policy distinct from upstream matches |
+| R04 | 01, 06, 15; later 19 | Actual Windows execution/packaging; other hosts later |
+| R05 | 01, 05, 06, 12 | Normalized tools/provider/scheduler with budget and effect discipline |
+| R06 | 01, 13; later 19 | Skills/MCP now; hook/import semantics later |
+| R07 | 02, 04, 08, 12 | Context continuity, full capture, local memory and charged helpers |
+| R08 | 01, 15 and every selected-component change | Pinned source/notices, retained tests and update rehearsal |
+
+## Owner acceptance ownership
+
+Detailed setups, actions and assertions are in [segment 16](16-test-fixtures-and-acceptance.md); [segment 15](15-integration-and-release.md) owns final packaged-release execution.
+
+| Suite | Primary feature segments | Final evidence |
+|---|---|---|
+| U01 Analysis | 04, 05, 08, 09, 13 | Architecture explanation, accurate source references and scoped memory |
+| U02 Review | 05, 13, 14 | Seeded finding rubric, unchanged review workspace and visible child trace |
+| U03 Generation | 04, 05, 06, 12, 13, 14 | Architecture fit, preserved user changes and tested integrated result |
+| U04 Encrypted handoff | 03, 10, 11 | Two Windows environments, independent keys, ciphertext-only vault and restored state |
+| U05 History/pruning | 02, 07, 10 | Full artifacts, date/filter semantics, no default deletion and protected refs |
+| U06 Pause/resume | 03, 05, 06, 07, 14 | Actual process/dispatch observations and no duplicate effects |
+| U07 Routing/optimization | 03, 04, 12 | Explained groups, total cost, adaptive questions and reversible selected policy |
+| U08 Skills/MCP | 04, 06, 13 | Declared language/toolset coverage and schema/authority/cancel correctness |
+| U09 Local memory compute | 01, 09, 15 | Actual CPU inference/retrieval, no remote embedding and measured resources |
+
+## Maintaining the plan
+
+When an architecture item changes, update its single owning task section, this dependency/evidence row and affected test mappings. Add a new ID for new scope instead of reusing a completed ID for unrelated behavior. Preserve confirmed Windows/CLI scope and local-plaintext/encrypted-cloud requirements. Check local links, unique ownership, dependency existence/acyclicity and complete first-release closure after plan edits.
