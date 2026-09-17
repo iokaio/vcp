@@ -8,6 +8,14 @@ Use `vcp-models/catalog` for gateway metadata and `vcp-routing/group_registry`, 
 
 `RoutingInput` binds task/role, capability/context needs, project policy, model pin/fallback permission, catalog/evaluation versions and remaining budget. `RoutingDecision` records all candidates, exclusions, selected group/model/provider, estimated cost, evidence and escalation reason. Final reservation uses the actual assembled request size.
 
+Read the proposed [routing and extension design](../architecture/routing-extensions-design.md#service-boundaries-and-persisted-identities)
+alongside [gateway/group ADR-006](../adr/006-model-gateway-and-groups.md),
+[routing ADR-007](../adr/007-profiles-and-routing.md) and
+[optimization ADR-017](../adr/017-project-optimization.md). These supply interfaces
+and decision work, not qualified model defaults. Map the logical modules to the P0
+source map before writing code; use existing canonical policy/artifact/ledger
+interfaces rather than creating a router-owned database or gateway.
+
 ## P6-01 — Versioned registry
 
 1. Model Frontier/High/Medium/Low as capability groups, separately from user profiles low/med/high. Group membership carries evidence date/version and role suitability.
@@ -15,6 +23,31 @@ Use `vcp-models/catalog` for gateway metadata and `vcp-routing/group_registry`, 
 3. Store compatibility observations, quality data, usage/latency distributions and source provenance. A catalog refresh creates a new revision without changing an active request.
 
 Test removed/renamed candidate, stale price, unknown capability, contradictory research membership and provider restriction. Persist an inspectable rejection reason for every ineligible candidate.
+
+**Construction sequence.** Define immutable `CatalogRevision`,
+`CompatibilityObservation` and `GroupMembership` records using
+[catalog identity rules](../architecture/routing-extensions-design.md#catalog-and-routing-decisions).
+Keep raw permitted metadata separately from normalized fields; validate exact IDs,
+currency/units, nonnegative rates, context/output constraints and capability
+tri-state before publishing a revision. Preserve unknown fields in source evidence
+where safe without granting them operational meaning. Aliases do not inherit
+qualification automatically. Store observation time and any source effective date
+separately so freshness is testable without rewriting historical facts.
+
+Implement refresh as fetch/parse/validate/stage followed by a short canonical
+revision-pointer transaction. Failed refresh leaves the prior snapshot available
+with visible staleness; an active attempt retains its original limits and prices.
+Concurrent refreshes use expected revision checks. Compatibility probes are explicit
+bounded evaluation work with task ownership and reservations, never paid requests
+hidden in a catalog read. A deterministic fake catalog must cover missing fields,
+provider-specific exceptions and removal during an active request. Expose the
+source/age/qualification state in group inspection rather than only a group label.
+
+Deliver normalized fixture snapshots, a migration/reopen case for retained catalog
+revisions and a source-to-field map in the future model-adapter development guide.
+Recheck [architecture section 7.2](../architecture/vcp-what.md#72-catalog-and-compatibility-registry)
+when choosing what the gateway can actually report; unexposed provider identity or
+model version remains an explicit limitation.
 
 ## P6-02 — Deterministic profile policy
 
@@ -24,6 +57,31 @@ Include context transfer, retries, support roles and reserved verification in es
 
 Tests cover a cheap candidate that fails the quality floor, a fast candidate with expensive retry history, insufficient verification reserve, a strict pin and concurrent root allocations. Compare decisions against explicit eligibility/ordering assertions, not a duplicated implementation function.
 
+**Construction sequence.** Implement the selector as a pure function over versioned
+inputs, emitting ordered candidate records with stable exclusion reason codes.
+Separate role suitability from task profile and separate measured expected total
+cost from the immediate reservation maximum. Use exact monetary arithmetic from
+P1-05; unknown charge components cannot be rounded down to zero. The quality floor
+and comparison order are policy values; P6-04 supplies their measured defaults.
+Record fallback-to-broader-cohort assumptions when the exact task class lacks data.
+
+Follow the [seven-stage selection pipeline](../architecture/routing-extensions-design.md#catalog-and-routing-decisions).
+After selecting a candidate, assemble its actual context/tool schema and validate
+capacity before final cost admission. Admission checks current root/child limits
+and protected verification reserves atomically. If another child consumes remaining
+capacity first, produce a revised decision or a visible budget stop; never dispatch
+against the earlier balance. Persist the selected decision and manifest with the
+attempt/reservation linkage before calling the gateway. Apply policy changes only
+at a revalidated scheduling boundary.
+
+Build table-driven eligibility cases whose expected reasons and winner are stated
+independently of production ranking. Add concurrent admission tests with barriers
+after selection and before reservation, and assert actual admitted attempts plus
+root totals. Inspector fixtures must reconstruct the comparison from recorded
+catalog/policy/evaluation inputs, including unavailable candidates and the final
+tie break. Preserve [architecture section 7.5](../architecture/vcp-what.md#75-routing-algorithm-and-explanation)
+and [root accounting](../architecture/vcp-what.md#81-root-ledger-and-reservations).
+
 ## P6-03 — Escalation and model handoff
 
 Define bounded triggers from invalid tool output, repeated failed verification, unsupported capability or declared task complexity. Record trigger/evidence and remaining budget. Reassemble for the new capability envelope and preserve objective, current changes, applicable instructions, unknown effects and tool/result pairing.
@@ -31,6 +89,29 @@ Define bounded triggers from invalid tool output, repeated failed verification, 
 No escalation widens autonomy or provider-data permissions. An ambiguous request remains accounted for while a later attempt uses its own reservation. Repeated failure reaches a visible blocked/failed/input state rather than cycling indefinitely.
 
 Test smaller-context fallback, tool-schema change, repeated failures, paused escalation and late response from the prior model. E04/E11/E12/U07 apply.
+
+**Construction sequence.** Add a typed `EscalationTrigger` with evidence refs and
+separate retry/quality/decomposition counters. Persist counters with admitted
+attempts so recovery cannot reset them. Store deadline and backoff state outside
+the model prompt; a request cannot increase its own remaining tries. Treat strict
+pin failure as a blocked/input condition unless recorded fallback permission
+allows the candidate. An escalation changes routing, never grants or data scope.
+
+Build `HandoffPacket` from canonical current state using
+[handoff barriers](../architecture/routing-extensions-design.md#handoff-and-escalation-barriers)
+and [architecture section 7.6](../architecture/vcp-what.md#76-handoffs-and-errors).
+Include unresolved effects, exact diff/file versions, applicable instructions,
+remaining liabilities and acceptance checks. Rebuild tool schemas/messages for the
+new model; validate pairing before admitting spend. Persist conversion/omission
+reasons for provider-specific fields and preserve original artifacts. Stop an old
+stream from issuing tools after its step is superseded, while still recording late
+usage and observed output against that old attempt.
+
+Inject cancellation/new steering between trigger, handoff assembly and admission.
+Assert no new dispatch while paused, no lost constraint on a smaller-context model,
+bounded total attempts after restart and separate settlement of late prior usage.
+Use an independent marker tool to prove fallback did not repeat a previous remote
+effect merely because its result was absent from the new model context.
 
 ## P6-05 — `/optimize` workflow
 
@@ -43,10 +124,67 @@ Test smaller-context fallback, tool-schema change, repeated failures, paused esc
 
 Tests: empty history, only failed tasks, pruned comparison period, unknown charges, an attempted budget/grant escalation in a model suggestion, declined changes, interrupted apply and repeated rollback. Confirm exact old/new effective policy revisions and no deletion or unrequested model call.
 
+**Construction sequence.** Add read-only aggregation over authorized task/history
+services with an explicit canonical cutoff and cohort key. Produce counts and
+denominators before rates: include completed, failed, cancelled and abandoned tasks,
+split known and uncertain spend, and mark missing/pruned evidence. Keep task-class,
+provider, policy and size differences visible; do not mix unrelated cohorts into an
+asserted routing improvement. Persist a report with permitted evidence references,
+not copies of inaccessible history. Recheck access when displaying saved reports.
+
+Implement the interview as durable question/answer state tied to existing project
+preferences and report gaps. Choose the next question for an unresolved decision;
+skipping optional questions still permits a user-selected preference update. Derive
+a closed-schema proposal containing base policy, field-level old/new values,
+reasons, uncertainty and effective values under trusted ceilings. Optional model
+suggestions are untrusted input to the same validator. Keep the local workflow
+usable when the model budget is zero.
+
+Use [optimization transactions](../architecture/routing-extensions-design.md#optimization-transactions-and-evaluation)
+to implement preview, selective apply and rollback. Commit a new revision plus
+selection receipt/event with expected-base compare-and-swap; no network call or
+question wait belongs inside that transaction. A concurrent policy update requires
+a refreshed preview. Rollback writes another revision and checks present ceilings,
+rather than deleting history or restoring obsolete authority. Subsequent regression
+reports compare declared cohorts and can recommend rollback without applying it.
+
+Add interruption barriers immediately before and after policy publication, duplicate
+apply with the same command identity, rejected unsupported proposal fields and a
+rollback under newly narrowed trusted limits. Record persisted versus effective
+policy in the fixture result. Acceptance follows
+[architecture section 7.8](../architecture/vcp-what.md#78-interactive-project-optimization),
+including no hidden trials, pruning or budget changes.
+
 ## P6-04 — Profile qualification
 
 After P5-08 memory evidence is available, compare fixed economical, fixed stronger and routed strategies on the same versioned analysis/review/generation pool. Record all attempts and supporting costs, held-out task outcomes, wall-time distributions, interventions and quality failures. Pin catalog/provider/configuration versions for each run.
 
 Select thresholds and defaults from declared evidence and product priorities, not the research workbook's ranking or an illustrative dollar amount. Initial subsystem tests can script child events/accounting; P8 must recheck total costs and quality with the actual delegation implementation before release.
+
+**Construction sequence.** Create versioned evaluation manifests under the planned
+`src/evals/tasks/` and synthetic held-out inputs under `src/evals/fixtures/`.
+Declare tuning/held-out partitions, fixed-strategy baselines, profile candidates,
+caps, retry limits, allowed human interventions, grading rubric and exclusion rules
+before running. Attribute every main/helper/retry/compaction/optimization charge,
+and report unresolved charges as uncertainty rather than dropping the run. Missing
+provider availability yields a not-run comparison with reason, not a substituted
+unrecorded model.
+
+Run identical fixture revisions and controlled starting state for each strategy;
+record execution order and catalog/provider drift where live services cannot be
+frozen. Compare quality-floor violations, success, total spend, latency distribution
+and interventions together. Cost per success alone can conceal costly failed tasks.
+Use deterministic fixtures for decision/recovery correctness; live evaluations
+require explicit configured spend limits and cannot be ordinary unit checks.
+Retain raw evidence in ignored artifacts and publish only reviewed synthetic or
+redacted summaries. Use
+[the evaluation design](../architecture/routing-extensions-design.md#optimization-transactions-and-evaluation)
+and [release acceptance ADR-018](../adr/018-release-acceptance.md).
+
+Deliver proposed defaults with evidence cohort, uncertainty, catalog freshness and
+rollback conditions. If no policy meets the quality floor under its configured
+budget, report that result instead of weakening the floor. P8 repeats relevant
+comparisons with actual child isolation/integration and packaged CLI behavior;
+subsystem qualification must identify that pending release evidence explicitly.
 
 Run `routing`, `provider`, E19/U07 and budget/handoff contracts. Done when every decision is explainable/reproducible, optimizer changes are reversible and explicitly chosen, and the proposed profile defaults have a measured quality/cost/latency basis.

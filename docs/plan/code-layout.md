@@ -6,7 +6,7 @@ Status: layout convention adopted; product implementation remains planned. This 
 
 Use `docs/` for documentation, `src/` for source code and its test assets, and `scripts/` for build and test automation. Root-level community and agent guidance files plus `.github/` are the exceptions needed for project discovery and contribution workflows. Keep root `AGENTS.md` and `CLAUDE.md` identical.
 
-Today `docs/architecture/` and `docs/plan/` contain the design and plan, and `docs/adr/` records ADR-013's source-management policy. `src/README.md` and `scripts/README.md` reserve the two implementation roots and explain their status. Source packages, manifests, fixtures, and runners below remain targets, not implemented capabilities. Create directories with their first useful content; do not add empty crates or passing placeholder runners.
+Today `docs/architecture/` contains the product architecture, supporting implementation designs and research; `docs/plan/` contains execution instructions; `docs/adr/` contains all 19 decision records; and `docs/development/` contains implementation and qualification procedures. ADR-013 records the source-management convention; engineering qualification remains pending throughout the new records. `src/README.md` and `scripts/README.md` reserve the two implementation roots and explain their status. Source packages, manifests, fixtures, and runners below remain targets, not implemented capabilities. Create directories with their first useful content; do not add empty crates or passing placeholder runners.
 
 ## Target directory tree
 
@@ -33,8 +33,8 @@ vcp/
     README.md
     architecture/              design, requirements, and supporting research
     plan/                      execution segments, this layout, and traceability
-    adr/                       ADR-013 recorded; further decisions added as resolved
-    development/               toolchain, upstream mapping, and contributor setup
+    adr/                       19 decision records; runtime qualification pending
+    development/               implementation guides; concrete setup/source map later
     protocol/                  later public API and compatibility documentation
     operations/                installation, data, recovery, and release guides
     evaluations/               reviewed, redacted result summaries only
@@ -149,3 +149,32 @@ Unqualified logical names such as `vcp-store/snapshot` still mean modules in the
 P0 establishes the actual source workspace, provenance map, and first runnable scripts. Feature segments add code and tests in the mapped locations. P8 adds installation/operations guides, reviewed acceptance evidence, and packaging. Deferred packages are created only when their work is scheduled.
 
 When a concrete layout changes, update this file, the affected segment paths, the source map, script entry points, and contributor instructions together. Directory creation never counts as completing a product work item.
+
+## Materializing the P0 source map
+
+P0-07/P0-08 produce one row per logical responsibility with the actual manifest/package, module paths, public boundary types, retained upstream origin, patch/port identity, test target and maintenance owner. A logical responsibility implemented in an existing Codex package points to that package; do not create a redundant facade crate simply to fill this table.
+
+Start by tracing the existing upstream dependency graph and entry points. Mark modules that perform model calls, writes, process launches or credential/network discovery. Place VCP admission and receipt boundaries around those paths, then prove through the [upstream experiments](../development/upstream-qualification.md#native-baseline-and-effect-inventory) that no competing path remains. Keep one selected build graph and record its concrete entry command.
+
+For a new VCP module, choose the narrowest owner that can implement the behavior without importing UI/store/network details into domain types. Pure reusable helpers live with that module. Cross-backend assertions live once in shared contracts; platform helpers live under shared support when used by multiple packages. Register those test targets in the actual build graph and verify discovery with the runner, rather than counting directories.
+
+## Documentation and contract ownership
+
+| Document type | Authoritative purpose | Update trigger |
+|---|---|---|
+| [Product architecture](../architecture/vcp-what.md) | Confirmed behavior, scope and invariants | Explicit product clarification or reviewed design correction |
+| [Supporting designs](../architecture/README.md#supporting-implementation-designs) | Proposed records, algorithms, failure ordering and cross-service interfaces | A contract is refined or a qualified mechanism replaces a proposal |
+| [ADR records](../adr/README.md) | Decision, alternatives, evidence, consequences and unresolved gates | Named experiment selects/rejects an engineering choice |
+| [Plan segments](README.md) | Implementation sequence, task ownership and exit evidence | Work is refined or a concrete source mapping becomes available |
+| [Development guides](../development/README.md) | How to prepare/reproduce implementation and source selection | Real toolchain/source/runner procedure changes |
+| Operations/evaluations | Tested procedures and measured results | Implementation produces current validated evidence |
+
+Do not duplicate wire schemas or migration definitions by hand across documents and source. Once implemented, name their canonical source/generator and use examples tied to its version. Until then, label illustrative fields and command interfaces as proposed. Adding a design does not establish a supported protocol.
+
+## Build and output placement checks
+
+Before adding a manifest/script, identify its input roots and exact generated outputs. Builds consume committed source and declared dependencies; maintenance reconstruction is explicit under `scripts/upstream/`. Runner scripts validate options, resolve their own paths and call real registered targets. Reusable production logic and graders remain under `src/` rather than embedded in orchestration.
+
+Verify output rules with scoped ignore checks before running or staging new output. Packaging uses an explicit file inventory; ignored status does not stop a broad archive from including local data. Runtime stores, models, keys and vaults belong outside the checkout. Test resources have distinct ownership markers and verified cleanup targets.
+
+When a concrete mapping changes, inspect consumers as a set: module imports, workspace members, test registration, scripts, package inventories, provenance, contributor setup, affected plan paths and ADR evidence. Preserve task IDs/dependencies unless the architecture explicitly changes their contract. This is a placement and integration checklist, not a mandate to implement deferred packages early.

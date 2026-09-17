@@ -139,7 +139,7 @@ The owner answers recorded in section 0.4 govern release scope. Earlier research
 | FR-05 | Tantivy and DiskANN retrieval | Lexical, vector, and fused results can be inspected and evaluated independently |
 | FR-06 | Transparent work | Every external action has correlated intent, authority, dispatch, and outcome records |
 | FR-07 | Reliable edits | Stale versions and concurrent user changes are detected; partial multi-file results are explicit |
-| FR-08 | Session control and close-to-pause | Closing the CLI pauses root/children durably; reopening the same workspace discovers and resumes recoverable work |
+| FR-08 | Session control and pause/resume | Explicit pause keeps the CLI open for inspection and deliberate resume; closing also pauses root/children durably, and reopening discovers recoverable work |
 | FR-09 | Bounded spend | Concurrent work cannot reserve more than its root task permits; uncertain charges remain accounted for |
 | FR-10 | Recoverable state | Acknowledged durable records survive supported crash tests; incomplete effects are reconciled |
 | FR-11 | Required instructions, skills and MCP | AGENTS.md discovery, bundled development skills, and MCP work in the first CLI release; hooks/imports deferred |
@@ -424,7 +424,11 @@ Explanatory tasks can complete with cited evidence and no code verification. Edi
 
 ### 4.5 Terminal close, pause and workspace resume
 
+Users can explicitly pause VCP **without closing the application**. `/pause` in the interactive CLI and the equivalent `vcp tasks pause <task-id>` control command request the same durable pause. The terminal remains open for status, cost, history, child views and evidence inspection. `/resume` deliberately continues the selected paused task in the same running CLI after revalidation; closing and reopening is not required. Repeated pause requests are idempotent, and pause is distinct from cancelling or completing a task.
+
 The interactive CLI owns the active task lifetime. On `/pause`, normal exit, terminal-close notification, or loss of the controlling CLI connection, stop scheduling new model calls, tools, maintenance work and children. Cancel active model streams and brokered process trees within bounded grace periods; persist partial output, unsettled costs and unresolved effects. Commit the last durable task/child state and prepare the configured portable checkpoint when time allows. A pause never promises to freeze arbitrary external processes at an instruction boundary.
+
+Show `pausing` until the stop boundary and checkpoint are established, then `paused`, with unresolved effects and costs still visible. These are presentation/lifecycle states mapped to the task model by P1/P2, not evidence that every remote effect was stopped. Read-only inspection and receipt reconciliation remain available while paused; they do not authorize new task effects. New steering can be recorded while paused but cannot implicitly resume the task. Parent pause stops new descendant work, and resuming the parent must preserve any child's independent pause or cancellation. U06 must exercise pause, inspection and resume in one live CLI process as well as close/reopen recovery.
 
 Native Windows close events and hard termination have different completion guarantees. Reuse the selected Codex process/job controls, maintain recovery checkpoints during work, and test terminal closure, Ctrl+C behavior and forced termination. A process that survives or cannot be reconciled remains `outcome_unknown`; no task is blindly replayed on startup. No agent continues scheduling unattended after its owner CLI is gone.
 
@@ -494,7 +498,7 @@ Subscriptions resume from a cursor. If retention removed the cursor's events, re
 
 Multiple clients may observe. A controller lease determines who can submit interactive responses for a session; lease transfer and expiry are events. A pending approval can be resolved once. Client disconnect does not imply permission, cancellation, or approval denial.
 
-Stdio owner exit requests a controlled pause/cancellation according to the configured lifecycle. Daemon-owned sessions may continue after a client detaches. Display which mode is active before a user relies on background operation.
+Stdio owner exit requests a controlled pause according to section 4.5. Detaching an observer does not change a live controller's task; losing the controlling owner pauses its task tree. Earlier daemon-owned continuation wording is superseded by the confirmed close-to-pause requirement. A future independent background-owner mode requires an explicit product decision and does not follow merely from adding local attachment.
 
 ### 5.5 Errors
 
@@ -1592,7 +1596,7 @@ Disk changes and editor changes must reconcile into one change set. Never silent
 
 ### 18.5 Client lifecycle
 
-On extension reload, reconnect to a daemon-owned session or recover the last durable state from a child-owned session. Restore pending questions and approvals with their current validity. Do not automatically resubmit the last user command without its idempotency key.
+On extension reload, reconnect to the existing local engine or recover its last durable state. If the extension was the controlling owner, owner loss pauses its task tree; reconnect alone does not resume it. Restore pending questions and approvals with their current validity. Do not automatically resubmit the last user command without its idempotency key.
 
 The extension status indicates engine version, execution host, active policy, memory index status, and any protocol mismatch. UI state can be recreated from engine snapshots/events.
 
@@ -1806,7 +1810,7 @@ Use disposable representative repositories initially, then the owner's real proj
 | U03 | Generate a bounded feature spanning existing modules with tests and a pre-existing unrelated user edit | Fit the project's architecture/toolset, use appropriate model groups and visible children, integrate safely, run current-result checks and retain design/evidence history |
 | U04 | Pause on Windows machine A, encrypt a backup into a sync-folder test vault, then decrypt/restore on Windows machine B and return | Preserve history, claims, vectors/indexes, routing, task/child state and budgets across changed paths; both backends, incomplete/offline uploads, conflicts and index rebuilds; section 12.11 key recovery/rotation, tamper rejection and no-plaintext-publication tests |
 | U05 | Seed full history older than 30 days, disputed/inferred memories and active recovery/accounting references | Non-blocking aging notice with no default deletion; filter/date preview and precise prune application; retrieval excludes purged content; protected references and old-backup limits explicit |
-| U06 | Close/kill a CLI while a model request and child command are active, then reopen the workspace | No new unattended scheduling; process/model outcomes reconciled; concise task/child state restored; no duplicate effect or lost known/uncertain cost |
+| U06 | Pause, inspect and resume within a live CLI; separately close/kill it while a model request and child command are active, then reopen | No new root/child scheduling while paused; deliberate revalidated resume; process/model outcomes reconciled; concise task/child state restored; no duplicate effect or lost known/uncertain cost |
 | U07 | Mix simple and difficult project tasks, then run /optimize with enough and insufficient history | Explain group/model choices, record all costs/latencies/failures, ask adaptive questions, show a policy diff, apply chosen changes and roll back; no silent pruning or authority/budget expansion |
 | U08 | Activate bundled skills in representative language projects and invoke configured MCP tools | Default AGENTS.md scope, lazy skill loading, truthful Windows tool availability, MCP auth/schema/cancel/error behavior and policy enforcement; no hooks/importers required |
 | U09 | Install and run local embedding/index/query on a CPU-only Windows test machine with remote embedding traffic blocked | Model artifact identity/license recorded, local recall works without a hosted VCP service, source content never sent to an embedding endpoint, measured RAM/CPU/disk and clear setup failures |
@@ -2028,25 +2032,25 @@ Retain the original ADR IDs and extend them for owner decisions. A confirmed pro
 
 | ADR | Subject | Current position | Decision gate |
 |---|---|---|---|
-| ADR-001 | Runtime/process topology | Codex-derived Rust Windows CLI first; engine and embeddings local | P0-02/03/05/08/06 |
-| ADR-002 | Internal/public protocol | Internal commands/events now; public JSON-RPC/API/SDK deferred | P1-02; later P9 |
-| ADR-003 | Canonical records and artifacts | SQLite recommended default candidate, qualified files preference, shared portable format | P0-04, P1-04, P5-09/10 |
-| ADR-004 | Edits and execution | Prepared changes, expected versions, partial-effect receipts and Windows process ownership | P2-04/07; later P4-03 |
-| ADR-005 | Autonomy and sandbox | Configurable familiar autonomy levels; separate budget/interactivity/isolation; exact preset defaults proposed | P2-03, P8-01 |
-| ADR-006 | Gateway/catalog/groups | OpenRouter model gateway; versioned four-group registry with measured provider compatibility | P2-02, P6-01 |
-| ADR-007 | Profiles/routing | Low favors spend/speed, high capability with visible cost; bounded escalation and quality floor | P6-02/03/04 |
-| ADR-008 | Local governed memory | Selected Munarium code/concepts; local embeddings; Tantivy/DiskANN; automatic claim classes with evidence labels | P0-02/07, P5-01…08 |
-| ADR-009 | Context and full capture | Full local activity retention, bounded prompt projection and pinned task state | P1-03, P2-08, P3-03 |
-| ADR-010 | Delegation | Required capability, visible child progress, isolated writes, root budgets and parent pause | P7-04…06 |
-| ADR-011 | Extension scope | AGENTS.md, bundled skills and MCP required; hooks/importers deferred | P7-01…03; later P10-01/02 |
-| ADR-012 | Clients/distribution | Native Windows CLI/owner testing first, downloadable release next; API/editor/other platforms later | P8; later P9/P4/P10 |
+| [ADR-001](../adr/001-runtime-topology.md) | Runtime/process topology | Codex-derived Rust Windows CLI first; engine and embeddings local | P0-02/03/05/08/06 |
+| [ADR-002](../adr/002-internal-and-public-protocol.md) | Internal/public protocol | Internal commands/events now; public JSON-RPC/API/SDK deferred | P1-02; later P9 |
+| [ADR-003](../adr/003-canonical-storage.md) | Canonical records and artifacts | SQLite recommended default candidate, qualified files preference, shared portable format | P0-04, P1-04, P5-09/10 |
+| [ADR-004](../adr/004-edits-and-execution.md) | Edits and execution | Prepared changes, expected versions, partial-effect receipts and Windows process ownership | P2-04/07; later P4-03 |
+| [ADR-005](../adr/005-autonomy-and-isolation.md) | Autonomy and sandbox | Configurable familiar autonomy levels; separate budget/interactivity/isolation; exact preset defaults proposed | P2-03, P8-01 |
+| [ADR-006](../adr/006-model-gateway-and-groups.md) | Gateway/catalog/groups | OpenRouter model gateway; versioned four-group registry with measured provider compatibility | P2-02, P6-01 |
+| [ADR-007](../adr/007-profiles-and-routing.md) | Profiles/routing | Low favors spend/speed, high capability with visible cost; bounded escalation and quality floor | P6-02/03/04 |
+| [ADR-008](../adr/008-local-governed-memory.md) | Local governed memory | Selected Munarium code/concepts; local embeddings; Tantivy/DiskANN; automatic claim classes with evidence labels | P0-02/07, P5-01…08 |
+| [ADR-009](../adr/009-context-and-capture.md) | Context and full capture | Full local activity retention, bounded prompt projection and pinned task state | P1-03, P2-08, P3-03 |
+| [ADR-010](../adr/010-visible-delegation.md) | Delegation | Required capability, visible child progress, isolated writes, root budgets and parent pause | P7-04…06 |
+| [ADR-011](../adr/011-extension-scope.md) | Extension scope | AGENTS.md, bundled skills and MCP required; hooks/importers deferred | P7-01…03; later P10-01/02 |
+| [ADR-012](../adr/012-clients-and-distribution.md) | Clients/distribution | Native Windows CLI/owner testing first, downloadable release next; API/editor/other platforms later | P8; later P9/P4/P10 |
 | [ADR-013](../adr/013-upstream-reuse-and-vendoring.md) | Upstream reuse/license | Maximum reasonable Codex reuse as committed copied source with reproducible patches; module selection and qualification pending; Apache-2.0 distribution confirmed | P0-07/08/09, P8-06 |
-| ADR-014 | Foreign compatibility | Explicit future import subsets; no drop-in protocol/config compatibility required for first release | Later P9/P10-02 |
-| ADR-015 | Portability and storage choice | Plaintext local active root plus encrypted immutable vault snapshots, complete validation, sequential handoff and preserved conflicts | P0-04, P5-09/10, U04 |
-| ADR-016 | History and pause lifecycle | Full history, notice beyond 30 days, user pruning, close-to-pause and workspace resume | P3-04/05, P5-07, U05/U06 |
-| ADR-017 | Project optimization | /optimize analyzes project evidence, asks questions and versions user-selected policy changes | P6-05/04, U07 |
-| ADR-018 | Usable-release acceptance | All required CLI capabilities together; analysis/review/generation and U01–U09 | P8-05 |
-| ADR-019 | Cloud encryption and developer keys | Local encryption unnecessary; mandatory client-side cloud encryption confirmed; age/Rust candidate, independent recovery identity, rotation, no plaintext fallback; qualify format and writer authentication | P0-04/06, P3-06, P5-09/10, P8-03, U04/I-19 |
+| [ADR-014](../adr/014-foreign-compatibility.md) | Foreign compatibility | Explicit future import subsets; no drop-in protocol/config compatibility required for first release | Later P9/P10-02 |
+| [ADR-015](../adr/015-portability-and-storage-choice.md) | Portability and storage choice | Plaintext local active root plus encrypted immutable vault snapshots, complete validation, sequential handoff and preserved conflicts | P0-04, P5-09/10, U04 |
+| [ADR-016](../adr/016-history-and-pause.md) | History and pause lifecycle | Full history, notice beyond 30 days, user pruning, explicit pause while open, close-to-pause and deliberate resume | P3-04/05, P5-07, U05/U06 |
+| [ADR-017](../adr/017-project-optimization.md) | Project optimization | /optimize analyzes project evidence, asks questions and versions user-selected policy changes | P6-05/04, U07 |
+| [ADR-018](../adr/018-release-acceptance.md) | Usable-release acceptance | All required CLI capabilities together; analysis/review/generation and U01–U09 | P8-05 |
+| [ADR-019](../adr/019-cloud-encryption-and-keys.md) | Cloud encryption and developer keys | Local encryption unnecessary; mandatory client-side cloud encryption confirmed; age/Rust candidate, independent recovery identity, rotation, no plaintext fallback; qualify format and writer authentication | P0-04/06, P3-06, P5-09/10, P8-03, U04/I-19 |
 
 Each accepted engineering ADR includes alternatives, evidence, consequences, operational burden, compatibility, tests and conditions for reconsideration. Product answers do not certify unbuilt integrations.
 
