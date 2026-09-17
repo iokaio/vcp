@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "b7cb54d9d1376a919fbc27994934cb3482464fb67d4d9ba891a6cbaa138a0162",
-  "files_sha256": "da7e62d1ff0e0f27a1927bde43b0081e11d1804c108df55767ab56ea089cb56e",
+  "selection_sha256": "64887647ce0ce1c611583ecb1010d2344a0ba133977715ac7477a9c696a437af",
+  "files_sha256": "f2f87e73619411696d7c62f51505b88f1d1f071353806b247a6beb1d3cc28a62",
   "files": [
     {
       "path": ".bazelignore",
@@ -24429,11 +24429,11 @@
         "sha256": "49af859977cfabc54a894c927c86067d3532f98751ad18af0f4dfb2a3c25e955"
       },
       "result": {
-        "bytes": 81,
-        "sha256": "49af859977cfabc54a894c927c86067d3532f98751ad18af0f4dfb2a3c25e955",
+        "bytes": 196,
+        "sha256": "eb96a31003e3aa295105684c66e368142d4187950df62ffe62fd7bd7b126b0f6",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/chatgpt/tests/all.rs",

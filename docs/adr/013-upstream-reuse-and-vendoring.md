@@ -68,6 +68,6 @@ The trade-off is a larger VCP source tree and responsibility for keeping patches
 
 ## Current evidence and unresolved work
 
-The [current source selection and build](../development/codex-source.md) retain the pinned Codex Cargo workspace as 7,937 ordinary files. Machine-readable selection/result records, reconstruction checks and a native build command exist. The ordered code-patch array is empty; the license-symlink materialization is explicit. Root and retained notices identify the imported source. There is no gitlink, nested repository or `.gitmodules` dependency.
+The [current source selection and build](../development/codex-source.md) retain the pinned Codex Cargo workspace as 7,937 ordinary files. Machine-readable selection/result records, reconstruction checks and a native build command exist. The ordered patch series records a crate recursion-limit compatibility change; the separate license-symlink materialization is explicit. Root and retained notices identify the imported source and modification. There is no gitlink, nested repository or `.gitmodules` dependency.
 
 The [static package/effect inventory](../development/codex-boundaries.md) covers all 154 workspace packages and records proposed gates with checked source anchors. It describes intended adapter ownership, not implemented restrictions. Runtime traces, enforced replacements and other selected component/toolchain qualification remain open P0 work; the committed-copy convention is unchanged.

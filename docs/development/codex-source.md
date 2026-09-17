@@ -32,10 +32,12 @@ deferred VCP features. No upstream telemetry or credential behavior has yet been
 adapted. The [effect map](upstream-candidates.md) identifies the next review seams;
 P0-03/P0-08 must trace and replace all competing effect authority before integration.
 
-Bytes are unchanged except that `codex-rs/vendor/bubblewrap/LICENSE`, originally
+Most bytes are unchanged. `codex-rs/vendor/bubblewrap/LICENSE`, originally
 a symlink to `COPYING`, becomes a regular copy of that selected license. The
-selection records this file-kind transformation and both hashes. There are no
-code patches yet; the ordered `patches` array is empty. Future changes require
+selection records this file-kind transformation and both hashes. The ordered
+[patch series](../../src/third_party/patches/codex/README.md) raises the retained
+`codex-chatgpt` crate's recursion limit for the Rust 1.98.0 compiler experiment.
+The modified source carries a VCP modification notice. Further changes require
 hashed patches under `src/third_party/patches/codex/` and updated result records.
 Root Git attributes preserve upstream bytes; original nested fixture attributes
 are retained. Executable Git modes must be staged explicitly on Windows and
@@ -84,6 +86,28 @@ identity, source-record hashes and outcome. Missing prerequisites return
 `not_run`/3. Compiler/test failures propagate. Linux delivery CI checks provenance
 and deterministic tooling; it does not qualify a Windows binary.
 
+### Explicit compiler experiments
+
+Codex's retained toolchain pin is 1.95.0; the selected Munarium candidate pins
+1.98.0. To compare compatibility without editing either source, invoke the
+qualification runner with an immutable experiment override and a separate cache:
+
+```powershell
+pwsh -NoProfile -File scripts/upstream/build-baseline.ps1 -SelectedCodex -ExperimentToolchain 1.98.0 -OutputRoot artifacts/upstream/codex-rust-198 -TargetRoot artifacts/upstream/codex-target-198 -Mode Build
+pwsh -NoProfile -File scripts/upstream/build-baseline.ps1 -SelectedCodex -ExperimentToolchain 1.98.0 -OutputRoot artifacts/upstream/codex-rust-198-tests -TargetRoot artifacts/upstream/codex-target-198 -Mode BoundaryTests
+```
+
+The selected compiler must already be installed. Floating aliases such as
+`stable`, `beta` and `nightly` are rejected before output is allocated. The
+manifest records both `upstream_toolchain` and `experiment_toolchain`, the actual
+compiler version and exact command. A failed experiment remains failed; it does
+not fall back to the upstream compiler or rewrite a toolchain/lockfile.
+`scripts/build.ps1` continues to use the upstream pin and exposes no override.
+Cross-compiler success alone would not qualify a unified Cargo dependency graph,
+optional platforms/features or VCP adapters.
+The [compiler experiment report](../evaluations/p0-07-common-rust.md) records the
+unmodified failure, compatibility patch and executed follow-up checks.
+
 ## Explicit reconstruction
 
 Acquire the immutable candidate using [the candidate procedure](upstream-candidates.md).
@@ -101,6 +125,13 @@ inventory. `verify` rejects extra/missing/changed files, links and unsupported
 file kinds, and checks executable modes on hosts exposing them. `verify-index`
 checks Git's staged modes and bytes on Windows as well. Neither verification mode
 requires the acquisition checkout. CI runs both on the checked-out PR commit.
+
+The disposable patch index enables Git long-path support through command-scoped
+configuration. It does not change user/global Git settings. Unchanged files keep
+their original transformation labels; only changed bytes/modes are marked as
+patched, preserving an earlier materialization label where applicable.
+Ordinary source verification also checks each declared patch's actual digest,
+without applying it; a modified patch cannot silently escape CI/build checks.
 
 The importer checks immutable inputs before creating output and refuses existing
 output/record files. A failed patch leaves its new partial output for inspection;

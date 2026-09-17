@@ -44,8 +44,8 @@ implemented VCP security controls or proof that all other traffic is impossible.
 Only the fixed synthetic patch case uses `--sandbox danger-full-access`. It
 contains no shell command or freely generated tool request. All other cases
 explicitly request read-only execution and every case disables approval prompts.
-The ordinary `workspace-write` probe was rejected on this uninitialized Windows
-sandbox installation; the failure remains recorded. Successful unsandboxed
+The ordinary `workspace-write` probe was rejected with Windows sandbox support
+disabled in the isolated configuration; the failure remains recorded. Successful unsandboxed
 patching cannot qualify filesystem/process enforcement in P0-05.
 
 Requests are bounded to 4 MiB and process output to 8 MiB. Unexpected routes or

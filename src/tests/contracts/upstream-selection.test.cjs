@@ -8,11 +8,30 @@ const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 const { ownedRoot } = require('../support/experiments.cjs');
 const { inventory } = require('../support/upstream-inventory.cjs');
-const { reconstruct, compareTree, compareIndex, applyPatches, sha256, validateSelection } = require('../support/upstream-selection.cjs');
+const { readComponent, reconstruct, compareTree, compareIndex, applyPatches, sha256, validateSelection } = require('../support/upstream-selection.cjs');
 function prepared(file, text, mode = '100644') {
   const content = Buffer.from(text);
   return { path: file, content, result: { bytes: content.length, sha256: sha256(content), mode } };
 }
+test('ordinary source verification rejects tampered declared patch bytes', () => {
+  const fixture = ownedRoot(os.tmpdir());
+  try {
+    const base = path.join(fixture.root, 'src/third_party');
+    fs.mkdirSync(path.join(base, 'components'), { recursive: true });
+    fs.mkdirSync(path.join(base, 'patches/fixture'), { recursive: true });
+    const commit = 'a'.repeat(40), patchPath = 'src/third_party/patches/fixture/change.patch';
+    const patch = Buffer.from('Synthetic patch bytes, no application in this identity test\n');
+    fs.writeFileSync(path.join(fixture.root, patchPath), patch);
+    fs.writeFileSync(path.join(base, 'upstreams.toml'), 'schema_version=1\n[[upstream]]\nid="fixture"\norigin="https://github.com/example/fixture"\ncommit="' + commit + '"\nstate="imported_unqualified"\nselection="components/fixture.json"\n');
+    const selection = { schema_version: 1, component: 'fixture', commit, destination: 'src/third_party/fixture', owner_task: 'P0-07',
+      include: ['LICENSE'], materialize_links: {}, result_inventory: 'src/third_party/components/files.json', licenses: ['LICENSE'], closure: ['LICENSE'],
+      patches: [{ path: patchPath, sha256: sha256(patch) }] };
+    fs.writeFileSync(path.join(base, 'components/fixture.json'), JSON.stringify(selection));
+    assert.equal(readComponent(fixture.root, 'fixture').component.commit, commit);
+    fs.appendFileSync(path.join(fixture.root, patchPath), 'tampered');
+    assert.throws(() => readComponent(fixture.root, 'fixture'), /Patch digest mismatch/);
+  } finally { fixture.cleanup(); }
+});
 test('reconstruction reproduces pinned bytes and detects changed, extra and missing files', () => {
   const fixture = ownedRoot(os.tmpdir());
   try {
@@ -37,6 +56,13 @@ test('reconstruction reproduces pinned bytes and detects changed, extra and miss
     assert.equal(fs.existsSync(absent), false);
     const patchRoot = path.join(fixture.root, 'src/third_party/patches/fixture');
     fs.mkdirSync(patchRoot, { recursive: true });
+    const firstLines = execFileSync('git', ['show', commit + ':README.md'], { cwd: repository }).toString().split('\n').slice(0, 4);
+    const edit = Buffer.from('diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1,4 +1,5 @@\n ' + firstLines[0] + '\n+Synthetic qualification marker\n' + firstLines.slice(1).map(line => ' ' + line + '\n').join(''));
+    fs.writeFileSync(path.join(patchRoot, 'readme.patch'), edit);
+    const edited = reconstruct({ repository: fixture.root, source: repository, output: path.join(fixture.root, 'edited'), component,
+      selection: { ...selection, patches: [{ path: 'src/third_party/patches/fixture/readme.patch', sha256: sha256(edit) }] } });
+    assert.equal(edited.files.find(file => file.path === 'README.md').transformation, 'patch-series');
+    assert.equal(edited.files.find(file => file.path === 'LICENSE').transformation, 'none');
     const originalLicense = execFileSync('git', ['show', commit + ':LICENSE'], { cwd: repository }).toString();
     const lines = originalLicense.trimEnd().split('\n');
     const deletion = Buffer.from('diff --git a/LICENSE b/LICENSE\ndeleted file mode 100644\n--- a/LICENSE\n+++ /dev/null\n@@ -1,' + lines.length + ' +0,0 @@\n' + lines.map(line => '-' + line + '\n').join(''));
@@ -54,10 +80,14 @@ test('ordered patches preserve changed bytes and new executable mode without nes
   const fixture = ownedRoot(os.tmpdir());
   try {
     const entry = prepared('file.txt', 'before\n');
+    const longEntry = prepared(('long-segment-'.repeat(5) + '/').repeat(4) + 'input.txt', 'preserved long-path bytes\n');
+    fs.mkdirSync(path.dirname(path.join(fixture.root, longEntry.path)), { recursive: true });
+    fs.writeFileSync(path.join(fixture.root, longEntry.path), longEntry.content);
     fs.writeFileSync(path.join(fixture.root, entry.path), entry.content);
     const patch = Buffer.from('diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-before\n+after\n' +
       'diff --git a/run.sh b/run.sh\nnew file mode 100755\n--- /dev/null\n+++ b/run.sh\n@@ -0,0 +1 @@\n+echo test\n');
-    const actual = applyPatches(fixture.root, [entry], [patch]);
+    const actual = applyPatches(fixture.root, [entry, longEntry], [patch]);
+    assert.equal(actual.find(file => file.path === longEntry.path).sha256, longEntry.result.sha256);
     assert.equal(actual.find(file => file.path === 'file.txt').sha256, sha256(Buffer.from('after\n')));
     assert.equal(actual.find(file => file.path === 'run.sh').mode, '100755');
     assert.equal(fs.existsSync(path.join(fixture.root, '.git')), false);

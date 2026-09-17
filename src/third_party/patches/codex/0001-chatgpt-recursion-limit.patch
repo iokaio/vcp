@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# VCP compatibility change for Codex 3d3ae4965ab370217e871b3a7f0d15589557ee4b.
+# Rust 1.98.0 exceeds the default query-depth limit in connectors::list_connectors.
+diff --git a/codex-rs/chatgpt/src/lib.rs b/codex-rs/chatgpt/src/lib.rs
+--- a/codex-rs/chatgpt/src/lib.rs
++++ b/codex-rs/chatgpt/src/lib.rs
+@@ -1,4 +1,7 @@
++// VCP modification: allow Rust 1.98.0 layout queries for retained connector futures.
++#![recursion_limit = "256"]
++
+ pub mod apply_command;
+ mod chatgpt_client;
+ pub mod connectors;
+ pub mod get_task;

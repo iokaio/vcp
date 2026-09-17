@@ -8,8 +8,10 @@ State: imported, unqualified as a VCP runtime.
 [Selection](codex-selection.json), [result inventory](codex-files.json),
 [manifest](../upstreams.toml), [build/reconstruction procedure](../../../docs/development/codex-source.md)
 and [original native baseline](../../../docs/evaluations/p0-07-native-candidates.md)
-form the source record. The ordered patch array is empty. The only transformation
-materializes bubblewrap's license symlink from its selected `COPYING` bytes.
+form the source record. The ordered [patch series](../patches/codex/README.md)
+raises the `codex-chatgpt` recursion limit for the Rust 1.98.0 compiler experiment.
+The separate license transformation materializes bubblewrap's symlink from its
+selected `COPYING` bytes. Original bytes/hashes and current results are retained.
 
 The full `codex-rs` workspace and Cargo lockfile retain internal dependency
 closure. Registry/Git dependency versions and checksums remain in that lockfile;

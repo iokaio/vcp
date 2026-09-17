@@ -26,6 +26,9 @@ function readComponent(repository, id) {
   validatePath(component.selection);
   const selection = JSON.parse(fs.readFileSync(path.join(repository, 'src/third_party', component.selection), 'utf8'));
   validateSelection(selection, component);
+  for (const patch of selection.patches) {
+    if (sha256(fs.readFileSync(path.join(repository, patch.path))) !== patch.sha256) throw Error('Patch digest mismatch: ' + patch.path);
+  }
   return { component, selection };
 }
 function validateSelection(selection, component) {
@@ -82,7 +85,7 @@ function applyPatches(output, prepared, patches) {
   try {
     const gitDir = path.join(scratch.root, 'objects.git');
     execFileSync('git', ['init', '--bare', gitDir], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const base = ['--git-dir=' + gitDir, '--work-tree=' + output, '-c', 'core.bare=false', '-c', 'core.filemode=false', '-c', 'core.autocrlf=false'];
+    const base = ['--git-dir=' + gitDir, '--work-tree=' + output, '-c', 'core.bare=false', '-c', 'core.filemode=false', '-c', 'core.autocrlf=false', '-c', 'core.longpaths=true'];
     const git = (args, input) => execFileSync('git', [...base, ...args], {
       cwd: output, input, stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 272 * 1024 * 1024
     });
@@ -163,9 +166,11 @@ function reconstruct({ repository, source, output, component, selection }) {
   const originals = new Map(prepared.map(entry => [entry.path, entry]));
   const files = expectedFiles.map(entry => {
     const previous = originals.get(entry.path);
+    const unchanged = previous && previous.result.mode === entry.mode && previous.result.bytes === entry.bytes && previous.result.sha256 === entry.sha256;
     return { path: entry.path, original: previous?.original || null,
       result: { bytes: entry.bytes, sha256: entry.sha256, mode: entry.mode },
-      transformation: selection.patches.length ? 'patch-series' : previous.transformation };
+      transformation: unchanged ? previous.transformation :
+        previous && previous.transformation !== 'none' ? previous.transformation + ';patch-series' : 'patch-series' };
   });
   const removed = prepared.filter(entry => !expectedFiles.some(file => file.path === entry.path)).map(entry => entry.path);
   const result = { schema_version: 1, component: component.id, commit: component.commit,

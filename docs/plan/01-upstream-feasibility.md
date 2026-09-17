@@ -32,6 +32,11 @@ Implementation progress: [candidate pins and commands](../development/upstream-c
 
 The [static boundary inventory](../evaluations/p0-07-boundary-inventory.md) checks all 154 Codex workspace packages, their proposed ownership and 25 source anchors. The [adapter guide](../development/codex-boundaries.md) and [Gemini candidate record](../../src/third_party/components/gemini-cli.md) identify concrete next inputs. These checks do not qualify runtime effects or complete the remaining P0-07 gate.
 
+The [compiler compatibility experiment](../evaluations/p0-07-common-rust.md)
+records the failed unmodified Rust 1.98.0 build, a minimal attributed compatibility
+patch, independent reconstruction and follow-up native checks. It does not yet
+qualify a combined Codex/Munarium workspace or another Windows environment.
+
 1. Pin Codex, Gemini CLI and Munarium to exact commits; record selected paths, dependencies, licenses, notices, patch origin and local owner. Treat mutable URLs as discovery inputs.
 2. Build selected upstream components on native Windows before modifications, including the unmodified Codex engine/CLI baseline. Use an isolated temporary checkout; record compiler/native dependencies, commands, resource use and known upstream failures.
 3. Classify each selected module's I/O, model/network helpers and ambient credential discovery. Establish the VCP replacements required for each effectful seam.

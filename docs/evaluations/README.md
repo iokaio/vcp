@@ -13,3 +13,4 @@ Raw evidence stays in ignored local artifact directories or CI artifacts.
   Tantivy/DiskANN enabled and the selected library dependency boundary.
 - [P0-07 boundary inventory](p0-07-boundary-inventory.md): static coverage of 154 Codex packages and 25 source anchors; runtime enforcement remains unqualified.
 - [P0-07 native CLI trace](p0-07-cli-trace.md): five request/tool/completion cases through the Windows binary, including retry and rejection.
+- [P0-07 compiler compatibility](p0-07-common-rust.md): explicit compiler experiments, a recorded recursion-limit patch and reconstruction evidence.
