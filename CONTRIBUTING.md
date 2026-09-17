@@ -1,6 +1,6 @@
 # Contributing to VCP
 
-Contributions to the design, documentation, test scenarios, and implementation are welcome. VCP is currently in planning; read the [project status](README.md) and [implementation plan](docs/plan/README.md) before proposing runtime changes.
+Contributions to the design, documentation, test scenarios, and implementation are welcome. VCP is in early implementation; read the [project status](README.md) and [implementation plan](docs/plan/README.md) before proposing runtime changes.
 
 AI agents working in this repository must also follow [AGENTS.md](AGENTS.md) or its identical [CLAUDE.md](CLAUDE.md) counterpart. Keep both guidance files synchronized when updating project instructions.
 
@@ -57,7 +57,7 @@ For documentation and community-file changes:
 - Update affected plan references together. If dependencies change, check unique task ownership, valid dependencies, absence of cycles, and first-release coverage.
 - Run `git diff --check` and inspect the complete diff, including new files.
 
-There is no Cargo workspace, build runner, runtime suite, or CI workflow yet. Do not report those checks as passing. The proposed `scripts/test.ps1` commands in the plan become contributor requirements only when implemented and documented.
+Run `pwsh -NoProfile -File scripts/test.ps1 -Suite fast` for repository and harness checks, also run in CI. Install Git, PowerShell 7 and Node.js 24 or later; see [delivery harness setup](docs/development/delivery-harness.md). There is no Cargo workspace, application build runner or product runtime suite yet. Other planned suites are not implemented.
 
 As source lands, run focused tests for changed behavior, shared contracts for affected backends, and native Windows checks where real process/filesystem behavior matters. Preserve relevant upstream tests and explain intentional differences. A mock is not evidence of OS enforcement. See [test fixtures and acceptance](docs/plan/16-test-fixtures-and-acceptance.md) for the test contracts.
 

@@ -2,7 +2,7 @@
 
 VCP is an open-source experiment in a local coding agent that combines repository-aware coding, model selection through OpenRouter, persistent memory, and visible delegated work. The first planned release is a native Windows command-line application, licensed under Apache 2.0.
 
-**Status: design and planning.** This repository currently contains architecture, an implementation and testing plan, and project contribution guidance. There is no runnable VCP application, installable package, or implemented build/test runner yet. Capabilities below describe the intended product; they are not release claims.
+**Status: early implementation.** The repository includes architecture, implementation plans, and an executable delivery harness with repository and regression checks. There is no runnable VCP application, installable package, or application build yet. Capabilities below describe the intended product; they are not release claims.
 
 ## What VCP is intended to do
 
@@ -18,7 +18,7 @@ VCP should help a developer understand a repository, review changes, and impleme
 | Inspectable history | Preserve full observed work artifacts, expose history, notify about aging data, and prune only by user command or saved policy |
 | Skills and MCP | Load development skills and broker Model Context Protocol tools through the same authority and accounting boundaries |
 | Visible delegation | Show child tasks, isolate their work, and integrate results through one controlling engine |
-| Pause and recovery | Pause root and child work when the owning CLI closes, reconcile effects, and deliberately resume in the workspace |
+| Pause and recovery | Pause root and child work with `/pause` while keeping the CLI open, or on close; reconcile effects and deliberately resume |
 | Portable state | Transfer history, context, memory, and search state using encrypted snapshots and developer-controlled recovery material |
 
 The complete first-release scope includes these capabilities together. A basic coding loop is an engineering milestone, not the release acceptance boundary.
@@ -45,10 +45,10 @@ The initial roots are:
 docs/       Architecture, implementation plan, and project documentation
 src/        Product source, test code, fixtures, and packaged assets as implemented
 scripts/    Build, test, evaluation, and packaging entry points as implemented
-.github/    Issue and pull request templates
+.github/    Contribution templates and delivery CI
 ```
 
-`src/` and `scripts/` currently contain orientation READMEs only. The [code layout plan](docs/plan/code-layout.md) defines the future subdirectories, dependency boundaries, upstream provenance locations, and ownership by plan segment. Directories are added when they contain useful work.
+`src/tests/` contains the delivery harness and contract tests; `scripts/test.ps1` runs them. See the [harness setup](docs/development/delivery-harness.md). The [code layout plan](docs/plan/code-layout.md) defines the future subdirectories, dependency boundaries, upstream provenance locations, and ownership by plan segment. Directories are added when they contain useful work.
 
 ## Start here
 
@@ -81,7 +81,7 @@ Read the contribution guide, make a focused change, verify its relative links an
 git diff --check
 ```
 
-There is no application build or runtime test command to run at this stage. `scripts/build.ps1`, `scripts/test.ps1`, and `scripts/package.ps1` are planned interfaces; do not expect them to exist until their owning implementation tasks land. Compiler, native dependency, and local embedding requirements will be pinned during feasibility work and documented with the real commands.
+Run `pwsh -NoProfile -File scripts/test.ps1 -Suite fast` with Git, PowerShell 7 and Node.js 24 or later. This runs repository and harness checks. There is no application build or runtime test command yet; `scripts/build.ps1` and `scripts/package.ps1` remain planned interfaces. Compiler, native dependency, and local embedding requirements will be pinned during feasibility work and documented with the real commands.
 
 ## Delivery roadmap
 

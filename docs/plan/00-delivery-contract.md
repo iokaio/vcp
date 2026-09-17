@@ -1,6 +1,6 @@
 # 00 — Delivery contract and implementation conventions
 
-Status: planned. Read with [the architecture](../architecture/vcp-what.md) and [test guide](16-test-fixtures-and-acceptance.md). This file supports every work item without creating additional product scope.
+Status: delivery harness implemented; product delivery contracts remain requirements for their owning tasks. Read with [the architecture](../architecture/vcp-what.md) and [test guide](16-test-fixtures-and-acceptance.md). This file supports every work item without creating additional product scope.
 
 Implementation companions: [task workflow](../development/implementation-workflow.md), [upstream qualification](../development/upstream-qualification.md), [test and release design](../architecture/qualification-release-design.md), and the [ADR register](../adr/README.md). Concrete type/field names in the expanded plan are proposed interface designs until their owning task selects them; they are not existing APIs or permission to skip qualification.
 
@@ -45,7 +45,7 @@ Do not make migrations, data resets or upstream replacement implicit. Retain use
 
 ## Test entry points to implement
 
-P0-01 establishes a small test runner and P0-07 maps it onto actual upstream packages. Proposed entry point:
+P0-01 now has a [delivery harness](../development/delivery-harness.md); P0-07 will map it onto actual upstream packages. The `fast` command exists. The remaining commands below are planned:
 
 ```powershell
 pwsh -NoProfile -File scripts/test.ps1 -Suite fast
@@ -54,7 +54,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Suite windows
 pwsh -NoProfile -File scripts/test.ps1 -Suite acceptance -Case U04 -Backend both
 ```
 
-These commands do not exist yet. The runner must reject unknown suites/cases, preserve nonzero exit codes, print the concrete commands it runs and mark skipped prerequisites. Add suites `provider`, `context`, `tools`, `recovery`, `cli`, `memory`, `search`, `retention`, `portability`, `routing`, `extensions`, `delegation`, `distribution` and `upstream` as their implementations land. Build, formatting and lint commands target selected VCP/upstream packages; do not silence existing upstream failures or demand unrelated platform builds.
+Only `fast`, `repository` and `harness` suites exist today. Storage, Windows and acceptance suites are rejected until implemented. The runner must reject unknown suites/cases, preserve nonzero exit codes, print the concrete commands it runs and mark skipped prerequisites. Add suites `provider`, `context`, `tools`, `recovery`, `cli`, `memory`, `search`, `retention`, `portability`, `routing`, `extensions`, `delegation`, `distribution` and `upstream` as their implementations land. Build, formatting and lint commands target selected VCP/upstream packages; do not silence existing upstream failures or demand unrelated platform builds.
 
 `fast` runs deterministic unit/contract checks without network or model assets. Native process tests run on Windows, real embedding tests require the pinned local model, and live OpenRouter evaluations require an explicit model policy and spend cap. A missing prerequisite is `not_run`, never `passed`.
 

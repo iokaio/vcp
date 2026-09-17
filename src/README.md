@@ -1,6 +1,6 @@
 # VCP source
 
-This directory is the root for product code, tests, fixtures, evaluation definitions, built-in skill assets, and selected upstream source. It currently contains no runtime implementation or build manifest.
+This directory is the root for product code, tests, fixtures, evaluation definitions, built-in skill assets, and selected upstream source. It contains delivery-harness support and contract tests under `tests/`, but no product runtime implementation or build manifest. See [harness setup](../docs/development/delivery-harness.md).
 
 Follow the [code layout](../docs/plan/code-layout.md) and [upstream feasibility work](../docs/plan/01-upstream-feasibility.md) when introducing the Rust workspace. Preserve useful upstream modules and record their actual paths instead of creating empty crates for every logical responsibility.
 

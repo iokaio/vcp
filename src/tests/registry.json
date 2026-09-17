@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "suites": {
+    "fast": ["repository", "harness"],
+    "repository": ["repository"],
+    "harness": ["harness"]
+  },
+  "cases": {
+    "repository": {
+      "task_ids": ["P0-01"],
+      "args": ["src/tests/contracts/repository.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
+    "harness": {
+      "task_ids": ["P0-01"],
+      "args": ["--test", "src/tests/contracts/harness.test.cjs", "src/tests/contracts/repository.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 120000,
+      "max_output_bytes": 2097152
+    }
+  }
+}

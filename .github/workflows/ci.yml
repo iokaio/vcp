@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Delivery checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: delivery-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  delivery:
+    name: Repository and harness
+    runs-on: ubuntu-8core
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+      - name: Run deterministic delivery checks
+        shell: pwsh
+        run: ./scripts/test.ps1 -Suite fast
+      - name: Retain evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: delivery-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/tests/
+          if-no-files-found: error
+          retention-days: 14

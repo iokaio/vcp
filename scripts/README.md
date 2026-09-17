@@ -1,16 +1,16 @@
 # Build and test scripts
 
-This directory is reserved for repository automation. No build, test, or packaging runner is implemented yet.
+This directory owns repository automation. `test.ps1` and `test-runner.cjs` implement the delivery harness. Run `pwsh -NoProfile -File scripts/test.ps1 -Suite fast`; see [setup, suites and evidence](../docs/development/delivery-harness.md). Build and packaging runners remain planned.
 
-| Planned entry point | Responsibility | Work owner |
+| Entry point (planned unless noted) | Responsibility | Work owner |
 |---|---|---|
 | `build.ps1` | Build the selected native Windows workspace and report prerequisites | P0-07/P0-08 |
-| `test.ps1` | Dispatch suites, cases, and backends; preserve exit status and run evidence | P0-01, extended by feature owners |
+| `test.ps1` (implemented) | Run `fast`, `repository` and `harness`; preserve exit status and evidence | P0-01, extended by feature owners |
 | `package.ps1` | Assemble qualified artifacts, licenses, notices, and checksums | P8-04 |
 | `evals/` | Orchestrate explicitly configured evaluations and collect results | P5-08/P8-05 |
 | `upstream/` | Explicit source import, patch reconstruction, and provenance verification | P0-07/P0-08, rehearsed in P8-06 |
 
-The [delivery contract](../docs/plan/00-delivery-contract.md) specifies the proposed test command interface. The [layout](../docs/plan/code-layout.md) separates automation from reusable test code and graders under `src/`.
+The [delivery contract](../docs/plan/00-delivery-contract.md) specifies the test command interface and future product suites. The [layout](../docs/plan/code-layout.md) separates automation from reusable test code and graders under `src/`.
 
 Under [ADR-013](../docs/adr/013-upstream-reuse-and-vendoring.md), normal builds consume the committed, already-patched Codex source. They must not fetch Codex, advance its pin, or apply the patch series. Reconstruction from a pinned upstream selection plus patches runs separately in a disposable directory as explicit maintenance/verification work; the helpers are not implemented yet.
 
