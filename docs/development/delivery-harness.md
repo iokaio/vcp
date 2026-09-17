@@ -15,12 +15,13 @@ pwsh -NoProfile -File scripts/test.ps1 -Suite fast
 pwsh -NoProfile -File scripts/test.ps1 -Suite repository
 pwsh -NoProfile -File scripts/test.ps1 -Suite harness
 pwsh -NoProfile -File scripts/test.ps1 -Suite experiments
+pwsh -NoProfile -File scripts/test.ps1 -Suite upstream
 ```
 
 An absolute script path also works from another directory. `-Case repository`,
-`-Case harness` or `-Case experiments` selects a case within `fast`. These cases support only
+`-Case harness`, `-Case experiments` or `-Case upstream-inventory` selects a case within `fast`. These cases support only
 `-Backend none`; storage and other product suites remain unimplemented and are
-rejected. `-OutputRoot` selects a local evidence directory (a relative override
+rejected. The `upstream` suite currently tests inventory/path validation and baseline output guards; it does not build any upstream. [Candidate qualification](upstream-candidates.md) has separate native commands. `-OutputRoot` selects a local evidence directory (a relative override
 is relative to the caller); the default is the checkout's ignored
 `artifacts/tests/`. Keep overrides out of tracked or cloud-synchronized paths.
 

@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+# Immutable investigation candidates, not an import or support declaration.
+schema_version = 1
+
+[[upstream]]
+id = "codex"
+origin = "https://github.com/openai/codex"
+commit = "3d3ae4965ab370217e871b3a7f0d15589557ee4b"
+state = "candidate"
+root_license = "Apache-2.0"
+license_scope = "Root license only; bundled component terms must be retained separately"
+tree = "b54522de663019e332772544ae53054aa3ecb92d"
+inventory_sha256 = "0731feb5908c07319e74229723db80320517dd80afbb94bc6cec0768100f8259"
+toolchain = "1.95.0-x86_64-pc-windows-msvc"
+owner_task = "P0-07"
+selection_state = "Not selected or imported; unmodified Windows CLI build and 102 boundary tests passed"
+
+[[upstream]]
+id = "gemini-cli"
+origin = "https://github.com/google-gemini/gemini-cli"
+commit = "6a466a7e2fe2b1255752c1e74f69b31f0216084d"
+state = "candidate"
+root_license = "Apache-2.0"
+license_scope = "Root license only; selected file and dependency review pending"
+tree = "5cb35fa93b203b709e91737b0a00da985dbb186e"
+inventory_sha256 = "f9ba0e41e3de225d8d785f7260e4818ea7e4851df7deb59ff3663675f2fadd7b"
+owner_task = "P0-07"
+selection_state = "Not selected or imported; 213 policy/scheduler/tool tests passed on Windows; port qualification remains P0-09"
+
+[[upstream]]
+id = "munarium"
+origin = "https://github.com/iokaio/munarium"
+commit = "8da666067000ca1ee9c131bc67e70b978862faa3"
+state = "candidate"
+root_license = "Apache-2.0"
+license_scope = "Root license only; selected file and dependency review pending"
+tree = "0ad0030922f10d61a22d627cee9fb6073a224e8e"
+inventory_sha256 = "d13a4b07c517c0e6ab41e44c9ff63ea6ad90e94d77a4cfed0aa57fd665a45cfe"
+toolchain = "1.98.0-x86_64-pc-windows-msvc"
+owner_task = "P0-07"
+selection_state = "Not selected or imported; 79 kernel/in-memory backend tests passed on Windows; local inference remains P0-02"
