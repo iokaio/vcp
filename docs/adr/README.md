@@ -1,7 +1,35 @@
 # Architecture decision records
 
-These records capture decisions and their evidence. A recorded repository convention is distinct from an implementation qualified by tests. The complete ADR register remains in [architecture section 22.1](../architecture/vcp-what.md#221-adr-register); records are added as decisions are developed.
+The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) defines the 19 decision subjects and gates. Each now has a dedicated record. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
 
-- [ADR-013 — Upstream reuse and committed vendoring](013-upstream-reuse-and-vendoring.md): Codex source ownership, build participation, provenance, patch reconstruction, and updates. The source-management convention is recorded; component selection and runtime qualification remain P0 work.
+ADR-013 records the existing committed-source repository convention. The other records expand confirmed scope and proposed design, with alternatives, consequences and unresolved gates. None claims a newly qualified runtime or owner sign-off.
 
-Return to the [documentation index](../README.md) or [implementation plan](../plan/README.md).
+| Record | Qualification gate |
+|---|---|
+| [ADR-001 — Runtime and process topology](001-runtime-topology.md) | P0-02/03/05/08/06; P2-07 |
+| [ADR-002 — Internal commands and deferred public protocol](002-internal-and-public-protocol.md) | P1-02; later P9-01/02/03 |
+| [ADR-003 — Canonical records and artifacts](003-canonical-storage.md) | P0-04/06, P1-04, P5-09/10 |
+| [ADR-004 — Prepared edits and execution receipts](004-edits-and-execution.md) | P2-04/07; later P4-03 |
+| [ADR-005 — Autonomy, authority and OS isolation](005-autonomy-and-isolation.md) | P2-03, P8-01 |
+| [ADR-006 — Model gateway, catalog and capability groups](006-model-gateway-and-groups.md) | P2-02, P6-01 |
+| [ADR-007 — Cost profiles, selection and escalation](007-profiles-and-routing.md) | P6-02/03/04 |
+| [ADR-008 — Local governed memory and retrieval](008-local-governed-memory.md) | P0-02/07, P5-01 through P5-08 |
+| [ADR-009 — Versioned context and full activity capture](009-context-and-capture.md) | P1-03, P2-08, P3-03 |
+| [ADR-010 — Visible bounded delegation and integration](010-visible-delegation.md) | P7-04/05/06 |
+| [ADR-011 — Instructions, bundled skills and MCP](011-extension-scope.md) | P7-01/02/03; later P10-01/02 |
+| [ADR-012 — Client sequencing and native distribution](012-clients-and-distribution.md) | P8; later P9/P4/P10 |
+| [ADR-013 — Upstream reuse and committed vendoring](013-upstream-reuse-and-vendoring.md) | P0-07/08/09; P8-06 |
+| [ADR-014 — Explicit foreign compatibility subsets](014-foreign-compatibility.md) | Later P9 and P10-02 |
+| [ADR-015 — Portable snapshots, backend choice and handoff](015-portability-and-storage-choice.md) | P0-04, P5-09/10, U04 |
+| [ADR-016 — Full history, retention and pause lifecycle](016-history-and-pause.md) | P3-04/05, P5-07, U05/U06 |
+| [ADR-017 — Interactive project optimization](017-project-optimization.md) | P6-05/04, U07 |
+| [ADR-018 — Complete usable-release acceptance](018-release-acceptance.md) | P8-05 |
+| [ADR-019 — Cloud encryption and developer-controlled keys](019-cloud-encryption-and-keys.md) | P0-04/06, P3-06, P5-09/10, P8-03 |
+
+## Maintaining a decision
+
+Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.
+
+The [subsystem designs](../architecture/README.md) define implementation contracts and failure ordering; the [plan](../plan/README.md) assigns work and acceptance. A supporting design reference is not an additional dependency or proof of completion.
+
+Return to the [documentation index](../README.md).

@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Plan revision 3 — September 17, 2026. Status: planned; code layout, contribution guidance, and committed Codex vendoring clarified, with no implementation or runtime test result implied.
+Plan revision 4 — September 17, 2026. Status: planned; every segment expanded with implementation contracts, construction sequences, failure handling and supporting design/ADR references. Explicit pause while the CLI stays open is required alongside close-to-pause. No implementation or runtime test result is implied.
 
 Start with [the code layout](code-layout.md), [the delivery contract](00-delivery-contract.md), [test infrastructure and acceptance](16-test-fixtures-and-acceptance.md), then [upstream feasibility](01-upstream-feasibility.md). These files expand [architecture draft 0.4](../architecture/vcp-what.md) into coding and testing work. The architecture remains authoritative for product behavior; this directory owns the detailed execution instructions and repository layout.
 
@@ -60,3 +60,31 @@ The first usable release includes coding, automatic selection across groups, per
 5. Record actual commands, versions, exit status and artifact locations. Mark the item complete only when its exit criteria pass; describe partial results explicitly.
 
 Do not mark whole segments done from this document's existence. Keep decision records in `docs/adr/`, reviewed redacted summaries in `docs/evaluations/`, and raw run evidence under ignored local artifact roots such as `artifacts/`. Create these locations when their owning work produces content; the layout and community files do not complete any product work item.
+
+## Implementation reading map
+
+Use a task's existing heading as its implementation entry point. Its expanded instructions specify proposed records, ordering, failure behavior and observable tests. Follow the supporting design for cross-service contracts, then the ADR for decisions that still need evidence. Concrete type names are proposals until the actual P0 workspace mapping and owning implementation select them.
+
+| Work | Supporting design | Key decisions |
+|---|---|---|
+| Foundation and source selection | [Upstream qualification](../development/upstream-qualification.md) | ADR-001, 003, 008, 013, 015, 019 |
+| State, storage, budgets, tools and CLI | [Engine and execution](../architecture/engine-execution-design.md) | ADR-001–005, 009, 016 |
+| Context, model loop and verification | [Context and provider](../architecture/context-provider-design.md) | ADR-006, 009 |
+| Memory, search and retention | [Memory and retrieval](../architecture/memory-retrieval-design.md) | ADR-008, 016 |
+| Snapshots, keys and transfer | [Storage and portability](../architecture/storage-portability-design.md) | ADR-003, 015, 019 |
+| Routing, skills, MCP and children | [Routing and extensions](../architecture/routing-extensions-design.md) | ADR-006, 007, 010, 011, 017 |
+| Harness, evaluations and distribution | [Qualification and release](../architecture/qualification-release-design.md) | ADR-012, 018 |
+| Later API, SDK, editor and hosts | [Deferred clients](../architecture/deferred-clients-design.md) | ADR-002, 012, 014 |
+
+All decision IDs link from the [ADR index](../adr/README.md). Use the [task worksheet](../development/implementation-workflow.md#prepare-a-task-packet) to record concrete paths, prerequisite evidence and the smallest complete behavioral increment before coding. Referencing a later integration test does not make the whole later segment a new prerequisite.
+
+## Shared implementation checkpoints
+
+1. Prove the retained upstream/native boundary with immutable inputs and observed effects before advertising support.
+2. Establish state, idempotency, full artifacts and atomic reservations before admitting model/tool work.
+3. Bind context and prepared work to current revisions, preserve user edits and reconcile uncertain effects.
+4. Keep canonical acceptance separate from index visibility, and current access/deletion checks separate from historical snapshots.
+5. Exercise pause and resume in a live CLI, with inspectors available and no new root or child work while paused; test owner loss separately.
+6. Qualify all first-release capabilities together using current packaged evidence and owner review.
+
+Task counts, owners and exact dependencies remain unchanged in this revision: 68 total, 56 first-release and 12 deferred. The new design documents and ADR records supply instructions; they do not change a task from planned to implemented.

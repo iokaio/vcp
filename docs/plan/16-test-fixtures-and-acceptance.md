@@ -2,6 +2,8 @@
 
 Status: planned. This is shared implementation guidance, not a claim that tests exist. P0 establishes the harness; each owning segment adds its fixtures/tests with the behavior. Segment 15 conducts final campaigns. See [the coverage ledger](20-traceability.md).
 
+The [qualification design](../architecture/qualification-release-design.md) specifies runner/result records, independent supervision, held-out comparisons and package evidence. Use [architecture invariants](../architecture/vcp-what.md#21-invariants-enforced-outside-the-model) as hard assertions and [ADR-018](../adr/018-release-acceptance.md) to distinguish owner acceptance from test execution. The [implementation workflow](../development/implementation-workflow.md) explains how to attach these checks to a reviewable increment.
+
 ## Test code organization
 
 ```text
@@ -124,6 +126,8 @@ Exercise explicit pause, Ctrl+C policy, actual console close, lost controlling p
 
 Changed files, expired grants, missing worktree and moved roots must require appropriate revalidation. Test PID reuse/ownership checks before termination. Record genuinely unkillable/unobservable external effects as unknown rather than claiming they were undone.
 
+Explicit pause without closing is a required separate variant. Keep the owning CLI alive, submit `/pause`, observe the stop boundary and durable paused state, inspect history/cost/children, then `/resume` in that same process after current-state checks. Repeat pause while already paused and record steering while paused; neither may issue new model/tool calls. Independently paused children stay paused when the parent resumes. See the [same-process experiment](../architecture/qualification-release-design.md#integrated-pause-experiment).
+
 ## U07 — Routing and optimization
 
 Fixture: simple and difficult tasks plus complete, sparse, biased and pruned history windows. Pin candidate metadata and recorded quality evidence; include denied providers, unknown prices and strict model pins.
@@ -159,3 +163,50 @@ For each barrier record observed effects independently, kill the process, reopen
 Report pass/fail/not-run per case; fixture/model/provider/backend/version; current source/dirty state; known/unknown money; time distribution; missed/false findings; unauthorized/duplicate effects; lost acknowledged records; stale/restricted recall; and output/capture gaps. Failures remain in denominators.
 
 Provisional architecture performance numbers are targets, not results. Specify numeric quality/cost/latency thresholds and corpus/task sizes before final evaluation; user safety/correctness invariants are hard gates. A suite with a missing Windows environment, key, model asset or toolchain cannot report success for that case.
+
+## Implementing the suite registry and fixture protocol
+
+The registry maps each case to real test targets, supported backend variants, required resources and result schema. Validate selection before launching anything. `-Backend both` expands to independent sqlite/files executions plus explicit conversion cases where applicable; it must not run one implementation and label the result parity. Unknown case IDs and unsupported suite/backend combinations fail with diagnostics.
+
+Use a harness-owned control channel for barrier readiness and a separate channel for product output. Bound both, and include run/case/attempt/barrier IDs in control messages so stale signals cannot release a later attempt. The supervisor owns timeouts and process termination; the engine cannot declare that its own crash test passed.
+
+Fixture setup records exact expected base files, Git index/working/untracked state, canonical seeds, truth-set IDs and synthetic secret categories. Apply permissions and size limits before launching product code. Teardown checks the recorded resolved resource root and retains failure evidence. Never run a broad cleanup over user data.
+
+## Independent oracles by boundary
+
+| Boundary | Observe independently | Do not accept as sole proof |
+|---|---|---|
+| Budgeted request | Scripted transport request count joined to admitted attempt/reservation IDs | Router says it requested a reservation |
+| Prepared edit | Initial/final bytes, staging state and outside-scope sentinel files | Tool reports success |
+| Pause/recovery | Supervisor barrier, actual marker effects and child process tree | Task projection says paused |
+| Canonical durability | Acknowledgement log plus fresh-process export/reference checks | In-process cache returns the record |
+| Retrieval | Separate authorized relevant-ID set and forbidden text sentinels | Search returned some neighbors |
+| Encryption | Intermediate vault observation plus independent decrypt/authenticate/tamper cases | Filename extension or plaintext-marker absence |
+| Portability | Before/after neutral records, liabilities and deletion lineage | Restore command exits zero |
+| Distribution | Clean-profile install of exact final artifact digest | Developer checkout compiles |
+
+Production assertions can aid diagnosis, but the oracle must not merely call the same function used to produce the expected value. For arithmetic, use small manually derived boundary cases alongside generated tests. For ANN, exhaustive distance comparison uses the exact same saved vectors and declared metric, not a separately re-embedded corpus.
+
+## Acceptance scoring construction
+
+| Case | Primary objective assertion | Supplementary quality assessment |
+|---|---|---|
+| U01 | Correct cited source revisions, seeded boundary finding, unchanged workspace | Explanation reflects actual module direction; unsupported claims counted |
+| U02 | Seeded defect matches and benign-change false positives, no writes | Finding usefulness/severity and evidence sufficiency |
+| U03 | Executable requested behavior, preserved user edits, verified integrated state | Fit with existing errors/configuration/module conventions |
+| U04 | Complete canonical/reference/ledger comparison and rejected unsafe restore | Setup/handoff clarity and measured time/resource envelope |
+| U05 | Exact selector/protected sets, default no-delete and no stale recall | Ability to explain cleanup and retained-copy limitations |
+| U06 | No new dispatch after stop, no duplicate effects, same-process pause works | Visible progress/reconciliation and deliberate continuation |
+| U07 | Eligible reproducible decisions, bounded cost, exact chosen policy/rollback | Matched total task quality/cost/latency versus fixed baselines |
+| U08 | Correct identity/schema/authority and no unsolicited installation | Useful ecosystem guidance under declared host constraints |
+| U09 | Real offline CPU embeddings, persisted indexes and authorized recall | Query/build resource distributions on declared corpus sizes |
+
+Set numeric quality thresholds and sample sizes before the final held-out runs; invariants use zero forbidden outcomes in the declared suite. Record abstentions, not-run checks, failures and intervention instead of scoring only final successful responses. Keep owner review, executable checks and optional model grades in separate fields. A model grader itself needs admitted spend and cannot overrule a failing executable or authority assertion.
+
+## Reproducibility and evidence invalidation
+
+Each result binds source commit and dirty diff, fixture/truth-set revision, backend/configuration, selected model/provider/catalog, local asset specification and package digest when used. Record seeds for fixture construction and repeated scheduling; do not claim live model outputs are deterministic because the harness seed is fixed.
+
+Changing a contract or its implementation invalidates affected consumer tests. Changing only a renderer need not rerun local embedding quality unless passage selection changed. A changed model, tokenizer, metric or corpus invalidates retrieval comparison; a changed package/runtime dependency invalidates the relevant installation/native checks. Keep an explicit reason for the selected rerun set.
+
+Reports retain original failed attempts and link follow-up runs. A required not-run case blocks qualification even if the available subset is green. Documentation link/ledger validation proves plan consistency only and must never be reported as passing the runtime suites defined here.

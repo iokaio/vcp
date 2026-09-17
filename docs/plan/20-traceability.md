@@ -1,6 +1,6 @@
 # 20 — Work-item, requirement and test traceability
 
-Status: planned. Generated ownership inventory from architecture draft 0.4 and the task headings in this directory on September 17, 2026. All 68 architecture items have exactly one implementation owner. There are 56 first-release items and 12 deferred items (P4, P9 and P10).
+Status: planned. Ownership inventory from architecture draft 0.4 and the task headings in this directory, expanded with implementation/design traceability on September 17, 2026. All 68 architecture items have exactly one implementation owner. There are 56 first-release items and 12 deferred items (P4, P9 and P10). No task state or dependency is advanced by this documentation revision.
 
 Use this ledger with [the segment index](README.md) and [the shared test guide](16-test-fixtures-and-acceptance.md). Dependencies below retain the architecture's exact IDs; slash suffixes share the preceding phase, and an ellipsis denotes an inclusive range. A whole segment is not an additional dependency.
 
@@ -207,3 +207,39 @@ Detailed setups, actions and assertions are in [segment 16](16-test-fixtures-and
 ## Maintaining the plan
 
 When an architecture item changes, update its single owning task section, this dependency/evidence row and affected test mappings. Add a new ID for new scope instead of reusing a completed ID for unrelated behavior. Preserve confirmed Windows/CLI scope and local-plaintext/encrypted-cloud requirements. Follow [the code layout](code-layout.md) for repository paths and update affected segments when the source map changes. The layout and community files are supporting guidance, not additional product tasks or evidence of completion. Check local links, unique ownership, dependency existence/acyclicity and complete first-release closure after plan edits.
+
+## Design and decision traceability
+
+The supporting documents below refine existing tasks. Their references to later integration checks do not add implicit dependencies. All 19 ADRs are available from the [decision index](../adr/README.md); their engineering choices remain pending unless evidence explicitly qualifies them.
+
+| Owning segments | Shared implementation contract | Decisions |
+|---|---|---|
+| 00, 01 | [Task workflow](../development/implementation-workflow.md), [source qualification](../development/upstream-qualification.md) | ADR-001, 003, 008, 013, 015, 019 |
+| 02, 03, 06, 07 | [Engine/execution design](../architecture/engine-execution-design.md) | ADR-001–005, 009, 016 |
+| 04, 05 | [Context/provider design](../architecture/context-provider-design.md) | ADR-006, 009 |
+| 08, 09, 10 | [Memory/retrieval design](../architecture/memory-retrieval-design.md) | ADR-008, 016 |
+| 03, 10, 11 | [Storage/portability design](../architecture/storage-portability-design.md) | ADR-003, 015, 019 |
+| 12, 13, 14 | [Routing/extensions design](../architecture/routing-extensions-design.md) | ADR-006, 007, 010, 011, 017 |
+| 15, 16 | [Qualification/release design](../architecture/qualification-release-design.md) | ADR-012, 018 |
+| 17, 18, 19 | [Deferred clients design](../architecture/deferred-clients-design.md) and [extensions design](../architecture/routing-extensions-design.md) | ADR-002, 011, 012, 014 |
+
+Explicit pause without closing belongs to existing P2-07, P3-01/02/04 and P7-06 behavior, with U06 evidence and P8 requalification. It adds no new task ID. The required observation is pause/inspect/resume in the same live CLI with no new root/descendant dispatch after the stop boundary, alongside existing close/reopen cases.
+
+## Mechanical graph validation procedure
+
+1. Parse only the work-item ownership table into records keyed by full task ID. Expand shorthand within each dependency cell: `P1-01/03` means `P1-01, P1-03`; `P0-02…05` includes all four IDs. Reset phase context when a new explicit phase appears.
+2. Reject duplicate/missing IDs, unknown dependencies and self-dependencies. Compare the exact dependency set against the architecture work-item tables, not just task counts.
+3. Scan task headings in owner segments and require exactly one `## Pn-nn` heading per ledger ID. Resolve the owner link and anchor to that heading. Supporting design references are not implementation owners.
+4. Run a topological sort or depth-first cycle check over prerequisites. Starting at P8-05, include the task itself and recursively collect prerequisites; require exactly all 56 non-P4/P9/P10 tasks and no deferred task.
+5. Check FR-01–17 and I-01–19 coverage, E01–20/M01–08/R01–08/U01–09 mappings and first-release scoping. E01/R01 public-client variants and E05/R02 editor variants remain later-only.
+6. Check relative links/anchors, navigation entries, proposed path ownership and whitespace. Review new files as well as tracked diff; `git diff --check` alone does not inspect untracked design documents.
+
+Report what this validation proves: consistent documentation ownership, links and graph. It does not prove source implementation, runtime checks, legal review or owner acceptance. Preserve all task states as planned until actual implementation evidence exists.
+
+## Recording readiness and completion
+
+Use the canonical state vocabulary `planned`, `in_progress`, `blocked`, `implemented_unverified` and `complete` (the table displays the initial Planned label). Attach evidence IDs and immutable source/fixture/package identities when updating a row. Each failed or not-run prerequisite remains visible; a whole-file completion marker cannot replace per-task readiness.
+
+For a completed task retain its actual commands/outcomes, supported variants, applicable ADR selection, current evidence and operational limitations. A later relevant change can invalidate evidence without erasing the old result. Record which consumer contracts need requalification and why; do not reset acknowledged history to make a new test pass.
+
+P8-05 joins task state, dependency readiness, FR/I coverage, all U suites and factual owner sign-off for the final package. A planning document, source directory, passing mocked path or undocumented manual run cannot satisfy that join.

@@ -2,6 +2,8 @@
 
 Status: planned. Read with [the architecture](../architecture/vcp-what.md) and [test guide](16-test-fixtures-and-acceptance.md). This file supports every work item without creating additional product scope.
 
+Implementation companions: [task workflow](../development/implementation-workflow.md), [upstream qualification](../development/upstream-qualification.md), [test and release design](../architecture/qualification-release-design.md), and the [ADR register](../adr/README.md). Concrete type/field names in the expanded plan are proposed interface designs until their owning task selects them; they are not existing APIs or permission to skip qualification.
+
 ## Fixed product requirements
 
 - Owner tests locally first; subsequent downloadable releases use Apache-2.0 with all required third-party notices.
@@ -10,7 +12,7 @@ Status: planned. Read with [the architecture](../architecture/vcp-what.md) and [
 - Coding models use OpenRouter. Embeddings, indexes and the memory engine run locally. Missing local inference produces a setup/degraded state, never a remote embedding fallback.
 - Retain full observed code-work history within workspace scope, automatically derive all supported memory classes with evidence labels, notify when history exceeds 30 days, and prune only by user command or saved policy.
 - Local working files, SQLite/files state and indexes need no VCP encryption. Every cloud-bound backup object and manifest must be encrypted before publication, using developer-controlled recovery material held separately.
-- The CLI owns task lifetime. Closing it pauses root and children; reopening the workspace reconciles and resumes deliberately.
+- The CLI owns task lifetime. Explicit `/pause` stops root and child work while the application stays open for inspection; `/resume` deliberately continues after revalidation. Closing it also pauses the task tree; reopening the workspace reconciles before deliberate continuation.
 - Routing, `/optimize`, MCP, bundled skills and visible delegation are required for usability. Autonomy, spend, interactivity and OS isolation are separate controls.
 
 ## Repository and module boundaries
@@ -75,3 +77,43 @@ Allowed work states are `planned`, `in_progress`, `blocked`, `implemented_unveri
 | Owner repositories and acceptance thresholds | P0-01 proposes; P8-05 confirms before final scoring | Versioned private fixture references and predeclared pass criteria |
 
 Engineering experiments resolve implementation choices within confirmed requirements. Seek a new product decision only when an experiment shows a material trade-off the architecture has not authorized; record the result instead of quietly dropping a required capability.
+
+## Interface and transaction review
+
+For each service, specify request identity, scope, version, response category and failure semantics before choosing a concrete library. Distinguish a model proposal from an engine-prepared operation, a reservation from a settled charge, a canonical receipt from search visibility, and finalized ciphertext from an arbitrary file. These distinctions belong in types and admission checks, not only comments.
+
+| Boundary | Implementation review question | Required observation |
+|---|---|---|
+| Command admission | Is command identity scoped and tied to a payload digest and expected revision? | Duplicate returns one durable result; changed payload fails |
+| Artifact commit | Are final bytes durable before a complete canonical reference is acknowledged? | Finalized descriptor resolves after reopen; aborted staging remains incomplete |
+| Model attempt | Does the final context/model envelope match the atomically admitted reservation? | Independent transport observer finds one reservation per billable attempt |
+| Tool dispatch | Are current authority and resource versions checked after waiting and before execution? | Stale steering/grant/schema blocks actual broker dispatch |
+| Memory publication | Can a durable mutation survive an unavailable index? | Canonical record persists, lag is explicit, current revocations still filter results |
+| Pause | Does the durable stop boundary fence every descendant and helper? | No new task dispatch while CLI remains open or after owner loss |
+| Restore | Are complete bytes, writer trust, ancestry and deletion state verified before activation? | Failed restore leaves the old root usable with liabilities unchanged |
+
+Hold a store transaction only for canonical state changes. Never await a model, user, subprocess, remote server, index build or large encryption job while retaining it. Persist the identity needed to reconcile that work, release the transaction, execute, then commit the observed outcome. A failed final commit is an uncertain recorded outcome, not grounds to repeat an effect.
+
+For queued work, identify which task/steering/policy/access/deletion/schema revisions are read at preparation and rechecked at dispatch. Rechecking must be coordinated with the controller's mutation ordering; a check followed by an unguarded asynchronous gap does not provide a meaningful stop or revocation boundary. The owning design must state the residual OS/remote-service race it cannot eliminate.
+
+## Error and resource contracts
+
+Use stable domain error categories with safe user explanations and retry classification. Preserve nested backend/provider diagnostics only in appropriately scoped artifacts. `outcome_unknown`, `not_ready`, `waiting_for_input`, denied, conflicted and failed are different outcomes; avoid converting them into empty success results.
+
+Define finite limits for each queue, stream, artifact staging operation, subprocess tree, embedding batch and index builder. Specify whether overflow applies backpressure, rejects admission or pauses the task. Never drop already accepted history merely to meet a UI memory bound. Cancellation has two measurements: time to stop admitting work and time to reconcile already-started work.
+
+Declare ownership of temporary roots, worktrees, open readers, generation pins, outstanding reservations and secret handles. Release through explicit completion/abort paths; crash recovery reconstructs persisted dependencies rather than assuming destructors ran. Cleanup cannot remove data pinned by recovery, readers, snapshots or unresolved accounting.
+
+## Executable runner contract
+
+P0-01 implements argument parsing and registry validation before launching child commands. Resolve repository and evidence paths from the script location, normalize requested cases/backend variants, check prerequisite availability, then allocate a distinct run ID. Print the sanitized concrete command and capture its exit status immediately. Forward arguments as arguments rather than composing a second shell command string.
+
+The result recorder writes one attempt record for each actual invocation and an aggregate manifest referencing them. If a case cannot run, identify the missing prerequisite and retain `not_run`; if an invoked process or assertion fails, retain `fail`. A suite reports success only when every required selected variant passes. Test unknown cases, child nonzero exit, recorder failure, cancellation and execution from a different working directory.
+
+Live evaluation is a distinct mode requiring an explicit total cap, permitted models/providers, input scope, concurrency and deadline. The harness's own graders/helpers share the evaluation ledger. Existing paid credentials must not turn an ordinary deterministic suite into a live evaluation.
+
+## Reviewable delivery packet
+
+At task handoff include the task ID and changed behavior, exact source map, governing ADR status, production and failure paths, compatibility/migration implications, actual commands/results and inspector/evidence links. Follow the [implementation worksheet](../development/implementation-workflow.md#shared-service-design-worksheet) for interfaces and [result records](../architecture/qualification-release-design.md#result-and-attempt-records) for evidence.
+
+An unresolved engineering choice has a named task gate, compared alternatives and required observation. It is not silently promoted to a default by an example configuration. Documentation may propose that mechanism without marking its ADR accepted or its task complete. Keep runtime test status separate from documentation validation.
