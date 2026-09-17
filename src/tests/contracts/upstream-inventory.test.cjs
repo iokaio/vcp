@@ -27,7 +27,7 @@ test('baseline command refuses build output inside the unmodified source root', 
       '-SourceRoot', fixture.root, '-Commit', '0'.repeat(40), '-OutputRoot', path.join(fixture.root, 'output')],
     { encoding: 'utf8', timeout: 20000, windowsHide: true });
     assert.equal(result.error, undefined);
-    assert.equal(result.status, 2);
+    assert.equal(result.status, 2, result.stdout + result.stderr);
     assert.match(result.stderr, /\[BASELINE_OUTPUT_IN_SOURCE\]/);
     assert.equal(fs.existsSync(path.join(fixture.root, 'output')), false);
   } finally { fixture.cleanup(); }
@@ -41,6 +41,30 @@ test('hashes original bytes and rejects changed, truncated or extra batch output
   assert.throws(() => attachContent(entries, batch.subarray(0, batch.length - 1)), /Truncated/);
   assert.throws(() => attachContent(entries, Buffer.concat([batch, Buffer.from('extra')])));
   assert.throws(() => attachContent(entries, Buffer.from(`${object} blob 6\nHello\n\n`)), /identity mismatch/);
+});
+test('Windows short source aliases cannot bypass evidence or target containment', { skip: process.platform !== 'win32' }, t => {
+  const fixture = ownedRoot(os.tmpdir());
+  try {
+    const alias = spawnSync('pwsh', ['-NoProfile', '-Command',
+      '(New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:VCP_PATH_FIXTURE).ShortPath'],
+    { env: { ...process.env, VCP_PATH_FIXTURE: fixture.root }, encoding: 'utf8', timeout: 20000, windowsHide: true });
+    assert.equal(alias.error, undefined);
+    assert.equal(alias.status, 0, alias.stderr);
+    const shortRoot = alias.stdout.trim();
+    if (shortRoot.toLowerCase() === fixture.root.toLowerCase()) { t.skip('Fixture volume has no Windows short alias'); return; }
+    const inside = path.join(shortRoot, 'forbidden-output');
+    const outside = path.join(fixture.container, 'evidence');
+    for (const args of [['-OutputRoot', inside], ['-OutputRoot', outside, '-TargetRoot', inside]]) {
+      const result = spawnSync('pwsh', ['-NoProfile', '-File', path.resolve(__dirname, '../../../scripts/upstream/build-baseline.ps1'),
+        '-SourceRoot', shortRoot, '-Commit', '0'.repeat(40), ...args],
+      { encoding: 'utf8', timeout: 20000, windowsHide: true });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 2, result.stdout + result.stderr);
+      assert.match(result.stderr, /\[BASELINE_OUTPUT_IN_SOURCE\]/);
+      assert.equal(fs.existsSync(inside), false);
+      assert.equal(fs.existsSync(outside), false);
+    }
+  } finally { fixture.cleanup(); }
 });
 test('compiler experiments reject mutable aliases before allocating output', () => {
   const fixture = ownedRoot(os.tmpdir());

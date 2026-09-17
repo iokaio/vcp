@@ -37,6 +37,11 @@ records the failed unmodified Rust 1.98.0 build, a minimal attributed compatibil
 patch, independent reconstruction and follow-up native checks. It does not yet
 qualify a combined Codex/Munarium workspace or another Windows environment.
 
+The [native Windows CI job](../development/codex-source.md#native-windows-ci)
+targets the owner-provided `win8core` runner for committed-source build, native
+patch/policy tests, CLI traces and independent reconstruction. Its remote results
+must be recorded before counting the second-environment acceptance criterion.
+
 1. Pin Codex, Gemini CLI and Munarium to exact commits; record selected paths, dependencies, licenses, notices, patch origin and local owner. Treat mutable URLs as discovery inputs.
 2. Build selected upstream components on native Windows before modifications, including the unmodified Codex engine/CLI baseline. Use an isolated temporary checkout; record compiler/native dependencies, commands, resource use and known upstream failures.
 3. Classify each selected module's I/O, model/network helpers and ambient credential discovery. Establish the VCP replacements required for each effectful seam.
