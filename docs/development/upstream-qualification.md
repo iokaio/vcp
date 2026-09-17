@@ -1,6 +1,6 @@
 # Upstream selection and feasibility experiments
 
-Status: proposed P0 procedure. No upstream revision, import, native dependency or local model has been qualified. Read [ADR-013](../adr/013-upstream-reuse-and-vendoring.md), [segment 01](../plan/01-upstream-feasibility.md) and [architecture reuse boundaries](../architecture/vcp-what.md#38-boundaries-around-borrowed-components).
+Status: P0 procedure with [candidate acquisition and inventory tooling](upstream-candidates.md) implemented. No upstream import, native dependency envelope or local model has been qualified. Read [ADR-013](../adr/013-upstream-reuse-and-vendoring.md), [segment 01](../plan/01-upstream-feasibility.md) and [architecture reuse boundaries](../architecture/vcp-what.md#38-boundaries-around-borrowed-components).
 
 ## Experiment record
 

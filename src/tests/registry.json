@@ -1,12 +1,21 @@
 {
   "schema_version": 1,
   "suites": {
-    "fast": ["repository", "harness", "experiments"],
+    "fast": ["repository", "harness", "experiments", "upstream-inventory"],
     "repository": ["repository"],
     "harness": ["harness"],
-    "experiments": ["experiments"]
+    "experiments": ["experiments"],
+    "upstream": ["upstream-inventory"]
   },
   "cases": {
+    "upstream-inventory": {
+      "task_ids": ["P0-07"],
+      "args": ["--test", "src/tests/contracts/upstream-inventory.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
     "repository": {
       "task_ids": ["P0-01"],
       "args": ["src/tests/contracts/repository.cjs"],

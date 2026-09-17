@@ -28,6 +28,8 @@ Propose separate quality thresholds for analysis findings, review precision/reca
 
 ## P0-07 — Immutable upstream selection
 
+Implementation progress: [candidate pins and commands](../development/upstream-candidates.md) provide original-byte inventories and an executable native Windows baseline experiment. [Native results](../evaluations/p0-07-native-candidates.md) record Codex's CLI build and 102 patch/policy tests, Munarium's 79 kernel/store tests, and Gemini's 213 policy/scheduler/tool tests. Selected-file/license closure, committed source, independent reconstruction and VCP build integration remain outstanding, so P0-07 is not complete.
+
 1. Pin Codex, Gemini CLI and Munarium to exact commits; record selected paths, dependencies, licenses, notices, patch origin and local owner. Treat mutable URLs as discovery inputs.
 2. Build selected upstream components on native Windows before modifications, including the unmodified Codex engine/CLI baseline. Use an isolated temporary checkout; record compiler/native dependencies, commands, resource use and known upstream failures.
 3. Classify each selected module's I/O, model/network helpers and ambient credential discovery. Establish the VCP replacements required for each effectful seam.
