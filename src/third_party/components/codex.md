@@ -39,6 +39,6 @@ or corresponding-source obligations where applicable under P8-04/P8-06.
 
 The selection intentionally retains upstream credential/provider/telemetry and
 scheduler code for controlled qualification. It is not exposed as a VCP session.
-The [effect review](../../../docs/development/upstream-candidates.md) and P0-03/P0-08
+The [effect inventory](codex-boundaries.json), [source guide](../../../docs/development/codex-boundaries.md) and P0-03/P0-08
 own replacement/injection before product use; no hidden effect is accepted merely
 because this source builds.

@@ -11,6 +11,7 @@ selection = "components/codex-selection.json"
 acquired_on = "2026-09-17"
 reuse_form = "committed source preserving upstream-relative workspace"
 component_notes = "components/codex.md"
+boundary_inventory = "components/codex-boundaries.json"
 root_license = "Apache-2.0"
 license_scope = "Root license only; bundled component terms must be retained separately"
 tree = "b54522de663019e332772544ae53054aa3ecb92d"
@@ -29,6 +30,8 @@ license_scope = "Root license only; selected file and dependency review pending"
 tree = "5cb35fa93b203b709e91737b0a00da985dbb186e"
 inventory_sha256 = "f9ba0e41e3de225d8d785f7260e4818ea7e4851df7deb59ff3663675f2fadd7b"
 owner_task = "P0-07"
+component_notes = "components/gemini-cli.md"
+candidate_paths = ["packages/core/src/tools/tools.ts", "packages/core/src/tools/tools.test.ts", "packages/core/src/scheduler/scheduler.ts", "packages/core/src/scheduler/scheduler.test.ts", "packages/core/src/scheduler/policy.ts", "packages/core/src/policy/policy-engine.ts", "packages/core/src/policy/policy-engine.test.ts", "packages/core/src/policy/types.ts", "packages/core/src/policy/stable-stringify.ts", "packages/core/src/skills/skillLoader.ts", "packages/core/src/skills/skillManager.ts", "packages/core/src/tools/mcp-client.ts", "packages/core/src/tools/mcp-tool.ts", "package.json", "package-lock.json", "packages/core/package.json", "scripts/generate-git-commit-info.js", "LICENSE"]
 selection_state = "Not selected or imported; 213 policy/scheduler/tool tests passed on Windows; port qualification remains P0-09"
 
 [[upstream]]
