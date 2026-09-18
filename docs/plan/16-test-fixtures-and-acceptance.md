@@ -11,7 +11,7 @@ src/tests/
   support/             fake clock/IDs, scripted provider, temp roots, fault barriers
   fixtures/
     repositories/      small versioned source trees and intended defects/changes
-    events/ context/ memory/ search/ retention/ provider/ mcp/
+    events/ context/ memory/ search/ retention/ provider/ decision/ mcp/
   contracts/           backend, budget, provider, context, policy and service behavior
   recovery/            child-process crash/reopen and external-effect oracles
   platform/windows/    paths, process jobs, PTY, console close and filesystem behavior
@@ -33,6 +33,7 @@ Follow [the code layout](code-layout.md). These logical test directories may be 
 |---|---|
 | Frozen clock and ID source | Stable timestamps/IDs for ordering/date tests; production crypto randomness is never replaced by this helper |
 | Scripted model transport | Ordered chunks/errors/delays/usage; observable request count and reservation correlation |
+| Decision response corpus | Closed answer schemas, explicit abstention and adversarial output; independently labelled routing/review cases with fixed permitted evidence |
 | Fake MCP server | Versioned discovery, auth failure, schema mutation, delayed/non-idempotent effect and disconnect |
 | Disposable repository builder | Named clean/dirty/staged/untracked states; reproducible base commits and expected final content |
 | Fault barrier | Signal exact lifecycle boundary; supervisor kills child process there and reopens a fresh process |
@@ -136,6 +137,42 @@ Verify group/profile distinction, exclusions, total-cost reservation, bounded es
 
 Live comparisons use matched task/configuration conditions and held-out examples. Record failures, support/child/compaction cost and uncertainty; report correlation when comparisons are not controlled.
 
+Run the same scenarios with optional semantic evaluation disabled, shadowed and
+advisory, following [ADR-020](../adr/020-bounded-semantic-decisions.md) and
+[decision qualification](../architecture/decision-evaluation-design.md#qualification-and-rollout).
+Disabled mode must perform no evaluator network calls; unavailable, abstaining or
+rejected output must preserve deterministic selection and required review. Shadow
+mode records advice without affecting actions but still requires scoped context,
+admitted spend and visible usage. Use scripted transport for routine contracts;
+live comparisons need separately authorized caps and never run in default CI.
+
+Include malformed Boolean/Choice/Score responses, duplicate/missing question IDs,
+out-of-range/non-finite scores, invalid probability distributions, inaccessible
+evidence and advice naming an ineligible model. Test timeout, repair exhaustion,
+zero balance, concurrent reservations, pause before send and new steering before
+response application. Join each observed evaluator request to its reservation,
+including retries and shadows; uncertain usage survives reopen. Assert no recursive
+evaluator selection or schema-repair loop, no authority expansion and no skipped
+required review/test on a low risk score. Replaying persisted advice does not send
+another request; changed revisions require revalidation, not silent reuse.
+
+For E19/U07 quality comparisons, declare tuning, calibration and held-out splits,
+truth labels and per-purpose thresholds before measurement. Include serious
+seeded defects and benign changes, productive repeated attempts and true stalls.
+Record abstention coverage, false/missed escalation and review, end-to-end quality
+and total successful/failed-task cost including evaluator repairs and shadow
+overhead. A Score is not calibrated confidence; probability calibration and Brier
+scores apply only to explicitly probabilistic outputs with suitable labelled
+evidence. Keep p50/p95 latency, sample limits and model/prompt drift visible.
+Unqualified advice stays disabled and cannot lower the existing quality floor.
+
+P8 repeats enabled-purpose scenarios with real child admission/isolation,
+integration and independent review, including U02/U03/U06. Child-event scripts in
+P6 do not establish those outcomes. Local retrieval/memory correctness remains
+covered by M/U09 suites with the evaluator absent; a remote decision service cannot
+become a hidden prerequisite or embedding fallback. P10 observer agents remain
+deferred.
+
 ## U08 — Skills and MCP
 
 Fixture: the declared built-in language/toolset coverage matrix, nested AGENTS.md, available/missing Windows tools, and controlled MCP servers with colliding names, changing schemas and delayed effects.
@@ -177,6 +214,7 @@ Fixture setup records exact expected base files, Git index/working/untracked sta
 | Boundary | Observe independently | Do not accept as sole proof |
 |---|---|---|
 | Budgeted request | Scripted transport request count joined to admitted attempt/reservation IDs | Router says it requested a reservation |
+| Advisory decision | Closed-set truth labels, eligible candidates, actual selected action and request/ledger correlation | Evaluator confidence, agreement with itself or schema validity alone |
 | Prepared edit | Initial/final bytes, staging state and outside-scope sentinel files | Tool reports success |
 | Pause/recovery | Supervisor barrier, actual marker effects and child process tree | Task projection says paused |
 | Canonical durability | Acknowledgement log plus fresh-process export/reference checks | In-process cache returns the record |

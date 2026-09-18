@@ -2,10 +2,10 @@
 
 VCP is in early implementation. These documents distinguish requirements from executed infrastructure checks; they do not establish that a product runtime or release exists.
 
-- [Architecture index](architecture/README.md): product requirements, seven supporting implementation designs and background research.
+- [Architecture index](architecture/README.md): product requirements, eight supporting implementation designs and background research, including [JEV planning adoption](architecture/decision-evaluation-design.md#adoption-map).
 - [Implementation plan](plan/README.md): work segments, execution order, and acceptance.
 - [Code layout](plan/code-layout.md): directory responsibilities and planned source locations.
-- [Architecture decision records](adr/README.md): all 19 decision subjects, confirmed directions, proposed mechanisms and outstanding qualification.
+- [Architecture decision records](adr/README.md): all 20 decision subjects, confirmed directions, proposed mechanisms and outstanding qualification.
 - [Development guides](development/README.md): task implementation workflow and upstream selection/qualification procedures.
 - [Evaluation summaries](evaluations/README.md): scoped results with source identity, actual checks and limitations.
 - [Contribution guide](../CONTRIBUTING.md): change workflow, validation, and attribution.

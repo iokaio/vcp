@@ -6,7 +6,7 @@ Status: layout convention adopted; product implementation remains planned. This 
 
 Use `docs/` for documentation, `src/` for source code and its test assets, and `scripts/` for build and test automation. Root-level community and agent guidance files plus `.github/` are the exceptions needed for project discovery and contribution workflows. Keep root `AGENTS.md` and `CLAUDE.md` identical.
 
-Today `docs/architecture/` contains the product architecture, supporting implementation designs and research; `docs/plan/` contains execution instructions; `docs/adr/` contains all 19 decision records; and `docs/development/` contains implementation and qualification procedures. ADR-013 records the source-management convention; engineering qualification remains pending throughout the new records. `src/tests/registry.json`, `src/tests/support/harness.cjs`, `src/tests/contracts/`, and `scripts/test.ps1` now implement the [delivery harness](../development/delivery-harness.md). The remaining product packages, fixtures and build runners below are targets. Create directories with their first useful content; do not add empty crates or passing placeholder runners.
+Today `docs/architecture/` contains the product architecture, supporting implementation designs and research; `docs/plan/` contains execution instructions; `docs/adr/` contains all 20 decision records; and `docs/development/` contains implementation and qualification procedures. ADR-013 records the source-management convention; engineering qualification remains pending throughout the new records. `src/tests/registry.json`, `src/tests/support/harness.cjs`, `src/tests/contracts/`, and `scripts/test.ps1` now implement the [delivery harness](../development/delivery-harness.md). The remaining product packages, fixtures and build runners below are targets. Create directories with their first useful content; do not add empty crates or passing placeholder runners.
 
 ## Target directory tree
 
@@ -33,7 +33,7 @@ vcp/
     README.md
     architecture/              design, requirements, and supporting research
     plan/                      execution segments, this layout, and traceability
-    adr/                       19 decision records; runtime qualification pending
+    adr/                       20 decision records; runtime qualification pending
     development/               implementation guides; concrete setup/source map later
     protocol/                  later public API and compatibility documentation
     operations/                installation, data, recovery, and release guides
@@ -97,6 +97,7 @@ remain planned integration work.
 | `vcp-context/` | Instructions, manifests, token planning, and compaction | [04](04-context-and-instructions.md) |
 | `vcp-models/` | Normalized requests, OpenRouter transport, and catalog | [05](05-openrouter-and-session-loop.md) |
 | `vcp-routing/` | Group selection, profiles, escalation, and optimization | [12](12-routing-and-optimization.md) |
+| `vcp-decision/` | Planned bounded Boolean/Choice/Score advice, deterministic evaluator, validation and optional OpenRouter adapter | [12](12-routing-and-optimization.md#p6-02--deterministic-profile-policy) |
 | `vcp-budget/` | Reservations, settlement, and root/child cost attribution | [03](03-storage-and-budget.md) |
 | `vcp-policy/` | Authority, trust, approvals, and dispatch admission | [06](06-windows-tools-and-recovery.md) |
 | `vcp-tools/` | File, search, patch, process, and Git contracts | [06](06-windows-tools-and-recovery.md) |
@@ -112,12 +113,25 @@ remain planned integration work.
 
 A conventional Rust crate may have `Cargo.toml`, its own `src/`, and `tests/`; the nested `src` is normal. Put backend-specific migrations with the owning store package. Keep pure unit tests with their modules and use `src/tests/` for shared contracts and cross-package scenarios. The workspace must register shared test targets explicitly: merely creating `src/tests/` does not make Cargo discover them.
 
+`vcp-decision` is a logical P6-02 destination, not an existing crate or an additional
+foundation prerequisite. Its proposed `question`, `answer`, `validation`,
+`evaluation` and deterministic/OpenRouter adapter modules follow
+[ADR-020](../adr/020-bounded-semantic-decisions.md) and the
+[decision contract](../architecture/decision-evaluation-design.md#decision-contract).
+Keep pure question/answer schemas independent of gateway clients, UI and concrete
+stores; orchestration uses injected existing context, ledger and model interfaces.
+`vcp-routing` consumes validated advice, while policy, budget and completion
+authorities remain outside the evaluator. Shared fixtures belong under the planned
+`src/tests/fixtures/decision/`; labelled held-out evaluations use `src/evals/`.
+Create no empty package, Jev SDK/provider or local model dependency from this map.
+
 ## Dependency and upstream boundaries
 
 - Domain and internal protocol types do not depend on presentation, network clients, or concrete stores.
 - The engine calls injected model, budget, policy, store, memory, and execution interfaces. Every effect follows the same authority and durability rules, including effects from retained upstream code.
 - CLI and future client packages issue commands and consume projections; they do not own a second scheduler, model gateway, or cost ledger.
 - Memory accepts canonical records independently of search-index visibility. Embedding and search implementations stay local.
+- Optional semantic evaluation calls the existing OpenRouter boundary with root attribution and current authority. It cannot recursively select/evaluate its own model, create a separate gateway or make local memory/retrieval depend on remote advice. The deterministic baseline remains usable without it.
 - Keep vendored source and patch history identifiable. For an attributed port placed directly in a VCP module, record both the original and destination paths. Preserve upstream notices, fixtures, and relevant modification markers.
 - A retained upstream workspace may remain under `src/third_party/codex/` if flattening it would harm reuse. P0 chooses one authoritative build graph and documents the concrete manifest; do not maintain two independent engines to fit the diagram.
 

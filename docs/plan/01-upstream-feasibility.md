@@ -12,7 +12,7 @@ Produce a reproducible Codex-derived Windows baseline and evidence that local Mu
 
 Implementation: the [delivery harness](../development/delivery-harness.md) provides registry validation, process execution, result manifests and regression checks. [Experiment helpers and fixtures](../development/experiment-fixtures.md) add the scripted provider, fake clock, owned roots, observation log, analysis/review/generation truth sets and measurement proposals. [Executed evidence](../evaluations/p0-01-experiment-harness.md) qualifies P0-01 only; no product acceptance result is implied.
 
-1. Record A01–A17, FR-01–FR-17, I-01–I-19 and the 19 ADRs. Link each to the owner segment and initial test IDs.
+1. Record A01–A17, FR-01–FR-17, I-01–I-19 and the ADR register. The P0-01 baseline covered ADR-001–019; later [ADR-020](../adr/020-bounded-semantic-decisions.md) adds P6 planning without changing that historical qualification. Link decisions to their owner segments and initial test IDs.
 2. Create the minimal runner/result manifest from segment 00, plus fake clock, scripted model responses and isolated temporary-root helpers. The initial runner can invoke upstream commands; it need not bootstrap a new engine.
 3. Specify disposable analysis/review/generation fixtures and known expected findings. Propose workload sizes and hardware measurements without inventing a minimum machine or dollar cap.
 

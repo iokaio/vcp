@@ -55,10 +55,10 @@ Each linked task supplies code organization, implementation increments and testi
 | P5-10 Restore and handoff | P5-09, P3-04 | [Implementation and tests](11-encrypted-portability.md#p5-10--restore-and-sequential-handoff) | U04 on two Windows environments; wrong/missing key and tampering rejected, recovery/rotation verified, no lost records or overwritten divergent work | Planned |
 | P5-08 Integrated memory acceptance | P5-01…07, P5-09/10 | [Implementation and tests](15-integration-and-release.md#p5-08--integrated-memory-acceptance) | E13/E14/E20/M01–M08/U04/U05/U09; useful local recall and transparent limits | Planned |
 | P6-01 Group registry | P2-02, P5-06 | [Implementation and tests](12-routing-and-optimization.md#p6-01--versioned-registry) | Group/profile distinction, unknown capability/price and stale research handled explicitly | Planned |
-| P6-02 Routing/profiles | P6-01, P1-05 | [Implementation and tests](12-routing-and-optimization.md#p6-02--deterministic-profile-policy) | Deterministic decisions from recorded inputs, quality floor and root budget intact | Planned |
-| P6-03 Escalation/handoff | P6-02, P2-05/08 | [Implementation and tests](12-routing-and-optimization.md#p6-03--escalation-and-model-handoff) | E04/E11/E12/U07; no dropped constraints or orphan tool results | Planned |
-| P6-05 Project optimizer | P6-03, P5-06, P3-02/03 | [Implementation and tests](12-routing-and-optimization.md#p6-05--optimize-workflow) | U07; sparse/biased/pruned history labelled; no silent budget increase, authority change or deletion | Planned |
-| P6-04 Profile qualification | P6-03/05, P5-08 | [Implementation and tests](12-routing-and-optimization.md#p6-04--profile-qualification) | E19/U07 with total failed-attempt and child/support costs; thresholds/defaults justified | Planned |
+| P6-02 Routing/profiles | P6-01, P1-05 | [Implementation and tests](12-routing-and-optimization.md#p6-02--deterministic-profile-policy) | Deterministic baseline plus bounded decision contract/optional OpenRouter shadow adapter; schema, abstention, scope, pause and root cost enforced; quality floor intact | Planned |
+| P6-03 Escalation/handoff | P6-02, P2-05/08 | [Implementation and tests](12-routing-and-optimization.md#p6-03--escalation-and-model-handoff) | E04/E11/E12/U07; bounded escalation/review advice cannot suppress required checks, lose constraints or orphan tool results | Planned |
+| P6-05 Project optimizer | P6-03, P5-06, P3-02/03 | [Implementation and tests](12-routing-and-optimization.md#p6-05--optimize-workflow) | U07; local workflow survives disabled advice; all evaluator overhead and sparse/biased/pruned history labelled; no silent spend, authority or deletion changes | Planned |
+| P6-04 Profile qualification | P6-03/05, P5-08 | [Implementation and tests](12-routing-and-optimization.md#p6-04--profile-qualification) | E19/U07 with held-out baseline/advisory comparisons, false negatives, calibration limits and all failed-attempt/child/evaluator costs; unqualified purposes stay disabled | Planned |
 | P7-01 Skill discovery | P2-01/03 | [Implementation and tests](13-skills-and-mcp.md#p7-01--discovery-and-activation) | E02/E03/U08; no executable config-import dependency | Planned |
 | P7-02 Bundled development skills | P7-01, P2-06 | [Implementation and tests](13-skills-and-mcp.md#p7-02--built-in-skill-catalog) | U01–U03/U08 across representative language families; unavailable Windows toolchains reported | Planned |
 | P7-03 MCP | P7-01, P2-03/04 | [Implementation and tests](13-skills-and-mcp.md#p7-03--mcp-lifecycle-and-tool-calls) | E16/R06/U08; schema drift and uncertain remote effects preserve policy | Planned |
@@ -225,7 +225,7 @@ Detailed setups, actions and assertions are in [segment 16](16-test-fixtures-and
 | U04 Encrypted handoff | 03, 10, 11 | Two Windows environments, independent keys, ciphertext-only vault and restored state |
 | U05 History/pruning | 02, 07, 10 | Full artifacts, date/filter semantics, no default deletion and protected refs |
 | U06 Pause/resume | 03, 05, 06, 07, 14 | Actual process/dispatch observations and no duplicate effects |
-| U07 Routing/optimization | 03, 04, 12 | Explained groups, total cost, adaptive questions and reversible selected policy |
+| U07 Routing/optimization | 03, 04, 12 | Explained groups, bounded optional advice, all evaluator costs, adaptive questions and reversible selected policy; P8 rechecks real delegation |
 | U08 Skills/MCP | 04, 06, 13 | Declared language/toolset coverage and schema/authority/cancel correctness |
 | U09 Local memory compute | 01, 09, 15 | Actual CPU inference/retrieval, no remote embedding and measured resources |
 
@@ -235,7 +235,7 @@ When an architecture item changes, update its single owning task section, this d
 
 ## Design and decision traceability
 
-The supporting documents below refine existing tasks. Their references to later integration checks do not add implicit dependencies. All 19 ADRs are available from the [decision index](../adr/README.md); their engineering choices remain pending unless evidence explicitly qualifies them.
+The supporting documents below refine existing tasks. Their references to later integration checks do not add implicit dependencies. All 20 ADRs are available from the [decision index](../adr/README.md); their engineering choices remain pending unless evidence explicitly qualifies them.
 
 | Owning segments | Shared implementation contract | Decisions |
 |---|---|---|
@@ -245,10 +245,20 @@ The supporting documents below refine existing tasks. Their references to later 
 | 08, 09, 10 | [Memory/retrieval design](../architecture/memory-retrieval-design.md) | ADR-008, 016 |
 | 03, 10, 11 | [Storage/portability design](../architecture/storage-portability-design.md) | ADR-003, 015, 019 |
 | 12, 13, 14 | [Routing/extensions design](../architecture/routing-extensions-design.md) | ADR-006, 007, 010, 011, 017 |
+| 12, 15, 16 | [Bounded decision design](../architecture/decision-evaluation-design.md), including [adoption mapping](../architecture/decision-evaluation-design.md#adoption-map) | [ADR-020](../adr/020-bounded-semantic-decisions.md) |
 | 15, 16 | [Qualification/release design](../architecture/qualification-release-design.md) | ADR-012, 018 |
 | 17, 18, 19 | [Deferred clients design](../architecture/deferred-clients-design.md) and [extensions design](../architecture/routing-extensions-design.md) | ADR-002, 011, 012, 014 |
 
 Explicit pause without closing belongs to existing P2-07, P3-01/02/04 and P7-06 behavior, with U06 evidence and P8 requalification. It adds no new task ID. The required observation is pause/inspect/resume in the same live CLI with no new root/descendant dispatch after the stop boundary, alongside existing close/reopen cases.
+
+The [Jev exploration](../architecture/exploring-jev.md) contributes a vendor-neutral
+bounded-advice pattern within existing P6-02/03/05 and P6-04 qualification. It adds
+no task IDs or prerequisite edges: the ledger remains 68 tasks, with 56 in the
+first-release closure. Earlier P2/P5 consumers retain their deterministic paths;
+memory governance, local retrieval, authority and completion remain independent
+of optional remote advice. P8 rechecks enabled purposes with actual delegation
+and packaged behavior. Direct Jev integration, new local inference dependencies
+and P10-03 observer agents are not introduced by this plan change.
 
 ## Mechanical graph validation procedure
 

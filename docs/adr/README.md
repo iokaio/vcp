@@ -1,6 +1,6 @@
 # Architecture decision records
 
-The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) defines the 19 decision subjects and gates. Each now has a dedicated record. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
+The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) defines the 20 decision subjects and gates. Each has a dedicated record. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
 
 ADR-013 records the existing committed-source repository convention. The other records expand confirmed scope and proposed design, with alternatives, consequences and unresolved gates. None claims a newly qualified runtime or owner sign-off.
 
@@ -25,6 +25,7 @@ ADR-013 records the existing committed-source repository convention. The other r
 | [ADR-017 — Interactive project optimization](017-project-optimization.md) | P6-05/04, U07 |
 | [ADR-018 — Complete usable-release acceptance](018-release-acceptance.md) | P8-05 |
 | [ADR-019 — Cloud encryption and developer-controlled keys](019-cloud-encryption-and-keys.md) | P0-04/06, P3-06, P5-09/10, P8-03 |
+| [ADR-020 — Bounded semantic decisions](020-bounded-semantic-decisions.md) | Proposed P6-02/03/04/05; P7/P8 integration checks under existing dependencies |
 
 ## Maintaining a decision
 

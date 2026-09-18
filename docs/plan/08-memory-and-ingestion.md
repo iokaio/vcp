@@ -12,6 +12,12 @@ for record shapes, gate ordering and replay behavior. Read
 [canonical transactions](03-storage-and-budget.md) before adapting upstream code.
 The design is proposed; source APIs and exact SQL/file schemas follow the P0 map.
 
+The [JEV adoption map](../architecture/decision-evaluation-design.md#adoption-map)
+allows later reuse of typed advice only within existing optional OpenRouter memory
+extraction. Proposal/contradiction scores cannot accept truth, discard observed
+history or replace evidence and governance gates. Keep local context/retrieval and
+embeddings independent of that path; implement P5-01/02 without a P6 dependency.
+
 P5-01 begins with P1-04's transaction/artifact contract and P0-02/P0-07's selected
 Munarium revision, license/fixture inventory and demonstrated local dependency
 closure. P5-02 additionally requires P1-03's retained event/artifact records.

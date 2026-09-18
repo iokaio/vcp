@@ -6,6 +6,16 @@ Status: planned. Owns P6-01 through P6-05. Registry work follows P2-02 and P5-06
 
 Use `vcp-models/catalog` for gateway metadata and `vcp-routing/group_registry`, `eligibility`, `policy`, `selector`, `explanation`, `escalation`, `handoff`, `optimizer` and `evaluation` for VCP decisions. CLI interview/policy-diff presentation belongs in `vcp-cli/optimize`; policy revisions and outcome observations use the canonical store.
 
+P6-02 also owns the logical `vcp-decision` contract, deterministic evaluator and
+optional OpenRouter adapter; P6-03/P6-05 consume its bounded advice. Map proposed
+`question`, `answer`, `validation`, `evaluation` and adapter modules into the
+existing workspace only when implementing useful behavior. This is not a second
+gateway, policy authority, scheduler or store. Follow
+[ADR-020](../adr/020-bounded-semantic-decisions.md) and the
+[decision design](../architecture/decision-evaluation-design.md#decision-contract).
+The [Jev exploration](../architecture/exploring-jev.md) motivates the abstraction;
+it does not select a Jev integration, licensed source import or measured default.
+
 `RoutingInput` binds task/role, capability/context needs, project policy, model pin/fallback permission, catalog/evaluation versions and remaining budget. `RoutingDecision` records all candidates, exclusions, selected group/model/provider, estimated cost, evidence and escalation reason. Final reservation uses the actual assembled request size.
 
 Read the proposed [routing and extension design](../architecture/routing-extensions-design.md#service-boundaries-and-persisted-identities)
@@ -55,6 +65,14 @@ Implement an explainable selection pipeline: required capability/scope/provider 
 
 Include context transfer, retries, support roles and reserved verification in estimates. Select inexpensive eligible support roles even when the main model is stronger. Use deterministic tie-breaking from recorded inputs; keep unexplained learned routing deferred until sufficient evidence exists.
 
+The deterministic baseline remains the default. A separately enabled, qualified
+semantic evaluator can provide bounded Boolean, Choice or Score advice among
+already eligible alternatives. The final selector remains a deterministic
+function of recorded inputs, including any validated advice. Replaying a recorded
+decision must not make another model request; reproducing a live provider answer
+is not promised. Disabled, unavailable, malformed, stale or abstaining evaluation
+uses the recorded baseline or the existing visible stop/input condition.
+
 Tests cover a cheap candidate that fails the quality floor, a fast candidate with expensive retry history, insufficient verification reserve, a strict pin and concurrent root allocations. Compare decisions against explicit eligibility/ordering assertions, not a duplicated implementation function.
 
 **Construction sequence.** Implement the selector as a pure function over versioned
@@ -81,6 +99,53 @@ root totals. Inspector fixtures must reconstruct the comparison from recorded
 catalog/policy/evaluation inputs, including unavailable candidates and the final
 tie break. Preserve [architecture section 7.5](../architecture/vcp-what.md#75-routing-algorithm-and-explanation)
 and [root accounting](../architecture/vcp-what.md#81-root-ledger-and-reservations).
+
+**Bounded decision construction.** Build the typed contract and deterministic
+implementation together with a real routing consumer and fixtures. Bind each
+request to workspace/root/task/step, input and steering revisions, purpose,
+question/schema version, permitted evidence references, policy/catalog revisions,
+closed option IDs or finite score bounds, deadline and attempt limit. A response
+records answer or explicit abstention per required question, evaluator identity,
+schema/prompt/configuration versions, permitted evidence references and attempt
+attribution. Keep score, model-reported probability and independently measured
+calibration distinct; a score is never automatically a probability or confidence.
+
+Validate the whole response before use: reject unknown, duplicate or missing
+question IDs, unlisted choice IDs, wrong types, non-finite/out-of-range numbers,
+invalid distributions and evidence outside the supplied scope. Do not coerce a
+missing answer to false, normalize malformed output into confidence or silently
+accept a partial batch. Bounds on question count, payload bytes, output and
+latency apply before dispatch. Invalid output may receive only a separately
+admitted bounded retry; otherwise record abstention and use the baseline. Schema
+validity establishes shape, not factual truth or authority.
+
+Implement the optional adapter through existing context assembly, OpenRouter,
+capability admission, root accounting and canonical attempt history as specified by
+[dispatch and recovery](../architecture/decision-evaluation-design.md#dispatch-and-recovery).
+Select its model deterministically from an explicit eligible evaluator policy;
+evaluator selection, schema repair and grading cannot recursively call the
+evaluator. Disable tools in evaluator requests. Every attempt, repair and shadow
+request reserves its full maximum cost before send and settles observed or unknown
+usage through the same ledger. Revalidate current revision, scope, pause and
+authority before dispatch and before consuming the answer; stale late output is
+retained for accounting without influencing current work. Persist prepared input,
+attempt/reservation linkage and outcome without holding a transaction across I/O.
+Reopening cannot blindly resend an uncertain prior request or clear its liability.
+
+Initially expose remote evaluation as explicitly enabled shadow comparison:
+record its advice alongside the baseline without changing the selected action.
+Shadow mode still sends authorized context and spends money, so it requires the
+same configured cap and visible attribution. P6-04 decides whether any individual
+purpose can graduate to advisory use. No direct Jev endpoint, SDK, credential or
+local inference asset becomes a requirement. Earlier P2/P5 work must remain usable
+without this later P6 service.
+
+Test deterministic-only and disabled modes with a transport that fails on any
+request. Use adversarial schema fixtures, evidence revocation, zero budget,
+concurrent child admission, pause before send, late response after new steering,
+timeout with uncertain charge, restart and retry exhaustion. Assert eligible
+candidate membership and quality floors after advice, no recursive helper calls,
+all observed requests joined to reservations, and continued baseline behavior.
 
 ## P6-03 — Escalation and model handoff
 
@@ -112,6 +177,23 @@ Assert no new dispatch while paused, no lost constraint on a smaller-context mod
 bounded total attempts after restart and separate settlement of late prior usage.
 Use an independent marker tool to prove fallback did not repeat a previous remote
 effect merely because its result was absent from the new model context.
+
+Add bounded advisory purposes for repeated-strategy suspicion, retry/replan/
+escalate/stop preference and independent-review triage using the
+[consumer boundaries](../architecture/decision-evaluation-design.md#consumer-boundaries).
+Supply bounded observed actions, errors, diffs and checks with source revisions;
+do not invent access to full provider reasoning. Rust evaluates fixed trigger,
+attempt, budget and authority constraints before and after advice. A low risk
+score cannot suppress required tests/review, override a hard failure or mark a task
+complete. Abstention and provider failure preserve required review and existing
+bounded escalation. Optional additional review is still an admitted task.
+
+Test misleading advice to continue a capped loop, skip a required review, approve
+an unverified diff or escalate outside the permitted candidate set. Include true
+stalls, productive repeated attempts and seeded serious defects, recording missed
+as well as false triggers. P8 repeats relevant cases with actual children; P6's
+scripted child events are preliminary evidence only. Continuous background
+observer agents remain P10-03 deferred scope.
 
 ## P6-05 — `/optimize` workflow
 
@@ -155,6 +237,17 @@ policy in the fixture result. Acceptance follows
 [architecture section 7.8](../architecture/vcp-what.md#78-interactive-project-optimization),
 including no hidden trials, pruning or budget changes.
 
+Keep deterministic aggregation separate from optional decision-assisted waste
+classification and policy suggestions. Bind any advice to the report cutoff,
+cohort, question version and current access; distinguish an observed count from
+the evaluator's hypothesis about its cause. Include evaluation/repair/shadow cost
+and unresolved usage in the report, so a purported saving cannot hide the cost of
+its own measurement. Show evaluator enablement and per-purpose mode/limits in an
+explicit policy preview; accepting an unrelated routing change cannot enable paid
+evaluation or a new provider. Declining advice, unavailable evaluation and rollback
+must leave the local interview and selected policy workflow usable. Test a
+misleading saving estimate and a proposal to weaken a quality or authority gate.
+
 ## P6-04 — Profile qualification
 
 After P5-08 memory evidence is available, compare fixed economical, fixed stronger and routed strategies on the same versioned analysis/review/generation pool. Record all attempts and supporting costs, held-out task outcomes, wall-time distributions, interventions and quality failures. Pin catalog/provider/configuration versions for each run.
@@ -186,5 +279,29 @@ rollback conditions. If no policy meets the quality floor under its configured
 budget, report that result instead of weakening the floor. P8 repeats relevant
 comparisons with actual child isolation/integration and packaged CLI behavior;
 subsystem qualification must identify that pending release evidence explicitly.
+
+**Decision-layer qualification.** Follow
+[qualification and rollout](../architecture/decision-evaluation-design.md#qualification-and-rollout)
+within the same coherent P6 milestone. Compare deterministic routing with optional
+economical and stronger OpenRouter evaluators, controlling the downstream coding
+strategy and inputs. First run shadow mode, then evaluate declared per-purpose
+advisory policies on a held-out set; shadow agreement alone cannot establish a
+task-level improvement. Declare tuning, calibration and held-out partitions,
+task/cohort sample requirements and severity-specific false-negative limits before
+running. Keep raw scores distinct from probabilities; measure calibration or Brier
+score only for outputs defined and evaluated as probabilities, and bind any fitted
+calibration to the exact evaluator/prompt/purpose and cohort revision.
+
+Report answer validity, abstention/coverage, false and missed escalation/review,
+quality-floor violations, end-to-end outcomes, interventions, p50/p95 latency and
+all evaluator/main/helper/repair/shadow/failed-attempt cost. Include resource and
+latency overhead when the evaluator abstains or never changes an action. A cheap
+classifier that misses serious defects or increases total failed-task spend cannot
+pass on average answer accuracy. Lack of sufficient evidence leaves that purpose
+disabled; release can qualify the deterministic baseline without a remote
+evaluator. Publish enable/disable criteria and rollback triggers per purpose,
+including provider/prompt/schema drift. P8 must repeat enabled-purpose comparisons
+with real delegation, final integration checks and packaged CLI pause/recovery;
+no additional product task or deferred observer dependency is introduced.
 
 Run `routing`, `provider`, E19/U07 and budget/handoff contracts. Done when every decision is explainable/reproducible, optimizer changes are reversible and explicitly chosen, and the proposed profile defaults have a measured quality/cost/latency basis.

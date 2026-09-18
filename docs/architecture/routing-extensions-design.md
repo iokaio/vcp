@@ -36,6 +36,14 @@ canonical transaction across discovery I/O, model calls, subprocesses or user in
 
 ## Catalog and routing decisions
 
+The proposed [bounded decision design](decision-evaluation-design.md) supplies
+optional typed advice for this pipeline, escalation and optimization. Evaluate
+outside the pure selector, then pass a validated, revision-bound outcome as data.
+Do not call the evaluator recursively to route its own requests. Disabled,
+unavailable, stale or unqualified advice leaves the documented baseline available.
+No evaluator selects its own authority, bypasses admission or changes the quality
+floor. [ADR-020](../adr/020-bounded-semantic-decisions.md) owns the qualification gate.
+
 Represent capability facts as `supported`, `unsupported` or `unknown`, with source
 and observation time. A missing tool flag or price is not false or zero. Keep
 observed provider restrictions distinct from VCP's trusted data policy. An entry
@@ -66,6 +74,10 @@ Run this deterministic selection sequence:
    and a final stable exact-identity tie break. Preserve the values and comparison
    order, including confidence/sample limits; do not hide an unexplained weighted
    score behind a capability group.
+   An enabled, qualified advisory policy may consume recorded semantic signals
+   here after steps 2–3, with explicit rule/explanation and a deterministic fallback.
+   Any helper call has its own earlier reservation; step 6 admits the selected
+   downstream request and includes already incurred helper costs in available funds.
 5. Assemble context for the selected capability envelope. Validate actual message,
    schema, input and maximum-output bounds. If assembly cannot fit, record why and
    try only a bounded next candidate or a permitted context reduction. Do not drop

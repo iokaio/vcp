@@ -103,8 +103,11 @@ checks, not aliases for the passing harness tests.
 | I-18 | E15, U02, U06 |
 | I-19 | M08, U04 |
 
-All [19 ADRs](../adr/README.md) distinguish confirmed direction from proposed
+All [20 ADRs](../adr/README.md) distinguish confirmed direction from proposed
 mechanisms and unresolved engineering qualification. ADR-013 additionally fixes
 the repository's copied-source convention. P0-01 does not accept a runtime,
 database, encryption format, inference model or sandbox capability. P0-07 pins
 and builds the candidates; P0-06 accepts the completed feasibility evidence.
+
+ADR-020 was added during later P6 planning. Its presence does not extend the
+historical P0-01 result into evidence for a decision evaluator.
