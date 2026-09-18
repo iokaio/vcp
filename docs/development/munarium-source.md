@@ -21,7 +21,8 @@ prevents accidental inheritance of Codex's package identity or feature choices.
 The Codex workspace and lockfile are authoritative for both selections. The
 retained Munarium `server/Cargo.toml` and `Cargo.lock` are upstream provenance
 inputs; do not run them as VCP build entry points. Cargo and the static boundary
-checker discover 157 workspace packages: the original 154 plus three libraries.
+checker now discover 158 workspace packages: the original 154, three Munarium
+libraries and the separately owned [CPU embedding helper](local-embeddings.md).
 The checker accepts outside-workspace paths only beneath explicitly selected
 component roots and rejects lexical and link escapes.
 
@@ -59,8 +60,11 @@ Both component source trees reject evidence/target output before allocation.
 
 ## Dependency and effect boundaries
 
-The shared lockfile preserves all 1,491 original Codex package identities and
+The Munarium import preserved all 1,491 original Codex package identities and
 checksums, adding 34 entries (three selected libraries plus 31 external entries).
+The subsequent CPU helper adds 40 net entries and requires `regex-automata`
+0.4.13 to 0.4.14; all other preexisting identities remain. Both library graphs
+and their lockfile-bound references are requalified for that change.
 Compatible shared requirements resolve to existing Codex versions. This changes
 some Munarium dependency versions relative to its standalone baseline, so the
 original 200 passing tests are rerun against the shared graph. Preserve both
@@ -91,7 +95,9 @@ generator and does not infer asset rights from software declarations.
 | Datastore `lexical.rs` | Real Tantivy construction/open with temporary files and mappings; account for local resources and coherent generations |
 | Datastore `vector_diskann.rs` | Real DiskANN graph build/query/serialization; retain exact-vector comparison and qualify memory/recall with actual embeddings |
 
-No local embedding runtime is included. Munarium's Ollama HTTP transport remains
+No local embedding runtime is included in the Munarium selection; the separate
+[VCP helper](local-embeddings.md) now provides file-only CPU qualification.
+Munarium's Ollama HTTP transport remains
 outside this selection; it does not establish CPU-local inference or a network
 restriction. P0-02 still owns that experiment, corpus scopes and missing/corrupt
 asset behavior under [ADR-008](../adr/008-local-governed-memory.md). A passing

@@ -244,6 +244,22 @@
       "path": "../../munarium/server/src/munarium-datastore/src/vector_diskann.rs",
       "symbol": "pub struct DiskAnnVectorIndex",
       "observation": "Real DiskANN graph provider and serialization; qualify scope, recall and reopen with actual local embeddings."
+    },
+    {
+      "id": "embedding-assets",
+      "group": "local-embedding",
+      "package": "vcp-embedding",
+      "path": "../../../crates/vcp-embedding/src/lib.rs",
+      "symbol": "pub fn load(",
+      "observation": "Reads only explicitly supplied local asset files, verifies bounded bytes and consumes the verified buffers; missing/corrupt assets remain setup errors."
+    },
+    {
+      "id": "embedding-cpu",
+      "group": "local-embedding",
+      "package": "vcp-embedding",
+      "path": "../../../crates/vcp-embedding/src/lib.rs",
+      "symbol": "pub fn embed(",
+      "observation": "Bounded CPU BERT inference with explicit masks, truncation reporting and normalized vectors; caller workspace policy and indexing admission remain future integration boundaries."
     }
   ],
   "groups": [
@@ -765,6 +781,22 @@
         "P0-08"
       ],
       "gate": "Local governance and indexes remain behind canonical VCP scope, durability and accounting; reference in-memory state is not a second controller or store."
+    },
+    {
+      "id": "local-embedding",
+      "handling": "retain-with-adapters",
+      "packages": [
+        "vcp-embedding"
+      ],
+      "capabilities": [
+        "filesystem",
+        "data"
+      ],
+      "owner_tasks": [
+        "P0-07",
+        "P0-02"
+      ],
+      "gate": "Pinned file-only CPU inference and independent vectors; P0-02 still owns OS network denial, scoped corpus/index reopen and resource qualification."
     }
   ]
 }

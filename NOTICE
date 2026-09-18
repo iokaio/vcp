@@ -25,8 +25,9 @@ Copyright 2025 OpenAI
 Licensed under the Apache License, Version 2.0, except separately identified
 bundled components. The original LICENSE, NOTICE and bundled terms are retained.
 VCP's recorded patches raise the codex-chatgpt crate recursion limit and register
-selected Munarium libraries in the shared workspace and lockfile. Modified files
-carry modification notices. See the ordered patch record
+selected Munarium libraries in the shared workspace and lockfile. Further changes
+register the local CPU embedding adapter and its reviewed dependencies. Modified
+files carry modification notices. See the ordered patch record
 under src/third_party/patches/codex/ and THIRD_PARTY_NOTICES.md.
 
 The upstream NOTICE identifies code derived from Ratatui under the MIT license:
@@ -42,3 +43,11 @@ unchanged. See src/third_party/patches/munarium/ and THIRD_PARTY_NOTICES.md.
 The selected Munarium source embeds PostgreSQL/Snowball English stopword data.
 Original PostgreSQL and Snowball copyright, conditions and disclaimers are
 retained under src/third_party/licenses/ and identified in THIRD_PARTY_NOTICES.md.
+
+The local embedding adapter uses Hugging Face Candle 0.11.0 and Tokenizers 0.22.2.
+Their distributed Apache-2.0 license files are retained under
+src/third_party/licenses/. Candle declares MIT OR Apache-2.0; VCP uses its
+Apache-2.0 grant. The adapter's API/pooling approach was informed by Candle's
+BERT example; source and package revisions are recorded in THIRD_PARTY_NOTICES.md.
+The external all-MiniLM-L6-v2 model selection and public synthetic reference
+vectors retain model/runtime provenance. Model weights are not distributed here.

@@ -84,6 +84,11 @@ The optional `artifacts/` directory is generated output, not a fourth tracked co
 
 Logical names describe ownership; they do not require a crate per row. P0-07/P0-08 map them to actual files under `src/` after selecting a working Codex baseline. Retain cohesive upstream modules and tests when possible, and record the mapping in `docs/development/` with provenance in `src/third_party/upstreams.toml`.
 
+`src/crates/vcp-embedding/` now implements the file-only CPU qualification helper
+in the retained Cargo workspace. [Its source/asset guide](../development/local-embeddings.md)
+records this concrete P0 placement; the broader memory and retrieval packages
+remain planned integration work.
+
 | Proposed path under `src/crates/` | Responsibility | Owning plan segments |
 |---|---|---|
 | `vcp-domain/` | IDs, entities, errors, state transitions, and invariants | [02](02-engine-state-and-capture.md) |

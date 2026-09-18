@@ -1,9 +1,10 @@
 # Codex package and effect boundaries
 
-The shared workspace contains 157 Cargo packages: 154 from Codex and three
-[selected Munarium libraries](munarium-source.md). Its
+The shared workspace contains 158 Cargo packages: 154 from Codex, three
+[selected Munarium libraries](munarium-source.md), and the original
+[VCP CPU embedding helper](local-embeddings.md). Its
 [boundary inventory](../../src/third_party/components/codex-boundaries.json)
-assigns each package to exactly one of 22 review groups and anchors 30 concrete
+assigns each package to exactly one of 23 review groups and anchors 32 concrete
 source seams. It is a **static ownership and navigation record**. It does not
 prove absence of hidden effects, enable a VCP runtime or claim that an adapter
 already exists. Read it alongside [the source selection](codex-source.md),

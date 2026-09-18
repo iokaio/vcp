@@ -58,6 +58,12 @@ tests. [Evidence and retained failures](../evaluations/p0-07-gemini-baseline.md)
 cover argument encoding, skills and MCP alongside policy/scheduler/tools. The
 candidate remains external; P0-09 owns ports and intentional semantic divergences.
 
+The [local embedding helper](../development/local-embeddings.md) adds pinned
+Candle/Tokenizers CPU inference, an immutable external MiniLM asset inventory and
+independent numerical fixtures to the shared workspace. [Executed evidence](../evaluations/p0-07-local-embeddings.md)
+distinguishes this seam from P0-02's corpus/index, OS network-denial and resource
+gates. The static inventory now covers 158 packages, 23 groups and 32 anchors.
+
 1. Pin Codex, Gemini CLI and Munarium to exact commits; record selected paths, dependencies, licenses, notices, patch origin and local owner. Treat mutable URLs as discovery inputs.
 2. Build selected upstream components on native Windows before modifications, including the unmodified Codex engine/CLI baseline. Use an isolated temporary checkout; record compiler/native dependencies, commands, resource use and known upstream failures.
 3. Classify each selected module's I/O, model/network helpers and ambient credential discovery. Establish the VCP replacements required for each effectful seam.
@@ -79,7 +85,10 @@ Keep import/reconstruction as explicit maintenance commands. The comparison fail
 Prerequisite evidence: [Munarium's native datastore baseline](../evaluations/p0-07-munarium-datastore.md)
 passes 200 upstream tests with Tantivy and DiskANN enabled. The [source/closure map](../development/munarium-baseline.md)
 identifies usable libraries and filesystem effects. It has no embedding runtime,
-VCP workspace policy or measured production envelope; P0-02 remains planned.
+VCP workspace policy or measured production envelope in that earlier run. The
+[subsequent CPU helper](../evaluations/p0-07-local-embeddings.md) qualifies local
+model loading and numerical behavior separately; corpus/index integration and
+offline enforcement remain outstanding. P0-02 remains planned.
 
 1. Locate the pinned kernel/gates, in-memory backend, conformance scenarios and actual local embedding implementation. Extract a minimal record/evidence/governance example behind candidate VCP interfaces.
 2. Build a small local corpus into Tantivy and DiskANN; query exact symbols and semantic intent, close the process and reopen on disk.
