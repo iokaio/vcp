@@ -1,7 +1,7 @@
 # ADR-003 — Canonical records and artifacts
 
 Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P0-04/06, P1-04, P5-09/10. No implementation, runtime result or owner sign-off is recorded here.
+Decision gate: P0-04/06, P1-04, P5-09/10. Bounded P0 evidence is recorded below; production qualification and owner sign-off remain pending.
 
 ## Context and authority
 
@@ -22,6 +22,8 @@ Detailed contracts and failure ordering are in the [supporting design](../archit
 Compare SQLite transactions and framed append journals using the same workloads and failure barriers. Qualify journal/synchronization settings, checkpoint strategy, artifact placement and writer ownership on Windows. Do not infer power-loss guarantees from a process-kill test.
 
 ## Qualification evidence
+
+P0-04 [prototype evidence](../evaluations/p0-04-portable-storage.md) supports SQLite WAL/FULL as the default integration candidate, with a framed-file comparison preserving the same neutral fixtures. Both still require production schemas, bounded replay, migration and power-loss qualification at P1/P8; neither prototype format is a supported backend.
 
 M01/M02/M07/M08 compare canonical export, reopened records, reservation balances and artifact hashes after identical schedules. Corruption inside committed history fails closed; incomplete uncommitted tails have explicit recovery. Cross-backend conversion validates a new root before activation.
 

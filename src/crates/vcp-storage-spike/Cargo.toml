@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "vcp-storage-spike"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+workspace = "../../third_party/codex/codex-rs"
+
+[dependencies]
+munarium-datastore = { path = "../../third_party/munarium/server/src/munarium-datastore", features = ["vector-diskann"] }
+age = { workspace = true }
+ed25519-dalek = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

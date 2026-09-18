@@ -2,6 +2,10 @@
 
 Status: layout convention adopted; product implementation remains planned. This file defines repository paths used by the [implementation plan](README.md). The [architecture](../architecture/vcp-what.md) remains authoritative for product behavior, and the [delivery contract](00-delivery-contract.md) defines engineering rules.
 
+The original P0 storage comparison lives in `src/crates/vcp-storage-spike` in the
+retained Cargo workspace. Its prototype formats do not replace P1/P5 contracts;
+see [the concrete source map](../development/portable-storage-spike.md).
+
 ## Initial roots and current state
 
 Use `docs/` for documentation, `src/` for source code and its test assets, and `scripts/` for build and test automation. Root-level community and agent guidance files plus `.github/` are the exceptions needed for project discovery and contribution workflows. Keep root `AGENTS.md` and `CLAUDE.md` identical.

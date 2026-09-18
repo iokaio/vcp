@@ -1,5 +1,9 @@
 # Build and test scripts
 
+`test-storage.ps1` runs the local P0 SQLite/files, encrypted handoff and native
+crash qualification. Supply the pinned independent age binary and optionally the
+public handoff fixture; see [the guide](../docs/development/portable-storage-spike.md).
+
 This directory owns repository automation. `test.ps1` and `test-runner.cjs` implement delivery checks; `build.ps1` builds the imported Codex baseline and selected Munarium libraries. See [test setup](../docs/development/delivery-harness.md) and [native build/reconstruction](../docs/development/codex-source.md). Packaging remains planned.
 
 | Entry point (planned unless noted) | Responsibility | Work owner |

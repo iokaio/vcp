@@ -19,6 +19,8 @@ identities/checksums. The subsequent lifecycle-recovery patch adds private
 startup/model/tool admission, completion receipts, native job observation and
 existing host dependencies. The host now has a private durable checkpoint and
 synthetic owner-process CLI; it is not a qualified production VCP runtime.
+Patch 0009 registers the original P0 storage comparison with existing age,
+Ed25519, SQLite and retained search dependencies; external pins remain unchanged.
 The separate license transformation materializes bubblewrap's symlink from its
 selected `COPYING` bytes. Original bytes/hashes and current results are retained.
 

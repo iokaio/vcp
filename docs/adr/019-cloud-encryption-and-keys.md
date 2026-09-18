@@ -1,7 +1,7 @@
 # ADR-019 — Cloud encryption and developer-controlled keys
 
 Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P0-04/06, P3-06, P5-09/10, P8-03. No implementation, runtime result or owner sign-off is recorded here.
+Decision gate: P0-04/06, P3-06, P5-09/10, P8-03. Bounded P0 evidence is recorded below; production qualification and owner sign-off remain pending.
 
 ## Context and authority
 
@@ -22,6 +22,8 @@ Detailed contracts and failure ordering are in the [supporting design](../archit
 The age/Rust approach is a candidate, not an accepted library/version or writer-signature format. P0-04 must compare existing supported implementations, record independent interoperability and choose writer enrollment, revocation/rotation and replay handling. Do not invent cryptographic primitives.
 
 ## Qualification evidence
+
+P0-04 [prototype evidence](../evaluations/p0-04-portable-storage.md) qualifies existing age 0.11.2 and Ed25519-dalek 2.2.0 as experiment candidates, with Go age v1.3.2 and Node signature interoperability. Enroll writer keys and recovery recipients outside archive content; pin minimum sequence/deletion epoch and expected parent locally. Rotate recipients by re-encrypting objects and writers by explicit local trust replacement. No global freshness is inferred on a new offline machine. Pre-1.0 library status, production format review, protected keys and operator ceremonies remain P5/P8 work.
 
 U04/M08/I-19 require wrong-key, header/payload tamper, truncation, untrusted writer, old replay, recovery-copy and rotation tests. Observe vault writes at intermediate/failure points; marker absence alone cannot prove encryption. Repeat with packaged binaries and two Windows environments.
 

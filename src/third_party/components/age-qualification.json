@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "role": "Independent qualification tool only; not shipped or used by the VCP runtime",
+  "repository": "https://github.com/FiloSottile/age",
+  "commit": "b74dce4cdbe35b5e5f66c06d9612b72f89028758",
+  "version": "v1.3.2",
+  "license": "BSD-3-Clause",
+  "archive_url": "https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-windows-amd64.zip",
+  "archive_sha256": "f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7",
+  "binary_path": "age/age.exe",
+  "binary_sha256": "2821a4ed191da07372acd302e5f6feae7a7985e285e1417765ebe74025af45f0",
+  "runtime_candidate": { "age": "0.11.2", "ed25519-dalek": "2.2.0", "sqlx": "0.9.0" },
+  "public_test_identity_origin": "age 0.11.2 src/x25519.rs unit test; deliberately public fixture, never user recovery material"
+}

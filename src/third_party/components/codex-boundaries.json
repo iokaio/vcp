@@ -763,6 +763,21 @@
         "process",
         "filesystem"
       ]
+    },
+    {
+      "id": "storage-encrypted-publication",
+      "group": "storage-qualification",
+      "package": "vcp-storage-spike",
+      "path": "../../../crates/vcp-storage-spike/src/vault.rs",
+      "symbol": "pub fn publish(",
+      "observation": "Only finalized age ciphertext reaches the vault; signed inner inventory requires separately enrolled writer authority and local lineage before restore.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem",
+        "credential",
+        "shared-memory"
+      ]
     }
   ],
   "groups": [
@@ -1375,6 +1390,26 @@
       "gate": "In-memory scoped admission and retained interruption only. Startup effects, isolated helpers, canonical checkpoints, model/tool revalidation and process-tree stop confirmation remain unqualified.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "controller"
+    },
+    {
+      "id": "storage-qualification",
+      "packages": [
+        "vcp-storage-spike"
+      ],
+      "capabilities": [
+        "data",
+        "filesystem",
+        "credential",
+        "clock"
+      ],
+      "handling": "test-build-only",
+      "owner_tasks": [
+        "P0-04",
+        "P0-06"
+      ],
+      "gate": "Disposable SQLite/framed-file comparison and age/Ed25519 authenticated snapshot prototype; production storage and restore activation remain P1/P5.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "canonical-store"
     }
   ],
   "classification_scope": "Every selected package inherits an explicit conservative module effect ceiling and primary owner; named entries refine that envelope after source review, including delegates/callbacks. These are trust classifications, not formal purity proof, runtime enforcement or an exhaustive per-function call graph."

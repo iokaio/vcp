@@ -1,7 +1,7 @@
 # ADR-015 — Portable snapshots, backend choice and handoff
 
 Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P0-04, P5-09/10, U04. No implementation, runtime result or owner sign-off is recorded here.
+Decision gate: P0-04, P5-09/10, U04. Bounded P0 evidence is recorded below; production qualification and owner sign-off remain pending.
 
 ## Context and authority
 
@@ -22,6 +22,8 @@ Detailed contracts and failure ordering are in the [supporting design](../archit
 Compare full and incremental immutable packages using encrypted transfer churn, peak disk and restore time. Test SQLite/files conversion through the neutral record contract. Treat a cloud sync folder as unreliable object transport, not a shared live database or distributed writer lock.
 
 ## Qualification evidence
+
+P0-04 [prototype evidence](../evaluations/p0-04-portable-storage.md) compares full and incremental authenticated ciphertext, conversion in both backend directions, retained liabilities/deletion history and real Tantivy/DiskANN rebuild. Prefer immutable encrypted artifact reuse for the next prototype; replace the bounded JSON envelope and implement crash-tested activation at P5.
 
 M08/U04 run A-to-B-to-A with two Windows environments, partial/out-of-order hydration, old indexes, corrupt or missing bytes, open liabilities and offline descendants. Restore must preserve newer deletion intent and never silently merge conflicts.
 

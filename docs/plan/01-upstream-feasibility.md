@@ -1,6 +1,6 @@
 # 01 — Native Windows foundation and upstream feasibility
 
-Status: P0-01, P0-02, P0-03, P0-05 and P0-07 complete for bounded feasibility; remaining tasks planned. P0-02 is bounded feasibility, not product integration. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
+Status: P0-01, P0-02, P0-03, P0-04, P0-05 and P0-07 complete for bounded feasibility; remaining tasks planned. P0-02 is bounded feasibility, not product integration. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
 
 Use the [upstream experiment procedure](../development/upstream-qualification.md) for manifest/reconstruction details and the [qualification harness design](../architecture/qualification-release-design.md) for result records and fault supervision. [ADR-001](../adr/001-runtime-topology.md), [ADR-003](../adr/003-canonical-storage.md), [ADR-008](../adr/008-local-governed-memory.md), [ADR-015](../adr/015-portability-and-storage-choice.md) and [ADR-019](../adr/019-cloud-encryption-and-keys.md) now record the confirmed directions and pending experiments separately.
 
@@ -184,6 +184,8 @@ Trace one scripted turn from CLI input through model/tool scheduling to completi
 Use commands with stable IDs and steering revisions and worker completions tagged with their originating revision. Pause during a model stream and before tool dispatch, keeping the CLI open for status/inspection; resume through explicit revalidation. Then close the owner and reopen in a fresh process. Observe request/effect counts independently. Determine how private CLI control delivery reaches the owner without a second writer; public attachment remains deferred under [ADR-002](../adr/002-internal-and-public-protocol.md).
 
 ## P0-04 — Storage and encrypted portability comparison
+
+Implementation: [the portable-storage prototype](../development/portable-storage-spike.md) compares SQLite WAL/FULL and framed commits, signed age full/incremental snapshots, independent Go/Node cryptographic interoperability, crash barriers and real cache rebuilds. [Qualification evidence](../evaluations/p0-04-portable-storage.md) records local results and the required second-Windows-environment gate. Production schemas, activation and key UX remain P1/P5/P3/P8.
 
 1. Store identical event, claim, artifact-reference and reservation fixtures in SQLite and a framed-file prototype. Compare transaction/reopen semantics before optimizing size.
 2. Snapshot a canonical view with matching artifacts/index inputs while writes continue. Encrypt the entire archive outside the sync root; evaluate the Rust age candidate and dedicated developer identity from architecture section 12.11.

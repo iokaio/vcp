@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Plan revision 8 — September 18, 2026. Delivery uses larger behavioral milestones
+Plan revision 9 — September 18, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded
 qualification already completed from remaining product implementation. Explicit
 pause while the CLI stays open is required alongside close-to-pause.
@@ -22,6 +22,12 @@ Start with [the code layout](code-layout.md), [the delivery contract](00-deliver
 The repository contains the executable [delivery harness](../development/delivery-harness.md), [committed Codex baseline](../development/codex-source.md) and [checked package/source map](../development/codex-boundaries.md), with repository and regression checks in CI. P0-01, P0-02 and P0-07 are complete for their bounded qualification contracts; [P0-02 resource evidence](../evaluations/p0-02-local-resources.md) records the final local feasibility gate and its integration limits. P0-03 and P0-05 are also complete for bounded feasibility: [recovery and native execution evidence](../evaluations/p0-03-recovery-execution.md) covers durable pause/reopen, real effect gates, private CLI controls and process/isolation fixtures. Storage/encrypted portability and integrated upstream handoff remain next. The [selection acceptance map](../evaluations/p0-07-selection-gate.md) separates source qualification from later product tasks. Remaining VCP product interfaces and acceptance results are planned. Use `docs/` for documentation, `src/` for source and test assets, and `scripts/` for build/test automation. Preserve useful Codex modules instead of creating empty replacement crates merely to match a diagram. Follow [CONTRIBUTING.md](../../CONTRIBUTING.md) for licensing, sign-off, provenance, and review.
 
 ## Segment index
+
+The [P0-04 storage milestone](../development/portable-storage-spike.md) now has
+local backend, crash, cryptographic interoperability and encrypted-transfer
+evidence. Its second-Windows-environment handoff gate is recorded separately in
+[the evaluation](../evaluations/p0-04-portable-storage.md). Integrated upstream
+handoff and the consolidated P0-06 decision remain next.
 
 | File | Deliverable | Architecture work owned |
 |---|---|---|
