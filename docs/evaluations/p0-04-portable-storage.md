@@ -1,8 +1,7 @@
 # P0-04 — Portable storage and authenticated encryption
 
-Status: local prototype qualification passed on September 18, 2026;
-second-Windows-environment qualification pending. P0-04 remains
-`implemented_unverified` until that gate passes. These results do not complete
+Status: P0-04 bounded feasibility complete on September 18, 2026, following
+local and second-Windows-environment qualification. These results do not complete
 P1 canonical backends, P5 portability or the U04 release acceptance matrix.
 
 The [implementation guide](../development/portable-storage-spike.md) maps source,
@@ -39,6 +38,18 @@ The follow-up
 also validates the committed public ciphertext fixture using a separately
 supplied recovery copy. Both exited zero. A same-host fixture check does not
 replace the pending second-host gate.
+
+That second-host gate subsequently passed in
+[the standard Windows run](https://github.com/iokaio/vcp/actions/runs/35364917717)
+at implementation commit `45ac45749132fe0d8ac8572b4c983c5df55538cd`.
+The downloaded manifest is
+`artifacts/p0-storage-hosted/f641c492-3831-486b-b89a-76c70d9247f9/manifest.json`.
+It records Windows 10.0.26100, MSVC 14.51.36231, native Rust 1.98.0 and binary
+SHA-256 `d6e7e29f690ce151cb5bfd174d5cbcd46678be7812278ad78492ad049a67dd8c`.
+All four contract groups, eight crash cases, 24 packaging rows, independent
+cryptographic checks and first-machine fixture restore passed. The latter
+opened both backends and rebuilt real search using a separately supplied public
+test identity. Only this bounded manual job ran; the full native suite was skipped.
 
 The conversion-measurement follow-up is
 `artifacts/storage/5b592ec0-97b1-4a44-905f-fb2424be7a55/manifest.json` (exit zero).
