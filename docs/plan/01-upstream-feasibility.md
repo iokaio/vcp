@@ -52,6 +52,12 @@ The current static inventory covers 157 packages, 22 groups and 30 anchors.
 Gemini selection, remaining effect qualification and later runtime/asset gates
 remain open; P0-07 stays `in_progress`.
 
+The [Gemini comparison runner](../development/gemini-baseline.md) adds explicit
+preparation, isolated profiles and complete-result checks for 402 selected native
+tests. [Evidence and retained failures](../evaluations/p0-07-gemini-baseline.md)
+cover argument encoding, skills and MCP alongside policy/scheduler/tools. The
+candidate remains external; P0-09 owns ports and intentional semantic divergences.
+
 1. Pin Codex, Gemini CLI and Munarium to exact commits; record selected paths, dependencies, licenses, notices, patch origin and local owner. Treat mutable URLs as discovery inputs.
 2. Build selected upstream components on native Windows before modifications, including the unmodified Codex engine/CLI baseline. Use an isolated temporary checkout; record compiler/native dependencies, commands, resource use and known upstream failures.
 3. Classify each selected module's I/O, model/network helpers and ambient credential discovery. Establish the VCP replacements required for each effectful seam.

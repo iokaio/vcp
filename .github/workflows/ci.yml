@@ -86,6 +86,23 @@ jobs:
             node -e "const fs = require('node:fs'), id = process.argv[1]; require('node:assert/strict').deepEqual(JSON.parse(fs.readFileSync('artifacts/' + id + '-reconstructed.json')), JSON.parse(fs.readFileSync('src/third_party/components/' + id + '-files.json'))); console.log(id + ' reconstruction matches committed inventory');" $component
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Acquire pinned Gemini qualification inputs
+        run: |
+          $pin = node -e "const fs = require('node:fs'), toml = require('./src/tests/node_modules/@iarna/toml'); console.log(toml.parse(fs.readFileSync('src/third_party/upstreams.toml', 'utf8')).upstream.find(p => p.id === 'gemini-cli').commit);"
+          if ($LASTEXITCODE -ne 0 -or $pin -notmatch '^[a-f0-9]{40}$') { throw 'Invalid Gemini pin' }
+          git init artifacts/upstream/gemini-candidate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C artifacts/upstream/gemini-candidate fetch --depth=1 https://github.com/google-gemini/gemini-cli.git $pin
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C artifacts/upstream/gemini-candidate checkout --detach $pin
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Push-Location artifacts/upstream/gemini-candidate
+          try {
+            npm ci --ignore-scripts --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Pop-Location }
+      - name: Qualify pinned Gemini boundaries on Windows
+        run: node scripts/upstream/test-gemini.cjs --source artifacts/upstream/gemini-candidate --output-root artifacts/gemini-qualification --prepare
       - name: Build committed native CLI
         run: ./scripts/build.ps1
       - name: Test native patch and policy boundaries
@@ -105,5 +122,7 @@ jobs:
             artifacts/cli-trace/
             artifacts/codex-reconstructed.json
             artifacts/munarium-reconstructed.json
+            artifacts/gemini-qualification/
+            !artifacts/gemini-qualification/**/synthetic-home/**
           if-no-files-found: error
           retention-days: 14

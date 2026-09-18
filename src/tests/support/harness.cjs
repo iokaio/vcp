@@ -84,9 +84,19 @@ function writeManifest(file, manifest) {
   } finally { fs.closeSync(fd); }
   fs.renameSync(temporary, file);
 }
-function environment() {
+function environment({ homeRoot, gitCommit } = {}) {
   const permitted = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL']);
-  return Object.fromEntries(Object.entries(process.env).filter(([key]) => permitted.has(key.toUpperCase())));
+  const result = Object.fromEntries(Object.entries(process.env).filter(([key]) => permitted.has(key.toUpperCase())));
+  if (homeRoot !== undefined) {
+    if (typeof homeRoot !== 'string' || !path.isAbsolute(homeRoot) || !fs.statSync(homeRoot).isDirectory()) throw Error('Invalid isolated home');
+    for (const key of Object.keys(result)) if (key.toUpperCase() === 'HOME') delete result[key];
+    Object.assign(result, { HOME: homeRoot, USERPROFILE: homeRoot, APPDATA: homeRoot, LOCALAPPDATA: homeRoot });
+  }
+  if (gitCommit !== undefined) {
+    if (!homeRoot || !/^[a-f0-9]{40}$/.test(gitCommit)) throw Error('Invalid isolated source commit');
+    result.GIT_COMMIT = gitCommit;
+  }
+  return result;
 }
 function redactor(write, sensitiveValues = []) {
   const secrets = sensitiveValues.filter(Boolean).sort((a, b) => b.length - a.length);
@@ -122,7 +132,7 @@ function stopTree(child) {
   }
 }
 async function execute(spec, options) {
-  const { root, directory, attempt, signal, sensitiveValues = [] } = options;
+  const { root, directory, attempt, signal, sensitiveValues = [], childEnvironment } = options;
   const files = ['stdout.log', 'stderr.log'].map(name => path.join(directory, attempt.attempt_id + '-' + name));
   const handles = [];
   let captureError, reason, observed = 0, child;
@@ -160,7 +170,7 @@ async function execute(spec, options) {
         } catch (error) { reject(error); }
       }
       child = spawn(process.execPath, spec.args.map(a => a.replaceAll('{backend}', attempt.backend)), {
-        cwd: root, env: environment(), shell: false, windowsHide: true,
+        cwd: root, env: childEnvironment || environment(), shell: false, windowsHide: true,
         detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe']
       });
       [child.stdout, child.stderr].forEach((stream, i) => stream.on('data', bytes => {
@@ -178,13 +188,14 @@ async function execute(spec, options) {
     });
   } finally { for (const fd of handles) fs.closeSync(fd); }
 }
-async function runSuite({ root, registry, selection, outputRoot, source, signal, announce = () => {}, sensitiveValues = [] }) {
+async function runSuite({ root, registry, selection, outputRoot, source, signal, announce = () => {}, sensitiveValues = [], isolation }) {
   validateRegistry(registry);
   // Selection is validated before allocating evidence or launching any process.
   const verified = parseSelection(['--suite', selection.suite, ...(selection.ids.length === 1 ? ['--case', selection.ids[0]] : []),
     '--backend', selection.backends.length === 2 ? 'both' : selection.backends[0]], registry);
   if (JSON.stringify(verified.ids) !== JSON.stringify(selection.ids) ||
       JSON.stringify(verified.backends) !== JSON.stringify(selection.backends)) throw Error('Invalid case selection.');
+  const childEnvironment = environment(isolation);
   fs.mkdirSync(outputRoot, { recursive: true });
   const runId = crypto.randomUUID();
   const directory = path.join(outputRoot, runId);
@@ -218,7 +229,7 @@ async function runSuite({ root, registry, selection, outputRoot, source, signal,
     } else {
       writeManifest(manifestPath, manifest);
       announce(attempt.command);
-      Object.assign(attempt, await execute(spec, { root, directory, attempt, signal, sensitiveValues }));
+      Object.assign(attempt, await execute(spec, { root, directory, attempt, signal, sensitiveValues, childEnvironment }));
     }
     attempt.ended_at = now();
     attempt.duration_ms = Date.parse(attempt.ended_at) - Date.parse(attempt.started_at);
