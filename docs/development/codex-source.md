@@ -50,6 +50,12 @@ four retained implementation files and five integration cases. It preserves
 default drain semantics and does not change dependencies or provide a complete
 pause operation. Run `scripts/build.ps1 -Mode LifecycleTests` for the native gate.
 
+The seventh patch adds thread-scoped admission and owned interruption, plus the
+original [lifecycle host](scoped-lifecycle.md) in the same workspace. Its local
+lock entry reuses existing dependency identities. `LifecycleTests` now compiles
+both retained-core and host integration targets and observes all four named
+groups; it does not implement durable pause or CLI controls.
+
 Full retained notices are described in [third-party attribution](../../THIRD_PARTY_NOTICES.md).
 The Cargo lockfile records external registry checksums and immutable Git source
 revisions; the complete Rust workspace supplies internal path dependencies.

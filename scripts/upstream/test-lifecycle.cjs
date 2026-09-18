@@ -13,29 +13,32 @@ async function main(argv) {
   if (Object.keys(options).length !== 2) throw Error('Supply --cargo-log and --output-root');
   if (process.platform !== 'win32') { console.log(JSON.stringify({ status: 'not_run', reason: 'Native Windows is required' })); process.exitCode = 3; return; }
   const root = path.resolve(__dirname, '../..');
-  const binary = testBinary(fs.readFileSync(options['--cargo-log'], 'utf8'));
+  const cargoLog = fs.readFileSync(options['--cargo-log'], 'utf8');
+  const binary = testBinary(cargoLog);
+  const hostBinary = testBinary(cargoLog, 'host');
   const directory = path.join(outside(options['--output-root'], [path.join(root, 'src')]), crypto.randomUUID());
   fs.mkdirSync(directory, { recursive: true });
   const home = path.join(directory, 'profile'); fs.mkdirSync(home);
   const manifest = { schema_version: 1, task_id: 'P0-03', status: 'running', started_at: new Date().toISOString(),
     binary_sha256: digest(fs.readFileSync(binary)), cargo_log_sha256: digest(fs.readFileSync(options['--cargo-log'])),
-    limitations: ['Admission only; no active cancellation, process stop, durable checkpoint, owner loss or CLI pause.'] };
+    host_binary_sha256: digest(fs.readFileSync(hostBinary)),
+    limitations: ['Scoped in-memory host and retained interruption; no startup/effect fencing, native tree-stop proof, durable checkpoint/reopen or CLI pause.'] };
   const manifestPath = path.join(directory, 'manifest.json');
   writeManifest(manifestPath, manifest);
   const controller = new AbortController();
   process.once('SIGINT', () => controller.abort()); process.once('SIGTERM', () => controller.abort());
   try {
     const native = "const r=require('node:child_process').spawnSync(process.argv[1],process.argv.slice(2),{env:{...process.env,CODEX_TEST_ENVIRONMENT:'local',RUST_MIN_STACK:'8388608'},stdio:'inherit',windowsHide:true});process.exit(r.error||r.signal||r.status===null?1:r.status)";
-    const registry = { schema_version: 1, suites: { lifecycle: ['drain', 'continuation'] }, cases: {} };
-    for (const [group, filter] of [['drain', 'host_drain_'], ['continuation', 'continuation_seal_']]) {
-      registry.cases[group] = { args: ['-e', native, binary, 'suite::turn_input_submission::' + filter, '--nocapture', '--test-threads=1'],
+    const registry = { schema_version: 1, suites: { lifecycle: ['drain', 'continuation', 'scoped', 'host'] }, cases: {} };
+    for (const [group, filter] of [['drain', 'host_drain_'], ['continuation', 'continuation_seal_'], ['scoped', 'scoped_admission_'], ['host', '']]) {
+      registry.cases[group] = { args: ['-e', native, group === 'host' ? hostBinary : binary, group === 'host' ? filter : 'suite::turn_input_submission::' + filter, '--nocapture', '--test-threads=1'],
         task_ids: ['P0-03'], backends: ['none'], requires: [], timeout_ms: 180000, max_output_bytes: 2 * 1024 * 1024 };
     }
     const source = await sourceIdentity(root, controller.signal); manifest.source = source;
     const result = await runSuite({ root, registry, selection: parseSelection(['--suite', 'lifecycle'], registry),
       outputRoot: path.join(directory, 'attempts'), source, signal: controller.signal, isolation: { homeRoot: home }, announce: () => {} });
     manifest.result = result.manifestPath;
-    if (result.exitCode !== 0 || result.manifest.status !== 'pass' || result.manifest.attempts.length !== 2) throw Error('Native lifecycle suite failed');
+    if (result.exitCode !== 0 || result.manifest.status !== 'pass' || result.manifest.attempts.length !== 4) throw Error('Native lifecycle suite failed');
     manifest.tests_passed = 0;
     for (const attempt of result.manifest.attempts) {
       if (attempt.exit_code !== 0 || !attempt.capture_complete) throw Error('Incomplete native lifecycle capture');

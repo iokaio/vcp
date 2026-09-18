@@ -2,10 +2,10 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
 const { cases, validateResults, testBinary } = require('../support/lifecycle-results.cjs');
-const fixture = group => cases[group].map(name => `test suite::turn_input_submission::${name} ... ok`).join('\n') +
-  '\n\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1582 filtered out; finished in 0.12s\n';
+const fixture = group => cases[group].map(name => `test ${group === 'host' ? '' : 'suite::turn_input_submission::'}${name} ... ok`).join('\n') +
+  `\n\ntest result: ok. ${cases[group].length} passed; 0 failed; 0 ignored; 0 measured; 1582 filtered out; finished in 0.12s\n`;
 test('lifecycle evidence requires every declared native success', () => {
-  for (const group of Object.keys(cases)) assert.equal(validateResults(fixture(group), group), 5);
+  for (const group of Object.keys(cases)) assert.equal(validateResults(fixture(group), group), cases[group].length);
 });
 test('empty, skipped, duplicate and missing native cases cannot pass', () => {
   const valid = fixture('continuation');
@@ -21,6 +21,12 @@ test('only the successful core integration artifact is executable', () => {
   const finished = { reason: 'build-finished', success: true };
   const log = rows => rows.map(row => JSON.stringify(row)).join('\n');
   assert.equal(testBinary(log([artifact, finished])), artifact.executable);
+  const host = { ...artifact, package_id: 'path+file:///repo/host#vcp-lifecycle@0.1.0', target: { name: 'controller', kind: ['test'] }, executable: 'C:/owned/controller.exe' };
+  assert.equal(testBinary(log([artifact, host, finished]), 'host'), host.executable);
+  assert.equal(testBinary(log([{ ...host, package_id: 'path+file:///repo/vcp-lifecycle#0.1.0' }, finished]), 'host'), host.executable);
+  assert.throws(() => testBinary(log([{ ...host, package_id: 'path+file:///repo/vcp-lifecycle#foreign@0.1.0' }, finished]), 'host'));
+  assert.throws(() => testBinary(log([artifact, finished]), 'host'));
+  assert.throws(() => testBinary(log([host, host, finished]), 'host'));
   for (const rows of [[artifact], [artifact, artifact, finished], [{ ...artifact, package_id: 'foreign@0' }, finished],
     [{ ...artifact, profile: { test: false } }, finished], [artifact, { ...finished, success: false }]]) {
     assert.throws(() => testBinary(log(rows)));

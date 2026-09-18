@@ -44,6 +44,12 @@ already include these changes; normal builds never apply patches.
    cancellation, persistence, dependency or lockfile change is included. See the
    [implementation guide](../../../../docs/development/continuation-admission.md).
 
+7. `0007-scoped-lifecycle.patch` threads controller identity through admission,
+   adds retained owned interruption and three integration cases, and registers
+   the original `vcp-lifecycle` package with one local lock entry. All prior
+   external package identities/checksums are retained. See the
+   [scoped lifecycle guide](../../../../docs/development/scoped-lifecycle.md).
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

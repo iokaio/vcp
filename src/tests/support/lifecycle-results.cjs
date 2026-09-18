@@ -15,10 +15,24 @@ const cases = {
     'continuation_seal_rejects_review_delegate_without_a_model_call::ordinary_closed',
     'continuation_seal_rejects_review_delegate_without_a_model_call::ordinary_open',
     'continuation_seal_retains_mail_until_explicit_readmission'
+  ],
+  scoped: [
+    'scoped_admission_holds_child_independently_of_parent_and_sibling',
+    'scoped_admission_uses_review_delegate_identity',
+    'scoped_admission_checks_mailbox_recipient_before_consuming_mail'
+  ],
+  host: [
+    'independent_child_hold_survives_parent_readmission',
+    'sealing_interrupts_both_streams_and_keeps_controllers_inspectable',
+    'cancelled_waiter_preserves_seal_and_drains_issued_permits',
+    'timed_out_drain_requires_successful_interruption_before_resume',
+    'stale_foreign_and_unregistered_scope_cannot_gain_authority',
+    'owner_loss_interrupts_active_work_and_cannot_be_resumed',
+    'released_controller_is_not_retained_or_reported_as_interrupted'
   ]
 };
 function validateResults(text, group) {
-  const expected = cases[group]?.map(name => prefix + name);
+  const expected = cases[group]?.map(name => (group === 'host' ? '' : prefix) + name);
   if (!expected) throw Error('Unknown lifecycle group');
   const rows = [...text.matchAll(/^test (\S+) \.\.\. (\S+)\s*$/gm)];
   const summaries = [...text.matchAll(/^test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; \d+ filtered out;/gm)];
@@ -29,13 +43,16 @@ function validateResults(text, group) {
   }
   return expected.length;
 }
-function testBinary(log) {
+function testBinary(log, group = 'core') {
+  if (!['core', 'host'].includes(group)) throw Error('Unknown lifecycle artifact group');
+  const target = group === 'host' ? 'controller' : 'all';
+  const packageName = group === 'host' ? 'vcp-lifecycle' : 'codex-core';
   const messages = log.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
-  const matches = messages.filter(m => m.reason === 'compiler-artifact' && m.target?.name === 'all' &&
+  const matches = messages.filter(m => m.reason === 'compiler-artifact' && m.target?.name === target &&
     m.target.kind?.includes('test') && m.profile?.test === true && m.executable &&
-    /(?:#|\/)codex-core@/.test(m.package_id));
+    new RegExp('(?:#' + packageName + '@|/' + packageName + '#)\\d').test(m.package_id));
   if (matches.length !== 1 || !messages.some(m => m.reason === 'build-finished' && m.success === true)) {
-    throw Error('Expected exactly one successfully compiled codex-core integration test binary');
+    throw Error('Expected exactly one successfully compiled lifecycle integration artifact: ' + packageName);
   }
   return matches[0].executable;
 }

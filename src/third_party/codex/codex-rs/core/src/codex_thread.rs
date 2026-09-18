@@ -1,3 +1,4 @@
+// VCP modification: owned host interruption without closing the retained controller.
 use crate::agent::AgentStatus;
 use crate::config::ConstraintResult;
 use crate::context::ContextualUserFragment;
@@ -227,6 +228,20 @@ impl CodexThread {
 
     pub async fn submit(&self, op: Op) -> CodexResult<String> {
         self.io.submit(op).await
+    }
+
+    /// Runs retained task interruption and waits for its completion without
+    /// consuming the event stream or closing this controller. The host must
+    /// first seal admission and drain outstanding start permits. Once polled,
+    /// interruption is runtime-owned and survives cancellation of the caller.
+    /// This is not a durable checkpoint or proof that native descendants stopped.
+    pub async fn interrupt_for_host(&self) -> CodexResult<()> {
+        let session = Arc::clone(&self.session);
+        let runtime = session.services.runtime_handle.clone();
+        runtime
+            .spawn(async move { session.interrupt_task().await })
+            .await?;
+        Ok(())
     }
 
     /// Returns the session telemetry handle for thread-scoped production instrumentation.

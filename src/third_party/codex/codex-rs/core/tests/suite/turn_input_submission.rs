@@ -1201,3 +1201,211 @@ async fn continuation_seal_retains_mail_until_explicit_readmission() -> anyhow::
     assert!(!actual.body_contains_text("rejected start behind mail"));
     Ok(())
 }
+
+#[derive(Debug, Default)]
+struct ThreadScopedAdmission {
+    open: std::sync::Mutex<std::collections::HashSet<codex_protocol::ThreadId>>,
+    denied: tokio::sync::Notify,
+    observations: std::sync::Mutex<Vec<(codex_protocol::ThreadId, bool)>>,
+}
+impl ThreadScopedAdmission {
+    fn open(&self, thread: codex_protocol::ThreadId) {
+        self.open.lock().unwrap().insert(thread);
+    }
+    fn admit(&self, thread: codex_protocol::ThreadId, continuation: bool) -> Option<Box<dyn Send>> {
+        self.observations
+            .lock()
+            .unwrap()
+            .push((thread, continuation));
+        let allowed = self.open.lock().unwrap().contains(&thread);
+        if !allowed {
+            self.denied.notify_one();
+        }
+        allowed.then(|| Box::new(()) as Box<dyn Send>)
+    }
+}
+impl TurnStartAdmission for ThreadScopedAdmission {
+    fn admit_turn_start(&self) -> Option<Box<dyn Send>> {
+        panic!("Core omitted thread identity")
+    }
+    fn admit_continuation_start(&self) -> Option<Box<dyn Send>> {
+        panic!("Core omitted continuation identity")
+    }
+    fn admit_turn_start_for_thread(
+        &self,
+        thread: codex_protocol::ThreadId,
+    ) -> Option<Box<dyn Send>> {
+        self.admit(thread, false)
+    }
+    fn admit_continuation_start_for_thread(
+        &self,
+        thread: codex_protocol::ThreadId,
+    ) -> Option<Box<dyn Send>> {
+        self.admit(thread, true)
+    }
+}
+
+#[tokio::test]
+async fn scoped_admission_holds_child_independently_of_parent_and_sibling() -> anyhow::Result<()> {
+    let server = responses::start_mock_server().await;
+    let response = responses::mount_sse_sequence(
+        &server,
+        ["parent", "sibling", "child"]
+            .into_iter()
+            .map(responses::sse_completed)
+            .collect(),
+    )
+    .await;
+    let admission = Arc::new(ThreadScopedAdmission::default());
+    let mut extensions = ExtensionRegistryBuilder::new();
+    extensions.turn_start_admission(admission.clone());
+    let test = test_codex()
+        .with_extensions(Arc::new(extensions.build()))
+        .build_with_auto_env(&server)
+        .await?;
+    let root_id = test.session_configured.thread_id;
+    admission.open(root_id);
+    let child_options = || StartThreadOptions {
+        session_source: Some(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+            parent_thread_id: root_id,
+            depth: 1,
+            agent_path: None,
+            agent_nickname: None,
+            agent_role: None,
+        })),
+        ..StartThreadOptions::new(test.config.clone())
+    };
+    let mut child_start = child_options();
+    child_start.environments = Some(test.codex.environment_selections().await);
+    let child = test.thread_manager.start_thread(child_start).await?;
+    let mut sibling_start = child_options();
+    sibling_start.environments = Some(test.codex.environment_selections().await);
+    let sibling = test.thread_manager.start_thread(sibling_start).await?;
+    admission.open(sibling.thread_id);
+    let delegated = |text: &str| {
+        user_message_request(text).on_start(TurnStartOptions {
+            parent_turn_id: Some("host-parent-turn".into()),
+            ..Default::default()
+        })
+    };
+    assert_eq!(
+        child
+            .thread
+            .start_or_steer_turn(delegated("held child input"))
+            .await?,
+        TurnInputSubmission::NotSubmitted {
+            reason: NotSubmittedReason::ServerDraining
+        }
+    );
+    test.codex
+        .start_or_steer_turn(user_message_request("parent stays runnable"))
+        .await?;
+    wait_for_event(&test.codex, |e| matches!(e, EventMsg::TurnComplete(_))).await;
+    sibling
+        .thread
+        .start_or_steer_turn(delegated("sibling stays runnable"))
+        .await?;
+    wait_for_event(&sibling.thread, |e| matches!(e, EventMsg::TurnComplete(_))).await;
+    assert_eq!(response.requests().len(), 2);
+    admission.open(child.thread_id);
+    child
+        .thread
+        .start_or_steer_turn(delegated("child explicitly admitted"))
+        .await?;
+    wait_for_event(&child.thread, |e| matches!(e, EventMsg::TurnComplete(_))).await;
+    let actual = response.requests();
+    assert_eq!(actual.len(), 3);
+    assert!(actual[0].body_contains_text("parent stays runnable"));
+    assert!(actual[1].body_contains_text("sibling stays runnable"));
+    assert!(actual[2].body_contains_text("child explicitly admitted"));
+    assert!(!actual[2].body_contains_text("held child input"));
+    let observed = admission.observations.lock().unwrap();
+    assert!(observed.contains(&(root_id, false)));
+    assert!(observed.contains(&(child.thread_id, true)));
+    assert!(observed.contains(&(sibling.thread_id, true)));
+    Ok(())
+}
+
+#[tokio::test]
+async fn scoped_admission_uses_review_delegate_identity() -> anyhow::Result<()> {
+    use codex_protocol::protocol::{ReviewRequest, ReviewTarget};
+    let server = responses::start_mock_server().await;
+    let response =
+        responses::mount_sse_once(&server, responses::sse_completed("unexpected-review")).await;
+    let admission = Arc::new(ThreadScopedAdmission::default());
+    let mut extensions = ExtensionRegistryBuilder::new();
+    extensions.turn_start_admission(admission.clone());
+    let test = test_codex()
+        .with_extensions(Arc::new(extensions.build()))
+        .build_with_auto_env(&server)
+        .await?;
+    let root_id = test.session_configured.thread_id;
+    admission.open(root_id);
+    test.codex
+        .submit(Op::Review {
+            review_request: ReviewRequest {
+                target: ReviewTarget::Custom {
+                    instructions: "review child must have its own admission".into(),
+                },
+                user_facing_hint: None,
+            },
+        })
+        .await?;
+    timeout(Duration::from_secs(10), admission.denied.notified()).await?;
+    let event = wait_for_event(&test.codex, |e| matches!(e, EventMsg::ExitedReviewMode(_))).await;
+    let EventMsg::ExitedReviewMode(event) = event else {
+        unreachable!()
+    };
+    assert!(event.review_output.is_none());
+    assert!(response.requests().is_empty());
+    let observed = admission.observations.lock().unwrap();
+    assert!(!observed.is_empty());
+    assert!(
+        observed
+            .iter()
+            .all(|(thread, continuation)| *thread != root_id && *continuation)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn scoped_admission_checks_mailbox_recipient_before_consuming_mail() -> anyhow::Result<()> {
+    let server = responses::start_mock_server().await;
+    let response =
+        responses::mount_sse_once(&server, responses::sse_completed("scoped-mail")).await;
+    let admission = Arc::new(ThreadScopedAdmission::default());
+    let mut extensions = ExtensionRegistryBuilder::new();
+    extensions.turn_start_admission(admission.clone());
+    let test = test_codex()
+        .with_extensions(Arc::new(extensions.build()))
+        .build_with_auto_env(&server)
+        .await?;
+    let root_id = test.session_configured.thread_id;
+    let mail = |text: &str| Op::InterAgentCommunication {
+        communication: InterAgentCommunication::new(
+            AgentPath::try_from("/root/sender").unwrap(),
+            AgentPath::root(),
+            Vec::new(),
+            text.into(),
+            true,
+        ),
+        start_options: Default::default(),
+    };
+    test.codex
+        .submit(mail("retained for actual recipient"))
+        .await?;
+    timeout(Duration::from_secs(10), admission.denied.notified()).await?;
+    assert!(response.requests().is_empty());
+    {
+        let observed = admission.observations.lock().unwrap();
+        assert!(!observed.is_empty());
+        assert!(observed.iter().all(|item| *item == (root_id, true)));
+    }
+    admission.open(root_id);
+    test.codex.submit(mail("explicit recipient wakeup")).await?;
+    wait_for_event(&test.codex, |e| matches!(e, EventMsg::TurnComplete(_))).await;
+    let actual = response.single_request();
+    assert!(actual.body_contains_text("retained for actual recipient"));
+    assert!(actual.body_contains_text("explicit recipient wakeup"));
+    Ok(())
+}

@@ -29,7 +29,9 @@ selected Munarium libraries in the shared workspace and lockfile. Further change
 register the local CPU embedding adapter and its reviewed dependencies, followed
 by the original local-corpus qualification executable and its retained governance
 dependencies. The continuation-admission patch adapts the retained controller,
-extension API and turn-input tests to support host denial of delegated starts. Modified
+extension API and turn-input tests to support host denial of delegated starts.
+The scoped-lifecycle patch adds controller thread identity, owned retained
+interruption and the original lifecycle host workspace/lock entry. Modified
 files carry modification notices. See the ordered patch record
 under src/third_party/patches/codex/ and THIRD_PARTY_NOTICES.md.
 

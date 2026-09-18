@@ -1,4 +1,4 @@
-// VCP modification: gate delegated turn starts through host continuation admission.
+// VCP modification: thread-scoped host admission for ordinary and delegated starts.
 use std::sync::Arc;
 
 use crate::ApprovalReviewContributor;
@@ -199,6 +199,28 @@ impl<C: Sync> ExtensionRegistry<C> {
     pub fn admit_continuation_start(&self) -> Option<Box<dyn Send>> {
         match &self.turn_start_admission {
             Some(admission) => admission.admit_continuation_start(),
+            None => Some(Box::new(())),
+        }
+    }
+
+    /// Acquires ordinary admission for the actual controller thread.
+    pub fn admit_turn_start_for_thread(
+        &self,
+        thread_id: codex_protocol::ThreadId,
+    ) -> Option<Box<dyn Send>> {
+        match &self.turn_start_admission {
+            Some(admission) => admission.admit_turn_start_for_thread(thread_id),
+            None => Some(Box::new(())),
+        }
+    }
+
+    /// Acquires continuation admission for the actual controller thread.
+    pub fn admit_continuation_start_for_thread(
+        &self,
+        thread_id: codex_protocol::ThreadId,
+    ) -> Option<Box<dyn Send>> {
+        match &self.turn_start_admission {
+            Some(admission) => admission.admit_continuation_start_for_thread(thread_id),
             None => Some(Box::new(())),
         }
     }

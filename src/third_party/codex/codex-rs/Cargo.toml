@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    # VCP modification: scoped retained-controller lifecycle qualification.
+    "../../../crates/vcp-lifecycle",
     # VCP modification: local corpus/index qualification uses the same build graph.
     "../../../crates/vcp-memory-spike",
     # VCP modification: file-only local CPU embedding adapter in this build graph.

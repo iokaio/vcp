@@ -1,4 +1,4 @@
-// VCP modification: gate delegated turn starts through host continuation admission.
+// VCP modification: thread-scoped host admission for ordinary and delegated starts.
 //! Handles reply-bearing turn-input operations.
 //!
 //! This is the one place Core decides whether submitted input starts a turn,
@@ -329,9 +329,15 @@ async fn start_or_steer(
                     SessionSource::SubAgent(SubAgentSource::ThreadSpawn { .. })
                 );
             let admission = if is_delegated_input {
-                session.services.extensions.admit_continuation_start()
+                session
+                    .services
+                    .extensions
+                    .admit_continuation_start_for_thread(session.thread_id)
             } else {
-                session.services.extensions.admit_turn_start()
+                session
+                    .services
+                    .extensions
+                    .admit_turn_start_for_thread(session.thread_id)
             };
             let Some(_admission) = admission else {
                 return Ok(TurnInputSubmission::NotSubmitted {
@@ -418,9 +424,15 @@ async fn start_if_idle(
                 .session_source,
             SessionSource::SubAgent(SubAgentSource::Review)
         ) {
-        session.services.extensions.admit_continuation_start()
+        session
+            .services
+            .extensions
+            .admit_continuation_start_for_thread(session.thread_id)
     } else {
-        session.services.extensions.admit_turn_start()
+        session
+            .services
+            .extensions
+            .admit_turn_start_for_thread(session.thread_id)
     };
     let Some(_admission) = admission else {
         return Ok(TurnInputSubmission::NotSubmitted {
