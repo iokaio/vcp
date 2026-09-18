@@ -86,9 +86,21 @@ deadline and the enclosing upstream-inventory case 90 seconds. The rejection,
 containment and no-output-allocation assertions remain intact. Timeout errors
 now include captured stdout/stderr for diagnosis. This is execution headroom
 for native tests, not a relaxed product policy or a passing result for the
-failed run. The replacement head still requires all hosted checks to pass.
+failed run. The replacement head subsequently passed all hosted checks below.
 The follow-up `fast` run passed locally with the same 56 regressions, exit 0;
 its manifest is `artifacts/tests/5437d848-5a5f-4af6-8067-445bba4466f3/manifest.json`.
+
+[Hosted run 35302784538](https://github.com/iokaio/vcp/actions/runs/35302784538)
+passed both jobs for head `3ad1eb11c70f0596c74fa3a0de800ae109895986`.
+Windows used `win8core-1000002548` in `wingroup`; Linux used
+`ubuntu-8core-1000002547` in `ubuntu8core`. The Windows job passed source
+reconstruction, 402 Gemini tests, local CPU embeddings, the CLI build, 102 native
+patch/policy tests, 200 Munarium tests and all nine CLI traces. The successful
+trace manifest is `cli-trace/ca822fb1-c824-4998-b9b4-6ec2d99b4468/manifest.json`
+under `artifacts/ci/windows-35302784538-1/`. A separate expected `not_run`
+manifest comes from the missing-binary regression and is not the native run.
+[PR #16](https://github.com/iokaio/vcp/pull/16) merged as
+`057acc893e51fb68e57e6deebd7cd6cff0c8b80f` at September 18, 2026, 03:45:12 UTC.
 
 The [source/effect map](../development/helper-effect-traces.md) classifies eight
 entries and describes the required gateway, history and pause adapters. Four

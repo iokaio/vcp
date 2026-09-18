@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
   "verification": "static_only",
@@ -11,7 +11,15 @@
       "package": "codex-exec",
       "path": "exec/src/lib.rs",
       "symbol": "pub async fn run_main(cli:",
-      "observation": "Native exec starts private in-process protocol work; VCP ownership and admission must precede coding and review submissions."
+      "observation": "Native exec starts private in-process protocol work; VCP ownership and admission must precede coding and review submissions.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "process",
+        "filesystem",
+        "network"
+      ]
     },
     {
       "id": "exec-shutdown",
@@ -19,7 +27,13 @@
       "package": "codex-exec",
       "path": "exec/src/lib.rs",
       "symbol": "async fn request_shutdown(",
-      "observation": "Unsubscribe and client shutdown are effectful lifecycle operations; normal exit does not prove durable root/child pause or crash reconciliation."
+      "observation": "Unsubscribe and client shutdown are effectful lifecycle operations; normal exit does not prove durable root/child pause or crash reconciliation.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "process"
+      ]
     },
     {
       "id": "review-delegate",
@@ -27,7 +41,14 @@
       "package": "codex-core",
       "path": "core/src/tasks/review.rs",
       "symbol": "async fn start_review_conversation(",
-      "observation": "A one-shot review child makes an observed provider request while the pinned parent CLI reports zero usage; VCP must retain independent request and usage receipts."
+      "observation": "A one-shot review child makes an observed provider request while the pinned parent CLI reports zero usage; VCP must retain independent request and usage receipts.",
+      "effect_class": "effectful",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "model",
+        "network",
+        "scheduler"
+      ]
     },
     {
       "id": "responses-compaction",
@@ -35,7 +56,15 @@
       "package": "codex-core",
       "path": "core/src/compact.rs",
       "symbol": "pub(crate) async fn run_inline_auto_compact_task(",
-      "observation": "The Responses-based fallback makes a separate model request and replaces prompt history; upstream local compaction is not local inference or canonical VCP history."
+      "observation": "The Responses-based fallback makes a separate model request and replaces prompt history; upstream local compaction is not local inference or canonical VCP history.",
+      "effect_class": "effectful",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "model",
+        "network",
+        "history",
+        "telemetry"
+      ]
     },
     {
       "id": "owner-submit",
@@ -43,7 +72,12 @@
       "package": "codex-core",
       "path": "core/src/session/mod.rs",
       "symbol": "async fn submit_with_id",
-      "observation": "Submission enters the retained session; attach VCP task/workspace and authority revision before scheduling."
+      "observation": "Submission enters the retained session; attach VCP task/workspace and authority revision before scheduling.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler"
+      ]
     },
     {
       "id": "interrupt",
@@ -51,7 +85,13 @@
       "package": "codex-core",
       "path": "core/src/session/handlers.rs",
       "symbol": "pub async fn interrupt",
-      "observation": "Interrupt delegates to session task abort; this is not durable VCP pause or tree-wide admission fencing."
+      "observation": "Interrupt delegates to session task abort; this is not durable VCP pause or tree-wide admission fencing.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "process"
+      ]
     },
     {
       "id": "queued-child-input",
@@ -59,7 +99,13 @@
       "package": "codex-core",
       "path": "core/src/session/handlers.rs",
       "symbol": "pub async fn inter_agent_communication",
-      "observation": "Inter-agent input can schedule idle work; pause must fence queued/background starts as well as current tasks."
+      "observation": "Inter-agent input can schedule idle work; pause must fence queued/background starts as well as current tasks.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "telemetry"
+      ]
     },
     {
       "id": "main-model",
@@ -67,7 +113,15 @@
       "package": "codex-core",
       "path": "core/src/client.rs",
       "symbol": "pub async fn stream(",
-      "observation": "Main streaming admission, usage attribution and cancellation must enter the VCP gateway."
+      "observation": "Main streaming admission, usage attribution and cancellation must enter the VCP gateway.",
+      "effect_class": "effectful",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "model",
+        "network",
+        "credential",
+        "telemetry"
+      ]
     },
     {
       "id": "websocket-prewarm",
@@ -75,7 +129,15 @@
       "package": "codex-core",
       "path": "core/src/client.rs",
       "symbol": "pub async fn prewarm_websocket",
-      "observation": "Prewarm can create provider traffic before normal streaming; do not exempt it from authority/accounting observation."
+      "observation": "Prewarm can create provider traffic before normal streaming; do not exempt it from authority/accounting observation.",
+      "effect_class": "effectful",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "model",
+        "network",
+        "credential",
+        "telemetry"
+      ]
     },
     {
       "id": "memory-summary-api",
@@ -83,7 +145,15 @@
       "package": "codex-core",
       "path": "core/src/client.rs",
       "symbol": "pub async fn summarize_memories",
-      "observation": "The API helper is a separate remote path from the main coding stream."
+      "observation": "The API helper is a separate remote path from the main coding stream.",
+      "effect_class": "effectful",
+      "vcp_boundary": "disabled-upstream-route",
+      "effects": [
+        "model",
+        "network",
+        "credential",
+        "telemetry"
+      ]
     },
     {
       "id": "memory-stage-one",
@@ -91,7 +161,16 @@
       "package": "codex-memories-write",
       "path": "memories/write/src/runtime.rs",
       "symbol": "ModelClient::new(",
-      "observation": "Background memory work constructs a model client and streams a stage-one prompt; replace independent admission."
+      "observation": "Background memory work constructs a model client and streams a stage-one prompt; replace independent admission.",
+      "effect_class": "effectful",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "model",
+        "network",
+        "scheduler",
+        "credential",
+        "telemetry"
+      ]
     },
     {
       "id": "remote-compaction",
@@ -99,7 +178,15 @@
       "package": "codex-core",
       "path": "core/src/compact_remote_v2.rs",
       "symbol": "async fn run_remote_compact_task",
-      "observation": "Compaction requests require the same capability, budget and provenance boundary as coding."
+      "observation": "Compaction requests require the same capability, budget and provenance boundary as coding.",
+      "effect_class": "effectful",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "model",
+        "network",
+        "history",
+        "telemetry"
+      ]
     },
     {
       "id": "review-child",
@@ -107,7 +194,14 @@
       "package": "codex-core",
       "path": "core/src/session/review.rs",
       "symbol": "async fn spawn_review_thread",
-      "observation": "A review thread is still governed child work with root budget, authority and pause lifetime."
+      "observation": "A review thread is still governed child work with root budget, authority and pause lifetime.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "model",
+        "network"
+      ]
     },
     {
       "id": "guardian-turn",
@@ -115,7 +209,15 @@
       "package": "codex-guardian-reviewer",
       "path": "ext/guardian-reviewer/src/execution.rs",
       "symbol": "pub async fn start_review_turn",
-      "observation": "Guardian review must not become an unaccounted helper or substitute for user authority."
+      "observation": "Guardian review must not become an unaccounted helper or substitute for user authority.",
+      "effect_class": "effectful",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "scheduler",
+        "model",
+        "network",
+        "clock"
+      ]
     },
     {
       "id": "guardian-retry",
@@ -123,7 +225,15 @@
       "package": "codex-guardian-reviewer",
       "path": "ext/guardian-reviewer/src/retry.rs",
       "symbol": "pub async fn run_with_retry",
-      "observation": "Retries revalidate current authority and maintain request/usage attribution."
+      "observation": "Retries revalidate current authority and maintain request/usage attribution.",
+      "effect_class": "effectful",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "scheduler",
+        "model",
+        "network",
+        "clock"
+      ]
     },
     {
       "id": "provider-auth",
@@ -131,15 +241,29 @@
       "package": "codex-model-provider",
       "path": "model-provider/src/auth.rs",
       "symbol": "async fn resolve_provider_auth_for_scope",
-      "observation": "Provider auth resolution includes upstream account/identity paths that must not bypass explicit VCP configuration."
+      "observation": "Provider auth resolution includes upstream account/identity paths that must not bypass explicit VCP configuration.",
+      "effect_class": "effectful",
+      "vcp_boundary": "explicit-credentials",
+      "effects": [
+        "credential",
+        "environment",
+        "network",
+        "filesystem"
+      ]
     },
     {
       "id": "environment-key-export",
       "group": "credentials",
       "package": "codex-login",
-      "path": "login/src/lib.rs",
-      "symbol": "pub use auth::read_openai_api_key_from_env",
-      "observation": "The exported ambient-key helper is not authorized VCP credential discovery."
+      "path": "login/src/auth/manager.rs",
+      "symbol": "pub fn read_openai_api_key_from_env()",
+      "observation": "The exported ambient-key helper is not authorized VCP credential discovery.",
+      "effect_class": "read-only",
+      "vcp_boundary": "explicit-credentials",
+      "effects": [
+        "environment",
+        "credential-read"
+      ]
     },
     {
       "id": "auth-environment-telemetry",
@@ -147,7 +271,12 @@
       "package": "codex-login",
       "path": "login/src/auth_env_telemetry.rs",
       "symbol": "env_var_present(OPENAI_API_KEY_ENV_VAR)",
-      "observation": "Even credential-presence telemetry is an upstream effect to remove or explicitly replace."
+      "observation": "Even credential-presence telemetry is an upstream effect to remove or explicitly replace.",
+      "effect_class": "read-only",
+      "vcp_boundary": "disabled-upstream-route",
+      "effects": [
+        "environment"
+      ]
     },
     {
       "id": "policy-amendment",
@@ -155,7 +284,13 @@
       "package": "codex-execpolicy",
       "path": "execpolicy/src/amend.rs",
       "symbol": "pub fn blocking_append_allow_prefix_rule",
-      "observation": "Policy amendment performs writes; parsing/matching reuse does not authorize saved permission changes."
+      "observation": "Policy amendment performs writes; parsing/matching reuse does not authorize saved permission changes.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "filesystem",
+        "policy"
+      ]
     },
     {
       "id": "global-metrics",
@@ -163,7 +298,13 @@
       "package": "codex-otel",
       "path": "otel/src/lib.rs",
       "symbol": "pub fn install_global_metrics",
-      "observation": "Global telemetry setup must not create a hidden exporter outside VCP ownership."
+      "observation": "Global telemetry setup must not create a hidden exporter outside VCP ownership.",
+      "effect_class": "effectful",
+      "vcp_boundary": "disabled-upstream-route",
+      "effects": [
+        "global-state",
+        "telemetry"
+      ]
     },
     {
       "id": "realtime-provider",
@@ -171,7 +312,14 @@
       "package": "codex-core",
       "path": "core/src/client.rs",
       "symbol": "async fn create_realtime_call_with_headers",
-      "observation": "Retained realtime APIs do not authorize an extra VCP provider/service route."
+      "observation": "Retained realtime APIs do not authorize an extra VCP provider/service route.",
+      "effect_class": "effectful",
+      "vcp_boundary": "disabled-upstream-route",
+      "effects": [
+        "model",
+        "network",
+        "credential"
+      ]
     },
     {
       "id": "mcp-stdio",
@@ -179,7 +327,15 @@
       "package": "codex-rmcp-client",
       "path": "rmcp-client/src/rmcp_client.rs",
       "symbol": "pub async fn new_stdio_client(",
-      "observation": "MCP startup can launch a local process; use an explicitly configured server identity and execution authority."
+      "observation": "MCP startup can launch a local process; use an explicitly configured server identity and execution authority.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "process",
+        "credential",
+        "environment",
+        "scheduler"
+      ]
     },
     {
       "id": "mcp-http",
@@ -187,7 +343,15 @@
       "package": "codex-rmcp-client",
       "path": "rmcp-client/src/rmcp_client.rs",
       "symbol": "pub async fn new_streamable_http_client(",
-      "observation": "Remote MCP transport needs explicit endpoint, redirect, authentication and cancellation policy."
+      "observation": "Remote MCP transport needs explicit endpoint, redirect, authentication and cancellation policy.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "network",
+        "credential",
+        "environment",
+        "filesystem"
+      ]
     },
     {
       "id": "mcp-tool",
@@ -195,7 +359,15 @@
       "package": "codex-rmcp-client",
       "path": "rmcp-client/src/rmcp_client.rs",
       "symbol": "pub async fn call_tool(",
-      "observation": "Tool calls and results retain VCP schema/authority/receipt boundaries; tool text cannot create instructions."
+      "observation": "Tool calls and results retain VCP schema/authority/receipt boundaries; tool text cannot create instructions.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "network",
+        "process",
+        "credential",
+        "filesystem"
+      ]
     },
     {
       "id": "mcp-auth-discovery",
@@ -203,7 +375,14 @@
       "package": "codex-rmcp-client",
       "path": "rmcp-client/src/auth_status.rs",
       "symbol": "pub async fn discover_streamable_http_oauth",
-      "observation": "Authentication discovery is network activity even before tool invocation."
+      "observation": "Authentication discovery is network activity even before tool invocation.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "network",
+        "credential",
+        "environment"
+      ]
     },
     {
       "id": "exec-dispatch",
@@ -211,7 +390,14 @@
       "package": "codex-exec-server",
       "path": "exec-server/src/client.rs",
       "symbol": "pub async fn exec(&self",
-      "observation": "Dispatch must follow durable VCP admission with prepared arguments, environment and workspace identity."
+      "observation": "Dispatch must follow durable VCP admission with prepared arguments, environment and workspace identity.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "process",
+        "filesystem",
+        "network"
+      ]
     },
     {
       "id": "exec-termination",
@@ -219,7 +405,13 @@
       "package": "codex-exec-server",
       "path": "exec-server/src/client.rs",
       "symbol": "pub async fn terminate(",
-      "observation": "Termination is separately observed; stopping a child does not roll back already observed effects."
+      "observation": "Termination is separately observed; stopping a child does not roll back already observed effects.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "process",
+        "scheduler"
+      ]
     },
     {
       "id": "sqlite-state",
@@ -227,7 +419,14 @@
       "package": "codex-state",
       "path": "state/src/runtime.rs",
       "symbol": "pub async fn init(sqlite:",
-      "observation": "Upstream state initialization must not create a competing authoritative VCP store or memory ledger."
+      "observation": "Upstream state initialization must not create a competing authoritative VCP store or memory ledger.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem",
+        "history",
+        "telemetry"
+      ]
     },
     {
       "id": "local-thread-store",
@@ -235,7 +434,14 @@
       "package": "codex-thread-store",
       "path": "thread-store/src/lib.rs",
       "symbol": "pub use local::LocalThreadStore;",
-      "observation": "Retain useful storage-neutral interfaces while adapting local persistence to VCP receipts, history and recovery."
+      "observation": "Retain useful storage-neutral interfaces while adapting local persistence to VCP receipts, history and recovery.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem",
+        "history",
+        "scheduler"
+      ]
     },
     {
       "id": "munarium-governance-gates",
@@ -243,7 +449,10 @@
       "package": "munarium-core",
       "path": "../../munarium/server/src/munarium-core/src/gates.rs",
       "symbol": "pub fn run_gates",
-      "observation": "Read-only snapshot/candidate evaluation; adapt findings and revisions to VCP canonical evidence."
+      "observation": "Read-only snapshot/candidate evaluation; adapt findings and revisions to VCP canonical evidence.",
+      "effect_class": "pure",
+      "vcp_boundary": "local-memory",
+      "effects": []
     },
     {
       "id": "munarium-reference-store",
@@ -251,7 +460,14 @@
       "package": "munarium-store-mem",
       "path": "../../munarium/server/src/munarium-store-mem/src/lib.rs",
       "symbol": "pub struct MemStore",
-      "observation": "In-process mutable reference store, with UUID and clock inputs; not durable VCP authority."
+      "observation": "In-process mutable reference store, with UUID and clock inputs; not durable VCP authority.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "shared-memory",
+        "clock",
+        "randomness"
+      ]
     },
     {
       "id": "munarium-file-store",
@@ -259,7 +475,12 @@
       "package": "munarium-datastore",
       "path": "../../munarium/server/src/munarium-datastore/src/store.rs",
       "symbol": "pub struct LocalFileStore",
-      "observation": "Local artifact filesystem I/O; require VCP-authorized roots and durable generation publication."
+      "observation": "Local artifact filesystem I/O; require VCP-authorized roots and durable generation publication.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem"
+      ]
     },
     {
       "id": "munarium-tantivy",
@@ -267,7 +488,13 @@
       "package": "munarium-datastore",
       "path": "../../munarium/server/src/munarium-datastore/src/lexical.rs",
       "symbol": "pub fn build(records:",
-      "observation": "Tantivy index construction uses scratch files and mappings; account for resources and scope in VCP."
+      "observation": "Tantivy index construction uses scratch files and mappings; account for resources and scope in VCP.",
+      "effect_class": "effectful",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "filesystem",
+        "scheduler"
+      ]
     },
     {
       "id": "munarium-diskann",
@@ -275,7 +502,12 @@
       "package": "munarium-datastore",
       "path": "../../munarium/server/src/munarium-datastore/src/vector_diskann.rs",
       "symbol": "pub struct DiskAnnVectorIndex",
-      "observation": "Real DiskANN graph provider and serialization; qualify scope, recall and reopen with actual local embeddings."
+      "observation": "Real DiskANN graph provider and serialization; qualify scope, recall and reopen with actual local embeddings.",
+      "effect_class": "effectful",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "shared-memory"
+      ]
     },
     {
       "id": "embedding-assets",
@@ -283,7 +515,12 @@
       "package": "vcp-embedding",
       "path": "../../../crates/vcp-embedding/src/lib.rs",
       "symbol": "pub fn load(",
-      "observation": "Reads only explicitly supplied local asset files, verifies bounded bytes and consumes the verified buffers; missing/corrupt assets remain setup errors."
+      "observation": "Reads only explicitly supplied local asset files, verifies bounded bytes and consumes the verified buffers; missing/corrupt assets remain setup errors.",
+      "effect_class": "read-only",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "file-read"
+      ]
     },
     {
       "id": "embedding-cpu",
@@ -291,7 +528,118 @@
       "package": "vcp-embedding",
       "path": "../../../crates/vcp-embedding/src/lib.rs",
       "symbol": "pub fn embed(",
-      "observation": "Bounded CPU BERT inference with explicit masks, truncation reporting and normalized vectors; caller workspace policy and indexing admission remain future integration boundaries."
+      "observation": "Bounded CPU BERT inference with explicit masks, truncation reporting and normalized vectors; caller workspace policy and indexing admission remain future integration boundaries.",
+      "effect_class": "effectful",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "scheduler",
+        "environment",
+        "shared-memory"
+      ]
+    },
+    {
+      "id": "startup-update-check",
+      "group": "cli",
+      "package": "codex-tui",
+      "path": "tui/src/updates.rs",
+      "symbol": "pub fn get_upgrade_version(config:",
+      "observation": "Release-only startup checks schedule remote version discovery and cache writes; debug exec traces do not exercise this path.",
+      "effect_class": "effectful",
+      "vcp_boundary": "disabled-upstream-route",
+      "effects": [
+        "network",
+        "filesystem",
+        "scheduler",
+        "clock"
+      ]
+    },
+    {
+      "id": "daemon-updater",
+      "group": "private-transport",
+      "package": "codex-app-server-daemon",
+      "path": "app-server-daemon/src/update_loop.rs",
+      "symbol": "pub(crate) async fn run(",
+      "observation": "The retained daemon updater fetches installers and restarts processes; VCP does not inherit this independent update authority.",
+      "effect_class": "effectful",
+      "vcp_boundary": "disabled-upstream-route",
+      "effects": [
+        "network",
+        "filesystem",
+        "process",
+        "scheduler",
+        "environment"
+      ]
+    },
+    {
+      "id": "rollout-maintenance-lock",
+      "group": "stores-history",
+      "package": "codex-rollout",
+      "path": "rollout/src/maintenance.rs",
+      "symbol": "pub fn try_acquire_rollout_maintenance_lock(",
+      "observation": "Creates a maintenance lock file and acquires an OS lock; a method named try_acquire is not read-only.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem"
+      ]
+    },
+    {
+      "id": "rollout-compression-worker",
+      "group": "stores-history",
+      "package": "codex-rollout",
+      "path": "rollout/src/compression.rs",
+      "symbol": "pub fn spawn_rollout_compression_worker(",
+      "observation": "Fire-and-forget maintenance compresses and replaces stored history; VCP must own lifetime, retention and durable publication.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem",
+        "scheduler",
+        "telemetry",
+        "clock"
+      ]
+    },
+    {
+      "id": "live-core-facade",
+      "group": "controller",
+      "package": "codex-core-api",
+      "path": "core-api/src/lib.rs",
+      "symbol": "pub use codex_core::ThreadManager;",
+      "observation": "The facade exports live controller/store/provider APIs; re-export syntax does not make its exported surface pure.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "filesystem",
+        "model",
+        "network"
+      ]
+    },
+    {
+      "id": "feature-metrics",
+      "group": "configuration",
+      "package": "codex-features",
+      "path": "features/src/lib.rs",
+      "symbol": "pub fn emit_metrics(&self,",
+      "observation": "Feature configuration also publishes telemetry; data getters and this effectful method have different contracts.",
+      "effect_class": "effectful",
+      "vcp_boundary": "disabled-upstream-route",
+      "effects": [
+        "telemetry"
+      ]
+    },
+    {
+      "id": "rendering-diagnostics",
+      "group": "rendering-codecs",
+      "package": "codex-ansi-escape",
+      "path": "ansi-escape/src/lib.rs",
+      "symbol": "pub fn ansi_escape_line(s:",
+      "observation": "ANSI rendering can log formatted input on unexpected multiline data; VCP must control diagnostic output and retained content.",
+      "effect_class": "effectful",
+      "vcp_boundary": "diagnostic-sink",
+      "effects": [
+        "telemetry"
+      ]
     }
   ],
   "groups": [
@@ -299,7 +647,8 @@
       "id": "controller",
       "packages": [
         "codex-core",
-        "codex-core-plugins"
+        "codex-core-plugins",
+        "codex-core-api"
       ],
       "capabilities": [
         "model",
@@ -315,7 +664,9 @@
         "P0-03",
         "P0-08"
       ],
-      "gate": "One VCP controller; persist authority revisions, pause the root/child tree, reject stale completions and reconcile before explicit resume."
+      "gate": "One VCP controller; persist authority revisions, pause the root/child tree, reject stale completions and reconcile before explicit resume.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
     },
     {
       "id": "cli",
@@ -340,7 +691,9 @@
         "P0-03",
         "P0-08"
       ],
-      "gate": "VCP owns startup configuration, explicit pause/resume and owning-CLI loss; upstream subcommands are not automatically VCP surfaces."
+      "gate": "VCP owns startup configuration, explicit pause/resume and owning-CLI loss; upstream subcommands are not automatically VCP surfaces.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
     },
     {
       "id": "provider-transport",
@@ -366,7 +719,9 @@
         "P0-03",
         "P0-08"
       ],
-      "gate": "OpenRouter-only coding/model gateway; capability and atomic budget admission for main/helper/retry/prewarm paths; explicit transport and catalog authority."
+      "gate": "OpenRouter-only coding/model gateway; capability and atomic budget admission for main/helper/retry/prewarm paths; explicit transport and catalog authority.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "model-gateway"
     },
     {
       "id": "credentials",
@@ -388,7 +743,9 @@
       "owner_tasks": [
         "P0-08"
       ],
-      "gate": "Disable ambient key/token/account/command discovery. Retained credential primitives require explicit VCP configuration and authority."
+      "gate": "Disable ambient key/token/account/command discovery. Retained credential primitives require explicit VCP configuration and authority.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "explicit-credentials"
     },
     {
       "id": "telemetry-diagnostics",
@@ -410,7 +767,9 @@
       "owner_tasks": [
         "P0-08"
       ],
-      "gate": "Remove/disable upstream telemetry and remote feedback. Any retained local diagnostic output follows VCP redaction, scope and retention policy."
+      "gate": "Remove/disable upstream telemetry and remote feedback. Any retained local diagnostic output follows VCP redaction, scope and retention policy.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "disabled-upstream-route"
     },
     {
       "id": "stores-history",
@@ -433,7 +792,9 @@
         "P0-03",
         "P0-08"
       ],
-      "gate": "Replace competing canonical writes with the VCP store/receipt contract; preserve complete observed history and protected recovery/accounting references."
+      "gate": "Replace competing canonical writes with the VCP store/receipt contract; preserve complete observed history and protected recovery/accounting references.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "canonical-store"
     },
     {
       "id": "configuration",
@@ -443,19 +804,23 @@
         "codex-cloud-config",
         "codex-external-agent-migration",
         "codex-install-context",
-        "codex-utils-home-dir"
+        "codex-utils-home-dir",
+        "codex-features"
       ],
       "capabilities": [
         "filesystem",
         "credential",
         "instruction",
-        "network"
+        "network",
+        "telemetry"
       ],
       "handling": "retain-with-adapters",
       "owner_tasks": [
         "P0-08"
       ],
-      "gate": "Explicit VCP settings and workspace identity; disable cloud/default-provider discovery and deferred foreign-configuration import entry points."
+      "gate": "Explicit VCP settings and workspace identity; disable cloud/default-provider discovery and deferred foreign-configuration import entry points.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
     },
     {
       "id": "tools-policy",
@@ -475,7 +840,9 @@
         "P0-05",
         "P0-08"
       ],
-      "gate": "Prepared revision-checked effects, current policy and durable dispatch/receipts; policy-file amendment and migration are writes, not pure matching."
+      "gate": "Prepared revision-checked effects, current policy and durable dispatch/receipts; policy-file amendment and migration are writes, not pure matching.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "tool-broker"
     },
     {
       "id": "execution-sandbox",
@@ -502,7 +869,9 @@
         "P0-05",
         "P0-08"
       ],
-      "gate": "Qualify native Windows job/PTY, child-tree termination and actual access restrictions; do not infer Windows enforcement from Unix code or mocks."
+      "gate": "Qualify native Windows job/PTY, child-tree termination and actual access restrictions; do not infer Windows enforcement from Unix code or mocks.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "tool-broker"
     },
     {
       "id": "private-transport",
@@ -529,7 +898,9 @@
         "P0-03",
         "P0-08"
       ],
-      "gate": "Keep useful private protocol machinery while retaining one owner. Public APIs, independent daemons and upstream provider proxies are not VCP entry points."
+      "gate": "Keep useful private protocol machinery while retaining one owner. Public APIs, independent daemons and upstream provider proxies are not VCP entry points.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
     },
     {
       "id": "workspace-files",
@@ -553,7 +924,9 @@
         "P0-05",
         "P0-08"
       ],
-      "gate": "Workspace-scoped reads and prepared writes; account for Git subprocesses, watchers, junction/path races and preservation of user edits."
+      "gate": "Workspace-scoped reads and prepared writes; account for Git subprocesses, watchers, junction/path races and preservation of user edits.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "tool-broker"
     },
     {
       "id": "delegation-scheduling",
@@ -576,7 +949,9 @@
         "P0-03",
         "P0-08"
       ],
-      "gate": "Visible children share root budget/store/authority; fence queued/background work on pause and preserve independently paused children."
+      "gate": "Visible children share root budget/store/authority; fence queued/background work on pause and preserve independently paused children.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
     },
     {
       "id": "model-assisted-memory",
@@ -595,7 +970,9 @@
       "owner_tasks": [
         "P0-08"
       ],
-      "gate": "Replace upstream memory ownership with governed VCP memory. Stage-one/background summarization calls must use the same admitted model gateway."
+      "gate": "Replace upstream memory ownership with governed VCP memory. Stage-one/background summarization calls must use the same admitted model gateway.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "local-memory"
     },
     {
       "id": "guardian-review",
@@ -615,7 +992,9 @@
         "P0-03",
         "P0-08"
       ],
-      "gate": "Review/helper requests consume admitted budget; model-produced assessment cannot create user authority or bypass VCP permission ceilings."
+      "gate": "Review/helper requests consume admitted budget; model-produced assessment cannot create user authority or bypass VCP permission ceilings.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "model-gateway"
     },
     {
       "id": "skills-mcp-plugins",
@@ -641,7 +1020,9 @@
         "P0-08",
         "P0-09"
       ],
-      "gate": "Skills/MCP use VCP trust, schema, auth, cancellation and budget boundaries. Executable hooks remain deferred despite retained upstream code."
+      "gate": "Skills/MCP use VCP trust, schema, auth, cancellation and budget boundaries. Executable hooks remain deferred despite retained upstream code.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "tool-broker"
     },
     {
       "id": "embedded-code-host",
@@ -661,7 +1042,9 @@
       "owner_tasks": [
         "P0-08"
       ],
-      "gate": "No independent code-execution path may bypass the VCP tool broker; optional upstream runtimes are not implicitly enabled by this import."
+      "gate": "No independent code-execution path may bypass the VCP tool broker; optional upstream runtimes are not implicitly enabled by this import.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "disabled-upstream-route"
     },
     {
       "id": "upstream-services",
@@ -690,7 +1073,9 @@
       "owner_tasks": [
         "P0-08"
       ],
-      "gate": "Disable non-VCP provider/service routes. Retained tools need explicit VCP capability/policy integration; this does not authorize remote embedding fallback."
+      "gate": "Disable non-VCP provider/service routes. Retained tools need explicit VCP capability/policy integration; this does not authorize remote embedding fallback.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "disabled-upstream-route"
     },
     {
       "id": "protocol-data",
@@ -701,12 +1086,10 @@
         "codex-experimental-api-macros",
         "codex-exec-server-protocol",
         "codex-code-mode-protocol",
-        "codex-core-api",
         "codex-extension-api",
         "codex-extension-items",
         "codex-backend-openapi-models",
         "codex-history",
-        "codex-features",
         "codex-context-fragments",
         "codex-guardian-context",
         "codex-prompts",
@@ -721,7 +1104,9 @@
         "P0-03",
         "P0-08"
       ],
-      "gate": "Retain representations/templates where compatible. Types and model text carry no authority; public API/schema exports remain deferred."
+      "gate": "Retain representations/templates where compatible. Types and model text carry no authority; public API/schema exports remain deferred.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
     },
     {
       "id": "rendering-codecs",
@@ -739,13 +1124,16 @@
         "codex-utils-sandbox-summary"
       ],
       "capabilities": [
-        "data"
+        "data",
+        "telemetry"
       ],
       "handling": "retain-data",
       "owner_tasks": [
         "P0-08"
       ],
-      "gate": "Retain deterministic formatting/parsing where compatible; display truncation and summaries must not overwrite canonical history or establish authority."
+      "gate": "Retain deterministic formatting/parsing where compatible; display truncation and summaries must not overwrite canonical history or establish authority.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "diagnostic-sink"
     },
     {
       "id": "resource-helpers",
@@ -767,7 +1155,9 @@
         "P0-03",
         "P0-08"
       ],
-      "gate": "Account for local resource, timer and task lifetimes; no background helper outlives owner pause or retains restricted/deleted context through caches."
+      "gate": "Account for local resource, timer and task lifetimes; no background helper outlives owner pause or retains restricted/deleted context through caches.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
     },
     {
       "id": "build-and-test",
@@ -793,7 +1183,9 @@
         "P0-07",
         "P0-08"
       ],
-      "gate": "Use explicit synthetic fixtures and isolated build/test resources. Test clients, samples and helper binaries are not VCP product entry points."
+      "gate": "Use explicit synthetic fixtures and isolated build/test resources. Test clients, samples and helper binaries are not VCP product entry points.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "qualification-harness"
     },
     {
       "id": "local-memory-libraries",
@@ -812,7 +1204,9 @@
         "P0-02",
         "P0-08"
       ],
-      "gate": "Local governance and indexes remain behind canonical VCP scope, durability and accounting; reference in-memory state is not a second controller or store."
+      "gate": "Local governance and indexes remain behind canonical VCP scope, durability and accounting; reference in-memory state is not a second controller or store.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "local-memory"
     },
     {
       "id": "local-embedding",
@@ -828,7 +1222,10 @@
         "P0-07",
         "P0-02"
       ],
-      "gate": "Pinned file-only CPU inference and independent vectors; P0-02 still owns OS network denial, scoped corpus/index reopen and resource qualification."
+      "gate": "Pinned file-only CPU inference and independent vectors; P0-02 still owns OS network denial, scoped corpus/index reopen and resource qualification.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "local-memory"
     }
-  ]
+  ],
+  "classification_scope": "Every selected package inherits an explicit conservative module effect ceiling and primary owner; named entries refine that envelope after source review, including delegates/callbacks. These are trust classifications, not formal purity proof, runtime enforcement or an exhaustive per-function call graph."
 }

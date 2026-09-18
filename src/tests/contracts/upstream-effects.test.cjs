@@ -36,16 +36,18 @@ test('workspace discovery rejects escaping paths, unresolved inheritance and uns
     assert.throws(() => workspacePackages(fixture.root), /Unsupported workspace/);
   } finally { fixture.cleanup(); }
 });
-test('boundary coverage rejects missing, unknown and multiply owned packages', () => {
+test('boundary coverage rejects unowned packages and inconsistent effect classifications', () => {
   const fixture = ownedRoot(os.tmpdir());
   try {
     write(fixture.root, 'example/src/lib.rs', 'pub fn execute() {}\n');
     const packages = [{ name: 'example', manifest: 'example/Cargo.toml', dependencies: [] }];
     const options = { root: fixture.root, commit: 'a'.repeat(40), taskIds: new Set(['P0-08']) };
-    const catalog = { schema_version: 1, component: 'codex', commit: options.commit, verification: 'static_only', scope: 'Synthetic navigation check',
-      groups: [{ id: 'example', packages: ['example'], capabilities: ['process'], handling: 'retain-with-adapters', owner_tasks: ['P0-08'], gate: 'VCP authority' }],
-      seams: [{ id: 'execute', group: 'example', package: 'example', path: 'example/src/lib.rs', symbol: 'pub fn execute', observation: 'Synthetic fixture' }] };
+    const catalog = { schema_version: 2, classification_scope: 'Synthetic named entry', component: 'codex', commit: options.commit, verification: 'static_only', scope: 'Synthetic navigation check',
+      groups: [{ id: 'example', effect_ceiling: 'effectful', vcp_boundary: 'tool-broker', packages: ['example'], capabilities: ['process'], handling: 'retain-with-adapters', owner_tasks: ['P0-08'], gate: 'VCP authority' }],
+      seams: [{ id: 'execute', group: 'example', package: 'example', path: 'example/src/lib.rs', symbol: 'pub fn execute', observation: 'Synthetic fixture', effect_class: 'effectful', vcp_boundary: 'tool-broker', effects: ['process'] }] };
     assert.equal(validateBoundaries(catalog, packages, options).packages, 1);
+    assert.throws(() => validateBoundaries({ ...catalog, schema_version: 1 }, packages, options), /Invalid boundary inventory/);
+    assert.throws(() => validateBoundaries({ ...catalog, classification_scope: ' ' }, packages, options), /Invalid boundary inventory/);
     assert.throws(() => validateBoundaries(catalog, [...packages, { name: 'new-package', manifest: 'new/Cargo.toml' }], options), /Unassigned workspace/);
     const duplicate = structuredClone(catalog); duplicate.groups[0].packages.push('example');
     assert.throws(() => validateBoundaries(duplicate, packages, options), /multiply assigned/);
@@ -57,6 +59,36 @@ test('boundary coverage rejects missing, unknown and multiply owned packages', (
     wrongGroup.groups.push({ ...wrongGroup.groups[0], id: 'other', packages: ['other'] });
     wrongGroup.seams[0].group = 'other';
     assert.throws(() => validateBoundaries(wrongGroup, [...packages, { name: 'other', manifest: 'other/Cargo.toml' }], options), /Invalid effect seam/);
+    const unclassified = structuredClone(catalog); delete unclassified.seams[0].effect_class;
+    assert.throws(() => validateBoundaries(unclassified, packages, options), /Invalid effect classification/);
+    const noCeiling = structuredClone(catalog); delete noCeiling.groups[0].effect_ceiling;
+    assert.throws(() => validateBoundaries(noCeiling, packages, options), /Invalid boundary group/);
+    const noBoundary = structuredClone(catalog); delete noBoundary.groups[0].vcp_boundary;
+    assert.throws(() => validateBoundaries(noBoundary, packages, options), /Invalid boundary group/);
+    const underclassified = structuredClone(catalog); underclassified.groups[0].effect_ceiling = 'read-only';
+    assert.throws(() => validateBoundaries(underclassified, packages, options), /Module effect ceiling conflicts/);
+    underclassified.groups[0].capabilities = ['data'];
+    assert.throws(() => validateBoundaries(underclassified, packages, options), /Invalid effect classification/);
+    const pureWithIo = structuredClone(catalog); pureWithIo.seams[0].effect_class = 'pure';
+    assert.throws(() => validateBoundaries(pureWithIo, packages, options), /Invalid effect classification/);
+    const pure = structuredClone(pureWithIo); pure.seams[0].effects = [];
+    pure.groups[0].effect_ceiling = 'pure'; pure.groups[0].capabilities = ['data'];
+    assert.equal(validateBoundaries(pure, packages, options).classifications.pure, 1);
+    const read = structuredClone(catalog); read.seams[0].effect_class = 'read-only'; read.seams[0].effects = ['file-read'];
+    read.groups[0].effect_ceiling = 'read-only'; read.groups[0].capabilities = ['filesystem'];
+    assert.equal(validateBoundaries(read, packages, options).classifications['read-only'], 1);
+    read.seams[0].effects.push('filesystem');
+    assert.throws(() => validateBoundaries(read, packages, options), /Invalid effect classification/);
+    for (const mutation of [
+      seam => { seam.vcp_boundary = 'unowned'; },
+      seam => { seam.effects = []; },
+      seam => { seam.effects = ['process', 'process']; },
+      seam => { seam.effects = ['undeclared-effect']; },
+      seam => { seam.effect_class = 'runtime-verified'; }
+    ]) {
+      const invalid = structuredClone(catalog); mutation(invalid.seams[0]);
+      assert.throws(() => validateBoundaries(invalid, packages, options), /Invalid effect classification/);
+    }
     const stale = structuredClone(catalog); stale.seams[0].symbol = 'pub fn missing';
     assert.throws(() => validateBoundaries(stale, packages, options), /Stale source symbol/);
     const escaped = structuredClone(catalog); escaped.seams[0].path = '../outside';
