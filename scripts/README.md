@@ -5,6 +5,8 @@ with bounded Git observations and real artifact stores. See [P2 context](../docs
 `test-provider.ps1` runs 16 provider/context contracts and the retained absolute
 deadline regression; [the provider guide](../docs/development/p2-provider.md)
 distinguishes scripted qualification from live compatibility.
+`test-policy.ps1` runs 47 authority/foundation contracts with native crash
+regressions enabled; see [authority and approvals](../docs/development/p2-policy.md).
 
 `test-integration.ps1` runs native host/port contracts, retained process regressions and the private coding CLI on Rust 1.98.0 (1.95.0 is an explicit comparison option). See [the integration guide](../docs/development/p0-integration.md). `upstream/compare-gemini-ports.cjs` and `upstream/rehearse-codex-fix.cjs` run explicit pinned-source maintenance experiments; neither is an ordinary build dependency.
 

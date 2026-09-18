@@ -1,5 +1,6 @@
 # Reviewed evaluation summaries
 
+- [P2 authority core increment](p2-policy-increment.md): pure policy decisions and canonical approval/grant persistence; native dispatch acceptance remains.
 - [P2 provider gateway increment](p2-provider-increment.md): bounded codec, sealed request admission, observed settlement and retained response deadlines; live compatibility remains unverified.
 - [P2 repository/context increment](p2-context-increment.md): 19 native observations, captured selection and foundation regressions; subsequent provider evidence covers retained request admission.
 

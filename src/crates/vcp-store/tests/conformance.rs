@@ -11,7 +11,21 @@ async fn backends_share_atomicity_receipts_scope_and_revision_contract() {
         let root = temporary.path().join("canonical");
         let mut store = Store::open(&root, backend, &[]).await.unwrap();
         assert!(Store::open(&root, backend, &[]).await.is_err());
-        let transaction = initial();
+        let mut transaction = initial();
+        // Version-1 access documents predate typed authority. A generic `data`
+        // field must not reinterpret their bytes as a new policy or grant.
+        let legacy = serde_json::json!({"schema_version":1,"data":{"legacy":true}});
+        transaction.mutations.push(Mutation::Put {
+            expected: None,
+            record: Record::typed(
+                Collection::Access,
+                "legacy-access",
+                workspace().id,
+                Revision::ZERO,
+                &legacy,
+            )
+            .unwrap(),
+        });
         let receipt = store.transact(transaction.clone()).await.unwrap();
         assert_eq!(store.transact(transaction.clone()).await.unwrap(), receipt);
         let snapshot = store.snapshot().unwrap();
@@ -63,6 +77,14 @@ async fn backends_share_atomicity_receipts_scope_and_revision_contract() {
         drop(store);
         let mut reopened = Store::open(&root, backend, &[]).await.unwrap();
         assert_eq!(reopened.state(), snapshot.state());
+        assert_eq!(
+            reopened
+                .state()
+                .record(Collection::Access, "legacy-access", &workspace().id)
+                .unwrap()
+                .value,
+            legacy
+        );
         assert_eq!(reopened.transact(transaction).await.unwrap(), receipt);
         assert!(reopened.configuration().await.is_ok());
         drop(reopened);

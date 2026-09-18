@@ -96,6 +96,8 @@ See [the context guide](docs/development/p2-context.md).
 Patch 0015 registers the original provider codec and carries an optional host
 deadline through retained HTTP response headers/body. Existing external dependency
 pins remain unchanged; see [the provider guide](docs/development/p2-provider.md).
+Patch 0016 registers the original policy package and canonical store/engine
+dependencies without changing external pins. See [the authority guide](docs/development/p2-policy.md).
 
 Patch 0013 adapts retained HTTP request/response and private host admission seams
 to the canonical foundation. Original VCP host code reuses those APIs and existing

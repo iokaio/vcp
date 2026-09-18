@@ -227,7 +227,8 @@ async fn sealed_openrouter_context_reaches_retained_http_after_manifest_and_rese
 
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn provider_send_fence_rejects_changed_source_and_steering_before_billable_admission() {
+async fn provider_send_fence_rejects_changed_source_steering_and_policy_before_billable_admission()
+{
     use codex_extension_api::{HostModelPurpose, HostWorkAdmission};
     let temporary = tempfile::tempdir().unwrap();
     let workspace = temporary.path().join("workspace");
@@ -326,6 +327,40 @@ async fn provider_send_fence_rejects_changed_source_and_steering_before_billable
             HostModelPurpose::Turn
         )
         .is_err());
+    for revision in 0..2 {
+        use vcp_domain::policy::{Autonomy, Policy};
+        let before = host.context_revisions(id).unwrap();
+        let sealed = sealed_provider_context(&host, id, &snapshot, None);
+        host.prepare_context(id, sealed, serde_json::json!([]), vec![])
+            .unwrap();
+        host.command(
+            Command::SetPolicy {
+                policy: Policy {
+                    workspace: config.workspace.clone(),
+                    revision: PolicyRevision::new(revision),
+                    mode: Autonomy::Ask,
+                    denials: vec![],
+                    workspace_roots: Default::default(),
+                    automatic_effects: Default::default(),
+                    timeout_ceiling_ms: Units::new(1000),
+                    output_ceiling_bytes: ByteCount::new(4096),
+                },
+            },
+            None,
+            Revision::ZERO,
+        )
+        .unwrap();
+        let after = host.context_revisions(id).unwrap();
+        assert_eq!(after.authority, before.authority.next().unwrap());
+        assert_eq!(after.policy, PolicyRevision::new(revision));
+        assert!(host
+            .admit_model(
+                id,
+                &mut serde_json::json!({"model":"gpt-5.1"}),
+                HostModelPurpose::Turn
+            )
+            .is_err());
+    }
     assert!(!host
         .snapshot()
         .unwrap()

@@ -1025,6 +1025,43 @@
       "effect_class": "pure",
       "vcp_boundary": "model-gateway",
       "effects": []
+    },
+    {
+      "id": "authority-pure-evaluation",
+      "group": "authority-policy",
+      "package": "vcp-policy",
+      "path": "../../../crates/vcp-policy/src/lib.rs",
+      "symbol": "pub fn evaluate(",
+      "observation": "Prepared identity, trusted denials, grants, owner facts and actual platform capabilities determine allow/deny/question; money is independent.",
+      "effect_class": "pure",
+      "vcp_boundary": "tool-broker",
+      "effects": []
+    },
+    {
+      "id": "canonical-authority-projection",
+      "group": "command-foundation",
+      "package": "vcp-engine",
+      "path": "../../../crates/vcp-engine/src/policy.rs",
+      "symbol": "pub fn evaluate(",
+      "observation": "Current canonical policy and grants preserve prior exact denials without performing tool dispatch.",
+      "effect_class": "pure",
+      "vcp_boundary": "tool-broker",
+      "effects": []
+    },
+    {
+      "id": "canonical-durable-question",
+      "group": "command-foundation",
+      "package": "vcp-engine",
+      "path": "../../../crates/vcp-engine/src/command_handler.rs",
+      "symbol": "Command::Ask { approval } =>",
+      "observation": "Pending question and waiting task commit together; controller-bound answers create one linked grant and cannot resume work.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem",
+        "history",
+        "policy"
+      ]
     }
   ],
   "groups": [
@@ -1641,7 +1678,8 @@
         "P1-05",
         "P1-06",
         "P2-01",
-        "P2-02"
+        "P2-02",
+        "P2-03"
       ],
       "gate": "Retained controller with one canonical storage/accounting worker, private current-authority commands, per-HTTP admission/raw capture and native output observation. Earlier P0 journal is a separate regression fixture; P2/P3 own provider and product CLI policy.",
       "effect_ceiling": "effectful",
@@ -1679,7 +1717,8 @@
       "handling": "retain-data",
       "owner_tasks": [
         "P1-01",
-        "P1-02"
+        "P1-02",
+        "P2-03"
       ],
       "gate": "Pure transition and codec functions are separate from UUID randomness; no UI, database or provider dependency.",
       "effect_ceiling": "effectful",
@@ -1698,7 +1737,8 @@
       "handling": "retain-with-adapters",
       "owner_tasks": [
         "P1-03",
-        "P1-04"
+        "P1-04",
+        "P2-03"
       ],
       "gate": "One OS owner, durable state/event/receipt transactions, local artifact staging and controlled activation. Process fixture is qualification-feature only.",
       "effect_ceiling": "effectful",
@@ -1718,7 +1758,8 @@
       "owner_tasks": [
         "P1-01",
         "P1-02",
-        "P1-03"
+        "P1-03",
+        "P2-03"
       ],
       "gate": "Authenticated private commands and current host capabilities; no second scheduler. Retained transport/accounting integration remains P1 work.",
       "effect_ceiling": "effectful",
@@ -1814,6 +1855,23 @@
       "gate": "Pure bounded OpenRouter conversion, endpoint snapshot validation, framing and normalization. Canonical host owns capture, freshness, admission and retained transport.",
       "effect_ceiling": "pure",
       "vcp_boundary": "model-gateway"
+    },
+    {
+      "id": "authority-policy",
+      "packages": [
+        "vcp-policy"
+      ],
+      "capabilities": [
+        "data",
+        "instruction"
+      ],
+      "handling": "retain-data",
+      "owner_tasks": [
+        "P2-03"
+      ],
+      "gate": "Pure immutable prepared-operation identity and trusted-denial/scoped-grant decisions; canonical engine owns durable questions, answers and policy records. Native dispatch remains a separate broker gate.",
+      "effect_ceiling": "pure",
+      "vcp_boundary": "tool-broker"
     }
   ],
   "classification_scope": "Every selected package inherits an explicit conservative module effect ceiling and primary owner; named entries refine that envelope after source review, including delegates/callbacks. These are trust classifications, not formal purity proof, runtime enforcement or an exhaustive per-function call graph."

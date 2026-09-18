@@ -91,15 +91,10 @@ impl Context {
                 &binding.scope.workspace,
             )?
             .decode()?;
-        let policy = if state
-            .records
-            .values()
-            .any(|r| r.collection == Collection::Ledger)
-        {
-            vcp_budget::ledger(state, &binding.scope)?.policy
-        } else {
-            PolicyRevision::ZERO
-        };
+        // Tool authority and money admission are independent revisions. Budget
+        // admission rechecks its own ledger policy later in the same worker.
+        let policy = vcp_engine::policy::optional(state, &binding.scope.workspace)?
+            .map_or(PolicyRevision::ZERO, |policy| policy.revision);
         Ok(Revisions {
             scope: binding.scope.clone(),
             steering: task.steering,

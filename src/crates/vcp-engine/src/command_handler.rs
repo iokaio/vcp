@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 use crate::{Error, Result};
+use vcp_domain::policy::*;
 use vcp_domain::{
     artifact::*, effect::*, ids::*, revision::*, task::*, verification::*, workspace::*,
 };
@@ -586,8 +587,177 @@ impl<S: CanonicalStore> Engine<S> {
                 )?;
                 EventKind::WorkspaceBound
             }
+            Command::SetWorkspaceTrust { trust } => {
+                if command.task.is_some() {
+                    return Err(Error::Target);
+                }
+                let mut workspace: Workspace = state
+                    .record(
+                        Collection::Workspace,
+                        command.workspace.as_str(),
+                        &command.workspace,
+                    )?
+                    .decode()?;
+                if command.expected != workspace.revision {
+                    return Err(Error::Target);
+                }
+                let previous = workspace.revision;
+                workspace.revision = workspace.revision.next()?;
+                workspace.authority = workspace.authority.next()?;
+                workspace.trust = *trust;
+                put(
+                    Collection::Workspace,
+                    workspace.id.to_string(),
+                    workspace.revision,
+                    serde_json::to_value(workspace)?,
+                    Some(previous),
+                )?;
+                EventKind::AccessChanged
+            }
+            Command::SetPolicy { policy } => {
+                vcp_policy::validate_policy(policy)?;
+                if command.task.is_some()
+                    || policy.workspace != command.workspace
+                    || policy.denials.iter().any(|r| r.origin != RuleOrigin::User)
+                {
+                    return Err(Error::Target);
+                }
+                if let Some(row) = state
+                    .records
+                    .get(&key(Collection::Access, command.workspace.as_str()))
+                {
+                    let old: AuthorityDocument = row.decode()?;
+                    if !matches!(old.data, AuthorityData::Policy { .. }) {
+                        return Err(Error::Target);
+                    }
+                }
+                let previous = state
+                    .records
+                    .get(&key(Collection::Access, command.workspace.as_str()))
+                    .map(|r| r.revision);
+                let next = previous.map_or(Ok(Revision::ZERO), Revision::next)?;
+                if command.expected != previous.unwrap_or(Revision::ZERO)
+                    || policy.revision.get() != next.get()
+                {
+                    return Err(Error::Target);
+                }
+                let document = AuthorityDocument {
+                    document_type: AuthorityFormat::VcpAuthorityV1,
+                    schema_version: 1,
+                    id: AuthorityId::parse(command.workspace.as_str())?,
+                    workspace: command.workspace.clone(),
+                    revision: next,
+                    data: AuthorityData::Policy {
+                        policy: policy.clone(),
+                    },
+                };
+                put(
+                    Collection::Access,
+                    document.id.to_string(),
+                    next,
+                    serde_json::to_value(document)?,
+                    previous,
+                )?;
+                // Initial policy revision zero must also invalidate a seal made
+                // before any policy existed. Authority epochs cover that change
+                // as well as later explicit policy replacements.
+                let mut workspace: Workspace = state
+                    .record(
+                        Collection::Workspace,
+                        command.workspace.as_str(),
+                        &command.workspace,
+                    )?
+                    .decode()?;
+                let previous = workspace.revision;
+                workspace.revision = workspace.revision.next()?;
+                workspace.authority = workspace.authority.next()?;
+                put(
+                    Collection::Workspace,
+                    workspace.id.to_string(),
+                    workspace.revision,
+                    serde_json::to_value(workspace)?,
+                    Some(previous),
+                )?;
+                result = Some(CommandResult::Accepted { revision: next });
+                EventKind::AccessChanged
+            }
+            Command::SetGrant { grant } => {
+                vcp_policy::validate_grant(grant)?;
+                let policy = crate::policy::current(state, &command.workspace)?;
+                let workspace: Workspace = state
+                    .record(
+                        Collection::Workspace,
+                        command.workspace.as_str(),
+                        &command.workspace,
+                    )?
+                    .decode()?;
+                if grant.actor != access.actor
+                    || grant.scope.workspace() != &command.workspace
+                    || grant.origin != RuleOrigin::User
+                    || grant.policy != policy.revision
+                    || grant.host != workspace.binding.host
+                    || grant.binding != workspace.binding.revision
+                    || grant.authority != workspace.authority
+                    || (!grant.revoked && grant.expires_at <= host.now)
+                    || grant.id.as_str() == command.workspace.as_str()
+                {
+                    return Err(Error::Target);
+                }
+                match &grant.scope {
+                    GrantScope::Session { session, .. } if session != &command.session => {
+                        return Err(Error::Target)
+                    }
+                    GrantScope::Task { scope } if scope.session != command.session => {
+                        return Err(Error::Target)
+                    }
+                    _ => (),
+                }
+                let previous = state
+                    .records
+                    .get(&key(Collection::Access, grant.id.as_str()))
+                    .map(|r| r.revision);
+                if let Some(row) = state
+                    .records
+                    .get(&key(Collection::Access, grant.id.as_str()))
+                {
+                    let old: AuthorityDocument = row.decode()?;
+                    if !matches!(old.data, AuthorityData::Grant { .. }) {
+                        return Err(Error::Target);
+                    }
+                }
+                let next = previous.map_or(Ok(Revision::ZERO), Revision::next)?;
+                if command.expected != previous.unwrap_or(Revision::ZERO) || grant.revision != next
+                {
+                    return Err(Error::Target);
+                }
+                let document = AuthorityDocument {
+                    document_type: AuthorityFormat::VcpAuthorityV1,
+                    schema_version: 1,
+                    id: AuthorityId::parse(grant.id.as_str())?,
+                    workspace: command.workspace.clone(),
+                    revision: next,
+                    data: AuthorityData::Grant {
+                        grant: grant.clone(),
+                    },
+                };
+                put(
+                    Collection::Access,
+                    document.id.to_string(),
+                    next,
+                    serde_json::to_value(document)?,
+                    previous,
+                )?;
+                EventKind::AccessChanged
+            }
             Command::Ask { approval } => {
                 let task = task()?;
+                let workspace: Workspace = state
+                    .record(
+                        Collection::Workspace,
+                        command.workspace.as_str(),
+                        &command.workspace,
+                    )?
+                    .decode()?;
                 let effect: Effect = state
                     .record(
                         Collection::Effect,
@@ -607,6 +777,10 @@ impl<S: CanonicalStore> Engine<S> {
                     || command.expected != effect.revision
                     || approval.policy != host.policy
                     || approval.expires_at <= host.now
+                    || approval.controller.as_ref() != Some(&self.controller)
+                    || approval.owner_epoch != Some(self.owner)
+                    || approval.authority != Some(workspace.authority)
+                    || approval.binding != Some(workspace.binding.revision)
                 {
                     return Err(Error::Target);
                 }
@@ -617,6 +791,28 @@ impl<S: CanonicalStore> Engine<S> {
                     serde_json::to_value(approval)?,
                     None,
                 )?;
+                if !matches!(task.state, TaskState::Paused | TaskState::WaitingForInput) {
+                    let waiting = task.transition(
+                        &task.scope,
+                        task.revision,
+                        task.steering,
+                        TaskState::WaitingForInput,
+                        event_id.clone(),
+                        "prepared operation requires user input".into(),
+                        None,
+                        None,
+                    )?;
+                    put(
+                        Collection::Task,
+                        waiting.scope.task.to_string(),
+                        waiting.revision,
+                        serde_json::to_value(waiting)?,
+                        Some(task.revision),
+                    )?;
+                }
+                result = Some(CommandResult::Accepted {
+                    revision: approval.revision,
+                });
                 EventKind::ApprovalRequested
             }
             Command::Decide {
@@ -637,35 +833,108 @@ impl<S: CanonicalStore> Engine<S> {
                     )?
                     .decode()?;
                 if current.scope != scope()?
-                    || current.state != ApprovalState::Pending
                     || current.actor != access.actor
-                    || current.revision != command.expected
-                    || current.expires_at <= host.now
-                    || current.policy != host.policy
-                    || current.steering != task.steering
-                    || command.steering != task.steering
                     || current.operation_digest != *operation_digest
-                    || effect.operation_digest != *operation_digest
                     || current.effect_revision != *effect_revision
-                    || effect.revision != *effect_revision
+                    || current.controller.as_ref() != Some(&self.controller)
+                    || current.owner_epoch != Some(self.owner)
                 {
                     return Err(Error::Target);
                 }
-                let mut next = current.clone();
-                next.revision = next.revision.next()?;
-                next.state = if *allow {
-                    ApprovalState::Allowed
+                if current.state != ApprovalState::Pending {
+                    if (*allow && current.state != ApprovalState::Allowed)
+                        || (!*allow && current.state != ApprovalState::Denied)
+                    {
+                        return Err(Error::Target);
+                    }
+                    result = Some(CommandResult::Accepted {
+                        revision: current.revision,
+                    });
+                    EventKind::CommandInspected
                 } else {
-                    ApprovalState::Denied
-                };
-                put(
-                    Collection::Approval,
-                    id.to_string(),
-                    next.revision,
-                    serde_json::to_value(next)?,
-                    Some(current.revision),
-                )?;
-                EventKind::ApprovalResolved
+                    let workspace: Workspace = state
+                        .record(
+                            Collection::Workspace,
+                            command.workspace.as_str(),
+                            &command.workspace,
+                        )?
+                        .decode()?;
+                    if current.revision != command.expected
+                        || current.expires_at <= host.now
+                        || current.policy != host.policy
+                        || current.steering != task.steering
+                        || command.steering != task.steering
+                        || effect.operation_digest != *operation_digest
+                        || effect.revision != *effect_revision
+                        || current.authority != Some(workspace.authority)
+                        || current.binding != Some(workspace.binding.revision)
+                    {
+                        return Err(Error::Target);
+                    }
+                    if *allow {
+                        let policy = crate::policy::current(state, &command.workspace)?;
+                        let workspace: Workspace = state
+                            .record(
+                                Collection::Workspace,
+                                command.workspace.as_str(),
+                                &command.workspace,
+                            )?
+                            .decode()?;
+                        if policy.revision != current.policy || workspace.trust != Trust::Trusted {
+                            return Err(Error::Target);
+                        }
+                        let grant = Grant {
+                            id: GrantId::parse(current.id.as_str())?,
+                            actor: current.actor.clone(),
+                            scope: GrantScope::Task {
+                                scope: current.scope.clone(),
+                            },
+                            host: workspace.binding.host,
+                            binding: workspace.binding.revision,
+                            authority: workspace.authority,
+                            policy: current.policy,
+                            expires_at: current.expires_at,
+                            target: GrantTarget::Exact {
+                                digest: current.operation_digest.clone(),
+                            },
+                            origin: RuleOrigin::User,
+                            reason: "explicit prepared-operation approval".into(),
+                            revoked: false,
+                            revision: Revision::ZERO,
+                            approval: Some(current.id.clone()),
+                        };
+                        let document = AuthorityDocument {
+                            document_type: AuthorityFormat::VcpAuthorityV1,
+                            schema_version: 1,
+                            id: AuthorityId::parse(grant.id.as_str())?,
+                            workspace: command.workspace.clone(),
+                            revision: Revision::ZERO,
+                            data: AuthorityData::Grant { grant },
+                        };
+                        put(
+                            Collection::Access,
+                            document.id.to_string(),
+                            document.revision,
+                            serde_json::to_value(document)?,
+                            None,
+                        )?;
+                    }
+                    let mut next = current.clone();
+                    next.revision = next.revision.next()?;
+                    next.state = if *allow {
+                        ApprovalState::Allowed
+                    } else {
+                        ApprovalState::Denied
+                    };
+                    put(
+                        Collection::Approval,
+                        id.to_string(),
+                        next.revision,
+                        serde_json::to_value(next)?,
+                        Some(current.revision),
+                    )?;
+                    EventKind::ApprovalResolved
+                }
             }
             Command::Inspect => {
                 result = Some(CommandResult::Inspection {

@@ -95,6 +95,15 @@ pub enum Command {
     Rebind {
         binding: Binding,
     },
+    SetWorkspaceTrust {
+        trust: Trust,
+    },
+    SetPolicy {
+        policy: vcp_domain::policy::Policy,
+    },
+    SetGrant {
+        grant: vcp_domain::policy::Grant,
+    },
     Ask {
         approval: Approval,
     },
@@ -129,6 +138,16 @@ pub struct Approval {
     pub expires_at: Timestamp,
     pub state: ApprovalState,
     pub revision: Revision,
+    /// Absent in legacy records; those remain inspectable but require a fresh
+    /// question before they can grant authority to a new owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller: Option<ControllerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_epoch: Option<OwnerEpoch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority: Option<AuthorityRevision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<Revision>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,0 +1,49 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 02c8c5f..33c50fb 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17538,6 +17538,7 @@ dependencies = [
+  "thiserror 2.0.18",
+  "tokio",
+  "vcp-domain",
++ "vcp-policy",
+  "vcp-protocol",
+  "vcp-store",
+ ]
+@@ -17599,6 +17600,16 @@ dependencies = [
+  "vcp-protocol",
+ ]
+ 
++[[package]]
++name = "vcp-policy"
++version = "0.1.0"
++dependencies = [
++ "serde_json",
++ "thiserror 2.0.18",
++ "vcp-domain",
++ "vcp-protocol",
++]
++
+ [[package]]
+ name = "vcp-protocol"
+ version = "0.1.0"
+@@ -17653,6 +17664,7 @@ dependencies = [
+  "thiserror 2.0.18",
+  "tokio",
+  "vcp-domain",
++ "vcp-policy",
+  "vcp-protocol",
+ ]
+ 
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index 6d60ae7..ba3df3b 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -2,6 +2,7 @@
+ members = [
+     # VCP modification: OpenRouter codec and bounded provider normalization.
+     "../../../crates/vcp-models",
++    "../../../crates/vcp-policy",
+     # VCP modification: scoped repository/context consumers of the canonical foundation.
+     "../../../crates/vcp-repository",
+     "../../../crates/vcp-context",

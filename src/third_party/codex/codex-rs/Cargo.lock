@@ -17538,6 +17538,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "vcp-domain",
+ "vcp-policy",
  "vcp-protocol",
  "vcp-store",
 ]
@@ -17600,6 +17601,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcp-policy"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror 2.0.18",
+ "vcp-domain",
+ "vcp-protocol",
+]
+
+[[package]]
 name = "vcp-protocol"
 version = "0.1.0"
 dependencies = [
@@ -17653,6 +17664,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "vcp-domain",
+ "vcp-policy",
  "vcp-protocol",
 ]
 

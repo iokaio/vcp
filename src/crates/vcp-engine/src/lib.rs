@@ -3,6 +3,7 @@
 //! handlers record decisions and effects through an injected canonical store.
 pub mod capture;
 pub mod command_handler;
+pub mod policy;
 mod subscription;
 pub use command_handler::{Access, Engine, HostFacts};
 
@@ -24,5 +25,7 @@ pub enum Error {
     Protocol(#[from] vcp_protocol::version::Error),
     #[error("serialization: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("authority policy: {0}")]
+    Policy(#[from] vcp_policy::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
