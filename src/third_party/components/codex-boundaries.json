@@ -674,6 +674,20 @@
         "clock",
         "randomness"
       ]
+    },
+    {
+      "id": "embedding-network-canary",
+      "group": "local-embedding",
+      "package": "vcp-embedding",
+      "path": "../../../crates/vcp-embedding/src/bin/qualify/network.rs",
+      "symbol": "pub fn observe(&self, denied: bool)",
+      "observation": "Qualification executable alone emits controlled same-host TCP canaries; independent parent validates Windows containment, live controls and real CPU inference. File-only library has no network route.",
+      "effect_class": "effectful",
+      "vcp_boundary": "qualification-harness",
+      "effects": [
+        "network",
+        "clock"
+      ]
     }
   ],
   "groups": [
@@ -1253,13 +1267,15 @@
       ],
       "capabilities": [
         "filesystem",
-        "data"
+        "data",
+        "network",
+        "clock"
       ],
       "owner_tasks": [
         "P0-07",
         "P0-02"
       ],
-      "gate": "Pinned file-only CPU inference and independent vectors; P0-02 still owns OS network denial, scoped corpus/index reopen and resource qualification.",
+      "gate": "File-only CPU library with pinned assets and independent vectors. Test executable emits explicit local network canaries for P0-02 observed containment; broader corpus resource qualification remains open.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "local-memory"
     }

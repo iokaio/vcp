@@ -61,7 +61,8 @@
         "src/tests/contracts/upstream-effects.test.cjs",
         "src/tests/contracts/gemini-baseline.test.cjs",
         "src/tests/contracts/model-assets.test.cjs",
-        "src/tests/contracts/local-memory.test.cjs"
+        "src/tests/contracts/local-memory.test.cjs",
+        "src/tests/contracts/offline-embeddings.test.cjs"
       ],
       "backends": [
         "none"

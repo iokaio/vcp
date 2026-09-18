@@ -115,8 +115,10 @@ records seven passing queries and repeated process reopen. The subsequent
 [governance adapter](../development/local-governance-spike.md) uses scoped
 Munarium gates and volatile ledgers, preserving rejected proposals and historical
 versions while selecting current results. P0-02 remains in progress. Durable
-canonical-store integration, broader corpus/resource measurements and observed
-OS network denial remain open.
+canonical-store integration and broader corpus/resource measurements remain open.
+[Offline CPU qualification](../development/offline-embeddings.md) now observes
+zero-capability Windows containment, real inference, live network controls and
+missing/corrupt asset rejection. See [executed evidence and limits](../evaluations/p0-02-offline-embeddings.md).
 
 [Governance qualification evidence](../evaluations/p0-02-local-governance.md)
 records eight native tests, seven real corpus queries and repeated process

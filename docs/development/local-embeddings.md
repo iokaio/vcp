@@ -4,8 +4,8 @@ P0-07 adds `src/crates/vcp-embedding/` to the existing Codex Cargo workspace.
 It provides file-only MiniLM loading and bounded CPU embeddings for qualification.
 The [runtime/asset record](../../src/third_party/components/embedding-runtime.md)
 and [evaluation](../evaluations/p0-07-local-embeddings.md) identify exact inputs
-and executed evidence. P0-02 still owns full local corpus/index integration,
-offline enforcement and resource measurements under [ADR-008](../adr/008-local-governed-memory.md).
+and executed evidence. P0-02 adds [observed offline qualification](offline-embeddings.md) and real
+corpus/index integration; broader resource measurements remain open under [ADR-008](../adr/008-local-governed-memory.md).
 
 ## Explicit asset acquisition
 

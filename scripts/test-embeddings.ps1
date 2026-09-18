@@ -5,7 +5,8 @@ param(
     [string]$AssetsRoot,
     [string]$OutputRoot,
     [string]$TargetRoot,
-    [ValidateRange(1, 16)][int]$Jobs = 4
+    [ValidateRange(1, 16)][int]$Jobs = 4,
+    [switch]$Offline
 )
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -28,6 +29,10 @@ $record = [ordered]@{
     limitations = @('CPU embedding qualification; no VCP indexes, OS network-denial or production resource envelope.')
 }
 $manifest = Join-Path $directory 'manifest.json'
+if ($Offline) {
+    $record.task_id = 'P0-02'
+    $record.limitations = @('CPU inference with observed Windows network isolation; no full index containment or production resource envelope.')
+}
 function Save-Record { $record | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifest -Encoding utf8 }
 function Not-Run([string]$Reason) { $record.status = 'not_run'; $record.reason = $Reason; $record.exit_code = 3; Save-Record; Write-Output $Reason; exit 3 }
 function Stage([string]$Name, [string]$Executable, [string[]]$Arguments) {
@@ -69,7 +74,7 @@ try {
     $workspace = Join-Path $repository 'src/third_party/codex/codex-rs/Cargo.toml'
     $record.lock_sha256 = (Get-FileHash -LiteralPath (Join-Path (Split-Path $workspace) 'Cargo.lock') -Algorithm SHA256).Hash.ToLowerInvariant()
     $record.asset_spec_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'src/third_party/components/minilm-assets.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-    $record.inputs = @('src/crates/vcp-embedding/Cargo.toml', 'src/crates/vcp-embedding/src/lib.rs', 'src/crates/vcp-embedding/src/bin/qualify.rs', 'src/tests/fixtures/local-embeddings/minilm-golden.json', 'src/tests/support/model-assets.cjs', 'src/tests/support/dependency-closure.cjs') | ForEach-Object {
+    $record.inputs = @('src/crates/vcp-embedding/Cargo.toml', 'src/crates/vcp-embedding/src/lib.rs', 'src/crates/vcp-embedding/src/bin/qualify.rs', 'src/crates/vcp-embedding/src/bin/qualify/network.rs', 'src/tests/fixtures/local-embeddings/minilm-golden.json', 'src/tests/support/model-assets.cjs', 'src/tests/support/dependency-closure.cjs') | ForEach-Object {
         @{ path = $_; sha256 = (Get-FileHash -LiteralPath (Join-Path $repository $_) -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
     $record.platform = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
@@ -84,7 +89,11 @@ try {
     Stage 'qualification' (Join-Path $paths.target 'x86_64-pc-windows-msvc/release/qualify.exe') @($paths.assets)
     $result = Get-Content -LiteralPath (Join-Path $directory 'qualification.log') -Raw | ConvertFrom-Json
     if ($result.status -ne 'pass' -or $result.cases -ne 4 -or $result.checks -ne 4 -or $result.asset_spec_sha256 -ne $record.asset_spec_sha256) { throw 'Incomplete embedding qualification result' }
-    $record.result = $result; $record.status = 'pass'; $record.exit_code = 0
+    $record.result = $result
+    if ($Offline) {
+        Stage 'offline' $node.Source @((Join-Path $repository 'scripts/upstream/trace-offline-embeddings.cjs'), '--binary', (Join-Path $paths.target 'x86_64-pc-windows-msvc/release/qualify.exe'), '--assets', $paths.assets, '--output-root', (Join-Path $directory 'offline'))
+    }
+    $record.status = 'pass'; $record.exit_code = 0
 } catch {
     if ($record.status -ne 'not_run') { $record.status = 'fail' }
     $record.reason = $_.Exception.Message

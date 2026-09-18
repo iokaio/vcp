@@ -42,7 +42,10 @@ separate workspace-scoped in-memory backends. A blocked correction records its
 proposed predecessor as evidence without attaching an effective replacement
 edge. This preserves accepted visibility under the retained resolver's semantics.
 Volatile replay does not qualify durable canonical transactions or recovery;
-network denial and broader resource measurements remain P0-02 gates.
+[offline CPU qualification](../evaluations/p0-02-offline-embeddings.md) adds
+observed Windows network denial and real missing/corrupt asset failures. Broader
+resource measurements remain a P0-02 gate. This does not qualify full index
+containment or select the product sandbox.
 
 M01–M07/E13/E14/E20/U09 cover contradictory claims, origin replay, narrow scopes, exact-vector oracle, real CPU embeddings, reopen, deletion during lag and model changes. Fake vectors cannot qualify recall or offline compute.
 

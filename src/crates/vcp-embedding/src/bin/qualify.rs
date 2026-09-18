@@ -81,11 +81,36 @@ fn qualify(root: &Path) -> Result<serde_json::Value, Error> {
 }
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if args.len() != 1 {
-        eprintln!("Required: qualify <verified local model directory>");
-        std::process::exit(2);
-    }
-    match qualify(Path::new(&args[0])) {
+    let result = match args.as_slice() {
+        [assets] => qualify(Path::new(assets)),
+        [mode, address, port, nonce] if mode == "--network-control" =>
+            network::Canary::new(&address.to_string_lossy(), &port.to_string_lossy(), &nonce.to_string_lossy())
+                .and_then(|canary| canary.observe(false))
+                .map(|observation| serde_json::json!({"status":"pass","phase":"network-control","observation":observation})),
+        [mode, assets, address, port, nonce] if mode == "--offline" => (|| {
+            let canary = network::Canary::new(&address.to_string_lossy(), &port.to_string_lossy(), &nonce.to_string_lossy())?;
+            let before = canary.observe(true)?;
+            let mut result = match qualify(Path::new(assets)) {
+                Ok(value) => value,
+                Err(error) => {
+                    println!("{}", serde_json::json!({"status":"error","network_before":before,"failure":error}));
+                    return Err(error);
+                }
+            };
+            let after = canary.observe(true)?;
+            result["network"] = serde_json::json!({"before":before,"after":after});
+            result["limitations"] = serde_json::json!([
+                "Parent token, traffic and control verification is required; binary output alone is not OS denial proof.",
+                "CPU fixture only; no VCP index, durable store or full resource-envelope qualification."
+            ]);
+            Ok(result)
+        })(),
+        _ => {
+            eprintln!("Required: qualify <assets> | --network-control <private-ipv4> <port> <nonce> | --offline <assets> <private-ipv4> <port> <nonce>");
+            std::process::exit(2);
+        }
+    };
+    match result {
         Ok(result) => println!("{result}"),
         Err(error) => {
             let code = if matches!(error, Error::MissingAsset { .. }) {
@@ -98,3 +123,6 @@ fn main() {
         }
     }
 }
+
+#[path = "qualify/network.rs"]
+mod network;
