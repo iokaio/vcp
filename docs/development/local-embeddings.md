@@ -111,10 +111,10 @@ hashed maintenance tool requirements. The native executable compares all vector
 values and unit norms, a padded batch against a single input, visible truncation,
 and loading the model again after dropping it. No paid model calls are used.
 
-The Windows workflow acquires the exact model under `RUNNER_TEMP`, runs this
-wrapper on `win8core` in `wingroup`, and uploads only qualification evidence.
-The existing Codex, Munarium, Gemini and CLI trace gates remain required.
-Deterministic asset/dependency regressions also run on `ubuntu-8core` without
+The manual Windows qualification job acquires the exact model under `RUNNER_TEMP`, runs this
+wrapper on the standard `windows-2025` runner, and uploads only qualification evidence.
+The Codex, Munarium, Gemini and CLI trace gates remain required in that manual run.
+Deterministic asset/dependency regressions also run on `ubuntu-24.04` without
 downloading the model. Subsequent P0-02 gates cover
 [corpus reopen and exact-vector recall](local-memory-spike.md),
 [OS-enforced network denial and missing/corrupt assets](offline-embeddings.md),
