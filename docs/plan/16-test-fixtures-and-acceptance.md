@@ -140,11 +140,23 @@ Live comparisons use matched task/configuration conditions and held-out examples
 Run the same scenarios with optional semantic evaluation disabled, shadowed and
 advisory, following [ADR-020](../adr/020-bounded-semantic-decisions.md) and
 [decision qualification](../architecture/decision-evaluation-design.md#qualification-and-rollout).
-Disabled mode must perform no evaluator network calls; unavailable, abstaining or
-rejected output must preserve deterministic selection and required review. Shadow
-mode records advice without affecting actions but still requires scoped context,
-admitted spend and visible usage. Use scripted transport for routine contracts;
+Disabled mode must perform no evaluator network calls. Unavailable, abstaining or
+rejected output uses the deterministic baseline unless an enabled policy permits
+a separately qualified conventional evaluator fallback; required review remains
+intact in every mode. Shadow mode records advice without affecting actions but
+still requires scoped context, admitted spend and visible usage. Use scripted transport for routine contracts;
 live comparisons need separately authorized caps and never run in default CI.
+
+Cover three distinct implementations: deterministic rules, actual Jev through
+OpenRouter as the preferred specialized candidate, and a conventional OpenRouter
+LLM comparator/permitted fallback. A stronger conventional LLM comparison is
+optional. First qualify the actual Jev endpoint, question/schema capabilities,
+native answer fields and usage mapping using
+[the gateway qualification contract](../architecture/decision-evaluation-design.md#jev-through-openrouter-qualification).
+The `typesafe/jev-1.13` planning example is not an immutable promise: record exact
+requested/served identities, observation dates and immutable versions where
+available, refreshing availability and prices for the run. If actual Jev cannot
+be tested, record not run; conventional-LLM emulation cannot stand in as its result.
 
 Include malformed Boolean/Choice/Score responses, duplicate/missing question IDs,
 out-of-range/non-finite scores, invalid probability distributions, inaccessible
@@ -156,6 +168,23 @@ evaluator selection or schema-repair loop, no authority expansion and no skipped
 required review/test on a low risk score. Replaying persisted advice does not send
 another request; changed revisions require revalidation, not silent reuse.
 
+Native response fixtures distinguish Boolean yes-probability from a Boolean
+decision: no implicit fixed threshold turns the former into the latter. Verify
+versioned Rust thresholds and abstention. Choice/Score confidence fields, choice
+distributions and numerical scores retain their separate meanings; neither a
+winning-choice probability nor a provider confidence field proves calibration.
+Missing native probabilities must fail the affected probability mode or use a
+separately qualified discrete-only mode without manufacturing certainty.
+
+Exercise Jev outage, renamed/changed aliases, unknown served versions, schema
+drift and narrowed provider data controls. Conventional fallback must be explicitly
+permitted and separately qualified, use current scoped context and fresh admission,
+retain Jev's uncertain charges and share the original deadline/attempt/budget
+limits. Assert no direct TypeSafe endpoint, alternate credentials or hidden retries.
+Use hostile state strings containing fake questions, options and instructions.
+Exact counts, date ordering, arithmetic and scope/authority checks have independent
+Rust truth fixtures and cannot be delegated to or overruled by the classifier.
+
 For E19/U07 quality comparisons, declare tuning, calibration and held-out splits,
 truth labels and per-purpose thresholds before measurement. Include serious
 seeded defects and benign changes, productive repeated attempts and true stalls.
@@ -165,6 +194,9 @@ overhead. A Score is not calibrated confidence; probability calibration and Brie
 scores apply only to explicitly probabilistic outputs with suitable labelled
 evidence. Keep p50/p95 latency, sample limits and model/prompt drift visible.
 Unqualified advice stays disabled and cannot lower the existing quality floor.
+Separate actual Jev, conventional fallback and deterministic result cohorts; do not
+credit a fallback's outcome or cost to Jev. Include per-mode probability availability
+and semantic mapping failures in qualification evidence and rollback triggers.
 
 P8 repeats enabled-purpose scenarios with real child admission/isolation,
 integration and independent review, including U02/U03/U06. Child-event scripts in

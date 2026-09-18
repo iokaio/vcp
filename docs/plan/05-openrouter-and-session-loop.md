@@ -19,7 +19,12 @@ reuses this admitted provider path for optional P6 judgments. Preserve a normali
 structured-result boundary and attempt attribution; do not add a second provider
 client or hidden repair calls. P2-06 completion and mandatory checks remain based
 on observed verification, never a classifier score. P2 implementation does not
-depend on the future evaluator.
+depend on the future evaluator. P6-02 later qualifies actual Jev's
+[OpenRouter decision operation](../architecture/decision-evaluation-design.md#jev-through-openrouter-qualification)
+and conventional LLM comparison through these shared facilities. Do not assume
+native decisions use the same wire schema as chat or manufacture chat events for
+unsupported fields. A distinct request codec still uses the same admission and
+receipt boundaries; no LangChain runtime or direct TypeSafe transport is needed.
 
 ## Code organization and interfaces
 

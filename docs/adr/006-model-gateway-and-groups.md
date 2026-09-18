@@ -13,7 +13,10 @@ Coding and model-assisted work use OpenRouter. Frontier/High/Medium/Low describe
 
 This includes the optional bounded judgments proposed by
 [ADR-020](020-bounded-semantic-decisions.md). A vendor-neutral decision interface
-does not permit a second remote gateway; direct Jev access remains unselected.
+does not permit a second remote gateway. Actual Jev through OpenRouter is a planned
+qualification candidate; direct TypeSafe access outside OpenRouter is unselected.
+Its decision operation may need a different codec from chat generation while
+sharing VCP's credentials, admission, data restrictions and attempt accounting.
 
 ## Implementation proposal
 

@@ -673,7 +673,11 @@ Initial ranking should be deterministic and explainable: capability filters, mea
 [ADR-020](../adr/020-bounded-semantic-decisions.md) proposes a bounded semantic
 decision interface for optional complexity, suitability and strategy signals.
 Its [design](decision-evaluation-design.md) incorporates the useful parts of the
-[JEV exploration](exploring-jev.md) without selecting a Jev service dependency.
+[JEV exploration](exploring-jev.md). Actual Jev through OpenRouter is the leading
+specialized qualification candidate, compared with deterministic rules and a
+conventional OpenRouter LLM. A thin Rust adapter preserves the existing gateway;
+LangChain is not a VCP runtime dependency. The listing does not prove request,
+native probability, usage or cancellation compatibility; qualify those explicitly.
 Closed Boolean/Choice/Score answers are advisory inputs to explicit Rust rules;
 scores do not establish calibrated confidence, authority or verified completion.
 Apply hard eligibility and quality constraints first. Retain deterministic fallback
@@ -682,9 +686,10 @@ and record the answer, evidence, policy revision and its effect on the choice.
 P6-02/03/05 owns the proposed integration and P6-04 qualifies any enabled default
 against held-out total-cost and quality evidence. Remote judgments and repairs use
 the same OpenRouter gateway, task ledger, context permissions and pause barriers.
-Local retrieval/indexing remains local. A direct Jev endpoint, extra local model
-and always-on observers are not adopted by this proposal. No task dependencies or
-first-release requirements change, and no model savings are yet demonstrated.
+Local retrieval/indexing remains local. Direct TypeSafe access outside OpenRouter,
+an extra local model and always-on observers are not adopted by this proposal.
+No task dependencies or first-release requirements change, and no model savings
+are yet demonstrated.
 
 A routing decision records the candidate set, exclusion reasons, profile, catalog/evaluation revisions, estimated cost, reservation, selected role/model, provider restrictions, and escalation trigger. User-selected model pins remain effective unless the user enabled fallback.
 
@@ -2067,7 +2072,7 @@ Retain the original ADR IDs and extend them for owner decisions. A confirmed pro
 | [ADR-017](../adr/017-project-optimization.md) | Project optimization | /optimize analyzes project evidence, asks questions and versions user-selected policy changes | P6-05/04, U07 |
 | [ADR-018](../adr/018-release-acceptance.md) | Usable-release acceptance | All required CLI capabilities together; analysis/review/generation and U01–U09 | P8-05 |
 | [ADR-019](../adr/019-cloud-encryption-and-keys.md) | Cloud encryption and developer keys | Local encryption unnecessary; mandatory client-side cloud encryption confirmed; age/Rust candidate, independent recovery identity, rotation, no plaintext fallback; qualify format and writer authentication | P0-04/06, P3-06, P5-09/10, P8-03, U04/I-19 |
-| [ADR-020](../adr/020-bounded-semantic-decisions.md) | Bounded semantic decisions | Proposed typed advisory judgments; deterministic baseline, optional admitted OpenRouter assistance, measured rollout; direct Jev unselected | P6-02/03/04/05; existing P7/P8 integration gates |
+| [ADR-020](../adr/020-bounded-semantic-decisions.md) | Bounded semantic decisions | Proposed typed judgments; qualify actual Jev through OpenRouter against rules and a conventional LLM, thin Rust integration and measured rollout; direct TypeSafe outside OpenRouter unselected | P6-02/03/04/05; existing P7/P8 integration gates |
 
 Each accepted engineering ADR includes alternatives, evidence, consequences, operational burden, compatibility, tests and conditions for reconsideration. Product answers do not certify unbuilt integrations.
 
