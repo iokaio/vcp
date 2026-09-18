@@ -1,0 +1,655 @@
+// SPDX-License-Identifier: Apache-2.0
+use crate::{Error, Result};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use vcp_domain::{
+    artifact::ArtifactDescriptor,
+    effect::Effect,
+    task::{Task, Turn},
+    verification::Verification,
+    workspace::{Session, Workspace},
+    *,
+};
+use vcp_protocol::{
+    canonical_bytes,
+    command::{Approval, CommandReceipt, CommandResult},
+    digest_bytes,
+    event::{EventEnvelope, EventInput},
+};
+
+pub const FORMAT_VERSION: u32 = 1;
+pub const MAX_TRANSACTION_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_COMMIT_BYTES: usize = MAX_TRANSACTION_BYTES * 2 + 65_536;
+pub const MAX_RECORD_BYTES: usize = 1024 * 1024;
+pub const MAX_RECORDS: usize = 100_000;
+/// This first schema uses a bounded in-memory canonical view. Reaching capacity
+/// rejects admission explicitly; it never truncates or silently prunes history.
+pub const MAX_STATE_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Collection {
+    Workspace,
+    Session,
+    Task,
+    Turn,
+    Effect,
+    Artifact,
+    Verification,
+    Approval,
+    Ledger,
+    Reservation,
+    Attempt,
+    Settlement,
+    Claim,
+    IndexIntent,
+    Generation,
+    Tombstone,
+    Projection,
+    SnapshotPin,
+    Access,
+}
+impl Collection {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Workspace => "workspace",
+            Self::Session => "session",
+            Self::Task => "task",
+            Self::Turn => "turn",
+            Self::Effect => "effect",
+            Self::Artifact => "artifact",
+            Self::Verification => "verification",
+            Self::Approval => "approval",
+            Self::Ledger => "ledger",
+            Self::Reservation => "reservation",
+            Self::Attempt => "attempt",
+            Self::Settlement => "settlement",
+            Self::Claim => "claim",
+            Self::IndexIntent => "index_intent",
+            Self::Generation => "generation",
+            Self::Tombstone => "tombstone",
+            Self::Projection => "projection",
+            Self::SnapshotPin => "snapshot_pin",
+            Self::Access => "access",
+        }
+    }
+}
+pub fn key(collection: Collection, id: &str) -> String {
+    format!("{}:{id}", collection.name())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Record {
+    pub collection: Collection,
+    pub id: String,
+    pub workspace: WorkspaceId,
+    pub revision: Revision,
+    pub value: serde_json::Value,
+    /// Explicit references supplement the mandatory relationships derived from typed data.
+    pub references: BTreeSet<String>,
+}
+impl Record {
+    pub fn typed<T: Serialize>(
+        collection: Collection,
+        id: impl Into<String>,
+        workspace: WorkspaceId,
+        revision: Revision,
+        value: &T,
+    ) -> Result<Self> {
+        let record = Self {
+            collection,
+            id: id.into(),
+            workspace,
+            revision,
+            value: serde_json::to_value(value)?,
+            references: BTreeSet::new(),
+        };
+        record.validate_shape()?;
+        Ok(record)
+    }
+    pub fn key(&self) -> String {
+        key(self.collection, &self.id)
+    }
+    pub fn decode<T: serde::de::DeserializeOwned>(&self) -> Result<T> {
+        Ok(serde_json::from_value(self.value.clone())?)
+    }
+    pub fn validate_shape(&self) -> Result<()> {
+        TaskId::parse(self.id.clone())?;
+        if canonical_bytes(self)?.len() > MAX_RECORD_BYTES {
+            return Err(Error::Limit("canonical record"));
+        }
+        let scope = |workspace: &WorkspaceId, id: &str, revision: Revision| -> Result<()> {
+            if workspace != &self.workspace || id != self.id || revision != self.revision {
+                return Err(Error::Corruption("record identity or revision"));
+            }
+            Ok(())
+        };
+        match self.collection {
+            Collection::Workspace => {
+                let value: Workspace = self.decode()?;
+                value.validate()?;
+                scope(&value.id, value.id.as_str(), value.revision)?;
+            }
+            Collection::Session => {
+                let value: Session = self.decode()?;
+                scope(&value.workspace, value.id.as_str(), value.revision)?;
+            }
+            Collection::Task => {
+                let value: Task = self.decode()?;
+                value.validate()?;
+                scope(
+                    &value.scope.workspace,
+                    value.scope.task.as_str(),
+                    value.revision,
+                )?;
+            }
+            Collection::Turn => {
+                let value: Turn = self.decode()?;
+                scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
+            }
+            Collection::Effect => {
+                let value: Effect = self.decode()?;
+                scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
+            }
+            Collection::Artifact => {
+                let value: ArtifactDescriptor = self.decode()?;
+                value.validate()?;
+                scope(
+                    &value.spec.scope.workspace,
+                    value.spec.id.as_str(),
+                    self.revision,
+                )?;
+            }
+            Collection::Verification => {
+                let value: Verification = self.decode()?;
+                value.fingerprint.validate()?;
+                scope(&value.scope.workspace, value.id.as_str(), self.revision)?;
+            }
+            Collection::Approval => {
+                let value: Approval = self.decode()?;
+                scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
+            }
+            _ => {
+                if !self.value.is_object() {
+                    return Err(Error::Corruption(
+                        "versioned collection document must be an object",
+                    ));
+                }
+                if self.value.get("schema_version").and_then(|v| v.as_u64()) != Some(1) {
+                    return Err(Error::Incompatible);
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn required_references(&self) -> Result<BTreeSet<String>> {
+        let mut refs = self.references.clone();
+        if self.collection != Collection::Workspace {
+            refs.insert(key(Collection::Workspace, self.workspace.as_str()));
+        }
+        match self.collection {
+            Collection::Session => {
+                let value: Session = self.decode()?;
+                if let Some(origin) = value.fork_origin {
+                    refs.insert(key(Collection::Session, origin.as_str()));
+                }
+            }
+            Collection::Task => {
+                let value: Task = self.decode()?;
+                refs.insert(key(Collection::Session, value.scope.session.as_str()));
+                if let Some(parent) = value.parent {
+                    refs.insert(key(Collection::Task, parent.as_str()));
+                    refs.insert(key(Collection::Task, value.root.as_str()));
+                }
+                if let Some(origin) = value.fork_origin {
+                    refs.insert(key(Collection::Task, origin.as_str()));
+                }
+            }
+            Collection::Turn => {
+                let value: Turn = self.decode()?;
+                refs.insert(key(Collection::Task, value.scope.task.as_str()));
+                refs.insert(key(Collection::Artifact, value.trigger.as_str()));
+            }
+            Collection::Effect => {
+                let value: Effect = self.decode()?;
+                refs.insert(key(Collection::Task, value.scope.task.as_str()));
+                for id in value.observed_changes {
+                    refs.insert(key(Collection::Artifact, id.as_str()));
+                }
+            }
+            Collection::Artifact => {
+                let value: ArtifactDescriptor = self.decode()?;
+                refs.insert(key(Collection::Task, value.spec.scope.task.as_str()));
+            }
+            Collection::Verification => {
+                let value: Verification = self.decode()?;
+                refs.insert(key(Collection::Task, value.scope.task.as_str()));
+                for id in value
+                    .outputs
+                    .into_iter()
+                    .chain(value.checks.into_iter().map(|c| c.output))
+                {
+                    refs.insert(key(Collection::Artifact, id.as_str()));
+                }
+                for id in value.unresolved_effects {
+                    refs.insert(key(Collection::Effect, id.as_str()));
+                }
+            }
+            Collection::Approval => {
+                let value: Approval = self.decode()?;
+                refs.insert(key(Collection::Effect, value.effect.as_str()));
+                refs.insert(key(Collection::Task, value.scope.task.as_str()));
+            }
+            _ => {}
+        }
+        Ok(refs)
+    }
+    fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
+        Ok(match self.collection {
+            Collection::Task => Some(self.decode::<Task>()?.scope),
+            Collection::Turn => Some(self.decode::<Turn>()?.scope),
+            Collection::Effect => Some(self.decode::<Effect>()?.scope),
+            Collection::Artifact => Some(self.decode::<ArtifactDescriptor>()?.spec.scope),
+            Collection::Verification => Some(self.decode::<Verification>()?.scope),
+            Collection::Approval => Some(self.decode::<Approval>()?.scope),
+            _ => None,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Mutation {
+    Put {
+        expected: Option<Revision>,
+        record: Record,
+    },
+    /// Only disposable projections may be physically removed through this path.
+    DropProjection { id: String, expected: Revision },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReceiptInput {
+    pub command: CommandId,
+    pub workspace: WorkspaceId,
+    pub session: SessionId,
+    pub digest: String,
+    pub result: CommandResult,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Transaction {
+    pub id: TransactionId,
+    pub expected_watermark: Watermark,
+    pub mutations: Vec<Mutation>,
+    pub events: Vec<EventInput>,
+    pub command: Option<ReceiptInput>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Receipt {
+    pub transaction: TransactionId,
+    pub digest: String,
+    pub watermark: Watermark,
+    pub command: Option<CommandReceipt>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Commit {
+    pub version: u32,
+    pub transaction: Transaction,
+    pub receipt: Receipt,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct State {
+    pub watermark: Watermark,
+    pub records: BTreeMap<String, Record>,
+    pub events: Vec<EventEnvelope>,
+    pub commands: BTreeMap<String, CommandReceipt>,
+    pub transactions: BTreeMap<TransactionId, Receipt>,
+    pub sequences: BTreeMap<SessionId, SessionSeq>,
+}
+pub fn command_key(workspace: &WorkspaceId, command: &CommandId) -> String {
+    format!("{workspace}:{command}")
+}
+impl State {
+    pub fn record(
+        &self,
+        collection: Collection,
+        id: &str,
+        workspace: &WorkspaceId,
+    ) -> Result<&Record> {
+        let record = self
+            .records
+            .get(&key(collection, id))
+            .ok_or(Error::Conflict("record not found"))?;
+        if &record.workspace != workspace {
+            return Err(Error::Access);
+        }
+        Ok(record)
+    }
+    pub fn command(
+        &self,
+        workspace: &WorkspaceId,
+        id: &CommandId,
+        digest: &str,
+    ) -> Result<Option<CommandReceipt>> {
+        match self.commands.get(&command_key(workspace, id)) {
+            Some(receipt) if receipt.digest == digest => Ok(Some(receipt.clone())),
+            Some(_) => Err(Error::Conflict("command ID reused with different meaning")),
+            None => Ok(None),
+        }
+    }
+    pub fn validate(&self) -> Result<()> {
+        if self.records.len() > MAX_RECORDS {
+            return Err(Error::Limit("canonical record count"));
+        }
+        if canonical_bytes(self)?.len() > MAX_STATE_BYTES {
+            return Err(Error::Limit(
+                "canonical view bytes; explicit migration required",
+            ));
+        }
+        for (key, record) in &self.records {
+            if &record.key() != key {
+                return Err(Error::Corruption("canonical key"));
+            }
+            record.validate_shape()?;
+            for reference in record.required_references()? {
+                let target = self
+                    .records
+                    .get(&reference)
+                    .ok_or(Error::Corruption("missing canonical reference"))?;
+                if target.workspace != record.workspace {
+                    return Err(Error::Access);
+                }
+                if let (Some(source), Some(target)) = (record.task_scope()?, target.task_scope()?) {
+                    // Fork and parent links are explicit task relationships. Data
+                    // belonging to another task cannot be reused as this task's
+                    // turn input, verification, approval, or effect observation.
+                    if record.collection != Collection::Task && source != target {
+                        return Err(Error::Access);
+                    }
+                }
+            }
+            if let Some(scope) = record.task_scope()? {
+                let task: Task = self
+                    .record(Collection::Task, scope.task.as_str(), &scope.workspace)?
+                    .decode()?;
+                if task.scope != scope {
+                    return Err(Error::Access);
+                }
+            }
+            if record.collection == Collection::Task {
+                let task: Task = record.decode()?;
+                let mut seen = BTreeSet::from([task.scope.task.clone()]);
+                let mut parent = task.parent.clone();
+                while let Some(id) = parent {
+                    if !seen.insert(id.clone()) {
+                        return Err(Error::Corruption("task ancestry cycle"));
+                    }
+                    let ancestor: Task = self
+                        .record(Collection::Task, id.as_str(), &task.scope.workspace)?
+                        .decode()?;
+                    if ancestor.root != task.root || ancestor.scope.session != task.scope.session {
+                        return Err(Error::Corruption("task root or session"));
+                    }
+                    parent = ancestor.parent;
+                }
+                let session: Session = self
+                    .record(
+                        Collection::Session,
+                        task.scope.session.as_str(),
+                        &task.scope.workspace,
+                    )?
+                    .decode()?;
+                if session.workspace != task.scope.workspace {
+                    return Err(Error::Access);
+                }
+            }
+        }
+        let mut event_ids = BTreeSet::new();
+        let mut sequences = BTreeMap::<SessionId, SessionSeq>::new();
+        for event in &self.events {
+            if event.version != 1
+                || event.watermark > self.watermark
+                || !event_ids.insert(event.event.id.clone())
+            {
+                return Err(Error::Corruption("event identity"));
+            }
+            self.record(
+                Collection::Session,
+                event.event.session.as_str(),
+                &event.event.workspace,
+            )?;
+            if let Some(task) = &event.event.task {
+                let task: Task = self
+                    .record(Collection::Task, task.as_str(), &event.event.workspace)?
+                    .decode()?;
+                if task.scope.session != event.event.session {
+                    return Err(Error::Access);
+                }
+            }
+            for artifact in &event.event.artifacts {
+                let artifact: ArtifactDescriptor = self
+                    .record(
+                        Collection::Artifact,
+                        artifact.as_str(),
+                        &event.event.workspace,
+                    )?
+                    .decode()?;
+                if artifact.spec.scope.session != event.event.session
+                    || event
+                        .event
+                        .task
+                        .as_ref()
+                        .is_some_and(|t| t != &artifact.spec.scope.task)
+                {
+                    return Err(Error::Access);
+                }
+            }
+            let expected = sequences
+                .get(&event.event.session)
+                .copied()
+                .unwrap_or_default()
+                .next()?;
+            if event.sequence != expected {
+                return Err(Error::Corruption("event sequence gap or duplicate"));
+            }
+            sequences.insert(event.event.session.clone(), expected);
+        }
+        if sequences != self.sequences {
+            return Err(Error::Corruption("session watermark"));
+        }
+        Ok(())
+    }
+    pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {
+        let bytes = canonical_bytes(transaction)?;
+        if bytes.len() > MAX_TRANSACTION_BYTES {
+            return Err(Error::Limit("transaction bytes"));
+        }
+        let digest = digest_bytes(&bytes);
+        if let Some(receipt) = self.transactions.get(&transaction.id) {
+            if receipt.digest != digest {
+                return Err(Error::Conflict("transaction ID reused"));
+            }
+            return Ok((
+                self.clone(),
+                Commit {
+                    version: FORMAT_VERSION,
+                    transaction: transaction.clone(),
+                    receipt: receipt.clone(),
+                },
+            ));
+        }
+        if transaction.expected_watermark != self.watermark {
+            return Err(Error::Conflict("stale canonical watermark"));
+        }
+        let watermark = self.watermark.next()?;
+        let mut result = self.clone();
+        result.watermark = watermark;
+        let mut touched = BTreeSet::new();
+        for mutation in &transaction.mutations {
+            match mutation {
+                Mutation::Put { expected, record } => {
+                    let key = record.key();
+                    if !touched.insert(key.clone()) {
+                        return Err(Error::Conflict("duplicate mutation"));
+                    }
+                    match (self.records.get(&key), expected) {
+                        (None, None) if record.revision == Revision::ZERO => {}
+                        (Some(previous), Some(expected))
+                            if previous.revision == *expected
+                                && record.revision == expected.next()?
+                                && previous.workspace == record.workspace =>
+                        {
+                            if matches!(
+                                record.collection,
+                                Collection::Verification | Collection::Settlement
+                            ) {
+                                return Err(Error::Conflict("immutable evidence record"));
+                            }
+                            if record.collection == Collection::Artifact {
+                                let prior: ArtifactDescriptor = previous.decode()?;
+                                let next: ArtifactDescriptor = record.decode()?;
+                                if prior.state != vcp_domain::artifact::CaptureState::Pending
+                                    || next.length < prior.length
+                                    || prior.spec.id != next.spec.id
+                                {
+                                    return Err(Error::Conflict(
+                                        "immutable or regressing artifact",
+                                    ));
+                                }
+                            }
+                        }
+                        _ => return Err(Error::Conflict("entity revision or identity")),
+                    }
+                    result.records.insert(key, record.clone());
+                }
+                Mutation::DropProjection { id, expected } => {
+                    let key = key(Collection::Projection, id);
+                    if !touched.insert(key.clone())
+                        || self
+                            .records
+                            .get(&key)
+                            .is_none_or(|r| r.revision != *expected)
+                    {
+                        return Err(Error::Conflict("projection revision"));
+                    }
+                    result.records.remove(&key);
+                }
+            }
+        }
+        let mut first = SessionSeq::ZERO;
+        let mut last = SessionSeq::ZERO;
+        for event in &transaction.events {
+            let sequence = result
+                .sequences
+                .get(&event.session)
+                .copied()
+                .unwrap_or_default()
+                .next()?;
+            result.sequences.insert(event.session.clone(), sequence);
+            if transaction
+                .command
+                .as_ref()
+                .is_some_and(|c| c.session == event.session)
+            {
+                if first == SessionSeq::ZERO {
+                    first = sequence;
+                }
+                last = sequence;
+            }
+            result.events.push(EventEnvelope {
+                version: 1,
+                sequence,
+                watermark,
+                event: event.clone(),
+            });
+        }
+        let command = if let Some(input) = &transaction.command {
+            result.record(
+                Collection::Session,
+                input.session.as_str(),
+                &input.workspace,
+            )?;
+            if input.digest.len() != 64
+                || !input
+                    .digest
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+            {
+                return Err(Error::Corruption("command digest"));
+            }
+            if transaction.events.iter().any(|e| {
+                e.workspace != input.workspace
+                    || e.session != input.session
+                    || e.correlation != input.command
+            }) {
+                return Err(Error::Access);
+            }
+            let key = command_key(&input.workspace, &input.command);
+            if result.commands.contains_key(&key) {
+                return Err(Error::Conflict("command already committed"));
+            }
+            let receipt = CommandReceipt {
+                version: 1,
+                command: input.command.clone(),
+                workspace: input.workspace.clone(),
+                digest: input.digest.clone(),
+                transaction: transaction.id.clone(),
+                watermark,
+                first_event: first,
+                last_event: last,
+                result: input.result.clone(),
+            };
+            result.commands.insert(key, receipt.clone());
+            Some(receipt)
+        } else {
+            None
+        };
+        let receipt = Receipt {
+            transaction: transaction.id.clone(),
+            digest,
+            watermark,
+            command,
+        };
+        result
+            .transactions
+            .insert(transaction.id.clone(), receipt.clone());
+        result.validate()?;
+        Ok((
+            result,
+            Commit {
+                version: FORMAT_VERSION,
+                transaction: transaction.clone(),
+                receipt,
+            },
+        ))
+    }
+    pub fn replay(&mut self, commit: &Commit) -> Result<()> {
+        if commit.version != FORMAT_VERSION {
+            return Err(Error::Incompatible);
+        }
+        if self.transactions.contains_key(&commit.transaction.id) {
+            return Err(Error::Corruption("duplicate persisted transaction"));
+        }
+        let (next, expected) = self.prepare(&commit.transaction)?;
+        if expected != *commit {
+            return Err(Error::Corruption("durable receipt mismatch"));
+        }
+        *self = next;
+        Ok(())
+    }
+}
+
+#[allow(async_fn_in_trait)]
+pub trait CanonicalStore {
+    fn state(&self) -> &State;
+    async fn transact(&mut self, transaction: Transaction) -> Result<Receipt>;
+}

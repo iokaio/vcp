@@ -1,5 +1,7 @@
 # Reviewed evaluation summaries
 
+- [P1 foundation increment](p1-foundation-increment.md): 24 native domain, command, capture, backend and process-crash contracts; remaining P1 acceptance is explicit.
+
 - [P0-06 qualification dossier](p0-06-handoff.md): consolidated prerequisites, decisions, rejected alternatives and next owners.
 - [P0-08/P0-09 integration](p0-08-09-integration.md): native coding trace, shared budget, attributed ports and maintenance rehearsal.
 

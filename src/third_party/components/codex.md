@@ -36,6 +36,9 @@ archives/hashes in `third_party/voice/sources.json`; no compiled voice library o
 Microsoft redistributable is imported by this selection. This record does not
 qualify optional/platform-specific targets or promise a fully offline build.
 
+Patch 0011 also registers the four original [P1 foundation packages](../../../docs/development/p1-foundation.md)
+without changing external dependency pins or imported implementation.
+
 Applicable source notices are retained unchanged:
 
 - Root `LICENSE` (Apache-2.0) and `NOTICE` (OpenAI and Ratatui attribution).

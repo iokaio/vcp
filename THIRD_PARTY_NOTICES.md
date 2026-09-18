@@ -84,6 +84,10 @@ VCP code using the retained Codex APIs and synthetic test helpers; no new extern
 dependency identity or third-party source is imported.
 Modified files carry notices; original
 copyright and license terms remain unchanged.
+Patch 0011 registers original VCP domain, protocol, store and engine packages in
+the same workspace and lockfile. They reuse existing serialization, UUID, SHA-256,
+SQLx, Tokio and error dependencies; no external dependency identity/checksum or
+third-party implementation is added by this increment.
 Individual source copyright headers remain intact. No voice DLLs, Microsoft
 redistributables, model assets or VCP release package are distributed by this import.
 

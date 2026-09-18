@@ -807,6 +807,59 @@
         "process",
         "shared-memory"
       ]
+    },
+    {
+      "id": "foundation-transition",
+      "group": "foundation-types",
+      "package": "vcp-domain",
+      "path": "../../../crates/vcp-domain/src/task.rs",
+      "symbol": "pub fn transition(",
+      "observation": "Clone-based revision and evidence validation cannot execute external work.",
+      "effect_class": "pure",
+      "vcp_boundary": "controller",
+      "effects": []
+    },
+    {
+      "id": "foundation-identity",
+      "group": "foundation-types",
+      "package": "vcp-domain",
+      "path": "../../../crates/vcp-domain/src/ids.rs",
+      "symbol": "uuid::Uuid::new_v4()",
+      "observation": "Opaque ID generation consumes system randomness; transition predicates remain pure.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "randomness"
+      ]
+    },
+    {
+      "id": "foundation-transaction",
+      "group": "canonical-foundation",
+      "package": "vcp-store",
+      "path": "../../../crates/vcp-store/src/store.rs",
+      "symbol": "async fn transact(",
+      "observation": "Artifact validation and durable state/event/receipt persistence occur under one canonical owner.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem",
+        "history"
+      ]
+    },
+    {
+      "id": "foundation-command",
+      "group": "command-foundation",
+      "package": "vcp-engine",
+      "path": "../../../crates/vcp-engine/src/command_handler.rs",
+      "symbol": "pub async fn handle(",
+      "observation": "Current authentication precedes receipt lookup; owner/revision checks precede new durable commands.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "filesystem",
+        "history",
+        "policy"
+      ]
     }
   ],
   "groups": [
@@ -1440,6 +1493,63 @@
       "gate": "Disposable SQLite/framed-file comparison and age/Ed25519 authenticated snapshot prototype; production storage and restore activation remain P1/P5.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "canonical-store"
+    },
+    {
+      "id": "foundation-types",
+      "packages": [
+        "vcp-domain",
+        "vcp-protocol"
+      ],
+      "capabilities": [
+        "data"
+      ],
+      "handling": "retain-data",
+      "owner_tasks": [
+        "P1-01",
+        "P1-02"
+      ],
+      "gate": "Pure transition and codec functions are separate from UUID randomness; no UI, database or provider dependency.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
+    },
+    {
+      "id": "canonical-foundation",
+      "packages": [
+        "vcp-store"
+      ],
+      "capabilities": [
+        "data",
+        "filesystem",
+        "process"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P1-03",
+        "P1-04"
+      ],
+      "gate": "One OS owner, durable state/event/receipt transactions, local artifact staging and controlled activation. Process fixture is qualification-feature only.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "canonical-store"
+    },
+    {
+      "id": "command-foundation",
+      "packages": [
+        "vcp-engine"
+      ],
+      "capabilities": [
+        "data",
+        "filesystem",
+        "credential"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P1-01",
+        "P1-02",
+        "P1-03"
+      ],
+      "gate": "Authenticated private commands and current host capabilities; no second scheduler. Retained transport/accounting integration remains P1 work.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
     }
   ],
   "classification_scope": "Every selected package inherits an explicit conservative module effect ceiling and primary owner; named entries refine that envelope after source review, including delegates/callbacks. These are trust classifications, not formal purity proof, runtime enforcement or an exhaustive per-function call graph."

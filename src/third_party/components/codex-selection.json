@@ -71,6 +71,10 @@
     {
       "path": "src/third_party/patches/codex/0010-integrated-host.patch",
       "sha256": "43a6f4986468880e10b131179cd4e359aac09abf58a526d96980956321548b19"
+    },
+    {
+      "path": "src/third_party/patches/codex/0011-p1-foundation-workspace.patch",
+      "sha256": "d5aa0380002b13a358f2c855a2e8aad79fac5fb859cb982d3da85083b6623ac2"
     }
   ],
   "licenses": [

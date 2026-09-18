@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "vcp-store"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+workspace = "../../third_party/codex/codex-rs"
+
+[features]
+qualification = []
+
+[[bin]]
+name = "vcp-store-crash-fixture"
+path = "tests/fixtures/store_child.rs"
+required-features = ["qualification"]
+
+[dependencies]
+vcp-domain = { path = "../vcp-domain" }
+vcp-protocol = { path = "../vcp-protocol" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

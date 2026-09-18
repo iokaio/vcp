@@ -67,6 +67,12 @@ already include these changes; normal builds never apply patches.
     Munarium dependencies are connected to the host; no external pin changes.
     See [the integration guide](../../../../docs/development/p0-integration.md).
 
+11. `0011-p1-foundation-workspace.patch` registers four original VCP foundation
+    packages (`vcp-domain`, `vcp-protocol`, `vcp-store`, `vcp-engine`) in the
+    retained workspace and lockfile. External package identities and checksums
+    are unchanged. No imported implementation is changed in this increment.
+    See [the foundation guide](../../../../docs/development/p1-foundation.md).
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

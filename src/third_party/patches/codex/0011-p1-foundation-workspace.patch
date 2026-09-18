@@ -1,0 +1,97 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 7a38f63..da65d96 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17459,6 +17459,16 @@ version = "0.1.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+ 
++[[package]]
++name = "vcp-domain"
++version = "0.1.0"
++dependencies = [
++ "serde",
++ "serde_json",
++ "thiserror 2.0.18",
++ "uuid",
++]
++
+ [[package]]
+ name = "vcp-embedding"
+ version = "0.1.0"
+@@ -17473,6 +17483,20 @@ dependencies = [
+  "tokenizers",
+ ]
+ 
++[[package]]
++name = "vcp-engine"
++version = "0.1.0"
++dependencies = [
++ "serde",
++ "serde_json",
++ "tempfile",
++ "thiserror 2.0.18",
++ "tokio",
++ "vcp-domain",
++ "vcp-protocol",
++ "vcp-store",
++]
++
+ [[package]]
+ name = "vcp-lifecycle"
+ version = "0.1.0"
+@@ -17508,6 +17532,17 @@ dependencies = [
+  "vcp-embedding",
+ ]
+ 
++[[package]]
++name = "vcp-protocol"
++version = "0.1.0"
++dependencies = [
++ "serde",
++ "serde_json",
++ "sha2 0.10.9",
++ "thiserror 2.0.18",
++ "vcp-domain",
++]
++
+ [[package]]
+ name = "vcp-storage-spike"
+ version = "0.1.0"
+@@ -17523,6 +17558,21 @@ dependencies = [
+  "tokio",
+ ]
+ 
++[[package]]
++name = "vcp-store"
++version = "0.1.0"
++dependencies = [
++ "serde",
++ "serde_json",
++ "sha2 0.10.9",
++ "sqlx",
++ "tempfile",
++ "thiserror 2.0.18",
++ "tokio",
++ "vcp-domain",
++ "vcp-protocol",
++]
++
+ [[package]]
+ name = "vcpkg"
+ version = "0.2.15"
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index f9feee8..d0226fe 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -1,5 +1,10 @@
+ [workspace]
+ members = [
++    # VCP modification: typed P1 foundation in the retained workspace.
++    "../../../crates/vcp-domain",
++    "../../../crates/vcp-protocol",
++    "../../../crates/vcp-store",
++    "../../../crates/vcp-engine",
+     # VCP modification: portable storage qualification shares the retained build graph.
+     "../../../crates/vcp-storage-spike",
+     # VCP modification: scoped retained-controller lifecycle qualification.

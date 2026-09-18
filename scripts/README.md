@@ -51,3 +51,8 @@ Tantivy/DiskANN artifacts, CPU vectors, canonical fixture filtering and repeated
 fresh-process reopen. It does not download models or qualify OS network isolation.
 
 Resolve paths from the script's location, document real tool prerequisites, reject unknown inputs, and return failures to callers. Missing tools, model assets, or environments must be reported as not run. Add working entry points with their owning implementation; do not add no-op success scripts to satisfy the tree.
+
+`test-foundation.ps1` qualifies the [P1 durable foundation](../docs/development/p1-foundation.md)
+with native typed-state, command, capture, backend, process-crash and controlled
+activation contracts. It records stable source inputs and actual native test
+results. Accounting and retained-controller integration are subsequent P1 work.

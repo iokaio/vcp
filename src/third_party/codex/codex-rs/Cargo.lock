@@ -17460,6 +17460,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
+name = "vcp-domain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
 name = "vcp-embedding"
 version = "0.1.0"
 dependencies = [
@@ -17471,6 +17481,20 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokenizers",
+]
+
+[[package]]
+name = "vcp-engine"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "vcp-domain",
+ "vcp-protocol",
+ "vcp-store",
 ]
 
 [[package]]
@@ -17509,6 +17533,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcp-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "vcp-domain",
+]
+
+[[package]]
 name = "vcp-storage-spike"
 version = "0.1.0"
 dependencies = [
@@ -17521,6 +17556,21 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "vcp-store"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "vcp-domain",
+ "vcp-protocol",
 ]
 
 [[package]]
