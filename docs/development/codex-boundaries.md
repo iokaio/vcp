@@ -4,12 +4,18 @@ The shared workspace contains 158 Cargo packages: 154 from Codex, three
 [selected Munarium libraries](munarium-source.md), and the original
 [VCP CPU embedding helper](local-embeddings.md). Its
 [boundary inventory](../../src/third_party/components/codex-boundaries.json)
-assigns each package to exactly one of 23 review groups and anchors 36 concrete
+assigns each package to exactly one of 23 review groups and anchors 43 concrete
 source seams. It is a **static ownership and navigation record**. It does not
 prove absence of hidden effects, enable a VCP runtime or claim that an adapter
 already exists. Read it alongside [the source selection](codex-source.md),
 [engine execution design](../architecture/engine-execution-design.md),
 [ADR-001](../adr/001-runtime-topology.md) and [ADR-013](../adr/013-upstream-reuse-and-vendoring.md).
+
+The [classification contract](upstream-effect-classes.md) defines each group's
+conservative effect ceiling, the narrower named entries and their primary VCP
+owners. The checker rejects absent or inconsistent classifications as well as
+missing package ownership. [Selection gate evidence](../evaluations/p0-07-selection-gate.md)
+separates this source review from later runtime enforcement.
 
 ## Reproduce and maintain coverage
 

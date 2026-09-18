@@ -17,5 +17,6 @@ Raw evidence stays in ignored local artifact directories or CI artifacts.
 - [P0-07 boundary inventory](p0-07-boundary-inventory.md): static coverage of 154 Codex packages and 25 source anchors; runtime enforcement remains unqualified.
 - [P0-07 native CLI trace](p0-07-cli-trace.md): five request/tool/completion cases through the Windows binary, including retry and rejection.
 - [P0-07 helper traces](p0-07-helper-traces.md): nine native cases, including review usage discrepancies and compaction success/rejection with independent request observation.
+- [P0-07 selection gate](p0-07-selection-gate.md): consolidated acceptance evidence, schema 2 effect classifications and explicit subsequent-task boundaries.
 - [P0-07 compiler compatibility](p0-07-common-rust.md): explicit compiler experiments, a recorded recursion-limit patch and reconstruction evidence.
 - [P0-07 hosted Windows](p0-07-hosted-windows.md): clean native build, 102 tests, five CLI traces and exact reconstruction on the second Windows environment.

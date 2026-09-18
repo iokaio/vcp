@@ -9,7 +9,8 @@ State: imported, unqualified as a VCP runtime.
 [manifest](../upstreams.toml), [build/reconstruction procedure](../../../docs/development/codex-source.md)
 and [original native baseline](../../../docs/evaluations/p0-07-native-candidates.md)
 form the source record. The ordered [patch series](../patches/codex/README.md)
-raises the `codex-chatgpt` recursion limit for the Rust 1.98.0 compiler experiment.
+records the `codex-chatgpt` recursion-limit change for the Rust 1.98.0 compiler
+experiment and the Munarium/embedding workspace and lockfile integrations.
 The separate license transformation materializes bubblewrap's symlink from its
 selected `COPYING` bytes. Original bytes/hashes and current results are retained.
 

@@ -1,6 +1,6 @@
 # 01 — Native Windows foundation and upstream feasibility
 
-Status: P0-01 complete; P0-07 candidate qualification in progress; remaining tasks planned. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
+Status: P0-01 complete; P0-07 implemented, awaiting hosted verification of its final classification checks; remaining tasks planned. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
 
 Use the [upstream experiment procedure](../development/upstream-qualification.md) for manifest/reconstruction details and the [qualification harness design](../architecture/qualification-release-design.md) for result records and fault supervision. [ADR-001](../adr/001-runtime-topology.md), [ADR-003](../adr/003-canonical-storage.md), [ADR-008](../adr/008-local-governed-memory.md), [ADR-015](../adr/015-portability-and-storage-choice.md) and [ADR-019](../adr/019-cloud-encryption-and-keys.md) now record the confirmed directions and pending experiments separately.
 
@@ -48,7 +48,7 @@ open; this result does not complete P0-07 or the later VCP lifecycle work.
 The [committed Munarium selection](../development/munarium-source.md) adds 70
 files and three libraries to the same Cargo workspace. [Import evidence](../evaluations/p0-07-munarium-import.md)
 records 200 native tests, unchanged Codex package pins and exact reconstruction.
-The current static inventory covers 157 packages, 22 groups and 30 anchors.
+At that import, the static inventory covered 157 packages, 22 groups and 30 anchors.
 Gemini selection, remaining effect qualification and later runtime/asset gates
 remain open; P0-07 stays `in_progress`.
 
@@ -70,6 +70,15 @@ nine cases and the catalog to 36 anchors. Review and Responses-based compaction
 are independently observed, including helper rejection, parent usage gaps and
 prompt-history replacement. P0-03/P0-08 still own lifecycle/accounting adapters;
 remaining module effect qualification keeps P0-07 in progress.
+
+The subsequent [classified effect inventory](../development/upstream-effect-classes.md)
+assigns all 158 packages conservative effect ceilings and primary VCP owners,
+with 43 named entries covering update/maintenance routes as well as model helpers.
+The [selection acceptance map](../evaluations/p0-07-selection-gate.md) consolidates
+each P0-07 obligation and its evidence. P0-07 is `implemented_unverified` pending
+the final classification PR's hosted checks. Runtime enforcement, real local
+corpus/reopen and in-app pause remain the separate tasks below; source
+qualification does not satisfy their acceptance contracts.
 
 1. Pin Codex, Gemini CLI and Munarium to exact commits; record selected paths, dependencies, licenses, notices, patch origin and local owner. Treat mutable URLs as discovery inputs.
 2. Build selected upstream components on native Windows before modifications, including the unmodified Codex engine/CLI baseline. Use an isolated temporary checkout; record compiler/native dependencies, commands, resource use and known upstream failures.

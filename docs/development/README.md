@@ -8,6 +8,7 @@ These guides describe how to implement and qualify the planned system. The [deli
 - [Current upstream candidates](upstream-candidates.md): pinned investigation inputs, original-byte inventory and native baseline commands.
 - [Committed Codex source](codex-source.md): source selection, notices, reconstruction, native setup and ordinary build.
 - [Codex package and effect boundaries](codex-boundaries.md): complete workspace package ownership and concrete source anchors for future adapters.
+- [Classified upstream effects](upstream-effect-classes.md): checked module ceilings, named effects, replacement owners and release-update/maintenance paths.
 - [Native CLI trace](native-cli-trace.md): nine scripted coding, tool, review and compaction traces through the built Codex CLI.
 - [Helper effect map](helper-effect-traces.md): review/compaction request ownership, usage discrepancies and pause/history adapter responsibilities.
 - [Committed Munarium libraries](munarium-source.md): three libraries in the shared Cargo workspace, source reconstruction and native dependency evidence.

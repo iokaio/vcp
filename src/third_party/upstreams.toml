@@ -48,4 +48,4 @@ toolchain = "1.98.0-x86_64-pc-windows-msvc"
 owner_task = "P0-07"
 component_notes = "components/munarium.md"
 candidate_paths = ["server/src/munarium-core", "server/src/munarium-store-mem", "server/src/munarium-datastore", "server/contract/matrix/VERSION", "server/contract/datastore", "server/Cargo.toml", "server/Cargo.lock", "server/rust-toolchain.toml", "LICENSE", "NOTICE"]
-selection_state = "Three libraries and contract fixtures imported into the Codex workspace with explicit original package/dependency settings; shared-graph native qualification in progress; local inference remains P0-02"
+selection_state = "Three libraries and contract fixtures imported into the Codex workspace with explicit original package/dependency settings; 200 native tests pass locally and on hosted Windows; corpus/index integration and offline enforcement remain P0-02"

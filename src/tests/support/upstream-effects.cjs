@@ -69,20 +69,30 @@ function workspacePackages(root, { externalRoots = [] } = {}) {
     .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 }
 function validateBoundaries(catalog, packages, { root, commit, taskIds, externalRoots = [] }) {
-  if (catalog.schema_version !== 1 || catalog.component !== 'codex' || catalog.commit !== commit ||
-      catalog.verification !== 'static_only' || typeof catalog.scope !== 'string' || !catalog.scope ||
+  if (catalog.schema_version !== 2 || catalog.component !== 'codex' || catalog.commit !== commit ||
+      catalog.verification !== 'static_only' || typeof catalog.classification_scope !== 'string' || !catalog.classification_scope.trim() || typeof catalog.scope !== 'string' || !catalog.scope ||
       !Array.isArray(catalog.groups) || !catalog.groups.length || !Array.isArray(catalog.seams) || !catalog.seams.length) throw Error('Invalid boundary inventory identity or scope');
   const available = new Map(packages.map(item => [item.name, item]));
   const assigned = new Set(), groups = new Map(), seams = new Set();
+  const ceilings = new Map();
+  const ranks = { pure: 0, 'read-only': 1, effectful: 2 };
+  const boundaries = new Set(['controller', 'model-gateway', 'tool-broker', 'canonical-store',
+    'local-memory', 'explicit-credentials', 'disabled-upstream-route', 'diagnostic-sink', 'qualification-harness']);
   const capabilities = new Set(['data', 'instruction', 'model', 'scheduler', 'filesystem', 'process', 'network', 'credential', 'telemetry', 'clock']);
   for (const group of catalog.groups) {
-    if (typeof group.id !== 'string' || !/^[a-z][a-z0-9-]+$/.test(group.id) || groups.has(group.id) ||
+    if (!Object.hasOwn(ranks, group.effect_ceiling) || !boundaries.has(group.vcp_boundary) || typeof group.id !== 'string' || !/^[a-z][a-z0-9-]+$/.test(group.id) || groups.has(group.id) ||
         !['retain-with-adapters', 'disable-upstream-route', 'retain-data', 'test-build-only'].includes(group.handling) ||
         !Array.isArray(group.packages) || !group.packages.length ||
         !Array.isArray(group.capabilities) || !group.capabilities.length || group.capabilities.some(value => !capabilities.has(value)) ||
         !Array.isArray(group.owner_tasks) || !group.owner_tasks.length || group.owner_tasks.some(id => !taskIds.has(id)) ||
         typeof group.gate !== 'string' || !group.gate.trim()) throw Error('Invalid boundary group');
+    const allowedReadCapabilities = group.effect_ceiling === 'pure'
+      ? new Set(['data', 'instruction']) : new Set(['data', 'instruction', 'filesystem', 'credential', 'clock']);
+    if (group.effect_ceiling !== 'effectful' && group.capabilities.some(capability => !allowedReadCapabilities.has(capability))) {
+      throw Error('Module effect ceiling conflicts with capabilities: ' + group.id);
+    }
     groups.set(group.id, new Set(group.packages));
+    ceilings.set(group.id, ranks[group.effect_ceiling]);
     for (const name of group.packages) {
       if (!available.has(name) || assigned.has(name)) throw Error('Unknown or multiply assigned package: ' + name);
       assigned.add(name);
@@ -90,15 +100,28 @@ function validateBoundaries(catalog, packages, { root, commit, taskIds, external
   }
   if (assigned.size !== available.size) throw Error('Unassigned workspace packages: ' + [...available.keys()].filter(name => !assigned.has(name)).join(', '));
   const resolve = sourceResolver(root, externalRoots);
+  const reads = new Set(['file-read', 'environment', 'credential-read', 'clock']);
+  const effects = new Set([...reads, 'scheduler', 'process', 'filesystem', 'network', 'model',
+    'history', 'telemetry', 'credential', 'policy', 'global-state', 'shared-memory', 'randomness']);
+  const classifications = { pure: 0, 'read-only': 0, effectful: 0 };
   for (const seam of catalog.seams) {
     const owner = available.get(seam.package);
     const source = resolve(seam.path);
     if (typeof seam.id !== 'string' || !/^[a-z][a-z0-9-]+$/.test(seam.id) || seams.has(seam.id) || !groups.get(seam.group)?.has(seam.package) || !owner ||
         !seam.path.startsWith(path.posix.dirname(owner.manifest) + '/') || typeof seam.symbol !== 'string' || !seam.symbol.trim() ||
         typeof seam.observation !== 'string' || !seam.observation.trim()) throw Error('Invalid effect seam');
+    if (ranks[seam.effect_class] > ceilings.get(seam.group) || !Object.hasOwn(classifications, seam.effect_class) || !boundaries.has(seam.vcp_boundary) ||
+        !Array.isArray(seam.effects) || new Set(seam.effects).size !== seam.effects.length ||
+        seam.effects.some(effect => !effects.has(effect)) ||
+        (seam.effect_class === 'pure' && seam.effects.length !== 0) ||
+        (seam.effect_class !== 'pure' && seam.effects.length === 0) ||
+        (seam.effect_class === 'read-only' && seam.effects.some(effect => !reads.has(effect)))) {
+      throw Error('Invalid effect classification: ' + seam.id);
+    }
+    classifications[seam.effect_class]++;
     seams.add(seam.id);
     if (!fs.readFileSync(source, 'utf8').includes(seam.symbol)) throw Error('Stale source symbol: ' + seam.id);
   }
-  return { packages: assigned.size, groups: groups.size, seams: seams.size, verification: 'static_only', status: 'pass' };
+  return { packages: assigned.size, groups: groups.size, seams: seams.size, classifications, verification: 'static_only', status: 'pass' };
 }
 module.exports = { workspacePackages, validateBoundaries };

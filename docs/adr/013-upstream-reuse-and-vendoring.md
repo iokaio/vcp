@@ -73,8 +73,20 @@ The [current source selection and build](../development/codex-source.md) retain 
 The [Munarium selection](../development/munarium-source.md) imports 70 ordinary
 files with manifest-only adaptations into the same Codex Cargo workspace. Its
 separate patch series and file inventory preserve attribution and reconstruction.
-All 1,491 original Codex lockfile package identities/checksums remain; 34 entries
-are added. Component qualification retains the original compiler pins; a single
-supported VCP compiler remains an integration decision.
+At that import, all 1,491 original Codex lockfile package identities/checksums
+remained and 34 entries were added. Component qualification retains the original
+compiler pins; a single supported VCP compiler remains an integration decision.
 
-The [static package/effect inventory](../development/codex-boundaries.md) covers all 157 shared-workspace packages and records proposed gates with checked source anchors. It describes intended adapter ownership, not implemented restrictions. Runtime traces, enforced replacements and other selected component/toolchain qualification remain open P0 work; the committed-copy convention is unchanged.
+The subsequent [CPU embedding helper](../development/local-embeddings.md) brings
+the workspace to 158 packages and the shared lock to 1,565 entries. Its dependency
+closure required the sole pre-existing pin change `regex-automata` 0.4.13 to 0.4.14.
+The ordered Codex patches now also record Munarium and embedding workspace/lock
+integration; none implements a VCP runtime adapter.
+
+The [static package/effect inventory](../development/codex-boundaries.md) covers
+all 158 packages, with 23 conservative module ceilings and 43 classified source
+entries. It describes intended adapter ownership, not implemented restrictions.
+The [selection gate report](../evaluations/p0-07-selection-gate.md) consolidates
+native build, reconstruction and representative trace evidence. Enforced
+replacements and product toolchain qualification remain later P0 work; the
+committed-copy convention is unchanged.
