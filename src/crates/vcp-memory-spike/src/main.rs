@@ -23,6 +23,7 @@ use std::{
 use vcp_embedding::{MiniLm, DIMENSIONS, MAX_BATCH};
 
 mod governance;
+mod resources;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const CORPUS: &str = include_str!("../../../tests/fixtures/local-memory/corpus.json");
@@ -79,19 +80,24 @@ fn token(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
+#[cfg(test)]
 fn corpus() -> Result<Corpus> {
-    let corpus: Corpus = serde_json::from_str(CORPUS)?;
+    parse_corpus(CORPUS)
+}
+fn parse_corpus(bytes: &str) -> Result<Corpus> {
+    let corpus: Corpus = serde_json::from_str(bytes)?;
     if corpus.version != 2
         || corpus.documents.is_empty()
-        || corpus.documents.len() > 256
+        || corpus.documents.len() > 10000
         || corpus.queries.is_empty()
+        || corpus.queries.len() > 64
     {
         return Err("invalid bounded corpus".into());
     }
     let mut ids = BTreeSet::new();
     for document in &corpus.documents {
         if !token(&document.id)
-            || !token(&document.workspace)
+            || !["atlas", "boreal"].contains(&document.workspace.as_str())
             || !ids.insert(&document.id)
             || document.text.is_empty()
             || document.text.len() > 4096
@@ -134,16 +140,28 @@ fn corpus() -> Result<Corpus> {
     Ok(corpus)
 }
 fn embed(model: &MiniLm, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+    Ok(embed_profiled(model, texts)?.0)
+}
+fn embed_profiled(
+    model: &MiniLm,
+    texts: &[&str],
+) -> Result<(Vec<Vec<f32>>, Vec<serde_json::Value>)> {
     let mut vectors = Vec::with_capacity(texts.len());
+    let mut batches = Vec::new();
     for batch in texts.chunks(MAX_BATCH) {
-        for row in model.embed(batch)? {
+        let started = Instant::now();
+        let encoded = model.embed(batch)?;
+        batches.push(
+            serde_json::json!({"items":batch.len(),"inference_us":started.elapsed().as_micros()}),
+        );
+        for row in encoded {
             if row.truncated {
                 return Err("qualification corpus was truncated".into());
             }
             vectors.push(row.vector);
         }
     }
-    Ok(vectors)
+    Ok((vectors, batches))
 }
 fn specification(workspace: &str, documents: &[&Document]) -> BuildSpec {
     BuildSpec {
@@ -222,9 +240,15 @@ fn plan() -> ArtifactBuildPlan {
             threshold: None, observed: None }] },
     }
 }
-fn build(assets: &Path, root: &Path) -> Result<serde_json::Value> {
-    let corpus = corpus()?;
-    let view = governance::from_corpus(&corpus)?;
+fn build(
+    assets: &Path,
+    root: &Path,
+    corpus: &Corpus,
+    corpus_hash: &str,
+) -> Result<serde_json::Value> {
+    let governance_start = Instant::now();
+    let view = governance::from_corpus(corpus)?;
+    let governance_ms = governance_start.elapsed().as_millis();
     let started = Instant::now();
     let model = MiniLm::load(assets)?;
     let load_ms = started.elapsed().as_millis();
@@ -245,7 +269,7 @@ fn build(assets: &Path, root: &Path) -> Result<serde_json::Value> {
             .collect();
         let texts: Vec<_> = documents.iter().map(|d| d.text.as_str()).collect();
         let inference = Instant::now();
-        let vectors = embed(&model, &texts)?;
+        let (vectors, batches) = embed_profiled(&model, &texts)?;
         let inference_ms = inference.elapsed().as_millis();
         let index_start = Instant::now();
         let store = LocalFileStore::new(root.join(workspace))?;
@@ -271,11 +295,11 @@ fn build(assets: &Path, root: &Path) -> Result<serde_json::Value> {
             artifact_id: sealed.artifact_id,
             logical_id: spec.index_version_id()?,
         });
-        timings.push(serde_json::json!({"workspace":workspace,"documents":documents.len(),"inference_ms":inference_ms,"index_ms":index_start.elapsed().as_millis()}));
+        timings.push(serde_json::json!({"workspace":workspace,"documents":documents.len(),"inference_ms":inference_ms,"index_ms":index_start.elapsed().as_millis(),"batches":batches}));
     }
     let receipt = Receipt {
         version: 1,
-        corpus_sha256: digest(CORPUS.as_bytes()),
+        corpus_sha256: corpus_hash.into(),
         model_spec_sha256: MiniLm::specification_sha256(),
         bindings,
     };
@@ -287,12 +311,12 @@ fn build(assets: &Path, root: &Path) -> Result<serde_json::Value> {
     file.write_all(&bytes)?;
     file.sync_all()?;
     Ok(
-        serde_json::json!({"status":"pass","phase":"build","documents":corpus.documents.len(),"governance":view.report,"load_ms":load_ms,
+        serde_json::json!({"status":"pass","phase":"build","documents":corpus.documents.len(),"governance":view.report,"governance_ms":governance_ms,"load_ms":load_ms,
         "receipt_sha256":digest(&bytes),"timings":timings,"model_spec_sha256":receipt.model_spec_sha256,
         "corpus_sha256":receipt.corpus_sha256,"dimensions":DIMENSIONS,"metric":"cosine","vector_engine":"diskann","lexical_engine":"tantivy"}),
     )
 }
-fn read_receipt(root: &Path, expected_sha: &str) -> Result<Receipt> {
+fn read_receipt(root: &Path, expected_sha: &str, corpus_hash: &str) -> Result<Receipt> {
     let mut bytes = Vec::new();
     fs::File::open(root.join("receipt.json"))?
         .take(65537)
@@ -302,7 +326,7 @@ fn read_receipt(root: &Path, expected_sha: &str) -> Result<Receipt> {
     }
     let receipt: Receipt = serde_json::from_slice(&bytes)?;
     if receipt.version != 1
-        || receipt.corpus_sha256 != digest(CORPUS.as_bytes())
+        || receipt.corpus_sha256 != corpus_hash
         || receipt.model_spec_sha256 != MiniLm::specification_sha256()
     {
         return Err("corpus or embedding identity changed".into());
@@ -315,7 +339,7 @@ fn read_receipt(root: &Path, expected_sha: &str) -> Result<Receipt> {
     }
     Ok(receipt)
 }
-fn open(root: &Path, workspace: &str, binding: &Binding) -> Result<OpenShard> {
+fn open(root: &Path, workspace: &str, binding: &Binding, corpus: &Corpus) -> Result<OpenShard> {
     if workspace != binding.workspace {
         return Err("workspace binding mismatch".into());
     }
@@ -324,7 +348,7 @@ fn open(root: &Path, workspace: &str, binding: &Binding) -> Result<OpenShard> {
         max_components: 16,
         max_component_bytes: 64 * 1024 * 1024,
         max_total_bytes: 128 * 1024 * 1024,
-        max_chunks: 256,
+        max_chunks: 10000,
         max_dimensions: DIMENSIONS as u32,
     };
     let shard = OpenShard::open(
@@ -334,7 +358,7 @@ fn open(root: &Path, workspace: &str, binding: &Binding) -> Result<OpenShard> {
         &limits,
     )?;
     let spec: BuildSpec = serde_json::from_slice(&store.get_component(BUILD_SPEC, None)?)?;
-    let fixture = corpus()?;
+    let fixture = corpus;
     let documents: Vec<_> = fixture
         .documents
         .iter()
@@ -404,22 +428,31 @@ fn exact(query: &[f32], rows: &[(&Document, Vec<f32>)]) -> Vec<String> {
     scores.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
     scores.into_iter().take(TOP_K).map(|(id, _)| id).collect()
 }
-fn query(assets: &Path, root: &Path, receipt_sha: &str) -> Result<serde_json::Value> {
-    let corpus = corpus()?;
-    let receipt = read_receipt(root, receipt_sha)?;
-    let view = governance::from_corpus(&corpus)?;
+fn query(
+    assets: &Path,
+    root: &Path,
+    receipt_sha: &str,
+    corpus: &Corpus,
+    corpus_hash: &str,
+    repetitions: usize,
+) -> Result<serde_json::Value> {
+    let receipt = read_receipt(root, receipt_sha, corpus_hash)?;
+    let governance_start = Instant::now();
+    let view = governance::from_corpus(corpus)?;
+    let governance_ms = governance_start.elapsed().as_millis();
     let started = Instant::now();
     let model = MiniLm::load(assets)?;
     let load_ms = started.elapsed().as_millis();
     let mut results = Vec::new();
+    let mut workspaces = Vec::new();
     for binding in &receipt.bindings {
         let start = Instant::now();
-        let shard = open(root, &binding.workspace, binding)?;
+        let shard = open(root, &binding.workspace, binding, corpus)?;
         let reopen_ms = start.elapsed().as_millis();
         if shard.vector_candidates(&[0.; 3], 1).is_ok() {
             return Err("wrong vector dimensions were accepted".into());
         }
-        if open(root, "wrong-workspace", binding).is_ok() {
+        if open(root, "wrong-workspace", binding, corpus).is_ok() {
             return Err("cross-workspace binding was accepted".into());
         }
         let documents: Vec<_> = corpus
@@ -430,94 +463,146 @@ fn query(assets: &Path, root: &Path, receipt_sha: &str) -> Result<serde_json::Va
         if shard.records().len() != documents.len() {
             return Err("reopened document count mismatch".into());
         }
-        let vectors = embed(
+        let oracle_inference = Instant::now();
+        let (vectors, oracle_batches) = embed_profiled(
             &model,
             &documents
                 .iter()
                 .map(|d| d.text.as_str())
                 .collect::<Vec<_>>(),
         )?;
+        let oracle_inference_ms = oracle_inference.elapsed().as_millis();
+        workspaces.push(serde_json::json!({"workspace":binding.workspace,"records":documents.len(),"reopen_ms":reopen_ms,"oracle_inference_ms":oracle_inference_ms,"oracle_batches":oracle_batches}));
         let rows: Vec<_> = documents.iter().copied().zip(vectors).collect();
         for case in corpus
             .queries
             .iter()
             .filter(|q| q.workspace == binding.workspace)
         {
-            let inference = Instant::now();
-            let vector = embed(&model, &[&case.text])?.remove(0);
-            let inference_us = inference.elapsed().as_micros();
-            let lookup = Instant::now();
-            let plan = LexicalPlan {
-                terms: shard
-                    .analyze(&case.text)?
+            for repetition in 0..=repetitions {
+                let inference = Instant::now();
+                let vector = embed(&model, &[&case.text])?.remove(0);
+                let inference_us = inference.elapsed().as_micros();
+                let lookup = Instant::now();
+                let plan = LexicalPlan {
+                    terms: shard
+                        .analyze(&case.text)?
+                        .into_iter()
+                        .map(PlanTerm::user)
+                        .collect(),
+                    minimum_should_match: 1,
+                    ..Default::default()
+                };
+                // Bounded experiment: scan the candidate set before canonical filtering
+                // so an old version cannot consume the final result budget.
+                let lexical = visible(
+                    &corpus,
+                    &view,
+                    &binding.workspace,
+                    &shard.lexical_candidates(&plan, documents.len())?,
+                )?;
+                let semantic = visible(
+                    &corpus,
+                    &view,
+                    &binding.workspace,
+                    &shard.vector_candidates(&vector, documents.len())?,
+                )?;
+                let raw_ann: Vec<_> = shard
+                    .vector_candidates(&vector, TOP_K)?
                     .into_iter()
-                    .map(PlanTerm::user)
-                    .collect(),
-                minimum_should_match: 1,
-                ..Default::default()
-            };
-            // Bounded experiment: scan the candidate set before canonical filtering
-            // so an old version cannot consume the final result budget.
-            let lexical = visible(
-                &corpus,
-                &view,
-                &binding.workspace,
-                &shard.lexical_candidates(&plan, documents.len())?,
-            )?;
-            let semantic = visible(
-                &corpus,
-                &view,
-                &binding.workspace,
-                &shard.vector_candidates(&vector, documents.len())?,
-            )?;
-            let raw_ann: Vec<_> = shard
-                .vector_candidates(&vector, TOP_K)?
-                .into_iter()
-                .map(|c| c.chunk_id)
-                .collect();
-            let query_us = lookup.elapsed().as_micros();
-            let truth = exact(&vector, &rows);
-            let recall =
-                truth.iter().filter(|id| raw_ann.contains(id)).count() as f64 / truth.len() as f64;
-            if recall < 1. {
-                return Err(
-                    format!("exact-oracle recall below 1 for {}: {recall}", case.id).into(),
-                );
+                    .map(|c| c.chunk_id)
+                    .collect();
+                let query_us = lookup.elapsed().as_micros();
+                let oracle_compare = Instant::now();
+                let truth = exact(&vector, &rows);
+                let oracle_compare_us = oracle_compare.elapsed().as_micros();
+                let recall = truth.iter().filter(|id| raw_ann.contains(id)).count() as f64
+                    / truth.len() as f64;
+                if recall < 1. {
+                    return Err(
+                        format!("exact-oracle recall below 1 for {}: {recall}", case.id).into(),
+                    );
+                }
+                if !case.lexical_required.iter().all(|id| lexical.contains(id))
+                    || !case
+                        .semantic_required
+                        .iter()
+                        .all(|id| semantic.contains(id))
+                {
+                    return Err(format!("required relevance missing for {}", case.id).into());
+                }
+                results.push(serde_json::json!({"case":case.id,"workspace":binding.workspace,"lexical":lexical,"semantic":semantic,
+                "ann_recall_at_3":recall,"reopen_ms":reopen_ms,"inference_us":inference_us,"query_us":query_us,"repetition":repetition,"oracle_compare_us":oracle_compare_us}));
             }
-            if !case.lexical_required.iter().all(|id| lexical.contains(id))
-                || !case
-                    .semantic_required
-                    .iter()
-                    .all(|id| semantic.contains(id))
-            {
-                return Err(format!("required relevance missing for {}", case.id).into());
-            }
-            results.push(serde_json::json!({"case":case.id,"workspace":binding.workspace,"lexical":lexical,"semantic":semantic,
-                "ann_recall_at_3":recall,"reopen_ms":reopen_ms,"inference_us":inference_us,"query_us":query_us}));
         }
     }
-    if results.len() != corpus.queries.len() {
+    if results.len() != corpus.queries.len() * (repetitions + 1) {
         return Err("incomplete query result set".into());
     }
     Ok(
-        serde_json::json!({"status":"pass","phase":"query","queries":results,"load_ms":load_ms,"governance":view.report,
+        serde_json::json!({"status":"pass","phase":"query","queries":results,"load_ms":load_ms,"governance":view.report,"governance_ms":governance_ms,"warm_repetitions":repetitions,"workspaces":workspaces,
         "checks":["lexical_identifiers","semantic_relevance","exact_vector_oracle","workspace_binding","current_version_filter","dimension_rejection","process_reopen"],
         "limitations":["Bounded synthetic fixture; not production recall or resource qualification.","No OS network-denial claim.","Volatile governance replay from public fixture; no durable VCP governance store."]}),
     )
 }
+fn invocation(args: &[std::ffi::OsString]) -> Result<(&[std::ffi::OsString], Option<&Path>)> {
+    match args {
+        [mode, _, _, flag, file] if mode == "build" && flag == "--corpus" => Ok((&args[..3], Some(Path::new(file)))),
+        [mode, _, _, _, flag, file] if mode == "query" && flag == "--corpus" => Ok((&args[..4], Some(Path::new(file)))),
+        [mode, _, _] if mode == "build" => Ok((args, None)),
+        [mode, _, _, _] if mode == "query" => Ok((args, None)),
+        _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidInput,
+            "Required: build <assets> <new-root> [--corpus <fixture>] | query <assets> <root> <receipt-sha256> [--corpus <fixture>]").into()),
+    }
+}
+fn execute(args: &[std::ffi::OsString]) -> Result<serde_json::Value> {
+    let (command, file) = invocation(args)?;
+    let bytes = if let Some(file) = file {
+        let mut bytes = Vec::new();
+        fs::File::open(file)?
+            .take(64 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > 64 * 1024 * 1024 {
+            return Err("corpus exceeds byte bound".into());
+        }
+        String::from_utf8(bytes)?
+    } else {
+        CORPUS.to_owned()
+    };
+    let corpus = parse_corpus(&bytes)?;
+    let corpus_hash = digest(bytes.as_bytes());
+    let sampler = if file.is_some() {
+        Some(resources::Sampler::start()?)
+    } else {
+        None
+    };
+    let start = Instant::now();
+    let result = match command {
+        [mode, assets, root] if mode == "build" => {
+            build(Path::new(assets), Path::new(root), &corpus, &corpus_hash)
+        }
+        [mode, assets, root, sha] if mode == "query" => query(
+            Path::new(assets),
+            Path::new(root),
+            &sha.to_string_lossy(),
+            &corpus,
+            &corpus_hash,
+            if file.is_some() { 5 } else { 0 },
+        ),
+        _ => unreachable!("invocation validated the command shape"),
+    };
+    let wall_ms = start.elapsed().as_millis();
+    let memory = sampler.map(resources::Sampler::finish).transpose()?;
+    let mut result = result?;
+    result["process_work_ms"] = serde_json::json!(wall_ms);
+    if let Some(memory) = memory {
+        result["memory"] = serde_json::json!(memory);
+    }
+    Ok(result)
+}
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let result = match args.as_slice() {
-        [mode, assets, root] if mode == "build" => build(Path::new(assets), Path::new(root)),
-        [mode, assets, root, sha] if mode == "query" => {
-            query(Path::new(assets), Path::new(root), &sha.to_string_lossy())
-        }
-        _ => {
-            eprintln!("Required: vcp-memory-spike build <assets> <new-root> | query <assets> <root> <receipt-sha256>");
-            std::process::exit(2);
-        }
-    };
-    match result {
+    match execute(&args) {
         Ok(result) => println!("{result}"),
         Err(error) => {
             let code = if matches!(
@@ -525,6 +610,11 @@ fn main() {
                 Some(vcp_embedding::Error::MissingAsset { .. })
             ) {
                 3
+            } else if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::InvalidInput)
+            {
+                2
             } else {
                 1
             };
@@ -537,6 +627,96 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_corpus_arguments_reject_unknown_or_duplicated_options() {
+        let values = |items: &[&str]| {
+            items
+                .iter()
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>()
+        };
+        assert!(invocation(&values(&["build", "assets", "root"]))
+            .unwrap()
+            .1
+            .is_none());
+        assert_eq!(
+            invocation(&values(&[
+                "build",
+                "assets",
+                "root",
+                "--corpus",
+                "fixture.json"
+            ]))
+            .unwrap()
+            .1,
+            Some(Path::new("fixture.json"))
+        );
+        assert!(invocation(&values(&[
+            "query",
+            "assets",
+            "root",
+            "digest",
+            "--corpus",
+            "fixture.json"
+        ]))
+        .is_ok());
+        for args in [
+            vec!["build"],
+            vec!["build", "assets", "root", "--unknown", "fixture"],
+            vec!["query", "assets", "root", "digest", "--corpus"],
+            vec![
+                "build", "assets", "root", "--corpus", "fixture", "--corpus", "other",
+            ],
+        ] {
+            assert!(invocation(&values(&args)).is_err());
+        }
+    }
+
+    #[test]
+    fn external_fixture_rejects_unsafe_scope_duplicates_and_unavailable_truth() {
+        let source: serde_json::Value = serde_json::from_str(CORPUS).unwrap();
+        for (pointer, replacement) in [
+            ("/documents/0/workspace", serde_json::json!("con")),
+            ("/documents/1/id", serde_json::json!("atlas-pause-v1")),
+            ("/queries/1/id", serde_json::json!("pause-symbol")),
+            (
+                "/queries/0/lexical_required",
+                serde_json::json!(["atlas-pause-v1"]),
+            ),
+            (
+                "/queries/0/lexical_required",
+                serde_json::json!(["boreal-pause"]),
+            ),
+        ] {
+            let mut fixture = source.clone();
+            *fixture.pointer_mut(pointer).unwrap() = replacement;
+            assert!(parse_corpus(&fixture.to_string()).is_err());
+        }
+        let mut oversized = source.clone();
+        oversized["queries"] = serde_json::json!(vec![source["queries"][0].clone(); 65]);
+        assert!(parse_corpus(&oversized.to_string()).is_err());
+        oversized = source.clone();
+        oversized["documents"] = serde_json::json!(vec![source["documents"][0].clone(); 10001]);
+        assert!(parse_corpus(&oversized.to_string()).is_err());
+    }
+
+    #[test]
+    fn receipt_binds_the_explicit_fixture_before_index_access() {
+        let root = tempfile::tempdir().unwrap();
+        let receipt = Receipt {
+            version: 1,
+            corpus_sha256: digest(CORPUS.as_bytes()),
+            model_spec_sha256: MiniLm::specification_sha256(),
+            bindings: Vec::new(),
+        };
+        let bytes = serde_json::to_vec(&receipt).unwrap();
+        fs::write(root.path().join("receipt.json"), &bytes).unwrap();
+        let error = read_receipt(root.path(), &digest(&bytes), &"0".repeat(64))
+            .err()
+            .unwrap();
+        assert_eq!(error.to_string(), "corpus or embedding identity changed");
+    }
 
     #[test]
     fn canonical_filter_excludes_other_workspace_and_superseded_content_before_limit() {
@@ -612,13 +792,13 @@ mod tests {
     fn receipt_and_workspace_rejection_precede_index_access() {
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join("receipt.json"), b"{}").unwrap();
-        assert!(read_receipt(root.path(), &"0".repeat(64)).is_err());
+        assert!(read_receipt(root.path(), &"0".repeat(64), &digest(CORPUS.as_bytes())).is_err());
         let binding = Binding {
             workspace: "atlas".into(),
             artifact_id: "0".repeat(64),
             logical_id: "synthetic".into(),
         };
-        assert!(open(root.path(), "boreal", &binding).is_err());
+        assert!(open(root.path(), "boreal", &binding, &corpus().unwrap()).is_err());
         assert!(!root.path().join("boreal").exists());
     }
 }

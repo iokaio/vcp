@@ -110,7 +110,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-embeddings.ps1 -AssetsRoot $modelRoot -Offline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./scripts/test-local-memory.ps1 -AssetsRoot $modelRoot -TargetRoot artifacts/embedding-target
+          ./scripts/test-local-memory.ps1 -AssetsRoot $modelRoot -TargetRoot artifacts/embedding-target -Scale
       - name: Build committed native CLI
         run: ./scripts/build.ps1
       - name: Test native patch and policy boundaries

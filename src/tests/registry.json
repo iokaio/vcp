@@ -51,7 +51,8 @@
     },
     "upstream-inventory": {
       "task_ids": [
-        "P0-07"
+        "P0-07",
+        "P0-02"
       ],
       "args": [
         "--test",
@@ -62,7 +63,8 @@
         "src/tests/contracts/gemini-baseline.test.cjs",
         "src/tests/contracts/model-assets.test.cjs",
         "src/tests/contracts/local-memory.test.cjs",
-        "src/tests/contracts/offline-embeddings.test.cjs"
+        "src/tests/contracts/offline-embeddings.test.cjs",
+        "src/tests/contracts/memory-resources.test.cjs"
       ],
       "backends": [
         "none"

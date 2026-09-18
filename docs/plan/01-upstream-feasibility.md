@@ -1,6 +1,6 @@
 # 01 — Native Windows foundation and upstream feasibility
 
-Status: P0-01 and P0-07 complete; P0-02 in progress; remaining tasks planned. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
+Status: P0-01, P0-02 and P0-07 complete; remaining tasks planned. P0-02 is bounded feasibility, not product integration. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
 
 Use the [upstream experiment procedure](../development/upstream-qualification.md) for manifest/reconstruction details and the [qualification harness design](../architecture/qualification-release-design.md) for result records and fault supervision. [ADR-001](../adr/001-runtime-topology.md), [ADR-003](../adr/003-canonical-storage.md), [ADR-008](../adr/008-local-governed-memory.md), [ADR-015](../adr/015-portability-and-storage-choice.md) and [ADR-019](../adr/019-cloud-encryption-and-keys.md) now record the confirmed directions and pending experiments separately.
 
@@ -114,11 +114,22 @@ manifest rejection. [Native evidence](../evaluations/p0-02-local-corpus.md)
 records seven passing queries and repeated process reopen. The subsequent
 [governance adapter](../development/local-governance-spike.md) uses scoped
 Munarium gates and volatile ledgers, preserving rejected proposals and historical
-versions while selecting current results. P0-02 remains in progress. Durable
-canonical-store integration and broader corpus/resource measurements remain open.
+versions while selecting current results. Durable canonical-store integration
+remains owned by P0-04/P1/P5; it is not completed by this volatile prototype.
 [Offline CPU qualification](../development/offline-embeddings.md) now observes
 zero-capability Windows containment, real inference, live network controls and
 missing/corrupt asset rejection. See [executed evidence and limits](../evaluations/p0-02-offline-embeddings.md).
+
+The [declared resource gate](../development/local-memory-resources.md) adds
+100/1,000/10,000-record fixtures, native resident/private/mapped observations,
+sampled logical disk peaks and five warm repetitions in two fresh query
+processes. [Resource evidence](../evaluations/p0-02-local-resources.md) separates
+governance replay and independent-oracle work from model and lookup timing.
+All nine native resource phases and 324 query rows passed. Together these gates
+complete P0-02's feasibility acceptance and select the bounded integration
+candidate in [ADR-008](../adr/008-local-governed-memory.md). Do not treat these
+synthetic measurements as an installed-product limit. Publication still requires
+the final PR head to pass CI on the configured runners.
 
 [Governance qualification evidence](../evaluations/p0-02-local-governance.md)
 records eight native tests, seven real corpus queries and repeated process

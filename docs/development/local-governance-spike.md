@@ -81,7 +81,8 @@ claim the described product functionality is implemented.
 
 ## Remaining integration
 
-P0-02 still needs measured resource envelopes and observed OS network denial.
+The [offline CPU gate](offline-embeddings.md) and [declared resource experiments](local-memory-resources.md)
+add bounded OS and scaling evidence to this adapter.
 P0-04 qualifies durable storage; P5 integrates controller authority, immutable
 evidence artifacts, idempotency, access revisions, deletion/tombstones and
 transactional index intents. This bounded adapter provides no model-assisted

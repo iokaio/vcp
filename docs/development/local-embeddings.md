@@ -5,7 +5,9 @@ It provides file-only MiniLM loading and bounded CPU embeddings for qualificatio
 The [runtime/asset record](../../src/third_party/components/embedding-runtime.md)
 and [evaluation](../evaluations/p0-07-local-embeddings.md) identify exact inputs
 and executed evidence. P0-02 adds [observed offline qualification](offline-embeddings.md) and real
-corpus/index integration; broader resource measurements remain open under [ADR-008](../adr/008-local-governed-memory.md).
+corpus/index integration plus [declared resource measurements](local-memory-resources.md).
+[ADR-008](../adr/008-local-governed-memory.md) records the bounded selection and
+remaining product integration gates.
 
 ## Explicit asset acquisition
 
@@ -113,7 +115,9 @@ The Windows workflow acquires the exact model under `RUNNER_TEMP`, runs this
 wrapper on `win8core` in `wingroup`, and uploads only qualification evidence.
 The existing Codex, Munarium, Gemini and CLI trace gates remain required.
 Deterministic asset/dependency regressions also run on `ubuntu-8core` without
-downloading the model. P0-02 still must test real Tantivy/DiskANN corpus reopen,
-exact-vector recall, OS-enforced network denial, missing/corrupt setup in VCP,
-and repeated resource measurements. `/pause` integration remains future lifecycle
-work; these functions alone do not implement it.
+downloading the model. Subsequent P0-02 gates cover
+[corpus reopen and exact-vector recall](local-memory-spike.md),
+[OS-enforced network denial and missing/corrupt assets](offline-embeddings.md),
+and [declared resource measurements](local-memory-resources.md).
+Product setup and `/pause` integration remain future work; these qualification
+functions alone do not implement them.

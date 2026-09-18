@@ -5,7 +5,8 @@ param(
     [string]$AssetsRoot,
     [string]$OutputRoot,
     [string]$TargetRoot,
-    [ValidateRange(1, 16)][int]$Jobs = 4
+    [ValidateRange(1, 16)][int]$Jobs = 4,
+    [switch]$Scale
 )
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -69,10 +70,11 @@ try {
     $workspace = Join-Path $repository 'src/third_party/codex/codex-rs/Cargo.toml'
     $record.lock_sha256 = (Get-FileHash -LiteralPath (Join-Path (Split-Path $workspace) 'Cargo.lock') -Algorithm SHA256).Hash.ToLowerInvariant()
     $record.asset_spec_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'src/third_party/components/minilm-assets.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-    $record.inputs = @('src/crates/vcp-memory-spike/Cargo.toml', 'src/crates/vcp-memory-spike/src/main.rs', 'src/crates/vcp-memory-spike/src/governance.rs', 'src/crates/vcp-embedding/src/lib.rs', 'src/tests/fixtures/local-memory/corpus.json', 'src/tests/support/local-memory.cjs', 'scripts/upstream/trace-local-memory.cjs', 'src/tests/support/model-assets.cjs', 'src/tests/support/dependency-closure.cjs') | ForEach-Object {
+    $record.inputs = @('src/crates/vcp-memory-spike/Cargo.toml', 'src/crates/vcp-memory-spike/src/main.rs', 'src/crates/vcp-memory-spike/src/governance.rs', 'src/crates/vcp-memory-spike/src/resources.rs', 'src/crates/vcp-embedding/src/lib.rs', 'src/tests/fixtures/local-memory/corpus.json', 'src/tests/fixtures/local-memory/scales.json', 'src/tests/support/local-memory.cjs', 'src/tests/support/memory-resources.cjs', 'scripts/upstream/trace-local-memory.cjs', 'scripts/upstream/trace-memory-resources.cjs', 'src/tests/support/model-assets.cjs', 'src/tests/support/dependency-closure.cjs') | ForEach-Object {
         @{ path = $_; sha256 = (Get-FileHash -LiteralPath (Join-Path $repository $_) -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
     $record.platform = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+    $record.filesystem = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($paths.output)).DriveFormat
     $record.cpu_count = [Environment]::ProcessorCount
     $record.status = 'running'; Save-Record
     $common = @('--locked', '--manifest-path', $workspace, '-p', 'vcp-memory-spike', '--release', '--target', 'x86_64-pc-windows-msvc', '--target-dir', $paths.target, '-j', "$Jobs")
@@ -84,7 +86,13 @@ try {
     Stage 'qualification' $node.Source @((Join-Path $repository 'scripts/upstream/trace-local-memory.cjs'), '--binary', (Join-Path $paths.target 'x86_64-pc-windows-msvc/release/vcp-memory-spike.exe'), '--assets', $paths.assets, '--output-root', (Join-Path $directory 'trace'))
     $result = Get-Content -LiteralPath (Join-Path $directory 'qualification.log') | Select-Object -Last 1 | ConvertFrom-Json
     if ($result.status -ne 'pass') { throw 'Incomplete local-memory qualification result' }
-    $record.result = $result; $record.status = 'pass'; $record.exit_code = 0
+    $record.result = $result
+    if ($Scale) {
+        Stage 'resources' $node.Source @((Join-Path $repository 'scripts/upstream/trace-memory-resources.cjs'), '--binary', (Join-Path $paths.target 'x86_64-pc-windows-msvc/release/vcp-memory-spike.exe'), '--assets', $paths.assets, '--output-root', (Join-Path $directory 'resources'))
+        $record.resource_result = Get-Content -LiteralPath (Join-Path $directory 'resources.log') | Select-Object -Last 1 | ConvertFrom-Json
+        if ($record.resource_result.status -ne 'pass') { throw 'Incomplete resource qualification result' }
+    }
+    $record.status = 'pass'; $record.exit_code = 0
 } catch {
     if ($record.status -ne 'not_run') { $record.status = 'fail' }
     $record.reason = $_.Exception.Message
