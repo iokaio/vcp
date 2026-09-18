@@ -69,8 +69,10 @@ qualification input, not a production authentication mechanism.
 
 Queries analyze text through the same lexical analyzer used by the artifact.
 They embed semantic intent locally and collect lexical and vector results
-separately. The fixture supplies the canonical workspace/current-version view;
-filtering runs before the final result limit. Index metadata never grants access.
+separately. The [governance adapter](local-governance-spike.md) replays the fixture
+through retained Munarium gates and scoped in-memory ledgers. Its resolved
+workspace/current-version view supplies filtering before the final result limit.
+The fixture's `current` flags remain an independent oracle. Index metadata never grants access.
 The small experiment fetches the bounded candidate set before filtering, avoiding
 result starvation by obsolete entries. Production backfill and efficient filtering
 remain P5 work.
@@ -87,8 +89,8 @@ Measurements distinguish model load, corpus inference, index construction,
 artifact reopen, query inference and lookup. They are observations of one small
 fixture, not hardware minimums or a production capacity estimate. Broader P0-02
 qualification still needs declared corpus scales, peak RAM/disk, observed OS
-network denial, missing/corrupt asset integration and a real governance/canonical
-store adapter. This prototype's fixed current-version view cannot qualify live
+network denial, missing/corrupt asset integration and a durable canonical
+store adapter. This prototype's volatile governance replay cannot qualify live
 deletion, concurrency, crash durability or policy revision races.
 
 Follow [ADR-008](../adr/008-local-governed-memory.md), the

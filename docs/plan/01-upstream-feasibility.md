@@ -111,8 +111,16 @@ the real CPU model, Tantivy and DiskANN in a single qualification executable.
 Its public fixture includes two workspaces, semantic intent, repeated identifiers
 and an obsolete version; the observer checks fresh-process reopen and corrupted
 manifest rejection. [Native evidence](../evaluations/p0-02-local-corpus.md)
-records seven passing queries and repeated process reopen. P0-02 is in progress. Governance/canonical-store integration,
-broader corpus/resource measurements and observed OS network denial remain open.
+records seven passing queries and repeated process reopen. The subsequent
+[governance adapter](../development/local-governance-spike.md) uses scoped
+Munarium gates and volatile ledgers, preserving rejected proposals and historical
+versions while selecting current results. P0-02 remains in progress. Durable
+canonical-store integration, broader corpus/resource measurements and observed
+OS network denial remain open.
+
+[Governance qualification evidence](../evaluations/p0-02-local-governance.md)
+records eight native tests, seven real corpus queries and repeated process
+reopen. Replaying fixture claims into memory is not durable governance recovery.
 
 1. Locate the pinned kernel/gates, in-memory backend, conformance scenarios and actual local embedding implementation. Extract a minimal record/evidence/governance example behind candidate VCP interfaces.
 2. Build a small local corpus into Tantivy and DiskANN; query exact symbols and semantic intent, close the process and reopen on disk.

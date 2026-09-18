@@ -46,7 +46,7 @@ test('CPU embedding closure rejects remote/GPU dependencies and wrong qualificat
 test('corpus integration closure requires real local engines and forbids remote/runtime backends', () => {
   const input = ['vcp-memory-spike v0.1.0', 'vcp-embedding v0.1.0', 'candle-core v0.11.0', 'candle-nn v0.11.0',
     'candle-transformers v0.11.0', 'tokenizers v0.22.2', 'safetensors v0.8.0', 'munarium-datastore v1.2.1',
-    'tantivy v0.22.1', 'diskann v0.56.0', 'diskann-vector v0.56.0'].join('\n');
+    'munarium-core v1.2.1', 'munarium-store-mem v1.2.1', 'tantivy v0.22.1', 'diskann v0.56.0', 'diskann-vector v0.56.0'].join('\n');
   const actual = memoryClosure(input), lock = 'd'.repeat(64);
   const reference = { ...actual, target: 'x86_64-pc-windows-msvc', features: ['munarium-datastore/vector-diskann'], workspace_lock_sha256: lock };
   assert.doesNotThrow(() => verifyReference(actual, reference, lock));
@@ -55,5 +55,7 @@ test('corpus integration closure requires real local engines and forbids remote/
   }
   assert.throws(() => memoryClosure(input.replace('diskann v0.56.0', '')), /Missing required/);
   assert.throws(() => memoryClosure(input.replace('vcp-embedding v0.1.0', '')), /Missing required/);
+  assert.throws(() => memoryClosure(input.replace('munarium-core v1.2.1', '')), /Missing required/);
+  assert.throws(() => memoryClosure(input.replace('munarium-store-mem v1.2.1', '')), /Missing required/);
   assert.throws(() => verifyReference(actual, { ...reference, features: [] }, lock), /identity or lockfile drift/);
 });

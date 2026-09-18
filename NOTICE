@@ -27,7 +27,8 @@ bundled components. The original LICENSE, NOTICE and bundled terms are retained.
 VCP's recorded patches raise the codex-chatgpt crate recursion limit and register
 selected Munarium libraries in the shared workspace and lockfile. Further changes
 register the local CPU embedding adapter and its reviewed dependencies, followed
-by the original local-corpus qualification executable using those components. Modified
+by the original local-corpus qualification executable and its retained governance
+dependencies. Modified
 files carry modification notices. See the ordered patch record
 under src/third_party/patches/codex/ and THIRD_PARTY_NOTICES.md.
 

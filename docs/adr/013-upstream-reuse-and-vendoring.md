@@ -93,6 +93,8 @@ committed-copy convention is unchanged.
 
 P0-02's [corpus prototype](../development/local-memory-spike.md) adds one original
 qualification package and the fourth workspace patch. All 1,565 previous lock
-identities/checksums remain; only `vcp-memory-spike` is added. Its 209-package
-native normal/build closure consists of previously reviewed embedding/datastore
+identities/checksums remain; only `vcp-memory-spike` is added. The fifth patch
+connects that package to the retained governance/core and in-memory backend.
+All 1,566 lock identities/checksums remain unchanged. Its current 214-package
+native normal/build closure consists of previously reviewed embedding/Munarium
 dependencies plus the original executable. Imported Rust bodies remain unchanged.

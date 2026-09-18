@@ -11,13 +11,31 @@ function parseArgs(args) {
   return result;
 }
 function validateBuild(result, corpus, corpusHash, modelHash) {
+  validateGovernance(result, corpus);
   if (result.status !== 'pass' || result.phase !== 'build' || result.documents !== corpus.documents.length ||
       result.corpus_sha256 !== corpusHash || result.model_spec_sha256 !== modelHash || result.dimensions !== 384 ||
       result.metric !== 'cosine' || result.vector_engine !== 'diskann' || result.lexical_engine !== 'tantivy' ||
       !/^[a-f0-9]{64}$/.test(result.receipt_sha256)) throw Error('Incomplete local-memory build result');
   return result.receipt_sha256;
 }
+function validateGovernance(result, corpus) {
+  const report = result.governance;
+  const workspaces = [...new Set(corpus.documents.map(d => d.workspace))].sort();
+  if (report?.backend !== 'munarium-store-mem' || report.durable !== false || !Array.isArray(report.workspaces) ||
+      report.workspaces.length !== workspaces.length) throw Error('Missing or misleading governance evidence');
+  const seen = new Set();
+  for (const row of report.workspaces) {
+    if (!workspaces.includes(row.workspace) || seen.has(row.workspace)) throw Error('Unexpected governance workspace');
+    seen.add(row.workspace);
+    const documents = corpus.documents.filter(d => d.workspace === row.workspace);
+    const expected = documents.filter(d => d.current).map(d => d.id).sort();
+    if (row.recorded !== documents.length || row.historical_checks !== documents.filter(d => d.supersedes).length ||
+        !Number.isSafeInteger(row.findings) || row.findings < 0 ||
+        JSON.stringify(row.current_ids) !== JSON.stringify(expected)) throw Error('Incomplete governance history or visibility');
+  }
+}
 function validateQuery(result, corpus) {
+  validateGovernance(result, corpus);
   if (result.status !== 'pass' || result.phase !== 'query' || !Array.isArray(result.queries) || result.queries.length !== corpus.queries.length) throw Error('Incomplete local-memory query result');
   const seen = new Set();
   for (const row of result.queries) {

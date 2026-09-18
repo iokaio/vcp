@@ -31,6 +31,12 @@ already include these changes; normal builds never apply patches.
    It calls the existing CPU embedding and Munarium datastore APIs without
    changing their implementation or the Codex runtime.
 
+5. `0005-local-governance-workspace.patch` connects the qualification package to
+   the already selected Munarium core, in-memory backend and Tokio. It changes
+   only that local package's lock dependencies and the modification notice;
+   all 1,566 package identities/checksums and other dependency records remain.
+   No imported Rust implementation is changed.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

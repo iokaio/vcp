@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "policy": "local-corpus-spike-v1",
+  "policy": "local-governed-corpus-v1",
   "target": "x86_64-pc-windows-msvc",
   "features": [
     "munarium-datastore/vector-diskann"
   ],
-  "workspace_lock_sha256": "203f535c75fd7b82d0a3992722891c8b0223cd192797bcec9bd20bedaabd16bd",
+  "workspace_lock_sha256": "0311a5464f4611d0b0f4cace839674560f5d113789fb205b43a90d7d20ad02fd",
   "scope": "Native normal/build corpus qualification graph; existing reviewed package declarations, not an OS network-denial proof or release notice bundle.",
   "packages": [
     {
@@ -174,6 +174,13 @@
       "version": "1.0.4",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "chrono",
+      "version": "0.4.43",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "fac4744fb15ae8337dc853fee7fb3f4e48c0fbaa23d0afe49c447b4fab126118",
       "license": "MIT OR Apache-2.0"
     },
     {
@@ -709,6 +716,13 @@
       "license": "MIT/Apache-2.0"
     },
     {
+      "name": "mio",
+      "version": "1.2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1",
+      "license": "MIT"
+    },
+    {
       "name": "monostate-impl",
       "version": "0.1.18",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -723,9 +737,21 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "name": "munarium-core",
+      "version": "1.2.1",
+      "source": "src/third_party/munarium/server/src/munarium-core",
+      "license": "Apache-2.0"
+    },
+    {
       "name": "munarium-datastore",
       "version": "1.2.1",
       "source": "src/third_party/munarium/server/src/munarium-datastore",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "munarium-store-mem",
+      "version": "1.2.1",
+      "source": "src/third_party/munarium/server/src/munarium-store-mem",
       "license": "Apache-2.0"
     },
     {
@@ -1245,6 +1271,13 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "b238e22d44a15349529690fb07bd645cf58149a1b1e44d6cb5bd1641ff1a6223",
       "license": "Apache-2.0"
+    },
+    {
+      "name": "tokio-macros",
+      "version": "2.7.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496",
+      "license": "MIT"
     },
     {
       "name": "tokio",
