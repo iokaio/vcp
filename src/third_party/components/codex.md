@@ -45,6 +45,10 @@ to retained per-attempt HTTP admission and observed-body capture. It keeps the
 same controller and external dependency identities; the P0 journal remains a
 separate regression fixture rather than a second canonical store.
 
+Patch 0014 registers original repository/context packages using existing pinned
+dependencies and retained native process containment. It changes only workspace
+and local lock entries; see the [P2 context guide](../../../docs/development/p2-context.md).
+
 Applicable source notices are retained unchanged:
 
 - Root `LICENSE` (Apache-2.0) and `NOTICE` (OpenAI and Ratatui attribution).

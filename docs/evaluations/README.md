@@ -1,5 +1,7 @@
 # Reviewed evaluation summaries
 
+- [P2 repository/context increment](p2-context-increment.md): 19 native observations, captured selection and foundation regressions; retained request integration remains in progress.
+
 - [P1 canonical foundation qualification](p1-completion.md): phase acceptance map and final retained integration evidence.
 - [P1 accounting and history](p1-accounting-history.md): 39 native foundation, ledger and history contracts, including combined accounting and projection crash tests.
 - [P1 foundation increment](p1-foundation-increment.md): 24 native domain, command, capture, backend and process-crash contracts; remaining P1 acceptance is explicit.

@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "vcp-repository"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+workspace = "../../third_party/codex/codex-rs"
+
+[dependencies]
+vcp-domain = { path = "../vcp-domain" }
+vcp-protocol = { path = "../vcp-protocol" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+ignore = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["process", "io-util", "time", "rt", "sync"] }
+codex-utils-pty = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

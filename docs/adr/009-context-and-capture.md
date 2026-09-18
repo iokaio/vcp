@@ -43,3 +43,9 @@ Attach exact source/package, fixture, configuration and environment identities, 
 Full capture increases local disk and privacy exposure; visibility and pruning are required. Unrecordable effects cannot continue as if capture succeeded. Unsaved editor drafts remain a later explicit capture policy, not automatically settled memory.
 
 Update this record with the selected mechanism, rejected alternatives, measured operational burden, compatibility/migration implications and evidence when its decision gate runs. Reopen an engineering choice when those assumptions fail; changes to confirmed product scope need an explicit owner decision.
+
+The [P2 context increment](../evaluations/p2-context-increment.md) selects native
+no-follow observations, scoped instruction probes, deterministic range selection
+and captured-byte seals. Filesystem observation is in `vcp-repository`; pure
+selection and injected artifact verification are in `vcp-context`. Actual retained
+send fencing and provider compatibility remain unqualified P2 integration work.
