@@ -37,7 +37,9 @@ a symlink to `COPYING`, becomes a regular copy of that selected license. The
 selection records this file-kind transformation and both hashes. The ordered
 [patch series](../../src/third_party/patches/codex/README.md) raises the retained
 `codex-chatgpt` crate's recursion limit for the Rust 1.98.0 compiler experiment.
-The modified source carries a VCP modification notice. Further changes require
+A second patch registers the three [Munarium libraries](munarium-source.md) in
+this workspace and extends its lockfile without replacing existing Codex package
+versions. Modified files carry VCP modification notices. Further changes require
 hashed patches under `src/third_party/patches/codex/` and updated result records.
 Root Git attributes preserve upstream bytes; original nested fixture attributes
 are retained. Executable Git modes must be staged explicitly on Windows and
@@ -71,7 +73,7 @@ pwsh -NoProfile -File scripts/build.ps1
 pwsh -NoProfile -File scripts/build.ps1 -Mode BoundaryTests
 ```
 
-`build.ps1` verifies selected source and executes `cargo +1.95.0 build --locked
+`build.ps1` verifies both Codex and Munarium source inventories and executes `cargo +1.95.0 build --locked
 -p codex-cli --bin codex --target x86_64-pc-windows-msvc -j 4` inside the committed
 `codex-rs` directory. `BoundaryTests` selects `codex-apply-patch` and
 `codex-execpolicy`. It neither acquires Codex nor applies patches. These commands
@@ -91,7 +93,7 @@ and deterministic tooling; it does not qualify a Windows binary.
 The [delivery workflow](../../.github/workflows/ci.yml) also targets the
 owner-provided `win8core` GitHub-hosted Windows x64 runner (Windows Latest 2025,
 8 cores, 32 GB RAM, 300 GB SSD). Each job starts from checkout with process-scoped
-Git long-path support, installs Node 24.10.0 and Rust 1.95.0, and provisions Cargo
+Git long-path support, installs Node 24.10.0 and Rust 1.95.0/1.98.0, and provisions Cargo
 dependencies without a restored VCP build cache. Visual Studio, SDK, CMake and
 Ninja discovery uses the same native build runner as local qualification.
 
@@ -103,10 +105,10 @@ See [GitHub's larger-runner access procedure](https://docs.github.com/en/actions
 An unassigned queued job provides no native qualification evidence.
 
 The Windows job runs the fast suite, verifies imported Git bytes/modes, builds
-the committed CLI, runs patch/policy tests and executes the five synthetic
+the committed CLI, runs patch/policy and selected Munarium library tests, and executes the five synthetic
 [CLI trace cases](native-cli-trace.md). A separate maintenance step fetches the
-exact Codex commit from the selection, reconstructs it with the recorded patches,
-and compares the complete resulting record with the committed inventory. The
+exact Codex and Munarium commits from their selections, reconstructs both with
+their recorded patches, and compares each complete result with its committed inventory. The
 ordinary build remains independent of this acquisition and reconstruction.
 
 Every native command must pass; missing prerequisites fail the job. The job has
@@ -118,7 +120,7 @@ and outcomes in evaluation evidence before claiming second-environment success.
 
 ### Explicit compiler experiments
 
-Codex's retained toolchain pin is 1.95.0; the selected Munarium candidate pins
+Codex's retained toolchain pin is 1.95.0; the selected Munarium libraries pin
 1.98.0. To compare compatibility without editing either source, invoke the
 qualification runner with an immutable experiment override and a separate cache:
 

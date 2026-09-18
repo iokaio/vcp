@@ -65,3 +65,22 @@ test('boundary coverage rejects missing, unknown and multiply owned packages', (
     assert.throws(() => validateBoundaries(catalog, packages, { ...options, commit: 'b'.repeat(40) }), /Invalid boundary inventory/);
   } finally { fixture.cleanup(); }
 });
+
+test('external workspace members require selected roots and cannot escape them through links', () => {
+  const fixture = ownedRoot(os.tmpdir());
+  try {
+    const engine = path.join(fixture.root, 'engine'), library = path.join(fixture.root, 'library');
+    write(engine, 'Cargo.toml', '[workspace]\nmembers=["../library"]\n');
+    write(library, 'Cargo.toml', '[package]\nname="memory"\n');
+    assert.throws(() => workspacePackages(engine), /Unsafe or nonportable/);
+    assert.equal(workspacePackages(engine, { externalRoots: [library] })[0].name, 'memory');
+    write(fixture.root, 'outside/Cargo.toml', '[package]\nname="outside"\n');
+    write(library, 'Cargo.toml', '[package]\nname="memory"\n[dependencies]\nescaped={path="../outside"}\n');
+    assert.throws(() => workspacePackages(engine, { externalRoots: [library] }), /outside selected roots/);
+    const link = path.join(library, 'escape');
+    fs.symlinkSync(path.join(fixture.root, 'outside'), link, process.platform === 'win32' ? 'junction' : 'dir');
+    write(library, 'Cargo.toml', '[package]\nname="memory"\n[dependencies]\nescaped={path="escape"}\n');
+    try { assert.throws(() => workspacePackages(engine, { externalRoots: [library] }), /escaped its selected roots/); }
+    finally { fs.unlinkSync(link); }
+  } finally { fixture.cleanup(); }
+});

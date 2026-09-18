@@ -1,5 +1,9 @@
 [workspace]
 members = [
+    # VCP modification: separately attributed local-memory libraries share this build graph.
+    "../../munarium/server/src/munarium-core",
+    "../../munarium/server/src/munarium-store-mem",
+    "../../munarium/server/src/munarium-datastore",
     "aws-auth",
     "analytics",
     "agent-graph-store",

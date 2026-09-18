@@ -7,6 +7,10 @@ experiment to real Tantivy and DiskANN. It is not P0-02 embedding qualification
 or VCP memory integration. See [candidate provenance](../../src/third_party/components/munarium.md),
 [the owning plan](../plan/01-upstream-feasibility.md) and [ADR-008](../adr/008-local-governed-memory.md).
 
+This procedure preserves the unmodified standalone baseline. For normal VCP
+checkout builds, use the [committed shared-workspace selection](munarium-source.md).
+Its resolved dependencies differ and have separate executed evidence.
+
 ## Reproduction
 
 Use a new ignored checkout and [inventory its original bytes](upstream-candidates.md).

@@ -8,19 +8,33 @@ const { validatePath } = require('./upstream-inventory.cjs');
 // Discover path dependencies as Cargo workspace members, including members
 // reached only through dev/target dependencies. This does not resolve features
 // or claim to replace Cargo's target-specific dependency graph.
-function workspacePackages(root) {
+function sourceResolver(root, externalRoots = []) {
   const realRoot = fs.realpathSync(root);
+  const allowed = [realRoot, ...externalRoots.map(directory => fs.realpathSync(directory))];
+  const inside = file => allowed.some(directory => file === directory || file.startsWith(directory + path.sep));
+  return relative => {
+    if (!externalRoots.length) validatePath(relative);
+    else {
+      if (typeof relative !== 'string' || path.posix.normalize(relative) !== relative) throw Error('Unsafe or nonportable workspace path');
+      validatePath(relative.replace(/^(?:\.\.\/)+/, ''));
+    }
+    const lexical = path.resolve(realRoot, relative);
+    if (!inside(lexical)) throw Error('Unsafe or nonportable workspace path: outside selected roots');
+    const resolved = fs.realpathSync(lexical);
+    if (!inside(resolved)) throw Error('Workspace source escaped its selected roots');
+    return resolved;
+  };
+}
+function workspacePackages(root, { externalRoots = [] } = {}) {
+  const resolve = sourceResolver(root, externalRoots);
   function read(relative) {
-    validatePath(relative);
-    const resolved = fs.realpathSync(path.join(realRoot, relative));
-    if (!resolved.startsWith(realRoot + path.sep)) throw Error('Workspace source escaped its root');
-    return TOML.parse(fs.readFileSync(resolved, 'utf8'));
+    return TOML.parse(fs.readFileSync(resolve(relative), 'utf8'));
   }
   const workspace = read('Cargo.toml').workspace;
   if (!Array.isArray(workspace?.members) || workspace.exclude?.length) throw Error('Unsupported workspace membership rules');
   const byDirectory = new Map(), names = new Set();
   function visit(directory) {
-    validatePath(directory);
+    resolve(directory);
     if (byDirectory.has(directory)) return;
     const document = read(directory + '/Cargo.toml');
     const name = document.package?.name;
@@ -39,7 +53,7 @@ function workspacePackages(root) {
             if (inherited && !actual) throw Error('Missing inherited dependency: ' + dependency);
             if (typeof actual?.path === 'string') {
               const target = path.posix.normalize(path.posix.join(inherited ? '' : directory, actual.path));
-              validatePath(target);
+              resolve(target);
               item.dependencyDirectories.add(target);
               visit(target);
             }
@@ -54,7 +68,7 @@ function workspacePackages(root) {
     dependencies: [...item.dependencyDirectories].map(directory => byDirectory.get(directory).name).sort() }))
     .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 }
-function validateBoundaries(catalog, packages, { root, commit, taskIds }) {
+function validateBoundaries(catalog, packages, { root, commit, taskIds, externalRoots = [] }) {
   if (catalog.schema_version !== 1 || catalog.component !== 'codex' || catalog.commit !== commit ||
       catalog.verification !== 'static_only' || typeof catalog.scope !== 'string' || !catalog.scope ||
       !Array.isArray(catalog.groups) || !catalog.groups.length || !Array.isArray(catalog.seams) || !catalog.seams.length) throw Error('Invalid boundary inventory identity or scope');
@@ -75,16 +89,14 @@ function validateBoundaries(catalog, packages, { root, commit, taskIds }) {
     }
   }
   if (assigned.size !== available.size) throw Error('Unassigned workspace packages: ' + [...available.keys()].filter(name => !assigned.has(name)).join(', '));
-  const realRoot = fs.realpathSync(root);
+  const resolve = sourceResolver(root, externalRoots);
   for (const seam of catalog.seams) {
     const owner = available.get(seam.package);
-    validatePath(seam.path);
+    const source = resolve(seam.path);
     if (typeof seam.id !== 'string' || !/^[a-z][a-z0-9-]+$/.test(seam.id) || seams.has(seam.id) || !groups.get(seam.group)?.has(seam.package) || !owner ||
         !seam.path.startsWith(path.posix.dirname(owner.manifest) + '/') || typeof seam.symbol !== 'string' || !seam.symbol.trim() ||
         typeof seam.observation !== 'string' || !seam.observation.trim()) throw Error('Invalid effect seam');
     seams.add(seam.id);
-    const source = fs.realpathSync(path.join(realRoot, seam.path));
-    if (!source.startsWith(realRoot + path.sep)) throw Error('Effect reference escaped its source root');
     if (!fs.readFileSync(source, 'utf8').includes(seam.symbol)) throw Error('Stale source symbol: ' + seam.id);
   }
   return { packages: assigned.size, groups: groups.size, seams: seams.size, verification: 'static_only', status: 'pass' };

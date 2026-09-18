@@ -20,4 +20,14 @@ function munariumClosure(text) {
     scope: 'normal and build dependencies for the explicit native Windows target; not a network-effect proof',
     packages: [...packages.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, value]) => value) };
 }
-module.exports = { munariumClosure };
+function verifyReference(actual, reference, lockSha256) {
+  if (reference.schema_version !== 1 || reference.policy !== actual.policy ||
+      reference.target !== 'x86_64-pc-windows-msvc' ||
+      JSON.stringify(reference.features) !== JSON.stringify(['munarium-datastore/vector-diskann']) ||
+      reference.workspace_lock_sha256 !== lockSha256 || !Array.isArray(reference.packages)) {
+    throw Error('Dependency reference identity or lockfile drift');
+  }
+  const expected = reference.packages.map(({ name, version }) => ({ name, version }));
+  if (JSON.stringify(actual.packages) !== JSON.stringify(expected)) throw Error('Selected dependency graph drift');
+}
+module.exports = { munariumClosure, verifyReference };

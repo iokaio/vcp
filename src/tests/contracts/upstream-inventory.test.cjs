@@ -42,6 +42,33 @@ test('hashes original bytes and rejects changed, truncated or extra batch output
   assert.throws(() => attachContent(entries, Buffer.concat([batch, Buffer.from('extra')])));
   assert.throws(() => attachContent(entries, Buffer.from(`${object} blob 6\nHello\n\n`)), /identity mismatch/);
 });
+test('either shared component protects both selected source trees before output allocation', () => {
+  const fixture = ownedRoot(os.tmpdir());
+  try {
+    const script = path.join(fixture.root, 'scripts/upstream/build-baseline.ps1');
+    fs.mkdirSync(path.dirname(script), { recursive: true });
+    fs.copyFileSync(path.resolve(__dirname, '../../../scripts/upstream/build-baseline.ps1'), script);
+    const components = path.join(fixture.root, 'src/third_party/components');
+    fs.mkdirSync(components, { recursive: true });
+    for (const component of ['codex', 'munarium']) {
+      fs.mkdirSync(path.join(fixture.root, 'src/third_party', component));
+      fs.writeFileSync(path.join(components, component + '-selection.json'), JSON.stringify({ commit: '0'.repeat(40) }));
+    }
+    const outside = path.join(fixture.container, 'unallocated-evidence');
+    for (const [selection, component] of [['-SelectedCodex', 'munarium'], ['-SelectedMunarium', 'codex']]) {
+      const inside = path.join(fixture.root, 'src/third_party', component, 'forbidden-output');
+      for (const args of [['-OutputRoot', inside], ['-OutputRoot', outside, '-TargetRoot', inside]]) {
+        const result = spawnSync('pwsh', ['-NoProfile', '-File', script, selection, ...args],
+          { encoding: 'utf8', timeout: 20000, windowsHide: true });
+        assert.equal(result.error, undefined);
+        assert.equal(result.status, 2, result.stdout + result.stderr);
+        assert.match(result.stderr, /\[BASELINE_OUTPUT_IN_SOURCE\]/);
+        assert.equal(fs.existsSync(inside), false);
+        assert.equal(fs.existsSync(outside), false);
+      }
+    }
+  } finally { fixture.cleanup(); }
+});
 test('Windows short source aliases cannot bypass evidence or target containment', { skip: process.platform !== 'win32' }, t => {
   const fixture = ownedRoot(os.tmpdir());
   try {

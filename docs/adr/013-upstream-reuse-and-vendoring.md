@@ -70,4 +70,11 @@ The trade-off is a larger VCP source tree and responsibility for keeping patches
 
 The [current source selection and build](../development/codex-source.md) retain the pinned Codex Cargo workspace as 7,937 ordinary files. Machine-readable selection/result records, reconstruction checks and a native build command exist. The ordered patch series records a crate recursion-limit compatibility change; the separate license-symlink materialization is explicit. Root and retained notices identify the imported source and modification. There is no gitlink, nested repository or `.gitmodules` dependency.
 
-The [static package/effect inventory](../development/codex-boundaries.md) covers all 154 workspace packages and records proposed gates with checked source anchors. It describes intended adapter ownership, not implemented restrictions. Runtime traces, enforced replacements and other selected component/toolchain qualification remain open P0 work; the committed-copy convention is unchanged.
+The [Munarium selection](../development/munarium-source.md) imports 70 ordinary
+files with manifest-only adaptations into the same Codex Cargo workspace. Its
+separate patch series and file inventory preserve attribution and reconstruction.
+All 1,491 original Codex lockfile package identities/checksums remain; 34 entries
+are added. Component qualification retains the original compiler pins; a single
+supported VCP compiler remains an integration decision.
+
+The [static package/effect inventory](../development/codex-boundaries.md) covers all 157 shared-workspace packages and records proposed gates with checked source anchors. It describes intended adapter ownership, not implemented restrictions. Runtime traces, enforced replacements and other selected component/toolchain qualification remain open P0 work; the committed-copy convention is unchanged.

@@ -53,7 +53,7 @@ function checkRepository(root) {
   const read = file => fs.readFileSync(path.join(root, file), 'utf8');
   // Imported upstream documentation is byte-verified by its provenance case;
   // its original links refer to an upstream tree/site, not VCP's documentation.
-  const errors = [], markdown = files.filter(file => file.endsWith('.md') && !file.startsWith('src/third_party/codex/'));
+  const errors = [], markdown = files.filter(file => file.endsWith('.md') && !/^src\/third_party\/(codex|munarium)\//.test(file));
   let links = 0;
   for (const file of markdown) {
     for (const match of visible(read(file)).matchAll(/!?\[[^\]]*\]\(([^)\n]+)\)/g)) {
@@ -105,7 +105,7 @@ function checkRepository(root) {
   include('P8-05');
   const release = [...nodes.keys()].filter(id => !/^P(?:4|9|10)-/.test(id));
   if (closure.size !== 56 || release.some(id => !closure.has(id)) || [...closure].some(id => /^P(?:4|9|10)-/.test(id))) errors.push('First-release closure must contain all 56 release tasks and no deferred tasks');
-  try { git(['diff', '--check', 'HEAD', '--', '.', ':!src/third_party/codex']); } catch { errors.push('git diff --check HEAD failed'); }
+  try { git(['diff', '--check', 'HEAD', '--', '.', ':!src/third_party/codex', ':!src/third_party/munarium']); } catch { errors.push('git diff --check HEAD failed'); }
   return { markdown_files: markdown.length, relative_links: links, tasks: ledger.length, release_tasks: closure.size, errors };
 }
 if (require.main === module) {
