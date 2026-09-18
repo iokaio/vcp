@@ -84,6 +84,10 @@ already include these changes; normal builds never apply patches.
 14. `0014-p2-context-workspace.patch` registers original repository/context
     packages and their local lock entries. Existing external pins are unchanged;
     native Git observation reuses the retained Job Object. See [the context guide](../../../../docs/development/p2-context.md).
+15. `0015-p2-provider-deadline.patch` registers the original provider codec and
+    host dependencies, and carries one host deadline through retained response
+    headers/body. The original default remains unchanged without a host deadline.
+    External dependency pins are unchanged. See [the provider guide](../../../../docs/development/p2-provider.md).
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

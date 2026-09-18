@@ -1,6 +1,7 @@
 # Reviewed evaluation summaries
 
-- [P2 repository/context increment](p2-context-increment.md): 19 native observations, captured selection and foundation regressions; retained request integration remains in progress.
+- [P2 provider gateway increment](p2-provider-increment.md): bounded codec, sealed request admission, observed settlement and retained response deadlines; live compatibility remains unverified.
+- [P2 repository/context increment](p2-context-increment.md): 19 native observations, captured selection and foundation regressions; subsequent provider evidence covers retained request admission.
 
 - [P1 canonical foundation qualification](p1-completion.md): phase acceptance map and final retained integration evidence.
 - [P1 accounting and history](p1-accounting-history.md): 39 native foundation, ledger and history contracts, including combined accounting and projection crash tests.

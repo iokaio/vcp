@@ -45,6 +45,8 @@ The P1 foundation and accounting patches register original domain, protocol,
 store, engine, budget and audit packages in the retained workspace/lockfile.
 The P2 context patch registers original repository and context packages with
 existing pinned dependencies and retained native process containment.
+The P2 provider patch registers original codec/host dependencies and adds a host
+deadline to retained HTTP response headers and body without changing external pins.
 The canonical host patch adapts retained HTTP admission and raw-body capture
 to these libraries, using existing dependency identities.
 

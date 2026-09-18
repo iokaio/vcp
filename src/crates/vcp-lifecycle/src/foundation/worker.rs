@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+mod provider;
 use super::{Config, ThreadBinding};
 use std::{
     collections::HashMap,
@@ -116,6 +117,8 @@ pub struct Context {
     outputs: HashMap<ArtifactId, (Scope, LocalWriter)>,
     interrupted_capture: bool,
     owner_alive: bool,
+    provider_required: bool,
+    provider: Option<provider::Provider>,
 }
 fn now() -> Timestamp {
     Timestamp::new(
@@ -173,6 +176,14 @@ impl Context {
             bootstrap: true,
         };
         let interrupted_capture = !engine.store().spool().unfinished()?.is_empty();
+        let provider_required = engine
+            .store()
+            .state()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Artifact)
+            .filter_map(|row| row.decode::<ArtifactDescriptor>().ok())
+            .any(|row| row.spec.schema == "openrouter-provider-configuration/1");
         let mut context = Self {
             engine,
             runtime,
@@ -182,6 +193,8 @@ impl Context {
             outputs: HashMap::new(),
             interrupted_capture,
             owner_alive: true,
+            provider_required,
+            provider: None,
         };
         if context.engine.store().state().records.is_empty() {
             context.command(
@@ -507,13 +520,21 @@ impl Context {
         &mut self,
         binding: &ThreadBinding,
         mut body: serde_json::Value,
-    ) -> Result<(AttemptId, serde_json::Value)> {
+    ) -> Result<(AttemptId, serde_json::Value, Option<std::time::Instant>)> {
         if !self.owner_alive {
             return Err("canonical owner is closed".into());
         }
         self.validate_binding(binding)?;
         if self.interrupted_capture {
             return Err("unfinished capture requires reconciliation".into());
+        }
+        let provider_request = if self.provider_required {
+            Some(self.admit_context(binding, &body)?)
+        } else {
+            None
+        };
+        if let Some(prepared) = &provider_request {
+            body = prepared.body.clone();
         }
         if body["model"].as_str() != Some(&self.config.price.model) {
             return Err("request model differs from admitted price/capability".into());
@@ -604,14 +625,22 @@ impl Context {
         // retain their original identity; the bound intentionally overestimates.
         let bounds = Usage {
             input: Units::new(
-                self.config
-                    .input_ceiling
-                    .get()
+                provider_request
+                    .as_ref()
+                    .map_or(self.config.input_ceiling.get(), |_| bytes.len() as u64)
                     .checked_mul(3)
                     .ok_or("input ceiling overflow")?,
             ),
-            cache_read: self.config.input_ceiling,
-            cache_write: self.config.input_ceiling,
+            cache_read: Units::new(
+                provider_request
+                    .as_ref()
+                    .map_or(self.config.input_ceiling.get(), |_| bytes.len() as u64),
+            ),
+            cache_write: Units::new(
+                provider_request
+                    .as_ref()
+                    .map_or(self.config.input_ceiling.get(), |_| bytes.len() as u64),
+            ),
             output: self.config.output_ceiling,
             requests: Units::new(1),
             ..Default::default()
@@ -665,7 +694,18 @@ impl Context {
             return Err(error.into());
         }
         self.streams.insert(attempt.id.clone(), response);
-        Ok((attempt.id, body))
+        if let Some(prepared) = provider_request {
+            self.provider
+                .as_mut()
+                .ok_or("provider configuration lost")?
+                .streams
+                .insert(attempt.id.clone(), prepared.stream);
+        }
+        let deadline = self
+            .provider
+            .as_ref()
+            .map(|provider| std::time::Instant::now() + provider.timeout);
+        Ok((attempt.id, body, deadline))
     }
     pub fn response_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {
         for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
@@ -678,6 +718,15 @@ impl Context {
                 let _ = self.pause_root("response capture failed");
                 return Err(error.into());
             }
+        }
+        if self.provider_required {
+            self.provider
+                .as_mut()
+                .ok_or("provider configuration missing")?
+                .streams
+                .get_mut(attempt)
+                .ok_or("provider stream missing")?
+                .push(bytes)?;
         }
         Ok(())
     }
@@ -781,6 +830,9 @@ impl Context {
         usage: Option<codex_protocol::protocol::TokenUsage>,
         response_id: String,
     ) -> Result<()> {
+        if self.provider_required {
+            return self.complete_provider(binding, attempt, &response_id);
+        }
         let mut writer = self
             .streams
             .remove(attempt)
@@ -844,6 +896,21 @@ impl Context {
         attempt: &AttemptId,
         reason: &str,
     ) -> Result<()> {
+        // Cancellation may arrive after raw final usage but before the retained
+        // completion callback. Keep that observation rather than losing a known
+        // charge. Parsing failure still preserves an unknown liability.
+        let terminal = self
+            .provider
+            .as_ref()
+            .and_then(|p| p.streams.get(attempt))
+            .and_then(|p| p.terminal_identity())
+            .map(str::to_owned);
+        if let Some(response_id) = terminal {
+            return self.complete_provider(binding, attempt, &response_id);
+        }
+        if let Some(provider) = &mut self.provider {
+            provider.streams.remove(attempt);
+        }
         if let Some(mut writer) = self.streams.remove(attempt) {
             let descriptor = writer.abort()?;
             drop(writer);

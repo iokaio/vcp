@@ -48,6 +48,9 @@ separate regression fixture rather than a second canonical store.
 Patch 0014 registers original repository/context packages using existing pinned
 dependencies and retained native process containment. It changes only workspace
 and local lock entries; see the [P2 context guide](../../../docs/development/p2-context.md).
+Patch 0015 registers the original provider codec and propagates the host's total
+response deadline through retained headers/body. It retains the existing HTTP
+client and scheduler; see [the provider guide](../../../docs/development/p2-provider.md).
 
 Applicable source notices are retained unchanged:
 

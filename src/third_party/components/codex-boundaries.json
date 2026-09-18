@@ -985,6 +985,46 @@
       "effects": [
         "file-read"
       ]
+    },
+    {
+      "id": "provider-context-send-fence",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation/worker/provider.rs",
+      "symbol": "fn admit_context(",
+      "observation": "Current captured context, file/instruction dependencies and exact provider body precede shared-root reservation and send intent.",
+      "effect_class": "effectful",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "file-read",
+        "history",
+        "policy"
+      ]
+    },
+    {
+      "id": "provider-normalized-cost",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation/worker/provider.rs",
+      "symbol": "fn complete_provider(",
+      "observation": "Observed provider costs settle once; absent cost retains liability and served identities remain unknown when absent.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "history",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "provider-bounded-framing",
+      "group": "provider-codec",
+      "package": "vcp-models",
+      "path": "../../../crates/vcp-models/src/stream.rs",
+      "symbol": "pub fn push(",
+      "observation": "Bounded byte framing and complete schema-checked terminal calls perform no transport or tool execution.",
+      "effect_class": "pure",
+      "vcp_boundary": "model-gateway",
+      "effects": []
     }
   ],
   "groups": [
@@ -1599,7 +1639,9 @@
         "P1-03",
         "P1-04",
         "P1-05",
-        "P1-06"
+        "P1-06",
+        "P2-01",
+        "P2-02"
       ],
       "gate": "Retained controller with one canonical storage/accounting worker, private current-authority commands, per-HTTP admission/raw capture and native output observation. Earlier P0 journal is a separate regression fixture; P2/P3 own provider and product CLI policy.",
       "effect_ceiling": "effectful",
@@ -1754,6 +1796,23 @@
       ],
       "gate": "Pure deterministic selection and sealed manifests; captured-byte verification invokes an injected current-access resolver. Repository types retain their native dependency closure.",
       "effect_ceiling": "effectful",
+      "vcp_boundary": "model-gateway"
+    },
+    {
+      "id": "provider-codec",
+      "packages": [
+        "vcp-models"
+      ],
+      "capabilities": [
+        "data",
+        "instruction"
+      ],
+      "handling": "retain-data",
+      "owner_tasks": [
+        "P2-02"
+      ],
+      "gate": "Pure bounded OpenRouter conversion, endpoint snapshot validation, framing and normalization. Canonical host owns capture, freshness, admission and retained transport.",
+      "effect_ceiling": "pure",
       "vcp_boundary": "model-gateway"
     }
   ],

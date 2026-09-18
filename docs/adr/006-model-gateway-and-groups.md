@@ -1,7 +1,7 @@
 # ADR-006 — Model gateway, catalog and capability groups
 
 Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P2-02, P6-01. No implementation, runtime result or owner sign-off is recorded here.
+Decision gate: P2-02, P6-01. P2-02 has a bounded implementation increment; live compatibility and final qualification remain pending.
 
 ## Context and authority
 
@@ -29,6 +29,16 @@ Detailed contracts and failure ordering are in the [supporting design](../archit
 Use current primary provider documentation and captured fixtures during implementation; research tables nominate candidates only. Qualify required roles, tool schemas, context/output limits, fallback and provider-data constraints per model/provider combination.
 
 ## Qualification evidence
+
+The [P2 provider increment](../evaluations/p2-provider-increment.md) records native
+codec, sealed-request, accounting and retained transport deadline tests. It uses
+the retained HTTP client with implicit retries disabled and one canonical host
+admission for each prepared request. Responses conversion is stateless; raw
+metadata, exact body, context manifest and observed response remain captured.
+Missing observed cost retains liability and unknown served identities remain
+unknown. The explicit credential profile disables upstream credential discovery.
+These scripted fixtures do not qualify a real model/provider pair. Automatic
+retry orchestration and a separately capped live smoke run remain required.
 
 E11/E12/R05 exercise truncated streams, malformed fragments, duplicate terminal events, rate limits, cancellation and ambiguous sends. A separately capped live smoke run confirms advertised compatibility; mocks prove control flow only.
 
