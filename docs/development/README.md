@@ -1,5 +1,7 @@
 # Development design and implementation guides
 
+- [Portable storage qualification](portable-storage-spike.md): native backend parity, encrypted snapshots, independent cryptographic interoperability and cross-machine handoff.
+
 These guides describe how to implement and qualify the planned system. The [delivery harness](delivery-harness.md) and [committed Codex baseline build](codex-source.md) are executable. VCP product-runtime qualification remains outstanding.
 
 - [Implementation workflow](implementation-workflow.md): turn a ledger task into a concrete source change, contract checks and reviewable evidence.

@@ -87,6 +87,21 @@ copyright and license terms remain unchanged.
 Individual source copyright headers remain intact. No voice DLLs, Microsoft
 redistributables, model assets or VCP release package are distributed by this import.
 
+## Portable storage qualification dependencies
+
+The original `vcp-storage-spike` package connects already locked `age` 0.11.2
+(MIT OR Apache-2.0), `ed25519-dalek` 2.2.0 (BSD-3-Clause), SQLx 0.9.0
+(MIT OR Apache-2.0) and the selected Munarium datastore. Patch 0009 records its
+workspace/lock entry without changing external package identities. The
+deliberately public X25519 test identity in its handoff fixture originates in
+`age` 0.11.2 `src/x25519.rs` unit tests; it is not user recovery material.
+
+Independent interoperability uses Go age v1.3.2 at
+`b74dce4cdbe35b5e5f66c06d9612b72f89028758` (BSD-3-Clause). It is explicitly
+downloaded as a qualification tool and is not committed or shipped. Its release,
+archive and executable hashes are in
+[the tool pin](src/third_party/components/age-qualification.json).
+
 ## Development TOML parser
 
 `src/tests/package-lock.json` pins `@iarna/toml` 2.2.5 from the public npm registry

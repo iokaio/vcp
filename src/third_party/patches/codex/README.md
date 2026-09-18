@@ -56,6 +56,10 @@ already include these changes; normal builds never apply patches.
    external dependency identities are unchanged. See the
    [recovery guide](../../../../docs/development/lifecycle-recovery.md).
 
+9. `0009-storage-qualification.patch` registers the original P0 storage experiment
+   in the shared workspace and lockfile. SQLite, age, Ed25519 and search package
+   pins remain unchanged. See [the storage guide](../../../../docs/development/portable-storage-spike.md).
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

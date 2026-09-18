@@ -1,0 +1,46 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index e29b6bf..7f30995 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -6,6 +6,7 @@
+ # VCP modification: register the local corpus qualification package; existing dependency pins retained.
+ # VCP modification: connect the local corpus probe to retained governance libraries; dependency pins unchanged.
+ # VCP modification: lifecycle recovery uses existing serialization, hashing and process dependencies.
++# VCP modification: storage qualification connects existing SQLite, age, signature and search dependencies.
+ version = 4
+ 
+ [[package]]
+@@ -17503,6 +17504,21 @@ dependencies = [
+  "vcp-embedding",
+ ]
+ 
++[[package]]
++name = "vcp-storage-spike"
++version = "0.1.0"
++dependencies = [
++ "age",
++ "ed25519-dalek",
++ "munarium-datastore",
++ "serde",
++ "serde_json",
++ "sha2 0.10.9",
++ "sqlx",
++ "tempfile",
++ "tokio",
++]
++
+ [[package]]
+ name = "vcpkg"
+ version = "0.2.15"
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index fc0a4da..f9feee8 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -1,5 +1,7 @@
+ [workspace]
+ members = [
++    # VCP modification: portable storage qualification shares the retained build graph.
++    "../../../crates/vcp-storage-spike",
+     # VCP modification: scoped retained-controller lifecycle qualification.
+     "../../../crates/vcp-lifecycle",
+     # VCP modification: local corpus/index qualification uses the same build graph.

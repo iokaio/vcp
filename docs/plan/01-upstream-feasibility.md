@@ -185,6 +185,8 @@ Use commands with stable IDs and steering revisions and worker completions tagge
 
 ## P0-04 — Storage and encrypted portability comparison
 
+Implementation: [the portable-storage prototype](../development/portable-storage-spike.md) compares SQLite WAL/FULL and framed commits, signed age full/incremental snapshots, independent Go/Node cryptographic interoperability, crash barriers and real cache rebuilds. [Qualification evidence](../evaluations/p0-04-portable-storage.md) records local results and the required second-Windows-environment gate. Production schemas, activation and key UX remain P1/P5/P3/P8.
+
 1. Store identical event, claim, artifact-reference and reservation fixtures in SQLite and a framed-file prototype. Compare transaction/reopen semantics before optimizing size.
 2. Snapshot a canonical view with matching artifacts/index inputs while writes continue. Encrypt the entire archive outside the sync root; evaluate the Rust age candidate and dedicated developer identity from architecture section 12.11.
 3. Restore into a second Windows environment with a separately supplied recovery copy. Measure bundle size, ciphertext transfer churn, CPU/peak disk, restore and backend conversion.

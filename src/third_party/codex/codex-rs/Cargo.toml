@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    # VCP modification: portable storage qualification shares the retained build graph.
+    "../../../crates/vcp-storage-spike",
     # VCP modification: scoped retained-controller lifecycle qualification.
     "../../../crates/vcp-lifecycle",
     # VCP modification: local corpus/index qualification uses the same build graph.

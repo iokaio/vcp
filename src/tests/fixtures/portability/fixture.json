@@ -1,0 +1,22 @@
+{
+  "purpose": "Public synthetic first-Windows-environment handoff; uses published age unit-test identity supplied separately",
+  "producer_binary_sha256": "5b638cb4b737312fe4cac8d2a4d042ac79bed40d4939d028eba042e43fef192d",
+  "schema_version": 1,
+  "files": [
+    {
+      "sha256": "6c4cb42484b8de1cc6839e60f75e12d839b4e35e914d320374f30b2eaf2724d6",
+      "bytes": 64,
+      "path": "snapshot-id.txt"
+    },
+    {
+      "sha256": "0b75e3ad0ea820a6f7db330e2b18d53a80304be01b9bb6abef42f7fffa65226a",
+      "bytes": 45767,
+      "path": "vault/0b75e3ad0ea820a6f7db330e2b18d53a80304be01b9bb6abef42f7fffa65226a.age"
+    },
+    {
+      "sha256": "df4326743321a133ad182b3c684077d2c0f2711899280a5b5f3db8c87ccdaf5a",
+      "bytes": 139672,
+      "path": "vault/df4326743321a133ad182b3c684077d2c0f2711899280a5b5f3db8c87ccdaf5a.age"
+    }
+  ]
+}

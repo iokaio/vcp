@@ -36,6 +36,10 @@ recovery patch adds private startup and dispatch admission, completion receipts,
 native job membership observation and existing lifecycle dependencies. Modified
 files carry modification notices. See the ordered patch record
 under src/third_party/patches/codex/ and THIRD_PARTY_NOTICES.md.
+The storage qualification patch connects the original comparison package to
+existing age, Ed25519, SQLite and retained search dependencies. Its public age
+test vector and independent qualification tool are attributed in
+THIRD_PARTY_NOTICES.md.
 
 The upstream NOTICE identifies code derived from Ratatui under the MIT license:
 Copyright (c) 2016-2022 Florian Dehau

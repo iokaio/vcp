@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      storage_only:
+        description: 'Run the bounded P0 storage handoff on standard Windows instead of full qualification'
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 concurrency:
@@ -42,7 +48,7 @@ jobs:
   windows:
     name: Native Windows qualification
     # Keep expensive qualification opt-in while routine CI runs only fast checks.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.storage_only
     needs: delivery
     runs-on: windows-2025
     timeout-minutes: 180
@@ -144,3 +150,47 @@ jobs:
             !artifacts/build/**/profile/**
           if-no-files-found: error
           retention-days: 7
+  storage:
+    name: Native storage handoff
+    if: github.event_name == 'workflow_dispatch' && inputs.storage_only
+    needs: delivery
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+      - name: Provision pinned qualification tools
+        run: |
+          npm ci --prefix src/tests --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup toolchain install 1.98.0 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $spec = Get-Content src/third_party/components/age-qualification.json -Raw | ConvertFrom-Json
+          New-Item -ItemType Directory -Path artifacts/age | Out-Null
+          Invoke-WebRequest -Uri $spec.archive_url -OutFile artifacts/age/age.zip
+          if ((Get-FileHash artifacts/age/age.zip).Hash.ToLowerInvariant() -ne $spec.archive_sha256) { throw 'Age archive mismatch' }
+          Expand-Archive -LiteralPath artifacts/age/age.zip -DestinationPath artifacts/age/tool
+      - name: Qualify native storage and restore the first Windows environment fixture
+        run: ./scripts/test-storage.ps1 -AgeBinary artifacts/age/tool/age/age.exe -HandoffFixture src/tests/fixtures/portability -Jobs 2
+      - name: Retain only reports and logs, excluding recovery material and active stores
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: storage-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/storage/**/manifest.json
+            artifacts/storage/**/*.log
+            artifacts/storage/**/metrics.json
+          if-no-files-found: error
+          retention-days: 3

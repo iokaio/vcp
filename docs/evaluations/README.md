@@ -1,5 +1,7 @@
 # Reviewed evaluation summaries
 
+- [P0-04 portable storage](p0-04-portable-storage.md): backend parity, crash barriers, authenticated encrypted snapshots and native handoff evidence.
+
 These reports describe executed checks with explicit scope and limitations.
 Raw evidence stays in ignored local artifact directories or CI artifacts.
 

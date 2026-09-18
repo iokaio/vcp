@@ -231,6 +231,11 @@ loopback provider; it is not the product CLI or evidence of paid-provider suppor
 See [the recovery guide](docs/development/lifecycle-recovery.md) for scope and
 independent process, filesystem and network observations.
 
+For portable-storage changes, run `scripts/test-storage.ps1` locally with the
+pinned independent age tool; see [storage qualification](docs/development/portable-storage-spike.md).
+Use the manual `storage_only` CI input only when second-machine evidence is
+required. It avoids rebuilding unrelated native components.
+
 GitHub CI is a confirmation layer, not the primary development/test loop.
 Routine PR/main runs use fast checks on standard Ubuntu; full Windows
 qualification is manual-only. Do not dispatch it or repeatedly push intermediate

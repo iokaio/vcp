@@ -63,6 +63,10 @@
     {
       "path": "src/third_party/patches/codex/0008-lifecycle-recovery.patch",
       "sha256": "36c36d26ffc78ccf50c1708aaf29a6f332058c38c0cd942236753450ae0a91a9"
+    },
+    {
+      "path": "src/third_party/patches/codex/0009-storage-qualification.patch",
+      "sha256": "d106b4928be01b276c6268a568c34dcd9a6df401e7fa65b2ad92874d1d43707a"
     }
   ],
   "licenses": [
