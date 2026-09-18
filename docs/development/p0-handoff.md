@@ -5,6 +5,11 @@ adapters. It does not declare VCP's first usable release complete. The
 [task ledger](../plan/20-traceability.md) remains authoritative for task states;
 [the P0 dossier](../evaluations/p0-06-handoff.md) binds the acceptance evidence.
 
+The subsequent [P1 canonical host](p1-retained-host.md) now connects the retained
+controller to typed commands, full capture, shared stores/accounting and history.
+Use its source map and [qualification report](../evaluations/p1-completion.md)
+for current downstream integration; this page preserves the P0 selection record.
+
 ## Reproduce the engineering baseline
 
 Start with [native source setup](codex-source.md), including long paths, native

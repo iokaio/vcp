@@ -8,6 +8,12 @@ publish = false
 workspace = "../../third_party/codex/codex-rs"
 
 [dependencies]
+vcp-domain = { path = "../vcp-domain" }
+vcp-protocol = { path = "../vcp-protocol" }
+vcp-store = { path = "../vcp-store" }
+vcp-engine = { path = "../vcp-engine" }
+vcp-budget = { path = "../vcp-budget" }
+vcp-audit = { path = "../vcp-audit" }
 codex-apply-patch = { workspace = true }
 codex-features = { workspace = true }
 munarium-core = { path = "../../third_party/munarium/server/src/munarium-core" }
@@ -21,6 +27,7 @@ sha2 = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util"] }
 
 [dev-dependencies]
+wiremock = { workspace = true }
 codex-login = { workspace = true }
 core_test_support = { path = "../../third_party/codex/codex-rs/core/tests/common" }
 tempfile = { workspace = true }

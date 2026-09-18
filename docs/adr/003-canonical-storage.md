@@ -25,6 +25,16 @@ Compare SQLite transactions and framed append journals using the same workloads 
 
 P0-04 [prototype evidence](../evaluations/p0-04-portable-storage.md) supports SQLite WAL/FULL as the default integration candidate, with a framed-file comparison preserving the same neutral fixtures. Both still require production schemas, bounded replay, migration and power-loss qualification at P1/P8; neither prototype format is a supported backend.
 
+The subsequent [P1 implementation](../development/p1-foundation.md) selects
+SQLite WAL/FULL with a 100 ms busy bound and an equivalent versioned, hash-linked
+files journal whose durable tip precedes acknowledgement. Both share one owner
+lock, canonical constraints, external artifact layout and immutable activation
+records. [P1 qualification](../evaluations/p1-completion.md) covers native
+transaction kills, corruption, conversion in both directions, activation and
+combined ledger/capture receipts. Explicit state/replay and artifact bounds are
+documented in the guide. P1 formats replace the feasibility formats; hardware
+power-loss and final package qualification remain P8 work.
+
 M01/M02/M07/M08 compare canonical export, reopened records, reservation balances and artifact hashes after identical schedules. Corruption inside committed history fails closed; incomplete uncommitted tails have explicit recovery. Cross-backend conversion validates a new root before activation.
 
 Attach exact source/package, fixture, configuration and environment identities, actual commands and pass/fail/not-run outcomes. No linked plan or ADR is itself passing evidence.

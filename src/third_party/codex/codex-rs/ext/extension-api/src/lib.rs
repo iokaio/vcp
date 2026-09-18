@@ -106,4 +106,6 @@ pub use user_instructions::LoadInstructionsFuture;
 pub use user_instructions::LoadedUserInstructions;
 pub use user_instructions::ThreadInstructionsProvider;
 pub use user_instructions::UserInstructionsProvider;
-pub use work_admission::{HostWorkAdmission, HostWorkKind, HostWorkPermit};
+pub use work_admission::{
+    HostModelPurpose, HostResponseCapture, HostWorkAdmission, HostWorkKind, HostWorkPermit,
+};

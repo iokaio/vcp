@@ -49,6 +49,18 @@ impl Snapshot {
 }
 impl Store {
     pub async fn open(root: &Path, kind: BackendKind, forbidden_roots: &[PathBuf]) -> Result<Self> {
+        Self::open_with_artifact_limit(root, kind, forbidden_roots, DEFAULT_ARTIFACT_LIMIT).await
+    }
+
+    pub async fn open_with_artifact_limit(
+        root: &Path,
+        kind: BackendKind,
+        forbidden_roots: &[PathBuf],
+        artifact_limit: u64,
+    ) -> Result<Self> {
+        if artifact_limit == 0 || artifact_limit > DEFAULT_ARTIFACT_LIMIT {
+            return Err(Error::Limit("artifact capacity"));
+        }
         // Check the enclosing location before creating plaintext canonical bytes.
         let absolute = std::path::absolute(root)?;
         let ancestor = absolute
@@ -121,7 +133,7 @@ impl Store {
             }
         }
         let (backend, state, commits) = Backend::open(&root, kind).await?;
-        let spool = Spool::open(&root.join("spool"), forbidden_roots, DEFAULT_ARTIFACT_LIMIT)?;
+        let spool = Spool::open(&root.join("spool"), forbidden_roots, artifact_limit)?;
         for record in state
             .records
             .values()

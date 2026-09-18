@@ -131,9 +131,16 @@ impl Stream for ResponseStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let event = self.rx_event.poll_recv(cx);
-        if let Poll::Ready(Some(Ok(ResponseEvent::Completed { token_usage, .. }))) = &event {
+        if let Poll::Ready(Some(Ok(ResponseEvent::Completed {
+            token_usage,
+            response_id,
+            ..
+        }))) = &event
+        {
             if let Some(mut permit) = self.host_permit.take() {
-                if let Err(error) = permit.complete_model(token_usage.as_ref()) {
+                if let Err(error) =
+                    permit.complete_model_response(token_usage.as_ref(), response_id)
+                {
                     return Poll::Ready(Some(Err(codex_protocol::error::CodexErr::Io(
                         std::io::Error::other(error),
                     ))));

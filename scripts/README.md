@@ -58,4 +58,5 @@ activation contracts. It records stable source inputs and actual native test
 results. `test-accounting-history.ps1` runs the six-package, 39-contract
 [accounting/history qualification](../docs/development/p1-accounting-history.md),
 including the foundation regressions and real accounting/projection process kills.
-Retained-controller integration remains subsequent P1 work.
+`test-p1.ps1` runs all 70 foundation, accounting/history and retained host contracts;
+see [the canonical host guide](../docs/development/p1-retained-host.md).

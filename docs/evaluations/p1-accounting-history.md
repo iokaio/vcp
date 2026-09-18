@@ -1,5 +1,9 @@
 # P1 accounting and history qualification
 
+This report records the second increment. The subsequent
+[P1 completion qualification](p1-completion.md) covers retained integration and
+the current task status without changing the historical results below.
+
 The second P1 increment implements checked accounting and deterministic history
 over the canonical foundation. P1-01 through P1-06 remain `in_progress` because
 the retained controller's complete request and output paths still need integration.

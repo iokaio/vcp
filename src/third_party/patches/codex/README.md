@@ -75,6 +75,12 @@ already include these changes; normal builds never apply patches.
 12. `0012-p1-accounting-history-workspace.patch` registers the original budget and
     audit packages. It adds only local lock entries and preserves external pins.
     See [accounting and history](../../../../docs/development/p1-accounting-history.md).
+13. `0013-p1-canonical-host-integration.patch` connects actual retained HTTP
+    attempts to canonical host admission, captures observed response bodies
+    before SSE parsing, and passes response identity with usage. Hosted requests
+    use HTTP with one transport attempt; retries re-enter admission. The local
+    lifecycle lock entry gains the existing foundation packages and Wiremock;
+    no external dependency pin changes. See [the retained host guide](../../../../docs/development/p1-retained-host.md).
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

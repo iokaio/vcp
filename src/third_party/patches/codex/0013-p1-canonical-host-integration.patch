@@ -1,0 +1,338 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 028dea9..c39bd59 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17545,6 +17545,13 @@ dependencies = [
+  "sha2 0.10.9",
+  "tempfile",
+  "tokio",
++ "vcp-audit",
++ "vcp-budget",
++ "vcp-domain",
++ "vcp-engine",
++ "vcp-protocol",
++ "vcp-store",
++ "wiremock",
+ ]
+ 
+ [[package]]
+diff --git a/codex-rs/codex-api/src/endpoint/responses.rs b/codex-rs/codex-api/src/endpoint/responses.rs
+index 9c41a80..c2c32ee 100644
+--- a/codex-rs/codex-api/src/endpoint/responses.rs
++++ b/codex-rs/codex-api/src/endpoint/responses.rs
+@@ -1,3 +1,4 @@
++// VCP modification: capture observed body bytes before SSE parsing; host admission supplies the exact request body.
+ use crate::auth::SharedAuthProvider;
+ use crate::common::ResponseStream;
+ use crate::common::ResponsesApiRequest;
+@@ -15,6 +16,7 @@ use codex_client::HttpTransport;
+ use codex_client::RequestCompression;
+ use codex_client::RequestTelemetry;
+ use codex_protocol::protocol::SessionSource;
++use futures::StreamExt;
+ use http::HeaderMap;
+ use http::HeaderValue;
+ use http::Method;
+@@ -23,9 +25,12 @@ use std::sync::Arc;
+ use std::sync::OnceLock;
+ use tracing::instrument;
+ 
++type ResponseCapture = Arc<dyn Fn(&[u8]) -> Result<(), String> + Send + Sync>;
++
+ pub struct ResponsesClient<T: HttpTransport> {
+     session: EndpointSession<T>,
+     sse_telemetry: Option<Arc<dyn SseTelemetry>>,
++    response_capture: Option<ResponseCapture>,
+ }
+ 
+ #[derive(Default)]
+@@ -43,6 +48,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
+         Self {
+             session: EndpointSession::new(transport, provider, auth),
+             sse_telemetry: None,
++            response_capture: None,
+         }
+     }
+ 
+@@ -54,9 +60,15 @@ impl<T: HttpTransport> ResponsesClient<T> {
+         Self {
+             session: self.session.with_request_telemetry(request),
+             sse_telemetry: sse,
++            response_capture: self.response_capture,
+         }
+     }
+ 
++    pub fn with_response_capture(mut self, capture: Option<ResponseCapture>) -> Self {
++        self.response_capture = capture;
++        self
++    }
++
+     #[instrument(
+         name = "responses.stream_request",
+         level = "info",
+@@ -71,6 +83,16 @@ impl<T: HttpTransport> ResponsesClient<T> {
+         &self,
+         request: ResponsesApiRequest,
+         options: ResponsesOptions,
++    ) -> Result<ResponseStream, ApiError> {
++        let body = serde_json::to_value(request)
++            .map_err(|e| ApiError::Stream(format!("failed to encode responses request: {e}")))?;
++        self.stream_body(body, options).await
++    }
++
++    pub async fn stream_body(
++        &self,
++        body: Value,
++        options: ResponsesOptions,
+     ) -> Result<ResponseStream, ApiError> {
+         let ResponsesOptions {
+             session_id,
+@@ -80,7 +102,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
+             compression,
+             turn_state,
+         } = options;
+-        let body = EncodedJsonBody::encode(&request)
++        let body = EncodedJsonBody::encode(&body)
+             .map_err(|e| ApiError::Stream(format!("failed to encode responses request: {e}")))?;
+ 
+         let mut headers = extra_headers;
+@@ -132,7 +154,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
+             Compression::Zstd => RequestCompression::Zstd,
+         };
+ 
+-        let stream_response = self
++        let mut stream_response = self
+             .session
+             .stream_encoded_json_with(
+                 Method::POST,
+@@ -149,6 +171,18 @@ impl<T: HttpTransport> ResponsesClient<T> {
+             )
+             .await?;
+ 
++        if let Some(capture) = self.response_capture.clone() {
++            stream_response.bytes = stream_response
++                .bytes
++                .map(move |item| {
++                    item.and_then(|bytes| {
++                        capture(&bytes).map_err(codex_client::TransportError::Build)?;
++                        Ok(bytes)
++                    })
++                })
++                .boxed();
++        }
++
+         Ok(spawn_response_stream(
+             stream_response,
+             self.session.provider().stream_idle_timeout,
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 37320f2..d552041 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -1714,13 +1714,56 @@ impl ModelClientSession {
+             let inference_trace_attempt = inference_trace.start_attempt();
+             inference_trace_attempt.add_request_headers(&mut options.extra_headers);
+             inference_trace_attempt.record_started(&request);
+-            let client = ApiResponsesClient::new(
+-                transport,
+-                client_setup.api_provider,
+-                client_setup.api_auth,
+-            )
+-            .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
+-            let stream_result = client.stream_request(request, options).await;
++            // VCP: admit each fully built HTTP body. The host inserts enforced
++            // bounds and durably captures/reserves before any request is sent.
++            let mut body = serde_json::to_value(&request)
++                .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
++            let host_permit = self
++                .client
++                .host_work
++                .as_ref()
++                .map(|gate| {
++                    let purpose = match responses_metadata.request_kind {
++                        Some(crate::responses_metadata::CodexResponsesRequestKind::Compaction(
++                            _,
++                        )) => codex_extension_api::HostModelPurpose::Compaction,
++                        Some(crate::responses_metadata::CodexResponsesRequestKind::Memory) => {
++                            codex_extension_api::HostModelPurpose::Memory
++                        }
++                        _ => codex_extension_api::HostModelPurpose::Turn,
++                    };
++                    gate.admit_model(self.client.state.thread_id, &mut body, purpose)
++                })
++                .transpose()
++                .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
++            let response_capture = host_permit
++                .as_ref()
++                .and_then(|permit| permit.response_capture());
++            let mut api_provider = client_setup.api_provider;
++            if self.client.host_work.is_some() {
++                // Every retry needs a distinct reservation and send receipt.
++                api_provider.retry.max_attempts = 1;
++                api_provider.retry.retry_429 = false;
++                api_provider.retry.retry_5xx = false;
++                api_provider.retry.retry_transport = false;
++            }
++            let client = ApiResponsesClient::new(transport, api_provider, client_setup.api_auth)
++                .with_telemetry(Some(request_telemetry), Some(sse_telemetry))
++                .with_response_capture(response_capture);
++            let stream_result = client.stream_body(body, options).await;
++            if let Err(ApiError::Transport(codex_client::TransportError::Http {
++                body: Some(body),
++                ..
++            })) = &stream_result
++            {
++                if let Some(capture) = host_permit
++                    .as_ref()
++                    .and_then(|permit| permit.response_capture())
++                {
++                    capture(body.as_bytes())
++                        .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
++                }
++            }
+ 
+             match stream_result {
+                 Ok(stream) => {
+@@ -1730,7 +1773,7 @@ impl ModelClientSession {
+                         inference_trace_attempt,
+                         Arc::clone(&self.client.state.provider),
+                     );
+-                    return Ok(stream);
++                    return Ok(stream.with_host_permit(host_permit));
+                 }
+                 Err(ApiError::Transport(unauthorized_transport))
+                     if self
+@@ -2151,23 +2194,12 @@ impl ModelClientSession {
+         responses_metadata: &CodexResponsesMetadata,
+         inference_trace: &InferenceTraceContext,
+     ) -> Result<ResponseStream> {
+-        let host_permit = self
+-            .client
+-            .host_work
+-            .as_ref()
+-            .map(|gate| {
+-                gate.admit(
+-                    self.client.state.thread_id,
+-                    codex_extension_api::HostWorkKind::Model,
+-                    "responses",
+-                )
+-            })
+-            .transpose()
+-            .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
+         let wire_api = self.client.state.provider.info().wire_api;
+         match wire_api {
+             WireApi::Responses => {
+-                if self.client.responses_websocket_enabled() {
++                // VCP hosted requests use the qualified HTTP capture/admission
++                // path. Unhosted upstream sessions retain WebSocket behavior.
++                if self.client.host_work.is_none() && self.client.responses_websocket_enabled() {
+                     let request_trace = current_span_w3c_trace_context();
+                     match self
+                         .stream_responses_websocket(
+@@ -2185,7 +2217,7 @@ impl ModelClientSession {
+                         .await?
+                     {
+                         WebsocketStreamOutcome::Stream(stream) => {
+-                            return Ok(stream.with_host_permit(host_permit));
++                            return Ok(stream);
+                         }
+                         WebsocketStreamOutcome::FallbackToHttp => {
+                             self.try_switch_fallback_transport(session_telemetry, model_info);
+@@ -2206,7 +2238,6 @@ impl ModelClientSession {
+                 .await
+             }
+         }
+-        .map(|stream| stream.with_host_permit(host_permit))
+     }
+ 
+     /// Permanently disables WebSockets for this Codex session and resets WebSocket state.
+diff --git a/codex-rs/core/src/client_common.rs b/codex-rs/core/src/client_common.rs
+index dede604..f3f0416 100644
+--- a/codex-rs/core/src/client_common.rs
++++ b/codex-rs/core/src/client_common.rs
+@@ -131,9 +131,16 @@ impl Stream for ResponseStream {
+ 
+     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+         let event = self.rx_event.poll_recv(cx);
+-        if let Poll::Ready(Some(Ok(ResponseEvent::Completed { token_usage, .. }))) = &event {
++        if let Poll::Ready(Some(Ok(ResponseEvent::Completed {
++            token_usage,
++            response_id,
++            ..
++        }))) = &event
++        {
+             if let Some(mut permit) = self.host_permit.take() {
+-                if let Err(error) = permit.complete_model(token_usage.as_ref()) {
++                if let Err(error) =
++                    permit.complete_model_response(token_usage.as_ref(), response_id)
++                {
+                     return Poll::Ready(Some(Err(codex_protocol::error::CodexErr::Io(
+                         std::io::Error::other(error),
+                     ))));
+diff --git a/codex-rs/ext/extension-api/src/lib.rs b/codex-rs/ext/extension-api/src/lib.rs
+index 1b9dde3..3697b25 100644
+--- a/codex-rs/ext/extension-api/src/lib.rs
++++ b/codex-rs/ext/extension-api/src/lib.rs
+@@ -106,4 +106,6 @@ pub use user_instructions::LoadInstructionsFuture;
+ pub use user_instructions::LoadedUserInstructions;
+ pub use user_instructions::ThreadInstructionsProvider;
+ pub use user_instructions::UserInstructionsProvider;
+-pub use work_admission::{HostWorkAdmission, HostWorkKind, HostWorkPermit};
++pub use work_admission::{
++    HostModelPurpose, HostResponseCapture, HostWorkAdmission, HostWorkKind, HostWorkPermit,
++};
+diff --git a/codex-rs/ext/extension-api/src/work_admission.rs b/codex-rs/ext/extension-api/src/work_admission.rs
+index 17f1d6c..5cdb281 100644
+--- a/codex-rs/ext/extension-api/src/work_admission.rs
++++ b/codex-rs/ext/extension-api/src/work_admission.rs
+@@ -2,6 +2,16 @@
+ // SPDX-License-Identifier: Apache-2.0
+ // VCP addition: private host dispatch admission and durable receipt boundary.
+ use codex_protocol::ThreadId;
++use std::sync::Arc;
++
++/// VCP: body bytes only; authentication headers never cross this boundary.
++pub type HostResponseCapture = Arc<dyn Fn(&[u8]) -> Result<(), String> + Send + Sync>;
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum HostModelPurpose {
++    Turn,
++    Compaction,
++    Memory,
++}
+ 
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub enum HostWorkKind {
+@@ -12,6 +22,16 @@ pub enum HostWorkKind {
+ /// Dropping a permit without a receipt leaves its outcome unknown. Completion
+ /// may reconcile while paused, but cannot authorize new work.
+ pub trait HostWorkPermit: Send {
++    fn complete_model_response(
++        &mut self,
++        usage: Option<&codex_protocol::protocol::TokenUsage>,
++        _response_id: &str,
++    ) -> Result<(), String> {
++        self.complete_model(usage)
++    }
++    fn response_capture(&self) -> Option<HostResponseCapture> {
++        None
++    }
+     fn complete(&mut self) -> Result<(), String>;
+     /// VCP: retain provider usage with the same durable dispatch receipt.
+     fn complete_model(
+@@ -23,6 +43,17 @@ pub trait HostWorkPermit: Send {
+ }
+ 
+ pub trait HostWorkAdmission: std::fmt::Debug + Send + Sync {
++    /// VCP: runs for each actual HTTP attempt after request construction. The
++    /// host may insert enforceable output bounds before capturing and admitting
++    /// the exact body. A permit must precede any network dispatch.
++    fn admit_model(
++        &self,
++        thread: ThreadId,
++        _body: &mut serde_json::Value,
++        _purpose: HostModelPurpose,
++    ) -> Result<Box<dyn HostWorkPermit>, String> {
++        self.admit(thread, HostWorkKind::Model, "responses")
++    }
+     /// VCP: a host ceiling applies even to tools requested without advertisement.
+     fn admit_tool(
+         &self,

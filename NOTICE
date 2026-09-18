@@ -42,8 +42,9 @@ test vector and independent qualification tool are attributed in
 THIRD_PARTY_NOTICES.md.
 
 The P1 foundation and accounting patches register original domain, protocol,
-store, engine, budget and audit
-packages in the retained workspace/lockfile using existing dependency pins.
+store, engine, budget and audit packages in the retained workspace/lockfile.
+The canonical host patch adapts retained HTTP admission and raw-body capture
+to these libraries, using existing dependency identities.
 
 The upstream NOTICE identifies code derived from Ratatui under the MIT license:
 Copyright (c) 2016-2022 Florian Dehau

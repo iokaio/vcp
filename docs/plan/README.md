@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Plan revision 10 — September 18, 2026. Delivery uses larger behavioral milestones
+Plan revision 11 — September 18, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded
 qualification already completed from remaining product implementation. Explicit
 pause while the CLI stays open is required alongside close-to-pause.
@@ -28,8 +28,12 @@ and regression checks in CI. All nine P0 tasks are complete for bounded
 feasibility. The [P0 dossier](../evaluations/p0-06-handoff.md)
 consolidates local memory, lifecycle/native execution, encrypted storage and
 retained integration evidence; the [handoff map](../development/p0-handoff.md)
-identifies concrete P1 starting points. The common-compiler CLI build and
-retained regressions passed. Product interfaces and release acceptance remain planned.
+identifies the original P1 starting points. All six P1 tasks now have
+[canonical foundation acceptance](../evaluations/p1-completion.md): typed
+commands, full capture, both stores, shared accounting and rebuilt history through
+the [retained host](../development/p1-retained-host.md). The common-compiler CLI
+build and retained regressions passed. P2 provider/policy/context integration,
+usable product interfaces and release acceptance remain planned.
 Use `docs/` for documentation, `src/` for source and test assets, and `scripts/`
 for build/test automation. Preserve useful Codex modules instead of creating
 empty replacement crates merely to match a diagram. Follow

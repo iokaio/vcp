@@ -25,6 +25,10 @@ pub struct Capture {
     pub bytes: Vec<u8>,
     pub total: u64,
 }
+
+/// Full observed bytes are offered before applying the display limit. Returning
+/// an error terminates the owned job and leaves the work receipt unresolved.
+pub type OutputObserver = Arc<dyn Fn(&[u8]) -> io::Result<()> + Send + Sync>;
 #[derive(Debug)]
 pub struct Outcome {
     pub exit_code: Option<i32>,
@@ -77,7 +81,12 @@ impl Drop for Process {
     }
 }
 
-async fn capture(mut input: impl AsyncRead + Unpin, limit: usize) -> io::Result<Capture> {
+async fn capture(
+    mut input: impl AsyncRead + Unpin,
+    limit: usize,
+    observer: Option<OutputObserver>,
+    job: Arc<JobObject>,
+) -> io::Result<Capture> {
     let mut result = Capture {
         bytes: Vec::new(),
         total: 0,
@@ -87,6 +96,12 @@ async fn capture(mut input: impl AsyncRead + Unpin, limit: usize) -> io::Result<
         let count = input.read(&mut buffer).await?;
         if count == 0 {
             return Ok(result);
+        }
+        if let Some(observer) = &observer {
+            if let Err(error) = observer(&buffer[..count]) {
+                let _ = job.terminate();
+                return Err(error);
+            }
         }
         result.total += count as u64;
         let keep = count.min(limit.saturating_sub(result.bytes.len()));
@@ -105,6 +120,29 @@ impl Lifecycle {
         cwd: &Path,
         environment: &BTreeMap<OsString, OsString>,
         output_limit: usize,
+    ) -> io::Result<Process> {
+        self.spawn_process_with_capture(
+            thread,
+            executable,
+            args,
+            cwd,
+            environment,
+            output_limit,
+            None,
+            None,
+        )
+    }
+
+    pub fn spawn_process_with_capture(
+        &self,
+        thread: ThreadId,
+        executable: &Path,
+        args: &[OsString],
+        cwd: &Path,
+        environment: &BTreeMap<OsString, OsString>,
+        output_limit: usize,
+        stdout_observer: Option<OutputObserver>,
+        stderr_observer: Option<OutputObserver>,
     ) -> io::Result<Process> {
         if !executable.is_absolute() || !cwd.is_absolute() || output_limit > 1024 * 1024 {
             return Err(io::Error::other(
@@ -148,10 +186,14 @@ impl Lifecycle {
         let stdout = Some(tokio::spawn(capture(
             child.stdout.take().unwrap(),
             output_limit,
+            stdout_observer,
+            job.clone(),
         )));
         let stderr = Some(tokio::spawn(capture(
             child.stderr.take().unwrap(),
             output_limit,
+            stderr_observer,
+            job.clone(),
         )));
         Ok(Process {
             job,

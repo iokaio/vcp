@@ -23,6 +23,17 @@ Reuse scoped discovery and upstream context machinery behind VCP manifests. Dete
 
 ## Qualification evidence
 
+P1 selects immutable plaintext local artifacts with bounded chunked spooling,
+integrity descriptors and explicit complete/aborted/pending extents. The
+[retained host](../development/p1-retained-host.md) captures the final admitted
+request before HTTP send, observed response bytes before parsing, and native
+stdout/stderr before display truncation. Credential headers are separate inputs.
+[P1 qualification](../evaluations/p1-completion.md) covers large output, exact
+interrupted prefixes and real spool-capacity failures that fence further work.
+The response format describes observation through the terminal event; it cannot
+claim unseen transport bytes. Context assembly/refresh remains P2, retention
+mutation P5, and cloud publication the encrypted snapshot boundary.
+
 E02/E04/E17/R07/U05 test late user corrections, hostile retrieved instructions, smaller model envelopes, output beyond UI limits, disk-full capture and inspector replay. Original complete artifacts must remain available subject to current retention/access.
 
 Attach exact source/package, fixture, configuration and environment identities, actual commands and pass/fail/not-run outcomes. No linked plan or ADR is itself passing evidence.

@@ -2,7 +2,7 @@
 
 Use the [concrete P0 handoff](../development/p0-handoff.md#concrete-segment-02-starting-points) for the first edit locations and retained integration seams. Keep the existing controller/build graph while replacing prototype state and persistence; create each new package only with its first working slice.
 
-Status: P1-01/02/03/06 in progress through the [durable foundation](../development/p1-foundation.md) and [accounting/history](../development/p1-accounting-history.md); retained integration remains. Owns P1-01, P1-02, P1-03 and P1-06. P1-01 begins after P0-06; P1-06 also requires P1-04 from [storage](03-storage-and-budget.md). Architecture sections 4, 14 and 3.8 govern this work.
+Status: P1-01/02/03/06 complete with [native acceptance evidence](../evaluations/p1-completion.md) across the [durable foundation](../development/p1-foundation.md), [accounting/history](../development/p1-accounting-history.md) and [retained canonical host](../development/p1-retained-host.md). Owns P1-01, P1-02, P1-03 and P1-06. P1-01 follows P0-06; P1-06 also requires P1-04 from [storage](03-storage-and-budget.md). Architecture sections 4, 14 and 3.8 govern this work. Production provider, policy/context and CLI acceptance remain with their later owners.
 
 ## Implementation references
 
@@ -158,6 +158,6 @@ Tests: drop and rebuild projections, duplicate input events, interrupted project
 
 ## Verification and exit
 
-Run proposed suites `fast`, `store` for artifact/reference integration, and `cli` once consumers exist. Retain event fixtures under `src/tests/fixtures/events/`, artifact cases under `src/tests/contracts/artifacts/`, and projector recovery under `src/tests/recovery/projections/` in the selected workspace.
+The implemented command is `scripts/test-p1.ps1`, followed by the retained integration, recovery, lifecycle and `fast` commands in the [host guide](../development/p1-retained-host.md#source-and-qualification). P1 fixtures are registered package-local Cargo tests in the selected workspace. The shared `store` and product `cli` suite interfaces remain future work; do not substitute an unimplemented suite for these native commands.
 
 Done when downstream modules can operate using typed commands/state and complete artifact references; capture failure cannot produce a false success; and a fresh process reconstructs the same acknowledged task state without replaying external work.

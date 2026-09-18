@@ -1,5 +1,9 @@
 # P1 foundation increment qualification
 
+This report records the first increment. The subsequent
+[P1 completion qualification](p1-completion.md) covers accounting, history and
+retained integration without changing the historical results below.
+
 On September 18, 2026, the first P1 library increment passed 24 native contracts
 on Windows 10.0.26200 / NTFS, using Rust 1.98.0
 (`88d9e12ae`, August 18, 2026) and MSVC 14.50.35717. The

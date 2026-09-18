@@ -17545,6 +17545,13 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "vcp-audit",
+ "vcp-budget",
+ "vcp-domain",
+ "vcp-engine",
+ "vcp-protocol",
+ "vcp-store",
+ "wiremock",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 # 03 — Canonical storage and atomic budget accounting
 
-Status: P1-04/05 in progress through the [durable foundation](../development/p1-foundation.md) and [accounting/history](../development/p1-accounting-history.md); retained transport accounting remains. Owns P1-04 and P1-05. Requires P1-01/P1-03 and P0 storage qualification; use P1-02 when wiring command envelopes. Read architecture sections 8 and 12 and [state/capture](02-engine-state-and-capture.md).
+Status: P1-04/05 complete with [native acceptance evidence](../evaluations/p1-completion.md) for the [durable foundation](../development/p1-foundation.md), [accounting/history](../development/p1-accounting-history.md) and actual retained transport admission. Owns P1-04 and P1-05. Requires P1-01/P1-03 and P0 storage qualification; uses P1-02 command envelopes. Read architecture sections 8 and 12 and [state/capture](02-engine-state-and-capture.md). Production provider normalization and encrypted transfer retain their later acceptance gates.
 
 ## Implementation references
 
@@ -11,8 +11,9 @@ define the required behavior. Use the proposed
 for physical layouts/activation, and
 [engine transaction and accounting design](../architecture/engine-execution-design.md#atomic-budget-admission-and-settlement)
 for cross-module ordering. [ADR-003](../adr/003-canonical-storage.md) owns the
-backend decision. Settings, money precision and physical formats below require
-P0/P1 qualification; no backend has passed it yet.
+backend decision. The implementation guides record the selected settings,
+integer microcurrency and physical formats qualified on native Windows/NTFS.
+Hardware power-loss and final package qualification remain later release gates.
 
 ## Code organization and contracts
 
@@ -152,6 +153,6 @@ Add generated arithmetic/boundary cases for overflow, rounding, currency mismatc
 
 ## Exit and evidence
 
-Run `store` and `recovery`; include E10/E12/E14, M01/M02/M07/M08 and I-03/I-04/I-05/I-13/I-17. Capture post-reopen record/receipt/ledger comparisons from an independent oracle. Publish the exact tested durability envelope, including filesystem and forced-process versus hardware-loss limitations.
+Run the implemented `scripts/test-p1.ps1` and native recovery/integration commands in the [host guide](../development/p1-retained-host.md#source-and-qualification); the proposed shared `store`/`recovery` suite names are not implemented. Coverage includes the P1 portions of E10/E12/E14, M01/M02/M07/M08 and I-03/I-04/I-05/I-13/I-17. Post-reopen record/receipt/ledger comparisons and the exact filesystem/process-failure envelope are recorded in [P1 qualification](../evaluations/p1-completion.md). Encrypted transfer and hardware-loss limitations remain explicit.
 
 P1-04 completes when both advertised backends behave equivalently on canonical contracts. P1-05 completes when every integration path can require a reservation before a billable request and unsettled charges survive restarts and transfer. Later encrypted restore tests recheck the same ledger invariants.

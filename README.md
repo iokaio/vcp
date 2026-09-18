@@ -2,7 +2,7 @@
 
 VCP is an open-source experiment in a local coding agent that combines repository-aware coding, model selection through OpenRouter, persistent memory, and visible delegated work. The first planned release is a native Windows command-line application, licensed under Apache 2.0.
 
-**Status: early implementation.** The repository includes a committed Codex foundation and tested native feasibility adapters for lifecycle, coding, memory, storage and encrypted handoff. The [P0 handoff](docs/development/p0-handoff.md) and [evidence dossier](docs/evaluations/p0-06-handoff.md) distinguish these prototypes from the production work ahead. VCP's installable application is not implemented. Capabilities below describe the intended product; they are not release claims.
+**Status: early implementation.** The repository includes a committed Codex foundation, native feasibility adapters and the [P1 canonical host](docs/development/p1-retained-host.md): typed state, durable commands, full capture, two canonical stores, shared accounting and rebuildable history. The [P0 handoff](docs/development/p0-handoff.md) and [P1 qualification](docs/evaluations/p1-completion.md) record their tested boundaries. VCP's installable application is not implemented. Capabilities below describe the intended product; they are not release claims.
 
 ## What VCP is intended to do
 

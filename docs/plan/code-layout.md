@@ -1,8 +1,8 @@
 # Code layout
 
-The [P0 handoff](../development/p0-handoff.md) now maps C01–C07 to retained paths and gives concrete P1 domain/protocol/capture/projection destinations. The original integrated host remains in `src/crates/vcp-lifecycle/`; its private journal, synthetic tariff and fixed-file tools are not supported product interfaces.
+The [P0 handoff](../development/p0-handoff.md) maps C01–C07 to retained paths. The [P1 foundation](../development/p1-foundation.md), [accounting/history](../development/p1-accounting-history.md) and [canonical host](../development/p1-retained-host.md) now implement the domain/protocol/capture/projection destinations. The original integrated host remains in `src/crates/vcp-lifecycle/`; its P0 private journal, synthetic tariff and fixed-file tools are not supported product interfaces. The P1 host uses the shared canonical store and ledger.
 
-Status: layout convention adopted; product implementation remains planned. This file defines repository paths used by the [implementation plan](README.md). The [architecture](../architecture/vcp-what.md) remains authoritative for product behavior, and the [delivery contract](00-delivery-contract.md) defines engineering rules.
+Status: layout convention adopted; canonical foundation implemented, later product phases remain planned. This file defines repository paths used by the [implementation plan](README.md). The [architecture](../architecture/vcp-what.md) remains authoritative for product behavior, and the [delivery contract](00-delivery-contract.md) defines engineering rules.
 
 The original P0 storage comparison lives in `src/crates/vcp-storage-spike` in the
 retained Cargo workspace. Its prototype formats do not replace P1/P5 contracts;
@@ -12,7 +12,7 @@ see [the concrete source map](../development/portable-storage-spike.md).
 
 Use `docs/` for documentation, `src/` for source code and its test assets, and `scripts/` for build and test automation. Root-level community and agent guidance files plus `.github/` are the exceptions needed for project discovery and contribution workflows. Keep root `AGENTS.md` and `CLAUDE.md` identical.
 
-Today `docs/architecture/` contains the product architecture, supporting implementation designs and research; `docs/plan/` contains execution instructions; `docs/adr/` contains all 20 decision records; and `docs/development/` contains implementation and qualification procedures. ADR-013 records the source-management convention; engineering qualification remains pending throughout the new records. `src/tests/registry.json`, `src/tests/support/harness.cjs`, `src/tests/contracts/`, and `scripts/test.ps1` now implement the [delivery harness](../development/delivery-harness.md). The remaining product packages, fixtures and build runners below are targets. Create directories with their first useful content; do not add empty crates or passing placeholder runners.
+Today `docs/architecture/` contains the product architecture, supporting implementation designs and research; `docs/plan/` contains execution instructions; `docs/adr/` contains all 20 decision records; and `docs/development/` contains implementation and qualification procedures. ADR-013 records source management; ADR-002/003/009 link P1 protocol, storage and capture qualification. Other decision gates remain with their owning tasks. `src/tests/registry.json`, `src/tests/support/harness.cjs`, `src/tests/contracts/`, and `scripts/test.ps1` implement the [delivery harness](../development/delivery-harness.md). P1 package-local tests are registered in the retained Cargo workspace; the guides identify the actual source and runners. Remaining packages and fixtures below are targets. Create directories with their first useful content; do not add empty crates or passing placeholder runners.
 
 ## Target directory tree
 

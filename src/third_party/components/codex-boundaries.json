@@ -900,6 +900,51 @@
         "filesystem",
         "history"
       ]
+    },
+    {
+      "id": "canonical-retained-admission",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation.rs",
+      "symbol": "fn admit_model(",
+      "observation": "Thread binding, exact captured body, checked quote and durable send intent precede each actual retained HTTP request.",
+      "effect_class": "effectful",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "filesystem",
+        "history",
+        "policy"
+      ]
+    },
+    {
+      "id": "canonical-native-output",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/process.rs",
+      "symbol": "pub fn spawn_process_with_capture(",
+      "observation": "Existing contained native jobs offer full stdout/stderr before display truncation and terminate on capture failure.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "filesystem",
+        "process",
+        "history"
+      ]
+    },
+    {
+      "id": "canonical-reopen",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation/worker.rs",
+      "symbol": "fn open(config: Config)",
+      "observation": "Canonical reopen retains liabilities, marks interrupted effects unknown and holds tasks before deliberate resume.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem",
+        "history",
+        "policy"
+      ]
     }
   ],
   "groups": [
@@ -1508,9 +1553,15 @@
       "handling": "retain-with-adapters",
       "owner_tasks": [
         "P0-03",
-        "P0-08"
+        "P0-08",
+        "P1-01",
+        "P1-02",
+        "P1-03",
+        "P1-04",
+        "P1-05",
+        "P1-06"
       ],
-      "gate": "Bounded native checkpoint/owner recovery, host startup/model/tool authority, synthetic shared budget and integrated prepared-file/memory trace; general product schemas, pricing and sandbox remain P1/P2/P3.",
+      "gate": "Retained controller with one canonical storage/accounting worker, private current-authority commands, per-HTTP admission/raw capture and native output observation. Earlier P0 journal is a separate regression fixture; P2/P3 own provider and product CLI policy.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "controller"
     },
