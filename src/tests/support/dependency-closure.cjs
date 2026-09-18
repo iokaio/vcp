@@ -30,15 +30,15 @@ function embeddingClosure(text) {
     /^(?:axum|tonic|sqlx|reqwest|hyper|ureq|hf-hub|cudarc|candle-kernels|candle-flash-attn|metal|intel-mkl|accelerate-src)(?:-|$)/);
 }
 function memoryClosure(text) {
-  return localClosure(text, 'local-corpus-spike-v1',
+  return localClosure(text, 'local-governed-corpus-v1',
     ['vcp-memory-spike', 'vcp-embedding', 'candle-core', 'candle-nn', 'candle-transformers', 'tokenizers', 'safetensors',
-      'munarium-datastore', 'tantivy', 'diskann', 'diskann-vector'],
+      'munarium-core', 'munarium-store-mem', 'munarium-datastore', 'tantivy', 'diskann', 'diskann-vector'],
     /^(?:(?:axum|tonic|sqlx|reqwest|hyper|ureq|hf-hub|cudarc|candle-kernels|candle-flash-attn|metal|intel-mkl|accelerate-src)(?:-|$)|munarium-(?:server|providers|store-pg|retrieval-pg|retrieval|azure-auth|docintel-az|runbooks)$)/);
 }
 function verifyReference(actual, reference, lockSha256) {
   const features = actual.policy === 'local-cpu-embedding-v1' ? [] : ['munarium-datastore/vector-diskann'];
   if (reference.schema_version !== 1 || reference.policy !== actual.policy ||
-      !['munarium-local-libraries-v1', 'local-cpu-embedding-v1', 'local-corpus-spike-v1'].includes(actual.policy) ||
+      !['munarium-local-libraries-v1', 'local-cpu-embedding-v1', 'local-governed-corpus-v1'].includes(actual.policy) ||
       reference.target !== 'x86_64-pc-windows-msvc' ||
       JSON.stringify(reference.features) !== JSON.stringify(features) ||
       reference.workspace_lock_sha256 !== lockSha256 || !Array.isArray(reference.packages)) {

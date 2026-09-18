@@ -18,7 +18,7 @@ async function main(args) {
   fs.mkdirSync(directory, { recursive: true });
   const file = path.join(directory, 'manifest.json');
   const record = { schema_version: 1, task_id: 'P0-02', status: 'prepared', started_at: new Date().toISOString(), stages: [],
-    limitations: ['Small fixed synthetic corpus only; no production scale or OS network-denial qualification.', 'Canonical visibility is supplied by the fixed fixture, not a durable VCP store.'] };
+    limitations: ['Small fixed synthetic corpus only; no production scale or OS network-denial qualification.', 'Canonical visibility is replayed through volatile Munarium governance, not a durable VCP store.'] };
   const save = () => writeManifest(file, record);
   const controller = new AbortController(), interrupt = () => controller.abort();
   process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt);
@@ -28,7 +28,7 @@ async function main(args) {
     record.source = await sourceIdentity(repository, controller.signal);
     record.binary_sha256 = digest(fs.readFileSync(binary));
     record.inputs = ['scripts/upstream/trace-local-memory.cjs', 'src/tests/support/local-memory.cjs', 'src/tests/support/harness.cjs',
-      'src/crates/vcp-memory-spike/src/main.rs', 'src/tests/fixtures/local-memory/corpus.json'].map(relative => ({ path: relative, sha256: digest(fs.readFileSync(path.join(repository, relative))) }));
+      'src/crates/vcp-memory-spike/src/main.rs', 'src/crates/vcp-memory-spike/src/governance.rs', 'src/tests/fixtures/local-memory/corpus.json'].map(relative => ({ path: relative, sha256: digest(fs.readFileSync(path.join(repository, relative))) }));
     const corpusBytes = fs.readFileSync(path.join(repository, 'src/tests/fixtures/local-memory/corpus.json'));
     const corpus = JSON.parse(corpusBytes);
     const modelHash = digest(fs.readFileSync(path.join(repository, 'src/third_party/components/minilm-assets.json')));

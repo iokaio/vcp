@@ -3,7 +3,7 @@
   "policy": "local-cpu-embedding-v1",
   "target": "x86_64-pc-windows-msvc",
   "features": [],
-  "workspace_lock_sha256": "203f535c75fd7b82d0a3992722891c8b0223cd192797bcec9bd20bedaabd16bd",
+  "workspace_lock_sha256": "0311a5464f4611d0b0f4cace839674560f5d113789fb205b43a90d7d20ad02fd",
   "scope": "Native normal/build graph; package license declarations, not a release notice bundle or OS network-denial proof.",
   "packages": [
     {

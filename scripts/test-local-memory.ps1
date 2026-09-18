@@ -69,7 +69,7 @@ try {
     $workspace = Join-Path $repository 'src/third_party/codex/codex-rs/Cargo.toml'
     $record.lock_sha256 = (Get-FileHash -LiteralPath (Join-Path (Split-Path $workspace) 'Cargo.lock') -Algorithm SHA256).Hash.ToLowerInvariant()
     $record.asset_spec_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'src/third_party/components/minilm-assets.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-    $record.inputs = @('src/crates/vcp-memory-spike/Cargo.toml', 'src/crates/vcp-memory-spike/src/main.rs', 'src/crates/vcp-embedding/src/lib.rs', 'src/tests/fixtures/local-memory/corpus.json', 'src/tests/support/local-memory.cjs', 'scripts/upstream/trace-local-memory.cjs', 'src/tests/support/model-assets.cjs', 'src/tests/support/dependency-closure.cjs') | ForEach-Object {
+    $record.inputs = @('src/crates/vcp-memory-spike/Cargo.toml', 'src/crates/vcp-memory-spike/src/main.rs', 'src/crates/vcp-memory-spike/src/governance.rs', 'src/crates/vcp-embedding/src/lib.rs', 'src/tests/fixtures/local-memory/corpus.json', 'src/tests/support/local-memory.cjs', 'scripts/upstream/trace-local-memory.cjs', 'src/tests/support/model-assets.cjs', 'src/tests/support/dependency-closure.cjs') | ForEach-Object {
         @{ path = $_; sha256 = (Get-FileHash -LiteralPath (Join-Path $repository $_) -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
     $record.platform = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription

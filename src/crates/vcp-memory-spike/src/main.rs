@@ -22,6 +22,8 @@ use std::{
 };
 use vcp_embedding::{MiniLm, DIMENSIONS, MAX_BATCH};
 
+mod governance;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const CORPUS: &str = include_str!("../../../tests/fixtures/local-memory/corpus.json");
 const TOP_K: usize = 3;
@@ -32,6 +34,7 @@ struct Document {
     id: String,
     workspace: String,
     current: bool,
+    supersedes: Option<String>,
     text: String,
 }
 #[derive(Deserialize)]
@@ -78,7 +81,7 @@ fn token(value: &str) -> bool {
 }
 fn corpus() -> Result<Corpus> {
     let corpus: Corpus = serde_json::from_str(CORPUS)?;
-    if corpus.version != 1
+    if corpus.version != 2
         || corpus.documents.is_empty()
         || corpus.documents.len() > 256
         || corpus.queries.is_empty()
@@ -221,6 +224,7 @@ fn plan() -> ArtifactBuildPlan {
 }
 fn build(assets: &Path, root: &Path) -> Result<serde_json::Value> {
     let corpus = corpus()?;
+    let view = governance::from_corpus(&corpus)?;
     let started = Instant::now();
     let model = MiniLm::load(assets)?;
     let load_ms = started.elapsed().as_millis();
@@ -283,7 +287,7 @@ fn build(assets: &Path, root: &Path) -> Result<serde_json::Value> {
     file.write_all(&bytes)?;
     file.sync_all()?;
     Ok(
-        serde_json::json!({"status":"pass","phase":"build","documents":corpus.documents.len(),"load_ms":load_ms,
+        serde_json::json!({"status":"pass","phase":"build","documents":corpus.documents.len(),"governance":view.report,"load_ms":load_ms,
         "receipt_sha256":digest(&bytes),"timings":timings,"model_spec_sha256":receipt.model_spec_sha256,
         "corpus_sha256":receipt.corpus_sha256,"dimensions":DIMENSIONS,"metric":"cosine","vector_engine":"diskann","lexical_engine":"tantivy"}),
     )
@@ -354,9 +358,14 @@ fn open(root: &Path, workspace: &str, binding: &Binding) -> Result<OpenShard> {
     }
     Ok(shard)
 }
-// This fixed corpus is the experiment's canonical view. Production scope,
-// revisions and tombstones must come from the canonical store, not index metadata.
-fn visible(corpus: &Corpus, workspace: &str, candidates: &[Candidate]) -> Result<Vec<String>> {
+// Canonical visibility comes from replay through the retained governance API.
+// Durable VCP scope, revision and tombstone handling remains a later integration.
+fn visible(
+    corpus: &Corpus,
+    view: &governance::View,
+    workspace: &str,
+    candidates: &[Candidate],
+) -> Result<Vec<String>> {
     let mut result = Vec::new();
     let mut seen = BTreeSet::new();
     for candidate in candidates {
@@ -368,7 +377,10 @@ fn visible(corpus: &Corpus, workspace: &str, candidates: &[Candidate]) -> Result
         if !candidate.score.is_finite() {
             return Err("non-finite retrieval score".into());
         }
-        if document.workspace == workspace && document.current && seen.insert(&document.id) {
+        if document.workspace == workspace
+            && view.contains(workspace, &document.id)
+            && seen.insert(&document.id)
+        {
             result.push(document.id.clone());
         }
     }
@@ -395,6 +407,7 @@ fn exact(query: &[f32], rows: &[(&Document, Vec<f32>)]) -> Vec<String> {
 fn query(assets: &Path, root: &Path, receipt_sha: &str) -> Result<serde_json::Value> {
     let corpus = corpus()?;
     let receipt = read_receipt(root, receipt_sha)?;
+    let view = governance::from_corpus(&corpus)?;
     let started = Instant::now();
     let model = MiniLm::load(assets)?;
     let load_ms = started.elapsed().as_millis();
@@ -447,11 +460,13 @@ fn query(assets: &Path, root: &Path, receipt_sha: &str) -> Result<serde_json::Va
             // so an old version cannot consume the final result budget.
             let lexical = visible(
                 &corpus,
+                &view,
                 &binding.workspace,
                 &shard.lexical_candidates(&plan, documents.len())?,
             )?;
             let semantic = visible(
                 &corpus,
+                &view,
                 &binding.workspace,
                 &shard.vector_candidates(&vector, documents.len())?,
             )?;
@@ -485,9 +500,9 @@ fn query(assets: &Path, root: &Path, receipt_sha: &str) -> Result<serde_json::Va
         return Err("incomplete query result set".into());
     }
     Ok(
-        serde_json::json!({"status":"pass","phase":"query","queries":results,"load_ms":load_ms,
+        serde_json::json!({"status":"pass","phase":"query","queries":results,"load_ms":load_ms,"governance":view.report,
         "checks":["lexical_identifiers","semantic_relevance","exact_vector_oracle","workspace_binding","current_version_filter","dimension_rejection","process_reopen"],
-        "limitations":["Bounded synthetic fixture; not production recall or resource qualification.","No OS network-denial claim.","Fixture canonical view; no durable VCP governance store."]}),
+        "limitations":["Bounded synthetic fixture; not production recall or resource qualification.","No OS network-denial claim.","Volatile governance replay from public fixture; no durable VCP governance store."]}),
     )
 }
 fn main() {
@@ -526,6 +541,7 @@ mod tests {
     #[test]
     fn canonical_filter_excludes_other_workspace_and_superseded_content_before_limit() {
         let corpus = corpus().unwrap();
+        let view = governance::from_corpus(&corpus).unwrap();
         let candidates: Vec<_> = [
             "boreal-pause",
             "atlas-pause-v1",
@@ -541,15 +557,16 @@ mod tests {
         })
         .collect();
         assert_eq!(
-            visible(&corpus, "atlas", &candidates).unwrap(),
+            visible(&corpus, &view, "atlas", &candidates).unwrap(),
             ["atlas-pause-v2", "atlas-budget", "atlas-vault"]
         );
         assert_eq!(
-            visible(&corpus, "boreal", &candidates).unwrap(),
+            visible(&corpus, &view, "boreal", &candidates).unwrap(),
             ["boreal-pause"]
         );
         assert!(visible(
             &corpus,
+            &view,
             "atlas",
             &[Candidate {
                 chunk_id: "unknown".into(),
@@ -559,6 +576,7 @@ mod tests {
         .is_err());
         assert!(visible(
             &corpus,
+            &view,
             "atlas",
             &[Candidate {
                 chunk_id: "atlas-budget".into(),
@@ -574,6 +592,7 @@ mod tests {
             id: id.into(),
             workspace: "test".into(),
             current: true,
+            supersedes: None,
             text: "synthetic".into(),
         };
         let a = document("a");

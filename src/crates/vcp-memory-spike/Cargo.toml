@@ -8,6 +8,9 @@ publish = false
 workspace = "../../third_party/codex/codex-rs"
 
 [dependencies]
+munarium-core = { path = "../../third_party/munarium/server/src/munarium-core" }
+munarium-store-mem = { path = "../../third_party/munarium/server/src/munarium-store-mem" }
+tokio = { version = "1", features = ["rt"] }
 vcp-embedding = { path = "../vcp-embedding" }
 munarium-datastore = { path = "../../third_party/munarium/server/src/munarium-datastore", features = ["vector-diskann"] }
 serde = { version = "1", features = ["derive"] }

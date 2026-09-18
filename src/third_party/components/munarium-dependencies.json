@@ -5,7 +5,7 @@
   "features": [
     "munarium-datastore/vector-diskann"
   ],
-  "workspace_lock_sha256": "203f535c75fd7b82d0a3992722891c8b0223cd192797bcec9bd20bedaabd16bd",
+  "workspace_lock_sha256": "0311a5464f4611d0b0f4cace839674560f5d113789fb205b43a90d7d20ad02fd",
   "scope": "Selected normal/build graph; license declarations read from provisioned package manifests, not a release notice bundle.",
   "packages": [
     {

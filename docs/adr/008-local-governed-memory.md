@@ -1,7 +1,7 @@
 # ADR-008 — Local governed memory and retrieval
 
 Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P0-02/07, P5-01 through P5-08. No implementation, runtime result or owner sign-off is recorded here.
+Decision gate: P0-02/07, P5-01 through P5-08. Bounded qualification evidence is recorded below; production integration and final engineering selection remain open.
 
 ## Context and authority
 
@@ -33,6 +33,16 @@ The [local CPU embedding result](../evaluations/p0-07-local-embeddings.md) adds
 verified MiniLM assets and a Candle adapter with independent PyTorch reference
 vectors. It does not complete OS network denial, corpus/index reopening or the
 P0-02 resource/recall experiment, so the broader decision gate remains open.
+
+The [corpus prototype](../development/local-memory-spike.md) subsequently joins
+real embeddings with persisted lexical/vector indexes. Its
+[governance adapter](../development/local-governance-spike.md) now exercises
+Munarium gates, retained disputed evidence and historical supersession through
+separate workspace-scoped in-memory backends. A blocked correction records its
+proposed predecessor as evidence without attaching an effective replacement
+edge. This preserves accepted visibility under the retained resolver's semantics.
+Volatile replay does not qualify durable canonical transactions or recovery;
+network denial and broader resource measurements remain P0-02 gates.
 
 M01–M07/E13/E14/E20/U09 cover contradictory claims, origin replay, narrow scopes, exact-vector oracle, real CPU embeddings, reopen, deletion during lag and model changes. Fake vectors cannot qualify recall or offline compute.
 

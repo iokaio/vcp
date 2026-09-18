@@ -1,8 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "documents": [
     {"id":"atlas-pause-v1","workspace":"atlas","current":false,"text":"The pause_session function closes the terminal and discards interrupted work. This obsolete design is retained as historical evidence."},
-    {"id":"atlas-pause-v2","workspace":"atlas","current":true,"text":"The pause_session function stops new root and child work while the terminal remains open. Users can inspect history, reconcile interrupted effects, and deliberately resume the task."},
+    {"id":"atlas-pause-v2","supersedes":"atlas-pause-v1","workspace":"atlas","current":true,"text":"The pause_session function stops new root and child work while the terminal remains open. Users can inspect history, reconcile interrupted effects, and deliberately resume the task."},
     {"id":"atlas-budget","workspace":"atlas","current":true,"text":"The reserve_budget function atomically reserves spending capacity before a model request. The cost ledger includes retries, review helpers and delegated child tasks."},
     {"id":"atlas-vault","workspace":"atlas","current":true,"text":"The seal_snapshot function encrypts every backup object and manifest locally before copying it to a cloud folder. Recovery keys stay outside the sync destination."},
     {"id":"atlas-memory","workspace":"atlas","current":true,"text":"The accept_claim function stores evidence and disputed claims with immutable versions. Corrections supersede earlier claims without erasing their provenance."},

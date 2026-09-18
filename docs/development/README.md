@@ -16,6 +16,7 @@ These guides describe how to implement and qualify the planned system. The [deli
 - [Gemini native baseline](gemini-baseline.md): reproducible 402-test comparison, explicit preparation and policy/skill/MCP adaptation boundaries.
 - [Local CPU embeddings](local-embeddings.md): verified model assets, bounded file-only inference, independent vectors and native qualification.
 - [Local corpus prototype](local-memory-spike.md): real Tantivy/DiskANN construction, scoped current-version results and fresh-process reopen with CPU vectors.
+- [Local governance adapter](local-governance-spike.md): scoped Munarium gates, disputed proposal evidence and pin-aware supersession in the corpus experiment.
 - [Qualification and release design](../architecture/qualification-release-design.md): test runner/result contracts, independent fault oracles and packaged acceptance.
 - [Code layout](../plan/code-layout.md): responsibility boundaries and proposed paths.
 - [ADR index](../adr/README.md): confirmed directions and unresolved engineering gates.

@@ -118,12 +118,13 @@ independent PyTorch/Transformers generator and hashed reference-tool requirement
 ## Remaining dependencies and assets
 
 The original [local corpus qualification executable](src/crates/vcp-memory-spike/Cargo.toml)
-calls the retained Munarium datastore and VCP embedding APIs. Its public synthetic
+calls the retained Munarium governance, in-memory store, datastore and VCP embedding APIs. Its public synthetic
 corpus and checks are original VCP material; it does not copy additional upstream
-implementation or test bodies. The [209-package dependency record](src/third_party/components/local-memory-dependencies.json)
-reuses the selected embedding/datastore package identities and license declarations.
+implementation or test bodies. The [214-package dependency record](src/third_party/components/local-memory-dependencies.json)
+reuses the selected embedding/Munarium package identities and license declarations.
 The fourth Codex patch registers this local package in the shared workspace and
-lockfile; existing dependency pins and upstream Rust implementation remain unchanged.
+lockfile; the fifth connects its retained governance dependencies. Existing
+dependency pins and upstream Rust implementation remain unchanged.
 
 The Codex Cargo lockfile retains dependency identities/checksums for its source
 baseline. A release must inventory the actual enabled transitive graph and retain

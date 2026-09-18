@@ -47,6 +47,10 @@
     {
       "path": "src/third_party/patches/codex/0004-local-corpus-workspace.patch",
       "sha256": "7f092309a906e917cdae96428f6c07d451fc7ab3a47be5280089d5b886abf305"
+    },
+    {
+      "path": "src/third_party/patches/codex/0005-local-governance-workspace.patch",
+      "sha256": "177155c25a263206529b0bc48943ab7267ad6d9a9f18b993e0a8a3614e090e69"
     }
   ],
   "licenses": [

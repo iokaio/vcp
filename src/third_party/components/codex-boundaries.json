@@ -644,7 +644,7 @@
     {
       "id": "local-corpus-build",
       "symbol": "fn build(",
-      "observation": "Controlled fixture CPU embedding, Tantivy/DiskANN construction and artifact publication; not a production canonical store or networking sandbox.",
+      "observation": "Replays synthetic claims through scoped volatile governance before real CPU/index construction; not a durable canonical store or networking sandbox.",
       "group": "build-and-test",
       "package": "vcp-memory-spike",
       "path": "../../../crates/vcp-memory-spike/src/main.rs",
@@ -652,13 +652,16 @@
       "vcp_boundary": "qualification-harness",
       "effects": [
         "filesystem",
-        "scheduler"
+        "scheduler",
+        "history",
+        "clock",
+        "randomness"
       ]
     },
     {
       "id": "local-corpus-reopen",
       "symbol": "fn query(",
-      "observation": "Reopens verified artifacts and queries a fixed canonical fixture with scoped current-version filtering and exact-vector comparison; scratch files and CPU workers remain effects.",
+      "observation": "Replays retained governance, verifies persisted artifacts, filters scoped current claims and compares exact vectors; no durable governance recovery claim.",
       "group": "build-and-test",
       "package": "vcp-memory-spike",
       "path": "../../../crates/vcp-memory-spike/src/main.rs",
@@ -666,7 +669,10 @@
       "vcp_boundary": "qualification-harness",
       "effects": [
         "filesystem",
-        "scheduler"
+        "scheduler",
+        "history",
+        "clock",
+        "randomness"
       ]
     }
   ],
@@ -1205,7 +1211,8 @@
         "filesystem",
         "process",
         "network",
-        "data"
+        "data",
+        "clock"
       ],
       "handling": "test-build-only",
       "owner_tasks": [
