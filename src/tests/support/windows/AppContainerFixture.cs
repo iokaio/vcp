@@ -18,6 +18,14 @@ public sealed class AppContainerFixture : IDisposable {
     public string Root { get; private set; }
     public string Sid { get; private set; }
     public string Name { get { return name; } }
+    public static string CurrentIntegrity() {
+        IntPtr token; Check(OpenProcessToken(GetCurrentProcess(), 8, out token));
+        try {
+            IntPtr info = TokenInfo(token, 25);
+            try { return new SecurityIdentifier(Marshal.ReadIntPtr(info)).Value; }
+            finally { Marshal.FreeHGlobal(info); }
+        } finally { CloseHandle(token); }
+    }
 
     public AppContainerFixture() {
         // The trusted broker must start with these two OS profile paths, since
@@ -54,6 +62,8 @@ public sealed class AppContainerFixture : IDisposable {
         public bool AppContainer;
         public int CapabilityCount;
         public bool TokenSidMatchesProfile;
+        public bool RestrictedToken;
+        public string IntegrityLevel;
         public ulong PeakJobCommittedBytes;
         public long WallMilliseconds;
     }
@@ -149,10 +159,16 @@ public sealed class AppContainerFixture : IDisposable {
             uint wait = WaitForSingleObject(process.Process, (uint)timeoutMilliseconds);
             if (wait != 0) throw new IOException(wait == 258 ? "Contained process timed out" : "Process wait failed");
             uint code; Check(GetExitCodeProcess(process.Process, out code));
+            bool restrictedToken = IsTokenRestricted(token);
+            IntPtr integrityInfo = TokenInfo(token, 25);
+            string integrityLevel;
+            try { integrityLevel = new SecurityIdentifier(Marshal.ReadIntPtr(integrityInfo)).Value; }
+            finally { Marshal.FreeHGlobal(integrityInfo); }
             Check(QueryInformationJobObject(job, 9, limits, (uint)Marshal.SizeOf<ExtendedLimits>(), IntPtr.Zero));
             var usage = Marshal.PtrToStructure<ExtendedLimits>(limits);
             return new Result { ExitCode = code, AppContainer = isContainer, CapabilityCount = count,
                 TokenSidMatchesProfile = restricted,
+                RestrictedToken = restrictedToken, IntegrityLevel = integrityLevel,
                 PeakJobCommittedBytes = usage.PeakJobMemory.ToUInt64(), WallMilliseconds = watch.ElapsedMilliseconds };
         } finally {
             // Closing the job kills its process tree even if the managed caller exits.
@@ -213,6 +229,7 @@ public sealed class AppContainerFixture : IDisposable {
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool QueryInformationJobObject(IntPtr job,int kind,IntPtr info,uint length,IntPtr returned);
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool AssignProcessToJobObject(IntPtr job,IntPtr process);
     [DllImport("advapi32.dll",SetLastError=true)] static extern bool OpenProcessToken(IntPtr process,uint access,out IntPtr token);
+    [DllImport("advapi32.dll")] static extern bool IsTokenRestricted(IntPtr token);
     [DllImport("advapi32.dll",SetLastError=true)] static extern bool GetTokenInformation(IntPtr token,int kind,IntPtr info,uint size,out uint returned);
 }
 }

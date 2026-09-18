@@ -1,10 +1,10 @@
 # Scoped retained-controller lifecycle
 
-P0-03's host prototype combines trusted thread registration, tree holds, active
-interruption and explicit readmission. The owning [plan](../plan/01-upstream-feasibility.md#p0-03--codex-lifecycle-seam)
-and [engine design](../architecture/engine-execution-design.md) still require
-durable recovery, effect authority and private CLI integration. Those are not
-implemented by this in-memory milestone.
+This page describes P0-03's initial in-memory milestone: trusted registration,
+tree holds, interruption and explicit readmission. The subsequent
+[recovery milestone](lifecycle-recovery.md) adds private durable checkpoints,
+startup/dispatch authority, native process observation and owner-process controls.
+Consult that guide for the current implementation and remaining production work.
 
 ## Source and authority
 

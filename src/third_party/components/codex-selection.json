@@ -59,6 +59,10 @@
     {
       "path": "src/third_party/patches/codex/0007-scoped-lifecycle.patch",
       "sha256": "8bd7c175b0f2a0ca7cdf8a55f541925dc5994088956fbefd9b0a6be78394c1c3"
+    },
+    {
+      "path": "src/third_party/patches/codex/0008-lifecycle-recovery.patch",
+      "sha256": "36c36d26ffc78ccf50c1708aaf29a6f332058c38c0cd942236753450ae0a91a9"
     }
   ],
   "licenses": [

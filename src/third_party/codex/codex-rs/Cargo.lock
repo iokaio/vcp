@@ -5,6 +5,7 @@
 # It is not intended for manual editing.
 # VCP modification: register the local corpus qualification package; existing dependency pins retained.
 # VCP modification: connect the local corpus probe to retained governance libraries; dependency pins unchanged.
+# VCP modification: lifecycle recovery uses existing serialization, hashing and process dependencies.
 version = 4
 
 [[package]]
@@ -17478,7 +17479,12 @@ dependencies = [
  "codex-core",
  "codex-extension-api",
  "codex-protocol",
+ "codex-utils-pty",
  "core_test_support",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
  "tokio",
 ]
 

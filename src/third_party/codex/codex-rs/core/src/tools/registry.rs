@@ -1,3 +1,4 @@
+// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -528,6 +529,22 @@ impl ToolRegistry {
         terminal_outcome_reached: Option<Arc<AtomicBool>>,
     ) -> Result<AnyToolResult, FunctionCallError> {
         let tool_name = invocation.tool_name.clone();
+        // VCP: fence hooks as well as handlers. An interrupted/failed invocation
+        // deliberately leaves the durable intent unresolved for reconciliation.
+        let mut host_permit = invocation
+            .session
+            .services
+            .extensions
+            .work_admission()
+            .map(|gate| {
+                gate.admit(
+                    invocation.session.thread_id,
+                    codex_extension_api::HostWorkKind::Tool,
+                    &invocation.call_id,
+                )
+            })
+            .transpose()
+            .map_err(FunctionCallError::RespondToModel)?;
         let call_id_owned = invocation.call_id.clone();
         let otel = invocation.step_context.session_telemetry.clone();
         // TODO(anp): Reconcile these tags with TurnEnvironment::sandbox_context
@@ -776,6 +793,9 @@ impl ToolRegistry {
                     &result.payload,
                     result.result.as_ref(),
                 );
+                if let Some(permit) = host_permit.as_mut() {
+                    permit.complete().map_err(FunctionCallError::RespondToModel)?;
+                }
                 Ok(result)
             }
             Err(err) => {

@@ -9,13 +9,13 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'SelectedMunarium')][switch]$SelectedMunarium,
     [Parameter(Mandatory)][string]$OutputRoot,
     [string]$TargetRoot,
-    [ValidateSet('Build', 'BoundaryTests', 'LifecycleTests')][string]$Mode = 'Build',
+    [ValidateSet('Build', 'BoundaryTests', 'LifecycleTests', 'RecoveryTests')][string]$Mode = 'Build',
     [ValidatePattern('^\d+\.\d+\.\d+$')][string]$ExperimentToolchain,
     [ValidateRange(1, 16)][int]$Jobs = 4
 )
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-if ($Mode -eq 'LifecycleTests' -and -not $SelectedCodex) { throw 'LifecycleTests requires the committed Codex selection.' }
+if ($Mode -in @('LifecycleTests', 'RecoveryTests') -and -not $SelectedCodex) { throw 'Lifecycle qualification requires the committed Codex selection.' }
 if ($SelectedCodex) {
     $SourceRoot = Join-Path $repository 'src/third_party/codex'
     $selection = Get-Content -LiteralPath (Join-Path $repository 'src/third_party/components/codex-selection.json') -Raw | ConvertFrom-Json
@@ -65,9 +65,14 @@ $record = [ordered]@{
 }
 if ($Mode -eq 'LifecycleTests') {
     $record.task_id = 'P0-03'
-    $record.limitations = @('Scoped in-memory host and retained interruption; no startup/effect fencing, native tree-stop proof, durable checkpoint/reopen or CLI pause.')
+    $record.limitations = @('Registered-controller feasibility tests; production CLI, provider accounting and full sandbox integration remain unqualified.')
     $record.lifecycle_runner_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'scripts/upstream/test-lifecycle.cjs') -Algorithm SHA256).Hash.ToLowerInvariant()
     $record.lifecycle_validator_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'src/tests/support/lifecycle-results.cjs') -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+if ($Mode -eq 'RecoveryTests') {
+    $record.task_id = 'P0-03/P0-05'
+    $record.limitations = @('Private synthetic owner CLI and disposable execution profiles; not a product release or arbitrary toolchain qualification.')
+    $record.recovery_runner_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'scripts/upstream/qualify-recovery.cjs') -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 $manifest = Join-Path $runDirectory 'manifest.json'
 function Save-Record { $record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifest -Encoding utf8 }
@@ -152,6 +157,8 @@ try {
     if ($Candidate -eq 'Munarium') {
         $verb = $(if ($Mode -eq 'Build') { 'build' } else { 'test' })
         $cargoArguments = @("+$toolchain", $verb, '--locked', '-p', 'munarium-core', '-p', 'munarium-store-mem', '-p', 'munarium-datastore', '--features', 'munarium-datastore/vector-diskann', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
+    } elseif ($Mode -eq 'RecoveryTests') {
+        $cargoArguments = @("+$toolchain", 'build', '--locked', '-p', 'vcp-lifecycle', '--tests', '--examples', '--message-format=json', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
     } elseif ($Mode -eq 'LifecycleTests') {
         $cargoArguments = @("+$toolchain", 'test', '--locked', '-p', 'codex-core', '-p', 'vcp-lifecycle', '--test', 'all', '--test', 'controller', '--no-run', '--message-format=json', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
     } elseif ($Mode -eq 'Build') {
@@ -160,11 +167,27 @@ try {
         $cargoArguments = @("+$toolchain", 'test', '--locked', '-p', 'codex-apply-patch', '-p', 'codex-execpolicy', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
     }
     $record.command = @('cargo') + $cargoArguments
+    if ($Mode -in @('LifecycleTests', 'RecoveryTests')) {
+        $record.lifecycle_sources = @(Get-ChildItem -LiteralPath (Join-Path $repository 'src/crates/vcp-lifecycle') -Recurse -File |
+            Where-Object { $_.Extension -eq '.rs' -or $_.Name -eq 'Cargo.toml' } |
+            Sort-Object FullName | ForEach-Object {
+                @{ path = [IO.Path]::GetRelativePath($repository, $_.FullName).Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+            })
+    }
     $record.status = 'running'; Save-Record
     Write-Host ($record.command -join ' ')
     Push-Location -LiteralPath $workspace
     try {
         & cargo @cargoArguments > (Join-Path $runDirectory 'command.log') 2> (Join-Path $runDirectory 'command.stderr.log'); $code = $LASTEXITCODE
+        if ($code -eq 0 -and $Mode -in @('LifecycleTests', 'RecoveryTests')) {
+            foreach ($inputFile in $record.lifecycle_sources) {
+                if ((Get-FileHash -LiteralPath (Join-Path $repository $inputFile.path) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $inputFile.sha256) { throw 'Lifecycle source changed during compilation; repeat with stable inputs.' }
+            }
+        }
+        if ($Mode -eq 'RecoveryTests' -and $code -eq 0) {
+            & $node.Source (Join-Path $repository 'scripts/upstream/qualify-recovery.cjs') --cargo-log (Join-Path $runDirectory 'command.log') --output-root (Join-Path $runDirectory 'recovery') *> (Join-Path $runDirectory 'recovery.log')
+            $code = $LASTEXITCODE
+        }
         if ($Mode -eq 'LifecycleTests' -and $code -eq 0) {
             & $node.Source (Join-Path $repository 'scripts/upstream/test-lifecycle.cjs') --cargo-log (Join-Path $runDirectory 'command.log') --output-root (Join-Path $runDirectory 'lifecycle') *> (Join-Path $runDirectory 'lifecycle.log')
             $code = $LASTEXITCODE

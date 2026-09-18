@@ -1,3 +1,4 @@
+// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
 pub use codex_api::ResponseEvent;
 use codex_protocol::error::Result;
 use codex_protocol::models::BaseInstructions;
@@ -116,6 +117,8 @@ fn normalize_image_detail(detail: &mut Option<ImageDetail>, model_info: &ModelIn
 }
 
 pub struct ResponseStream {
+    // VCP: keep the dispatch intent unresolved until a provider completion is consumed.
+    pub(crate) host_permit: Option<Box<dyn codex_extension_api::HostWorkPermit>>,
     pub(crate) rx_event: mpsc::Receiver<Result<ResponseEvent>>,
     /// Signals the mapper task that the consumer stopped polling before the
     /// provider stream reached its own terminal event.
@@ -126,7 +129,30 @@ impl Stream for ResponseStream {
     type Item = Result<ResponseEvent>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.rx_event.poll_recv(cx)
+        let event = self.rx_event.poll_recv(cx);
+        if matches!(
+            &event,
+            Poll::Ready(Some(Ok(ResponseEvent::Completed { .. })))
+        ) {
+            if let Some(mut permit) = self.host_permit.take() {
+                if let Err(error) = permit.complete() {
+                    return Poll::Ready(Some(Err(codex_protocol::error::CodexErr::Io(
+                        std::io::Error::other(error),
+                    ))));
+                }
+            }
+        }
+        event
+    }
+}
+
+impl ResponseStream {
+    pub(crate) fn with_host_permit(
+        mut self,
+        permit: Option<Box<dyn codex_extension_api::HostWorkPermit>>,
+    ) -> Self {
+        self.host_permit = permit;
+        self
     }
 }
 

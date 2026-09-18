@@ -4,7 +4,7 @@ This directory owns repository automation. `test.ps1` and `test-runner.cjs` impl
 
 | Entry point (planned unless noted) | Responsibility | Work owner |
 |---|---|---|
-| `build.ps1` (implemented baseline) | Verify and build the selected native Windows Codex workspace, or select Munarium libraries with `-Component Munarium`; `-Mode BoundaryTests` runs component tests; `-Mode LifecycleTests` runs ten [continuation/drain tests](../docs/development/continuation-admission.md) | P0-03/P0-07/P0-08 |
+| `build.ps1` (implemented baseline) | Verify and build the selected native Windows Codex workspace, or select Munarium libraries with `-Component Munarium`; `-Mode BoundaryTests` runs component tests; `-Mode LifecycleTests` runs retained admission and host tests; `-Mode RecoveryTests` runs [durable owner and native execution qualification](../docs/development/lifecycle-recovery.md) | P0-03/P0-05/P0-07/P0-08 |
 | `test.ps1` (implemented) | Run deterministic repository, harness, experiment and upstream-inventory checks; preserve exit status and evidence | P0-01, extended by feature owners |
 | `test-embeddings.ps1` (implemented qualification) | Verify explicit local assets, test/build the CPU helper, check its dependency graph and compare real model results | P0-07; integration continues in P0-02 |
 | `test-local-memory.ps1` (implemented prototype) | Build the corpus qualification executable, verify its dependency closure and observe real local indexes across fresh processes; add `-Scale` for the declared resource gate | P0-02 |

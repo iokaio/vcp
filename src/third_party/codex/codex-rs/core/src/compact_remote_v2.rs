@@ -1,3 +1,4 @@
+// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
 use std::sync::Arc;
 
 use crate::Prompt;
@@ -837,6 +838,7 @@ mod tests {
         }
         drop(tx_event);
         ResponseStream {
+            host_permit: None,
             rx_event,
             consumer_dropped: CancellationToken::new(),
         }

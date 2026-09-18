@@ -28,6 +28,7 @@ impl<C: Sync> Default for ExtensionRegistryBuilder<C> {
             registry: ExtensionRegistry {
                 event_sink: Arc::new(NoopExtensionEventSink),
                 turn_start_admission: None,
+                work_admission: None,
                 thread_lifecycle_contributors: Vec::new(),
                 turn_lifecycle_contributors: Vec::new(),
                 config_contributors: Vec::new(),
@@ -66,6 +67,11 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
     /// Installs the host gate for turn-input submissions that start a new turn.
     pub fn turn_start_admission(&mut self, admission: Arc<dyn TurnStartAdmission>) {
         self.registry.turn_start_admission = Some(admission);
+    }
+
+    /// VCP private host gate for actual model/tool dispatch.
+    pub fn work_admission(&mut self, admission: Arc<dyn crate::HostWorkAdmission>) {
+        self.registry.work_admission = Some(admission);
     }
 
     /// Registers one approval-review contributor.
@@ -148,6 +154,7 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
 pub struct ExtensionRegistry<C: Sync> {
     event_sink: Arc<dyn ExtensionEventSink>,
     turn_start_admission: Option<Arc<dyn TurnStartAdmission>>,
+    work_admission: Option<Arc<dyn crate::HostWorkAdmission>>,
     thread_lifecycle_contributors: Vec<Arc<dyn ThreadLifecycleContributor<C>>>,
     turn_lifecycle_contributors: Vec<Arc<dyn TurnLifecycleContributor>>,
     config_contributors: Vec<Arc<dyn ConfigContributor<C>>>,
@@ -163,12 +170,17 @@ pub struct ExtensionRegistry<C: Sync> {
 }
 
 impl<C: Sync> ExtensionRegistry<C> {
+    pub fn work_admission(&self) -> Option<Arc<dyn crate::HostWorkAdmission>> {
+        self.work_admission.clone()
+    }
+
     /// Copies the registered contributors into a builder for host-specific additions.
     pub fn to_builder(&self) -> ExtensionRegistryBuilder<C> {
         ExtensionRegistryBuilder {
             registry: Self {
                 event_sink: self.event_sink.clone(),
                 turn_start_admission: self.turn_start_admission.clone(),
+                work_admission: self.work_admission.clone(),
                 thread_lifecycle_contributors: self.thread_lifecycle_contributors.clone(),
                 turn_lifecycle_contributors: self.turn_lifecycle_contributors.clone(),
                 config_contributors: self.config_contributors.clone(),

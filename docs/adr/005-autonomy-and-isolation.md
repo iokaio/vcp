@@ -1,7 +1,7 @@
 # ADR-005 — Autonomy, authority and OS isolation
 
 Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P2-03, P8-01. No implementation, runtime result or owner sign-off is recorded here.
+Decision gate: P2-03, P8-01. Bounded P0 evidence is recorded below; production qualification and owner sign-off remain pending.
 
 ## Context and authority
 
@@ -22,6 +22,8 @@ Detailed contracts and failure ordering are in the [supporting design](../archit
 Plan/ask/workspace/autonomous are candidate preset names, not accepted defaults. P2-03 must specify each effect class, default and escalation behavior; P8-01 qualifies which filesystem/network restrictions the chosen Windows mechanism enforces.
 
 ## Qualification evidence
+
+P0-05 [native evidence](../evaluations/p0-03-recovery-execution.md) selects Job Objects for process ownership and a zero-capability AppContainer as a single-process isolation candidate. Live unrestricted controls and independent file/network observers pass. General toolchains, authority presets and composed containment remain P2/P8.
 
 E06/R03 use grant reuse, deny precedence, shell redirection, opaque commands, expiry and stale responses. E07/R04 must observe blocked outside-root access and process/network behavior on real supported hosts, independently of the matcher decision.
 

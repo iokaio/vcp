@@ -1,0 +1,475 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 0238ddc..e29b6bf 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -5,6 +5,7 @@
+ # It is not intended for manual editing.
+ # VCP modification: register the local corpus qualification package; existing dependency pins retained.
+ # VCP modification: connect the local corpus probe to retained governance libraries; dependency pins unchanged.
++# VCP modification: lifecycle recovery uses existing serialization, hashing and process dependencies.
+ version = 4
+ 
+ [[package]]
+@@ -17478,7 +17479,12 @@ dependencies = [
+  "codex-core",
+  "codex-extension-api",
+  "codex-protocol",
++ "codex-utils-pty",
+  "core_test_support",
++ "serde",
++ "serde_json",
++ "sha2 0.10.9",
++ "tempfile",
+  "tokio",
+ ]
+ 
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 118913e..37320f2 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -1,3 +1,4 @@
++// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
+ //! Session- and turn-scoped helpers for talking to model provider APIs.
+ //!
+ //! `ModelClient` is intended to live for the lifetime of a Codex session and holds the stable
+@@ -257,6 +258,8 @@ impl RequestRouteTelemetry {
+ /// call site.
+ #[derive(Debug, Clone)]
+ pub struct ModelClient {
++    // VCP: inherited by clones, including helper clients derived from this session.
++    host_work: Option<Arc<dyn codex_extension_api::HostWorkAdmission>>,
+     state: Arc<ModelClientState>,
+     agent_identity_policy: AgentIdentityAuthPolicy,
+     prompt_cache_key_override: Option<String>,
+@@ -512,6 +515,7 @@ impl ModelClient {
+                 agent_identity_session_fallback: AgentIdentitySessionFallback::default(),
+                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
+             }),
++            host_work: None,
+             agent_identity_policy,
+             prompt_cache_key_override: None,
+             codex_responses_headers: None,
+@@ -526,6 +530,14 @@ impl ModelClient {
+         self
+     }
+ 
++    pub(crate) fn with_host_work(
++        mut self,
++        gate: Option<Arc<dyn codex_extension_api::HostWorkAdmission>>,
++    ) -> Self {
++        self.host_work = gate;
++        self
++    }
++
+     pub(crate) fn with_session_context(
+         mut self,
+         prompt_cache_key_override: Option<String>,
+@@ -639,6 +651,11 @@ impl ModelClient {
+         mut extra_headers: ApiHeaderMap,
+         api_provider_override: Option<ApiProvider>,
+     ) -> Result<RealtimeWebrtcCallStart> {
++        if self.host_work.is_some() {
++            return Err(CodexErr::Io(std::io::Error::other(
++                "VCP host does not authorize realtime",
++            )));
++        }
+         // Create the media call over HTTP first, then retain matching auth so realtime can attach
+         // the server-side control WebSocket to the call id from that HTTP response.
+         let client_setup = self
+@@ -672,6 +689,11 @@ impl ModelClient {
+         &self,
+         mut extra_headers: ApiHeaderMap,
+     ) -> Result<ApiHeaderMap> {
++        if self.host_work.is_some() {
++            return Err(CodexErr::Io(std::io::Error::other(
++                "VCP host does not authorize realtime",
++            )));
++        }
+         let client_setup = self
+             .current_client_setup(ClientRouting::ConfiguredProvider)
+             .await?;
+@@ -697,6 +719,11 @@ impl ModelClient {
+         effort: Option<ReasoningEffortConfig>,
+         session_telemetry: &SessionTelemetry,
+     ) -> Result<Vec<ApiMemorySummarizeOutput>> {
++        if self.host_work.is_some() {
++            return Err(CodexErr::Io(std::io::Error::other(
++                "VCP host requires local governed memory",
++            )));
++        }
+         if raw_memories.is_empty() {
+             return Ok(Vec::new());
+         }
+@@ -1427,6 +1454,9 @@ impl ModelClientSession {
+         session_telemetry: &SessionTelemetry,
+         responses_metadata: &CodexResponsesMetadata,
+     ) -> std::result::Result<(), ApiError> {
++        if self.client.host_work.is_some() {
++            return Ok(());
++        }
+         if !self.client.responses_websocket_enabled() {
+             return Ok(());
+         }
+@@ -2056,6 +2086,9 @@ impl ModelClientSession {
+         service_tier: Option<String>,
+         responses_metadata: &CodexResponsesMetadata,
+     ) -> Result<()> {
++        if self.client.host_work.is_some() {
++            return Ok(());
++        }
+         if !self.client.responses_websocket_enabled() {
+             return Ok(());
+         }
+@@ -2118,6 +2151,19 @@ impl ModelClientSession {
+         responses_metadata: &CodexResponsesMetadata,
+         inference_trace: &InferenceTraceContext,
+     ) -> Result<ResponseStream> {
++        let host_permit = self
++            .client
++            .host_work
++            .as_ref()
++            .map(|gate| {
++                gate.admit(
++                    self.client.state.thread_id,
++                    codex_extension_api::HostWorkKind::Model,
++                    "responses",
++                )
++            })
++            .transpose()
++            .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
+         let wire_api = self.client.state.provider.info().wire_api;
+         match wire_api {
+             WireApi::Responses => {
+@@ -2138,7 +2184,9 @@ impl ModelClientSession {
+                         )
+                         .await?
+                     {
+-                        WebsocketStreamOutcome::Stream(stream) => return Ok(stream),
++                        WebsocketStreamOutcome::Stream(stream) => {
++                            return Ok(stream.with_host_permit(host_permit));
++                        }
+                         WebsocketStreamOutcome::FallbackToHttp => {
+                             self.try_switch_fallback_transport(session_telemetry, model_info);
+                         }
+@@ -2158,6 +2206,7 @@ impl ModelClientSession {
+                 .await
+             }
+         }
++        .map(|stream| stream.with_host_permit(host_permit))
+     }
+ 
+     /// Permanently disables WebSockets for this Codex session and resets WebSocket state.
+@@ -2398,6 +2447,7 @@ where
+ 
+     (
+         ResponseStream {
++            host_permit: None,
+             rx_event,
+             consumer_dropped: consumer_dropped_for_stream,
+         },
+diff --git a/codex-rs/core/src/client_common.rs b/codex-rs/core/src/client_common.rs
+index 96cd7ea..85c39a7 100644
+--- a/codex-rs/core/src/client_common.rs
++++ b/codex-rs/core/src/client_common.rs
+@@ -1,3 +1,4 @@
++// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
+ pub use codex_api::ResponseEvent;
+ use codex_protocol::error::Result;
+ use codex_protocol::models::BaseInstructions;
+@@ -116,6 +117,8 @@ fn normalize_image_detail(detail: &mut Option<ImageDetail>, model_info: &ModelIn
+ }
+ 
+ pub struct ResponseStream {
++    // VCP: keep the dispatch intent unresolved until a provider completion is consumed.
++    pub(crate) host_permit: Option<Box<dyn codex_extension_api::HostWorkPermit>>,
+     pub(crate) rx_event: mpsc::Receiver<Result<ResponseEvent>>,
+     /// Signals the mapper task that the consumer stopped polling before the
+     /// provider stream reached its own terminal event.
+@@ -126,7 +129,30 @@ impl Stream for ResponseStream {
+     type Item = Result<ResponseEvent>;
+ 
+     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+-        self.rx_event.poll_recv(cx)
++        let event = self.rx_event.poll_recv(cx);
++        if matches!(
++            &event,
++            Poll::Ready(Some(Ok(ResponseEvent::Completed { .. })))
++        ) {
++            if let Some(mut permit) = self.host_permit.take() {
++                if let Err(error) = permit.complete() {
++                    return Poll::Ready(Some(Err(codex_protocol::error::CodexErr::Io(
++                        std::io::Error::other(error),
++                    ))));
++                }
++            }
++        }
++        event
++    }
++}
++
++impl ResponseStream {
++    pub(crate) fn with_host_permit(
++        mut self,
++        permit: Option<Box<dyn codex_extension_api::HostWorkPermit>>,
++    ) -> Self {
++        self.host_permit = permit;
++        self
+     }
+ }
+ 
+diff --git a/codex-rs/core/src/compact_remote_v2.rs b/codex-rs/core/src/compact_remote_v2.rs
+index 680deca..cc96c3d 100644
+--- a/codex-rs/core/src/compact_remote_v2.rs
++++ b/codex-rs/core/src/compact_remote_v2.rs
+@@ -1,3 +1,4 @@
++// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
+ use std::sync::Arc;
+ 
+ use crate::Prompt;
+@@ -837,6 +838,7 @@ mod tests {
+         }
+         drop(tx_event);
+         ResponseStream {
++            host_permit: None,
+             rx_event,
+             consumer_dropped: CancellationToken::new(),
+         }
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index 9f6d02e..222d871 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -1,3 +1,4 @@
++// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
+ use super::input_queue::InputQueue;
+ use super::mcp_refresh::McpRefresh;
+ use super::step_context::StepContext;
+@@ -768,6 +769,18 @@ impl Session {
+         git_enrichment_policy: GitEnrichmentPolicy,
+         windows_sandbox_proxy_settings_mode: codex_sandboxing::WindowsSandboxProxySettingsMode,
+     ) -> anyhow::Result<Arc<Self>> {
++        // VCP: consume explicit host startup authority before session effects.
++        let _host_startup = extensions
++            .work_admission()
++            .map(|gate| {
++                let resumed = match &initial_history {
++                    InitialHistory::Resumed(history) => Some(history.conversation_id),
++                    _ => None,
++                };
++                gate.admit_startup(config.cwd.as_path(), resumed)
++            })
++            .transpose()
++            .map_err(anyhow::Error::msg)?;
+         debug!(
+             "Configuring session: model={}; provider={:?}",
+             session_configuration
+@@ -1645,7 +1658,7 @@ impl Session {
+                 agents_md_manager,
+                 plugins_manager: Arc::clone(&plugins_manager),
+                 mcp_manager: Arc::clone(&mcp_manager),
+-                extensions,
++                extensions: extensions.clone(),
+                 // TODO(jif): extract session to share between sub-agents
+                 session_extension_data,
+                 thread_extension_data,
+@@ -1690,6 +1703,7 @@ impl Session {
+                     &initial_history,
+                     InitialHistory::Resumed(_) | InitialHistory::Forked(_)
+                 ))
++                .with_host_work(extensions.work_admission())
+                 .with_session_context(
+                     crate::guardian::prompt_cache_key_override_for_review_session(
+                         &session_configuration.session_source,
+diff --git a/codex-rs/core/src/tools/registry.rs b/codex-rs/core/src/tools/registry.rs
+index addf027..efa5893 100644
+--- a/codex-rs/core/src/tools/registry.rs
++++ b/codex-rs/core/src/tools/registry.rs
+@@ -1,3 +1,4 @@
++// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
+ use std::collections::BTreeMap;
+ use std::sync::Arc;
+ use std::sync::atomic::AtomicBool;
+@@ -528,6 +529,22 @@ impl ToolRegistry {
+         terminal_outcome_reached: Option<Arc<AtomicBool>>,
+     ) -> Result<AnyToolResult, FunctionCallError> {
+         let tool_name = invocation.tool_name.clone();
++        // VCP: fence hooks as well as handlers. An interrupted/failed invocation
++        // deliberately leaves the durable intent unresolved for reconciliation.
++        let mut host_permit = invocation
++            .session
++            .services
++            .extensions
++            .work_admission()
++            .map(|gate| {
++                gate.admit(
++                    invocation.session.thread_id,
++                    codex_extension_api::HostWorkKind::Tool,
++                    &invocation.call_id,
++                )
++            })
++            .transpose()
++            .map_err(FunctionCallError::RespondToModel)?;
+         let call_id_owned = invocation.call_id.clone();
+         let otel = invocation.step_context.session_telemetry.clone();
+         // TODO(anp): Reconcile these tags with TurnEnvironment::sandbox_context
+@@ -776,6 +793,9 @@ impl ToolRegistry {
+                     &result.payload,
+                     result.result.as_ref(),
+                 );
++                if let Some(permit) = host_permit.as_mut() {
++                    permit.complete().map_err(FunctionCallError::RespondToModel)?;
++                }
+                 Ok(result)
+             }
+             Err(err) => {
+diff --git a/codex-rs/ext/extension-api/src/lib.rs b/codex-rs/ext/extension-api/src/lib.rs
+index 72c56f2..1b9dde3 100644
+--- a/codex-rs/ext/extension-api/src/lib.rs
++++ b/codex-rs/ext/extension-api/src/lib.rs
+@@ -1,3 +1,4 @@
++// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
+ mod allowed_tools;
+ mod capabilities;
+ mod contributors;
+@@ -99,8 +100,10 @@ pub use registry::empty_extension_registry;
+ pub use state::ExtensionData;
+ pub use state::ExtensionDataInit;
+ pub use turn_admission::TurnStartAdmission;
++mod work_admission;
+ pub use user_instructions::Instructions;
+ pub use user_instructions::LoadInstructionsFuture;
+ pub use user_instructions::LoadedUserInstructions;
+ pub use user_instructions::ThreadInstructionsProvider;
+ pub use user_instructions::UserInstructionsProvider;
++pub use work_admission::{HostWorkAdmission, HostWorkKind, HostWorkPermit};
+diff --git a/codex-rs/ext/extension-api/src/registry.rs b/codex-rs/ext/extension-api/src/registry.rs
+index 08c7f9d..54339e7 100644
+--- a/codex-rs/ext/extension-api/src/registry.rs
++++ b/codex-rs/ext/extension-api/src/registry.rs
+@@ -28,6 +28,7 @@ impl<C: Sync> Default for ExtensionRegistryBuilder<C> {
+             registry: ExtensionRegistry {
+                 event_sink: Arc::new(NoopExtensionEventSink),
+                 turn_start_admission: None,
++                work_admission: None,
+                 thread_lifecycle_contributors: Vec::new(),
+                 turn_lifecycle_contributors: Vec::new(),
+                 config_contributors: Vec::new(),
+@@ -68,6 +69,11 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
+         self.registry.turn_start_admission = Some(admission);
+     }
+ 
++    /// VCP private host gate for actual model/tool dispatch.
++    pub fn work_admission(&mut self, admission: Arc<dyn crate::HostWorkAdmission>) {
++        self.registry.work_admission = Some(admission);
++    }
++
+     /// Registers one approval-review contributor.
+     pub fn approval_review_contributor(&mut self, contributor: Arc<dyn ApprovalReviewContributor>) {
+         self.registry.approval_review_contributors.push(contributor);
+@@ -148,6 +154,7 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
+ pub struct ExtensionRegistry<C: Sync> {
+     event_sink: Arc<dyn ExtensionEventSink>,
+     turn_start_admission: Option<Arc<dyn TurnStartAdmission>>,
++    work_admission: Option<Arc<dyn crate::HostWorkAdmission>>,
+     thread_lifecycle_contributors: Vec<Arc<dyn ThreadLifecycleContributor<C>>>,
+     turn_lifecycle_contributors: Vec<Arc<dyn TurnLifecycleContributor>>,
+     config_contributors: Vec<Arc<dyn ConfigContributor<C>>>,
+@@ -163,12 +170,17 @@ pub struct ExtensionRegistry<C: Sync> {
+ }
+ 
+ impl<C: Sync> ExtensionRegistry<C> {
++    pub fn work_admission(&self) -> Option<Arc<dyn crate::HostWorkAdmission>> {
++        self.work_admission.clone()
++    }
++
+     /// Copies the registered contributors into a builder for host-specific additions.
+     pub fn to_builder(&self) -> ExtensionRegistryBuilder<C> {
+         ExtensionRegistryBuilder {
+             registry: Self {
+                 event_sink: self.event_sink.clone(),
+                 turn_start_admission: self.turn_start_admission.clone(),
++                work_admission: self.work_admission.clone(),
+                 thread_lifecycle_contributors: self.thread_lifecycle_contributors.clone(),
+                 turn_lifecycle_contributors: self.turn_lifecycle_contributors.clone(),
+                 config_contributors: self.config_contributors.clone(),
+diff --git a/codex-rs/utils/pty/src/win/job.rs b/codex-rs/utils/pty/src/win/job.rs
+index b06035f..f129c8c 100644
+--- a/codex-rs/utils/pty/src/win/job.rs
++++ b/codex-rs/utils/pty/src/win/job.rs
+@@ -1,3 +1,4 @@
++// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
+ use filedescriptor::OwnedHandle;
+ use std::io;
+ use std::os::windows::io::AsRawHandle;
+@@ -10,6 +11,8 @@ use winapi::shared::ntdef::NT_SUCCESS;
+ use winapi::shared::ntdef::NTSTATUS;
+ use winapi::um::jobapi2::AssignProcessToJobObject;
+ use winapi::um::jobapi2::CreateJobObjectW;
++// VCP modification: observe kernel-confirmed process-tree quiescence.
++use winapi::um::jobapi2::QueryInformationJobObject;
+ use winapi::um::jobapi2::SetInformationJobObject;
+ use winapi::um::jobapi2::TerminateJobObject;
+ use winapi::um::processthreadsapi::OpenProcess;
+@@ -39,6 +42,27 @@ pub struct JobObject {
+ }
+ 
+ impl JobObject {
++    /// Queries the kernel's live membership count; a successful terminate call
++    /// alone does not prove all members have stopped.
++    pub fn active_process_count(&self) -> io::Result<u32> {
++        let mut accounting: winapi::um::winnt::JOBOBJECT_BASIC_ACCOUNTING_INFORMATION =
++            unsafe { std::mem::zeroed() };
++        let result = unsafe {
++            QueryInformationJobObject(
++                self.handle.as_raw_handle().cast(),
++                winapi::um::winnt::JobObjectBasicAccountingInformation,
++                std::ptr::addr_of_mut!(accounting).cast(),
++                std::mem::size_of_val(&accounting) as u32,
++                std::ptr::null_mut(),
++            )
++        };
++        if result == 0 {
++            Err(io::Error::last_os_error())
++        } else {
++            Ok(accounting.ActiveProcesses)
++        }
++    }
++
+     /// Creates a Job Object configured to terminate all members when its last handle closes.
+     pub fn create() -> io::Result<Self> {
+         let handle = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
+diff --git a/codex-rs/ext/extension-api/src/work_admission.rs b/codex-rs/ext/extension-api/src/work_admission.rs
+new file mode 100644
+--- /dev/null
++++ b/codex-rs/ext/extension-api/src/work_admission.rs
+@@ -0,0 +1,31 @@
++// SPDX-License-Identifier: Apache-2.0
++// VCP addition: private host dispatch admission and durable receipt boundary.
++use codex_protocol::ThreadId;
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum HostWorkKind {
++    Model,
++    Tool,
++}
++
++/// Dropping a permit without a receipt leaves its outcome unknown. Completion
++/// may reconcile while paused, but cannot authorize new work.
++pub trait HostWorkPermit: Send {
++    fn complete(&mut self) -> Result<(), String>;
++}
++
++pub trait HostWorkAdmission: std::fmt::Debug + Send + Sync {
++    /// Startup requires a separate, one-use host capability. Resuming history
++    /// does not confer authority to run model requests or tools.
++    fn admit_startup(
++        &self,
++        workspace: &std::path::Path,
++        resumed: Option<ThreadId>,
++    ) -> Result<Box<dyn Send>, String>;
++    fn admit(
++        &self,
++        thread: ThreadId,
++        kind: HostWorkKind,
++        label: &str,
++    ) -> Result<Box<dyn HostWorkPermit>, String>;
++}

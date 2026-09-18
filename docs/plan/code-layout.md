@@ -89,6 +89,11 @@ in the retained Cargo workspace. [Its source/asset guide](../development/local-e
 records this concrete P0 placement; the broader memory and retrieval packages
 remain planned integration work.
 
+`src/crates/vcp-lifecycle/` contains the original retained-controller host,
+private checkpoint/control modules and Windows process adapter. Its tests and
+synthetic owner example qualify P0 seams; they do not create a second engine or
+replace the production responsibilities below. See [lifecycle recovery](../development/lifecycle-recovery.md).
+
 | Proposed path under `src/crates/` | Responsibility | Owning plan segments |
 |---|---|---|
 | `vcp-domain/` | IDs, entities, errors, state transitions, and invariants | [02](02-engine-state-and-capture.md) |
