@@ -116,3 +116,19 @@ test('external workspace members require selected roots and cannot escape them t
     finally { fs.unlinkSync(link); }
   } finally { fixture.cleanup(); }
 });
+
+test('external dependency aliases resolve to one real Cargo package', () => {
+  const fixture = ownedRoot(os.tmpdir());
+  try {
+    const engine = path.join(fixture.root, 'third_party/engine');
+    const library = path.join(fixture.root, 'third_party/library');
+    const app = path.join(fixture.root, 'crates/app');
+    write(engine, 'Cargo.toml', '[workspace]\nmembers=["../../crates/app", "../library"]\n');
+    write(app, 'Cargo.toml', '[package]\nname="app"\n[dependencies]\nmemory={path="../../third_party/library"}\n');
+    write(library, 'Cargo.toml', '[package]\nname="memory"\n');
+    const packages = workspacePackages(engine, { externalRoots: [library, app] });
+    assert.deepEqual(packages.map(p => p.name), ['app', 'memory']);
+    assert.deepEqual(packages[0].dependencies, ['memory']);
+    assert.equal(packages[1].manifest, '../library/Cargo.toml');
+  } finally { fixture.cleanup(); }
+});

@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "documents": [
+    {"id":"atlas-pause-v1","workspace":"atlas","current":false,"text":"The pause_session function closes the terminal and discards interrupted work. This obsolete design is retained as historical evidence."},
+    {"id":"atlas-pause-v2","workspace":"atlas","current":true,"text":"The pause_session function stops new root and child work while the terminal remains open. Users can inspect history, reconcile interrupted effects, and deliberately resume the task."},
+    {"id":"atlas-budget","workspace":"atlas","current":true,"text":"The reserve_budget function atomically reserves spending capacity before a model request. The cost ledger includes retries, review helpers and delegated child tasks."},
+    {"id":"atlas-vault","workspace":"atlas","current":true,"text":"The seal_snapshot function encrypts every backup object and manifest locally before copying it to a cloud folder. Recovery keys stay outside the sync destination."},
+    {"id":"atlas-memory","workspace":"atlas","current":true,"text":"The accept_claim function stores evidence and disputed claims with immutable versions. Corrections supersede earlier claims without erasing their provenance."},
+    {"id":"atlas-index","workspace":"atlas","current":true,"text":"The publish_generation function makes lexical and vector indexes visible together at a shared canonical watermark. Queries filter deleted and restricted records before returning content."},
+    {"id":"atlas-patch","workspace":"atlas","current":true,"text":"The apply_prepared_patch function checks the current file revision before applying a proposed edit. Conflicting user changes are preserved and require reconciliation."},
+    {"id":"atlas-assets","workspace":"atlas","current":true,"text":"The load_local_model function verifies file lengths and SHA-256 digests before CPU embedding inference. Missing model assets produce a setup error without downloading or calling a remote provider."},
+    {"id":"atlas-prune","workspace":"atlas","current":true,"text":"The prune_history function removes old material only after a user command or saved retention policy. It protects live recovery and accounting references."},
+    {"id":"atlas-tools","workspace":"atlas","current":true,"text":"The dispatch_tool function requires current workspace authority and a durable prepared receipt. Tool results are untrusted evidence and cannot grant additional permissions."},
+    {"id":"atlas-routing","workspace":"atlas","current":true,"text":"The select_model function chooses an OpenRouter model using task requirements, capabilities, price and project policy. Every helper uses the same accounting gateway."},
+    {"id":"atlas-install","workspace":"atlas","current":true,"text":"The verify_package function checks the Windows release archive, licenses and installed executable. A source build alone does not demonstrate installation of the final package."},
+    {"id":"boreal-pause","workspace":"boreal","current":true,"text":"The pause_session function suspends a music playlist. Audio playback resumes at the saved song position without restarting the album."},
+    {"id":"boreal-budget","workspace":"boreal","current":true,"text":"The reserve_budget function sets aside grocery money for a household meal plan. It does not account for software model requests."},
+    {"id":"boreal-vault","workspace":"boreal","current":true,"text":"The seal_snapshot function photographs a museum collection and stores image thumbnails. The archive describes sculptures and paintings."},
+    {"id":"boreal-garden","workspace":"boreal","current":true,"text":"The water_garden function schedules irrigation after measuring soil moisture. Vegetable beds require different watering intervals."},
+    {"id":"boreal-travel","workspace":"boreal","current":true,"text":"The plan_journey function compares train departures and hotel check-in times. A late arrival may require changing the reservation."},
+    {"id":"boreal-books","workspace":"boreal","current":true,"text":"The catalog_books function records authors, editions and shelf locations. Older editions remain available for historical research."},
+    {"id":"boreal-weather","workspace":"boreal","current":true,"text":"The forecast_rain function estimates precipitation from local weather observations. The display includes temperature and wind speed."},
+    {"id":"boreal-photos","workspace":"boreal","current":true,"text":"The sort_photos function groups pictures by capture date and camera identity. Users can browse family albums and export selected photographs."},
+    {"id":"boreal-recipe","workspace":"boreal","current":true,"text":"The bake_bread function mixes flour, water, salt and yeast before allowing the dough to rise. Oven temperature controls the crust."},
+    {"id":"boreal-fitness","workspace":"boreal","current":true,"text":"The record_workout function stores exercise duration and repetitions. Weekly summaries compare running distance and strength sessions."},
+    {"id":"boreal-map","workspace":"boreal","current":true,"text":"The draw_trail function plots hiking paths and elevation changes. The map marks rivers, bridges and campsites."},
+    {"id":"boreal-calendar","workspace":"boreal","current":true,"text":"The schedule_meeting function proposes calendar times for invited participants. Reminders are sent before the appointment."}
+  ],
+  "queries": [
+    {"id":"pause-symbol","workspace":"atlas","text":"pause_session","lexical_required":["atlas-pause-v2"],"semantic_required":[]},
+    {"id":"pause-intent","workspace":"atlas","text":"How can I stop child tasks and inspect their history without closing the terminal?","lexical_required":[],"semantic_required":["atlas-pause-v2"]},
+    {"id":"budget-intent","workspace":"atlas","text":"Account for the spending of every retry and review request before calling the language model.","lexical_required":[],"semantic_required":["atlas-budget"]},
+    {"id":"vault-intent","workspace":"atlas","text":"Encrypt the backup on this computer before uploading it and keep recovery secrets separate.","lexical_required":[],"semantic_required":["atlas-vault"]},
+    {"id":"patch-intent","workspace":"atlas","text":"Preserve a developer's conflicting edits when applying a proposed file change.","lexical_required":[],"semantic_required":["atlas-patch"]},
+    {"id":"music-symbol","workspace":"boreal","text":"pause_session","lexical_required":["boreal-pause"],"semantic_required":[]},
+    {"id":"music-intent","workspace":"boreal","text":"Stop the music and later continue listening from the same place in the song.","lexical_required":[],"semantic_required":["boreal-pause"]}
+  ]
+}

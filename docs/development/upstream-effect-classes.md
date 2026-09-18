@@ -1,12 +1,14 @@
 # Classified upstream effects
 
 The [boundary catalog](../../src/third_party/components/codex-boundaries.json)
-uses schema version 2 to classify 43 named source entries or exported type
-surfaces. It still covers 158 packages in 23 ownership groups. Classification
+uses schema version 2 to classify 45 named source entries or exported type
+surfaces. It covers 159 packages in 23 ownership groups. Classification
 is a source-reviewed effect envelope, including delegates and callbacks. It is
 not enforcement, permission to call an entry, or an exhaustive proof of every
 function in a package. The [selection gate report](../evaluations/p0-07-selection-gate.md)
-records P0-07 acceptance and remaining hosted verification.
+records completed P0-07 selection acceptance. Two later effectful entries belong
+to the [P0-02 corpus qualification executable](local-memory-spike.md), under the
+qualification harness's ownership.
 
 Each of the 23 groups assigns an explicit `effect_ceiling` and primary
 `vcp_boundary` to its listed packages. The selected baseline conservatively
@@ -25,7 +27,7 @@ entry with effects beyond that ceiling. Build/test-only modules are owned by
 | `read-only` | Reads named external inputs but does not declare writes, dispatch or publication | Explicit asset loading; ambient-key and environment-presence collectors |
 | `effectful` | Can dispatch, publish, mutate shared state, write storage, start/stop work or invoke an effectful collaborator | Coding/helpers, MCP, process control, policy amendments, maintenance, diagnostics |
 
-The 43 entries comprise one pure, three read-only and 39 effectful envelopes.
+The 45 entries comprise one pure, three read-only and 41 effectful envelopes.
 Read-only credential discovery is still disallowed as implicit VCP authority.
 The environment-presence collector is read-only; the later telemetry publisher
 has its own effectful boundary. Pure gate output remains evidence subject to

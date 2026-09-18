@@ -1,13 +1,20 @@
 {
   "schema_version": 1,
-  "policy": "munarium-local-libraries-v1",
+  "policy": "local-corpus-spike-v1",
   "target": "x86_64-pc-windows-msvc",
   "features": [
     "munarium-datastore/vector-diskann"
   ],
   "workspace_lock_sha256": "203f535c75fd7b82d0a3992722891c8b0223cd192797bcec9bd20bedaabd16bd",
-  "scope": "Selected normal/build graph; license declarations read from provisioned package manifests, not a release notice bundle.",
+  "scope": "Native normal/build corpus qualification graph; existing reviewed package declarations, not an OS network-denial proof or release notice bundle.",
   "packages": [
+    {
+      "name": "ahash",
+      "version": "0.8.12",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75",
+      "license": "MIT OR Apache-2.0"
+    },
     {
       "name": "aho-corasick",
       "version": "1.1.4",
@@ -52,9 +59,37 @@
     },
     {
       "name": "base64",
+      "version": "0.13.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "base64",
       "version": "0.22.1",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "bit-set",
+      "version": "0.8.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "08807e080ed7f9d5433fa9b275196cfc35414f66a0c79d864dc51a0d825231a3",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "bit-vec",
+      "version": "0.8.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "bitflags",
+      "version": "2.13.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da",
       "license": "MIT OR Apache-2.0"
     },
     {
@@ -93,6 +128,34 @@
       "license": "Unlicense OR MIT"
     },
     {
+      "name": "candle-core",
+      "version": "0.11.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "5ecb245093b0f791b89d3420c3df9c6d49c60ab63ba54db896bf8a3baf486706",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "candle-nn",
+      "version": "0.11.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "eaa10b6ccc365b33210ce404fbf45e60d3e0bdac1004463cf1052e6ee1c1739a",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "candle-transformers",
+      "version": "0.11.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "3bcbbf7ff00ff6fe2af22b93600195917fe90e90ff48424a140d1a926c44b1c1",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "castaway",
+      "version": "0.2.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "dec551ab6e7578819132c713a93c022a05d60159dc86e7a7050223577484c55a",
+      "license": "MIT"
+    },
+    {
       "name": "cc",
       "version": "1.2.55",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -114,11 +177,11 @@
       "license": "MIT OR Apache-2.0"
     },
     {
-      "name": "chrono",
-      "version": "0.4.43",
+      "name": "compact_str",
+      "version": "0.9.1",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "checksum": "fac4744fb15ae8337dc853fee7fb3f4e48c0fbaa23d0afe49c447b4fab126118",
-      "license": "MIT OR Apache-2.0"
+      "checksum": "9dfdd1c2274d9aa354115b09dc9a901d6c5576818cdf70d14cae2bdb47df00ab",
+      "license": "MIT"
     },
     {
       "name": "cpufeatures",
@@ -177,10 +240,59 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "name": "darling",
+      "version": "0.20.11",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "fc7f46116c46ff9ab3eb1597a45688b6715c6e628b5c133e288e709a29bcb4ee",
+      "license": "MIT"
+    },
+    {
+      "name": "darling_core",
+      "version": "0.20.11",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "0d00b9596d185e565c2207a0b01f8bd1a135483d02d9b7b0a54b11da8d53412e",
+      "license": "MIT"
+    },
+    {
+      "name": "darling_macro",
+      "version": "0.20.11",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "fc34b93ccb385b40dc71c6fceac4b2ad23662c7eeb248cf10d529b7e055b6ead",
+      "license": "MIT"
+    },
+    {
+      "name": "dary_heap",
+      "version": "0.3.9",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "8b1e3a325bc115f096c8b77bbf027a7c2592230e70be2d985be950d3d5e60ebe",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
       "name": "deranged",
       "version": "0.5.5",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "ececcb659e7ba858fb4f10388c250a7252eb0a27373f1a72b8748afdd248e587",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "derive_builder",
+      "version": "0.20.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "507dfb09ea8b7fa618fcf76e953f4f5e192547945816d5358edffe39f6f94947",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "derive_builder_core",
+      "version": "0.20.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "2d5bcf7b024d6835cfb3d473887cd966994907effbe9227e8c8219824d06c4e8",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "derive_builder_macro",
+      "version": "0.20.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c",
       "license": "MIT OR Apache-2.0"
     },
     {
@@ -226,6 +338,20 @@
       "license": "MIT/Apache-2.0"
     },
     {
+      "name": "dyn-stack-macros",
+      "version": "0.1.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "e1d926b4d407d372f141f93bb444696142c29d32962ccbd3531117cf3aa0bfa9",
+      "license": "MIT"
+    },
+    {
+      "name": "dyn-stack",
+      "version": "0.13.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "1c4713e43e2886ba72b8271aa66c93d722116acf7a75555cce11dcde84388fe8",
+      "license": "MIT"
+    },
+    {
       "name": "either",
       "version": "1.15.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -238,6 +364,20 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f",
       "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "esaxx-rs",
+      "version": "0.1.10",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "d817e038c30374a4bcb22f94d0a8a0e216958d4c3dcde369b1439fec4bdda6e6",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "fancy-regex",
+      "version": "0.18.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "e1e1dacd0d2082dfcf1351c4bdd566bbe89a2b263235a2b50058f1e130a47277",
+      "license": "MIT"
     },
     {
       "name": "fastdivide",
@@ -259,6 +399,13 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582",
       "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "float8",
+      "version": "0.7.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "c2d1f04709a8ac06e8e8042875a3c466cc4832d3c1a18dbcb9dba3c6e83046bc",
+      "license": "MIT"
     },
     {
       "name": "fnv",
@@ -310,6 +457,55 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "name": "gemm-c32",
+      "version": "0.19.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "086936dbdcb99e37aad81d320f98f670e53c1e55a98bee70573e83f95beb128c",
+      "license": "MIT"
+    },
+    {
+      "name": "gemm-c64",
+      "version": "0.19.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "20c8aeeeec425959bda4d9827664029ba1501a90a0d1e6228e48bef741db3a3f",
+      "license": "MIT"
+    },
+    {
+      "name": "gemm-common",
+      "version": "0.19.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "88027625910cc9b1085aaaa1c4bc46bb3a36aad323452b33c25b5e4e7c8e2a3e",
+      "license": "MIT"
+    },
+    {
+      "name": "gemm-f16",
+      "version": "0.19.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "e3df7a55202e6cd6739d82ae3399c8e0c7e1402859b30e4cb780e61525d9486e",
+      "license": "MIT"
+    },
+    {
+      "name": "gemm-f32",
+      "version": "0.19.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "02e0b8c9da1fbec6e3e3ab2ce6bc259ef18eb5f6f0d3e4edf54b75f9fd41a81c",
+      "license": "MIT"
+    },
+    {
+      "name": "gemm-f64",
+      "version": "0.19.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "056131e8f2a521bfab322f804ccd652520c79700d81209e9d9275bbdecaadc6a",
+      "license": "MIT"
+    },
+    {
+      "name": "gemm",
+      "version": "0.19.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "aa0673db364b12263d103b68337a68fbecc541d6f6b61ba72fe438654709eacb",
+      "license": "MIT"
+    },
+    {
       "name": "generic-array",
       "version": "0.14.7",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -359,6 +555,13 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "name": "hashbrown",
+      "version": "0.17.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
       "name": "hex",
       "version": "0.4.3",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -373,6 +576,20 @@
       "license": "Apache-2.0 / MIT / MPL-2.0"
     },
     {
+      "name": "ident_case",
+      "version": "1.0.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "indexmap",
+      "version": "2.14.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9",
+      "license": "Apache-2.0 OR MIT"
+    },
+    {
       "name": "instant",
       "version": "0.1.13",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -384,6 +601,13 @@
       "version": "0.12.1",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "itertools",
+      "version": "0.14.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285",
       "license": "MIT OR Apache-2.0"
     },
     {
@@ -406,6 +630,13 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "0c2cdeb66e45e9f36bfad5bbdb4d2384e70936afbee843c6f6543f0c551ebb25",
       "license": "MIT"
+    },
+    {
+      "name": "libc",
+      "version": "0.2.186",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66",
+      "license": "MIT OR Apache-2.0"
     },
     {
       "name": "libm",
@@ -436,6 +667,20 @@
       "license": "MIT"
     },
     {
+      "name": "macro_rules_attribute-proc_macro",
+      "version": "0.2.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "670fdfda89751bc4a84ac13eaa63e205cf0fd22b4c9a5fbfa085b63c1f1d3a30",
+      "license": "Apache-2.0 OR MIT OR Zlib"
+    },
+    {
+      "name": "macro_rules_attribute",
+      "version": "0.2.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "65049d7923698040cd0b1ddcced9b0eb14dd22c5f86ae59c3740eab64a676520",
+      "license": "Apache-2.0 OR MIT OR Zlib"
+    },
+    {
       "name": "measure_time",
       "version": "0.8.3",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -464,28 +709,23 @@
       "license": "MIT/Apache-2.0"
     },
     {
-      "name": "mio",
-      "version": "1.2.0",
+      "name": "monostate-impl",
+      "version": "0.1.18",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "checksum": "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1",
-      "license": "MIT"
+      "checksum": "e4db6d5580af57bf992f59068d4ea26fd518574ff48d7639b255a36f9de6e7e9",
+      "license": "MIT OR Apache-2.0"
     },
     {
-      "name": "munarium-core",
-      "version": "1.2.1",
-      "source": "src/third_party/munarium/server/src/munarium-core",
-      "license": "Apache-2.0"
+      "name": "monostate",
+      "version": "0.1.18",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "3341a273f6c9d5bef1908f17b7267bbab0e95c9bf69a0d4dcf8e9e1b2c76ef67",
+      "license": "MIT OR Apache-2.0"
     },
     {
       "name": "munarium-datastore",
       "version": "1.2.1",
       "source": "src/third_party/munarium/server/src/munarium-datastore",
-      "license": "Apache-2.0"
-    },
-    {
-      "name": "munarium-store-mem",
-      "version": "1.2.1",
-      "source": "src/third_party/munarium/server/src/munarium-store-mem",
       "license": "Apache-2.0"
     },
     {
@@ -501,6 +741,13 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a",
       "license": "MIT"
+    },
+    {
+      "name": "num-complex",
+      "version": "0.4.6",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495",
+      "license": "MIT OR Apache-2.0"
     },
     {
       "name": "num-conv",
@@ -538,11 +785,32 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "name": "onig",
+      "version": "6.5.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "336b9c63443aceef14bea841b899035ae3abe89b7c486aaf4c5bd8aafedac3f0",
+      "license": "MIT"
+    },
+    {
+      "name": "onig_sys",
+      "version": "69.9.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "c7f86c6eef3d6df15f23bcfb6af487cbd2fed4e5581d58d5bf1f5f8b7f6727dc",
+      "license": "MIT"
+    },
+    {
       "name": "ownedbytes",
       "version": "0.7.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "c3a059efb063b8f425b948e042e6b9bd85edfe60e913630ed727b23e2dfcc558",
       "license": "MIT"
+    },
+    {
+      "name": "paste",
+      "version": "1.0.15",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a",
+      "license": "MIT OR Apache-2.0"
     },
     {
       "name": "pin-project-lite",
@@ -578,6 +846,20 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934",
       "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "pulp-wasm-simd-flag",
+      "version": "0.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "1d8f70e07b9c3962945a74e59ca1c511bba65b6419468acc217c457d93f3c740",
+      "license": "MIT"
+    },
+    {
+      "name": "pulp",
+      "version": "0.22.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "046aa45b989642ec2e4717c8e72d677b13edd831a4d3b6cf37d9a3e54912496a",
+      "license": "MIT"
     },
     {
       "name": "quote",
@@ -643,6 +925,20 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "name": "raw-cpuid",
+      "version": "11.6.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "498cd0dc59d73224351ee52a95fee0f1a617a2eae0e7d9d720cc622c73a54186",
+      "license": "MIT"
+    },
+    {
+      "name": "rayon-cond",
+      "version": "0.4.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "2964d0cf57a3e7a06e8183d14a8b527195c706b7983549cd5462d5aa3747438f",
+      "license": "Apache-2.0/MIT"
+    },
+    {
       "name": "rayon-core",
       "version": "1.13.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -655,6 +951,13 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "368f01d005bf8fd9b1206fb6fa653e6c4a81ceb1466406b81792d87c5677a58f",
       "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "reborrow",
+      "version": "0.5.5",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430",
+      "license": "MIT"
     },
     {
       "name": "regex-automata",
@@ -699,6 +1002,27 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "name": "ryu",
+      "version": "1.0.22",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "a50f4cf475b65d88e057964e0e9bb1f0aa9bbb2036dc65c64596b42932536984",
+      "license": "Apache-2.0 OR BSL-1.0"
+    },
+    {
+      "name": "safetensors",
+      "version": "0.8.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "79b079b829cb27a1c3c374341345ed2e8b2c0c839034522cee576c140bd7f846",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "seq-macro",
+      "version": "0.3.6",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "1bc711410fbe7399f390ca1c3b60ad0f53f80e95c5eb935e52268a0e2cd49acc",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
       "name": "serde",
       "version": "1.0.228",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -725,6 +1049,13 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86",
       "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "serde_plain",
+      "version": "1.0.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "9ce1fc6db65a611022b23a0dec6975d63fb80a302cb3388835ff02c097258d50",
+      "license": "MIT/Apache-2.0"
     },
     {
       "name": "sha2",
@@ -755,6 +1086,13 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "name": "spm_precompiled",
+      "version": "0.1.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "5851699c4033c63636f7ea4cf7b7c1f1bf06d0cc03cfb42e711de5a5c46cf326",
+      "license": "Apache-2.0"
+    },
+    {
       "name": "stable_deref_trait",
       "version": "1.2.1",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -762,11 +1100,32 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "name": "static_assertions",
+      "version": "1.1.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "strsim",
+      "version": "0.11.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f",
+      "license": "MIT"
+    },
+    {
       "name": "syn",
       "version": "2.0.117",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "e665b8803e7b1d2a727f4023456bbbbe74da67099c585258af0ad9c5013b9b99",
       "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "synstructure",
+      "version": "0.13.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2",
+      "license": "MIT"
     },
     {
       "name": "tantivy-bitpacker",
@@ -881,11 +1240,11 @@
       "license": "MIT OR Apache-2.0"
     },
     {
-      "name": "tokio-macros",
-      "version": "2.7.0",
+      "name": "tokenizers",
+      "version": "0.22.2",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "checksum": "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496",
-      "license": "MIT"
+      "checksum": "b238e22d44a15349529690fb07bd645cf58149a1b1e44d6cb5bd1641ff1a6223",
+      "license": "Apache-2.0"
     },
     {
       "name": "tokio",
@@ -916,6 +1275,13 @@
       "license": "MIT"
     },
     {
+      "name": "typed-path",
+      "version": "0.12.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
       "name": "typenum",
       "version": "1.20.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -930,6 +1296,27 @@
       "license": "(MIT OR Apache-2.0) AND Unicode-3.0"
     },
     {
+      "name": "unicode-normalization-alignments",
+      "version": "0.1.12",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "43f613e4fa046e69818dd287fdc4bc78175ff20331479dab6e1b0f98d57062de",
+      "license": "MIT/Apache-2.0"
+    },
+    {
+      "name": "unicode-segmentation",
+      "version": "1.12.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "f6ccf251212114b54433ec949fd6a7841275f9ada20dddd2f29e9ceea4501493",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "unicode_categories",
+      "version": "0.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
       "name": "utf8-ranges",
       "version": "1.0.5",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -942,6 +1329,18 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "ee48d38b119b0cd71fe4141b30f5ba9c7c5d9f4e7a3a8b4a674e4b6ef789976f",
       "license": "Apache-2.0 OR MIT"
+    },
+    {
+      "name": "vcp-embedding",
+      "version": "0.1.0",
+      "source": "src/crates/vcp-embedding",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "vcp-memory-spike",
+      "version": "0.1.0",
+      "source": "src/crates/vcp-memory-spike",
+      "license": "Apache-2.0"
     },
     {
       "name": "version_check",
@@ -993,6 +1392,20 @@
       "license": "MIT OR Apache-2.0"
     },
     {
+      "name": "yoke-derive",
+      "version": "0.8.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "de844c262c8848816172cef550288e7dc6c7b7814b4ee56b3e1553f275f1858e",
+      "license": "Unicode-3.0"
+    },
+    {
+      "name": "yoke",
+      "version": "0.8.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "abe8c5fda708d9ca3df187cae8bfb9ceda00dd96231bed36e445a1a48e66f9ca",
+      "license": "Unicode-3.0"
+    },
+    {
       "name": "zerocopy-derive",
       "version": "0.8.37",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -1005,6 +1418,27 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": "7456cf00f0685ad319c5b1693f291a650eaf345e941d082fc4e03df8a03996ac",
       "license": "BSD-2-Clause OR Apache-2.0 OR MIT"
+    },
+    {
+      "name": "zerofrom-derive",
+      "version": "0.1.6",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "d71e5d6e06ab090c67b5e44993ec16b72dcbaabc526db883a360057678b48502",
+      "license": "Unicode-3.0"
+    },
+    {
+      "name": "zerofrom",
+      "version": "0.1.6",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "50cc42e0333e05660c3587f3bf9d0478688e15d870fab3346451ce7f8c9fbea5",
+      "license": "Unicode-3.0"
+    },
+    {
+      "name": "zip",
+      "version": "8.6.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b",
+      "license": "MIT"
     },
     {
       "name": "zmij",

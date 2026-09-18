@@ -1,10 +1,11 @@
 # Codex package and effect boundaries
 
-The shared workspace contains 158 Cargo packages: 154 from Codex, three
+The shared workspace contains 159 Cargo packages: 154 from Codex, three
 [selected Munarium libraries](munarium-source.md), and the original
-[VCP CPU embedding helper](local-embeddings.md). Its
+[VCP CPU embedding helper](local-embeddings.md) plus the original
+[local corpus qualification executable](local-memory-spike.md). Its
 [boundary inventory](../../src/third_party/components/codex-boundaries.json)
-assigns each package to exactly one of 23 review groups and anchors 43 concrete
+assigns each package to exactly one of 23 review groups and anchors 45 concrete
 source seams. It is a **static ownership and navigation record**. It does not
 prove absence of hidden effects, enable a VCP runtime or claim that an adapter
 already exists. Read it alongside [the source selection](codex-source.md),
@@ -27,7 +28,10 @@ pwsh -NoProfile -File scripts/test.ps1 -Suite upstream
 
 The checker reads the committed Cargo manifests with the pinned TOML parser,
 following direct/inherited path dependencies, including build, dev and target
-tables. Four packages are implicit members: `codex-windows-sandbox`,
+tables. Membership uses resolved directory identity: equivalent external
+dependency paths count once, while distinct directories with duplicate package
+names still fail. Source containment is checked before canonicalization.
+Four packages are implicit members: `codex-windows-sandbox`,
 `codex-message-history`, `core_test_support` and `app_test_support`. Checking only
 the root `members` list would miss them. The discovered set was independently
 compared with `cargo +1.98.0 metadata --locked --offline --no-deps --format-version

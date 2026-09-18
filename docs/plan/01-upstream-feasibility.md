@@ -1,6 +1,6 @@
 # 01 — Native Windows foundation and upstream feasibility
 
-Status: P0-01 complete; P0-07 implemented, awaiting hosted verification of its final classification checks; remaining tasks planned. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
+Status: P0-01 and P0-07 complete; P0-02 in progress; remaining tasks planned. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
 
 Use the [upstream experiment procedure](../development/upstream-qualification.md) for manifest/reconstruction details and the [qualification harness design](../architecture/qualification-release-design.md) for result records and fault supervision. [ADR-001](../adr/001-runtime-topology.md), [ADR-003](../adr/003-canonical-storage.md), [ADR-008](../adr/008-local-governed-memory.md), [ADR-015](../adr/015-portability-and-storage-choice.md) and [ADR-019](../adr/019-cloud-encryption-and-keys.md) now record the confirmed directions and pending experiments separately.
 
@@ -75,8 +75,8 @@ The subsequent [classified effect inventory](../development/upstream-effect-clas
 assigns all 158 packages conservative effect ceilings and primary VCP owners,
 with 43 named entries covering update/maintenance routes as well as model helpers.
 The [selection acceptance map](../evaluations/p0-07-selection-gate.md) consolidates
-each P0-07 obligation and its evidence. P0-07 is `implemented_unverified` pending
-the final classification PR's hosted checks. Runtime enforcement, real local
+each P0-07 obligation and its evidence. P0-07 is complete after the final
+classification PR passed both hosted runners and merged. Runtime enforcement, real local
 corpus/reopen and in-app pause remain the separate tasks below; source
 qualification does not satisfy their acceptance contracts.
 
@@ -104,7 +104,15 @@ identifies usable libraries and filesystem effects. It has no embedding runtime,
 VCP workspace policy or measured production envelope in that earlier run. The
 [subsequent CPU helper](../evaluations/p0-07-local-embeddings.md) qualifies local
 model loading and numerical behavior separately; corpus/index integration and
-offline enforcement remain outstanding. P0-02 remains planned.
+offline enforcement remained outstanding at that gate.
+
+The [local corpus prototype](../development/local-memory-spike.md) now connects
+the real CPU model, Tantivy and DiskANN in a single qualification executable.
+Its public fixture includes two workspaces, semantic intent, repeated identifiers
+and an obsolete version; the observer checks fresh-process reopen and corrupted
+manifest rejection. [Native evidence](../evaluations/p0-02-local-corpus.md)
+records seven passing queries and repeated process reopen. P0-02 is in progress. Governance/canonical-store integration,
+broader corpus/resource measurements and observed OS network denial remain open.
 
 1. Locate the pinned kernel/gates, in-memory backend, conformance scenarios and actual local embedding implementation. Extract a minimal record/evidence/governance example behind candidate VCP interfaces.
 2. Build a small local corpus into Tantivy and DiskANN; query exact symbols and semantic intent, close the process and reopen on disk.

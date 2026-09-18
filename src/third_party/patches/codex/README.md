@@ -25,6 +25,12 @@ already include these changes; normal builds never apply patches.
    macro version keeps the existing `pastey` pin. Modification notices identify
    these changes; this does not implement VCP memory/index integration.
 
+4. `0004-local-corpus-workspace.patch` registers the original P0-02 corpus
+   qualification executable in the same graph. It adds only its local package
+   lock entry; all 1,565 prior dependency identities/checksums are retained.
+   It calls the existing CPU embedding and Munarium datastore APIs without
+   changing their implementation or the Codex runtime.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

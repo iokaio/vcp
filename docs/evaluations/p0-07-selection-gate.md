@@ -1,9 +1,9 @@
 # P0-07 selection gate and effect classification
 
-Status: `implemented_unverified`, pending hosted checks of the schema 2 change.
-P0-01 is complete. The baseline's hosted build/reconstruction and helper traces
-passed before this change; this change adds the final explicit source
-classifications and consistency checks required by P0-07.
+Status: `complete` for the P0-07 immutable-source selection gate. P0-01 is complete.
+The final schema 2 change passed hosted verification below. Package and entry
+counts in this report describe that gate's PR #17 inputs; later qualification
+packages have their own records.
 
 This report consolidates the immutable-source selection gate. It does not
 qualify VCP execution, local corpus retrieval, operating-system isolation,
@@ -49,12 +49,24 @@ inventories and documentation/ledger checks. Evidence:
 September 18, 2026, 03:49:21–03:49:48 UTC, Windows 10.0.26200, Node 24.10.0,
 Git 2.51.0.windows.1. The source base was
 `057acc893e51fb68e57e6deebd7cd6cff0c8b80f` with this change uncommitted.
-`git diff --check` passed. Hosted checks of the published head remain pending.
+`git diff --check` passed. Hosted checks subsequently passed for the published head.
 
 The prior [helper-trace hosted run](p0-07-helper-traces.md#scope-and-remaining-work)
 passed on the unchanged imported source and dependency pins, including independent
 reconstruction and all nine native traces. It is baseline evidence, not a claim
-that the new classification checker has already passed hosted CI.
+that the new classification checker had already passed hosted CI at that time.
+
+[Hosted run 35304773126](https://github.com/iokaio/vcp/actions/runs/35304773126)
+passed both jobs for `569744e54c299a65bba262e79f61430da94870ea`. The Windows job
+used `win8core-1000002552` in `wingroup`, and Linux used
+`ubuntu-8core-1000002551` in `ubuntu8core`. Windows passed the final 56 regressions,
+both source reconstructions, 402 Gemini tests, real CPU embeddings, the native
+CLI build, 102 Codex boundary tests, 200 Munarium tests and nine native traces.
+Downloaded evidence is under `artifacts/ci/windows-35304773126-1/`; its fast
+manifest is `tests/28789cb1-de78-4520-a26c-3bc23925f671/manifest.json`.
+[PR #17](https://github.com/iokaio/vcp/pull/17) merged as
+`d0cb9870358bb633b36edd0f3f1c792faf50f59c` on September 18, 2026, 04:18:40 UTC.
+The exact green head was checked before merge.
 
 ## Subsequent task boundaries
 

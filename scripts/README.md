@@ -7,6 +7,7 @@ This directory owns repository automation. `test.ps1` and `test-runner.cjs` impl
 | `build.ps1` (implemented baseline) | Verify and build the selected native Windows Codex workspace, or select Munarium libraries with `-Component Munarium`; `-Mode BoundaryTests` runs component tests | P0-07/P0-08 |
 | `test.ps1` (implemented) | Run deterministic repository, harness, experiment and upstream-inventory checks; preserve exit status and evidence | P0-01, extended by feature owners |
 | `test-embeddings.ps1` (implemented qualification) | Verify explicit local assets, test/build the CPU helper, check its dependency graph and compare real model results | P0-07; integration continues in P0-02 |
+| `test-local-memory.ps1` (implemented prototype) | Build the corpus qualification executable, verify its dependency closure and observe real local indexes across fresh processes | P0-02 |
 | `package.ps1` | Assemble qualified artifacts, licenses, notices, and checksums | P8-04 |
 | `evals/` | Orchestrate explicitly configured evaluations and collect results | P5-08/P8-05 |
 | `upstream/` (implemented baseline tooling) | `inventory.cjs` records immutable Git bytes; `reconstruct.cjs` reconstructs/verifies selected source; `build-baseline.ps1` runs native builds/tests | P0-07/P0-08, rehearsed in P8-06 |
@@ -33,9 +34,14 @@ downloads models. See [local embedding setup and qualification](../docs/developm
 experiment with DiskANN enabled; its dependency checker rejects the identified
 server/provider/PostgreSQL packages. See [the native library procedure](../docs/development/munarium-baseline.md).
 
-`node scripts/upstream/trace-cli.cjs --binary <built codex.exe>` from the repository root runs five native CLI
+`node scripts/upstream/trace-cli.cjs --binary <built codex.exe>` from the repository root runs nine native CLI
 cases against a synthetic loopback provider, with independent request and file
 observations. See [the trace procedure](../docs/development/native-cli-trace.md)
 for the explicit unsandboxed patch fixture and qualification limits.
+
+`test-local-memory.ps1 -AssetsRoot <model directory>` runs the
+[local corpus prototype](../docs/development/local-memory-spike.md), with real
+Tantivy/DiskANN artifacts, CPU vectors, canonical fixture filtering and repeated
+fresh-process reopen. It does not download models or qualify OS network isolation.
 
 Resolve paths from the script's location, document real tool prerequisites, reject unknown inputs, and return failures to callers. Missing tools, model assets, or environments must be reported as not run. Add working entry points with their owning implementation; do not add no-op success scripts to satisfy the tree.
