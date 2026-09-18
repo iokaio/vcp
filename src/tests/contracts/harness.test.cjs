@@ -30,6 +30,23 @@ test('source hashing streams beyond the old 64 MiB buffer and rejects partial fa
   assert.equal(actual, hash.digest('hex'));
   await assert.rejects(hashCommand(process.execPath, ['-e', 'console.log("partial");process.exit(7)']), /failed: 7/);
 });
+
+test('isolated qualification children receive only the synthetic profile and validated source commit', async t => {
+  const homeRoot = temporary(t), gitCommit = 'a'.repeat(40);
+  const config = registry('const fs=require("node:fs"),os=require("node:os");if(os.homedir()!==process.env.USERPROFILE||process.env.GIT_COMMIT!=="a".repeat(40)||process.env.VCP_SYNTHETIC_SECRET)process.exit(9);fs.writeFileSync(process.env.HOME+"/child-marker","synthetic");');
+  const before = process.env.VCP_SYNTHETIC_SECRET;
+  process.env.VCP_SYNTHETIC_SECRET = 'not-for-child';
+  try {
+    const result = await run(t, config, { isolation: { homeRoot, gitCommit } });
+    assert.equal(result.exitCode, 0);
+    assert.equal(fs.readFileSync(path.join(homeRoot, 'child-marker'), 'utf8'), 'synthetic');
+    assert.throws(() => environment({ homeRoot, gitCommit: 'main' }), /Invalid isolated source commit/);
+    assert.throws(() => environment({ gitCommit }), /Invalid isolated source commit/);
+  } finally {
+    if (before === undefined) delete process.env.VCP_SYNTHETIC_SECRET;
+    else process.env.VCP_SYNTHETIC_SECRET = before;
+  }
+});
 test('rejects invalid requests before allocating evidence', async t => {
   const config = registry('process.exit(0)');
   for (const args of [['--suite', 'absent'], ['--case', 'absent'], ['--backend', 'both'],

@@ -2,7 +2,8 @@
 
 Status: investigation in progress. The immutable candidates are recorded in
 [upstreams.toml](../../src/third_party/upstreams.toml). The [Codex selection](codex-source.md)
-is now imported as a qualification baseline; the other candidates remain external.
+and [Munarium libraries](munarium-source.md) are imported as qualification
+baselines; Gemini remains external.
 These results contribute to
 [upstream qualification](upstream-qualification.md), not a replacement for its
 native build, closure, reconstruction and integration gates.
@@ -79,6 +80,10 @@ or use another user's shared target directory.
 The [Munarium local-library command](munarium-baseline.md) extends native
 qualification to the kernel, in-memory backend and datastore, with both Tantivy
 and DiskANN enabled and an explicit normal/build dependency boundary check.
+
+The [Gemini qualification command](gemini-baseline.md) checks 402 selected
+policy, scheduler, tool, skill and MCP tests with explicit metadata/compiler
+preparation. It does not import a production engine or qualify VCP ports.
 
 The current root license declarations for Codex, Gemini CLI and Munarium are
 Apache-2.0. This does not license every nested component under Apache. The

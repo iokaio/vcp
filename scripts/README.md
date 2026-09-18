@@ -19,6 +19,10 @@ Under [ADR-013](../docs/adr/013-upstream-reuse-and-vendoring.md), normal builds 
 `build.ps1 -Component Munarium -Mode BoundaryTests` tests the committed libraries
 in the shared workspace. See [the source guide](../docs/development/munarium-source.md).
 
+`node scripts/upstream/test-gemini.cjs --source <pinned checkout> --output-root <evidence directory> --prepare`
+qualifies 402 selected Gemini boundary tests on native Windows, with explicit
+metadata/compiler preparation and isolated child profiles. See [the procedure](../docs/development/gemini-baseline.md).
+
 `build-baseline.ps1 -Candidate Munarium` selects the pinned kernel/store/datastore
 experiment with DiskANN enabled; its dependency checker rejects the identified
 server/provider/PostgreSQL packages. See [the native library procedure](../docs/development/munarium-baseline.md).

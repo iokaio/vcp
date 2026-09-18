@@ -4,7 +4,7 @@ Origin: `https://github.com/google-gemini/gemini-cli`, immutable revision
 `6a466a7e2fe2b1255752c1e74f69b31f0216084d`. State: candidate reference inputs;
 no runtime source or port is imported. Owner: P0-07 selection and P0-09 boundary
 fixtures/ports. Root LICENSE and the selected source headers declare Apache-2.0;
-the inspected TypeScript headers identify Copyright 2026 Google LLC. Preserve
+the inspected TypeScript headers identify Copyright 2025 or 2026 Google LLC. Preserve
 those terms and record attributed ports when source is actually included.
 
 | Responsibility | Concrete candidate input | VCP requirement |
@@ -14,16 +14,18 @@ those terms and record attributed ports when source is actually included.
 | G03 policy | `packages/core/src/policy/policy-engine.ts`, `policy-engine.test.ts`, `types.ts`, `stable-stringify.ts` | Preserve compatible decision behavior with explicit argument hashes; model text never grants authority |
 | G06 skills/MCP | `packages/core/src/skills/skillLoader.ts`, `skillManager.ts`, `tools/mcp-client.ts`, `mcp-tool.ts` | Candidate seams only; VCP trust, endpoint/auth and cancellation contracts still govern |
 
-The [native candidate report](../../../docs/evaluations/p0-07-native-candidates.md)
-records 213 passing policy/scheduler/tool tests with Node 24.10.0, npm 11.6.1 and
-Vitest 3.2.4. These are mocked upstream unit tests, not evidence of a VCP port,
-live provider control or operating-system enforcement. G06 behavior is not
-qualified by that selected test set.
+The [native boundary report](../../../docs/evaluations/p0-07-gemini-baseline.md)
+records 402 passing policy/scheduler/tool/skill/MCP tests with Node 24.10.0,
+TypeScript 5.8.3 and Vitest 3.2.4. These are mocked upstream unit tests, not
+evidence of a VCP port, live provider control or operating-system enforcement.
+The [reproduction and effect guide](../../../docs/development/gemini-baseline.md)
+records the fixed suite list and intentional VCP adaptation requirements.
 
 Root `package.json`, `package-lock.json`, `packages/core/package.json`, the core
 test configuration and `scripts/generate-git-commit-info.js` are required baseline
 setup inputs. The first selected run failed because generated Git metadata was
-missing; invoking that inspected generator and rerunning passed. Keep acquisition,
+missing; invoking that inspected generator and rerunning passed. Expanded MCP
+tests also need the core TypeScript build; the runner records both stages. Keep acquisition,
 dependency installation and this explicit preparation separate from VCP builds.
 
 The candidate files are not a closed Node production extraction. Imports include

@@ -1,7 +1,7 @@
 # P0-07 — Munarium import into the shared Cargo workspace
 
-Status: local and hosted native checks pass; the first hosted reconstruction
-failed on a missing output parent. The fix awaits a green full workflow.
+Status: local and hosted native checks pass. The first hosted reconstruction
+failed on a missing output parent; the corrected full workflow passed and PR #13 merged.
 P0-07 remains `in_progress`. This does not qualify VCP memory,
 local inference, canonical persistence, pause/resume or a release package.
 
@@ -122,8 +122,15 @@ lockfile identity. The fast suite covers source inventories, documentation links
 The workflow targets `ubuntu-8core` for deterministic checks and `win8core` for
 native qualification. Windows installs both compilers, builds Codex, runs its
 patch/policy tests and scripted CLI traces, tests Munarium and reconstructs both
-selections. The pending fixed workflow must pass before merge; successful native
-steps in the earlier failed run do not make that whole run green.
+selections. [Corrected run 35293257681](https://github.com/iokaio/vcp/actions/runs/35293257681)
+passed both jobs for head `50a25cfba49e916541a11875830d2bfde6745621`, including
+43 deterministic regressions, both reconstructions, the CLI build, 102 Codex
+tests, 200 Munarium tests and five CLI traces. Windows used
+`win8core-1000002533` in `wingroup`; Linux used `ubuntu-8core-1000002534`.
+Evidence is retained under `artifacts/ci/windows-35293257681-1/`.
+[PR #13](https://github.com/iokaio/vcp/pull/13) merged the checked head as
+`4637c09b0975d3cb576c17e76374d80aafd05cc1` on September 18, 2026 UTC.
+The earlier workflow remains recorded as failed.
 
 One Cargo graph is established, but component compiler pins remain separate.
 No embedding runtime/model is installed or invoked. Gemini selection and

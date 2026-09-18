@@ -10,6 +10,7 @@ Raw evidence stays in ignored local artifact directories or CI artifacts.
 - [P0-07 Codex source import](p0-07-codex-import.md): copied source, independent
   reconstruction, provenance checks and native build evidence.
 - [P0-07 Munarium source import](p0-07-munarium-import.md): shared Cargo graph, 70-file reconstruction, dependency provenance and 200 native tests.
+- [P0-07 Gemini boundaries](p0-07-gemini-baseline.md): explicit metadata/compiler preparation and 402 native policy, scheduler, tool, skill and MCP tests.
 - [P0-07 Munarium datastore](p0-07-munarium-datastore.md): 200 native tests with
   Tantivy/DiskANN enabled and the selected library dependency boundary.
 - [P0-07 boundary inventory](p0-07-boundary-inventory.md): static coverage of 154 Codex packages and 25 source anchors; runtime enforcement remains unqualified.

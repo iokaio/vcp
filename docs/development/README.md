@@ -11,6 +11,7 @@ These guides describe how to implement and qualify the planned system. The [deli
 - [Native CLI trace](native-cli-trace.md): scripted loopback requests, synthetic patch observation, retry and rejection through the built Codex CLI.
 - [Committed Munarium libraries](munarium-source.md): three libraries in the shared Cargo workspace, source reconstruction and native dependency evidence.
 - [Munarium native baseline](munarium-baseline.md): kernel/store/datastore qualification with real Tantivy and DiskANN and a checked dependency boundary.
+- [Gemini native baseline](gemini-baseline.md): reproducible 402-test comparison, explicit preparation and policy/skill/MCP adaptation boundaries.
 - [Qualification and release design](../architecture/qualification-release-design.md): test runner/result contracts, independent fault oracles and packaged acceptance.
 - [Code layout](../plan/code-layout.md): responsibility boundaries and proposed paths.
 - [ADR index](../adr/README.md): confirmed directions and unresolved engineering gates.
