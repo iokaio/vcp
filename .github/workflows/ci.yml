@@ -13,7 +13,7 @@ concurrency:
 jobs:
   delivery:
     name: Repository and harness
-    runs-on: ubuntu-8core
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,11 +38,14 @@ jobs:
           name: delivery-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/tests/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
   windows:
     name: Native Windows qualification
-    runs-on: win8core
-    timeout-minutes: 90
+    # Keep expensive qualification opt-in while routine CI runs only fast checks.
+    if: github.event_name == 'workflow_dispatch'
+    needs: delivery
+    runs-on: windows-2025
+    timeout-minutes: 180
     defaults:
       run:
         shell: pwsh
@@ -108,15 +111,15 @@ jobs:
           $modelRoot = Join-Path $env:RUNNER_TEMP ('vcp-minilm-' + [guid]::NewGuid().ToString())
           node scripts/upstream/model-assets.cjs acquire --root $modelRoot
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./scripts/test-embeddings.ps1 -AssetsRoot $modelRoot -Offline
+          ./scripts/test-embeddings.ps1 -AssetsRoot $modelRoot -Offline -Jobs 2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./scripts/test-local-memory.ps1 -AssetsRoot $modelRoot -TargetRoot artifacts/embedding-target -Scale
+          ./scripts/test-local-memory.ps1 -AssetsRoot $modelRoot -TargetRoot artifacts/embedding-target -Scale -Jobs 2
       - name: Build committed native CLI
-        run: ./scripts/build.ps1
+        run: ./scripts/build.ps1 -Jobs 2
       - name: Test native patch and policy boundaries
-        run: ./scripts/build.ps1 -Mode BoundaryTests
+        run: ./scripts/build.ps1 -Mode BoundaryTests -Jobs 2
       - name: Test committed local-memory libraries and dependency boundary
-        run: ./scripts/build.ps1 -Component Munarium -Mode BoundaryTests -TargetRoot artifacts/munarium-target
+        run: ./scripts/build.ps1 -Component Munarium -Mode BoundaryTests -TargetRoot artifacts/munarium-target -Jobs 2
       - name: Trace native CLI against the local scripted provider
         run: node scripts/upstream/trace-cli.cjs --binary artifacts/codex-target/x86_64-pc-windows-msvc/debug/codex.exe
       - name: Retain Windows evidence, including failures
@@ -137,4 +140,4 @@ jobs:
             !artifacts/local-memory/**/profile/**
             !artifacts/embeddings/**/private/**
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7

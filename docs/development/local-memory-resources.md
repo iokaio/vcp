@@ -25,8 +25,10 @@ pwsh -NoProfile -File scripts/test-local-memory.ps1 -AssetsRoot $modelRoot -Scal
 first verifies imported source and assets, runs the native regression tests,
 builds the executable, checks the unchanged 214-package dependency closure and
 runs the original 24-document gate including receipt/manifest corruption. The
-optional scale gate then executes all three sizes. CI supplies `-Scale` on the
-configured Windows runner; no private credentials or paid calls are needed.
+optional scale gate then executes all three sizes. The manual Windows
+qualification job supplies `-Scale`; ordinary PR/main CI does not run this
+resource gate. No private credentials or paid calls are needed. See the
+[manual qualification procedure](codex-source.md#native-windows-ci).
 
 For an already qualified executable:
 

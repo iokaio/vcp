@@ -88,14 +88,18 @@ explicit budget and authority path; there is no live mode today.
 
 [Delivery checks](../../.github/workflows/ci.yml) runs every PR and push to main,
 with read-only repository permissions and immutable action revisions. It uses
-`ubuntu-8core`, matching Munarium's
-[repository hygiene runner at revision 8da6660](https://github.com/iokaio/munarium/blob/8da666067000ca1ee9c131bc67e70b978862faa3/.github/workflows/repo-hygiene.yml).
+the standard GitHub-hosted `ubuntu-24.04` runner. Standard hosted runner compute
+is free for this public repository; larger runners are billed separately. See
+[GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 VCP runs its own checks, not Munarium component gates. Evidence is uploaded even
-after failures and retained for 14 days. Runner availability is an organization
-prerequisite; a queued or skipped job is not a passing check.
+after failures and retained for three days. Artifact storage remains subject to
+GitHub's storage allowances. A queued or skipped job is not a passing check.
 
-The additional `win8core` job runs the same fast suite plus the committed native
-CLI build, patch/policy tests, scripted CLI traces and independent reconstruction.
+The standard `windows-2025` job is manual-only, after the fast job passes.
+It runs the same fast suite plus the committed native CLI build, patch/policy
+tests, scripted CLI traces, model/retrieval qualification and independent
+reconstruction. Its evidence is retained for seven days. Routine PR/main runs
+skip this job; a green routine run is not native qualification evidence.
 See [Windows CI setup](codex-source.md#native-windows-ci) for its commands,
 prerequisites and evidence scope.
 
