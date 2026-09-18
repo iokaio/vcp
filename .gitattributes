@@ -3,3 +3,7 @@
 *.cmd text eol=crlf
 # Preserve imported source bytes independently of a contributor's autocrlf setting.
 /src/third_party/codex/** -text
+/src/third_party/munarium/** -text
+# Unified patches use a single space for empty context lines; hashes and
+# independent reconstruction validate their exact contents.
+/src/third_party/patches/**/*.patch whitespace=-blank-at-eol

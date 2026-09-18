@@ -1,8 +1,9 @@
 # Codex package and effect boundaries
 
-The pinned Codex baseline contains 154 Cargo packages. Its
+The shared workspace contains 157 Cargo packages: 154 from Codex and three
+[selected Munarium libraries](munarium-source.md). Its
 [boundary inventory](../../src/third_party/components/codex-boundaries.json)
-assigns each package to exactly one of 21 review groups and anchors 25 concrete
+assigns each package to exactly one of 22 review groups and anchors 30 concrete
 source seams. It is a **static ownership and navigation record**. It does not
 prove absence of hidden effects, enable a VCP runtime or claim that an adapter
 already exists. Read it alongside [the source selection](codex-source.md),
@@ -22,11 +23,13 @@ following direct/inherited path dependencies, including build, dev and target
 tables. Four packages are implicit members: `codex-windows-sandbox`,
 `codex-message-history`, `core_test_support` and `app_test_support`. Checking only
 the root `members` list would miss them. The discovered set was independently
-compared with `cargo +1.95.0 metadata --locked --offline --no-deps --format-version
+compared with `cargo +1.98.0 metadata --locked --offline --no-deps --format-version
 1 --manifest-path src/third_party/codex/codex-rs/Cargo.toml`.
 
 This is the union of workspace source dependencies, not the enabled dependency
-graph for a particular target/feature. Unsupported membership rules, missing
+graph for a particular target/feature. External paths are allowed only beneath
+explicit selected component roots; lexical and symbolic-link escapes fail.
+Unsupported membership rules, missing
 inheritance, path escapes, duplicate names, absent/duplicate ownership, unknown
 task IDs and stale source symbols fail the check. Exclude rules and membership
 globs need explicit parser work if an upstream update introduces them; they are

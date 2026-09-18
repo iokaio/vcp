@@ -10,9 +10,11 @@ try {
   const repository = path.resolve(__dirname, '../..');
   const { component, selection } = readComponent(repository, 'codex');
   const root = path.join(repository, selection.destination, 'codex-rs');
+  const memory = readComponent(repository, 'munarium');
+  const externalRoots = [path.join(repository, memory.selection.destination)];
   validatePath(component.boundary_inventory);
   const catalog = JSON.parse(fs.readFileSync(path.join(repository, 'src/third_party', component.boundary_inventory), 'utf8'));
   const ledger = fs.readFileSync(path.join(repository, 'docs/plan/20-traceability.md'), 'utf8');
   const taskIds = new Set([...ledger.matchAll(/^\| (P\d+-\d{2}) /gm)].map(match => match[1]));
-  console.log(JSON.stringify(validateBoundaries(catalog, workspacePackages(root), { root, commit: component.commit, taskIds })));
+  console.log(JSON.stringify(validateBoundaries(catalog, workspacePackages(root, { externalRoots }), { root, commit: component.commit, taskIds, externalRoots })));
 } catch (error) { console.error('Boundary inventory failed: ' + error.message); process.exitCode = 1; }

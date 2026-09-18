@@ -14,7 +14,41 @@ The root README organization, contribution guidance, support/security/name-polic
 
 VCP's code of conduct is project-specific wording informed by the community standards in Munarium's `CODE_OF_CONDUCT.md`; it does not reproduce the Contributor Covenant text distributed by Munarium. Munarium's file identifies its own Contributor Covenant attribution separately.
 
-This adaptation does not import Munarium runtime code. Statements in Munarium's original notice about its components, migrations, and enterprise distribution describe that project, not VCP.
+This community-document adaptation is separate from the runtime selection below. Statements in Munarium's original notice about its components, migrations, and enterprise distribution describe that project, not VCP.
+
+## Munarium local-library source
+
+The 70 files at `src/third_party/munarium/` come from the same immutable
+Munarium revision above. The original [LICENSE](src/third_party/munarium/LICENSE)
+and [NOTICE](src/third_party/munarium/NOTICE) are retained, including Ioka LLC
+copyright and trademark attribution. [Selection records](src/third_party/components/munarium-selection.json)
+and [component notes](src/third_party/components/munarium.md) identify the three
+libraries, tests, contract fixtures and baseline build inputs.
+
+The [ordered patch](src/third_party/patches/munarium/README.md) changes only the
+three library Cargo manifests: explicit upstream package/dependency requirements
+and membership in the shared Codex workspace. Modification comments identify
+these changes; Rust implementation and test bodies retain their original bytes.
+Server, provider and PostgreSQL packages are excluded.
+
+The embedded `PG_ENGLISH_STOP_WORDS` array and `pg16-english.stop` fixture derive
+from PostgreSQL's Snowball English stopword list. The 127-line fixture matches
+`src/backend/snowball/stopwords/english.stop` byte for byte at PostgreSQL 16.15
+commit `7d3e000c5961a544302072058a1184e9a588837b`, SHA-256
+`b3f772a000465cb76e23adb03b47073c591c156fad8f7af09c8b8e80d6bd8eac`.
+PostgreSQL's [Snowball provenance](https://github.com/postgres/postgres/blob/7d3e000c5961a544302072058a1184e9a588837b/src/backend/snowball/README)
+identifies Snowball and the stopword source. Retain the original
+[PostgreSQL notice](src/third_party/licenses/postgresql-16.15-COPYRIGHT) and
+[Snowball BSD notice](src/third_party/licenses/snowball-2.2.0-COPYING), the latter
+from Snowball `48a67a2831005f49c48ec29a5837640e23e54e6b` (2.2.0).
+Munarium's Apache source header does not replace these embedded-data terms.
+
+The [147-package dependency record](src/third_party/components/munarium-dependencies.json)
+records selected normal/build package identities, registry checksums and upstream
+license declarations for the native Windows feature set, bound to the shared
+lockfile. External dependencies are provisioned by Cargo, not vendored by this
+import. This record is not a release notice bundle or a license determination
+for every optional feature.
 
 ## OpenAI Codex source baseline
 
@@ -34,7 +68,8 @@ licenses, and native voice [notices and license texts](src/third_party/codex/thi
 The license symlink `codex-rs/vendor/bubblewrap/LICENSE` is explicitly materialized
 as a regular copy of `COPYING` for Windows. VCP's ordered
 [compatibility patch](src/third_party/patches/codex/README.md) raises the
-`codex-chatgpt` crate recursion limit and adds a modification notice; original
+`codex-chatgpt` crate recursion limit and registers the Munarium libraries in
+the workspace/lockfile. Modified files carry notices; original
 copyright and license terms remain unchanged.
 Individual source copyright headers remain intact. No voice DLLs, Microsoft
 redistributables, model assets or VCP release package are distributed by this import.
@@ -53,8 +88,8 @@ are recorded in the [development lockfile](src/tests/package-lock.json).
 The Codex Cargo lockfile retains dependency identities/checksums for its source
 baseline. A release must inventory the actual enabled transitive graph and retain
 all applicable notices and corresponding-source obligations; this source record
-is not release qualification. Gemini adaptations, Munarium runtime imports,
-Tantivy, DiskANN and embedding assets remain selection work. Record exact origin,
+is not release qualification. The selected Munarium graph includes Tantivy and
+DiskANN; Gemini adaptations and embedding assets remain selection work. Record exact origin,
 license, selected paths and modifications as those components land.
 
 The root project license does not replace another component's terms. Names belonging to other projects remain their owners' names; see [TRADEMARK.md](TRADEMARK.md).

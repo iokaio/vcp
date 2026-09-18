@@ -1,0 +1,990 @@
+{
+  "schema_version": 1,
+  "component": "munarium",
+  "commit": "8da666067000ca1ee9c131bc67e70b978862faa3",
+  "selection_sha256": "1408464e20fc3180bb104feb3faf34a153ba0a7058f30b484dcf43dc0237ada5",
+  "files_sha256": "7acb72f0c46a72a099fc42beea65ff0f8dd3e84cc3cca62b29c2c33bf774667c",
+  "files": [
+    {
+      "path": "LICENSE",
+      "original": {
+        "mode": "100644",
+        "bytes": 11358,
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      "result": {
+        "bytes": 11358,
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "NOTICE",
+      "original": {
+        "mode": "100644",
+        "bytes": 2385,
+        "sha256": "3fb00e9a9e49be3d671d4d14b4c54e72e1533e8476c5b8b30384dad6f89147e9"
+      },
+      "result": {
+        "bytes": 2385,
+        "sha256": "3fb00e9a9e49be3d671d4d14b4c54e72e1533e8476c5b8b30384dad6f89147e9",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/Cargo.lock",
+      "original": {
+        "mode": "100644",
+        "bytes": 128921,
+        "sha256": "71699461a9f47eb59878ee50a885246c9e8b8c9c48cf2c07f12a6613cbbeab3f"
+      },
+      "result": {
+        "bytes": 128921,
+        "sha256": "71699461a9f47eb59878ee50a885246c9e8b8c9c48cf2c07f12a6613cbbeab3f",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/Cargo.toml",
+      "original": {
+        "mode": "100644",
+        "bytes": 3439,
+        "sha256": "395dcf2730235a85a780974a383692d36fe1851a5a23a68febf43b2e487cb9b8"
+      },
+      "result": {
+        "bytes": 3439,
+        "sha256": "395dcf2730235a85a780974a383692d36fe1851a5a23a68febf43b2e487cb9b8",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/README.md",
+      "original": {
+        "mode": "100644",
+        "bytes": 5160,
+        "sha256": "0dd772dc1f39a76fd3cbc7d4fd6e24e36a35252f57de3caaaf671b50a64010ed"
+      },
+      "result": {
+        "bytes": 5160,
+        "sha256": "0dd772dc1f39a76fd3cbc7d4fd6e24e36a35252f57de3caaaf671b50a64010ed",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/VERSION",
+      "original": {
+        "mode": "100644",
+        "bytes": 6,
+        "sha256": "e9dd8507f4bf0c6f42458e41aea833ad0bd3f6127272335eee9bf4d58541ed67"
+      },
+      "result": {
+        "bytes": 6,
+        "sha256": "e9dd8507f4bf0c6f42458e41aea833ad0bd3f6127272335eee9bf4d58541ed67",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/artifact-plan.schema.json",
+      "original": {
+        "mode": "100644",
+        "bytes": 5236,
+        "sha256": "0bb92de0be520ca7b61d91d844313f764533e560d59e32f58963053cfc7b5996"
+      },
+      "result": {
+        "bytes": 5236,
+        "sha256": "0bb92de0be520ca7b61d91d844313f764533e560d59e32f58963053cfc7b5996",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/build-spec.schema.json",
+      "original": {
+        "mode": "100644",
+        "bytes": 7569,
+        "sha256": "fa5731e34c39a2bbb7628b81e85b94a6d69e76b3fe1e3a034bb69f4dff2120e4"
+      },
+      "result": {
+        "bytes": 7569,
+        "sha256": "fa5731e34c39a2bbb7628b81e85b94a6d69e76b3fe1e3a034bb69f4dff2120e4",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/canonicalization.schema.json",
+      "original": {
+        "mode": "100644",
+        "bytes": 6765,
+        "sha256": "34554a231a0f18f6d71084dec97b0c82b649ae4282e8edf8f0945027bad99ced"
+      },
+      "result": {
+        "bytes": 6765,
+        "sha256": "34554a231a0f18f6d71084dec97b0c82b649ae4282e8edf8f0945027bad99ced",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/canonicalize.py",
+      "original": {
+        "mode": "100644",
+        "bytes": 3491,
+        "sha256": "836d56cd020c780054e5fecc32614ac47994e3ed6a182ff8ab6f7a4e09140b0b"
+      },
+      "result": {
+        "bytes": 3491,
+        "sha256": "836d56cd020c780054e5fecc32614ac47994e3ed6a182ff8ab6f7a4e09140b0b",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/examples/artifact-plan.tantivy-exact.json",
+      "original": {
+        "mode": "100644",
+        "bytes": 808,
+        "sha256": "2d7ba682e12d7c6ae7989bfba5b1132e5093be554b84cd871a0393048d2c1b20"
+      },
+      "result": {
+        "bytes": 808,
+        "sha256": "2d7ba682e12d7c6ae7989bfba5b1132e5093be554b84cd871a0393048d2c1b20",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/examples/build-spec.collection.json",
+      "original": {
+        "mode": "100644",
+        "bytes": 1979,
+        "sha256": "d5e1a2c3d1090c2b5cef0c16d5dbbad4a816ff313c3b633ba953b26b80898306"
+      },
+      "result": {
+        "bytes": 1979,
+        "sha256": "d5e1a2c3d1090c2b5cef0c16d5dbbad4a816ff313c3b633ba953b26b80898306",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/examples/manifest.tantivy-exact.json",
+      "original": {
+        "mode": "100644",
+        "bytes": 2604,
+        "sha256": "120367a57e1b4ec8d30381767572e614e84133df5f79061e2859e9c567a9735e"
+      },
+      "result": {
+        "bytes": 2604,
+        "sha256": "120367a57e1b4ec8d30381767572e614e84133df5f79061e2859e9c567a9735e",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/gen_vectors.py",
+      "original": {
+        "mode": "100644",
+        "bytes": 9359,
+        "sha256": "5afe3b99fb315db5846e13bbf4dac395667d45eff548553bd25aa47ae1bd26a7"
+      },
+      "result": {
+        "bytes": 9359,
+        "sha256": "5afe3b99fb315db5846e13bbf4dac395667d45eff548553bd25aa47ae1bd26a7",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/manifest.schema.json",
+      "original": {
+        "mode": "100644",
+        "bytes": 6916,
+        "sha256": "03c543bade1f07c5e72a4548ab8085c29405795743f64555f82510102a61168d"
+      },
+      "result": {
+        "bytes": 6916,
+        "sha256": "03c543bade1f07c5e72a4548ab8085c29405795743f64555f82510102a61168d",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/validate_examples.py",
+      "original": {
+        "mode": "100644",
+        "bytes": 5130,
+        "sha256": "5877c024c677090138a1fa7def470c09babd7b9a98cf3e0579775c24848de459"
+      },
+      "result": {
+        "bytes": 5130,
+        "sha256": "5877c024c677090138a1fa7def470c09babd7b9a98cf3e0579775c24848de459",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/datastore/vectors/identity-vectors.json",
+      "original": {
+        "mode": "100644",
+        "bytes": 9465,
+        "sha256": "ba58720c7d7584c06ca9f19a32e1d53a9a1c8356f6790f917f0d539f55730804"
+      },
+      "result": {
+        "bytes": 9465,
+        "sha256": "ba58720c7d7584c06ca9f19a32e1d53a9a1c8356f6790f917f0d539f55730804",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/contract/matrix/VERSION",
+      "original": {
+        "mode": "100644",
+        "bytes": 6,
+        "sha256": "e9dd8507f4bf0c6f42458e41aea833ad0bd3f6127272335eee9bf4d58541ed67"
+      },
+      "result": {
+        "bytes": 6,
+        "sha256": "e9dd8507f4bf0c6f42458e41aea833ad0bd3f6127272335eee9bf4d58541ed67",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/rust-toolchain.toml",
+      "original": {
+        "mode": "100644",
+        "bytes": 144,
+        "sha256": "79376ecb82dee9f81c0a4bdfefa8f91c71bc2ba90dff2c3647ab51cf6348428f"
+      },
+      "result": {
+        "bytes": 144,
+        "sha256": "79376ecb82dee9f81c0a4bdfefa8f91c71bc2ba90dff2c3647ab51cf6348428f",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/Cargo.toml",
+      "original": {
+        "mode": "100644",
+        "bytes": 789,
+        "sha256": "2df6e9550cb9cd135001fafe8f2fcdc2a5c5d77068512ec37c3a57d822dfa157"
+      },
+      "result": {
+        "bytes": 927,
+        "sha256": "6acc5d23817e60b9ba13bb9e724ea64d49f903d5c3a916fc8a3bbf135e44e300",
+        "mode": "100644"
+      },
+      "transformation": "patch-series"
+    },
+    {
+      "path": "server/src/munarium-core/src/budget.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 4613,
+        "sha256": "3b33645b1eafb16526d393c35e211d6f12a2015f5da2543dfb5dc9ad1e97a03c"
+      },
+      "result": {
+        "bytes": 4613,
+        "sha256": "3b33645b1eafb16526d393c35e211d6f12a2015f5da2543dfb5dc9ad1e97a03c",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/chrono_gate.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 34311,
+        "sha256": "aff9d5fc5d301de9cf6b3992a907ef1410e49c4324393f8a4cecf72338a7a53a"
+      },
+      "result": {
+        "bytes": 34311,
+        "sha256": "aff9d5fc5d301de9cf6b3992a907ef1410e49c4324393f8a4cecf72338a7a53a",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/composer.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 11763,
+        "sha256": "3680881a719147a6ce9289ac70eee6f4d2e48308d2731c07913eaf4ea69c9212"
+      },
+      "result": {
+        "bytes": 11763,
+        "sha256": "3680881a719147a6ce9289ac70eee6f4d2e48308d2731c07913eaf4ea69c9212",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/counters.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 2906,
+        "sha256": "3d5f9b43b4acd4163f440d74420bc0318967034768792d80f08a74121e8021d8"
+      },
+      "result": {
+        "bytes": 2906,
+        "sha256": "3d5f9b43b4acd4163f440d74420bc0318967034768792d80f08a74121e8021d8",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/digests.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 6199,
+        "sha256": "d217cb7b8b37e12875ac690a9b9964acfe2f61071606d229f097b5d326d39f08"
+      },
+      "result": {
+        "bytes": 6199,
+        "sha256": "d217cb7b8b37e12875ac690a9b9964acfe2f61071606d229f097b5d326d39f08",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/docintel.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 4090,
+        "sha256": "28308cbe8c93df4f301ac4943250b3edd01041f01357ce98cba1097fbee85678"
+      },
+      "result": {
+        "bytes": 4090,
+        "sha256": "28308cbe8c93df4f301ac4943250b3edd01041f01357ce98cba1097fbee85678",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/error.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 2130,
+        "sha256": "5b5d24449dda89fc100cf6f911d28837ba8de7afa00f9f7928158a4a1ea39ec2"
+      },
+      "result": {
+        "bytes": 2130,
+        "sha256": "5b5d24449dda89fc100cf6f911d28837ba8de7afa00f9f7928158a4a1ea39ec2",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/evidence.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 40336,
+        "sha256": "2e5ec7d414bc301a7007cc2f4ee4ea080dcbaf9bc7cffd0ca292a7d287df89f3"
+      },
+      "result": {
+        "bytes": 40336,
+        "sha256": "2e5ec7d414bc301a7007cc2f4ee4ea080dcbaf9bc7cffd0ca292a7d287df89f3",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/gates.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 22313,
+        "sha256": "5c71dd9d7f99ab92c4ee02ef155928551056c8fdb43660f410fc44103c2a8623"
+      },
+      "result": {
+        "bytes": 22313,
+        "sha256": "5c71dd9d7f99ab92c4ee02ef155928551056c8fdb43660f410fc44103c2a8623",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/hierarchy.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 20848,
+        "sha256": "37e8cbe4d6c882d93dc3d68acf9f7f0a538e607ef15eb1ce21f6092404d4d3c0"
+      },
+      "result": {
+        "bytes": 20848,
+        "sha256": "37e8cbe4d6c882d93dc3d68acf9f7f0a538e607ef15eb1ce21f6092404d4d3c0",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/ledger.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 7891,
+        "sha256": "9247acd19640349f3afe5a0671e5277aa6d7d1d42dbb5f82f6b6939951dceb8c"
+      },
+      "result": {
+        "bytes": 7891,
+        "sha256": "9247acd19640349f3afe5a0671e5277aa6d7d1d42dbb5f82f6b6939951dceb8c",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/lib.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 1396,
+        "sha256": "71dc6a3e71f47e38d5bbccc716bd3c7bde6863cc21e1739116f45aa64eae5347"
+      },
+      "result": {
+        "bytes": 1396,
+        "sha256": "71dc6a3e71f47e38d5bbccc716bd3c7bde6863cc21e1739116f45aa64eae5347",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/promises.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 3554,
+        "sha256": "428314923c43eb4bf57d1fb1d51f65facce4e9196402bdd10b025774ba6f5bc9"
+      },
+      "result": {
+        "bytes": 3554,
+        "sha256": "428314923c43eb4bf57d1fb1d51f65facce4e9196402bdd10b025774ba6f5bc9",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/provider.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 2406,
+        "sha256": "99c024c748bd5702e2bc057c9357547012e2ad21b4a8c64954c2d9463b0add22"
+      },
+      "result": {
+        "bytes": 2406,
+        "sha256": "99c024c748bd5702e2bc057c9357547012e2ad21b4a8c64954c2d9463b0add22",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/retrieval.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 14024,
+        "sha256": "3dd8ea11f090f14dc1a0ef87bc21b8a580cde427ee6cb59d9529364c1aecccf0"
+      },
+      "result": {
+        "bytes": 14024,
+        "sha256": "3dd8ea11f090f14dc1a0ef87bc21b8a580cde427ee6cb59d9529364c1aecccf0",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/similarity.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 2663,
+        "sha256": "7b81e185f46d73a17a064cb0171986332273dbff03885431ff743fd58c962e84"
+      },
+      "result": {
+        "bytes": 2663,
+        "sha256": "7b81e185f46d73a17a064cb0171986332273dbff03885431ff743fd58c962e84",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/sources.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 8639,
+        "sha256": "106a3b601dbd36afb8cf1495f76268f025b55179d204b5d5b6d053df91b65bb0"
+      },
+      "result": {
+        "bytes": 8639,
+        "sha256": "106a3b601dbd36afb8cf1495f76268f025b55179d204b5d5b6d053df91b65bb0",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/storage.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 10552,
+        "sha256": "26d42c48c595dab634310dcfafdf58bd8d765bf2e49bb4a7ff2941d679bf8407"
+      },
+      "result": {
+        "bytes": 10552,
+        "sha256": "26d42c48c595dab634310dcfafdf58bd8d765bf2e49bb4a7ff2941d679bf8407",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-core/src/types.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 7831,
+        "sha256": "f35fcc2f743b129e8a112bb3963cc78365d7ab547707ba01b0ce5658f1ae39bf"
+      },
+      "result": {
+        "bytes": 7831,
+        "sha256": "f35fcc2f743b129e8a112bb3963cc78365d7ab547707ba01b0ce5658f1ae39bf",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/Cargo.toml",
+      "original": {
+        "mode": "100644",
+        "bytes": 2352,
+        "sha256": "691f53e8151eab37be3bad47f6aa6056905e4732a510c7cd942f75226dec2d31"
+      },
+      "result": {
+        "bytes": 2435,
+        "sha256": "63a88304ce8e81a2982239f12ebf77629cfbd0d7754b60da0bd47c05f48e42ea",
+        "mode": "100644"
+      },
+      "transformation": "patch-series"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/canonical.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 7223,
+        "sha256": "1c77825f1a505c500fa857836d17446a42fbfec20e2754bb58d21e70f0e0f830"
+      },
+      "result": {
+        "bytes": 7223,
+        "sha256": "1c77825f1a505c500fa857836d17446a42fbfec20e2754bb58d21e70f0e0f830",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/fusion.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 31887,
+        "sha256": "845cc30b0082c656d7fb17965218830ed14dc082e9124c8542a4dc26f717099e"
+      },
+      "result": {
+        "bytes": 31887,
+        "sha256": "845cc30b0082c656d7fb17965218830ed14dc082e9124c8542a4dc26f717099e",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/hydrate.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 43993,
+        "sha256": "a6d7ce4b7813617b8b5e4b086e8fce0634c76ff225549e8442fa26585626042b"
+      },
+      "result": {
+        "bytes": 43993,
+        "sha256": "a6d7ce4b7813617b8b5e4b086e8fce0634c76ff225549e8442fa26585626042b",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/lexical.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 34158,
+        "sha256": "cceb54407cdfb43a50978dc8efc7c2c132c38652adc52682d6c0d77f8dcabd33"
+      },
+      "result": {
+        "bytes": 34158,
+        "sha256": "cceb54407cdfb43a50978dc8efc7c2c132c38652adc52682d6c0d77f8dcabd33",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/lib.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 8760,
+        "sha256": "e9618f6833931777ff0683e7219efae9da96b217bfff558f8007858c427bd3b7"
+      },
+      "result": {
+        "bytes": 8760,
+        "sha256": "e9618f6833931777ff0683e7219efae9da96b217bfff558f8007858c427bd3b7",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/model.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 12888,
+        "sha256": "7a8fe2a6c5e2b224cd1fc6abc3cb80b27abf0d6e052f3069dc03df20d3f5893b"
+      },
+      "result": {
+        "bytes": 12888,
+        "sha256": "7a8fe2a6c5e2b224cd1fc6abc3cb80b27abf0d6e052f3069dc03df20d3f5893b",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/records.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 6446,
+        "sha256": "79efc56fda4b2c9963c2f66cc583c1f481bffbc40f2f61e6de1f829228cf4c22"
+      },
+      "result": {
+        "bytes": 6446,
+        "sha256": "79efc56fda4b2c9963c2f66cc583c1f481bffbc40f2f61e6de1f829228cf4c22",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/routing.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 16283,
+        "sha256": "a32441d984845249c492153b28d8193f563a0e39b58718ce20c00254c9eff363"
+      },
+      "result": {
+        "bytes": 16283,
+        "sha256": "a32441d984845249c492153b28d8193f563a0e39b58718ce20c00254c9eff363",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/shard.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 29250,
+        "sha256": "45bf08a3a23dadc2b770f4250b5798ee322fc9f831e709dc279c64e9cd54ffb0"
+      },
+      "result": {
+        "bytes": 29250,
+        "sha256": "45bf08a3a23dadc2b770f4250b5798ee322fc9f831e709dc279c64e9cd54ffb0",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/stopwords.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 2391,
+        "sha256": "986824d454b28c9ad9304f48f3a3417ec755350693ee9dc6f3903ea0fdecaa75"
+      },
+      "result": {
+        "bytes": 2391,
+        "sha256": "986824d454b28c9ad9304f48f3a3417ec755350693ee9dc6f3903ea0fdecaa75",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/store.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 5796,
+        "sha256": "685fdec44a5946ccc269d26d7f98b90784c349f91d128a2f28b6b93355d51054"
+      },
+      "result": {
+        "bytes": 5796,
+        "sha256": "685fdec44a5946ccc269d26d7f98b90784c349f91d128a2f28b6b93355d51054",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/tokenizer.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 18030,
+        "sha256": "8845ed1438f44a86f9a485c1b902004c48b9039b520a0d0ae39ab2d7cff8a4f9"
+      },
+      "result": {
+        "bytes": 18030,
+        "sha256": "8845ed1438f44a86f9a485c1b902004c48b9039b520a0d0ae39ab2d7cff8a4f9",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/vector.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 11118,
+        "sha256": "ba60b1b2de1a4205f679c044ea49ee7c7b24fe5be85eae191145172cc9b07fe2"
+      },
+      "result": {
+        "bytes": 11118,
+        "sha256": "ba60b1b2de1a4205f679c044ea49ee7c7b24fe5be85eae191145172cc9b07fe2",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/vector_diskann.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 39864,
+        "sha256": "2087fd3d4a3881628664ce4e2a667de333665e3454d287725d6c6a6367a543c9"
+      },
+      "result": {
+        "bytes": 39864,
+        "sha256": "2087fd3d4a3881628664ce4e2a667de333665e3454d287725d6c6a6367a543c9",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/src/verify.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 12821,
+        "sha256": "4dec05db6078202cd5dacd63a6ef5d36ba0b9300c614a2910a199009eb97f801"
+      },
+      "result": {
+        "bytes": 12821,
+        "sha256": "4dec05db6078202cd5dacd63a6ef5d36ba0b9300c614a2910a199009eb97f801",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/tests/contract_vectors.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 8694,
+        "sha256": "bd53a195b71b56ad548bd289b4e4ca9dec17b8d42326b78a4ed1b3eb8c0d36a0"
+      },
+      "result": {
+        "bytes": 8694,
+        "sha256": "bd53a195b71b56ad548bd289b4e4ca9dec17b8d42326b78a4ed1b3eb8c0d36a0",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/tests/diskann_contract.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 7019,
+        "sha256": "d2682ba4137f0b79d31a4e54097a7429dd53800ad19eb43e5baa39da973d93b9"
+      },
+      "result": {
+        "bytes": 7019,
+        "sha256": "d2682ba4137f0b79d31a4e54097a7429dd53800ad19eb43e5baa39da973d93b9",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/tests/fixtures/lexical-compat/README.md",
+      "original": {
+        "mode": "100644",
+        "bytes": 2945,
+        "sha256": "476da0ff178a345f0b3438bd8c2ea581371bedc10d047dc7d383f8babecf2421"
+      },
+      "result": {
+        "bytes": 2945,
+        "sha256": "476da0ff178a345f0b3438bd8c2ea581371bedc10d047dc7d383f8babecf2421",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/tests/fixtures/lexical-compat/capture.sql",
+      "original": {
+        "mode": "100644",
+        "bytes": 3399,
+        "sha256": "33e52c6403b07c19b8639654bb40c8ca053d96a8d6f01f767965aafffbd96d8a"
+      },
+      "result": {
+        "bytes": 3399,
+        "sha256": "33e52c6403b07c19b8639654bb40c8ca053d96a8d6f01f767965aafffbd96d8a",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/tests/fixtures/lexical-compat/inputs.sql",
+      "original": {
+        "mode": "100644",
+        "bytes": 6930,
+        "sha256": "beb95cb500ffd569b282bfcfa88b8904f0d087630652a5b0a9fdd50d56a73997"
+      },
+      "result": {
+        "bytes": 6930,
+        "sha256": "beb95cb500ffd569b282bfcfa88b8904f0d087630652a5b0a9fdd50d56a73997",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/tests/fixtures/lexical-compat/pg16-english.jsonl",
+      "original": {
+        "mode": "100644",
+        "bytes": 97646,
+        "sha256": "3a1795cac8a22409e600ac4442bc53c704adab17eaf66c9b4828211f6b93e334"
+      },
+      "result": {
+        "bytes": 97646,
+        "sha256": "3a1795cac8a22409e600ac4442bc53c704adab17eaf66c9b4828211f6b93e334",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/tests/fixtures/lexical-compat/pg16-english.stop",
+      "original": {
+        "mode": "100644",
+        "bytes": 622,
+        "sha256": "b3f772a000465cb76e23adb03b47073c591c156fad8f7af09c8b8e80d6bd8eac"
+      },
+      "result": {
+        "bytes": 622,
+        "sha256": "b3f772a000465cb76e23adb03b47073c591c156fad8f7af09c8b8e80d6bd8eac",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/tests/lexical_parity.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 9868,
+        "sha256": "e1c77551c64fe2d9687a7359224c44a3755afe590eed8fea0001c4bae01b39b7"
+      },
+      "result": {
+        "bytes": 9868,
+        "sha256": "e1c77551c64fe2d9687a7359224c44a3755afe590eed8fea0001c4bae01b39b7",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/tests/round_trip.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 23340,
+        "sha256": "a5e45c20b7c525b21ebe0b307d1718cb5309596a2f8dcb53c53747dd6047c8b3"
+      },
+      "result": {
+        "bytes": 23340,
+        "sha256": "a5e45c20b7c525b21ebe0b307d1718cb5309596a2f8dcb53c53747dd6047c8b3",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-datastore/tests/vector_crossover.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 6115,
+        "sha256": "5e09e602bcdf956824f692ff153ec692c3dd20f7ba35a77fac79ab4ae572dbab"
+      },
+      "result": {
+        "bytes": 6115,
+        "sha256": "5e09e602bcdf956824f692ff153ec692c3dd20f7ba35a77fac79ab4ae572dbab",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-store-mem/Cargo.toml",
+      "original": {
+        "mode": "100644",
+        "bytes": 621,
+        "sha256": "c870a5acb96172ec9dcf88e148ba19a225bb1b4e001f4a189fde5119b738a491"
+      },
+      "result": {
+        "bytes": 888,
+        "sha256": "8bcb1e82380678a686658b6473d235a139d0ecc470d096b35d61a1d0bbc0595a",
+        "mode": "100644"
+      },
+      "transformation": "patch-series"
+    },
+    {
+      "path": "server/src/munarium-store-mem/src/budget.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 10580,
+        "sha256": "5cd31826c1c7c3e573c4d9c0e677e06c5af83727551dbb7163aa5b1f70db7486"
+      },
+      "result": {
+        "bytes": 10580,
+        "sha256": "5cd31826c1c7c3e573c4d9c0e677e06c5af83727551dbb7163aa5b1f70db7486",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-store-mem/src/evidence.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 8922,
+        "sha256": "48a51dc9f09802a5b3bbc0c100801a770c2265daec5e1060a6c79d99ca049011"
+      },
+      "result": {
+        "bytes": 8922,
+        "sha256": "48a51dc9f09802a5b3bbc0c100801a770c2265daec5e1060a6c79d99ca049011",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-store-mem/src/lib.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 24141,
+        "sha256": "caa4ee02f3c7cf082cf76fab9f1215c6da45991aa5435f2d23783f560f2aa32c"
+      },
+      "result": {
+        "bytes": 24141,
+        "sha256": "caa4ee02f3c7cf082cf76fab9f1215c6da45991aa5435f2d23783f560f2aa32c",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "server/src/munarium-store-mem/src/sources.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 3572,
+        "sha256": "a34af1e29d1ba9c88c375935d8171ceaf4ddd271f92c634523a6d9b351bf6f36"
+      },
+      "result": {
+        "bytes": 3572,
+        "sha256": "a34af1e29d1ba9c88c375935d8171ceaf4ddd271f92c634523a6d9b351bf6f36",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    }
+  ],
+  "removed": []
+}

@@ -11,6 +11,12 @@ already include these changes; normal builds never apply patches.
    `connectors::list_connectors()`. The change follows that compiler diagnostic;
    it changes compiler capacity, not runtime provider, policy or credential
    behavior. The retained upstream Apache-2.0 terms and copyright are preserved.
+2. `0002-munarium-workspace.patch` registers the three separately attributed
+   Munarium libraries as members of this workspace and extends its generated
+   lockfile. All 1,491 previously locked package identities/checksums remain;
+   34 entries are added. The workspace manifest and lockfile carry modification
+   notices. This adds a shared build graph, not a competing engine or an
+   implemented VCP memory adapter.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

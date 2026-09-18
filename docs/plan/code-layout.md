@@ -59,6 +59,7 @@ vcp/
     third_party/
       upstreams.toml           origins, exact commits, licenses, paths, and owners
       codex/                   committed copied source, with reviewed patches applied
+      munarium/                selected local libraries, members of the Codex workspace
       gemini-cli/              selected extracts and licensed comparison fixtures
       munarium/                selected kernel/local-memory code and fixtures
       patches/codex/           ordered patches reproducing committed Codex changes
@@ -121,7 +122,7 @@ A conventional Rust crate may have `Cargo.toml`, its own `src/`, and `tests/`; t
 
 No Git submodule, gitlink, nested `.git`, or Git subtree workflow is planned. Normal builds consume the committed source without fetching Codex or applying patches. Explicit maintenance checks reconstruct it in a temporary directory from the pinned selection in `src/third_party/upstreams.toml` plus the ordered series in `src/third_party/patches/codex/`, then compare the result with the committed tree. Keep source, selection/hash records, patches, and applicable notices synchronized in each change. Other retained upstreams use separately identified patch records under `src/third_party/patches/` as needed.
 
-P0-07 owns revision selection and the unmodified native Windows baseline; P0-08 integrates VCP adapters and records retained modules versus replacements. The [current Codex source map](../development/codex-source.md) identifies the committed Cargo workspace at `src/third_party/codex/codex-rs/Cargo.toml`, its pinned toolchain, 7,937 selected files, development-only Node tools and native build/reconstruction commands. Logical `vcp-*` modules below remain integration destinations, not existing replacement crates.
+P0-07 owns revision selection and the unmodified native Windows baseline; P0-08 integrates VCP adapters and records retained modules versus replacements. The [current Codex source map](../development/codex-source.md) identifies the committed Cargo workspace at `src/third_party/codex/codex-rs/Cargo.toml`, its pinned toolchain, 7,937 selected files, development-only Node tools and native build/reconstruction commands. The [Munarium source map](../development/munarium-source.md) adds three separately attributed libraries to that same workspace; retained Munarium root Cargo files are provenance inputs, not a second build entry point. Logical `vcp-*` modules below remain integration destinations, not existing replacement crates.
 
 ## Scripts and generated material
 

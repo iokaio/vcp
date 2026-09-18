@@ -1,10 +1,10 @@
 # Build and test scripts
 
-This directory owns repository automation. `test.ps1` and `test-runner.cjs` implement delivery checks; `build.ps1` builds the imported Codex baseline. See [test setup](../docs/development/delivery-harness.md) and [native build/reconstruction](../docs/development/codex-source.md). Packaging remains planned.
+This directory owns repository automation. `test.ps1` and `test-runner.cjs` implement delivery checks; `build.ps1` builds the imported Codex baseline and selected Munarium libraries. See [test setup](../docs/development/delivery-harness.md) and [native build/reconstruction](../docs/development/codex-source.md). Packaging remains planned.
 
 | Entry point (planned unless noted) | Responsibility | Work owner |
 |---|---|---|
-| `build.ps1` (implemented baseline) | Verify and build the selected native Windows Codex workspace, or run its patch/policy tests | P0-07/P0-08 |
+| `build.ps1` (implemented baseline) | Verify and build the selected native Windows Codex workspace, or select Munarium libraries with `-Component Munarium`; `-Mode BoundaryTests` runs component tests | P0-07/P0-08 |
 | `test.ps1` (implemented) | Run deterministic repository, harness, experiment and upstream-inventory checks; preserve exit status and evidence | P0-01, extended by feature owners |
 | `package.ps1` | Assemble qualified artifacts, licenses, notices, and checksums | P8-04 |
 | `evals/` | Orchestrate explicitly configured evaluations and collect results | P5-08/P8-05 |
@@ -15,6 +15,9 @@ The [delivery contract](../docs/plan/00-delivery-contract.md) specifies the test
 Under [ADR-013](../docs/adr/013-upstream-reuse-and-vendoring.md), normal builds consume committed Codex source. They do not fetch Codex, advance its pin or apply patches. Reconstruction runs separately in a disposable directory as explicit maintenance/verification work.
 
 [Candidate commands](../docs/development/upstream-candidates.md) describe the implemented acquisition/inventory and native baseline workflow. Those experiments do not import source or establish a VCP application build.
+
+`build.ps1 -Component Munarium -Mode BoundaryTests` tests the committed libraries
+in the shared workspace. See [the source guide](../docs/development/munarium-source.md).
 
 `build-baseline.ps1 -Candidate Munarium` selects the pinned kernel/store/datastore
 experiment with DiskANN enabled; its dependency checker rejects the identified

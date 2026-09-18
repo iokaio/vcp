@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# VCP modification: join the Codex workspace; preserve explicit upstream package/dependency settings.
+[package]
+workspace = "../../../../codex/codex-rs"
+name = "munarium-store-mem"
+version = "1.2.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "In-memory StorageBackend: the conformance target, dev profile option, and the reference the Postgres backend is property-tested against."
+
+[dependencies]
+munarium-core = { path = "../munarium-core" }
+async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "macros", "sync", "time"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "macros", "sync", "time", "rt"] }

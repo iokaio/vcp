@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "component": "munarium",
+  "commit": "8da666067000ca1ee9c131bc67e70b978862faa3",
+  "owner_task": "P0-07",
+  "destination": "src/third_party/munarium",
+  "result_inventory": "src/third_party/components/munarium-files.json",
+  "include": [
+    "LICENSE",
+    "NOTICE",
+    "server/Cargo.toml",
+    "server/Cargo.lock",
+    "server/rust-toolchain.toml",
+    "server/src/munarium-core/",
+    "server/src/munarium-store-mem/",
+    "server/src/munarium-datastore/",
+    "server/contract/matrix/VERSION",
+    "server/contract/datastore/"
+  ],
+  "materialize_links": {},
+  "patches": [
+    {
+      "path": "src/third_party/patches/munarium/0001-shared-workspace.patch",
+      "sha256": "7bb804847d33bc6778550264b39a5d130339836bd3cad342202e4f90685a144c"
+    }
+  ],
+  "licenses": [
+    "LICENSE",
+    "NOTICE"
+  ],
+  "closure": [
+    "server/Cargo.toml",
+    "server/Cargo.lock",
+    "server/rust-toolchain.toml",
+    "server/src/munarium-core/Cargo.toml",
+    "server/src/munarium-store-mem/Cargo.toml",
+    "server/src/munarium-datastore/Cargo.toml",
+    "server/contract/matrix/VERSION",
+    "server/contract/datastore/canonicalization.schema.json"
+  ]
+}

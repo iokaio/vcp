@@ -35,6 +35,10 @@
     {
       "path": "src/third_party/patches/codex/0001-chatgpt-recursion-limit.patch",
       "sha256": "4c4cebdef1802da9032bf09f0ec5c81f54276cd2ca12a1310d4cccddc4412168"
+    },
+    {
+      "path": "src/third_party/patches/codex/0002-munarium-workspace.patch",
+      "sha256": "41e0d1a601e46acdcf61b2228c02250eeebcbff237091a1268a42a40c32c01d1"
     }
   ],
   "licenses": [

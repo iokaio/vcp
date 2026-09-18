@@ -204,6 +204,46 @@
       "path": "thread-store/src/lib.rs",
       "symbol": "pub use local::LocalThreadStore;",
       "observation": "Retain useful storage-neutral interfaces while adapting local persistence to VCP receipts, history and recovery."
+    },
+    {
+      "id": "munarium-governance-gates",
+      "group": "local-memory-libraries",
+      "package": "munarium-core",
+      "path": "../../munarium/server/src/munarium-core/src/gates.rs",
+      "symbol": "pub fn run_gates",
+      "observation": "Read-only snapshot/candidate evaluation; adapt findings and revisions to VCP canonical evidence."
+    },
+    {
+      "id": "munarium-reference-store",
+      "group": "local-memory-libraries",
+      "package": "munarium-store-mem",
+      "path": "../../munarium/server/src/munarium-store-mem/src/lib.rs",
+      "symbol": "pub struct MemStore",
+      "observation": "In-process mutable reference store, with UUID and clock inputs; not durable VCP authority."
+    },
+    {
+      "id": "munarium-file-store",
+      "group": "local-memory-libraries",
+      "package": "munarium-datastore",
+      "path": "../../munarium/server/src/munarium-datastore/src/store.rs",
+      "symbol": "pub struct LocalFileStore",
+      "observation": "Local artifact filesystem I/O; require VCP-authorized roots and durable generation publication."
+    },
+    {
+      "id": "munarium-tantivy",
+      "group": "local-memory-libraries",
+      "package": "munarium-datastore",
+      "path": "../../munarium/server/src/munarium-datastore/src/lexical.rs",
+      "symbol": "pub fn build(records:",
+      "observation": "Tantivy index construction uses scratch files and mappings; account for resources and scope in VCP."
+    },
+    {
+      "id": "munarium-diskann",
+      "group": "local-memory-libraries",
+      "package": "munarium-datastore",
+      "path": "../../munarium/server/src/munarium-datastore/src/vector_diskann.rs",
+      "symbol": "pub struct DiskAnnVectorIndex",
+      "observation": "Real DiskANN graph provider and serialization; qualify scope, recall and reopen with actual local embeddings."
     }
   ],
   "groups": [
@@ -706,6 +746,25 @@
         "P0-08"
       ],
       "gate": "Use explicit synthetic fixtures and isolated build/test resources. Test clients, samples and helper binaries are not VCP product entry points."
+    },
+    {
+      "id": "local-memory-libraries",
+      "packages": [
+        "munarium-core",
+        "munarium-store-mem",
+        "munarium-datastore"
+      ],
+      "capabilities": [
+        "data",
+        "filesystem",
+        "clock"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-02",
+        "P0-08"
+      ],
+      "gate": "Local governance and indexes remain behind canonical VCP scope, durability and accounting; reference in-memory state is not a second controller or store."
     }
   ]
 }
