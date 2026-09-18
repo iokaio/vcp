@@ -75,6 +75,10 @@
     {
       "path": "src/third_party/patches/codex/0011-p1-foundation-workspace.patch",
       "sha256": "d5aa0380002b13a358f2c855a2e8aad79fac5fb859cb982d3da85083b6623ac2"
+    },
+    {
+      "path": "src/third_party/patches/codex/0012-p1-accounting-history-workspace.patch",
+      "sha256": "05cfec0f7b7c52ea30487c07ec51e4f3dcb866ff37ae99b1fe04c5c9dd8ff02d"
     }
   ],
   "licenses": [

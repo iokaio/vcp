@@ -5,6 +5,8 @@ members = [
     "../../../crates/vcp-protocol",
     "../../../crates/vcp-store",
     "../../../crates/vcp-engine",
+    "../../../crates/vcp-budget",
+    "../../../crates/vcp-audit",
     # VCP modification: portable storage qualification shares the retained build graph.
     "../../../crates/vcp-storage-spike",
     # VCP modification: scoped retained-controller lifecycle qualification.

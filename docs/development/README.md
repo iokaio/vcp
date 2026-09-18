@@ -8,6 +8,7 @@
 These guides describe how to implement and qualify the planned system. The [delivery harness](delivery-harness.md) and [committed Codex baseline build](codex-source.md) are executable. VCP product-runtime qualification remains outstanding.
 
 - [Implementation workflow](implementation-workflow.md): turn a ledger task into a concrete source change, contract checks and reviewable evidence.
+- [P1 accounting and history](p1-accounting-history.md): shared root ledger, immutable adjustments, deterministic projections and current-authority history reads.
 - [P1 durable foundation](p1-foundation.md): typed commands, complete capture, canonical backends and native crash/activation tests; remaining P1 integration is explicit.
 - [Experiment fixtures](experiment-fixtures.md): deterministic P0 helpers, synthetic workloads, independent graders and proposed measurement sizes.
 - [Upstream qualification](upstream-qualification.md): immutable source selection, native baseline experiments, effect inventory and reconstruction.

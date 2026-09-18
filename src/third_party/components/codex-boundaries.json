@@ -860,6 +860,46 @@
         "history",
         "policy"
       ]
+    },
+    {
+      "id": "accounting-admission",
+      "group": "canonical-accounting",
+      "package": "vcp-budget",
+      "path": "../../../crates/vcp-budget/src/service.rs",
+      "symbol": "pub fn prepare_admission(",
+      "observation": "One snapshot computes root/child/daily caps with canonical revision guards.",
+      "effect_class": "pure",
+      "vcp_boundary": "canonical-store",
+      "effects": []
+    },
+    {
+      "id": "accounting-send-intent",
+      "group": "canonical-accounting",
+      "package": "vcp-budget",
+      "path": "../../../crates/vcp-budget/src/service.rs",
+      "symbol": "pub async fn submit",
+      "observation": "Send capability follows a durable canonical receipt; retry cannot resend.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem",
+        "history",
+        "policy"
+      ]
+    },
+    {
+      "id": "history-publication",
+      "group": "canonical-history",
+      "package": "vcp-audit",
+      "path": "../../../crates/vcp-audit/src/projection.rs",
+      "symbol": "pub async fn publish",
+      "observation": "Versioned projection and watermark publish atomically without re-executing effects.",
+      "effect_class": "effectful",
+      "vcp_boundary": "canonical-store",
+      "effects": [
+        "filesystem",
+        "history"
+      ]
     }
   ],
   "groups": [
@@ -1550,6 +1590,41 @@
       "gate": "Authenticated private commands and current host capabilities; no second scheduler. Retained transport/accounting integration remains P1 work.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "controller"
+    },
+    {
+      "id": "canonical-accounting",
+      "packages": [
+        "vcp-budget"
+      ],
+      "capabilities": [
+        "data",
+        "filesystem"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P1-05"
+      ],
+      "gate": "Checked integer quotes, atomic shared-root reservations and durable send intent; no transport in this package.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "canonical-store"
+    },
+    {
+      "id": "canonical-history",
+      "packages": [
+        "vcp-audit"
+      ],
+      "capabilities": [
+        "data",
+        "filesystem",
+        "process"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P1-06"
+      ],
+      "gate": "Pure event folds, atomic projection activation and current-authority history reads. Process fixture is qualification-feature only.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "canonical-store"
     }
   ],
   "classification_scope": "Every selected package inherits an explicit conservative module effect ceiling and primary owner; named entries refine that envelope after source review, including delegates/callbacks. These are trust classifications, not formal purity proof, runtime enforcement or an exhaustive per-function call graph."

@@ -3,7 +3,8 @@
 The first P1 increment implements typed domain transitions, private command
 admission, binary artifact staging and two canonical storage backends. It is a
 library foundation in the retained Cargo workspace. The retained controller's
-production integration, accounting and history projections remain P1 work;
+production integration remains P1 work; [accounting and history](p1-accounting-history.md)
+are implemented by the next library increment;
 this increment does not introduce a second scheduler or a usable product CLI.
 
 ## Source and commands
@@ -128,5 +129,5 @@ every filesystem, encrypted cloud transfer or final product installation.
 
 See the [P1 plan](../plan/02-engine-state-and-capture.md) and
 [storage/accounting plan](../plan/03-storage-and-budget.md) for remaining
-acceptance, particularly the shared ledger, fresh-process history rebuild and
-retained model/helper transport observations.
+acceptance. The next increment covers the shared ledger and fresh-process history
+rebuild; retained model/helper transport observations remain outstanding.

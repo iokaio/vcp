@@ -2,7 +2,7 @@
 
 Use the [concrete P0 handoff](../development/p0-handoff.md#concrete-segment-02-starting-points) for the first edit locations and retained integration seams. Keep the existing controller/build graph while replacing prototype state and persistence; create each new package only with its first working slice.
 
-Status: P1-01/02/03 in progress through the [durable foundation](../development/p1-foundation.md); retained integration and P1-06 remain. Owns P1-01, P1-02, P1-03 and P1-06. P1-01 begins after P0-06; P1-06 also requires P1-04 from [storage](03-storage-and-budget.md). Architecture sections 4, 14 and 3.8 govern this work.
+Status: P1-01/02/03/06 in progress through the [durable foundation](../development/p1-foundation.md) and [accounting/history](../development/p1-accounting-history.md); retained integration remains. Owns P1-01, P1-02, P1-03 and P1-06. P1-01 begins after P0-06; P1-06 also requires P1-04 from [storage](03-storage-and-budget.md). Architecture sections 4, 14 and 3.8 govern this work.
 
 ## Implementation references
 

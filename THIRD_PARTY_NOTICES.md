@@ -88,6 +88,8 @@ Patch 0011 registers original VCP domain, protocol, store and engine packages in
 the same workspace and lockfile. They reuse existing serialization, UUID, SHA-256,
 SQLx, Tokio and error dependencies; no external dependency identity/checksum or
 third-party implementation is added by this increment.
+Patch 0012 also registers original VCP budget and audit packages with those
+existing dependencies; external identities and checksums remain unchanged.
 Individual source copyright headers remain intact. No voice DLLs, Microsoft
 redistributables, model assets or VCP release package are distributed by this import.
 
