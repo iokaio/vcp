@@ -1739,6 +1739,9 @@ impl ModelClientSession {
             let response_capture = host_permit
                 .as_ref()
                 .and_then(|permit| permit.response_capture());
+            let response_deadline = host_permit
+                .as_ref()
+                .and_then(|permit| permit.response_deadline());
             let mut api_provider = client_setup.api_provider;
             if self.client.host_work.is_some() {
                 // Every retry needs a distinct reservation and send receipt.
@@ -1749,8 +1752,22 @@ impl ModelClientSession {
             }
             let client = ApiResponsesClient::new(transport, api_provider, client_setup.api_auth)
                 .with_telemetry(Some(request_telemetry), Some(sse_telemetry))
-                .with_response_capture(response_capture);
-            let stream_result = client.stream_body(body, options).await;
+                .with_response_capture(response_capture)
+                .with_response_deadline(response_deadline);
+            let stream_result = if let Some(deadline) = response_deadline {
+                tokio::time::timeout_at(
+                    tokio::time::Instant::from_std(deadline),
+                    client.stream_body(body, options),
+                )
+                .await
+                .unwrap_or_else(|_| {
+                    Err(ApiError::Stream(
+                        "VCP response deadline elapsed before headers".into(),
+                    ))
+                })
+            } else {
+                client.stream_body(body, options).await
+            };
             if let Err(ApiError::Transport(codex_client::TransportError::Http {
                 body: Some(body),
                 ..

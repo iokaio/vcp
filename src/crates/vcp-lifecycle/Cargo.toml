@@ -14,6 +14,9 @@ vcp-store = { path = "../vcp-store" }
 vcp-engine = { path = "../vcp-engine" }
 vcp-budget = { path = "../vcp-budget" }
 vcp-audit = { path = "../vcp-audit" }
+vcp-context = { path = "../vcp-context" }
+vcp-models = { path = "../vcp-models" }
+vcp-repository = { path = "../vcp-repository" }
 codex-apply-patch = { workspace = true }
 codex-features = { workspace = true }
 munarium-core = { path = "../../third_party/munarium/server/src/munarium-core" }

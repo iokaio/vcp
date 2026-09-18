@@ -22,6 +22,10 @@ pub enum HostWorkKind {
 /// Dropping a permit without a receipt leaves its outcome unknown. Completion
 /// may reconcile while paused, but cannot authorize new work.
 pub trait HostWorkPermit: Send {
+    /// VCP: one absolute deadline covers headers and body, including keepalives.
+    fn response_deadline(&self) -> Option<std::time::Instant> {
+        None
+    }
     fn complete_model_response(
         &mut self,
         usage: Option<&codex_protocol::protocol::TokenUsage>,

@@ -17562,9 +17562,12 @@ dependencies = [
  "tokio",
  "vcp-audit",
  "vcp-budget",
+ "vcp-context",
  "vcp-domain",
  "vcp-engine",
+ "vcp-models",
  "vcp-protocol",
+ "vcp-repository",
  "vcp-store",
  "wiremock",
 ]
@@ -17582,6 +17585,18 @@ dependencies = [
  "tempfile",
  "tokio",
  "vcp-embedding",
+]
+
+[[package]]
+name = "vcp-models"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "vcp-context",
+ "vcp-domain",
+ "vcp-protocol",
 ]
 
 [[package]]

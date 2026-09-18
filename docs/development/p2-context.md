@@ -2,7 +2,8 @@
 
 P2-01 is in progress. `vcp-repository` and `vcp-context` are original packages in
 the retained Cargo workspace. They supply native observations and reproducible
-context selection; the retained request path does not yet consume these seals.
+context selection. The [OpenRouter increment](p2-provider.md) connects these seals
+to actual retained requests; automatic turn assembly remains P2-05.
 See the [increment qualification](../evaluations/p2-context-increment.md) and
 [owning plan](../plan/04-context-and-instructions.md).
 
@@ -33,8 +34,9 @@ qualification. No Git command grants tool authority.
 root permits only its instruction read through this API; it does not expand the
 workspace. Documents retain applicability for each affected path. Missing nested
 instruction files are probes so their later creation invalidates prepared context.
-Foreign instruction formats are not loaded. Replacing the retained upstream
-loader at the actual request boundary remains part of P2 integration.
+Foreign instruction formats are not loaded. The explicit OpenRouter transport
+profile disables the retained upstream loader so captured VCP instructions own
+the request. The ordinary upstream CLI retains its own behavior.
 
 ## Selection and sealing
 

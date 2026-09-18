@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    # VCP modification: OpenRouter codec and bounded provider normalization.
+    "../../../crates/vcp-models",
     # VCP modification: scoped repository/context consumers of the canonical foundation.
     "../../../crates/vcp-repository",
     "../../../crates/vcp-context",

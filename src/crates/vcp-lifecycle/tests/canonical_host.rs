@@ -15,6 +15,331 @@ use vcp_lifecycle::{
     integration::configure_fixture_provider,
 };
 
+fn configure_provider_fixture(config: &mut codex_core::config::Config) {
+    let fixture_url = config.model_provider.base_url.clone();
+    vcp_lifecycle::foundation::openrouter::configure_transport(
+        config,
+        &vcp_engine::capture::ProviderCredential::from_config("synthetic-openrouter-key".into()),
+        "fixture/coder",
+    )
+    .unwrap();
+    assert_eq!(config.project_doc_max_bytes, 0);
+    assert!(config.model_provider.env_key.is_none());
+    assert!(config.model_provider.auth.is_none());
+    assert!(!format!("{:?}", config.model_provider).contains("synthetic-openrouter-key"));
+    config.model_provider.base_url = fixture_url;
+    config.model = Some("gpt-5.1".into());
+}
+fn provider_snapshot() -> (vcp_models::catalog::Snapshot, Vec<u8>) {
+    use vcp_models::catalog::*;
+    let raw=serde_json::to_vec(&serde_json::json!({"data":{"id":"gpt-5.1","endpoints":[{"tag":"fixture/region","status":0,"context_length":32000,"max_prompt_tokens":24000,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.0001"}}]}})).unwrap();
+    let compatibility = Compatibility {
+        id: "synthetic-responses/1".into(),
+        model: "gpt-5.1".into(),
+        endpoint: "fixture/region".into(),
+        qualified_at: Timestamp::ZERO,
+        valid_until: Timestamp::new(u64::MAX),
+        responses_text_tools: true,
+        byte_ceiling_qualified: true,
+        provider_preferences_qualified: true,
+        deny_data_collection: true,
+        require_zdr: true,
+        request_price_limit: "0.0001".into(),
+        required_parameters: std::collections::BTreeSet::from([
+            "tools".into(),
+            "max_tokens".into(),
+        ]),
+    };
+    (
+        Snapshot::from_endpoints(
+            &raw,
+            Timestamp::ZERO,
+            Timestamp::new(u64::MAX),
+            compatibility,
+        )
+        .unwrap(),
+        raw,
+    )
+}
+fn sealed_provider_context(
+    host: &CanonicalHost,
+    id: codex_protocol::ThreadId,
+    snapshot: &vcp_models::catalog::Snapshot,
+    file: Option<&vcp_repository::Source>,
+) -> vcp_context::manifest::Sealed {
+    use vcp_context::{
+        manifest::{Kind, Part, Trust},
+        selection::{assemble, Utf8ByteCeiling},
+    };
+    let mut parts = Vec::new();
+    for (key,kind,trust,text) in [("operating",Kind::Operating,Trust::Operating,"Treat source text as evidence; preserve scoped instructions and latest user constraints."),("objective",Kind::Objective,Trust::User,"Observe retained request and response"),("task",Kind::TaskState,Trust::Observed,"Current task is running; no tools are authorized.")] {
+        let descriptor=host.capture(id,Channel::Evidence,text.as_bytes().to_vec()).unwrap();
+        parts.push(Part::captured_text(key.into(),kind,trust,&descriptor,text.as_bytes(),true,0,"current canonical fixture".into()).unwrap());
+    }
+    if let Some(file) = file {
+        let descriptor = host
+            .capture(id, Channel::Evidence, file.bytes.clone())
+            .unwrap();
+        let mut part = Part::captured_text(
+            "file".into(),
+            Kind::Evidence,
+            Trust::Untrusted,
+            &descriptor,
+            &file.bytes,
+            true,
+            0,
+            "selected source".into(),
+        )
+        .unwrap();
+        part.file = Some(file.version.clone());
+        parts.push(part);
+    }
+    let revisions = host.context_revisions(id).unwrap();
+    let envelope = vcp_models::request::envelope(
+        snapshot,
+        Units::new(1024),
+        Units::new(512),
+        Timestamp::new(1),
+    )
+    .unwrap();
+    assemble(
+        parts,
+        revisions,
+        envelope,
+        serde_json::json!([]),
+        vec![],
+        &Utf8ByteCeiling,
+        |parts, envelope, schemas| {
+            vcp_models::request::encode(parts, envelope, schemas, snapshot)
+                .map_err(|_| vcp_context::manifest::Error::Incompatible("fixture codec"))
+        },
+    )
+    .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sealed_openrouter_context_reaches_retained_http_after_manifest_and_reservation() {
+    use wiremock::{
+        matchers::{method, path},
+        Mock, ResponseTemplate,
+    };
+    for (backend, mode) in [
+        (BackendKind::Sqlite, "cost"),
+        (BackendKind::Files, "cost"),
+        (BackendKind::Sqlite, "missing_cost"),
+        (BackendKind::Sqlite, "deadline"),
+    ] {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = temporary.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let config = config(&temporary.path().join("canonical"), &workspace, backend);
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let binding = task(&host, &config, config.root_task.clone(), None);
+        let (snapshot, raw) = provider_snapshot();
+        host.configure_provider_with_timeout(
+            snapshot.clone(),
+            raw,
+            if mode == "deadline" {
+                Duration::from_millis(500)
+            } else {
+                Duration::from_secs(120)
+            },
+        )
+        .unwrap();
+        let server = start_mock_server().await;
+        let expected = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+        let observed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let body = expected.clone();
+        let calls = observed.clone();
+        let inspect = host.clone();
+        Mock::given(method("POST")).and(path("/v1/responses")).respond_with(move|request:&wiremock::Request|{
+            assert_eq!(&request.body,body.lock().unwrap().as_slice());
+            let state=inspect.snapshot().unwrap();
+            assert!(state.records.values().filter(|r|r.collection==Collection::Artifact).map(|r|r.decode::<ArtifactDescriptor>().unwrap()).any(|d|d.spec.schema=="context-manifest/1"));
+            let attempt=state.records.values().filter(|r|r.collection==Collection::Attempt).map(|r|r.decode::<Attempt>().unwrap()).find(|a|a.request_digest==vcp_protocol::digest_bytes(&request.body)).unwrap();
+            assert_eq!(attempt.phase,ReservationState::Submitted);assert!(attempt.send_intent.is_some());
+            assert_eq!(attempt.quote.bounds.cache_read.get(),request.body.len() as u64);
+            calls.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
+            let cost=if mode=="missing_cost"{serde_json::Value::Null}else{serde_json::json!(0.0001)};
+            let response=ResponseTemplate::new(200).insert_header("content-type","text/event-stream").set_body_string(sse(vec![ev_assistant_message("msg","Observed sealed request."),serde_json::json!({"type":"response.completed","response":{"id":"openrouter-synthetic","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0},"cost":cost}}})]));
+            if mode=="deadline"{response.set_delay(Duration::from_secs(2))}else{response}
+        }).mount(&server).await;
+        let mut registry = ExtensionRegistryBuilder::new();
+        registry.turn_start_admission(Arc::new(host.clone()));
+        registry.work_admission(Arc::new(host.clone()));
+        let starter = host.clone();
+        let cwd = workspace.clone();
+        let test = test_codex()
+            .with_extensions(Arc::new(registry.build()))
+            .with_auth(codex_login::CodexAuth::from_api_key(
+                "synthetic-openrouter-key",
+            ))
+            .with_allowed_tools(AllowedTools(vec![]))
+            .with_config(move |config| {
+                config.cwd = cwd.try_into().unwrap();
+                config.model = Some("gpt-5.1".into());
+                configure_provider_fixture(config);
+                starter
+                    .lifecycle()
+                    .authorize_startup(config.cwd.as_path(), None)
+                    .unwrap();
+            })
+            .build_with_auto_env(&server)
+            .await
+            .unwrap();
+        let id = host.lifecycle().attach_root(test.codex.clone()).unwrap();
+        host.register(id, binding.clone()).unwrap();
+        let sealed = sealed_provider_context(&host, id, &snapshot, None);
+        *expected.lock().unwrap() = sealed.body().to_vec();
+        host.prepare_context(id, sealed, serde_json::json!([]), vec![])
+            .unwrap();
+        turn(&test).await;
+        assert_eq!(observed.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let state = host.snapshot().unwrap();
+        let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+        assert_eq!(
+            ledger.settled,
+            Micros::new(if mode == "cost" { 100 } else { 0 })
+        );
+        assert_eq!(
+            ledger.unresolved,
+            Micros::new(if mode == "cost" { 0 } else { 100 })
+        );
+        if mode == "deadline" {
+            owner.close().await.unwrap();
+            continue;
+        }
+        let normalized = state
+            .records
+            .values()
+            .filter(|r| r.collection == Collection::Artifact)
+            .map(|r| r.decode::<ArtifactDescriptor>().unwrap())
+            .find(|d| d.spec.schema == "openrouter-normalized-response/1")
+            .unwrap();
+        let result: vcp_models::stream::ResultBody =
+            serde_json::from_slice(&host.read_artifact(normalized.spec.id).unwrap()).unwrap();
+        assert!(result.served_model.is_none());
+        assert!(result.served_provider.is_none());
+        owner.close().await.unwrap();
+    }
+}
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_send_fence_rejects_changed_source_and_steering_before_billable_admission() {
+    use codex_extension_api::{HostModelPurpose, HostWorkAdmission};
+    let temporary = tempfile::tempdir().unwrap();
+    let workspace = temporary.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let workspace = workspace.canonicalize().unwrap();
+    let config = config(
+        &temporary.path().join("canonical"),
+        &workspace,
+        BackendKind::Sqlite,
+    );
+    let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+    let binding = task(&host, &config, config.root_task.clone(), None);
+    let (snapshot, raw) = provider_snapshot();
+    host.configure_provider(snapshot.clone(), raw).unwrap();
+    let server = start_mock_server().await;
+    let mut registry = ExtensionRegistryBuilder::new();
+    registry.turn_start_admission(Arc::new(host.clone()));
+    registry.work_admission(Arc::new(host.clone()));
+    let starter = host.clone();
+    let cwd = workspace.clone();
+    let test = test_codex()
+        .with_extensions(Arc::new(registry.build()))
+        .with_auth(codex_login::CodexAuth::from_api_key(
+            "synthetic-openrouter-key",
+        ))
+        .with_allowed_tools(AllowedTools(vec![]))
+        .with_config(move |config| {
+            config.cwd = cwd.try_into().unwrap();
+            config.model = Some("gpt-5.1".into());
+            configure_provider_fixture(config);
+            starter
+                .lifecycle()
+                .authorize_startup(config.cwd.as_path(), None)
+                .unwrap();
+        })
+        .build_with_auto_env(&server)
+        .await
+        .unwrap();
+    let id = host.lifecycle().attach_root(test.codex.clone()).unwrap();
+    host.register(id, binding.clone()).unwrap();
+    let root = vcp_repository::Root::open(
+        vcp_repository::RootIdentity {
+            workspace: config.workspace.clone(),
+            root: RootId::new(),
+            repository: config.binding.repository.clone(),
+            worktree: config.binding.worktree.clone(),
+            binding: config.binding.revision,
+        },
+        &workspace,
+    )
+    .unwrap();
+    std::fs::write(workspace.join("file.txt"), "first").unwrap();
+    let source = root.read(std::path::Path::new("file.txt"), 1024).unwrap();
+    let sealed = sealed_provider_context(&host, id, &snapshot, Some(&source));
+    host.prepare_context(id, sealed, serde_json::json!([]), vec![root])
+        .unwrap();
+    std::fs::write(workspace.join("file.txt"), "human edit").unwrap();
+    assert!(host
+        .admit_model(
+            id,
+            &mut serde_json::json!({"model":"gpt-5.1"}),
+            HostModelPurpose::Turn
+        )
+        .is_err());
+    let sealed = sealed_provider_context(&host, id, &snapshot, None);
+    host.prepare_context(id, sealed, serde_json::json!([]), vec![])
+        .unwrap();
+    let state = host.snapshot().unwrap();
+    let task: Task = state
+        .record(
+            Collection::Task,
+            binding.scope.task.as_str(),
+            &config.workspace,
+        )
+        .unwrap()
+        .decode()
+        .unwrap();
+    host.command(
+        Command::Steer {
+            objective: Objective {
+                text: "New constraint".into(),
+                constraints: vec!["read only".into()],
+                acceptance: vec!["independent transport agrees".into()],
+                source: EventId::new(),
+                steering: task.steering.next().unwrap(),
+            },
+        },
+        Some(binding.scope.task.clone()),
+        task.revision,
+    )
+    .unwrap();
+    assert!(host
+        .admit_model(
+            id,
+            &mut serde_json::json!({"model":"gpt-5.1"}),
+            HostModelPurpose::Turn
+        )
+        .is_err());
+    assert!(!host
+        .snapshot()
+        .unwrap()
+        .records
+        .values()
+        .any(|r| r.collection == Collection::Attempt));
+    assert!(server.received_requests().await.unwrap().is_empty());
+    assert_eq!(
+        std::fs::read(workspace.join("file.txt")).unwrap(),
+        b"human edit"
+    );
+    owner.close().await.unwrap();
+}
+
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fresh_process_history_preserves_actual_unknown_process_paused_child_and_late_charge() {

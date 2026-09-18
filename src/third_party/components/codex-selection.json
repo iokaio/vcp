@@ -87,6 +87,10 @@
     {
       "path": "src/third_party/patches/codex/0014-p2-context-workspace.patch",
       "sha256": "cb6e0fd0a427f1fd6497082c953db5b91e23fdfd14cc6d0067ed00d4af568b85"
+    },
+    {
+      "path": "src/third_party/patches/codex/0015-p2-provider-deadline.patch",
+      "sha256": "4c951969c037aa78d047a8eac126707ed273588335df00ef817700bd3ac4fefa"
     }
   ],
   "licenses": [

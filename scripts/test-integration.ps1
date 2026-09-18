@@ -36,6 +36,7 @@ try{
     $record.platform=[Runtime.InteropServices.RuntimeInformation]::OSDescription
     $record.vcp_commit=& git -C $repository rev-parse HEAD
     $inputs=@(Get-ChildItem -LiteralPath (Join-Path $repository 'src/crates/vcp-lifecycle') -Recurse -File|Where-Object {$_.Extension -eq '.rs' -or $_.Name -eq 'Cargo.toml'}|ForEach-Object FullName)
+    $inputs+=@(@('vcp-models','vcp-context','vcp-repository')|ForEach-Object{Get-ChildItem -LiteralPath (Join-Path $repository "src/crates/$_") -Recurse -File|Where-Object {$_.Extension -eq '.rs' -or $_.Name -eq 'Cargo.toml'}|ForEach-Object FullName})
     $inputs+=@($PSCommandPath,(Join-Path $repository 'src/third_party/codex/codex-rs/Cargo.lock'),(Join-Path $repository 'src/third_party/components/codex-files.json'),(Join-Path $repository 'src/tests/fixtures/gemini/ports.json'))
     $record.inputs=@($inputs|Sort-Object|ForEach-Object {@{path=[IO.Path]::GetRelativePath($repository,$_).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()}})
     $common=@('--locked','--target','x86_64-pc-windows-msvc','-j',"$Jobs")
@@ -44,9 +45,9 @@ try{
     try{
         Stage 'contracts' 'cargo' (@("+$Toolchain",'test','-p','vcp-lifecycle','--lib','--tests')+$common+@('--','--test-threads=1'))
         $tests=Get-Content -LiteralPath (Join-Path $directory 'contracts.log') -Raw
-        foreach($count in @(5,3,4,16)){if($tests -notmatch "test result: ok\. $count passed; 0 failed; 0 ignored;"){throw "Missing expected $count-test contract group"}}
+        foreach($count in @(5,3,6,16)){if($tests -notmatch "test result: ok\. $count passed; 0 failed; 0 ignored;"){throw "Missing expected $count-test contract group"}}
         $rows=[regex]::Matches($tests,'(?m)^test ([^\r\n]+) \.\.\. ok\r?$')
-        if($rows.Count -ne 31){throw 'Expected all 31 native host/port/canonical contracts'}
+        if($rows.Count -ne 33){throw 'Expected all 33 native host/port/canonical contracts'}
         foreach($filter in @('contained_spawn_owns_immediate_descendant','rejected_job_assignment_resumes_existing_job_member')){
             Stage $filter 'cargo' (@("+$Toolchain",'test','-p','codex-utils-pty')+$common+@($filter,'--','--test-threads=1'))
             if((Get-Content -LiteralPath (Join-Path $directory ($filter+'.log')) -Raw) -notmatch 'test result: ok\. 1 passed; 0 failed; 0 ignored;'){throw 'Maintenance regression did not execute'}

@@ -1,6 +1,6 @@
 # 05 — OpenRouter adapter, coding loop and completion
 
-Status: planned. Owns P2-02, P2-05 and P2-06. P2-02 needs P1-05 and P0-09. The loop also needs context, policy and tools from segments 04/06. Architecture sections 4, 7–9 and 14 define behavior.
+Status: P2-02 in progress with the [provider gateway increment](../development/p2-provider.md); P2-05 and P2-06 remain planned. P2-02 needs P1-05 and P0-09. The loop also needs context, policy and tools from segments 04/06. Architecture sections 4, 7–9 and 14 define behavior.
 
 ## Implementation references
 

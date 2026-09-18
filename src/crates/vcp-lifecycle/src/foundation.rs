@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Canonical persistence adapter for the retained controller. The worker only
 //! serializes storage operations; scheduling and interruption remain in Codex.
+pub mod openrouter;
 #[cfg(windows)]
 mod process;
 mod worker;
@@ -125,6 +126,45 @@ impl Drop for OutputCapture {
     }
 }
 impl CanonicalHost {
+    /// Enable the explicit OpenRouter contract for every retained request.
+    /// Reopening an enabled store requires fresh configuration and context.
+    pub fn configure_provider(
+        &self,
+        snapshot: vcp_models::catalog::Snapshot,
+        raw_catalog: Vec<u8>,
+    ) -> Result<(), String> {
+        self.configure_provider_with_timeout(snapshot, raw_catalog, Duration::from_secs(120))
+    }
+    pub fn configure_provider_with_timeout(
+        &self,
+        snapshot: vcp_models::catalog::Snapshot,
+        raw_catalog: Vec<u8>,
+        timeout: Duration,
+    ) -> Result<(), String> {
+        self.worker
+            .run(move |context| context.configure_provider(snapshot, raw_catalog, timeout))
+    }
+    pub fn context_revisions(
+        &self,
+        id: ThreadId,
+    ) -> Result<vcp_context::manifest::Revisions, String> {
+        let binding = self.binding(id)?;
+        self.worker
+            .run(move |context| context.context_revisions(&binding))
+    }
+    /// The host re-resolves captured bytes under current canonical access; a
+    /// serialized manifest alone cannot become a transport capability.
+    pub fn prepare_context(
+        &self,
+        id: ThreadId,
+        sealed: vcp_context::manifest::Sealed,
+        schemas: serde_json::Value,
+        roots: Vec<vcp_repository::Root>,
+    ) -> Result<(), String> {
+        let binding = self.binding(id)?;
+        self.worker
+            .run(move |context| context.prepare_context(&binding, sealed, schemas, roots))
+    }
     pub fn open(config: Config) -> Result<(Self, CanonicalOwner), String> {
         let worker = worker::Worker::open(config)?;
         let (runtime, owner) = Lifecycle::new(Duration::from_secs(5));
@@ -276,8 +316,12 @@ struct ModelPermit {
     attempt: AttemptId,
     runtime: Box<dyn HostWorkPermit>,
     finished: bool,
+    deadline: Option<std::time::Instant>,
 }
 impl HostWorkPermit for ModelPermit {
+    fn response_deadline(&self) -> Option<std::time::Instant> {
+        self.deadline
+    }
     fn complete(&mut self) -> Result<(), String> {
         Err("model completion requires response identity and usage".into())
     }
@@ -373,7 +417,7 @@ impl HostWorkAdmission for CanonicalHost {
         let admission = self
             .worker
             .run(move |context| context.admit(&admitted, input));
-        let (attempt, prepared) = match admission {
+        let (attempt, prepared, deadline) = match admission {
             Ok(value) => value,
             Err(error) => {
                 runtime.complete()?;
@@ -387,6 +431,7 @@ impl HostWorkAdmission for CanonicalHost {
             attempt,
             runtime,
             finished: false,
+            deadline,
         }))
     }
 }
