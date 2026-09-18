@@ -703,6 +703,66 @@
         "process",
         "clock"
       ]
+    },
+    {
+      "id": "lifecycle-hold",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/lib.rs",
+      "symbol": "pub fn hold(",
+      "observation": "Seals the registered subtree under one lock, waits for start permits and owns retained interruption without consuming events.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "shared-memory",
+        "clock"
+      ]
+    },
+    {
+      "id": "lifecycle-readmission",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/lib.rs",
+      "symbol": "pub fn resume(",
+      "observation": "Requires current instance/revision, attached owner, completed interruption and no inherited hold; independent child holds remain.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "shared-memory",
+        "clock"
+      ]
+    },
+    {
+      "id": "lifecycle-owner-loss",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/lib.rs",
+      "symbol": "fn lose_owner(",
+      "observation": "Owner lease drop seals all registered scope synchronously and schedules retained interruption; runtime crash and durable recovery remain future work.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "shared-memory",
+        "clock"
+      ]
+    },
+    {
+      "id": "host-retained-interruption",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/codex_thread.rs",
+      "symbol": "pub async fn interrupt_for_host(",
+      "observation": "Owned retained interruption keeps the controller/event stream open; its receipt does not prove durable pause or native descendant quiescence.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "process",
+        "filesystem"
+      ]
     }
   ],
   "groups": [
@@ -1293,6 +1353,28 @@
       "gate": "File-only CPU library with pinned assets and independent vectors. Test executable emits explicit local network canaries for P0-02 observed containment; broader corpus resource qualification remains open.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "local-memory"
+    },
+    {
+      "id": "lifecycle-host",
+      "packages": [
+        "vcp-lifecycle"
+      ],
+      "capabilities": [
+        "data",
+        "scheduler",
+        "clock",
+        "filesystem",
+        "process",
+        "network"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P0-03",
+        "P0-08"
+      ],
+      "gate": "In-memory scoped admission and retained interruption only. Startup effects, isolated helpers, canonical checkpoints, model/tool revalidation and process-tree stop confirmation remain unqualified.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
     }
   ],
   "classification_scope": "Every selected package inherits an explicit conservative module effect ceiling and primary owner; named entries refine that envelope after source review, including delegates/callbacks. These are trust classifications, not formal purity proof, runtime enforcement or an exhaustive per-function call graph."

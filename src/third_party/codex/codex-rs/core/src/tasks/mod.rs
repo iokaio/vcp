@@ -1,4 +1,4 @@
-// VCP modification: gate delegated turn starts through host continuation admission.
+// VCP modification: thread-scoped host admission for ordinary and delegated starts.
 mod compact;
 mod lifecycle;
 mod regular;
@@ -452,7 +452,11 @@ impl Session {
         // Acquire before reserving the turn or taking mailbox input. Keeping
         // the permit through publication lets a sealing host account for a
         // continuation admitted just before the fence closed.
-        let Some(_admission) = self.services.extensions.admit_continuation_start() else {
+        let Some(_admission) = self
+            .services
+            .extensions
+            .admit_continuation_start_for_thread(self.thread_id)
+        else {
             return;
         };
         let turn_state = {

@@ -1,4 +1,4 @@
-// VCP modification: gate delegated turn starts through host continuation admission.
+// VCP modification: thread-scoped host admission for ordinary and delegated starts.
 //! Lets Core turn-input submissions participate in host admission control.
 
 /// A host-provided gate checked before Core starts a turn-input submission.
@@ -21,5 +21,26 @@ pub trait TurnStartAdmission: std::fmt::Debug + Send + Sync {
     /// This hook alone does not cancel active work or establish a durable pause.
     fn admit_continuation_start(&self) -> Option<Box<dyn Send>> {
         Some(Box::new(()))
+    }
+
+    /// Checks ordinary admission with the controller-owned thread identity.
+    /// A host must resolve this locator against its own workspace/owner/task
+    /// binding; the identifier alone is not authority. The default preserves
+    /// existing hosts' global admission behavior.
+    fn admit_turn_start_for_thread(
+        &self,
+        _thread_id: codex_protocol::ThreadId,
+    ) -> Option<Box<dyn Send>> {
+        self.admit_turn_start()
+    }
+
+    /// Checks delegated admission with the controller-owned thread identity.
+    /// Task-specific hosts should override both thread-aware methods and share
+    /// the same fence for ordinary and continuation work.
+    fn admit_continuation_start_for_thread(
+        &self,
+        _thread_id: codex_protocol::ThreadId,
+    ) -> Option<Box<dyn Send>> {
+        self.admit_continuation_start()
     }
 }

@@ -12,6 +12,11 @@ form the source record. The ordered [patch series](../patches/codex/README.md)
 records the `codex-chatgpt` recursion-limit change for the Rust 1.98.0 compiler
 experiment, the Munarium/embedding workspace and lockfile integrations, and
 the P0-03 continuation-admission hook with retained-controller regression tests.
+The scoped-lifecycle patch extends that hook with controller-owned thread IDs,
+owned retained interruption and the original lifecycle host workspace member.
+It adds one local lock entry while retaining all existing external dependency
+identities/checksums. The host is an in-memory qualification prototype, not a
+durable VCP runtime or complete pause implementation.
 The separate license transformation materializes bubblewrap's symlink from its
 selected `COPYING` bytes. Original bytes/hashes and current results are retained.
 

@@ -55,6 +55,10 @@
     {
       "path": "src/third_party/patches/codex/0006-continuation-admission.patch",
       "sha256": "00ad43010e735d93fb85ebef6f60f896845e2cf6dae21d7e7c5402c70a108486"
+    },
+    {
+      "path": "src/third_party/patches/codex/0007-scoped-lifecycle.patch",
+      "sha256": "8bd7c175b0f2a0ca7cdf8a55f541925dc5994088956fbefd9b0a6be78394c1c3"
     }
   ],
   "licenses": [

@@ -65,7 +65,7 @@ $record = [ordered]@{
 }
 if ($Mode -eq 'LifecycleTests') {
     $record.task_id = 'P0-03'
-    $record.limitations = @('Continuation admission and retained drain only; no active cancellation, durable checkpoint or CLI pause.')
+    $record.limitations = @('Scoped in-memory host and retained interruption; no startup/effect fencing, native tree-stop proof, durable checkpoint/reopen or CLI pause.')
     $record.lifecycle_runner_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'scripts/upstream/test-lifecycle.cjs') -Algorithm SHA256).Hash.ToLowerInvariant()
     $record.lifecycle_validator_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'src/tests/support/lifecycle-results.cjs') -Algorithm SHA256).Hash.ToLowerInvariant()
 }
@@ -153,7 +153,7 @@ try {
         $verb = $(if ($Mode -eq 'Build') { 'build' } else { 'test' })
         $cargoArguments = @("+$toolchain", $verb, '--locked', '-p', 'munarium-core', '-p', 'munarium-store-mem', '-p', 'munarium-datastore', '--features', 'munarium-datastore/vector-diskann', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
     } elseif ($Mode -eq 'LifecycleTests') {
-        $cargoArguments = @("+$toolchain", 'test', '--locked', '-p', 'codex-core', '--test', 'all', '--no-run', '--message-format=json', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
+        $cargoArguments = @("+$toolchain", 'test', '--locked', '-p', 'codex-core', '-p', 'vcp-lifecycle', '--test', 'all', '--test', 'controller', '--no-run', '--message-format=json', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
     } elseif ($Mode -eq 'Build') {
         $cargoArguments = @("+$toolchain", 'build', '--locked', '-p', 'codex-cli', '--bin', 'codex', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
     } else {

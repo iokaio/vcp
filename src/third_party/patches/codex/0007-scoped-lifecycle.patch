@@ -1,0 +1,424 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 32245f5..0238ddc 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17471,6 +17471,17 @@ dependencies = [
+  "tokenizers",
+ ]
+ 
++[[package]]
++name = "vcp-lifecycle"
++version = "0.1.0"
++dependencies = [
++ "codex-core",
++ "codex-extension-api",
++ "codex-protocol",
++ "core_test_support",
++ "tokio",
++]
++
+ [[package]]
+ name = "vcp-memory-spike"
+ version = "0.1.0"
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index 4144256..fc0a4da 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -1,5 +1,7 @@
+ [workspace]
+ members = [
++    # VCP modification: scoped retained-controller lifecycle qualification.
++    "../../../crates/vcp-lifecycle",
+     # VCP modification: local corpus/index qualification uses the same build graph.
+     "../../../crates/vcp-memory-spike",
+     # VCP modification: file-only local CPU embedding adapter in this build graph.
+diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
+index 15f36cb..aeb13d7 100644
+--- a/codex-rs/core/src/codex_thread.rs
++++ b/codex-rs/core/src/codex_thread.rs
+@@ -1,3 +1,4 @@
++// VCP modification: owned host interruption without closing the retained controller.
+ use crate::agent::AgentStatus;
+ use crate::config::ConstraintResult;
+ use crate::context::ContextualUserFragment;
+@@ -229,6 +230,20 @@ impl CodexThread {
+         self.io.submit(op).await
+     }
+ 
++    /// Runs retained task interruption and waits for its completion without
++    /// consuming the event stream or closing this controller. The host must
++    /// first seal admission and drain outstanding start permits. Once polled,
++    /// interruption is runtime-owned and survives cancellation of the caller.
++    /// This is not a durable checkpoint or proof that native descendants stopped.
++    pub async fn interrupt_for_host(&self) -> CodexResult<()> {
++        let session = Arc::clone(&self.session);
++        let runtime = session.services.runtime_handle.clone();
++        runtime
++            .spawn(async move { session.interrupt_task().await })
++            .await?;
++        Ok(())
++    }
++
+     /// Returns the session telemetry handle for thread-scoped production instrumentation.
+     pub fn session_telemetry(&self) -> SessionTelemetry {
+         self.session.services.session_telemetry.clone()
+diff --git a/codex-rs/core/src/session/turn_input.rs b/codex-rs/core/src/session/turn_input.rs
+index 0c1c5dd..5810268 100644
+--- a/codex-rs/core/src/session/turn_input.rs
++++ b/codex-rs/core/src/session/turn_input.rs
+@@ -1,4 +1,4 @@
+-// VCP modification: gate delegated turn starts through host continuation admission.
++// VCP modification: thread-scoped host admission for ordinary and delegated starts.
+ //! Handles reply-bearing turn-input operations.
+ //!
+ //! This is the one place Core decides whether submitted input starts a turn,
+@@ -329,9 +329,15 @@ async fn start_or_steer(
+                     SessionSource::SubAgent(SubAgentSource::ThreadSpawn { .. })
+                 );
+             let admission = if is_delegated_input {
+-                session.services.extensions.admit_continuation_start()
++                session
++                    .services
++                    .extensions
++                    .admit_continuation_start_for_thread(session.thread_id)
+             } else {
+-                session.services.extensions.admit_turn_start()
++                session
++                    .services
++                    .extensions
++                    .admit_turn_start_for_thread(session.thread_id)
+             };
+             let Some(_admission) = admission else {
+                 return Ok(TurnInputSubmission::NotSubmitted {
+@@ -418,9 +424,15 @@ async fn start_if_idle(
+                 .session_source,
+             SessionSource::SubAgent(SubAgentSource::Review)
+         ) {
+-        session.services.extensions.admit_continuation_start()
++        session
++            .services
++            .extensions
++            .admit_continuation_start_for_thread(session.thread_id)
+     } else {
+-        session.services.extensions.admit_turn_start()
++        session
++            .services
++            .extensions
++            .admit_turn_start_for_thread(session.thread_id)
+     };
+     let Some(_admission) = admission else {
+         return Ok(TurnInputSubmission::NotSubmitted {
+diff --git a/codex-rs/core/src/tasks/mod.rs b/codex-rs/core/src/tasks/mod.rs
+index 8bccc1a..e1f742f 100644
+--- a/codex-rs/core/src/tasks/mod.rs
++++ b/codex-rs/core/src/tasks/mod.rs
+@@ -1,4 +1,4 @@
+-// VCP modification: gate delegated turn starts through host continuation admission.
++// VCP modification: thread-scoped host admission for ordinary and delegated starts.
+ mod compact;
+ mod lifecycle;
+ mod regular;
+@@ -452,7 +452,11 @@ impl Session {
+         // Acquire before reserving the turn or taking mailbox input. Keeping
+         // the permit through publication lets a sealing host account for a
+         // continuation admitted just before the fence closed.
+-        let Some(_admission) = self.services.extensions.admit_continuation_start() else {
++        let Some(_admission) = self
++            .services
++            .extensions
++            .admit_continuation_start_for_thread(self.thread_id)
++        else {
+             return;
+         };
+         let turn_state = {
+diff --git a/codex-rs/core/tests/suite/turn_input_submission.rs b/codex-rs/core/tests/suite/turn_input_submission.rs
+index ab6d8f7..1431e40 100644
+--- a/codex-rs/core/tests/suite/turn_input_submission.rs
++++ b/codex-rs/core/tests/suite/turn_input_submission.rs
+@@ -1201,3 +1201,211 @@ async fn continuation_seal_retains_mail_until_explicit_readmission() -> anyhow::
+     assert!(!actual.body_contains_text("rejected start behind mail"));
+     Ok(())
+ }
++
++#[derive(Debug, Default)]
++struct ThreadScopedAdmission {
++    open: std::sync::Mutex<std::collections::HashSet<codex_protocol::ThreadId>>,
++    denied: tokio::sync::Notify,
++    observations: std::sync::Mutex<Vec<(codex_protocol::ThreadId, bool)>>,
++}
++impl ThreadScopedAdmission {
++    fn open(&self, thread: codex_protocol::ThreadId) {
++        self.open.lock().unwrap().insert(thread);
++    }
++    fn admit(&self, thread: codex_protocol::ThreadId, continuation: bool) -> Option<Box<dyn Send>> {
++        self.observations
++            .lock()
++            .unwrap()
++            .push((thread, continuation));
++        let allowed = self.open.lock().unwrap().contains(&thread);
++        if !allowed {
++            self.denied.notify_one();
++        }
++        allowed.then(|| Box::new(()) as Box<dyn Send>)
++    }
++}
++impl TurnStartAdmission for ThreadScopedAdmission {
++    fn admit_turn_start(&self) -> Option<Box<dyn Send>> {
++        panic!("Core omitted thread identity")
++    }
++    fn admit_continuation_start(&self) -> Option<Box<dyn Send>> {
++        panic!("Core omitted continuation identity")
++    }
++    fn admit_turn_start_for_thread(
++        &self,
++        thread: codex_protocol::ThreadId,
++    ) -> Option<Box<dyn Send>> {
++        self.admit(thread, false)
++    }
++    fn admit_continuation_start_for_thread(
++        &self,
++        thread: codex_protocol::ThreadId,
++    ) -> Option<Box<dyn Send>> {
++        self.admit(thread, true)
++    }
++}
++
++#[tokio::test]
++async fn scoped_admission_holds_child_independently_of_parent_and_sibling() -> anyhow::Result<()> {
++    let server = responses::start_mock_server().await;
++    let response = responses::mount_sse_sequence(
++        &server,
++        ["parent", "sibling", "child"]
++            .into_iter()
++            .map(responses::sse_completed)
++            .collect(),
++    )
++    .await;
++    let admission = Arc::new(ThreadScopedAdmission::default());
++    let mut extensions = ExtensionRegistryBuilder::new();
++    extensions.turn_start_admission(admission.clone());
++    let test = test_codex()
++        .with_extensions(Arc::new(extensions.build()))
++        .build_with_auto_env(&server)
++        .await?;
++    let root_id = test.session_configured.thread_id;
++    admission.open(root_id);
++    let child_options = || StartThreadOptions {
++        session_source: Some(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
++            parent_thread_id: root_id,
++            depth: 1,
++            agent_path: None,
++            agent_nickname: None,
++            agent_role: None,
++        })),
++        ..StartThreadOptions::new(test.config.clone())
++    };
++    let mut child_start = child_options();
++    child_start.environments = Some(test.codex.environment_selections().await);
++    let child = test.thread_manager.start_thread(child_start).await?;
++    let mut sibling_start = child_options();
++    sibling_start.environments = Some(test.codex.environment_selections().await);
++    let sibling = test.thread_manager.start_thread(sibling_start).await?;
++    admission.open(sibling.thread_id);
++    let delegated = |text: &str| {
++        user_message_request(text).on_start(TurnStartOptions {
++            parent_turn_id: Some("host-parent-turn".into()),
++            ..Default::default()
++        })
++    };
++    assert_eq!(
++        child
++            .thread
++            .start_or_steer_turn(delegated("held child input"))
++            .await?,
++        TurnInputSubmission::NotSubmitted {
++            reason: NotSubmittedReason::ServerDraining
++        }
++    );
++    test.codex
++        .start_or_steer_turn(user_message_request("parent stays runnable"))
++        .await?;
++    wait_for_event(&test.codex, |e| matches!(e, EventMsg::TurnComplete(_))).await;
++    sibling
++        .thread
++        .start_or_steer_turn(delegated("sibling stays runnable"))
++        .await?;
++    wait_for_event(&sibling.thread, |e| matches!(e, EventMsg::TurnComplete(_))).await;
++    assert_eq!(response.requests().len(), 2);
++    admission.open(child.thread_id);
++    child
++        .thread
++        .start_or_steer_turn(delegated("child explicitly admitted"))
++        .await?;
++    wait_for_event(&child.thread, |e| matches!(e, EventMsg::TurnComplete(_))).await;
++    let actual = response.requests();
++    assert_eq!(actual.len(), 3);
++    assert!(actual[0].body_contains_text("parent stays runnable"));
++    assert!(actual[1].body_contains_text("sibling stays runnable"));
++    assert!(actual[2].body_contains_text("child explicitly admitted"));
++    assert!(!actual[2].body_contains_text("held child input"));
++    let observed = admission.observations.lock().unwrap();
++    assert!(observed.contains(&(root_id, false)));
++    assert!(observed.contains(&(child.thread_id, true)));
++    assert!(observed.contains(&(sibling.thread_id, true)));
++    Ok(())
++}
++
++#[tokio::test]
++async fn scoped_admission_uses_review_delegate_identity() -> anyhow::Result<()> {
++    use codex_protocol::protocol::{ReviewRequest, ReviewTarget};
++    let server = responses::start_mock_server().await;
++    let response =
++        responses::mount_sse_once(&server, responses::sse_completed("unexpected-review")).await;
++    let admission = Arc::new(ThreadScopedAdmission::default());
++    let mut extensions = ExtensionRegistryBuilder::new();
++    extensions.turn_start_admission(admission.clone());
++    let test = test_codex()
++        .with_extensions(Arc::new(extensions.build()))
++        .build_with_auto_env(&server)
++        .await?;
++    let root_id = test.session_configured.thread_id;
++    admission.open(root_id);
++    test.codex
++        .submit(Op::Review {
++            review_request: ReviewRequest {
++                target: ReviewTarget::Custom {
++                    instructions: "review child must have its own admission".into(),
++                },
++                user_facing_hint: None,
++            },
++        })
++        .await?;
++    timeout(Duration::from_secs(10), admission.denied.notified()).await?;
++    let event = wait_for_event(&test.codex, |e| matches!(e, EventMsg::ExitedReviewMode(_))).await;
++    let EventMsg::ExitedReviewMode(event) = event else {
++        unreachable!()
++    };
++    assert!(event.review_output.is_none());
++    assert!(response.requests().is_empty());
++    let observed = admission.observations.lock().unwrap();
++    assert!(!observed.is_empty());
++    assert!(
++        observed
++            .iter()
++            .all(|(thread, continuation)| *thread != root_id && *continuation)
++    );
++    Ok(())
++}
++
++#[tokio::test]
++async fn scoped_admission_checks_mailbox_recipient_before_consuming_mail() -> anyhow::Result<()> {
++    let server = responses::start_mock_server().await;
++    let response =
++        responses::mount_sse_once(&server, responses::sse_completed("scoped-mail")).await;
++    let admission = Arc::new(ThreadScopedAdmission::default());
++    let mut extensions = ExtensionRegistryBuilder::new();
++    extensions.turn_start_admission(admission.clone());
++    let test = test_codex()
++        .with_extensions(Arc::new(extensions.build()))
++        .build_with_auto_env(&server)
++        .await?;
++    let root_id = test.session_configured.thread_id;
++    let mail = |text: &str| Op::InterAgentCommunication {
++        communication: InterAgentCommunication::new(
++            AgentPath::try_from("/root/sender").unwrap(),
++            AgentPath::root(),
++            Vec::new(),
++            text.into(),
++            true,
++        ),
++        start_options: Default::default(),
++    };
++    test.codex
++        .submit(mail("retained for actual recipient"))
++        .await?;
++    timeout(Duration::from_secs(10), admission.denied.notified()).await?;
++    assert!(response.requests().is_empty());
++    {
++        let observed = admission.observations.lock().unwrap();
++        assert!(!observed.is_empty());
++        assert!(observed.iter().all(|item| *item == (root_id, true)));
++    }
++    admission.open(root_id);
++    test.codex.submit(mail("explicit recipient wakeup")).await?;
++    wait_for_event(&test.codex, |e| matches!(e, EventMsg::TurnComplete(_))).await;
++    let actual = response.single_request();
++    assert!(actual.body_contains_text("retained for actual recipient"));
++    assert!(actual.body_contains_text("explicit recipient wakeup"));
++    Ok(())
++}
+diff --git a/codex-rs/ext/extension-api/src/registry.rs b/codex-rs/ext/extension-api/src/registry.rs
+index 31b345d..08c7f9d 100644
+--- a/codex-rs/ext/extension-api/src/registry.rs
++++ b/codex-rs/ext/extension-api/src/registry.rs
+@@ -1,4 +1,4 @@
+-// VCP modification: gate delegated turn starts through host continuation admission.
++// VCP modification: thread-scoped host admission for ordinary and delegated starts.
+ use std::sync::Arc;
+ 
+ use crate::ApprovalReviewContributor;
+@@ -203,6 +203,28 @@ impl<C: Sync> ExtensionRegistry<C> {
+         }
+     }
+ 
++    /// Acquires ordinary admission for the actual controller thread.
++    pub fn admit_turn_start_for_thread(
++        &self,
++        thread_id: codex_protocol::ThreadId,
++    ) -> Option<Box<dyn Send>> {
++        match &self.turn_start_admission {
++            Some(admission) => admission.admit_turn_start_for_thread(thread_id),
++            None => Some(Box::new(())),
++        }
++    }
++
++    /// Acquires continuation admission for the actual controller thread.
++    pub fn admit_continuation_start_for_thread(
++        &self,
++        thread_id: codex_protocol::ThreadId,
++    ) -> Option<Box<dyn Send>> {
++        match &self.turn_start_admission {
++            Some(admission) => admission.admit_continuation_start_for_thread(thread_id),
++            None => Some(Box::new(())),
++        }
++    }
++
+     /// Returns the host event sink retained by this registry.
+     pub fn event_sink(&self) -> Arc<dyn ExtensionEventSink> {
+         Arc::clone(&self.event_sink)
+diff --git a/codex-rs/ext/extension-api/src/turn_admission.rs b/codex-rs/ext/extension-api/src/turn_admission.rs
+index 4181822..e3ca020 100644
+--- a/codex-rs/ext/extension-api/src/turn_admission.rs
++++ b/codex-rs/ext/extension-api/src/turn_admission.rs
+@@ -1,4 +1,4 @@
+-// VCP modification: gate delegated turn starts through host continuation admission.
++// VCP modification: thread-scoped host admission for ordinary and delegated starts.
+ //! Lets Core turn-input submissions participate in host admission control.
+ 
+ /// A host-provided gate checked before Core starts a turn-input submission.
+@@ -22,4 +22,25 @@ pub trait TurnStartAdmission: std::fmt::Debug + Send + Sync {
+     fn admit_continuation_start(&self) -> Option<Box<dyn Send>> {
+         Some(Box::new(()))
+     }
++
++    /// Checks ordinary admission with the controller-owned thread identity.
++    /// A host must resolve this locator against its own workspace/owner/task
++    /// binding; the identifier alone is not authority. The default preserves
++    /// existing hosts' global admission behavior.
++    fn admit_turn_start_for_thread(
++        &self,
++        _thread_id: codex_protocol::ThreadId,
++    ) -> Option<Box<dyn Send>> {
++        self.admit_turn_start()
++    }
++
++    /// Checks delegated admission with the controller-owned thread identity.
++    /// Task-specific hosts should override both thread-aware methods and share
++    /// the same fence for ordinary and continuation work.
++    fn admit_continuation_start_for_thread(
++        &self,
++        _thread_id: codex_protocol::ThreadId,
++    ) -> Option<Box<dyn Send>> {
++        self.admit_continuation_start()
++    }
+ }

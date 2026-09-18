@@ -72,6 +72,11 @@ as a regular copy of `COPYING` for Windows. VCP's ordered
 the workspace/lockfile, then adds the local CPU embedding adapter and its reviewed
 dependencies. The sixth patch changes four controller/extension files and adds
 five continuation-admission cases to the retained turn-input integration suite.
+The seventh patch adds thread identity to admission, an owned interruption method,
+three additional retained-controller cases, and the original `vcp-lifecycle`
+workspace/lock entry. Its Rust host and seven real-controller tests are original
+VCP code using the retained Codex APIs and synthetic test helpers; no new external
+dependency identity or third-party source is imported.
 Modified files carry notices; original
 copyright and license terms remain unchanged.
 Individual source copyright headers remain intact. No voice DLLs, Microsoft

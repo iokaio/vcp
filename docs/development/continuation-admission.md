@@ -65,6 +65,13 @@ owned profile contents from uploaded evidence.
 
 ## Remaining P0-03 implementation
 
+The subsequent [scoped lifecycle milestone](scoped-lifecycle.md) implements a
+registered-tree host, independent/inherited holds, retained interruption,
+owner-loss denial and explicit readmission. It adds three identity and seven host
+cases to the same native command. The original ten cases above remain required.
+The obligations below describe the complete product boundary; the in-memory
+host alone does not satisfy durable recovery, startup/effect fencing or CLI pause.
+
 1. Bind the injected fence to workspace, owner, root/task identity and monotonic
    authority/steering revisions. Coordinate child registration and closing the
    root fence at one ordering boundary; a snapshot of known children is insufficient.

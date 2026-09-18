@@ -17472,6 +17472,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcp-lifecycle"
+version = "0.1.0"
+dependencies = [
+ "codex-core",
+ "codex-extension-api",
+ "codex-protocol",
+ "core_test_support",
+ "tokio",
+]
+
+[[package]]
 name = "vcp-memory-spike"
 version = "0.1.0"
 dependencies = [

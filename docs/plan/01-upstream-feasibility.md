@@ -154,11 +154,14 @@ tool receipt/file effects, retry and rejection through the unmodified retained
 loop. The [continuation admission increment](../development/continuation-admission.md)
 now gates delegated child, review and mailbox starts through an injected host
 hook, with [ten native regressions](../evaluations/p0-03-continuation-admission.md).
-P0-03 is `in_progress`: scoped authority, active cancellation, durable checkpoint,
-owner loss, explicit resume and in-app root/child pause remain unimplemented.
+The [scoped lifecycle host](../development/scoped-lifecycle.md) adds registered
+thread admission, independent/inherited holds, retained interruption, owner-loss
+denial and revision-checked readmission. See its [local qualification](../evaluations/p0-03-scoped-lifecycle.md).
+P0-03 remains `in_progress`: startup/effect authority, durable checkpoint/reopen,
+confirmed process-tree quiescence and in-app root/child pause remain outstanding.
 
 Delivery now groups connected work into the [foundation milestones](README.md#pr-milestones-and-local-validation).
-The next PR must combine thread-scoped admission with an exercised host lifecycle
+The scoped-control milestone combines thread-scoped admission with a host lifecycle
 fence, independent/inherited root-child holds, active retained-loop cancellation,
 explicit readmission and owner-loss denial, including negative/race cases and
 source reconstruction. Do not publish separate PRs for each hook or observer.

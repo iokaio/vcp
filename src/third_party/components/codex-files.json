@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "3152e265e6fb422597d8e07ba8ddaa112369e1383b6be6b732b97cfc9985dd75",
-  "files_sha256": "dabcf15ddff6228a40ebbeb774b3c42cf8245604245e61b603aacd8c120d4456",
+  "selection_sha256": "0f8da0ac7fc64cf561c9f10467a36f8318bc3de55d91c6d93793ae1e2e0d58b1",
+  "files_sha256": "2853a063526962d82a4c12ca02cdbb58ecb42f1b92c29d7393947059480c849a",
   "files": [
     {
       "path": ".bazelignore",
@@ -545,8 +545,8 @@
         "sha256": "582bb7fb0b7d4c7cab24b4e3b8cc28344ddfe146ffbf2297448a3e995eead2b7"
       },
       "result": {
-        "bytes": 431527,
-        "sha256": "0311a5464f4611d0b0f4cace839674560f5d113789fb205b43a90d7d20ad02fd",
+        "bytes": 431690,
+        "sha256": "878bf40f05a03cadd2407dadf06715e65280edb5ddc82b31c372d0d98e803f04",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -559,8 +559,8 @@
         "sha256": "5f531fe8a45a1ab7d9cf56f03eb31dfb5ec2ecfb7574bebaada6130382e5877f"
       },
       "result": {
-        "bytes": 20161,
-        "sha256": "f915ec0799f7d642f249a77a314a30d02123746516a6b69d9e829aee55446dac",
+        "bytes": 20274,
+        "sha256": "257f6f69c7fe4105c382b82b0132df8ccd974659e4df3ebec5d19b43636807ed",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -33739,11 +33739,11 @@
         "sha256": "627dcbff24c677aec1b482e90caafe1320088b3b6e0871ff304791f06660be4d"
       },
       "result": {
-        "bytes": 38772,
-        "sha256": "627dcbff24c677aec1b482e90caafe1320088b3b6e0871ff304791f06660be4d",
+        "bytes": 39554,
+        "sha256": "5e640156aec5b92fd1384c16fba4f7c11fa9de05ca6e1caad7f09e9ca26f58a9",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/core/src/command_canonicalization.rs",
@@ -37841,8 +37841,8 @@
         "sha256": "4b7a68753312196968550f5e1626358d07be49a6bac9135ca21efb958cdf744a"
       },
       "result": {
-        "bytes": 28497,
-        "sha256": "a6d3ca0af5f56cbcf7e303d049ce6bef715f07de53103802e5b22c4580a831d5",
+        "bytes": 28813,
+        "sha256": "65d3f8ba3fafab0efb11971a459c7b396b76fb8c51fb7e03f335057f7b910cb3",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -38261,8 +38261,8 @@
         "sha256": "0dd8d46c248a462dc4eb1d40ac823ad55a60c38c571068906fe88995e9f2ded0"
       },
       "result": {
-        "bytes": 37038,
-        "sha256": "ebd8f086ac2e3056989d0a60d2a692d31974006182c8691a4130fdab74961edd",
+        "bytes": 37110,
+        "sha256": "91192acc277594ea322f5c8d3fea4aebd7084d1e540a3be67e670ea2bdce0608",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -43805,8 +43805,8 @@
         "sha256": "2c9d3eb39c7b36a1fe38a2c465e6c39aea3fb05ae102776059c4447618524692"
       },
       "result": {
-        "bytes": 44159,
-        "sha256": "71072e04a17b2cb84415399e469fe6871f732c8fd22095621b1b23ad3ffee280",
+        "bytes": 52273,
+        "sha256": "e000f823a8dfda824cc1a3c4eea78f23adec865ede351b2a002fa1577e12dfad",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -47669,8 +47669,8 @@
         "sha256": "f64811a16caf880204076c4802cbe0985bc66797e330a1d1b9228e71ef44c360"
       },
       "result": {
-        "bytes": 11892,
-        "sha256": "c25b7dc92dbd64361ef047dd27df3ae157c97ea11ce2c85394d914f16d99fe21",
+        "bytes": 12680,
+        "sha256": "d00e82408316ef05f72a28c94a3619b67d60b8f5f25ec6a4a316434f26c30ca1",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -47711,8 +47711,8 @@
         "sha256": "cbff3a2b374b68b5e0cd459ef6a7152806c41ba86b6411e1883e362dd35dc79d"
       },
       "result": {
-        "bytes": 1409,
-        "sha256": "921f47fdd1edf792ce0a2efa0bf599a6afaef501387e50b33710981604f52323",
+        "bytes": 2264,
+        "sha256": "733918a5d2b0b7b019af1eebb6812bc3204bbfad35f223ef9271bf0ee03086f5",
         "mode": "100644"
       },
       "transformation": "patch-series"
