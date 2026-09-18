@@ -20,3 +20,4 @@ Raw evidence stays in ignored local artifact directories or CI artifacts.
 - [P0-07 selection gate](p0-07-selection-gate.md): consolidated acceptance evidence, schema 2 effect classifications and explicit subsequent-task boundaries.
 - [P0-07 compiler compatibility](p0-07-common-rust.md): explicit compiler experiments, a recorded recursion-limit patch and reconstruction evidence.
 - [P0-07 hosted Windows](p0-07-hosted-windows.md): clean native build, 102 tests, five CLI traces and exact reconstruction on the second Windows environment.
+- [P0-02 local corpus](p0-02-local-corpus.md): real CPU embeddings, Tantivy/DiskANN, workspace/version filtering and repeated fresh-process reopen on a small synthetic corpus.

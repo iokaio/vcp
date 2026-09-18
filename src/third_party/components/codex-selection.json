@@ -43,6 +43,10 @@
     {
       "path": "src/third_party/patches/codex/0003-local-embedding-workspace.patch",
       "sha256": "d866c0cdc1eee368f7684b464e552e6e60822dd2ad9bb7cde07e8abf5a90b80c"
+    },
+    {
+      "path": "src/third_party/patches/codex/0004-local-corpus-workspace.patch",
+      "sha256": "7f092309a906e917cdae96428f6c07d451fc7ab3a47be5280089d5b886abf305"
     }
   ],
   "licenses": [

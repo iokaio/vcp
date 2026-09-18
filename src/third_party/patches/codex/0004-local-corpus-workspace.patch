@@ -1,0 +1,43 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index b34d1dd..d8d4283 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -3,6 +3,7 @@
+ # VCP modification: extended for the selected Munarium libraries in this workspace.
+ # VCP modification: add local CPU embedding dependencies and the required regex-automata 0.4.14 API.
+ # It is not intended for manual editing.
++# VCP modification: register the local corpus qualification package; existing dependency pins retained.
+ version = 4
+ 
+ [[package]]
+@@ -17469,6 +17470,18 @@ dependencies = [
+  "tokenizers",
+ ]
+ 
++[[package]]
++name = "vcp-memory-spike"
++version = "0.1.0"
++dependencies = [
++ "munarium-datastore",
++ "serde",
++ "serde_json",
++ "sha2 0.10.9",
++ "tempfile",
++ "vcp-embedding",
++]
++
+ [[package]]
+ name = "vcpkg"
+ version = "0.2.15"
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index c24b963..4144256 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -1,5 +1,7 @@
+ [workspace]
+ members = [
++    # VCP modification: local corpus/index qualification uses the same build graph.
++    "../../../crates/vcp-memory-spike",
+     # VCP modification: file-only local CPU embedding adapter in this build graph.
+     "../../../crates/vcp-embedding",
+     # VCP modification: separately attributed local-memory libraries share this build graph.

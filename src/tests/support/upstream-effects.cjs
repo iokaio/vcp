@@ -27,6 +27,8 @@ function sourceResolver(root, externalRoots = []) {
 }
 function workspacePackages(root, { externalRoots = [] } = {}) {
   const resolve = sourceResolver(root, externalRoots);
+  const realRoot = fs.realpathSync(root);
+  const directoryIdentity = directory => path.relative(realRoot, resolve(directory)).split(path.sep).join('/');
   function read(relative) {
     return TOML.parse(fs.readFileSync(resolve(relative), 'utf8'));
   }
@@ -34,7 +36,9 @@ function workspacePackages(root, { externalRoots = [] } = {}) {
   if (!Array.isArray(workspace?.members) || workspace.exclude?.length) throw Error('Unsupported workspace membership rules');
   const byDirectory = new Map(), names = new Set();
   function visit(directory) {
-    resolve(directory);
+    // External path dependencies can reach the same member through different
+    // normalized relative paths. Cargo has one package for that real directory.
+    directory = directoryIdentity(directory);
     if (byDirectory.has(directory)) return;
     const document = read(directory + '/Cargo.toml');
     const name = document.package?.name;
@@ -52,8 +56,7 @@ function workspacePackages(root, { externalRoots = [] } = {}) {
             const actual = inherited ? workspace.dependencies?.[dependency] : specification;
             if (inherited && !actual) throw Error('Missing inherited dependency: ' + dependency);
             if (typeof actual?.path === 'string') {
-              const target = path.posix.normalize(path.posix.join(inherited ? '' : directory, actual.path));
-              resolve(target);
+              const target = directoryIdentity(path.posix.normalize(path.posix.join(inherited ? '' : directory, actual.path)));
               item.dependencyDirectories.add(target);
               visit(target);
             }

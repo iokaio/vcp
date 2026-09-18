@@ -640,6 +640,34 @@
       "effects": [
         "telemetry"
       ]
+    },
+    {
+      "id": "local-corpus-build",
+      "symbol": "fn build(",
+      "observation": "Controlled fixture CPU embedding, Tantivy/DiskANN construction and artifact publication; not a production canonical store or networking sandbox.",
+      "group": "build-and-test",
+      "package": "vcp-memory-spike",
+      "path": "../../../crates/vcp-memory-spike/src/main.rs",
+      "effect_class": "effectful",
+      "vcp_boundary": "qualification-harness",
+      "effects": [
+        "filesystem",
+        "scheduler"
+      ]
+    },
+    {
+      "id": "local-corpus-reopen",
+      "symbol": "fn query(",
+      "observation": "Reopens verified artifacts and queries a fixed canonical fixture with scoped current-version filtering and exact-vector comparison; scratch files and CPU workers remain effects.",
+      "group": "build-and-test",
+      "package": "vcp-memory-spike",
+      "path": "../../../crates/vcp-memory-spike/src/main.rs",
+      "effect_class": "effectful",
+      "vcp_boundary": "qualification-harness",
+      "effects": [
+        "filesystem",
+        "scheduler"
+      ]
     }
   ],
   "groups": [
@@ -1170,7 +1198,8 @@
         "codex-exec-server-test-support",
         "codex-app-server-test-client",
         "codex-cloud-tasks-mock-client",
-        "codex-thread-manager-sample"
+        "codex-thread-manager-sample",
+        "vcp-memory-spike"
       ],
       "capabilities": [
         "filesystem",
@@ -1181,7 +1210,8 @@
       "handling": "test-build-only",
       "owner_tasks": [
         "P0-07",
-        "P0-08"
+        "P0-08",
+        "P0-02"
       ],
       "gate": "Use explicit synthetic fixtures and isolated build/test resources. Test clients, samples and helper binaries are not VCP product entry points.",
       "effect_ceiling": "effectful",

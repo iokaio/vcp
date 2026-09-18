@@ -84,9 +84,15 @@ The ordered Codex patches now also record Munarium and embedding workspace/lock
 integration; none implements a VCP runtime adapter.
 
 The [static package/effect inventory](../development/codex-boundaries.md) covers
-all 158 packages, with 23 conservative module ceilings and 43 classified source
+all 159 packages, with 23 conservative module ceilings and 45 classified source
 entries. It describes intended adapter ownership, not implemented restrictions.
 The [selection gate report](../evaluations/p0-07-selection-gate.md) consolidates
 native build, reconstruction and representative trace evidence. Enforced
 replacements and product toolchain qualification remain later P0 work; the
 committed-copy convention is unchanged.
+
+P0-02's [corpus prototype](../development/local-memory-spike.md) adds one original
+qualification package and the fourth workspace patch. All 1,565 previous lock
+identities/checksums remain; only `vcp-memory-spike` is added. Its 209-package
+native normal/build closure consists of previously reviewed embedding/datastore
+dependencies plus the original executable. Imported Rust bodies remain unchanged.

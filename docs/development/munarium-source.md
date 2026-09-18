@@ -21,8 +21,9 @@ prevents accidental inheritance of Codex's package identity or feature choices.
 The Codex workspace and lockfile are authoritative for both selections. The
 retained Munarium `server/Cargo.toml` and `Cargo.lock` are upstream provenance
 inputs; do not run them as VCP build entry points. Cargo and the static boundary
-checker now discover 158 workspace packages: the original 154, three Munarium
-libraries and the separately owned [CPU embedding helper](local-embeddings.md).
+checker now discover 159 workspace packages: the original 154, three Munarium
+libraries, the separately owned [CPU embedding helper](local-embeddings.md) and
+[local corpus qualification executable](local-memory-spike.md).
 The checker accepts outside-workspace paths only beneath explicitly selected
 component roots and rejects lexical and link escapes.
 

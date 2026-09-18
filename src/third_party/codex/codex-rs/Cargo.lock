@@ -3,6 +3,7 @@
 # VCP modification: extended for the selected Munarium libraries in this workspace.
 # VCP modification: add local CPU embedding dependencies and the required regex-automata 0.4.14 API.
 # It is not intended for manual editing.
+# VCP modification: register the local corpus qualification package; existing dependency pins retained.
 version = 4
 
 [[package]]
@@ -17467,6 +17468,18 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokenizers",
+]
+
+[[package]]
+name = "vcp-memory-spike"
+version = "0.1.0"
+dependencies = [
+ "munarium-datastore",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "vcp-embedding",
 ]
 
 [[package]]
