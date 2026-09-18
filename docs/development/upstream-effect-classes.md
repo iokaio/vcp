@@ -1,7 +1,7 @@
 # Classified upstream effects
 
 The [boundary catalog](../../src/third_party/components/codex-boundaries.json)
-uses schema version 2 to classify 46 named source entries or exported type
+uses schema version 2 to classify 47 named source entries or exported type
 surfaces. It covers 159 packages in 23 ownership groups. Classification
 is a source-reviewed effect envelope, including delegates and callbacks. It is
 not enforcement, permission to call an entry, or an exhaustive proof of every
@@ -27,7 +27,9 @@ entry with effects beyond that ceiling. Build/test-only modules are owned by
 | `read-only` | Reads named external inputs but does not declare writes, dispatch or publication | Explicit asset loading; ambient-key and environment-presence collectors |
 | `effectful` | Can dispatch, publish, mutate shared state, write storage, start/stop work or invoke an effectful collaborator | Coding/helpers, MCP, process control, policy amendments, maintenance, diagnostics |
 
-The 46 entries comprise one pure, three read-only and 42 effectful envelopes.
+The 47 entries comprise one pure, three read-only and 43 effectful envelopes.
+The corpus resource sampler owns a temporary measurement thread and reads native
+process state; it does not implement product scheduling or resource limits.
 The embedding qualification executable includes explicit network canaries; this
 effect does not introduce a network route into the file-only embedding library.
 Read-only credential discovery is still disallowed as implicit VCP authority.

@@ -688,6 +688,21 @@
         "network",
         "clock"
       ]
+    },
+    {
+      "id": "corpus-resource-sampler",
+      "group": "build-and-test",
+      "package": "vcp-memory-spike",
+      "path": "../../../crates/vcp-memory-spike/src/resources.rs",
+      "symbol": "pub fn start() -> Result<Self>",
+      "observation": "An owned qualification thread reads this process's Windows memory counters and committed address regions. It must finish before a resource result can pass; it is not a product scheduler or memory limit.",
+      "effect_class": "effectful",
+      "vcp_boundary": "qualification-harness",
+      "effects": [
+        "scheduler",
+        "process",
+        "clock"
+      ]
     }
   ],
   "groups": [

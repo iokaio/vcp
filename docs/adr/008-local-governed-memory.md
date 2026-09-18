@@ -1,7 +1,7 @@
 # ADR-008 — Local governed memory and retrieval
 
-Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P0-02/07, P5-01 through P5-08. Bounded qualification evidence is recorded below; production integration and final engineering selection remain open.
+Status: confirmed product direction; bounded P0 integration candidate qualified.
+Decision gate: P0-02/07 feasibility complete; P5-01 through P5-08 production integration and acceptance remain open.
 
 ## Context and authority
 
@@ -31,8 +31,8 @@ production retrieval envelope.
 
 The [local CPU embedding result](../evaluations/p0-07-local-embeddings.md) adds
 verified MiniLM assets and a Candle adapter with independent PyTorch reference
-vectors. It does not complete OS network denial, corpus/index reopening or the
-P0-02 resource/recall experiment, so the broader decision gate remains open.
+vectors. That earlier gate alone did not qualify network denial, corpus/index
+reopening or resource/recall; the subsequent evidence below covers those gates.
 
 The [corpus prototype](../development/local-memory-spike.md) subsequently joins
 real embeddings with persisted lexical/vector indexes. Its
@@ -43,9 +43,35 @@ proposed predecessor as evidence without attaching an effective replacement
 edge. This preserves accepted visibility under the retained resolver's semantics.
 Volatile replay does not qualify durable canonical transactions or recovery;
 [offline CPU qualification](../evaluations/p0-02-offline-embeddings.md) adds
-observed Windows network denial and real missing/corrupt asset failures. Broader
-resource measurements remain a P0-02 gate. This does not qualify full index
-containment or select the product sandbox.
+observed Windows network denial and real missing/corrupt asset failures.
+The [declared resource experiment](../evaluations/p0-02-local-resources.md)
+passes 100/1,000/10,000-record build and two fresh query processes, 324 exact-oracle
+query rows and native resident/private/mapped plus disk observations. This does
+not qualify full index containment or select the product sandbox.
+
+### Bounded engineering selection
+
+Use the pinned Munarium governance interfaces and Tantivy 0.22.1/DiskANN 0.56.0
+with the verified MiniLM/Candle 0.11/Tokenizers 0.22.2 CPU adapter as the P0
+integration candidate. The 384-dimensional normalized vectors and cosine metric,
+asset digest, preprocessing and library identity are part of index compatibility;
+changes require a new generation and qualification, not reuse of stale vectors.
+Source pins, manifests and maintenance procedures are recorded in the
+[Munarium source map](../development/munarium-source.md) and
+[embedding source map](../development/local-embeddings.md).
+
+Retain scoped adapters around governance rather than exposing the volatile
+backend as a product store. At 10,000 records replay takes 252–259 seconds and
+lookup/filtering scans the whole scoped candidate set. P0-04/P1/P5 must replace
+volatile replay with durable, revision-bound projections and implement bounded
+candidate refill while preserving current authority and historical evidence.
+The fixture's flags are an independent oracle, never the source of authorization.
+
+The experiment needs about 91.6 MB of model assets and 25.3 MB of retained index
+data at 10,000 synthetic records; observed native peak resident memory is about
+203 MB. These overlapping and partial component costs are not an installed
+package or minimum hardware promise. Production durability, concurrent deletion,
+generation migration, broader recall and performance acceptance remain P5 gates.
 
 M01–M07/E13/E14/E20/U09 cover contradictory claims, origin replay, narrow scopes, exact-vector oracle, real CPU embeddings, reopen, deletion during lag and model changes. Fake vectors cannot qualify recall or offline compute.
 

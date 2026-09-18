@@ -87,10 +87,11 @@ perfect vector recall alone cannot prove useful text relevance.
 
 Measurements distinguish model load, corpus inference, index construction,
 artifact reopen, query inference and lookup. They are observations of one small
-fixture, not hardware minimums or a production capacity estimate. Broader P0-02
-qualification still needs declared corpus scales, peak RAM/disk, observed OS
-network denial, missing/corrupt asset integration and a durable canonical
-store adapter. This prototype's volatile governance replay cannot qualify live
+fixture, not hardware minimums or a production capacity estimate. The subsequent
+[resource gate](local-memory-resources.md) measures three declared sizes, native
+memory counters, sampled disk growth and repeated queries. The [offline gate](offline-embeddings.md)
+qualifies contained CPU inference and missing/corrupt assets. A durable canonical
+store adapter remains P0-04/P1/P5 integration. This prototype's volatile governance replay cannot qualify live
 deletion, concurrency, crash durability or policy revision races.
 
 Follow [ADR-008](../adr/008-local-governed-memory.md), the

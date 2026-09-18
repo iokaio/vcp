@@ -17,6 +17,7 @@ These guides describe how to implement and qualify the planned system. The [deli
 - [Local CPU embeddings](local-embeddings.md): verified model assets, bounded file-only inference, independent vectors and native qualification.
 - [Offline embedding qualification](offline-embeddings.md): Windows AppContainer token checks, independently observed local canaries and real asset fault injection.
 - [Local corpus prototype](local-memory-spike.md): real Tantivy/DiskANN construction, scoped current-version results and fresh-process reopen with CPU vectors.
+- [Local resource qualification](local-memory-resources.md): three declared corpus sizes, native resident/committed/mapped measurements, sampled disk growth and repeated query checks.
 - [Local governance adapter](local-governance-spike.md): scoped Munarium gates, disputed proposal evidence and pin-aware supersession in the corpus experiment.
 - [Qualification and release design](../architecture/qualification-release-design.md): test runner/result contracts, independent fault oracles and packaged acceptance.
 - [Code layout](../plan/code-layout.md): responsibility boundaries and proposed paths.

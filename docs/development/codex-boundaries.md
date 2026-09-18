@@ -5,7 +5,7 @@ The shared workspace contains 159 Cargo packages: 154 from Codex, three
 [VCP CPU embedding helper](local-embeddings.md) plus the original
 [local corpus qualification executable](local-memory-spike.md). Its
 [boundary inventory](../../src/third_party/components/codex-boundaries.json)
-assigns each package to exactly one of 23 review groups and anchors 46 concrete
+assigns each package to exactly one of 23 review groups and anchors 47 concrete
 source seams. It is a **static ownership and navigation record**. It does not
 prove absence of hidden effects, enable a VCP runtime or claim that an adapter
 already exists. Read it alongside [the source selection](codex-source.md),

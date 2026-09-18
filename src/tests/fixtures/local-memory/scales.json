@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "generator": "vcp-scale-v1",
+  "seed": 17092026,
+  "records": [100, 1000, 10000],
+  "workspaces": ["atlas", "boreal"],
+  "warm_repetitions": 5,
+  "minimum_recall_at_3": 1,
+  "phase_timeout_ms": 900000,
+  "disk_sample_interval_ms": 100,
+  "memory_sample_interval_ms": 50
+}

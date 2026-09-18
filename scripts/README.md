@@ -7,7 +7,7 @@ This directory owns repository automation. `test.ps1` and `test-runner.cjs` impl
 | `build.ps1` (implemented baseline) | Verify and build the selected native Windows Codex workspace, or select Munarium libraries with `-Component Munarium`; `-Mode BoundaryTests` runs component tests | P0-07/P0-08 |
 | `test.ps1` (implemented) | Run deterministic repository, harness, experiment and upstream-inventory checks; preserve exit status and evidence | P0-01, extended by feature owners |
 | `test-embeddings.ps1` (implemented qualification) | Verify explicit local assets, test/build the CPU helper, check its dependency graph and compare real model results | P0-07; integration continues in P0-02 |
-| `test-local-memory.ps1` (implemented prototype) | Build the corpus qualification executable, verify its dependency closure and observe real local indexes across fresh processes | P0-02 |
+| `test-local-memory.ps1` (implemented prototype) | Build the corpus qualification executable, verify its dependency closure and observe real local indexes across fresh processes; add `-Scale` for the declared resource gate | P0-02 |
 | `package.ps1` | Assemble qualified artifacts, licenses, notices, and checksums | P8-04 |
 | `evals/` | Orchestrate explicitly configured evaluations and collect results | P5-08/P8-05 |
 | `upstream/` (implemented baseline tooling) | `inventory.cjs` records immutable Git bytes; `reconstruct.cjs` reconstructs/verifies selected source; `build-baseline.ps1` runs native builds/tests | P0-07/P0-08, rehearsed in P8-06 |
