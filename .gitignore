@@ -32,3 +32,4 @@ __pycache__/
 .env.*
 !.env.example
 !.env.*.example
+docs/plan-assessment.docx
