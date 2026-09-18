@@ -37,6 +37,13 @@ already include these changes; normal builds never apply patches.
    all 1,566 package identities/checksums and other dependency records remain.
    No imported Rust implementation is changed.
 
+6. `0006-continuation-admission.patch` adds a host continuation hook to the
+   retained extension API and gates delegated child input, review delegates and
+   mailbox wakeups. Five new native regression cases accompany four implementation
+   files. The default preserves existing shutdown drain; no pause command,
+   cancellation, persistence, dependency or lockfile change is included. See the
+   [implementation guide](../../../../docs/development/continuation-admission.md).
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

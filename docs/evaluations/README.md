@@ -3,6 +3,8 @@
 These reports describe executed checks with explicit scope and limitations.
 Raw evidence stays in ignored local artifact directories or CI artifacts.
 
+- [P0-03 continuation admission](p0-03-continuation-admission.md): five new native gate regressions, retained drain compatibility and unfinished pause work.
+
 - [P0-01 experiment harness](p0-01-experiment-harness.md): deterministic helpers,
   public synthetic workloads and requirement coverage; no product/model score.
 - [P0-07 native candidates](p0-07-native-candidates.md): unmodified Codex Windows

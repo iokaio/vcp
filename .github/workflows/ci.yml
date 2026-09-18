@@ -115,6 +115,8 @@ jobs:
         run: ./scripts/build.ps1
       - name: Test native patch and policy boundaries
         run: ./scripts/build.ps1 -Mode BoundaryTests
+      - name: Test native continuation admission and retained drain
+        run: ./scripts/build.ps1 -Mode LifecycleTests
       - name: Test committed local-memory libraries and dependency boundary
         run: ./scripts/build.ps1 -Component Munarium -Mode BoundaryTests -TargetRoot artifacts/munarium-target
       - name: Trace native CLI against the local scripted provider
@@ -136,5 +138,6 @@ jobs:
             !artifacts/gemini-qualification/**/synthetic-home/**
             !artifacts/local-memory/**/profile/**
             !artifacts/embeddings/**/private/**
+            !artifacts/build/**/profile/**
           if-no-files-found: error
           retention-days: 14

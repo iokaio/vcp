@@ -45,6 +45,11 @@ Root Git attributes preserve upstream bytes; original nested fixture attributes
 are retained. Executable Git modes must be staged explicitly on Windows and
 checked against the result inventory before commit.
 
+The sixth patch adds [host continuation admission](continuation-admission.md) to
+four retained implementation files and five integration cases. It preserves
+default drain semantics and does not change dependencies or provide a complete
+pause operation. Run `scripts/build.ps1 -Mode LifecycleTests` for the native gate.
+
 Full retained notices are described in [third-party attribution](../../THIRD_PARTY_NOTICES.md).
 The Cargo lockfile records external registry checksums and immutable Git source
 revisions; the complete Rust workspace supplies internal path dependencies.

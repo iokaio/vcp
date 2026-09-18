@@ -51,6 +51,10 @@
     {
       "path": "src/third_party/patches/codex/0005-local-governance-workspace.patch",
       "sha256": "177155c25a263206529b0bc48943ab7267ad6d9a9f18b993e0a8a3614e090e69"
+    },
+    {
+      "path": "src/third_party/patches/codex/0006-continuation-admission.patch",
+      "sha256": "00ad43010e735d93fb85ebef6f60f896845e2cf6dae21d7e7c5402c70a108486"
     }
   ],
   "licenses": [

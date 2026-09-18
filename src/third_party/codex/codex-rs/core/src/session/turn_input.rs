@@ -1,3 +1,4 @@
+// VCP modification: gate delegated turn starts through host continuation admission.
 //! Handles reply-bearing turn-input operations.
 //!
 //! This is the one place Core decides whether submitted input starts a turn,
@@ -327,15 +328,15 @@ async fn start_or_steer(
                         .session_source,
                     SessionSource::SubAgent(SubAgentSource::ThreadSpawn { .. })
                 );
-            let _admission = if is_delegated_input {
-                None
+            let admission = if is_delegated_input {
+                session.services.extensions.admit_continuation_start()
             } else {
-                let Some(admission) = session.services.extensions.admit_turn_start() else {
-                    return Ok(TurnInputSubmission::NotSubmitted {
-                        reason: NotSubmittedReason::ServerDraining,
-                    });
-                };
-                Some(admission)
+                session.services.extensions.admit_turn_start()
+            };
+            let Some(_admission) = admission else {
+                return Ok(TurnInputSubmission::NotSubmitted {
+                    reason: NotSubmittedReason::ServerDraining,
+                });
             };
             let Some(turn_context) = settings
                 .apply_started(session, submission_id.clone(), TurnStartKind::User)
@@ -403,26 +404,29 @@ async fn start_if_idle(
         });
     }
 
-    let _admission = session.services.extensions.admit_turn_start();
-    // A one-shot review delegate completes its already-running parent's work.
-    // Its explicit input carries parent lineage; automatic starts do not qualify.
-    if _admission.is_none()
-        && !(kind == TurnStartKind::User
-            && start.parent_turn_id.is_some()
-            && matches!(
-                session
-                    .state
-                    .lock()
-                    .await
-                    .session_configuration
-                    .session_source,
-                SessionSource::SubAgent(SubAgentSource::Review)
-            ))
-    {
+    // Review delegates use continuation admission even when ordinary starts
+    // remain open. The default permits them during host drain; a pausing host
+    // can seal both kinds of admission.
+    let admission = if kind == TurnStartKind::User
+        && start.parent_turn_id.is_some()
+        && matches!(
+            session
+                .state
+                .lock()
+                .await
+                .session_configuration
+                .session_source,
+            SessionSource::SubAgent(SubAgentSource::Review)
+        ) {
+        session.services.extensions.admit_continuation_start()
+    } else {
+        session.services.extensions.admit_turn_start()
+    };
+    let Some(_admission) = admission else {
         return Ok(TurnInputSubmission::NotSubmitted {
             reason: NotSubmittedReason::ServerDraining,
         });
-    }
+    };
 
     let turn_state = {
         let mut active_turn = session.active_turn.lock().await;

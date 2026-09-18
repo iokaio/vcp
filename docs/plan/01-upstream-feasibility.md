@@ -151,8 +151,11 @@ Measure cold load, warm inference/query, batch throughput, resident/mapped memor
 
 The [native CLI trace](../evaluations/p0-07-cli-trace.md) now observes completion,
 tool receipt/file effects, retry and rejection through the unmodified retained
-loop. It provides a baseline for this task; controller injection, owner loss and
-in-app root/child pause remain unimplemented and P0-03 remains planned.
+loop. The [continuation admission increment](../development/continuation-admission.md)
+now gates delegated child, review and mailbox starts through an injected host
+hook, with [ten native regressions](../evaluations/p0-03-continuation-admission.md).
+P0-03 is `in_progress`: scoped authority, active cancellation, durable checkpoint,
+owner loss, explicit resume and in-app root/child pause remain unimplemented.
 
 1. Trace CLI input to controller, context, model request, tools and completion in the pinned code. Identify injectable persistence/model/policy/execution boundaries.
 2. Wrap a tiny internal command/event path with workspace/task IDs, deterministic responses, cancellation and visible outcomes.

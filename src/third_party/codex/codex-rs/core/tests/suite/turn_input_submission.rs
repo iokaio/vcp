@@ -1,3 +1,4 @@
+// VCP modification: verify continuation denial and preservation of delegated input.
 use codex_core::NotSubmittedReason;
 use codex_core::RecoverTurnRequest;
 use codex_core::StartIfIdleSubmission;
@@ -1003,5 +1004,200 @@ async fn sampling_is_ready_for_daemon_recovery(
         matches!(event, EventMsg::TurnComplete(_))
     })
     .await;
+    Ok(())
+}
+
+#[derive(Debug)]
+struct SealingAdmission {
+    closed: AtomicBool,
+    allow_ordinary: bool,
+    denied_continuations: tokio::sync::Notify,
+}
+
+impl TurnStartAdmission for SealingAdmission {
+    fn admit_turn_start(&self) -> Option<Box<dyn Send>> {
+        (self.allow_ordinary || !self.closed.load(Ordering::SeqCst))
+            .then(|| Box::new(()) as Box<dyn Send>)
+    }
+
+    fn admit_continuation_start(&self) -> Option<Box<dyn Send>> {
+        let permit = (!self.closed.load(Ordering::SeqCst)).then(|| Box::new(()) as Box<dyn Send>);
+        if permit.is_none() {
+            self.denied_continuations.notify_one();
+        }
+        permit
+    }
+}
+
+fn sealing_admission() -> Arc<SealingAdmission> {
+    Arc::new(SealingAdmission {
+        closed: AtomicBool::new(true),
+        allow_ordinary: false,
+        denied_continuations: tokio::sync::Notify::new(),
+    })
+}
+
+#[test_case(false; "ordinary_closed")]
+#[test_case(true; "ordinary_open")]
+#[tokio::test]
+async fn continuation_seal_rejects_delegated_input_without_recording_it(
+    ordinary_open: bool,
+) -> anyhow::Result<()> {
+    let server = responses::start_mock_server().await;
+    let response =
+        responses::mount_sse_once(&server, responses::sse_completed("admitted-child")).await;
+    let mut admission = sealing_admission();
+    Arc::get_mut(&mut admission).unwrap().allow_ordinary = ordinary_open;
+    let mut extensions = ExtensionRegistryBuilder::new();
+    extensions.turn_start_admission(admission.clone());
+    let test = test_codex()
+        .with_extensions(Arc::new(extensions.build()))
+        .build_with_auto_env(&server)
+        .await?;
+    let child = test
+        .thread_manager
+        .start_thread(StartThreadOptions {
+            session_source: Some(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+                parent_thread_id: test.session_configured.thread_id,
+                depth: 1,
+                agent_path: None,
+                agent_nickname: None,
+                agent_role: None,
+            })),
+            environments: Some(test.codex.environment_selections().await),
+            ..StartThreadOptions::new(test.config.clone())
+        })
+        .await?
+        .thread;
+    let request = |text: &str| {
+        user_message_request(text).on_start(TurnStartOptions {
+            parent_turn_id: Some("parent-turn".to_string()),
+            ..Default::default()
+        })
+    };
+    assert_eq!(
+        child
+            .start_or_steer_turn(request("rejected delegated text"))
+            .await?,
+        TurnInputSubmission::NotSubmitted {
+            reason: NotSubmittedReason::ServerDraining
+        }
+    );
+    assert!(response.requests().is_empty());
+    admission.closed.store(false, Ordering::SeqCst);
+    assert!(matches!(
+        child
+            .start_or_steer_turn(request("admitted delegated text"))
+            .await?,
+        TurnInputSubmission::Started { .. }
+    ));
+    wait_for_event(&child, |event| matches!(event, EventMsg::TurnComplete(_))).await;
+    let actual = response.single_request();
+    assert!(actual.body_contains_text("admitted delegated text"));
+    assert!(!actual.body_contains_text("rejected delegated text"));
+    Ok(())
+}
+
+#[test_case(false; "ordinary_closed")]
+#[test_case(true; "ordinary_open")]
+#[tokio::test]
+async fn continuation_seal_rejects_review_delegate_without_a_model_call(
+    ordinary_open: bool,
+) -> anyhow::Result<()> {
+    use codex_protocol::protocol::{ReviewRequest, ReviewTarget};
+    let server = responses::start_mock_server().await;
+    let response =
+        responses::mount_sse_once(&server, responses::sse_completed("unexpected-review")).await;
+    let mut admission = sealing_admission();
+    Arc::get_mut(&mut admission).unwrap().allow_ordinary = ordinary_open;
+    let mut extensions = ExtensionRegistryBuilder::new();
+    extensions.turn_start_admission(admission.clone());
+    let test = test_codex()
+        .with_extensions(Arc::new(extensions.build()))
+        .build_with_auto_env(&server)
+        .await?;
+    test.codex
+        .submit(Op::Review {
+            review_request: ReviewRequest {
+                target: ReviewTarget::Custom {
+                    instructions: "rejected review delegate".to_string(),
+                },
+                user_facing_hint: None,
+            },
+        })
+        .await?;
+    timeout(
+        Duration::from_secs(10),
+        admission.denied_continuations.notified(),
+    )
+    .await?;
+    let event = wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::ExitedReviewMode(_))
+    })
+    .await;
+    let EventMsg::ExitedReviewMode(event) = event else {
+        unreachable!()
+    };
+    assert!(event.review_output.is_none());
+    assert!(response.requests().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn continuation_seal_retains_mail_until_explicit_readmission() -> anyhow::Result<()> {
+    let server = responses::start_mock_server().await;
+    let response =
+        responses::mount_sse_once(&server, responses::sse_completed("retained-mail")).await;
+    let admission = sealing_admission();
+    let mut extensions = ExtensionRegistryBuilder::new();
+    extensions.turn_start_admission(admission.clone());
+    let test = test_codex()
+        .with_extensions(Arc::new(extensions.build()))
+        .build_with_auto_env(&server)
+        .await?;
+    let mail = |text: &str| Op::InterAgentCommunication {
+        communication: InterAgentCommunication::new(
+            AgentPath::try_from("/root/worker").unwrap(),
+            AgentPath::root(),
+            Vec::new(),
+            text.to_string(),
+            true,
+        ),
+        start_options: Default::default(),
+    };
+    for text in ["retained mail one", "retained mail two"] {
+        test.codex.submit(mail(text)).await?;
+        timeout(
+            Duration::from_secs(10),
+            admission.denied_continuations.notified(),
+        )
+        .await?;
+    }
+    assert_eq!(
+        test.codex
+            .start_turn_if_idle(user_message_request("rejected start behind mail"))
+            .await?,
+        StartIfIdleSubmission::NotSubmitted {
+            reason: NotSubmittedReason::PendingTriggerTurn
+        }
+    );
+    assert!(response.requests().is_empty());
+    admission.closed.store(false, Ordering::SeqCst);
+    test.codex
+        .submit(mail("explicit readmission wakeup"))
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+    let actual = response.single_request();
+    for text in [
+        "retained mail one",
+        "retained mail two",
+        "explicit readmission wakeup",
+    ] {
+        assert!(actual.body_contains_text(text));
+    }
+    assert!(!actual.body_contains_text("rejected start behind mail"));
     Ok(())
 }

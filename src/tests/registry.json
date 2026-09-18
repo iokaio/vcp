@@ -52,7 +52,8 @@
     "upstream-inventory": {
       "task_ids": [
         "P0-07",
-        "P0-02"
+        "P0-02",
+        "P0-03"
       ],
       "args": [
         "--test",
@@ -64,7 +65,8 @@
         "src/tests/contracts/model-assets.test.cjs",
         "src/tests/contracts/local-memory.test.cjs",
         "src/tests/contracts/offline-embeddings.test.cjs",
-        "src/tests/contracts/memory-resources.test.cjs"
+        "src/tests/contracts/memory-resources.test.cjs",
+        "src/tests/contracts/lifecycle-results.test.cjs"
       ],
       "backends": [
         "none"

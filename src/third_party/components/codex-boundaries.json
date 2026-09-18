@@ -99,7 +99,7 @@
       "package": "codex-core",
       "path": "core/src/session/handlers.rs",
       "symbol": "pub async fn inter_agent_communication",
-      "observation": "Inter-agent input can schedule idle work; pause must fence queued/background starts as well as current tasks.",
+      "observation": "Inter-agent input queues work; mailbox starts now consult host continuation admission before reserving or consuming it. Default hosts still admit; scoped pause and cancellation remain unimplemented.",
       "effect_class": "effectful",
       "vcp_boundary": "controller",
       "effects": [

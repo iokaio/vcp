@@ -70,7 +70,9 @@ as a regular copy of `COPYING` for Windows. VCP's ordered
 [compatibility patch](src/third_party/patches/codex/README.md) raises the
 `codex-chatgpt` crate recursion limit and registers the Munarium libraries in
 the workspace/lockfile, then adds the local CPU embedding adapter and its reviewed
-dependencies. Modified files carry notices; original
+dependencies. The sixth patch changes four controller/extension files and adds
+five continuation-admission cases to the retained turn-input integration suite.
+Modified files carry notices; original
 copyright and license terms remain unchanged.
 Individual source copyright headers remain intact. No voice DLLs, Microsoft
 redistributables, model assets or VCP release package are distributed by this import.
