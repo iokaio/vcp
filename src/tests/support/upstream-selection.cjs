@@ -151,6 +151,9 @@ function reconstruct({ repository, source, output, component, selection }) {
     if (sha256(bytes) !== patch.sha256) throw Error('Patch digest mismatch: ' + patch.path);
     return bytes;
   });
+  // Nested output paths are valid on a clean checkout. Allocate their parents
+  // only after input verification; keep destination creation exclusive.
+  fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.mkdirSync(output);
   for (const entry of prepared) {
     const destination = path.join(output, entry.path);

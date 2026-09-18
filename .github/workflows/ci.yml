@@ -72,14 +72,6 @@ jobs:
         run: node scripts/upstream/reconstruct.cjs verify-index --component codex
       - name: Verify imported Munarium Git modes and bytes
         run: node scripts/upstream/reconstruct.cjs verify-index --component munarium
-      - name: Build committed native CLI
-        run: ./scripts/build.ps1
-      - name: Test native patch and policy boundaries
-        run: ./scripts/build.ps1 -Mode BoundaryTests
-      - name: Test committed local-memory libraries and dependency boundary
-        run: ./scripts/build.ps1 -Component Munarium -Mode BoundaryTests -TargetRoot artifacts/munarium-target
-      - name: Trace native CLI against the local scripted provider
-        run: node scripts/upstream/trace-cli.cjs --binary artifacts/codex-target/x86_64-pc-windows-msvc/debug/codex.exe
       - name: Independently reconstruct the immutable source selection
         run: |
           $origins = @{ codex = 'https://github.com/openai/codex.git'; munarium = 'https://github.com/iokaio/munarium.git' }
@@ -94,6 +86,14 @@ jobs:
             node -e "const fs = require('node:fs'), id = process.argv[1]; require('node:assert/strict').deepEqual(JSON.parse(fs.readFileSync('artifacts/' + id + '-reconstructed.json')), JSON.parse(fs.readFileSync('src/third_party/components/' + id + '-files.json'))); console.log(id + ' reconstruction matches committed inventory');" $component
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Build committed native CLI
+        run: ./scripts/build.ps1
+      - name: Test native patch and policy boundaries
+        run: ./scripts/build.ps1 -Mode BoundaryTests
+      - name: Test committed local-memory libraries and dependency boundary
+        run: ./scripts/build.ps1 -Component Munarium -Mode BoundaryTests -TargetRoot artifacts/munarium-target
+      - name: Trace native CLI against the local scripted provider
+        run: node scripts/upstream/trace-cli.cjs --binary artifacts/codex-target/x86_64-pc-windows-msvc/debug/codex.exe
       - name: Retain Windows evidence, including failures
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

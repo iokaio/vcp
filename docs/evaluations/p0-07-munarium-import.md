@@ -1,7 +1,8 @@
 # P0-07 — Munarium import into the shared Cargo workspace
 
-Status: local native checks pass; hosted checks for this import are pending the
-PR workflow. P0-07 remains `in_progress`. This does not qualify VCP memory,
+Status: local and hosted native checks pass; the first hosted reconstruction
+failed on a missing output parent. The fix awaits a green full workflow.
+P0-07 remains `in_progress`. This does not qualify VCP memory,
 local inference, canonical persistence, pause/resume or a release package.
 
 ## Source and dependency identity
@@ -91,6 +92,24 @@ uses the actual native dependency record and provisioned package declarations.
 
 ## Delivery and remaining gates
 
+[Hosted run 35291575786](https://github.com/iokaio/vcp/actions/runs/35291575786)
+tested PR head `6d051290ebd3eba0649a727914e7b067a619f76b` on
+`win8core-1000002530` in `wingroup`. The CLI build passed in 13m35s, all 102
+patch/policy and 200 Munarium tests passed, and all five CLI traces passed.
+The 147-package dependency record matched the local result exactly. It used
+MSVC 14.51.36231 and the same pinned Rust versions. The raw downloaded evidence
+is retained under `artifacts/ci/windows-35291575786-1/`.
+
+The final reconstruction step failed before copying source because a clean
+runner lacked the new `artifacts/reconstructed/` parent. Reconstruction now
+creates missing parents only after input verification and still creates the
+destination exclusively, preserving existing-tree rejection. The regression
+exercises a fresh nested destination and ensures invalid inputs do not create
+their parent. Both full reconstructions passed locally with fresh parent paths;
+their records exactly match the committed inventories. CI now performs this
+check before the expensive native build. No compiler assertion, source digest or
+test expectation was relaxed; the failed workflow remains recorded as failed.
+
 The boundary resolver allows only explicitly selected external component roots.
 A regression tests default rejection, authorized sibling membership, outside
 path dependencies and junction/symlink escapes. Imported whitespace and Markdown
@@ -103,7 +122,8 @@ lockfile identity. The fast suite covers source inventories, documentation links
 The workflow targets `ubuntu-8core` for deterministic checks and `win8core` for
 native qualification. Windows installs both compilers, builds Codex, runs its
 patch/policy tests and scripted CLI traces, tests Munarium and reconstructs both
-selections. Local success does not establish remote CI success for this change.
+selections. The pending fixed workflow must pass before merge; successful native
+steps in the earlier failed run do not make that whole run green.
 
 One Cargo graph is established, but component compiler pins remain separate.
 No embedding runtime/model is installed or invoked. Gemini selection and

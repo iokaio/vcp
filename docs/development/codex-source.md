@@ -166,7 +166,8 @@ Ordinary source verification also checks each declared patch's actual digest,
 without applying it; a modified patch cannot silently escape CI/build checks.
 
 The importer checks immutable inputs before creating output and refuses existing
-output/record files. A failed patch leaves its new partial output for inspection;
+output/record files. It creates missing output parents after input verification,
+then exclusively creates the destination. A failed patch leaves its new partial output for inspection;
 it is not a successful reconstruction. Patches use a separate owned scratch Git
 index without author identity, commits or metadata inside reconstructed source.
 Ordered `git apply --check --index` and `git apply --index` preserve executable

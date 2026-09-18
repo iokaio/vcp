@@ -42,7 +42,7 @@ test('reconstruction reproduces pinned bytes and detects changed, extra and miss
     const selection = { schema_version: 1, component: 'fixture', commit, destination: 'src/third_party/fixture', owner_task: 'P0-07',
       include: ['LICENSE', 'README.md'], materialize_links: {}, patches: [], result_inventory: 'src/third_party/components/fixture.json',
       licenses: ['LICENSE'], closure: ['README.md'] };
-    const output = path.join(fixture.root, 'copy');
+    const output = path.join(fixture.root, 'new-parent', 'copy');
     const record = reconstruct({ repository, source: repository, output, component, selection });
     assert.deepEqual(compareTree(output, record), []);
     assert.throws(() => reconstruct({ repository, source: repository, output, component, selection }), /already exists/);
@@ -51,9 +51,10 @@ test('reconstruction reproduces pinned bytes and detects changed, extra and miss
     fs.writeFileSync(path.join(output, 'extra'), 'extra');
     assert.deepEqual(compareTree(output, record).sort(), ['Changed: README.md', 'Missing: LICENSE', 'Unexpected: extra']);
     const bad = { ...selection, patches: [{ path: 'src/third_party/patches/fixture/missing.patch', sha256: '0'.repeat(64) }] };
-    const absent = path.join(fixture.root, 'absent');
+    const absent = path.join(fixture.root, 'never-created', 'absent');
     assert.throws(() => reconstruct({ repository, source: repository, output: absent, component, selection: bad }), /ENOENT/);
     assert.equal(fs.existsSync(absent), false);
+    assert.equal(fs.existsSync(path.dirname(absent)), false);
     const patchRoot = path.join(fixture.root, 'src/third_party/patches/fixture');
     fs.mkdirSync(patchRoot, { recursive: true });
     const firstLines = execFileSync('git', ['show', commit + ':README.md'], { cwd: repository }).toString().split('\n').slice(0, 4);
