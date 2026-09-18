@@ -121,8 +121,9 @@ a reconstructed shared graph, reconstruct Codex under the sibling
 `artifacts/reconstructed/codex` directory; preserve the same relative layout.
 Neither ordinary build fetches upstream source or reapplies either patch series.
 
-The delivery workflow checks both imports on `ubuntu-8core` and `win8core`.
-Windows also runs the committed library tests and dependency check, then
+The delivery workflow checks both imports on standard `ubuntu-24.04` routinely
+and `windows-2025` during manual qualification. The manual Windows job also
+runs the committed library tests and dependency check, then
 independently fetches/reconstructs both pinned selections. Artifacts retain the
 result inventories and logs, excluding source trees, binaries and caches.
 Imported Markdown keeps upstream-relative links; byte inventories verify it,

@@ -96,18 +96,22 @@ and deterministic tooling; it does not qualify a Windows binary.
 ### Native Windows CI
 
 The [delivery workflow](../../.github/workflows/ci.yml) also targets the
-owner-provided `win8core` GitHub-hosted Windows x64 runner (Windows Latest 2025,
-8 cores, 32 GB RAM, 300 GB SSD). Each job starts from checkout with process-scoped
+standard `windows-2025` GitHub-hosted Windows x64 runner. GitHub lists 4 CPUs,
+16 GB RAM and 14 GB SSD storage for this public-repository runner; see the
+[standard runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories).
+Each job starts from checkout with process-scoped
 Git long-path support, installs Node 24.10.0 and Rust 1.95.0/1.98.0, and provisions Cargo
 dependencies without a restored VCP build cache. Visual Studio, SDK, CMake and
 Ninja discovery uses the same native build runner as local qualification.
 
-The runner's organization group (`wingroup` at initial qualification) must grant repository access to `iokaio/vcp`
-and allow public repositories. GitHub groups permit only private repositories
-by default; a ready runner can remain unavailable to this public checkout.
-If the group restricts workflows, it must permit `.github/workflows/ci.yml`.
-See [GitHub's larger-runner access procedure](https://docs.github.com/en/actions/how-tos/using-larger-runners/controlling-access-to-larger-runners).
-An unassigned queued job provides no native qualification evidence.
+Standard runners do not require an organization runner group. The workflow maps
+`ubuntu-8core` to `ubuntu-24.04` and `win8core` to `windows-2025`, removing the
+larger-runner compute charges for this public repository. Windows Cargo commands
+explicitly use two build jobs to reduce peak memory demand; local command defaults
+are unchanged. All qualification cases and acceptance thresholds remain required.
+Earlier evaluation records describe the machines on which they actually ran;
+they do not establish capacity or qualification on the smaller runner. Check the
+new CI result for memory, disk and timing failures before claiming that evidence.
 
 The Windows job runs the fast suite, verifies imported Git bytes/modes, builds
 the committed CLI, runs patch/policy and selected Munarium library tests, and executes the five synthetic
@@ -116,9 +120,26 @@ exact Codex and Munarium commits from their selections, reconstructs both with
 their recorded patches, and compares each complete result with its committed inventory. The
 ordinary build remains independent of this acquisition and reconstruction.
 
+Native qualification is temporarily manual-only to reduce CI work. In GitHub,
+select **Actions > Delivery checks > Run workflow**, choose the intended branch,
+and run it. Alternatively, after this workflow is on the default branch:
+
+```powershell
+gh workflow run ci.yml --ref main
+```
+
+The `windows` job runs only for `workflow_dispatch`, after the fast `delivery`
+job passes. PRs and pushes to main run only the fast Ubuntu checks. The manual
+job retains source reconstruction, Gemini, embeddings, all corpus scales,
+native builds/tests and CLI traces. No scheduled heavy run or paid-model call
+is added. Run affected native checks deliberately before claiming native or
+release acceptance; a skipped Windows job supplies no such evidence. To restore
+automatic native qualification, remove its event condition in the workflow.
+
 Every native command must pass; missing prerequisites fail the job. The job has
-a 90-minute timeout and uploads test, build and trace manifests/logs plus the
-reconstruction inventory on success or failure, retained for 14 days. Acquired
+a 180-minute timeout to accommodate the smaller runner and uploads test, build
+and trace manifests/logs plus the reconstruction inventory on success or failure,
+retained for seven days. Download needed evidence before expiry. Acquired
 source, reconstructed source, dependency caches and binaries are excluded from
 the artifact selection. Record the run/head, actual assigned runner, tool versions
 and outcomes in evaluation evidence before claiming second-environment success.

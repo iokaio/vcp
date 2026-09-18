@@ -59,7 +59,8 @@ Five original drain tests and five new continuation cases must each appear once
 with `ok`, alongside matching summaries with zero failures/ignored tests. Empty,
 skipped, duplicate and missing evidence fails the observer. The captured logs,
 binary/build-log hashes, source identity and result manifest live under ignored
-`artifacts/build/`. CI runs the same command on `win8core` in `wingroup` and excludes
+`artifacts/build/`. Manual Windows qualification runs the same command on
+`windows-2025` with `-Jobs 2` and excludes
 owned profile contents from uploaded evidence.
 
 ## Remaining P0-03 implementation

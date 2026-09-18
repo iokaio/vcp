@@ -1,6 +1,9 @@
 # VCP implementation and testing plan
 
-Plan revision 4 — September 17, 2026. Status: planned; every segment expanded with implementation contracts, construction sequences, failure handling and supporting design/ADR references. Explicit pause while the CLI stays open is required alongside close-to-pause. No implementation or runtime test result is implied.
+Plan revision 5 — September 18, 2026. Delivery uses larger behavioral milestones
+with local validation before publication. The ledger below distinguishes bounded
+qualification already completed from remaining product implementation. Explicit
+pause while the CLI stays open is required alongside close-to-pause.
 
 Start with [the code layout](code-layout.md), [the delivery contract](00-delivery-contract.md), [test infrastructure and acceptance](16-test-fixtures-and-acceptance.md), then [upstream feasibility](01-upstream-feasibility.md). These files expand [architecture draft 0.4](../architecture/vcp-what.md) into coding and testing work. The architecture remains authoritative for product behavior; this directory owns the detailed execution instructions and repository layout.
 
@@ -55,11 +58,43 @@ The first usable release includes coding, automatic selection across groups, per
 
 1. Find the next uncompleted work item whose dependencies are satisfied in [the ledger](20-traceability.md).
 2. Read its source contracts and the applicable fixture definitions. Record any unresolved engineering decision before coding against it.
-3. Implement the listed increments in reviewable changes, retaining upstream tests and adding VCP boundary tests alongside the behavior.
-4. Run the relevant deterministic and Windows integration suites. Run paid evaluations only with an explicit configured evaluation budget.
+3. Group the listed increments into a complete behavioral milestone on one topic branch. Retain upstream tests and add VCP boundary tests alongside the behavior; do not publish a separate PR for each seam, fixture, or small follow-up.
+4. Run the relevant deterministic and native Windows integration suites locally, fix failures, and review the combined result before publication. Routine GitHub CI is fast confirmation; hosted native qualification is manual. Run paid evaluations only with an explicit configured evaluation budget.
 5. Record actual commands, versions, exit status and artifact locations. Mark the item complete only when its exit criteria pass; describe partial results explicitly.
 
 Do not mark whole segments done from this document's existence. Keep decision records in `docs/adr/`, reviewed redacted summaries in `docs/evaluations/`, and raw run evidence under ignored local artifact roots such as `artifacts/`. Create these locations when their owning work produces content; the layout and community files do not complete any product work item.
+
+## PR milestones and local validation
+
+Prefer one substantial PR for a complete behavior, including its interfaces,
+real callers, failure handling, tests, source/patch records and documentation.
+Build dependent increments on the same branch and validate them locally before
+publishing. Multiple local commits are useful; they need not become separate
+PRs or hosted runs. Start the next milestone from updated main after the prior
+PR is reviewed and merged. This is deeper work within a PR, not a requirement
+for a chain of unmerged PRs.
+
+The next foundation milestones are:
+
+| Milestone | Existing owners | Combined implementation and evidence |
+|---|---|---|
+| Scoped lifecycle control | P0-03 | Trusted thread admission, root/child hold state, active stream cancellation, explicit readmission, owner-loss fencing and real retained-loop tests in one PR; preserve independent child holds and visible limitations |
+| Lifecycle recovery and Windows execution | P0-03, then P0-05 | Owner checkpoint/reopen trace, private CLI control, confirmed process-tree outcomes, Windows boundary fixtures and failure receipts; finish P0-03 before claiming dependent P0-05 acceptance |
+| Storage and encrypted portability | P0-04 | Compare both stores with the same fixtures, authenticated encrypted snapshot/restore, corruption and crash cases, resource measurements and ADR decisions |
+| Integrated upstream handoff | P0-08/P0-09, then P0-06 | Retained-loop adapters, provider-neutral fixture ports, full effect trace, patch-maintenance rehearsal and consolidated prerequisite evidence |
+
+These are delivery groupings, not new tasks or changed dependencies. The first
+lifecycle milestone remains a bounded prototype until durable recovery and CLI
+acceptance pass. Keep unfinished ledger items `in_progress`. Later segments use
+the same approach: combine domain changes, real adapters, observable behavior
+and relevant acceptance tests instead of publishing plumbing-only increments.
+Split a milestone only for a concrete dependency, distinct review risk or a
+validation problem that makes the combined change impractical; record why.
+
+For each PR, record the local commands, exact source identity, failure/retry
+results and remaining checks. A green fast GitHub run is not native acceptance.
+The [implementation workflow](../development/implementation-workflow.md#delivery-milestones)
+defines the preparation and publication boundary.
 
 ## Implementation reading map
 

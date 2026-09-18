@@ -10,6 +10,13 @@ Implement evaluation orchestration under `scripts/evals/`, reusable graders and 
 
 Add CI jobs incrementally for formatting/build/contracts, backend parity, Windows process/recovery, real local embedding, deterministic acceptance and packaging. Jobs needing assets or an interactive console state prerequisites explicitly. Paid OpenRouter evaluation runs are separated from ordinary PR checks and require a configured budget.
 
+Current cost-control policy: routine PR/main CI runs the fast delivery suite on
+standard Ubuntu; full native Windows qualification is available only through
+manual dispatch on a standard runner. See the [qualification procedure](../development/codex-source.md#native-windows-ci)
+for invocation and reversal. This changes when expensive checks run, not the
+evidence required to complete product tasks or qualify a release. A green routine
+check or skipped native job does not satisfy native acceptance.
+
 ## P5-08 — Integrated memory acceptance
 
 After P5-01–07/P5-09/P5-10, exercise canonical memory, search, pruning and encrypted restore together. Compare no semantic memory, versioned Markdown recall and governed memory on the same held-out source/question/task fixtures, model configuration and total budget where applicable.

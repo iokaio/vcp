@@ -79,7 +79,7 @@ Evidence directories are preserved, not broadly cleaned.
 The reusable fixture and independent oracle are in
 [`cli-trace.cjs`](../../src/tests/support/cli-trace.cjs); orchestration is in
 [`trace-cli.cjs`](../../scripts/upstream/trace-cli.cjs). CI runs their synthetic
-HTTP/oracle regression tests via the `fast`/`upstream` suites on `ubuntu-8core`.
+HTTP/oracle regression tests via the `fast`/`upstream` suites on `ubuntu-24.04`.
 Those tests reject false completion, hidden retries, incorrect authentication,
 missing/incorrect patch contents, receipt-only success, false helper completion,
 incorrect response usage, missing summaries and extra post-rejection requests. Linux regression

@@ -61,11 +61,11 @@ qualification. Missing prerequisites return `not_run`/3, failed checks return a
 nonzero exit, and malformed invocation returns 2. Interrupted or incomplete runs
 are never passes. Retain failed evidence as well as successful results.
 
-The Windows CI job explicitly acquires the pin and dependencies, then runs this
-command on `win8core` in the owner's `wingroup`. Uploaded evidence contains
+The manual Windows qualification job explicitly acquires the pin and dependencies, then runs this
+command on the standard `windows-2025` runner. Uploaded evidence contains
 manifests, stage logs and the test report; it excludes synthetic profiles and
 does not include the downloaded checkout or dependencies. Deterministic harness
-regressions also run on `ubuntu-8core` without acquiring Gemini.
+regressions also run on `ubuntu-24.04` without acquiring Gemini.
 
 ## Selected semantics and adaptation instructions
 

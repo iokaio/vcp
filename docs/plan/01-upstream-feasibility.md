@@ -157,6 +157,15 @@ hook, with [ten native regressions](../evaluations/p0-03-continuation-admission.
 P0-03 is `in_progress`: scoped authority, active cancellation, durable checkpoint,
 owner loss, explicit resume and in-app root/child pause remain unimplemented.
 
+Delivery now groups connected work into the [foundation milestones](README.md#pr-milestones-and-local-validation).
+The next PR must combine thread-scoped admission with an exercised host lifecycle
+fence, independent/inherited root-child holds, active retained-loop cancellation,
+explicit readmission and owner-loss denial, including negative/race cases and
+source reconstruction. Do not publish separate PRs for each hook or observer.
+Checkpoint/reopen, process quiescence and private CLI integration follow as one
+connected recovery milestone; P0-03 remains incomplete until those obligations
+pass. Local native tests are the primary evidence during development.
+
 1. Trace CLI input to controller, context, model request, tools and completion in the pinned code. Identify injectable persistence/model/policy/execution boundaries.
 2. Wrap a tiny internal command/event path with workspace/task IDs, deterministic responses, cancellation and visible outcomes.
 3. Exercise owner-connection loss and checkpoint hooks. Keep useful internal protocol machinery; defer public API/schema support.
