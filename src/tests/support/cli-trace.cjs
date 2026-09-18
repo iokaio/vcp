@@ -11,16 +11,26 @@ const { environment, digest, writeManifest } = require('./harness.cjs');
 const PROMPT = 'VCP_SYNTHETIC_TRACE_PROMPT';
 const ANSWER = 'VCP_SYNTHETIC_TRACE_COMPLETE';
 const PATCH_TEXT = 'VCP synthetic native patch\n';
-const CASES = ['completion', 'patch-read-only', 'patch', 'retry', 'provider-denied'];
-const isPatch = kind => kind === 'patch' || kind === 'patch-read-only';
+const COMPACT_PROMPT = 'VCP_SYNTHETIC_COMPACTION_PROMPT';
+const COMPACT_SUMMARY = 'VCP_SYNTHETIC_COMPACTION_SUMMARY';
+const USAGE = Object.freeze({ input_tokens: 10, output_tokens: 2, total_tokens: 12 });
+const CASES = ['completion', 'patch-read-only', 'patch', 'retry', 'provider-denied',
+  'review', 'review-denied', 'compaction', 'compaction-denied'];
+const isReview = kind => kind === 'review' || kind === 'review-denied';
+const isCompaction = kind => kind === 'compaction' || kind === 'compaction-denied';
+const isPatch = kind => kind === 'patch' || kind === 'patch-read-only' || isCompaction(kind);
+const isDenied = kind => kind === 'provider-denied' || kind === 'review-denied' || kind === 'compaction-denied';
+const requestCount = kind => kind === 'compaction' ? 3 : isPatch(kind) || kind === 'retry' ? 2 : 1;
+const responseStatus = (kind, index) => isDenied(kind) && (!isCompaction(kind) || index === 1) ? 401
+  : kind === 'retry' && index === 0 ? 503 : 200;
 function events(kind, index) {
   const id = 'fixture-response-' + index;
   const item = isPatch(kind) && index === 0
     ? { type: 'custom_tool_call', call_id: 'fixture-patch', name: 'apply_patch',
       input: '*** Begin Patch\n*** Add File: synthetic.txt\n+' + PATCH_TEXT + '*** End Patch' }
-    : { type: 'message', role: 'assistant', id: 'fixture-message', content: [{ type: 'output_text', text: ANSWER }] };
+    : { type: 'message', role: 'assistant', id: 'fixture-message', content: [{ type: 'output_text', text: isCompaction(kind) && index === 1 ? COMPACT_SUMMARY : ANSWER }] };
   return [{ type: 'response.created', response: { id } }, { type: 'response.output_item.done', item },
-    { type: 'response.completed', response: { id, usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 } } }]
+    { type: 'response.completed', response: { id, usage: USAGE } }]
     .map(event => 'data: ' + JSON.stringify(event) + '\n\n').join('');
 }
 async function fixtureProvider(kind, onRequest = () => {}) {
@@ -40,11 +50,16 @@ async function fixtureProvider(kind, onRequest = () => {}) {
         const observation = { method: req.method, path: req.url,
           synthetic_auth: req.headers.authorization === 'Bearer synthetic-local-only', body };
         const index = requests.length;
-        requests.push(observation); onRequest(observation, index);
-        if (req.method !== 'POST' || req.url !== '/v1/responses') throw Error('Unexpected provider route');
-        if (index >= (isPatch(kind) || kind === 'retry' ? 2 : 1)) throw Error('Unexpected extra request');
-        if (kind === 'provider-denied' || kind === 'retry' && index === 0) {
-          res.writeHead(kind === 'provider-denied' ? 401 : 503, { 'content-type': 'application/json' });
+        const validRoute = req.method === 'POST' && req.url === '/v1/responses';
+        const status = validRoute && index < requestCount(kind) ? responseStatus(kind, index) : 400;
+        observation.response_status = status;
+        observation.response_usage = status === 200 ? { ...USAGE } : null;
+        requests.push(observation);
+        onRequest(observation, index);
+        if (!validRoute) throw Error('Unexpected provider route');
+        if (index >= requestCount(kind)) throw Error('Unexpected extra request');
+        if (status !== 200) {
+          res.writeHead(status, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: { message: 'Synthetic fixture response', type: 'fixture_error' } }));
         } else { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.end(events(kind, index)); }
       } catch (error) { errors.push(error.message); res.writeHead(400); res.end(); }
@@ -59,8 +74,11 @@ async function fixtureProvider(kind, onRequest = () => {}) {
 function verifyTrace(kind, { requests, errors, code, stdout, workspace }) {
   assert.ok(CASES.includes(kind), 'Known trace case');
   assert.deepEqual(errors, [], 'Provider observer errors');
-  assert.equal(requests.length, isPatch(kind) || kind === 'retry' ? 2 : 1, 'Exact request count');
-  for (const request of requests) {
+  assert.equal(requests.length, requestCount(kind), 'Exact request count');
+  for (const [index, request] of requests.entries()) {
+    const status = responseStatus(kind, index);
+    assert.equal(request.response_status, status, 'Observed response status');
+    assert.deepEqual(request.response_usage, status === 200 ? USAGE : null, 'Observer records supplied usage');
     assert.equal(request.method, 'POST'); assert.equal(request.path, '/v1/responses');
     assert.equal(request.synthetic_auth, true); assert.equal(request.body.model, 'gpt-5.4');
     assert.ok(JSON.stringify(request.body.input).includes(PROMPT), 'Synthetic prompt reaches provider');
@@ -68,10 +86,11 @@ function verifyTrace(kind, { requests, errors, code, stdout, workspace }) {
   const output = stdout.trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
   assert.equal(output.filter(event => event.type === 'thread.started').length, 1);
   assert.equal(output.filter(event => event.type === 'turn.started').length, 1);
-  if (kind === 'provider-denied') {
+  if (isDenied(kind)) {
     assert.ok(Number.isInteger(code) && code !== 0, 'Denied provider produces a nonzero exit');
     assert.equal(output.filter(event => event.type === 'turn.failed').length, 1);
     assert.equal(output.filter(event => event.type === 'turn.completed').length, 0);
+    assert.equal(output.filter(event => event.item?.type === 'agent_message' && event.item.text === ANSWER).length, 0, 'Denied helper cannot report synthetic success');
   } else {
     assert.equal(code, 0);
     assert.equal(output.filter(event => event.type === 'turn.completed').length, 1);
@@ -91,8 +110,37 @@ function verifyTrace(kind, { requests, errors, code, stdout, workspace }) {
       assert.equal(output.filter(event => event.item?.type === 'file_change' && event.item.status === 'completed').length, 0);
     }
   } else assert.equal(fs.existsSync(path.join(workspace, 'synthetic.txt')), false);
+  if (isReview(kind)) {
+    assert.ok(requests[0].body.instructions.startsWith('# Review guidelines:'), 'Review delegate uses the retained rubric');
+    assert.ok(!requests[0].body.tools.some(tool => ['web_search', 'web_search_preview'].includes(tool.type)), 'Review disables provider web search');
+  }
+  if (isCompaction(kind)) {
+    assert.deepEqual(requests[1].body.tools, [], 'Compaction request cannot invoke tools');
+    const promptText = request => JSON.stringify(request.body.input);
+    assert.ok(!promptText(requests[0]).includes(COMPACT_PROMPT), 'Coding request precedes compaction');
+    assert.ok(promptText(requests[1]).includes(COMPACT_PROMPT), 'Separate compaction prompt reaches provider');
+    if (kind === 'compaction') {
+      assert.ok(promptText(requests[2]).includes(COMPACT_SUMMARY), 'Next coding request consumes summary');
+      assert.ok(!promptText(requests[2]).includes(COMPACT_PROMPT), 'Compaction instructions are not replayed');
+      assert.ok(!requests[2].body.input.some(item => item.call_id === 'fixture-patch'), 'Replaced prompt history drops the earlier tool receipt');
+      assert.ok(requests[2].body.tools.some(tool => tool.name === 'apply_patch'), 'Coding tools are restored after compaction');
+    }
+  }
   if (kind === 'retry') assert.deepEqual(requests[0].body.input, requests[1].body.input, 'Retry preserves input');
-  return { requests: requests.length, output_events: output.length, tool_effects: kind === 'patch' ? 1 : 0 };
+  const providerUsage = requests.reduce((sum, request) => ({
+    input_tokens: sum.input_tokens + (request.response_usage?.input_tokens || 0),
+    output_tokens: sum.output_tokens + (request.response_usage?.output_tokens || 0)
+  }), { input_tokens: 0, output_tokens: 0 });
+  const cliUsage = output.find(event => event.type === 'turn.completed')?.usage || null;
+  if (!isDenied(kind)) {
+    const expected = isReview(kind) ? { input_tokens: 0, output_tokens: 0 } : providerUsage;
+    assert.equal(cliUsage?.input_tokens, expected.input_tokens, 'Pinned parent CLI input usage');
+    assert.equal(cliUsage?.output_tokens, expected.output_tokens, 'Pinned parent CLI output usage');
+  }
+  return { requests: requests.length, output_events: output.length, tool_effects: kind === 'patch' ? 1 : 0,
+    provider_usage: providerUsage, cli_usage: cliUsage,
+    usage_matches_provider: cliUsage === null ? null
+      : cliUsage.input_tokens === providerUsage.input_tokens && cliUsage.output_tokens === providerUsage.output_tokens };
 }
 async function traceCase(binary, kind, directory, signal) {
   fs.mkdirSync(directory);
@@ -103,9 +151,10 @@ async function traceCase(binary, kind, directory, signal) {
     'model_providers.fixture={name="fixture",base_url="' + provider.url + '",wire_api="responses",env_key="VCP_SYNTHETIC_KEY",requires_openai_auth=false,request_max_retries=1,stream_max_retries=0}',
     'analytics.enabled=false', 'feedback.enabled=false', 'check_for_update_on_startup=false',
     'web_search="disabled"', 'features.memories=false', 'features.shell_snapshot=false', 'project_doc_max_bytes=0'];
+  if (isCompaction(kind)) config.push('model_auto_compact_token_limit=1', 'compact_prompt="' + COMPACT_PROMPT + '"');
   const args = ['exec', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules', '--ephemeral', '--json',
     '--model', 'gpt-5.4', '--sandbox', kind === 'patch' ? 'danger-full-access' : 'read-only', '-c', 'approval_policy="never"', '-C', workspace,
-    ...config.flatMap(value => ['-c', value]), PROMPT];
+    ...config.flatMap(value => ['-c', value]), ...(isReview(kind) ? ['review', PROMPT] : [PROMPT])];
   const home = path.join(directory, 'home'), temporary = path.join(directory, 'temp');
   const env = { ...environment(), HOME: home, USERPROFILE: home, APPDATA: home, LOCALAPPDATA: home,
     CODEX_HOME: home, TEMP: temporary, TMP: temporary, VCP_SYNTHETIC_KEY: 'synthetic-local-only' };
@@ -159,4 +208,4 @@ async function traceCase(binary, kind, directory, signal) {
       stdout_sha256: digest(stdout), stderr_sha256: digest(stderr), provider_errors: provider.errors, requests: provider.requests.length });
   }
 }
-module.exports = { CASES, PROMPT, ANSWER, PATCH_TEXT, events, fixtureProvider, verifyTrace, traceCase };
+module.exports = { CASES, PROMPT, ANSWER, PATCH_TEXT, COMPACT_PROMPT, COMPACT_SUMMARY, USAGE, events, fixtureProvider, verifyTrace, traceCase };

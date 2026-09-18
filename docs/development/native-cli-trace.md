@@ -40,6 +40,25 @@ implemented VCP security controls or proof that all other traffic is impossible.
 | `patch` | Same patch and final message with explicit unsandboxed fixture execution | Two requests; success receipt, successful file-change event and exact independently read file bytes |
 | `retry` | HTTP 503 followed by completion | Exactly two requests preserving input, one successful completed turn |
 | `provider-denied` | HTTP 401 | Exactly one request, nonzero child exit, failed turn and no completed turn |
+| `review` | Review delegate receives a final message | One request with the review rubric; separately recorded provider and parent CLI usage |
+| `review-denied` | Review helper receives HTTP 401 | One request, failed turn, nonzero exit and no synthetic success message |
+| `compaction` | Read-only patch rejection, summary, final coding message | Three requests; separate tool-free compaction prompt, rejected receipt in summary input, summary consumed by next coding request and coding tools restored |
+| `compaction-denied` | Same rejected patch, then HTTP 401 for the compaction helper | Two requests, failed turn and nonzero exit; no subsequent coding request |
+
+Compaction cases set `model_auto_compact_token_limit=1` and a synthetic
+`compact_prompt` to force the retained Responses-based fallback. Each successful
+fixture response supplies 10 input and 2 output tokens; rejected responses
+supply no usage. Those are synthetic counters, not provider billing evidence.
+Every observed response records status and supplied usage before the oracle
+compares it with the parent CLI's final usage event. The pinned review path
+reports zero parent usage despite one successful helper request. That discrepancy
+is an expected baseline observation, not an accepted VCP behavior. Failed turns
+have no final successful CLI usage record; prior supplied usage remains visible.
+
+The successful compaction fixture verifies that the subsequent model prompt
+contains the summary but omits the earlier tool receipt. VCP must retain that
+receipt outside the compacted prompt. See the [effect map and adapter
+sequence](helper-effect-traces.md) and [executed helper evidence](../evaluations/p0-07-helper-traces.md).
 
 Only the fixed synthetic patch case uses `--sandbox danger-full-access`. It
 contains no shell command or freely generated tool request. All other cases
@@ -62,7 +81,8 @@ The reusable fixture and independent oracle are in
 [`trace-cli.cjs`](../../scripts/upstream/trace-cli.cjs). CI runs their synthetic
 HTTP/oracle regression tests via the `fast`/`upstream` suites on `ubuntu-8core`.
 Those tests reject false completion, hidden retries, incorrect authentication,
-missing/incorrect patch contents and receipt-only success. Linux regression
+missing/incorrect patch contents, receipt-only success, false helper completion,
+incorrect response usage, missing summaries and extra post-rejection requests. Linux regression
 success is separate from the native binary experiment.
 
 The wire shapes and CLI settings were checked against the pinned Codex
@@ -73,7 +93,11 @@ messages and protocol field names rather than real transcripts.
 
 Continue P0-03 at the [controller source map](codex-boundaries.md), preserving
 the [engine lifecycle contract](../architecture/engine-execution-design.md).
-These five traces cover neither root/child in-app pause nor review, compaction,
-memory, realtime or all credential/network helpers. They use upstream usage
-events, not VCP's atomic budget ledger. [Executed evidence](../evaluations/p0-07-cli-trace.md)
-records the precise qualified scope.
+These nine traces do not cover root/child in-app pause, background memory,
+provider-specific remote compaction, realtime or all credential/network helpers.
+The fallback called local compaction by upstream still makes a model request;
+it is unrelated to [local embeddings](local-embeddings.md). The observer compares
+scripted provider usage and upstream display events; VCP's atomic budget ledger
+is not implemented. The [initial five-case evidence](../evaluations/p0-07-cli-trace.md)
+and [helper follow-up](../evaluations/p0-07-helper-traces.md) retain their separate
+source/binary identities and qualified scope.

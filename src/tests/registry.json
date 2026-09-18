@@ -71,7 +71,7 @@
           "value": "src/tests/node_modules/@iarna/toml/package.json"
         }
       ],
-      "timeout_ms": 30000,
+      "timeout_ms": 90000,
       "max_output_bytes": 2097152
     },
     "upstream-boundaries": {

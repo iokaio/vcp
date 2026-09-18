@@ -6,6 +6,38 @@
   "scope": "Conservative package boundary ownership; capability lists are review surfaces, not proof of effects or their absence. No VCP runtime adapter is implemented by this inventory.",
   "seams": [
     {
+      "id": "exec-entry",
+      "group": "cli",
+      "package": "codex-exec",
+      "path": "exec/src/lib.rs",
+      "symbol": "pub async fn run_main(cli:",
+      "observation": "Native exec starts private in-process protocol work; VCP ownership and admission must precede coding and review submissions."
+    },
+    {
+      "id": "exec-shutdown",
+      "group": "cli",
+      "package": "codex-exec",
+      "path": "exec/src/lib.rs",
+      "symbol": "async fn request_shutdown(",
+      "observation": "Unsubscribe and client shutdown are effectful lifecycle operations; normal exit does not prove durable root/child pause or crash reconciliation."
+    },
+    {
+      "id": "review-delegate",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/tasks/review.rs",
+      "symbol": "async fn start_review_conversation(",
+      "observation": "A one-shot review child makes an observed provider request while the pinned parent CLI reports zero usage; VCP must retain independent request and usage receipts."
+    },
+    {
+      "id": "responses-compaction",
+      "group": "controller",
+      "package": "codex-core",
+      "path": "core/src/compact.rs",
+      "symbol": "pub(crate) async fn run_inline_auto_compact_task(",
+      "observation": "The Responses-based fallback makes a separate model request and replaces prompt history; upstream local compaction is not local inference or canonical VCP history."
+    },
+    {
       "id": "owner-submit",
       "group": "controller",
       "package": "codex-core",

@@ -1,6 +1,6 @@
 # Upstream selection and feasibility experiments
 
-Status: P0 procedure with [candidate tooling](upstream-candidates.md) and [Codex source selection, reconstruction and build](codex-source.md) implemented. Product integration and local models remain unqualified. Read [ADR-013](../adr/013-upstream-reuse-and-vendoring.md), [segment 01](../plan/01-upstream-feasibility.md) and [architecture reuse boundaries](../architecture/vcp-what.md#38-boundaries-around-borrowed-components).
+Status: P0 procedure with [candidate tooling](upstream-candidates.md) and [Codex source selection, reconstruction and build](codex-source.md) implemented. The [CPU embedding helper](local-embeddings.md) has bounded native evidence; product integration and the full local-memory envelope remain unqualified. Read [ADR-013](../adr/013-upstream-reuse-and-vendoring.md), [segment 01](../plan/01-upstream-feasibility.md) and [architecture reuse boundaries](../architecture/vcp-what.md#38-boundaries-around-borrowed-components).
 
 ## Experiment record
 

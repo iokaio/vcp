@@ -64,6 +64,13 @@ independent numerical fixtures to the shared workspace. [Executed evidence](../e
 distinguishes this seam from P0-02's corpus/index, OS network-denial and resource
 gates. The static inventory now covers 158 packages, 23 groups and 32 anchors.
 
+The [helper effect map](../development/helper-effect-traces.md) and
+[native follow-up](../evaluations/p0-07-helper-traces.md) extend the trace to
+nine cases and the catalog to 36 anchors. Review and Responses-based compaction
+are independently observed, including helper rejection, parent usage gaps and
+prompt-history replacement. P0-03/P0-08 still own lifecycle/accounting adapters;
+remaining module effect qualification keeps P0-07 in progress.
+
 1. Pin Codex, Gemini CLI and Munarium to exact commits; record selected paths, dependencies, licenses, notices, patch origin and local owner. Treat mutable URLs as discovery inputs.
 2. Build selected upstream components on native Windows before modifications, including the unmodified Codex engine/CLI baseline. Use an isolated temporary checkout; record compiler/native dependencies, commands, resource use and known upstream failures.
 3. Classify each selected module's I/O, model/network helpers and ambient credential discovery. Establish the VCP replacements required for each effectful seam.
