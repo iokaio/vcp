@@ -1,0 +1,62 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index c39bd59..ac354be 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17489,6 +17489,21 @@ dependencies = [
+  "vcp-store",
+ ]
+ 
++[[package]]
++name = "vcp-context"
++version = "0.1.0"
++dependencies = [
++ "serde",
++ "serde_json",
++ "tempfile",
++ "thiserror 2.0.18",
++ "tokio",
++ "vcp-domain",
++ "vcp-protocol",
++ "vcp-repository",
++ "vcp-store",
++]
++
+ [[package]]
+ name = "vcp-domain"
+ version = "0.1.0"
+@@ -17580,6 +17595,22 @@ dependencies = [
+  "vcp-domain",
+ ]
+ 
++[[package]]
++name = "vcp-repository"
++version = "0.1.0"
++dependencies = [
++ "codex-utils-pty",
++ "ignore",
++ "serde",
++ "serde_json",
++ "tempfile",
++ "thiserror 2.0.18",
++ "tokio",
++ "vcp-domain",
++ "vcp-protocol",
++ "windows-sys 0.61.2",
++]
++
+ [[package]]
+ name = "vcp-storage-spike"
+ version = "0.1.0"
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index 3dfa6b9..5fce50c 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -1,5 +1,8 @@
+ [workspace]
+ members = [
++    # VCP modification: scoped repository/context consumers of the canonical foundation.
++    "../../../crates/vcp-repository",
++    "../../../crates/vcp-context",
+     # VCP modification: typed P1 foundation in the retained workspace.
+     "../../../crates/vcp-domain",
+     "../../../crates/vcp-protocol",

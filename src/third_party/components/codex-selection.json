@@ -83,6 +83,10 @@
     {
       "path": "src/third_party/patches/codex/0013-p1-canonical-host-integration.patch",
       "sha256": "1775252d090f164c8e6d5d01d2fdf4be1ddc64400d16405e6e26e93d6679efdc"
+    },
+    {
+      "path": "src/third_party/patches/codex/0014-p2-context-workspace.patch",
+      "sha256": "cb6e0fd0a427f1fd6497082c953db5b91e23fdfd14cc6d0067ed00d4af568b85"
     }
   ],
   "licenses": [

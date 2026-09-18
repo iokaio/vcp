@@ -32,6 +32,7 @@ macro_rules! ids {
 
 ids!(
     WorkspaceId,
+    RootId,
     SessionId,
     TaskId,
     TurnId,

@@ -17490,6 +17490,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcp-context"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "vcp-domain",
+ "vcp-protocol",
+ "vcp-repository",
+ "vcp-store",
+]
+
+[[package]]
 name = "vcp-domain"
 version = "0.1.0"
 dependencies = [
@@ -17578,6 +17593,22 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.18",
  "vcp-domain",
+]
+
+[[package]]
+name = "vcp-repository"
+version = "0.1.0"
+dependencies = [
+ "codex-utils-pty",
+ "ignore",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "vcp-domain",
+ "vcp-protocol",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

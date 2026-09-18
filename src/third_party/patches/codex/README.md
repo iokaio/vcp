@@ -81,6 +81,9 @@ already include these changes; normal builds never apply patches.
     use HTTP with one transport attempt; retries re-enter admission. The local
     lifecycle lock entry gains the existing foundation packages and Wiremock;
     no external dependency pin changes. See [the retained host guide](../../../../docs/development/p1-retained-host.md).
+14. `0014-p2-context-workspace.patch` registers original repository/context
+    packages and their local lock entries. Existing external pins are unchanged;
+    native Git observation reuses the retained Job Object. See [the context guide](../../../../docs/development/p2-context.md).
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

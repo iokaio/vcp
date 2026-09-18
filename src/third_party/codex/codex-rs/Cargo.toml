@@ -1,5 +1,8 @@
 [workspace]
 members = [
+    # VCP modification: scoped repository/context consumers of the canonical foundation.
+    "../../../crates/vcp-repository",
+    "../../../crates/vcp-context",
     # VCP modification: typed P1 foundation in the retained workspace.
     "../../../crates/vcp-domain",
     "../../../crates/vcp-protocol",

@@ -43,6 +43,8 @@ THIRD_PARTY_NOTICES.md.
 
 The P1 foundation and accounting patches register original domain, protocol,
 store, engine, budget and audit packages in the retained workspace/lockfile.
+The P2 context patch registers original repository and context packages with
+existing pinned dependencies and retained native process containment.
 The canonical host patch adapts retained HTTP admission and raw-body capture
 to these libraries, using existing dependency identities.
 

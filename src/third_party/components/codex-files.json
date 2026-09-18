@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "0a3c075c143256a098c9e2e66a59ce9675a70ab04afa6a2108fd729a0ac2020e",
-  "files_sha256": "bd9f2411a6602d35f6a035197ca5f141533039d4b589a08a0a9ec69121b66e14",
+  "selection_sha256": "050af506a1bdddf98a579c5d64780a30e81e47ac3a54837ee967b139e80a1d81",
+  "files_sha256": "bba4dbd64fdfa5a46742fb3f1540912a59cfd3eb1e4a350c96ccb6518dcc903f",
   "files": [
     {
       "path": ".bazelignore",
@@ -545,8 +545,8 @@
         "sha256": "582bb7fb0b7d4c7cab24b4e3b8cc28344ddfe146ffbf2297448a3e995eead2b7"
       },
       "result": {
-        "bytes": 433404,
-        "sha256": "8ae0e9a1648dff5da480ef269067a7d1a3bb26b30f2c6617918e72cb7d7f0a8e",
+        "bytes": 433838,
+        "sha256": "1a10ca21abfb812523b0aee1132a335091f4edb4400e0ad552b1973351df5257",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -559,8 +559,8 @@
         "sha256": "5f531fe8a45a1ab7d9cf56f03eb31dfb5ec2ecfb7574bebaada6130382e5877f"
       },
       "result": {
-        "bytes": 20678,
-        "sha256": "736d114c3168a08bf180c092275e48894f2fcbddd26700b64578bcc6375c1404",
+        "bytes": 20840,
+        "sha256": "1359a4b141e4e1e58fd23ad61353948586aeceb8753e6d3eed25efa174ada705",
         "mode": "100644"
       },
       "transformation": "patch-series"

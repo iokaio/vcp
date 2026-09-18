@@ -90,6 +90,10 @@ SQLx, Tokio and error dependencies; no external dependency identity/checksum or
 third-party implementation is added by this increment.
 Patch 0012 also registers original VCP budget and audit packages with those
 existing dependencies; external identities and checksums remain unchanged.
+Patch 0014 registers original P2 repository/context packages with existing pinned
+dependencies and retained native process containment; no external pins change.
+See [the context guide](docs/development/p2-context.md).
+
 Patch 0013 adapts retained HTTP request/response and private host admission seams
 to the canonical foundation. Original VCP host code reuses those APIs and existing
 Wiremock fixtures; no new external source or dependency identity is imported.
