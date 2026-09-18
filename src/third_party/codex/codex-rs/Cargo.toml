@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    # VCP modification: file-only local CPU embedding adapter in this build graph.
+    "../../../crates/vcp-embedding",
     # VCP modification: separately attributed local-memory libraries share this build graph.
     "../../munarium/server/src/munarium-core",
     "../../munarium/server/src/munarium-store-mem",

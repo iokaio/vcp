@@ -6,6 +6,7 @@ This directory owns repository automation. `test.ps1` and `test-runner.cjs` impl
 |---|---|---|
 | `build.ps1` (implemented baseline) | Verify and build the selected native Windows Codex workspace, or select Munarium libraries with `-Component Munarium`; `-Mode BoundaryTests` runs component tests | P0-07/P0-08 |
 | `test.ps1` (implemented) | Run deterministic repository, harness, experiment and upstream-inventory checks; preserve exit status and evidence | P0-01, extended by feature owners |
+| `test-embeddings.ps1` (implemented qualification) | Verify explicit local assets, test/build the CPU helper, check its dependency graph and compare real model results | P0-07; integration continues in P0-02 |
 | `package.ps1` | Assemble qualified artifacts, licenses, notices, and checksums | P8-04 |
 | `evals/` | Orchestrate explicitly configured evaluations and collect results | P5-08/P8-05 |
 | `upstream/` (implemented baseline tooling) | `inventory.cjs` records immutable Git bytes; `reconstruct.cjs` reconstructs/verifies selected source; `build-baseline.ps1` runs native builds/tests | P0-07/P0-08, rehearsed in P8-06 |
@@ -22,6 +23,11 @@ in the shared workspace. See [the source guide](../docs/development/munarium-sou
 `node scripts/upstream/test-gemini.cjs --source <pinned checkout> --output-root <evidence directory> --prepare`
 qualifies 402 selected Gemini boundary tests on native Windows, with explicit
 metadata/compiler preparation and isolated child profiles. See [the procedure](../docs/development/gemini-baseline.md).
+
+`node scripts/upstream/model-assets.cjs acquire --root <new external model directory>`
+explicitly acquires the pinned model and verifies every file. `verify` checks an
+existing selection. `test-embeddings.ps1 -AssetsRoot <model directory>` never
+downloads models. See [local embedding setup and qualification](../docs/development/local-embeddings.md).
 
 `build-baseline.ps1 -Candidate Munarium` selects the pinned kernel/store/datastore
 experiment with DiskANN enabled; its dependency checker rejects the identified

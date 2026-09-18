@@ -59,7 +59,8 @@
         "src/tests/contracts/upstream-selection.test.cjs",
         "src/tests/contracts/dependency-closure.test.cjs",
         "src/tests/contracts/upstream-effects.test.cjs",
-        "src/tests/contracts/gemini-baseline.test.cjs"
+        "src/tests/contracts/gemini-baseline.test.cjs",
+        "src/tests/contracts/model-assets.test.cjs"
       ],
       "backends": [
         "none"

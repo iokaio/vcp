@@ -17,6 +17,13 @@ already include these changes; normal builds never apply patches.
    34 entries are added. The workspace manifest and lockfile carry modification
    notices. This adds a shared build graph, not a competing engine or an
    implemented VCP memory adapter.
+3. `0003-local-embedding-workspace.patch` registers the original VCP CPU embedding
+   adapter and its Candle/tokenizer dependencies in the same graph. It adds 40
+   net lock entries and changes the existing `regex-automata` 0.4.13 pin to 0.4.14,
+   the minimum required by Candle's `fancy-regex` 0.18 dependency. All other
+   preexisting package identities/checksums remain. The compatible tokenizer
+   macro version keeps the existing `pastey` pin. Modification notices identify
+   these changes; this does not implement VCP memory/index integration.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

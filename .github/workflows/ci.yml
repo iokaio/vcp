@@ -103,6 +103,12 @@ jobs:
           } finally { Pop-Location }
       - name: Qualify pinned Gemini boundaries on Windows
         run: node scripts/upstream/test-gemini.cjs --source artifacts/upstream/gemini-candidate --output-root artifacts/gemini-qualification --prepare
+      - name: Qualify verified local CPU embeddings
+        run: |
+          $modelRoot = Join-Path $env:RUNNER_TEMP ('vcp-minilm-' + [guid]::NewGuid().ToString())
+          node scripts/upstream/model-assets.cjs acquire --root $modelRoot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-embeddings.ps1 -AssetsRoot $modelRoot
       - name: Build committed native CLI
         run: ./scripts/build.ps1
       - name: Test native patch and policy boundaries
@@ -123,6 +129,7 @@ jobs:
             artifacts/codex-reconstructed.json
             artifacts/munarium-reconstructed.json
             artifacts/gemini-qualification/
+            artifacts/embeddings/
             !artifacts/gemini-qualification/**/synthetic-home/**
           if-no-files-found: error
           retention-days: 14

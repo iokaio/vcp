@@ -39,6 +39,10 @@
     {
       "path": "src/third_party/patches/codex/0002-munarium-workspace.patch",
       "sha256": "41e0d1a601e46acdcf61b2228c02250eeebcbff237091a1268a42a40c32c01d1"
+    },
+    {
+      "path": "src/third_party/patches/codex/0003-local-embedding-workspace.patch",
+      "sha256": "d866c0cdc1eee368f7684b464e552e6e60822dd2ad9bb7cde07e8abf5a90b80c"
     }
   ],
   "licenses": [

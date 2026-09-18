@@ -1,8 +1,15 @@
 # Upstream qualification inputs
 
 [upstreams.toml](upstreams.toml) records immutable investigation candidates.
-It does not yet declare an imported selection, completed license closure or
-supported runtime. No upstream source is committed in this directory.
+Codex and three Munarium libraries are now committed qualification selections,
+with mapping, patches, license records and original/resulting byte inventories.
+Gemini remains an external comparison candidate. These records do not establish
+a supported VCP release or completed production integration.
+
+The [local embedding record](components/embedding-runtime.md) identifies installed
+Candle/Tokenizers dependencies and immutable external model assets used by the
+original VCP CPU helper. Model weights remain outside the checkout; their license
+declaration is recorded separately from software terms.
 
 Use the [qualification procedure](../../docs/development/upstream-qualification.md)
 and [ADR-013](../../docs/adr/013-upstream-reuse-and-vendoring.md). The source

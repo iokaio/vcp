@@ -69,7 +69,8 @@ The license symlink `codex-rs/vendor/bubblewrap/LICENSE` is explicitly materiali
 as a regular copy of `COPYING` for Windows. VCP's ordered
 [compatibility patch](src/third_party/patches/codex/README.md) raises the
 `codex-chatgpt` crate recursion limit and registers the Munarium libraries in
-the workspace/lockfile. Modified files carry notices; original
+the workspace/lockfile, then adds the local CPU embedding adapter and its reviewed
+dependencies. Modified files carry notices; original
 copyright and license terms remain unchanged.
 Individual source copyright headers remain intact. No voice DLLs, Microsoft
 redistributables, model assets or VCP release package are distributed by this import.
@@ -83,13 +84,44 @@ retained in the installed package's `LICENSE`. Its public package URL and digest
 are recorded in the [development lockfile](src/tests/package-lock.json).
 `npm ci --prefix src/tests --ignore-scripts --no-audit --no-fund` reproduces installation.
 
+## Local CPU embedding adapter and reference
+
+The original VCP adapter in `src/crates/vcp-embedding/` uses Cargo dependencies
+Candle 0.11.0 (`candle-core`, `candle-nn`, `candle-transformers`) and Tokenizers
+0.22.2. Candle's published package source is
+[`31f35b147389700ed2a178ee66a91c3cc25cc80d`](https://github.com/huggingface/candle/tree/31f35b147389700ed2a178ee66a91c3cc25cc80d);
+Tokenizers' is
+[`6573f2c56172bac56f211e77934be3215adef2c2`](https://github.com/huggingface/tokenizers/tree/6573f2c56172bac56f211e77934be3215adef2c2).
+Candle declares MIT OR Apache-2.0; VCP uses the Apache-2.0 grant. Distributed
+[Candle](src/third_party/licenses/candle-0.11.0-LICENSE) and
+[Tokenizers](src/third_party/licenses/tokenizers-0.22.2-LICENSE) terms are retained.
+Both license files have SHA-256
+`c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`.
+
+The adapter's API selection and pooling approach were informed by the
+[Candle BERT example at ddf1b879dc3a1760cbcb3f3c4a7c6467850cec4a](https://github.com/huggingface/candle/blob/ddf1b879dc3a1760cbcb3f3c4a7c6467850cec4a/candle-examples/examples/bert/main.rs).
+VCP adds bounded verified-file loading, fixed CPU selection, typed setup errors,
+input limits, truncation reporting and independent reference checks. Upstream
+runtime implementation remains an installed Cargo dependency, not copied source.
+The [141-package native dependency record](src/third_party/components/embedding-dependencies.json)
+retains registry checksums and license declarations. It is not a release notice bundle.
+
+The external model is
+[sentence-transformers/all-MiniLM-L6-v2 at 1110a243fdf4706b3f48f1d95db1a4f5529b4d41](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/tree/1110a243fdf4706b3f48f1d95db1a4f5529b4d41).
+Its selected model card declares Apache-2.0. The [asset inventory](src/third_party/components/minilm-assets.json)
+records exact paths, sizes and hashes, separately from software licensing.
+Acquired model files and the model card remain outside the checkout; no weights
+are bundled. Four original synthetic texts and generated vectors are retained
+in [reference fixtures](src/tests/fixtures/local-embeddings/README.md), with the
+independent PyTorch/Transformers generator and hashed reference-tool requirements.
+
 ## Remaining dependencies and assets
 
 The Codex Cargo lockfile retains dependency identities/checksums for its source
 baseline. A release must inventory the actual enabled transitive graph and retain
 all applicable notices and corresponding-source obligations; this source record
 is not release qualification. The selected Munarium graph includes Tantivy and
-DiskANN; Gemini adaptations and embedding assets remain selection work. Record exact origin,
+DiskANN; Gemini adaptations and release asset packaging remain selection work. Record exact origin,
 license, selected paths and modifications as those components land.
 
 The root project license does not replace another component's terms. Names belonging to other projects remain their owners' names; see [TRADEMARK.md](TRADEMARK.md).

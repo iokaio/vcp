@@ -12,6 +12,7 @@ These guides describe how to implement and qualify the planned system. The [deli
 - [Committed Munarium libraries](munarium-source.md): three libraries in the shared Cargo workspace, source reconstruction and native dependency evidence.
 - [Munarium native baseline](munarium-baseline.md): kernel/store/datastore qualification with real Tantivy and DiskANN and a checked dependency boundary.
 - [Gemini native baseline](gemini-baseline.md): reproducible 402-test comparison, explicit preparation and policy/skill/MCP adaptation boundaries.
+- [Local CPU embeddings](local-embeddings.md): verified model assets, bounded file-only inference, independent vectors and native qualification.
 - [Qualification and release design](../architecture/qualification-release-design.md): test runner/result contracts, independent fault oracles and packaged acceptance.
 - [Code layout](../plan/code-layout.md): responsibility boundaries and proposed paths.
 - [ADR index](../adr/README.md): confirmed directions and unresolved engineering gates.

@@ -60,6 +60,15 @@ CI runs the full command on `win8core`, with explicit pinned acquisition and
 dependency installation. Local success is separate from the PR's hosted result;
 merge requires both delivery jobs to pass for the published head.
 
+[Hosted run 35296011310](https://github.com/iokaio/vcp/actions/runs/35296011310)
+passed both jobs for PR head `e807c18202a88cdfdb9e43581a7c3fc406c4052e`.
+`win8core-1000002538` in `wingroup` passed all 402 Gemini tests and preparation,
+both source reconstructions, the native CLI build, 102 Codex tests, 200 Munarium
+tests and five CLI traces. Linux used `ubuntu-8core-1000002537`. Downloaded Windows
+evidence remains under `artifacts/ci/windows-35296011310-1/`.
+[PR #14](https://github.com/iokaio/vcp/pull/14) merged as
+`68dbe1fb6c845cbd5ecba117fc50a8b8fb9d2848` on September 18, 2026 at 01:54:20 UTC.
+
 ## Limits and next integration work
 
 These are upstream unit tests with SDK/transport/filesystem collaborators mocked
