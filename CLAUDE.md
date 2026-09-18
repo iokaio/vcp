@@ -216,6 +216,30 @@ boundaries. Add a meaningful regression test for a behavioral defect where
 practical. Avoid tests that merely repeat implementation details or unnecessary
 runtime scaffolding for documentation edits.
 
+Prefer local validation over repeated GitHub CI runs. Before committing or
+pushing, run the affected tests locally, inspect failures, fix them, and rerun
+the relevant cases. Use `pwsh -NoProfile -File scripts/test.ps1 -Suite fast` for
+delivery/source checks and the documented native build, contract, recovery,
+embedding or retrieval commands when the change affects those behaviors. Select
+tests by the changed boundary; do not rebuild every upstream component or rerun
+large corpus measurements for an unrelated documentation or workflow edit.
+
+GitHub CI is a confirmation layer, not the primary development/test loop.
+Routine PR/main runs use fast checks on standard Ubuntu; full Windows
+qualification is manual-only. Do not dispatch it or repeatedly push intermediate
+fixes merely to debug changes that can be tested locally. Reserve hosted native
+qualification for a deliberate need such as clean-machine verification,
+platform-specific investigation or release evidence; see the
+[manual qualification procedure](docs/development/codex-source.md#native-windows-ci).
+Use standard hosted runners; restoring paid larger runners or automatic heavy
+qualification requires a new maintainer instruction.
+
+Record local commands, outcomes and evidence in the PR. If a required local
+prerequisite is missing, report the affected check as not run and explain the
+remaining validation need. A green fast CI run or skipped Windows job does not
+replace native/product acceptance evidence. Preserve required checks and branch
+protections, and distinguish local success from actual remote results.
+
 | Change | Checks |
 |---|---|
 | Agent guidance | Compare `AGENTS.md` and `CLAUDE.md` byte for byte; verify linked files, actual paths, and status claims |
