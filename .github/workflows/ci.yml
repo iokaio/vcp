@@ -108,7 +108,7 @@ jobs:
           $modelRoot = Join-Path $env:RUNNER_TEMP ('vcp-minilm-' + [guid]::NewGuid().ToString())
           node scripts/upstream/model-assets.cjs acquire --root $modelRoot
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./scripts/test-embeddings.ps1 -AssetsRoot $modelRoot
+          ./scripts/test-embeddings.ps1 -AssetsRoot $modelRoot -Offline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-local-memory.ps1 -AssetsRoot $modelRoot -TargetRoot artifacts/embedding-target
       - name: Build committed native CLI
@@ -135,5 +135,6 @@ jobs:
             artifacts/local-memory/
             !artifacts/gemini-qualification/**/synthetic-home/**
             !artifacts/local-memory/**/profile/**
+            !artifacts/embeddings/**/private/**
           if-no-files-found: error
           retention-days: 14

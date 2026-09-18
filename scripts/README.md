@@ -28,7 +28,7 @@ metadata/compiler preparation and isolated child profiles. See [the procedure](.
 `node scripts/upstream/model-assets.cjs acquire --root <new external model directory>`
 explicitly acquires the pinned model and verifies every file. `verify` checks an
 existing selection. `test-embeddings.ps1 -AssetsRoot <model directory>` never
-downloads models. See [local embedding setup and qualification](../docs/development/local-embeddings.md).
+downloads models. Add `-Offline` for [observed Windows network isolation and asset fault injection](../docs/development/offline-embeddings.md). See [local embedding setup and qualification](../docs/development/local-embeddings.md).
 
 `build-baseline.ps1 -Candidate Munarium` selects the pinned kernel/store/datastore
 experiment with DiskANN enabled; its dependency checker rejects the identified
