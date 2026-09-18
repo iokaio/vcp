@@ -11,6 +11,10 @@ This record expands the [architecture contract](../architecture/vcp-what.md#7-op
 
 Coding and model-assisted work use OpenRouter. Frontier/High/Medium/Low describe versioned capability groups; low/med/high are separate user policies. Local memory embeddings never use a remote fallback.
 
+This includes the optional bounded judgments proposed by
+[ADR-020](020-bounded-semantic-decisions.md). A vendor-neutral decision interface
+does not permit a second remote gateway; direct Jev access remains unselected.
+
 ## Implementation proposal
 
 Normalize requests, streamed content/tool fragments, served model/provider, errors and usage behind the gateway. Every attempt receives an atomic reservation for the actual request. Keep requested and served identities separate; unknown usage and price are explicit. Pin catalog/compatibility revisions to the attempt.

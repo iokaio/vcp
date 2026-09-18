@@ -17,6 +17,13 @@ Filter provider/scope/capability restrictions first, then quality floor and requ
 
 Detailed contracts and failure ordering are in the [supporting design](../architecture/routing-extensions-design.md). The [task ledger](../plan/20-traceability.md) preserves exact implementation dependencies; referencing a later integration test does not add a new task dependency.
 
+[ADR-020](020-bounded-semantic-decisions.md) proposes optional typed semantic advice
+as another recorded input to those deterministic rules. The disabled/rules-only
+baseline remains usable; hard eligibility and quality constraints apply first.
+Remote advice uses the existing OpenRouter admission path and requires P6-04
+qualification before an enabled policy becomes a default. The consumer records
+whether advice affected the choice; it cannot grant authority or waive checks.
+
 ## Alternatives and unresolved choices
 
 Start with explicit rules and measured per-task-class outcomes. Compare routed behavior with fixed economical and fixed stronger baselines. Do not select unexplained learned routing or import research ranks as production defaults.

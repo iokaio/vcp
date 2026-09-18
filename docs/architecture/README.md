@@ -4,6 +4,7 @@
 - [Coding-agent research workbook](othertools.md) supplies background investigations and comparisons.
 - [Open-source inventory](open-source.md) lists reuse candidates for revision-specific investigation.
 - [Model groups](model-groups.md) records research inputs for model routing, including estimates; it is not a current supported-model or pricing catalog.
+- [JEV exploration](exploring-jev.md) motivates bounded semantic judgments; the [adoption map](decision-evaluation-design.md#adoption-map) separates useful P6 proposals from unselected vendor integration and unqualified performance claims.
 
 Implementation follows the [plan](../plan/README.md) and [code layout](../plan/code-layout.md). Research notes do not override confirmed requirements or establish that a candidate has passed integration tests.
 
@@ -18,7 +19,8 @@ These documents expand the architecture into proposed records, interfaces, algor
 | [Memory and retrieval](memory-retrieval-design.md) | Governed claims, ingestion, coherent local indexes, query eligibility and pruning; 08, 09, 10 |
 | [Storage and portability](storage-portability-design.md) | Neutral records, snapshots, independent keys, encrypted publication, restore and handoff; 03, 10, 11 |
 | [Routing and extensions](routing-extensions-design.md) | Groups, optimizer, skills/MCP, isolated children and deferred hook/observer boundaries; 12, 13, 14, 19 |
+| [Bounded semantic decisions](decision-evaluation-design.md) | Typed advisory judgments, OpenRouter admission, deterministic fallback and measured rollout; P6 in 12, fixtures in 16, downstream P7/P8 checks |
 | [Deferred clients](deferred-clients-design.md) | Public protocol/SDK, editor document receipts, foreign compatibility and execution hosts; 17, 18, 19 |
 | [Qualification and release](qualification-release-design.md) | Test registry, result records, independent fault oracles, quality comparisons and packaged acceptance; 00, 01, 15, 16 |
 
-The [19 ADR records](../adr/README.md) separate confirmed directions from proposed engineering choices and evidence gates. [Development guides](../development/README.md) cover implementation packets and upstream qualification. Explicit pause while the CLI stays open is part of the [lifecycle contract](vcp-what.md#45-terminal-close-pause-and-workspace-resume), alongside pause on owner loss.
+The [20 ADR records](../adr/README.md) separate confirmed directions from proposed engineering choices and evidence gates. [Development guides](../development/README.md) cover implementation packets and upstream qualification. Explicit pause while the CLI stays open is part of the [lifecycle contract](vcp-what.md#45-terminal-close-pause-and-workspace-resume), alongside pause on owner loss.

@@ -14,6 +14,13 @@ specifies state/effect transactions. [ADR-006](../adr/006-model-gateway-and-grou
 tracks gateway qualification. No current OpenRouter SDK, endpoint parameter or
 provider behavior is declared supported by this document alone.
 
+The later [bounded decision design](../architecture/decision-evaluation-design.md)
+reuses this admitted provider path for optional P6 judgments. Preserve a normalized
+structured-result boundary and attempt attribution; do not add a second provider
+client or hidden repair calls. P2-06 completion and mandatory checks remain based
+on observed verification, never a classifier score. P2 implementation does not
+depend on the future evaluator.
+
 ## Code organization and interfaces
 
 Under `vcp-models`, implement `request`, `content`, `capabilities`, `stream`, `usage`, `errors`, `catalog`, `openrouter` and `fake`. Under the retained engine, isolate `turn_driver`, `dispatch`, `steering`, `verification` and `completion`. Provider-native types stay inside the adapter.

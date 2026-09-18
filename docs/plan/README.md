@@ -1,9 +1,17 @@
 # VCP implementation and testing plan
 
-Plan revision 5 — September 18, 2026. Delivery uses larger behavioral milestones
+Plan revision 6 — September 18, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded
 qualification already completed from remaining product implementation. Explicit
 pause while the CLI stays open is required alongside close-to-pause.
+
+This revision incorporates the [JEV exploration](../architecture/exploring-jev.md)
+through [ADR-020](../adr/020-bounded-semantic-decisions.md) and the
+[bounded semantic decision design](../architecture/decision-evaluation-design.md).
+P6 plans typed advisory judgments for routing, escalation and optimization with a
+deterministic baseline and optional admitted OpenRouter assistance. Qualification
+precedes enabled defaults. Direct Jev access, remote retrieval and a new local model
+are not selected. The 68 task IDs, dependencies and current states are unchanged.
 
 Start with [the code layout](code-layout.md), [the delivery contract](00-delivery-contract.md), [test infrastructure and acceptance](16-test-fixtures-and-acceptance.md), then [upstream feasibility](01-upstream-feasibility.md). These files expand [architecture draft 0.4](../architecture/vcp-what.md) into coding and testing work. The architecture remains authoritative for product behavior; this directory owns the detailed execution instructions and repository layout.
 
@@ -27,7 +35,7 @@ The repository contains the executable [delivery harness](../development/deliver
 | [09 Local search and generations](09-local-search-and-generations.md) | Tantivy, local embeddings, DiskANN and coherent retrieval | P5-03 through P5-06 |
 | [10 History and pruning](10-history-and-pruning.md) | Full-history browsing, 30-day notices and precise pruning | P5-07, P3-05 |
 | [11 Encrypted portability](11-encrypted-portability.md) | Developer keys, encrypted snapshots, restore and handoff | P5-09, P5-10, P3-06 |
-| [12 Routing and optimization](12-routing-and-optimization.md) | Model groups, profiles, escalation and `/optimize` | P6-01 through P6-05 |
+| [12 Routing and optimization](12-routing-and-optimization.md) | Model groups, profiles, bounded advisory decisions, escalation and `/optimize` | P6-01 through P6-05 |
 | [13 Skills and MCP](13-skills-and-mcp.md) | Bundled development skills and brokered MCP integration | P7-01 through P7-03 |
 | [14 Visible delegation](14-visible-delegation.md) | Child task graphs, isolated changes, integration and commentary | P7-04 through P7-06 |
 | [15 Integration and release](15-integration-and-release.md) | Memory qualification, Windows acceptance and downloadable release | P5-08, P8-01 through P8-06 |
@@ -96,6 +104,13 @@ results and remaining checks. A green fast GitHub run is not native acceptance.
 The [implementation workflow](../development/implementation-workflow.md#delivery-milestones)
 defines the preparation and publication boundary.
 
+At P6, group the bounded-decision contract, deterministic baseline, optional
+OpenRouter adapter, routing/escalation/optimizer callers, failure evidence and
+inspection into substantial behavioral work on one branch. P6-04's held-out
+qualification still follows its existing prerequisites; missing evidence keeps
+remote advice disabled. This later grouping does not delay the current lifecycle
+recovery milestone or introduce a separate PR for each classifier/interface.
+
 ## Implementation reading map
 
 Use a task's existing heading as its implementation entry point. Its expanded instructions specify proposed records, ordering, failure behavior and observable tests. Follow the supporting design for cross-service contracts, then the ADR for decisions that still need evidence. Concrete type names are proposals until the actual P0 workspace mapping and owning implementation select them.
@@ -108,6 +123,7 @@ Use a task's existing heading as its implementation entry point. Its expanded in
 | Memory, search and retention | [Memory and retrieval](../architecture/memory-retrieval-design.md) | ADR-008, 016 |
 | Snapshots, keys and transfer | [Storage and portability](../architecture/storage-portability-design.md) | ADR-003, 015, 019 |
 | Routing, skills, MCP and children | [Routing and extensions](../architecture/routing-extensions-design.md) | ADR-006, 007, 010, 011, 017 |
+| Bounded advisory decisions in P6 | [Decision evaluation](../architecture/decision-evaluation-design.md) and [research adoption map](../architecture/decision-evaluation-design.md#adoption-map) | ADR-006, 007, 020 |
 | Harness, evaluations and distribution | [Qualification and release](../architecture/qualification-release-design.md) | ADR-012, 018 |
 | Later API, SDK, editor and hosts | [Deferred clients](../architecture/deferred-clients-design.md) | ADR-002, 012, 014 |
 

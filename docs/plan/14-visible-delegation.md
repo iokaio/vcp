@@ -15,6 +15,13 @@ store and root ledger; add stage/reason data rather than inventing a disconnecte
 child state machine. Root and child commands share revision, authority and durable
 acknowledgement requirements.
 
+Optional [P6 decision advice](../architecture/decision-evaluation-design.md#consumer-boundaries)
+may suggest delegation or extra review. P7-04/05 still checks the concrete subtask,
+scope, current evidence, allocations and integration acceptance. A probability
+cannot authorize a child, bypass a required review or certify its patch. Test
+disabled, abstaining, misleading and stale advice with real graph admission and
+root accounting; retain these cases for P8 release qualification.
+
 ## P7-04 — Graph and workspace ownership
 
 1. Implement node states and dependency edges with bounded depth/concurrency, cancellation propagation and resource-conflict scheduling. Parent budget remains authoritative; child allocations subdivide it and every request still reserves atomically.
