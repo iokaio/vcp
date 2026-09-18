@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Codex', 'Munarium')][string]$Component = 'Codex',
-    [ValidateSet('Build', 'BoundaryTests')][string]$Mode = 'Build',
+    [ValidateSet('Build', 'BoundaryTests', 'LifecycleTests')][string]$Mode = 'Build',
     [ValidateRange(1, 16)][int]$Jobs = 4,
     [string]$OutputRoot,
     [string]$TargetRoot

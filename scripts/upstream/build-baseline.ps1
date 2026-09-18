@@ -9,12 +9,13 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'SelectedMunarium')][switch]$SelectedMunarium,
     [Parameter(Mandatory)][string]$OutputRoot,
     [string]$TargetRoot,
-    [ValidateSet('Build', 'BoundaryTests')][string]$Mode = 'Build',
+    [ValidateSet('Build', 'BoundaryTests', 'LifecycleTests')][string]$Mode = 'Build',
     [ValidatePattern('^\d+\.\d+\.\d+$')][string]$ExperimentToolchain,
     [ValidateRange(1, 16)][int]$Jobs = 4
 )
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+if ($Mode -eq 'LifecycleTests' -and -not $SelectedCodex) { throw 'LifecycleTests requires the committed Codex selection.' }
 if ($SelectedCodex) {
     $SourceRoot = Join-Path $repository 'src/third_party/codex'
     $selection = Get-Content -LiteralPath (Join-Path $repository 'src/third_party/components/codex-selection.json') -Raw | ConvertFrom-Json
@@ -61,6 +62,12 @@ $record = [ordered]@{
     limitations = @("$Candidate baseline qualification only; no VCP integration or release qualification.")
     source_kind = $(if ($SelectedCodex -or $SelectedMunarium) { 'committed-selection' } else { 'unmodified-upstream' })
     runner_sha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+if ($Mode -eq 'LifecycleTests') {
+    $record.task_id = 'P0-03'
+    $record.limitations = @('Continuation admission and retained drain only; no active cancellation, durable checkpoint or CLI pause.')
+    $record.lifecycle_runner_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'scripts/upstream/test-lifecycle.cjs') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $record.lifecycle_validator_sha256 = (Get-FileHash -LiteralPath (Join-Path $repository 'src/tests/support/lifecycle-results.cjs') -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 $manifest = Join-Path $runDirectory 'manifest.json'
 function Save-Record { $record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifest -Encoding utf8 }
@@ -145,6 +152,8 @@ try {
     if ($Candidate -eq 'Munarium') {
         $verb = $(if ($Mode -eq 'Build') { 'build' } else { 'test' })
         $cargoArguments = @("+$toolchain", $verb, '--locked', '-p', 'munarium-core', '-p', 'munarium-store-mem', '-p', 'munarium-datastore', '--features', 'munarium-datastore/vector-diskann', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
+    } elseif ($Mode -eq 'LifecycleTests') {
+        $cargoArguments = @("+$toolchain", 'test', '--locked', '-p', 'codex-core', '--test', 'all', '--no-run', '--message-format=json', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
     } elseif ($Mode -eq 'Build') {
         $cargoArguments = @("+$toolchain", 'build', '--locked', '-p', 'codex-cli', '--bin', 'codex', '--target', 'x86_64-pc-windows-msvc', '-j', "$Jobs")
     } else {
@@ -155,7 +164,11 @@ try {
     Write-Host ($record.command -join ' ')
     Push-Location -LiteralPath $workspace
     try {
-        & cargo @cargoArguments *> (Join-Path $runDirectory 'command.log'); $code = $LASTEXITCODE
+        & cargo @cargoArguments > (Join-Path $runDirectory 'command.log') 2> (Join-Path $runDirectory 'command.stderr.log'); $code = $LASTEXITCODE
+        if ($Mode -eq 'LifecycleTests' -and $code -eq 0) {
+            & $node.Source (Join-Path $repository 'scripts/upstream/test-lifecycle.cjs') --cargo-log (Join-Path $runDirectory 'command.log') --output-root (Join-Path $runDirectory 'lifecycle') *> (Join-Path $runDirectory 'lifecycle.log')
+            $code = $LASTEXITCODE
+        }
         if ($Candidate -eq 'Munarium' -and $code -eq 0) {
             $treeArguments = @("+$toolchain", 'tree', '--locked', '--offline', '-p', 'munarium-core', '-p', 'munarium-store-mem', '-p', 'munarium-datastore', '--features', 'munarium-datastore/vector-diskann', '--target', 'x86_64-pc-windows-msvc', '--edges', 'normal,build', '--prefix', 'none', '--format', '{p}')
             $record.dependency_command = @('cargo') + $treeArguments
@@ -179,6 +192,7 @@ try {
     $record.exit_code = $code
     $record.status = $(if ($code -eq 0) { 'pass' } else { 'fail' })
     $record.log_sha256 = (Get-FileHash -LiteralPath (Join-Path $runDirectory 'command.log') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $record.stderr_sha256 = (Get-FileHash -LiteralPath (Join-Path $runDirectory 'command.stderr.log') -Algorithm SHA256).Hash.ToLowerInvariant()
     $record.ended_at = [DateTime]::UtcNow.ToString('o'); Save-Record
     Write-Host "Evidence: $manifest"
     exit $code

@@ -1,3 +1,4 @@
+// VCP modification: gate delegated turn starts through host continuation admission.
 use std::sync::Arc;
 
 use crate::ApprovalReviewContributor;
@@ -189,6 +190,15 @@ impl<C: Sync> ExtensionRegistry<C> {
     pub fn admit_turn_start(&self) -> Option<Box<dyn Send>> {
         match &self.turn_start_admission {
             Some(admission) => admission.admit_turn_start(),
+            None => Some(Box::new(())),
+        }
+    }
+
+    /// Acquires host admission for delegated input or pending mailbox work.
+    /// Ungated hosts retain the existing continuation behavior.
+    pub fn admit_continuation_start(&self) -> Option<Box<dyn Send>> {
+        match &self.turn_start_admission {
+            Some(admission) => admission.admit_continuation_start(),
             None => Some(Box::new(())),
         }
     }

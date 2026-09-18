@@ -22,6 +22,10 @@ A pure contract prototype can precede a dependent production integration without
 
 ## Split work by behavior
 
+The steps below are construction increments within a milestone, not one PR per
+step. Prefer finishing the connected behavior and its failure cases locally
+before opening or updating the milestone PR.
+
 1. Add domain/interface changes with errors and revision semantics. Define what a stale input means and which component may issue an authoritative receipt.
 2. Wire one real caller through the interface. Keep retained upstream behavior and tests when applicable; avoid adding a parallel controller for convenience.
 3. Implement the happy path with actual durable writes and bounded resource handling.
@@ -30,6 +34,35 @@ A pure contract prototype can precede a dependent production integration without
 6. Record tests against the resulting source state. Only then broaden to other backends/platform variants that the task promises.
 
 Do not treat a source-file checklist as a task's exit criteria. A trait, mock, migration file or empty directory alone demonstrates no behavior.
+
+## Delivery milestones
+
+Choose a primary owning task and name any related tasks whose exact prerequisites
+are satisfied. Define an observable end-to-end result, its failure boundaries,
+and the checks needed before publication. Use the [planned foundation groupings](../plan/README.md#pr-milestones-and-local-validation)
+as the current starting point. Preserve each task's ownership and completion
+criteria even when one PR covers several related increments.
+
+Work on one branch from current main. Accumulate interface changes, real callers,
+state transitions, cancellation/recovery behavior, fixtures, upstream patches,
+notices and documentation together. Use local commits as checkpoints, not as a
+reason to create another PR. Do not stop at a trait or positive-path probe when
+the next connected implementation and failure checks can be completed safely.
+
+Run focused tests during development, then the applicable combined local suite
+against the final source. Prefer existing build caches with recorded inputs;
+reconstruct selected upstream patches independently when their source changes.
+Run native Windows checks locally for affected process/lifecycle behavior and
+report missing prerequisites as not run. Do not use repeated GitHub pushes as
+the debugging loop. Hosted heavy qualification remains deliberate and manual;
+the fast hosted check confirms repository portability after publication.
+
+Before publishing, review the full milestone diff, test evidence, provenance,
+plan status and user-visible limitations. Publish a PR describing the final
+behavior rather than the sequence of prototypes used to reach it. Fix relevant
+review or CI failures, then follow the already authorized merge process and
+update main before starting the next milestone. Do not relax product acceptance
+or claim native qualification from a skipped hosted job.
 
 ## Shared service design worksheet
 

@@ -10,7 +10,8 @@ State: imported, unqualified as a VCP runtime.
 and [original native baseline](../../../docs/evaluations/p0-07-native-candidates.md)
 form the source record. The ordered [patch series](../patches/codex/README.md)
 records the `codex-chatgpt` recursion-limit change for the Rust 1.98.0 compiler
-experiment and the Munarium/embedding workspace and lockfile integrations.
+experiment, the Munarium/embedding workspace and lockfile integrations, and
+the P0-03 continuation-admission hook with retained-controller regression tests.
 The separate license transformation materializes bubblewrap's symlink from its
 selected `COPYING` bytes. Original bytes/hashes and current results are retained.
 
@@ -35,7 +36,8 @@ Applicable source notices are retained unchanged:
 - Bundled skill license files in `codex-rs/skills/src/assets/samples/` (Apache-2.0),
   source-specific copyright headers, and upstream test/asset provenance.
 
-VCP adds no copyright or SPDX replacement inside this unchanged source. Its root
+VCP adds modification comments to changed files, without replacing original
+copyright or SPDX terms. Its root
 license does not supersede bundled terms. Publication of a packaged binary will
 require the actual enabled dependency closure, complete notices and source offer
 or corresponding-source obligations where applicable under P8-04/P8-06.
