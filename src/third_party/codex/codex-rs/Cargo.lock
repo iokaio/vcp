@@ -17460,6 +17460,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
+name = "vcp-audit"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "vcp-budget",
+ "vcp-domain",
+ "vcp-engine",
+ "vcp-protocol",
+ "vcp-store",
+]
+
+[[package]]
+name = "vcp-budget"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "vcp-domain",
+ "vcp-protocol",
+ "vcp-store",
+]
+
+[[package]]
 name = "vcp-domain"
 version = "0.1.0"
 dependencies = [

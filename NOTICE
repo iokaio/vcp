@@ -41,7 +41,8 @@ existing age, Ed25519, SQLite and retained search dependencies. Its public age
 test vector and independent qualification tool are attributed in
 THIRD_PARTY_NOTICES.md.
 
-The P1 foundation patch registers original domain, protocol, store and engine
+The P1 foundation and accounting patches register original domain, protocol,
+store, engine, budget and audit
 packages in the retained workspace/lockfile using existing dependency pins.
 
 The upstream NOTICE identifies code derived from Ratatui under the MIT license:

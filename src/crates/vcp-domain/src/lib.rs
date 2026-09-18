@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Pure scoped identities and state transitions. No storage, transport or UI.
+pub mod accounting;
 pub mod artifact;
 pub mod effect;
 pub mod ids;

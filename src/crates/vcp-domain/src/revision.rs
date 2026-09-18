@@ -40,5 +40,7 @@ counters!(
     OwnerEpoch,
     Watermark,
     ByteCount,
-    Timestamp
+    Timestamp,
+    Micros,
+    Units
 );

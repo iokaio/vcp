@@ -3,6 +3,7 @@ use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{
+    accounting::*,
     artifact::ArtifactDescriptor,
     effect::Effect,
     task::{Task, Turn},
@@ -48,6 +49,7 @@ pub enum Collection {
     Projection,
     SnapshotPin,
     Access,
+    LocalResources,
 }
 impl Collection {
     pub fn name(self) -> &'static str {
@@ -71,6 +73,7 @@ impl Collection {
             Self::Projection => "projection",
             Self::SnapshotPin => "snapshot_pin",
             Self::Access => "access",
+            Self::LocalResources => "local_resources",
         }
     }
 }
@@ -170,6 +173,44 @@ impl Record {
                 let value: Approval = self.decode()?;
                 scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
             }
+            Collection::Ledger => {
+                let value: Ledger = self.decode()?;
+                value.validate()?;
+                scope(
+                    &value.scope.workspace,
+                    value.scope.task.as_str(),
+                    value.revision,
+                )?;
+            }
+            Collection::Reservation => {
+                let value: Reservation = self.decode()?;
+                value.validate()?;
+                scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
+            }
+            Collection::Attempt => {
+                let value: Attempt = self.decode()?;
+                value.validate()?;
+                scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
+            }
+            Collection::Settlement => {
+                let value: Settlement = self.decode()?;
+                if value.schema_version != 1
+                    || value.normalization_version != 1
+                    || value.id != value.observation.id
+                    || value.scope != value.observation.scope
+                    || value.attempt != value.observation.attempt
+                {
+                    return Err(Error::Corruption("settlement identity"));
+                }
+                scope(&value.scope.workspace, value.id.as_str(), self.revision)?;
+            }
+            Collection::LocalResources => {
+                let value: LocalResources = self.decode()?;
+                if value.schema_version != 1 || value.source.trim().is_empty() {
+                    return Err(Error::Corruption("local resource observation"));
+                }
+                scope(&value.scope.workspace, value.id.as_str(), self.revision)?;
+            }
             _ => {
                 if !self.value.is_object() {
                     return Err(Error::Corruption(
@@ -241,6 +282,39 @@ impl Record {
                 refs.insert(key(Collection::Effect, value.effect.as_str()));
                 refs.insert(key(Collection::Task, value.scope.task.as_str()));
             }
+            Collection::Ledger => {
+                let value: Ledger = self.decode()?;
+                refs.insert(key(Collection::Task, value.scope.task.as_str()));
+                for id in value.allocations.keys() {
+                    refs.insert(key(Collection::Task, id.as_str()));
+                }
+            }
+            Collection::Reservation => {
+                let value: Reservation = self.decode()?;
+                refs.insert(key(Collection::Task, value.scope.task.as_str()));
+                refs.insert(key(Collection::Ledger, value.root.as_str()));
+                refs.insert(key(Collection::Attempt, value.attempt.as_str()));
+            }
+            Collection::Attempt => {
+                let value: Attempt = self.decode()?;
+                refs.insert(key(Collection::Task, value.scope.task.as_str()));
+                refs.insert(key(Collection::Ledger, value.root.as_str()));
+                refs.insert(key(Collection::Reservation, value.reservation.as_str()));
+                refs.insert(key(Collection::Artifact, value.request.as_str()));
+                if let Some(previous) = value.previous {
+                    refs.insert(key(Collection::Attempt, previous.as_str()));
+                }
+            }
+            Collection::Settlement => {
+                let value: Settlement = self.decode()?;
+                refs.insert(key(Collection::Task, value.scope.task.as_str()));
+                refs.insert(key(Collection::Attempt, value.attempt.as_str()));
+                refs.insert(key(Collection::Artifact, value.observation.raw.as_str()));
+            }
+            Collection::LocalResources => {
+                let value: LocalResources = self.decode()?;
+                refs.insert(key(Collection::Task, value.scope.task.as_str()));
+            }
             _ => {}
         }
         Ok(refs)
@@ -253,6 +327,11 @@ impl Record {
             Collection::Artifact => Some(self.decode::<ArtifactDescriptor>()?.spec.scope),
             Collection::Verification => Some(self.decode::<Verification>()?.scope),
             Collection::Approval => Some(self.decode::<Approval>()?.scope),
+            Collection::Ledger => Some(self.decode::<Ledger>()?.scope),
+            Collection::Reservation => Some(self.decode::<Reservation>()?.scope),
+            Collection::Attempt => Some(self.decode::<Attempt>()?.scope),
+            Collection::Settlement => Some(self.decode::<Settlement>()?.scope),
+            Collection::LocalResources => Some(self.decode::<LocalResources>()?.scope),
             _ => None,
         })
     }
@@ -372,7 +451,11 @@ impl State {
                     // Fork and parent links are explicit task relationships. Data
                     // belonging to another task cannot be reused as this task's
                     // turn input, verification, approval, or effect observation.
-                    if record.collection != Collection::Task && source != target {
+                    if record.collection != Collection::Task
+                        && record.collection != Collection::Ledger
+                        && reference.split(':').next() != Some("ledger")
+                        && source != target
+                    {
                         return Err(Error::Access);
                     }
                 }
@@ -466,6 +549,7 @@ impl State {
         if sequences != self.sequences {
             return Err(Error::Corruption("session watermark"));
         }
+        crate::accounting_contract::validate(self)?;
         Ok(())
     }
     pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {
@@ -508,9 +592,12 @@ impl State {
                                 && record.revision == expected.next()?
                                 && previous.workspace == record.workspace =>
                         {
+                            crate::accounting_contract::transition(previous, record)?;
                             if matches!(
                                 record.collection,
-                                Collection::Verification | Collection::Settlement
+                                Collection::Verification
+                                    | Collection::Settlement
+                                    | Collection::LocalResources
                             ) {
                                 return Err(Error::Conflict("immutable evidence record"));
                             }
@@ -623,6 +710,7 @@ impl State {
             .transactions
             .insert(transaction.id.clone(), receipt.clone());
         result.validate()?;
+        crate::accounting_contract::admission(self, &result, transaction)?;
         Ok((
             result,
             Commit {

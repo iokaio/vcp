@@ -72,6 +72,9 @@ already include these changes; normal builds never apply patches.
     retained workspace and lockfile. External package identities and checksums
     are unchanged. No imported implementation is changed in this increment.
     See [the foundation guide](../../../../docs/development/p1-foundation.md).
+12. `0012-p1-accounting-history-workspace.patch` registers the original budget and
+    audit packages. It adds only local lock entries and preserves external pins.
+    See [accounting and history](../../../../docs/development/p1-accounting-history.md).
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

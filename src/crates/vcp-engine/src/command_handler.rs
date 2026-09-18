@@ -677,6 +677,7 @@ impl<S: CanonicalStore> Engine<S> {
         let result = result.unwrap_or(CommandResult::Accepted { revision: accepted });
         let facts=mutations.iter().filter_map(|m|match m{Mutation::Put{record,..}=>Some(serde_json::json!({"collection":record.collection,"id":record.id,"revision":record.revision,"value":record.value})),_=>None}).collect::<Vec<_>>();
         let event = EventInput {
+            metadata: None,
             id: event_id,
             workspace: command.workspace.clone(),
             session: command.session.clone(),

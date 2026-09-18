@@ -38,6 +38,8 @@ qualify optional/platform-specific targets or promise a fully offline build.
 
 Patch 0011 also registers the four original [P1 foundation packages](../../../docs/development/p1-foundation.md)
 without changing external dependency pins or imported implementation.
+Patch 0012 registers the original budget and audit packages under the same rule;
+see [accounting and history](../../../docs/development/p1-accounting-history.md).
 
 Applicable source notices are retained unchanged:
 

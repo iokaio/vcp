@@ -1,0 +1,54 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index da65d96..028dea9 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17459,6 +17459,36 @@ version = "0.1.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+ 
++[[package]]
++name = "vcp-audit"
++version = "0.1.0"
++dependencies = [
++ "serde",
++ "serde_json",
++ "tempfile",
++ "thiserror 2.0.18",
++ "tokio",
++ "vcp-budget",
++ "vcp-domain",
++ "vcp-engine",
++ "vcp-protocol",
++ "vcp-store",
++]
++
++[[package]]
++name = "vcp-budget"
++version = "0.1.0"
++dependencies = [
++ "serde",
++ "serde_json",
++ "tempfile",
++ "thiserror 2.0.18",
++ "tokio",
++ "vcp-domain",
++ "vcp-protocol",
++ "vcp-store",
++]
++
+ [[package]]
+ name = "vcp-domain"
+ version = "0.1.0"
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index d0226fe..3dfa6b9 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -5,6 +5,8 @@ members = [
+     "../../../crates/vcp-protocol",
+     "../../../crates/vcp-store",
+     "../../../crates/vcp-engine",
++    "../../../crates/vcp-budget",
++    "../../../crates/vcp-audit",
+     # VCP modification: portable storage qualification shares the retained build graph.
+     "../../../crates/vcp-storage-spike",
+     # VCP modification: scoped retained-controller lifecycle qualification.

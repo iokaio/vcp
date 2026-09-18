@@ -55,4 +55,7 @@ Resolve paths from the script's location, document real tool prerequisites, reje
 `test-foundation.ps1` qualifies the [P1 durable foundation](../docs/development/p1-foundation.md)
 with native typed-state, command, capture, backend, process-crash and controlled
 activation contracts. It records stable source inputs and actual native test
-results. Accounting and retained-controller integration are subsequent P1 work.
+results. `test-accounting-history.ps1` runs the six-package, 39-contract
+[accounting/history qualification](../docs/development/p1-accounting-history.md),
+including the foundation regressions and real accounting/projection process kills.
+Retained-controller integration remains subsequent P1 work.

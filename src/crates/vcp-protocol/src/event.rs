@@ -24,6 +24,7 @@ pub enum EventKind {
     ReservationReleased,
     LiabilityRetained,
     AccountingResolved,
+    LocalResourcesObserved,
     AccessChanged,
     RetentionChanged,
     Commentary,
@@ -45,6 +46,19 @@ pub struct EventInput {
     pub artifacts: Vec<ArtifactId>,
     /// Versioned fact data. Diagnostics are explicitly marked, never commentary.
     pub data: serde_json::Value,
+    /// Optional additive metadata preserves the exact canonical bytes of older
+    /// version-1 events when absent. It is filter data, never authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<EventMetadata>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventMetadata {
+    pub agent: Option<AgentId>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub paths: Vec<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

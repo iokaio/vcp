@@ -116,6 +116,7 @@ pub fn initial() -> Transaction {
             },
         ],
         events: vec![EventInput {
+            metadata: None,
             id: EventId::parse("created").unwrap(),
             workspace: w.id.clone(),
             session: s.id.clone(),

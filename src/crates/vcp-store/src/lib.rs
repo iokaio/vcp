@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+mod accounting_contract;
 pub mod artifact;
 mod backend;
 pub mod contract;
