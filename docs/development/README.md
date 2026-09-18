@@ -1,5 +1,8 @@
 # Development design and implementation guides
 
+- [P0 handoff and concrete source map](p0-handoff.md): qualified candidates, reproducible setup and the segment 02 edit map.
+- [Retained integration and Gemini ports](p0-integration.md): local coding/receipt/budget/memory trace, neutral comparisons and source maintenance.
+
 - [Portable storage qualification](portable-storage-spike.md): native backend parity, encrypted snapshots, independent cryptographic interoperability and cross-machine handoff.
 
 These guides describe how to implement and qualify the planned system. The [delivery harness](delivery-harness.md) and [committed Codex baseline build](codex-source.md) are executable. VCP product-runtime qualification remains outstanding.

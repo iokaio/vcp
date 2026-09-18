@@ -45,7 +45,7 @@ Do not make migrations, data resets or upstream replacement implicit. Retain use
 
 ## Test entry points to implement
 
-P0-01 now has a [delivery harness](../development/delivery-harness.md); P0-07 will map it onto actual upstream packages. The `fast` command exists. The remaining commands below are planned:
+P0-01 has a [delivery harness](../development/delivery-harness.md), and the [P0 handoff](../development/p0-handoff.md) maps actual native commands and packages. The `fast` command exists. The remaining commands below are still planned product-suite interfaces; use the documented native qualification scripts for P0 evidence:
 
 ```powershell
 pwsh -NoProfile -File scripts/test.ps1 -Suite fast

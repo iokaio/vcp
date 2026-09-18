@@ -1,8 +1,8 @@
 # ADR-013 — Upstream reuse and committed vendoring
 
-Status: repository policy implemented for the initial Codex source selection; VCP integration qualification remains planned.
+Status: repository policy implemented; bounded native integration and maintenance evidence is recorded below. Production/release qualification remains separate.
 
-This record makes the source-management convention explicit for the existing maximum-reuse direction in [architecture section 0.2](../architecture/vcp-what.md#02-open-source-reuse-policy). It does not mark P0 or an upstream import complete. [P0-07 and P0-08](../plan/01-upstream-feasibility.md) will add the exact revisions, retained modules, replacements, dependency closure, and native Windows evidence. P8-06 owns the release-stage update rehearsal.
+This record makes the source-management convention explicit for the existing maximum-reuse direction in [architecture section 0.2](../architecture/vcp-what.md#02-open-source-reuse-policy). [P0-07 and P0-08](../plan/01-upstream-feasibility.md) supply the exact revisions, retained modules, replacements, dependency closure and native evidence; their states are tracked in the ledger. P8-06 owns the release-stage update rehearsal.
 
 ## Decision
 
@@ -28,7 +28,7 @@ The C01–C06 inventory in [architecture section 3.5](../architecture/vcp-what.m
 | C06 | Terminal and headless CLI infrastructure | `vcp-cli` |
 | C07 | Relevant upstream regression tests and fixtures | Owning modules and shared contract suites |
 
-Retain suitable runtime, HTTP, serialization, PTY, credential, and terminal libraries after revision-specific dependency and license review. The initial [retained-file list](../../src/third_party/components/codex-files.json) establishes a baseline; the integrated retained/replaced map remains P0-08 work.
+Retain suitable runtime, HTTP, serialization, PTY, credential, and terminal libraries after revision-specific dependency and license review. The [retained-file list](../../src/third_party/components/codex-files.json) binds the actual source; the [integrated map](../development/p0-handoff.md#retained-and-replaced-responsibilities) records the P0 candidates and remaining product replacements.
 
 VCP supplies or replaces the OpenRouter model gateway, routing, budgets and cost ledger, canonical storage, Munarium-derived local memory with Tantivy/DiskANN, and encrypted portability. Adapters must leave one authoritative controller, store, and ledger. Pointing an upstream provider at another base URL does not establish the required tool-call, attribution, accounting, or recovery behavior.
 
@@ -60,6 +60,15 @@ P0 must expose the selected build through the planned `scripts/build.ps1` and ch
 
 ## Upstream updates and attribution
 
+The [P0 retained/replaced map](../development/p0-handoff.md) now identifies
+C01–C07, supporting libraries, exact edit locations and the working host seams.
+[P0-08/P0-09 evidence](../evaluations/p0-08-09-integration.md) records the native
+coding trace, isolated-helper controls, shared accounting, attributed Gemini
+adaptation, full ordered reconstruction and the retrospective six-file import
+rehearsal. That experiment resolved an overlay/import ordering conflict without
+advancing the selected revision. P8-06 must still qualify an update of the actual
+release graph; the bounded experiment is not a release maintenance promise.
+
 Review relevant fixes before each release and in response to security/compatibility reports. An authorized update selects a new immutable revision, reviews source and transitive dependency changes, reapplies or revises the local patch series, updates the committed source and manifest together, and reruns affected upstream and VCP suites. No build or runtime step automatically advances an upstream revision.
 
 Retain applicable license and notice texts and identify modified files when source is first imported. Update root [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) and [NOTICE](../../NOTICE) with actual included material at import time, then verify the inventory against what ships before release. VCP's Apache-2.0 license does not replace selected-file, dependency, or model-asset terms.
@@ -68,7 +77,7 @@ The trade-off is a larger VCP source tree and responsibility for keeping patches
 
 ## Current evidence and unresolved work
 
-The [current source selection and build](../development/codex-source.md) retain the pinned Codex Cargo workspace as 7,937 ordinary files. Machine-readable selection/result records, reconstruction checks and a native build command exist. The ordered patch series records a crate recursion-limit compatibility change; the separate license-symlink materialization is explicit. Root and retained notices identify the imported source and modification. There is no gitlink, nested repository or `.gitmodules` dependency.
+The [current source selection and build](../development/codex-source.md) retain the pinned Codex Cargo workspace as 7,938 ordinary files (7,937 at initial import). Machine-readable selection/result records, reconstruction checks and a native build command exist. The ordered patch series records the crate recursion-limit compatibility change, shared workspace and host integration; the separate license-symlink materialization is explicit. Root and retained notices identify the imported source and modification. There is no gitlink, nested repository or `.gitmodules` dependency.
 
 The [Munarium selection](../development/munarium-source.md) imports 70 ordinary
 files with manifest-only adaptations into the same Codex Cargo workspace. Its
@@ -80,16 +89,17 @@ compiler pins; a single supported VCP compiler remains an integration decision.
 The subsequent [CPU embedding helper](../development/local-embeddings.md) brings
 the workspace to 158 packages and the shared lock to 1,565 entries. Its dependency
 closure required the sole pre-existing pin change `regex-automata` 0.4.13 to 0.4.14.
-The ordered Codex patches now also record Munarium and embedding workspace/lock
-integration; none implements a VCP runtime adapter.
+Those early Codex patches record Munarium and embedding workspace/lock
+integration. Later patches add the host adapters described above.
 
 The [static package/effect inventory](../development/codex-boundaries.md) covers
-all 159 packages, with 23 conservative module ceilings and 45 classified source
-entries. It describes intended adapter ownership, not implemented restrictions.
+all 161 packages, with 25 conservative module ceilings and 54 classified source
+entries. Each entry distinguishes implemented host controls from intended
+production adapter ownership.
 The [selection gate report](../evaluations/p0-07-selection-gate.md) consolidates
 native build, reconstruction and representative trace evidence. Enforced
-replacements and product toolchain qualification remain later P0 work; the
-committed-copy convention is unchanged.
+production replacements and release toolchain qualification remain with P1–P8;
+the bounded P0 host does not change the committed-copy convention.
 
 P0-02's [corpus prototype](../development/local-memory-spike.md) adds one original
 qualification package and the fourth workspace patch. All 1,565 previous lock

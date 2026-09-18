@@ -1,7 +1,7 @@
 # ADR-001 — Runtime and process topology
 
-Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P0-02/03/05/08/06; P2-07. No implementation, runtime result or owner sign-off is recorded here.
+Status: confirmed direction with bounded native P0 evidence; production topology remains subject to P1/P2/P5/P8 qualification.
+Decision gate: P0-02/03/05/08/06; P2-07. Engineering evidence is linked below; this does not assert human sign-off or release readiness.
 
 ## Context and authority
 
@@ -22,6 +22,15 @@ Detailed contracts and failure ordering are in the [supporting design](../archit
 Compare in-process services with supervised local workers for crash containment, memory pressure and cancellation. Select the minimum process split that passes native Windows ownership tests. A separate worker must not introduce its own provider credentials, scheduler or canonical database.
 
 ## Qualification evidence
+
+The [P0 dossier](../evaluations/p0-06-handoff.md) combines real local memory,
+private root/child pause and recovery, native process control, encrypted storage
+and the [retained-engine integration](../development/p0-integration.md). Keep the
+in-process Codex controller with injected host authority and supervised native
+effect processes. No separate engine or hosted memory service is needed for the
+qualified envelope. The private journal and bounded locking strategy are
+prototype choices; P1 transactions and P2 worker scheduling must still satisfy
+the production failure/performance contracts above.
 
 Record process roles, executable paths, ownership tokens, handle inheritance, queue bounds and shutdown deadlines in the P0 source map. Kill the CLI and workers independently; observe grandchildren and dispatch counts. CPU-only inference and index reopen must pass U09, and owner loss must pass U06.
 

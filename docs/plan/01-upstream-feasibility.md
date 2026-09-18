@@ -1,6 +1,6 @@
 # 01 — Native Windows foundation and upstream feasibility
 
-Status: P0-01, P0-02, P0-03, P0-04, P0-05 and P0-07 complete for bounded feasibility; remaining tasks planned. P0-02 is bounded feasibility, not product integration. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
+Status: all nine P0 tasks complete for bounded feasibility. These results do not qualify production integration or a release. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
 
 Use the [upstream experiment procedure](../development/upstream-qualification.md) for manifest/reconstruction details and the [qualification harness design](../architecture/qualification-release-design.md) for result records and fault supervision. [ADR-001](../adr/001-runtime-topology.md), [ADR-003](../adr/003-canonical-storage.md), [ADR-008](../adr/008-local-governed-memory.md), [ADR-015](../adr/015-portability-and-storage-choice.md) and [ADR-019](../adr/019-cloud-encryption-and-keys.md) now record the confirmed directions and pending experiments separately.
 
@@ -27,6 +27,11 @@ Implement the result recorder before costly experiments: source commit/dirty ide
 Propose separate quality thresholds for analysis findings, review precision/recall and generated behavior/architecture fit; leave final values unselected until the owner task set is known. Do not expose held-out answers in model-visible fixtures. Classify every ADR as confirmed direction, proposed mechanism or unresolved engineering choice.
 
 ## P0-07 — Immutable upstream selection
+
+Completed feasibility: the [consolidated selection gate](../evaluations/p0-07-selection-gate.md)
+supersedes the partial statuses in the historical progression below. Current
+patches and concrete retained/replaced destinations are in the
+[handoff map](../development/p0-handoff.md).
 
 Implementation progress: [candidate pins and commands](../development/upstream-candidates.md) provide original-byte inventories and an executable native Windows baseline experiment. [Native results](../evaluations/p0-07-native-candidates.md) record Codex's CLI build and 102 patch/policy tests, Munarium's 79 kernel/store tests, and Gemini's 213 policy/scheduler/tool tests. The [committed Codex selection](../development/codex-source.md) adds 7,937 files, license/closure records, independent reconstruction and a direct native build command. Complete effect classification and other selected component closure remain outstanding; P0-07 stays in progress.
 
@@ -149,7 +154,7 @@ Measure cold load, warm inference/query, batch throughput, resident/mapped memor
 
 ## P0-03 — Codex lifecycle seam
 
-Completed feasibility: the [recovery implementation](../development/lifecycle-recovery.md) and [native acceptance evidence](../evaluations/p0-03-recovery-execution.md) qualify durable owner checkpoints, startup/model/tool gates, same-process private CLI pause/resume, fresh-process restoration and native process quiescence. Earlier increments below describe the progression; their unfinished obligations are superseded by this result. Global production wiring remains P0-08 and P1/P2/P3.
+Completed feasibility: the [recovery implementation](../development/lifecycle-recovery.md) and [native acceptance evidence](../evaluations/p0-03-recovery-execution.md) qualify durable owner checkpoints, startup/model/tool gates, same-process private CLI pause/resume, fresh-process restoration and native process quiescence. Earlier increments below describe the progression; their unfinished obligations are superseded by this result. The [P0-08 host](../development/p0-integration.md) adds bounded coding/accounting integration; global production wiring remains P1/P2/P3.
 
 The [native CLI trace](../evaluations/p0-07-cli-trace.md) now observes completion,
 tool receipt/file effects, retry and rejection through the unmodified retained
@@ -159,17 +164,18 @@ hook, with [ten native regressions](../evaluations/p0-03-continuation-admission.
 The [scoped lifecycle host](../development/scoped-lifecycle.md) adds registered
 thread admission, independent/inherited holds, retained interruption, owner-loss
 denial and revision-checked readmission. See its [local qualification](../evaluations/p0-03-scoped-lifecycle.md).
-P0-03 remains `in_progress`: startup/effect authority, durable checkpoint/reopen,
-confirmed process-tree quiescence and in-app root/child pause remain outstanding.
+That earlier scoped-host increment left startup/effect authority, durable
+checkpoint/reopen, process-tree quiescence and in-app root/child pause unqualified;
+the completed recovery milestone above supplies those results.
 
 Delivery now groups connected work into the [foundation milestones](README.md#pr-milestones-and-local-validation).
 The scoped-control milestone combines thread-scoped admission with a host lifecycle
 fence, independent/inherited root-child holds, active retained-loop cancellation,
 explicit readmission and owner-loss denial, including negative/race cases and
 source reconstruction. Do not publish separate PRs for each hook or observer.
-Checkpoint/reopen, process quiescence and private CLI integration follow as one
-connected recovery milestone; P0-03 remains incomplete until those obligations
-pass. Local native tests are the primary evidence during development.
+Checkpoint/reopen, process quiescence and private CLI integration passed together
+in the connected recovery milestone. Local native tests remain the primary
+evidence during development.
 
 1. Trace CLI input to controller, context, model request, tools and completion in the pinned code. Identify injectable persistence/model/policy/execution boundaries.
 2. Wrap a tiny internal command/event path with workspace/task IDs, deterministic responses, cancellation and visible outcomes.
@@ -220,6 +226,14 @@ For each claimed restriction, place independently observed canaries inside and o
 
 ## P0-08 — Codex integration baseline
 
+Completed for bounded feasibility: [integration evidence](../evaluations/p0-08-09-integration.md)
+records the retained read/prepare/patch/native-check/memory loop, shared durable
+reservations and receipts, preserved user edits, denied helper/tool bypasses,
+ordered source reconstruction and the representative fix-import rehearsal.
+Retained lifecycle and native recovery regressions passed on the common Rust
+1.98.0 candidate. The [handoff map](../development/p0-handoff.md) identifies
+retained/replaced modules and the production responsibilities still owned by P1–P8.
+
 1. Keep the functioning CLI/loop structure and insert candidate OpenRouter, budget, store and memory adapters. Use deterministic provider responses initially.
 2. Exercise read, prepared patch, verification and task summary through the retained engine. Trace every helper/model call and remove bypasses.
 3. Compare preserving a cohesive module with extraction where coupling prevents VCP contracts. Rehearse importing one representative upstream fix and record effort/patch size.
@@ -238,6 +252,12 @@ Choose a representative immutable upstream fix whose affected tests are known; r
 
 ## P0-09 — Gemini fixture and port boundaries
 
+Completed for bounded feasibility: [the pinned comparison and Rust port evidence](../evaluations/p0-08-09-integration.md#gemini-comparison)
+preserves canonical argument encoding and out-of-order results while explicitly
+testing VCP's fresh approval, resource ownership and cancellation receipt rules.
+The [component record](../../src/third_party/components/gemini-cli.md#p0-09-attributed-adaptation)
+binds the source, license, destination files and comparison-only Node closure.
+
 1. Pin G01 tool invocation, G02 scheduler and G03 policy/confirmation behavior; locate G06 skill/MCP seams.
 2. Express language-neutral input/result/event fixtures and retain original expected outcomes. Mark intentional differences for VCP permission ceilings, durable dispatch and accounting.
 3. Implement only the small adapters/ports needed to prove those boundaries. Node may run comparison fixtures without becoming an engine runtime dependency.
@@ -251,6 +271,13 @@ Define neutral fixtures with canonical arguments, resource declarations, arrival
 For each difference record the original outcome, VCP outcome, governing invariant and why an adapter rather than a copied expectation is needed. Remove provider SDK types from the production boundary and route every helper request through the VCP model gateway. A Node comparison fixture is test infrastructure; it does not establish a second runtime dependency for the shipped engine.
 
 ## P0-06 — Qualification and handoff
+
+Completed for bounded feasibility: [the consolidated dossier](../evaluations/p0-06-handoff.md)
+binds every prerequisite, candidate decision, failed alternative and remaining
+production risk. The common Rust 1.98.0 retained CLI build, integration,
+lifecycle/recovery and source checks passed. [The setup/source map](../development/p0-handoff.md)
+gives reproducible commands and concrete P1 module destinations. All P0 ledger
+dependencies are complete; P1 implementation and product acceptance remain planned.
 
 Collect every P0 prerequisite result. Accept concrete source/toolchain mappings, local model/runtime, Windows capability scope, storage recommendation, encrypted format and writer/key trust contract. Capture failed alternatives and replacement scope; do not label unrun prototypes qualified.
 

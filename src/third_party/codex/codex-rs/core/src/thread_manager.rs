@@ -1,3 +1,4 @@
+// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
 mod managed;
 
 use crate::CodexAppsToolsCache;
@@ -2084,7 +2085,7 @@ impl ThreadManagerState {
                 (
                     inherited_instructions.unwrap_or_default(),
                     None,
-                    empty_extension_registry(),
+                    self.extensions.isolated_host_controls(), // VCP: preserve host gates.
                     Arc::new(McpManager::new(Arc::clone(&self.plugins_manager))),
                     Some(MultiAgentVersion::Disabled),
                 )

@@ -1,3 +1,4 @@
+// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
 use std::future::Future;
 use std::io::ErrorKind;
 use std::mem::swap;
@@ -328,6 +329,8 @@ pub fn turn_permission_fields(
 }
 
 pub struct TestCodexBuilder {
+    // VCP modification: exercise the retained startup tool ceiling in host tests.
+    allowed_tools: Option<codex_extension_api::AllowedTools>,
     config_mutators: Vec<Box<ConfigMutator>>,
     auth: CodexAuth,
     analytics_events_client: Option<AnalyticsEventsClient>,
@@ -349,6 +352,10 @@ pub struct TestCodexBuilder {
 }
 
 impl TestCodexBuilder {
+    pub fn with_allowed_tools(mut self, tools: codex_extension_api::AllowedTools) -> Self {
+        self.allowed_tools = Some(tools);
+        self
+    }
     pub fn with_thread_store(mut self, thread_store: Arc<dyn ThreadStore>) -> Self {
         self.thread_store = Some(thread_store);
         self
@@ -841,7 +848,12 @@ impl TestCodexBuilder {
                 } else {
                     None
                 };
+                let mut thread_extension_init = codex_extension_api::ExtensionDataInit::default();
+                if let Some(tools) = self.allowed_tools.clone() {
+                    thread_extension_init.insert(tools);
+                }
                 Box::pin(thread_manager.start_thread(StartThreadOptions {
+                    thread_extension_init,
                     history_mode: self.history_mode,
                     client_mcp_extensions: client_mcp_extensions(),
                     environments,
@@ -1395,6 +1407,7 @@ fn function_call_output<'a>(bodies: &'a [Value], call_id: &str) -> &'a Value {
 
 pub fn test_codex() -> TestCodexBuilder {
     TestCodexBuilder {
+        allowed_tools: None,
         config_mutators: vec![Box::new(|config| {
             config
                 .features

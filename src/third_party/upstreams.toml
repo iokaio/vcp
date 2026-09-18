@@ -18,7 +18,7 @@ tree = "b54522de663019e332772544ae53054aa3ecb92d"
 inventory_sha256 = "0731feb5908c07319e74229723db80320517dd80afbb94bc6cec0768100f8259"
 toolchain = "1.95.0-x86_64-pc-windows-msvc"
 owner_task = "P0-07"
-selection_state = "Cohesive source imported for qualification; VCP adapters and product boundaries are not implemented"
+selection_state = "Cohesive source with bounded native lifecycle/integration adapters; private fixture profile only, production boundaries remain P1/P2/P3"
 
 [[upstream]]
 id = "gemini-cli"
@@ -26,13 +26,13 @@ origin = "https://github.com/google-gemini/gemini-cli"
 commit = "6a466a7e2fe2b1255752c1e74f69b31f0216084d"
 state = "candidate"
 root_license = "Apache-2.0"
-license_scope = "Root license only; selected file and dependency review pending"
+license_scope = "Selected Gemini policy/scheduler headers are Apache-2.0, Copyright 2025–2026 Google LLC; original license retained; Node closure is comparison-only"
 tree = "5cb35fa93b203b709e91737b0a00da985dbb186e"
 inventory_sha256 = "f9ba0e41e3de225d8d785f7260e4818ea7e4851df7deb59ff3663675f2fadd7b"
 owner_task = "P0-07"
 component_notes = "components/gemini-cli.md"
-candidate_paths = ["packages/core/src/tools/tools.ts", "packages/core/src/tools/tools.test.ts", "packages/core/src/scheduler/scheduler.ts", "packages/core/src/scheduler/scheduler.test.ts", "packages/core/src/scheduler/policy.ts", "packages/core/src/policy/policy-engine.ts", "packages/core/src/policy/policy-engine.test.ts", "packages/core/src/policy/types.ts", "packages/core/src/policy/stable-stringify.ts", "packages/core/src/skills/skillLoader.ts", "packages/core/src/skills/skillManager.ts", "packages/core/src/tools/mcp-client.ts", "packages/core/src/tools/mcp-tool.ts", "package.json", "package-lock.json", "packages/core/package.json", "scripts/generate-git-commit-info.js", "LICENSE"]
-selection_state = "External candidate, not imported; reproducible 402 policy/scheduler/tool/skill/MCP tests passed on Windows with mocked collaborators; port qualification remains P0-09"
+candidate_paths = ["packages/core/src/tools/tools.ts", "packages/core/src/tools/tools.test.ts", "packages/core/src/scheduler/scheduler.ts", "packages/core/src/scheduler/scheduler.test.ts", "packages/core/src/scheduler/policy.ts", "packages/core/src/scheduler/state-manager.ts", "packages/core/src/scheduler/types.ts", "packages/core/src/policy/policy-engine.ts", "packages/core/src/policy/policy-engine.test.ts", "packages/core/src/policy/types.ts", "packages/core/src/policy/stable-stringify.ts", "packages/core/src/skills/skillLoader.ts", "packages/core/src/skills/skillManager.ts", "packages/core/src/tools/mcp-client.ts", "packages/core/src/tools/mcp-tool.ts", "package.json", "package-lock.json", "packages/core/package.json", "scripts/generate-git-commit-info.js", "LICENSE"]
+selection_state = "Pinned external comparison source plus attributed bounded Rust canonicalization/preparation/state port; original outcomes and VCP differences recorded in components/gemini-cli.md"
 
 [[upstream]]
 id = "munarium"

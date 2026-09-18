@@ -62,3 +62,10 @@ Apache-2.0 grant. The adapter's API/pooling approach was informed by Candle's
 BERT example; source and package revisions are recorded in THIRD_PARTY_NOTICES.md.
 The external all-MiniLM-L6-v2 model selection and public synthetic reference
 vectors retain model/runtime provenance. Model weights are not distributed here.
+
+The bounded policy/scheduler Rust adaptation and comparison fixtures derive
+behavior from Google Gemini CLI, Copyright 2025–2026 Google LLC, Apache-2.0,
+revision 6a466a7e2fe2b1255752c1e74f69b31f0216084d. The original license and
+source/destination records are retained under src/third_party/licenses/ and
+src/third_party/components/gemini-cli.md. VCP authority/resource rules are
+identified modifications; the port does not include a Google SDK runtime.

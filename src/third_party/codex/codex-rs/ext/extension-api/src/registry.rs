@@ -1,3 +1,4 @@
+// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
 // VCP modification: thread-scoped host admission for ordinary and delegated starts.
 use std::sync::Arc;
 
@@ -170,6 +171,13 @@ pub struct ExtensionRegistry<C: Sync> {
 }
 
 impl<C: Sync> ExtensionRegistry<C> {
+    /// VCP: helper isolation removes extensions, never the owning host's gates.
+    pub fn isolated_host_controls(&self) -> Arc<Self> {
+        let mut builder = ExtensionRegistryBuilder::new();
+        builder.registry.turn_start_admission = self.turn_start_admission.clone();
+        builder.registry.work_admission = self.work_admission.clone();
+        Arc::new(builder.build())
+    }
     pub fn work_admission(&self) -> Option<Arc<dyn crate::HostWorkAdmission>> {
         self.work_admission.clone()
     }

@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Plan revision 9 — September 18, 2026. Delivery uses larger behavioral milestones
+Plan revision 10 — September 18, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded
 qualification already completed from remaining product implementation. Explicit
 pause while the CLI stays open is required alongside close-to-pause.
@@ -15,24 +15,40 @@ fallback. Thin Rust adapters preserve VCP's gateway and lifecycle; LangChain is 
 a runtime dependency. [Transport qualification](../architecture/decision-evaluation-design.md#jev-through-openrouter-qualification)
 and held-out quality evidence precede enabled defaults. Direct TypeSafe access
 outside OpenRouter, remote retrieval and new local models remain unselected.
-The 68 task IDs and dependencies are unchanged. The lifecycle recovery milestone below updates P0-03/P0-05 from planned work to bounded qualification.
+The 68 task IDs and dependencies are unchanged. The P0 milestones below record
+bounded source, lifecycle, storage and retained-integration qualification;
+the final handoff consolidates their evidence for P1.
 
 Start with [the code layout](code-layout.md), [the delivery contract](00-delivery-contract.md), [test infrastructure and acceptance](16-test-fixtures-and-acceptance.md), then [upstream feasibility](01-upstream-feasibility.md). These files expand [architecture draft 0.4](../architecture/vcp-what.md) into coding and testing work. The architecture remains authoritative for product behavior; this directory owns the detailed execution instructions and repository layout.
 
-The repository contains the executable [delivery harness](../development/delivery-harness.md), [committed Codex baseline](../development/codex-source.md) and [checked package/source map](../development/codex-boundaries.md), with repository and regression checks in CI. P0-01, P0-02 and P0-07 are complete for their bounded qualification contracts; [P0-02 resource evidence](../evaluations/p0-02-local-resources.md) records the final local feasibility gate and its integration limits. P0-03 and P0-05 are also complete for bounded feasibility: [recovery and native execution evidence](../evaluations/p0-03-recovery-execution.md) covers durable pause/reopen, real effect gates, private CLI controls and process/isolation fixtures. Storage/encrypted portability and integrated upstream handoff remain next. The [selection acceptance map](../evaluations/p0-07-selection-gate.md) separates source qualification from later product tasks. Remaining VCP product interfaces and acceptance results are planned. Use `docs/` for documentation, `src/` for source and test assets, and `scripts/` for build/test automation. Preserve useful Codex modules instead of creating empty replacement crates merely to match a diagram. Follow [CONTRIBUTING.md](../../CONTRIBUTING.md) for licensing, sign-off, provenance, and review.
+The repository contains the executable [delivery harness](../development/delivery-harness.md),
+[committed Codex baseline](../development/codex-source.md) and
+[checked package/source map](../development/codex-boundaries.md), with repository
+and regression checks in CI. All nine P0 tasks are complete for bounded
+feasibility. The [P0 dossier](../evaluations/p0-06-handoff.md)
+consolidates local memory, lifecycle/native execution, encrypted storage and
+retained integration evidence; the [handoff map](../development/p0-handoff.md)
+identifies concrete P1 starting points. The common-compiler CLI build and
+retained regressions passed. Product interfaces and release acceptance remain planned.
+Use `docs/` for documentation, `src/` for source and test assets, and `scripts/`
+for build/test automation. Preserve useful Codex modules instead of creating
+empty replacement crates merely to match a diagram. Follow
+[CONTRIBUTING.md](../../CONTRIBUTING.md) for licensing, sign-off, provenance and review.
 
 ## Segment index
 
 The [P0-04 storage milestone](../development/portable-storage-spike.md) now has
 local backend, crash, cryptographic interoperability and encrypted-transfer
-evidence. Its second-Windows-environment handoff gate is recorded separately in
-[the evaluation](../evaluations/p0-04-portable-storage.md). Integrated upstream
-handoff and the consolidated P0-06 decision remain next.
+evidence. Its passing second-Windows-environment handoff gate is recorded in
+[the evaluation](../evaluations/p0-04-portable-storage.md). The
+[retained integration and Gemini ports](../evaluations/p0-08-09-integration.md)
+also passed their native gates; [P0-06](../evaluations/p0-06-handoff.md) records
+the completed feasibility decision and the remaining production work.
 
 | File | Deliverable | Architecture work owned |
 |---|---|---|
 | [Code layout](code-layout.md) | Initial roots, target tree, logical package locations and placement rules | Shared repository convention; no additional product work item |
-| [ADR-013: committed vendoring](../adr/013-upstream-reuse-and-vendoring.md) | Codex copied-source policy, build participation, patch reconstruction and updates | Repository policy for P0-07/P0-08/P8-06; component qualification remains planned |
+| [ADR-013: committed vendoring](../adr/013-upstream-reuse-and-vendoring.md) | Codex copied-source policy, build participation, patch reconstruction and updates | P0-07/P0-08 bounded qualification complete; release maintenance remains P8-06 |
 | [00 Delivery contract](00-delivery-contract.md) | Shared working rules, source boundaries, check commands and evidence | Supporting guidance |
 | [01 Upstream feasibility](01-upstream-feasibility.md) | Native Windows Codex baseline, Munarium/search/storage/crypto prototypes | P0-01 through P0-09 |
 | [02 Engine state and capture](02-engine-state-and-capture.md) | Domain state, internal events, full artifacts and projections | P1-01, P1-02, P1-03, P1-06 |
@@ -92,17 +108,18 @@ PRs or hosted runs. Start the next milestone from updated main after the prior
 PR is reviewed and merged. This is deeper work within a PR, not a requirement
 for a chain of unmerged PRs.
 
-The next foundation milestones are:
+The foundation milestone groupings are:
 
 | Milestone | Existing owners | Combined implementation and evidence |
 |---|---|---|
 | Scoped lifecycle control (complete increment) | P0-03 | Trusted thread admission, root/child hold state, active stream cancellation, explicit readmission, owner-loss fencing and real retained-loop tests in one PR; preserve independent child holds and visible limitations |
 | Lifecycle recovery and Windows execution (qualified) | P0-03, then P0-05 | Owner checkpoint/reopen trace, private CLI control, confirmed process-tree outcomes, Windows boundary fixtures and failure receipts; finish P0-03 before claiming dependent P0-05 acceptance |
-| Storage and encrypted portability | P0-04 | Compare both stores with the same fixtures, authenticated encrypted snapshot/restore, corruption and crash cases, resource measurements and ADR decisions |
-| Integrated upstream handoff | P0-08/P0-09, then P0-06 | Retained-loop adapters, provider-neutral fixture ports, full effect trace, patch-maintenance rehearsal and consolidated prerequisite evidence |
+| Storage and encrypted portability (qualified) | P0-04 | Both stores compared with the same fixtures, authenticated encrypted snapshot/restore, corruption and crash cases, resource measurements, second-Windows handoff and ADR decisions |
+| Integrated upstream handoff (qualified) | P0-08/P0-09, then P0-06 | Retained-loop adapters, provider-neutral fixture ports, full effect trace, patch-maintenance rehearsal, common-compiler native build and consolidated prerequisite evidence |
 
-These are delivery groupings, not new tasks or changed dependencies. The lifecycle milestones have passed their bounded recovery and private CLI
-acceptance. They remain prototypes until the later product integration gates pass. Keep unfinished ledger items `in_progress`. Later segments use
+These are delivery groupings, not new tasks or changed dependencies. The P0
+milestones remain prototypes until the later product integration gates pass.
+Keep unfinished ledger items `in_progress`. Later segments use
 the same approach: combine domain changes, real adapters, observable behavior
 and relevant acceptance tests instead of publishing plumbing-only increments.
 Split a milestone only for a concrete dependency, distinct review risk or a

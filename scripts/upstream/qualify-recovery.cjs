@@ -30,7 +30,7 @@ async function main(argv) {
   const save = () => fs.writeFileSync(manifest, JSON.stringify(record, null, 2) + '\n'); save();
   try {
     for (const group of ['journal', 'host']) {
-      const args = ['--nocapture', '--test-threads=1'];
+      const args = [...(group === 'journal' ? ['journal::tests::'] : []), '--nocapture', '--test-threads=1'];
       const result = spawnSync(programs[group], args, { encoding: 'utf8', timeout: 180000, maxBuffer: 2 * 1024 * 1024,
         windowsHide: true, env: { ...process.env, RUST_MIN_STACK: '16777216', CODEX_TEST_ENVIRONMENT: 'local' } });
       fs.writeFileSync(path.join(directory, group + '-stdout.log'), result.stdout || '');
@@ -41,7 +41,8 @@ async function main(argv) {
       else {
         const expected = ['exclusive_writer_and_workspace_identity', 'every_torn_tail_recovers_only_complete_frames', 'complete_corruption_is_not_silently_discarded'];
         for (const name of expected) if (!result.stdout.includes(`test journal::tests::${name} ... ok`)) throw Error('Missing journal result: ' + name);
-        if (!result.stdout.includes('test result: ok. 3 passed; 0 failed; 0 ignored;')) throw Error('Unexpected journal summary');
+        if (!result.stdout.includes('test journal::tests::legacy_checkpoint_upgrades_by_append_without_rewriting_history ... ok')) throw Error('Missing append-only legacy upgrade result');
+        if (!result.stdout.includes('test result: ok. 4 passed; 0 failed; 0 ignored;')) throw Error('Unexpected journal summary');
       }
       const stage = { group, command: [programs[group], ...args], status: 'pass', stdout_sha256: hash(path.join(directory, group + '-stdout.log')) };
       if (group === 'host') {

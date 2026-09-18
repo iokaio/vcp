@@ -1,5 +1,7 @@
 # Retained-controller lifecycle host
 
+The [P0 integration guide](../../../docs/development/p0-integration.md) documents the bounded coding host, atomic synthetic accounting, governed memory and neutral Gemini adapters. Use `scripts/test-integration.ps1` locally; these are qualification APIs, not production formats.
+
 Original Apache-2.0 P0-03 prototype, built in the committed Codex workspace.
 It implements scoped admission, local/inherited holds, durable private checkpoints,
 dispatch receipts, revision-checked control commands and native process ownership.

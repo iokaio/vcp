@@ -740,7 +740,7 @@
       "package": "vcp-lifecycle",
       "path": "../../../crates/vcp-lifecycle/src/lib.rs",
       "symbol": "fn lose_owner(",
-      "observation": "Owner lease drop seals all registered scope synchronously and schedules retained interruption; runtime crash and durable recovery remain future work.",
+      "observation": "Owner loss seals the registered tree, owns retained interruption and native job quiescence, and fences late receipts before journal ownership release.",
       "effect_class": "effectful",
       "vcp_boundary": "controller",
       "effects": [
@@ -776,6 +776,35 @@
       "effects": [
         "filesystem",
         "credential",
+        "shared-memory"
+      ]
+    },
+    {
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "effect_class": "effectful",
+      "id": "host-integrated-budget",
+      "path": "../../../crates/vcp-lifecycle/src/integration.rs",
+      "symbol": "pub fn configure_integration(",
+      "observation": "One private journal atomically admits root/child flat-tariff requests with durable intents; interrupted requests keep liability.",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "filesystem",
+        "shared-memory"
+      ]
+    },
+    {
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "effect_class": "effectful",
+      "id": "host-prepared-workspace",
+      "path": "../../../crates/vcp-lifecycle/src/integration.rs",
+      "symbol": "pub async fn execute(",
+      "observation": "Bounded prepared-file, native verifier and scoped Munarium proposal/recall operations use the same owner and journal.",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "filesystem",
+        "process",
         "shared-memory"
       ]
     }
@@ -1380,14 +1409,15 @@
         "clock",
         "filesystem",
         "process",
-        "network"
+        "network",
+        "credential"
       ],
       "handling": "retain-with-adapters",
       "owner_tasks": [
         "P0-03",
         "P0-08"
       ],
-      "gate": "In-memory scoped admission and retained interruption only. Startup effects, isolated helpers, canonical checkpoints, model/tool revalidation and process-tree stop confirmation remain unqualified.",
+      "gate": "Bounded native checkpoint/owner recovery, host startup/model/tool authority, synthetic shared budget and integrated prepared-file/memory trace; general product schemas, pricing and sandbox remain P1/P2/P3.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "controller"
     },

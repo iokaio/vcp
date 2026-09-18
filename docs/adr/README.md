@@ -2,7 +2,7 @@
 
 The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) defines the 20 decision subjects and gates. Each has a dedicated record. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
 
-ADR-013 records the existing committed-source repository convention. The other records expand confirmed scope and proposed design, with alternatives, consequences and unresolved gates. None claims a newly qualified runtime or owner sign-off.
+ADR-013 records the committed-source repository convention and maintenance evidence. Other records distinguish confirmed scope, qualified P0 mechanisms and unresolved production gates. The [P0 handoff](../evaluations/p0-06-handoff.md) consolidates the bounded engineering evidence; it does not claim human sign-off or release qualification.
 
 | Record | Qualification gate |
 |---|---|

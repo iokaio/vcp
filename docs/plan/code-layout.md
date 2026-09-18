@@ -1,5 +1,7 @@
 # Code layout
 
+The [P0 handoff](../development/p0-handoff.md) now maps C01–C07 to retained paths and gives concrete P1 domain/protocol/capture/projection destinations. The original integrated host remains in `src/crates/vcp-lifecycle/`; its private journal, synthetic tariff and fixed-file tools are not supported product interfaces.
+
 Status: layout convention adopted; product implementation remains planned. This file defines repository paths used by the [implementation plan](README.md). The [architecture](../architecture/vcp-what.md) remains authoritative for product behavior, and the [delivery contract](00-delivery-contract.md) defines engineering rules.
 
 The original P0 storage comparison lives in `src/crates/vcp-storage-spike` in the

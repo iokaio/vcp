@@ -1,6 +1,6 @@
 # ADR-019 — Cloud encryption and developer-controlled keys
 
-Status: confirmed product direction recorded; engineering design proposed and qualification pending.
+Status: confirmed product direction; age 0.11.2 and Ed25519-dalek 2.2.0 selected as bounded P0 integration candidates. Production format and key UX remain unqualified.
 Decision gate: P0-04/06, P3-06, P5-09/10, P8-03. Bounded P0 evidence is recorded below; production qualification and owner sign-off remain pending.
 
 ## Context and authority
@@ -19,7 +19,7 @@ Detailed contracts and failure ordering are in the [supporting design](../archit
 
 ## Alternatives and unresolved choices
 
-The age/Rust approach is a candidate, not an accepted library/version or writer-signature format. P0-04 must compare existing supported implementations, record independent interoperability and choose writer enrollment, revocation/rotation and replay handling. Do not invent cryptographic primitives.
+The P0-04 comparison below selects existing age/Rust and Ed25519 implementations for further integration, with independent interoperability evidence. It does not establish a supported production writer-signature format or operational key ceremony. P5/P8 must qualify those contracts. Do not invent cryptographic primitives.
 
 ## Qualification evidence
 
