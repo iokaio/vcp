@@ -1,3 +1,4 @@
+// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
 // VCP modification: private lifecycle admission, recovery receipts and native stop observation.
 pub use codex_api::ResponseEvent;
 use codex_protocol::error::Result;
@@ -130,12 +131,9 @@ impl Stream for ResponseStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let event = self.rx_event.poll_recv(cx);
-        if matches!(
-            &event,
-            Poll::Ready(Some(Ok(ResponseEvent::Completed { .. })))
-        ) {
+        if let Poll::Ready(Some(Ok(ResponseEvent::Completed { token_usage, .. }))) = &event {
             if let Some(mut permit) = self.host_permit.take() {
-                if let Err(error) = permit.complete() {
+                if let Err(error) = permit.complete_model(token_usage.as_ref()) {
                     return Poll::Ready(Some(Err(codex_protocol::error::CodexErr::Io(
                         std::io::Error::other(error),
                     ))));

@@ -1,3 +1,4 @@
+// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
 use std::sync::Arc;
 
 use async_channel::Receiver;
@@ -77,7 +78,8 @@ pub(crate) async fn run_codex_thread_interactive(
     let session_source = SessionSource::SubAgent(subagent_source.clone());
     let is_guardian_reviewer = crate::guardian::is_basic_session_source(&session_source);
     let extensions = if isolation == codex_extension_api::SessionIsolation::Isolated {
-        codex_extension_api::empty_extension_registry()
+        // VCP: isolation cannot remove host startup or accounting authority.
+        parent_session.services.extensions.isolated_host_controls()
     } else {
         Arc::clone(&parent_session.services.extensions)
     };

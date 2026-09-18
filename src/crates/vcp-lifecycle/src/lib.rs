@@ -10,10 +10,12 @@ use codex_protocol::ThreadId;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::{oneshot, Notify};
 mod journal;
 pub use journal::Work;
 pub mod control;
+pub mod integration;
+pub mod ports;
 #[cfg(windows)]
 pub mod process;
 
@@ -84,6 +86,7 @@ struct State {
     commands: Vec<control::CommandRecord>,
     startups: Vec<(std::path::PathBuf, Option<ThreadId>)>,
     startups_in_flight: usize,
+    integration: Option<integration::Ledger>,
 }
 
 impl State {
@@ -112,12 +115,13 @@ impl State {
             pending.extend(children);
         }
         let checkpoint = journal::Checkpoint {
-            format: 1,
+            format: 2,
             workspace: self.workspace.clone(),
             revision: self.revision,
             threads,
             work: self.work.clone(),
             commands: self.commands.clone(),
+            integration: self.integration.clone(),
         };
         if self.journal.as_mut().unwrap().append(&checkpoint).is_err() {
             self.attached = false;
@@ -214,7 +218,7 @@ impl OwnerLease {
         if let Some(waiter) = self.0.lose_owner() {
             waiter.wait().await?;
         }
-        let mut state = self.0.0.state.lock().map_err(|_| Error::Poisoned)?;
+        let mut state = self.0 .0.state.lock().map_err(|_| Error::Poisoned)?;
         // Interruption has drained every registered controller/process. Any
         // still-unresolved work remains in the final checkpoint. Late callbacks
         // from this owner can no longer acknowledge or write after reacquisition.
@@ -275,6 +279,7 @@ impl Lifecycle {
                 commands: Vec::new(),
                 startups: Vec::new(),
                 startups_in_flight: 0,
+                integration: None,
             }),
             changed: Notify::new(),
             runtime: tokio::runtime::Handle::current(),
@@ -307,6 +312,7 @@ impl Lifecycle {
                 state.revision = checkpoint.revision;
                 state.work = checkpoint.work;
                 state.commands = checkpoint.commands;
+                state.integration = checkpoint.integration;
                 for thread in checkpoint.threads {
                     if thread.parent.is_none() {
                         state.root = Some(thread.id);
@@ -738,21 +744,61 @@ struct WorkPermit {
 struct StartupPermit(Lifecycle);
 impl Drop for StartupPermit {
     fn drop(&mut self) {
-        if let Ok(mut state) = self.0.0.state.lock() {
+        if let Ok(mut state) = self.0 .0.state.lock() {
             state.startups_in_flight -= 1;
         }
-        self.0.0.changed.notify_waiters();
+        self.0 .0.changed.notify_waiters();
     }
 }
 
 impl codex_extension_api::HostWorkPermit for WorkPermit {
+    fn complete_model(
+        &mut self,
+        usage: Option<&codex_protocol::protocol::TokenUsage>,
+    ) -> Result<(), String> {
+        self.finish(Some(usage))
+    }
     fn complete(&mut self) -> Result<(), String> {
+        self.finish(None)
+    }
+}
+impl WorkPermit {
+    fn finish(
+        &mut self,
+        usage: Option<Option<&codex_protocol::protocol::TokenUsage>>,
+    ) -> Result<(), String> {
         if self.completed {
             return Ok(());
         }
         let mut state = self.host.0.state.lock().map_err(|_| "poisoned lifecycle")?;
         if state.journal_closed {
             return Err("owner checkpoint is closed".into());
+        }
+        if let (Some(ledger), Some(usage)) = (state.integration.as_mut(), usage) {
+            if usage.is_some_and(|u| {
+                [
+                    u.input_tokens,
+                    u.output_tokens,
+                    u.cached_input_tokens,
+                    u.cache_write_input_tokens,
+                    u.reasoning_output_tokens,
+                    u.total_tokens,
+                ]
+                .iter()
+                .any(|n| *n < 0)
+            }) {
+                return Err("negative provider usage cannot settle a reservation".into());
+            }
+            let charge = ledger
+                .requests
+                .iter_mut()
+                .find(|row| row.intent == self.id)
+                .ok_or("missing reservation")?;
+            charge.usage = usage
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|e| e.to_string())?;
+            charge.settled = true;
         }
         // Receipt ingestion is allowed after owner loss or pause. It is not a
         // state transition capable of dispatching new work.
@@ -770,6 +816,27 @@ impl codex_extension_api::HostWorkPermit for WorkPermit {
 }
 
 impl codex_extension_api::HostWorkAdmission for Lifecycle {
+    fn admit_tool(
+        &self,
+        thread: ThreadId,
+        call_id: &str,
+        name: &codex_extension_api::ToolName,
+    ) -> Result<Box<dyn codex_extension_api::HostWorkPermit>, String> {
+        {
+            let state = self.0.state.lock().map_err(|_| "poisoned lifecycle")?;
+            if state.integration.is_some()
+                && (!name.is_default_namespace() || name.name != "vcp_workspace")
+            {
+                return Err("tool exceeds the immutable P0 host ceiling".into());
+            }
+        }
+        codex_extension_api::HostWorkAdmission::admit(
+            self,
+            thread,
+            codex_extension_api::HostWorkKind::Tool,
+            call_id,
+        )
+    }
     fn admit_startup(
         &self,
         workspace: &std::path::Path,
@@ -805,8 +872,24 @@ impl codex_extension_api::HostWorkAdmission for Lifecycle {
         if !state.attached || state.held(thread) {
             return Err("host dispatch is paused or unowned".into());
         }
+        if kind == codex_extension_api::HostWorkKind::Model {
+            if let Some(ledger) = &state.integration {
+                ledger.check_admission()?;
+            }
+        }
         state.advance().map_err(|error| format!("{error:?}"))?;
         let id = state.revision;
+        if kind == codex_extension_api::HostWorkKind::Model {
+            if let Some(ledger) = state.integration.as_mut() {
+                ledger.requests.push(integration::Charge {
+                    intent: id,
+                    thread,
+                    units: ledger.per_request,
+                    settled: false,
+                    usage: None,
+                });
+            }
+        }
         state.work.push(Work {
             id,
             thread,

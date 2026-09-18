@@ -177,7 +177,8 @@ Use a Codex-derived engine/CLI baseline with maximum reasonable reuse, plus
 selected Gemini adaptations and Munarium memory components. C01–C06 identify
 integration responsibilities, with C07 covering tests; they do not limit the
 foundation to a few small extracts. Exact revisions and kept/replaced modules
-remain P0 qualification work. Research alone is not a verified license inventory.
+are recorded in the P0 handoff and component manifests. Production qualification
+remains with the owning tasks. Research alone is not a verified license inventory.
 
 Follow [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md): selected Codex
 source will be copied and committed as ordinary files under
@@ -187,7 +188,7 @@ planned. Normal builds consume committed source without fetching Codex or applyi
 patches. Explicit maintenance reconstructs it in a disposable directory from the
 immutable selection plus `src/third_party/patches/codex/` and compares the result.
 Update source, ordered patches, hashes, and notices together. Codex is imported
-as an unqualified baseline; this policy does not authorize unrelated imports or
+with bounded P0 host qualification; this policy does not authorize unrelated imports or
 commits in a documentation task.
 
 P0-07 builds the selected unmodified native Windows baseline; P0-08 inserts VCP
@@ -230,6 +231,12 @@ For lifecycle/recovery or native execution changes, use the local
 loopback provider; it is not the product CLI or evidence of paid-provider support.
 See [the recovery guide](docs/development/lifecycle-recovery.md) for scope and
 independent process, filesystem and network observations.
+
+For retained integration, shared accounting, prepared tools or Gemini-port changes,
+run `scripts/test-integration.ps1` locally and the relevant retained lifecycle
+regressions. Use [the P0 handoff](docs/development/p0-handoff.md) for current
+qualified candidates and concrete next-task source paths. Do not turn private
+qualification formats or synthetic pricing into production promises.
 
 For portable-storage changes, run `scripts/test-storage.ps1` locally with the
 pinned independent age tool; see [storage qualification](docs/development/portable-storage-spike.md).

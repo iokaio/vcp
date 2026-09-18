@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "revision": "6a466a7e2fe2b1255752c1e74f69b31f0216084d",
+  "canonical": {"input":{"z":2,"a":{"y":[true,null,1],"b":"text"}},"expected":"{\u0000\"a\":{\"b\":\"text\",\"y\":[true,null,1]}\u0000,\u0000\"z\":2\u0000}"},
+  "rewrite": {"before":{"path":"fixture.txt","value":1},"after":{"value":2,"path":"fixture.txt"},"upstream":"arguments replaced","vcp":"old approval rejected"},
+  "out_of_order": {"arrival":["a","b"],"completion":["b","a"],"upstream":["b","a"],"vcp":["b","a"]},
+  "client_initiated": {"policy":"ask_user","upstream":"allow","vcp":"ask_user"},
+  "resource_conflict": {"resources":["fixture.txt"],"upstream_state_manager_active":2,"vcp_admitted":1},
+  "cancellation": {"reason":"owner paused","upstream":"cancelled","vcp":"cancelled:observed partial effect"}
+}

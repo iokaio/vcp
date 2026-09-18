@@ -17477,11 +17477,15 @@ dependencies = [
 name = "vcp-lifecycle"
 version = "0.1.0"
 dependencies = [
+ "codex-apply-patch",
  "codex-core",
  "codex-extension-api",
+ "codex-features",
+ "codex-login",
  "codex-protocol",
  "codex-utils-pty",
  "core_test_support",
+ "munarium-core",
  "serde",
  "serde_json",
  "sha2 0.10.9",

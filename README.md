@@ -2,7 +2,7 @@
 
 VCP is an open-source experiment in a local coding agent that combines repository-aware coding, model selection through OpenRouter, persistent memory, and visible delegated work. The first planned release is a native Windows command-line application, licensed under Apache 2.0.
 
-**Status: early implementation.** The repository includes architecture, implementation plans, delivery checks, and a committed Codex source baseline with a native Windows build command. VCP's product adapters and installable package are not implemented. Capabilities below describe the intended product; they are not release claims.
+**Status: early implementation.** The repository includes a committed Codex foundation and tested native feasibility adapters for lifecycle, coding, memory, storage and encrypted handoff. The [P0 handoff](docs/development/p0-handoff.md) and [evidence dossier](docs/evaluations/p0-06-handoff.md) distinguish these prototypes from the production work ahead. VCP's installable application is not implemented. Capabilities below describe the intended product; they are not release claims.
 
 ## What VCP is intended to do
 
@@ -25,15 +25,15 @@ The complete first-release scope includes these capabilities together. A basic c
 
 ## Architecture and data boundaries
 
-The planned foundation is a Codex-derived Rust engine and CLI with maximum reasonable reuse of a working pinned baseline, plus selected Gemini CLI adaptations and Munarium-derived memory concepts and code. Exact imports, retained modules, replacements, toolchain versions, and dependency choices must pass upstream and native Windows feasibility work before they are treated as supported.
+The foundation is a Codex-derived Rust engine and CLI with maximum reasonable reuse of a working pinned baseline, selected Gemini behavioral adaptations and Munarium memory code. The [source map and setup](docs/development/p0-handoff.md) record exact imports, retained modules, candidate replacements and native qualification. Production integration and release support require the later task gates.
 
-Selected Codex source is copied into `src/third_party/codex/` as ordinary repository files. The [native baseline build and source records](docs/development/codex-source.md) consume those files directly, without fetching Codex or applying patches. [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md) defines independent reconstruction and upstream maintenance. The [selected Munarium libraries](docs/development/munarium-source.md) share that Cargo workspace and have native test commands. This baseline still has upstream behavior; VCP integration remains P0-03/P0-08 work.
+Selected Codex source is copied into `src/third_party/codex/` as ordinary repository files. The [native baseline build and source records](docs/development/codex-source.md) consume those files directly, without fetching Codex or applying patches. [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md) defines independent reconstruction and upstream maintenance. The [selected Munarium libraries](docs/development/munarium-source.md) share that Cargo workspace and have native test commands. A private [integration host](docs/development/p0-integration.md) qualifies VCP controls around the retained loop; the ordinary upstream CLI is not the VCP product.
 
 One engine owns task state, authorization, the canonical store, and cost accounting. UI clients and adapters do not create competing schedulers or bypass those controls. SQLite is the proposed default canonical store; a files/journal preference is evaluated against the same durability and portability contracts.
 
 The engine, memory, indexes, and embeddings are intended to run on the developer's machine without a hosted VCP backend. Coding requests and model-assisted work use OpenRouter, so selected prompt/context content is sent to the configured model service. Local embeddings do not imply that all model activity is offline. External MCP tools have their own declared access requirements.
 
-Active local code, databases, history, and indexes remain plaintext. Every VCP snapshot object and manifest destined for a cloud sync folder must be encrypted locally before publication. Recovery keys remain under developer control and outside that folder. These are design requirements awaiting implementation and verification.
+Active local code, databases, history, and indexes remain plaintext. Every VCP snapshot object and manifest destined for a cloud sync folder must be encrypted locally before publication. Recovery keys remain under developer control and outside that folder. The [storage prototype](docs/development/portable-storage-spike.md) qualifies bounded encrypted handoff; production formats, activation and key UX remain planned.
 
 See the [architecture](docs/architecture/vcp-what.md) for contracts, invariants, failure behavior, and open decisions.
 
@@ -103,4 +103,4 @@ Use [GitHub Issues](https://github.com/iokaio/vcp/issues) for non-sensitive ques
 
 VCP's original code and documentation are licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE), [third-party attribution](THIRD_PARTY_NOTICES.md), and the [name and trademark policy](TRADEMARK.md). Third-party material retains its applicable terms.
 
-The project draws on [OpenAI Codex](https://github.com/openai/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), and [Munarium](https://github.com/iokaio/munarium). The community-document structure and contribution conventions were adapted from Munarium for VCP's planning stage. The source records identify the actual Codex and Munarium selections; Gemini remains a qualification candidate. These acknowledgements do not imply endorsement by their maintainers.
+The project draws on [OpenAI Codex](https://github.com/openai/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), and [Munarium](https://github.com/iokaio/munarium). The community-document structure and contribution conventions were adapted from Munarium for VCP's planning stage. The source records identify the actual Codex and Munarium selections and the bounded, attributed Gemini behavioral ports. These acknowledgements do not imply endorsement by their maintainers.

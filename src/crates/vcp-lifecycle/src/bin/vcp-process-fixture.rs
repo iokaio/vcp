@@ -12,6 +12,11 @@ fn main() -> std::io::Result<()> {
             .ok_or_else(|| std::io::Error::other("missing fixture directory"))?,
     );
     match mode.to_str() {
+        Some("verify") => {
+            let content = std::fs::read(directory.join("fixture.txt"))?;
+            if content != b"answer = 42\n" { return Err(std::io::Error::other("fixture assertion failed")); }
+            println!("fixture assertion passed: answer = 42");
+        }
         Some("tree") => {
             let child = Command::new(std::env::current_exe()?)
                 .arg("locked-child")

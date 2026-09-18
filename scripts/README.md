@@ -1,5 +1,7 @@
 # Build and test scripts
 
+`test-integration.ps1` runs native host/port contracts, retained process regressions and the private coding CLI on Rust 1.98.0 (1.95.0 is an explicit comparison option). See [the integration guide](../docs/development/p0-integration.md). `upstream/compare-gemini-ports.cjs` and `upstream/rehearse-codex-fix.cjs` run explicit pinned-source maintenance experiments; neither is an ordinary build dependency.
+
 `test-storage.ps1` runs the local P0 SQLite/files, encrypted handoff and native
 crash qualification. Supply the pinned independent age binary and optionally the
 public handoff fixture; see [the guide](../docs/development/portable-storage-spike.md).

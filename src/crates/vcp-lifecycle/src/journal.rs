@@ -28,6 +28,8 @@ pub(crate) struct Checkpoint {
     pub threads: Vec<Thread>,
     pub work: Vec<Work>,
     pub commands: Vec<super::control::CommandRecord>,
+    #[serde(default)]
+    pub integration: Option<super::integration::Ledger>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -96,7 +98,7 @@ impl Journal {
                 return Err(invalid("checkpoint checksum"));
             }
             let checkpoint: Checkpoint = serde_json::from_slice(&payload).map_err(invalid)?;
-            if checkpoint.format != 1 || checkpoint.workspace != workspace {
+            if !matches!(checkpoint.format, 1 | 2) || checkpoint.workspace != workspace {
                 return Err(invalid("checkpoint format or workspace mismatch"));
             }
             if last
@@ -159,6 +161,12 @@ fn invalid(message: impl std::fmt::Display) -> io::Error {
 }
 
 fn validate(checkpoint: &Checkpoint) -> io::Result<()> {
+    if !matches!(checkpoint.format, 1 | 2) || (checkpoint.format == 1 && checkpoint.integration.is_some()) {
+        return Err(invalid("checkpoint format"));
+    }
+    if let Some(ledger) = &checkpoint.integration {
+        ledger.validate(&checkpoint.work).map_err(invalid)?;
+    }
     use std::collections::HashSet;
     let mut seen = HashSet::new();
     let mut roots = 0;
@@ -199,6 +207,21 @@ fn validate(checkpoint: &Checkpoint) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_checkpoint_upgrades_by_append_without_rewriting_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal");
+        let (mut journal, _) = Journal::open(&path, "fixture").unwrap();
+        journal.append(&snapshot(1)).unwrap(); drop(journal);
+        let original = std::fs::read(&path).unwrap();
+        let (mut journal, old) = Journal::open(&path, "fixture").unwrap();
+        assert_eq!(old.unwrap().format,1);
+        let mut current = snapshot(2); current.format=2;
+        journal.append(&current).unwrap(); drop(journal);
+        assert!(std::fs::read(&path).unwrap().starts_with(&original));
+        assert_eq!(Journal::open(&path,"fixture").unwrap().1.unwrap().format,2);
+        current.format=3; assert!(validate(&current).is_err());
+    }
     fn snapshot(revision: u64) -> Checkpoint {
         Checkpoint {
             format: 1,
@@ -207,6 +230,7 @@ mod tests {
             threads: vec![],
             work: vec![],
             commands: vec![],
+            integration: None,
         }
     }
 

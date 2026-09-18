@@ -3,7 +3,7 @@
 Origin: OpenAI Codex, exact revision
 `3d3ae4965ab370217e871b3a7f0d15589557ee4b`, acquired 2026-09-17.
 Owner: P0-07 (selection/build) and P0-08 (integration/effect replacement).
-State: imported, unqualified as a VCP runtime.
+State: imported with bounded P0 integration; not a production VCP runtime.
 
 [Selection](codex-selection.json), [result inventory](codex-files.json),
 [manifest](../upstreams.toml), [build/reconstruction procedure](../../../docs/development/codex-source.md)
@@ -21,6 +21,10 @@ existing host dependencies. The host now has a private durable checkpoint and
 synthetic owner-process CLI; it is not a qualified production VCP runtime.
 Patch 0009 registers the original P0 storage comparison with existing age,
 Ed25519, SQLite and retained search dependencies; external pins remain unchanged.
+Patch 0010 preserves host gates in isolated helpers, carries usage into atomic
+receipts, checks tool ceilings and reuses existing parser/governance dependencies.
+The [handoff map](../../../docs/development/p0-handoff.md) records retained/replaced
+responsibilities and the representative fix-import experiment.
 The separate license transformation materializes bubblewrap's symlink from its
 selected `COPYING` bytes. Original bytes/hashes and current results are retained.
 

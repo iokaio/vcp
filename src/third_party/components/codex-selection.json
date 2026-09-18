@@ -67,6 +67,10 @@
     {
       "path": "src/third_party/patches/codex/0009-storage-qualification.patch",
       "sha256": "d106b4928be01b276c6268a568c34dcd9a6df401e7fa65b2ad92874d1d43707a"
+    },
+    {
+      "path": "src/third_party/patches/codex/0010-integrated-host.patch",
+      "sha256": "43a6f4986468880e10b131179cd4e359aac09abf58a526d96980956321548b19"
     }
   ],
   "licenses": [

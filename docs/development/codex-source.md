@@ -30,9 +30,10 @@ SHA-1 is verified before original content is accepted. SHA-256 binds content.
 Upstream `.git`, `.github`, editor/agent root settings, JavaScript distribution
 clients and SDKs are excluded. Retained Cargo members include platform and public
 API machinery needed by the cohesive workspace; their presence does not enable
-deferred VCP features. No upstream telemetry or credential behavior has yet been
-adapted. The [effect map](upstream-candidates.md) identifies the next review seams;
-P0-03/P0-08 must trace and replace all competing effect authority before integration.
+deferred VCP features. The private [integration profile](p0-integration.md) disables upstream telemetry,
+ambient credentials and optional routes while retaining host gates. The ordinary
+upstream CLI remains an unqualified VCP entry point. The [handoff map](p0-handoff.md)
+records working adapters and remaining production replacements.
 
 Most bytes are unchanged. `codex-rs/vendor/bubblewrap/LICENSE`, originally
 a symlink to `COPYING`, becomes a regular copy of that selected license. The

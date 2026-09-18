@@ -23,6 +23,12 @@ Qualify Munarium seams and exact local model/runtime and DiskANN provider at P0.
 
 ## Qualification evidence
 
+The [integrated P0 host](../development/p0-integration.md) also exercises the
+retained Munarium gates from a model-visible tool, preserving accepted/disputed
+proposals and evidence in the same owner journal as dispatch/accounting, then
+reopening that state. It does not add a separate authoritative memory store.
+Production proposal transactions, ingestion and index publication remain P1/P5.
+
 [Native Munarium baseline results](../evaluations/p0-07-munarium-datastore.md)
 establish Windows API/artifact feasibility for Tantivy 0.22.1 and DiskANN 0.56.0
 in an unmodified library candidate, with 200 tests passed and one benchmark

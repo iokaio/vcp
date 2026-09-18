@@ -1,3 +1,4 @@
+// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
 // VCP modification: private lifecycle admission, recovery receipts and native stop observation.
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -537,10 +538,10 @@ impl ToolRegistry {
             .extensions
             .work_admission()
             .map(|gate| {
-                gate.admit(
+                gate.admit_tool(
                     invocation.session.thread_id,
-                    codex_extension_api::HostWorkKind::Tool,
                     &invocation.call_id,
+                    &tool_name,
                 )
             })
             .transpose()

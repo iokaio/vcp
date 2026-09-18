@@ -1,5 +1,8 @@
 # Reviewed evaluation summaries
 
+- [P0-06 qualification dossier](p0-06-handoff.md): consolidated prerequisites, decisions, rejected alternatives and next owners.
+- [P0-08/P0-09 integration](p0-08-09-integration.md): native coding trace, shared budget, attributed ports and maintenance rehearsal.
+
 - [P0-04 portable storage](p0-04-portable-storage.md): backend parity, crash barriers, authenticated encrypted snapshots and native handoff evidence.
 
 These reports describe executed checks with explicit scope and limitations.

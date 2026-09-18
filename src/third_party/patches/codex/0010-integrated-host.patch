@@ -1,0 +1,211 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 7f30995..7a38f63 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17477,11 +17477,15 @@ dependencies = [
+ name = "vcp-lifecycle"
+ version = "0.1.0"
+ dependencies = [
++ "codex-apply-patch",
+  "codex-core",
+  "codex-extension-api",
++ "codex-features",
++ "codex-login",
+  "codex-protocol",
+  "codex-utils-pty",
+  "core_test_support",
++ "munarium-core",
+  "serde",
+  "serde_json",
+  "sha2 0.10.9",
+diff --git a/codex-rs/core/src/client_common.rs b/codex-rs/core/src/client_common.rs
+index 85c39a7..dede604 100644
+--- a/codex-rs/core/src/client_common.rs
++++ b/codex-rs/core/src/client_common.rs
+@@ -1,3 +1,4 @@
++// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
+ // VCP modification: private lifecycle admission, recovery receipts and native stop observation.
+ pub use codex_api::ResponseEvent;
+ use codex_protocol::error::Result;
+@@ -130,12 +131,9 @@ impl Stream for ResponseStream {
+ 
+     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+         let event = self.rx_event.poll_recv(cx);
+-        if matches!(
+-            &event,
+-            Poll::Ready(Some(Ok(ResponseEvent::Completed { .. })))
+-        ) {
++        if let Poll::Ready(Some(Ok(ResponseEvent::Completed { token_usage, .. }))) = &event {
+             if let Some(mut permit) = self.host_permit.take() {
+-                if let Err(error) = permit.complete() {
++                if let Err(error) = permit.complete_model(token_usage.as_ref()) {
+                     return Poll::Ready(Some(Err(codex_protocol::error::CodexErr::Io(
+                         std::io::Error::other(error),
+                     ))));
+diff --git a/codex-rs/core/src/codex_delegate.rs b/codex-rs/core/src/codex_delegate.rs
+index 51007b5..cd22288 100644
+--- a/codex-rs/core/src/codex_delegate.rs
++++ b/codex-rs/core/src/codex_delegate.rs
+@@ -1,3 +1,4 @@
++// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
+ use std::sync::Arc;
+ 
+ use async_channel::Receiver;
+@@ -77,7 +78,8 @@ pub(crate) async fn run_codex_thread_interactive(
+     let session_source = SessionSource::SubAgent(subagent_source.clone());
+     let is_guardian_reviewer = crate::guardian::is_basic_session_source(&session_source);
+     let extensions = if isolation == codex_extension_api::SessionIsolation::Isolated {
+-        codex_extension_api::empty_extension_registry()
++        // VCP: isolation cannot remove host startup or accounting authority.
++        parent_session.services.extensions.isolated_host_controls()
+     } else {
+         Arc::clone(&parent_session.services.extensions)
+     };
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index 50807e6..85d0790 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -1,3 +1,4 @@
++// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
+ mod managed;
+ 
+ use crate::CodexAppsToolsCache;
+@@ -2084,7 +2085,7 @@ impl ThreadManagerState {
+                 (
+                     inherited_instructions.unwrap_or_default(),
+                     None,
+-                    empty_extension_registry(),
++                    self.extensions.isolated_host_controls(), // VCP: preserve host gates.
+                     Arc::new(McpManager::new(Arc::clone(&self.plugins_manager))),
+                     Some(MultiAgentVersion::Disabled),
+                 )
+diff --git a/codex-rs/core/src/tools/registry.rs b/codex-rs/core/src/tools/registry.rs
+index efa5893..2e013e0 100644
+--- a/codex-rs/core/src/tools/registry.rs
++++ b/codex-rs/core/src/tools/registry.rs
+@@ -1,3 +1,4 @@
++// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
+ // VCP modification: private lifecycle admission, recovery receipts and native stop observation.
+ use std::collections::BTreeMap;
+ use std::sync::Arc;
+@@ -537,10 +538,10 @@ impl ToolRegistry {
+             .extensions
+             .work_admission()
+             .map(|gate| {
+-                gate.admit(
++                gate.admit_tool(
+                     invocation.session.thread_id,
+-                    codex_extension_api::HostWorkKind::Tool,
+                     &invocation.call_id,
++                    &tool_name,
+                 )
+             })
+             .transpose()
+diff --git a/codex-rs/core/tests/common/test_codex.rs b/codex-rs/core/tests/common/test_codex.rs
+index 2880e21..e076ae9 100644
+--- a/codex-rs/core/tests/common/test_codex.rs
++++ b/codex-rs/core/tests/common/test_codex.rs
+@@ -1,3 +1,4 @@
++// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
+ use std::future::Future;
+ use std::io::ErrorKind;
+ use std::mem::swap;
+@@ -328,6 +329,8 @@ pub fn turn_permission_fields(
+ }
+ 
+ pub struct TestCodexBuilder {
++    // VCP modification: exercise the retained startup tool ceiling in host tests.
++    allowed_tools: Option<codex_extension_api::AllowedTools>,
+     config_mutators: Vec<Box<ConfigMutator>>,
+     auth: CodexAuth,
+     analytics_events_client: Option<AnalyticsEventsClient>,
+@@ -349,6 +352,10 @@ pub struct TestCodexBuilder {
+ }
+ 
+ impl TestCodexBuilder {
++    pub fn with_allowed_tools(mut self, tools: codex_extension_api::AllowedTools) -> Self {
++        self.allowed_tools = Some(tools);
++        self
++    }
+     pub fn with_thread_store(mut self, thread_store: Arc<dyn ThreadStore>) -> Self {
+         self.thread_store = Some(thread_store);
+         self
+@@ -841,7 +848,12 @@ impl TestCodexBuilder {
+                 } else {
+                     None
+                 };
++                let mut thread_extension_init = codex_extension_api::ExtensionDataInit::default();
++                if let Some(tools) = self.allowed_tools.clone() {
++                    thread_extension_init.insert(tools);
++                }
+                 Box::pin(thread_manager.start_thread(StartThreadOptions {
++                    thread_extension_init,
+                     history_mode: self.history_mode,
+                     client_mcp_extensions: client_mcp_extensions(),
+                     environments,
+@@ -1395,6 +1407,7 @@ fn function_call_output<'a>(bodies: &'a [Value], call_id: &str) -> &'a Value {
+ 
+ pub fn test_codex() -> TestCodexBuilder {
+     TestCodexBuilder {
++        allowed_tools: None,
+         config_mutators: vec![Box::new(|config| {
+             config
+                 .features
+diff --git a/codex-rs/ext/extension-api/src/registry.rs b/codex-rs/ext/extension-api/src/registry.rs
+index 54339e7..a2489cf 100644
+--- a/codex-rs/ext/extension-api/src/registry.rs
++++ b/codex-rs/ext/extension-api/src/registry.rs
+@@ -1,3 +1,4 @@
++// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
+ // VCP modification: thread-scoped host admission for ordinary and delegated starts.
+ use std::sync::Arc;
+ 
+@@ -170,6 +171,13 @@ pub struct ExtensionRegistry<C: Sync> {
+ }
+ 
+ impl<C: Sync> ExtensionRegistry<C> {
++    /// VCP: helper isolation removes extensions, never the owning host's gates.
++    pub fn isolated_host_controls(&self) -> Arc<Self> {
++        let mut builder = ExtensionRegistryBuilder::new();
++        builder.registry.turn_start_admission = self.turn_start_admission.clone();
++        builder.registry.work_admission = self.work_admission.clone();
++        Arc::new(builder.build())
++    }
+     pub fn work_admission(&self) -> Option<Arc<dyn crate::HostWorkAdmission>> {
+         self.work_admission.clone()
+     }
+diff --git a/codex-rs/ext/extension-api/src/work_admission.rs b/codex-rs/ext/extension-api/src/work_admission.rs
+index 59329d9..17f1d6c 100644
+--- a/codex-rs/ext/extension-api/src/work_admission.rs
++++ b/codex-rs/ext/extension-api/src/work_admission.rs
+@@ -1,3 +1,4 @@
++// VCP modification: preserve isolated host gates, tool ceilings and atomic model receipts.
+ // SPDX-License-Identifier: Apache-2.0
+ // VCP addition: private host dispatch admission and durable receipt boundary.
+ use codex_protocol::ThreadId;
+@@ -12,9 +13,25 @@ pub enum HostWorkKind {
+ /// may reconcile while paused, but cannot authorize new work.
+ pub trait HostWorkPermit: Send {
+     fn complete(&mut self) -> Result<(), String>;
++    /// VCP: retain provider usage with the same durable dispatch receipt.
++    fn complete_model(
++        &mut self,
++        _usage: Option<&codex_protocol::protocol::TokenUsage>,
++    ) -> Result<(), String> {
++        self.complete()
++    }
+ }
+ 
+ pub trait HostWorkAdmission: std::fmt::Debug + Send + Sync {
++    /// VCP: a host ceiling applies even to tools requested without advertisement.
++    fn admit_tool(
++        &self,
++        thread: ThreadId,
++        call_id: &str,
++        _name: &crate::ToolName,
++    ) -> Result<Box<dyn HostWorkPermit>, String> {
++        self.admit(thread, HostWorkKind::Tool, call_id)
++    }
+     /// Startup requires a separate, one-use host capability. Resuming history
+     /// does not confer authority to run model requests or tools.
+     fn admit_startup(

@@ -60,6 +60,13 @@ already include these changes; normal builds never apply patches.
    in the shared workspace and lockfile. SQLite, age, Ed25519 and search package
    pins remain unchanged. See [the storage guide](../../../../docs/development/portable-storage-spike.md).
 
+10. `0010-integrated-host.patch` preserves host controls when helpers isolate
+    their extensions, carries provider usage into the host's atomic receipt,
+    applies the independent tool-name ceiling and exposes retained tool-ceiling
+    injection to qualification tests. Existing local parser, feature, login and
+    Munarium dependencies are connected to the host; no external pin changes.
+    See [the integration guide](../../../../docs/development/p0-integration.md).
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

@@ -157,7 +157,17 @@ The Codex Cargo lockfile retains dependency identities/checksums for its source
 baseline. A release must inventory the actual enabled transitive graph and retain
 all applicable notices and corresponding-source obligations; this source record
 is not release qualification. The selected Munarium graph includes Tantivy and
-DiskANN; Gemini adaptations and release asset packaging remain selection work. Record exact origin,
+DiskANN; release asset packaging remains qualification work. Record exact origin,
 license, selected paths and modifications as those components land.
+
+## Gemini behavioral adaptation
+
+The bounded Rust policy/scheduler port in `src/crates/vcp-lifecycle/src/ports.rs`,
+its tests, shared Gemini fixture and comparison script adapt behavior from Google
+Gemini CLI revision `6a466a7e2fe2b1255752c1e74f69b31f0216084d`, Copyright
+2025–2026 Google LLC, Apache-2.0. Source paths, modifications, dependency boundary
+and comparison evidence are recorded in [the component record](src/third_party/components/gemini-cli.md).
+The [original license](src/third_party/licenses/gemini-cli-6a466a7e-LICENSE) is
+retained. Provider SDK and Node runtime source are not included in the Rust port.
 
 The root project license does not replace another component's terms. Names belonging to other projects remain their owners' names; see [TRADEMARK.md](TRADEMARK.md).

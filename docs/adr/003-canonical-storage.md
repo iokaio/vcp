@@ -1,6 +1,6 @@
 # ADR-003 — Canonical records and artifacts
 
-Status: confirmed product direction recorded; engineering design proposed and qualification pending.
+Status: confirmed product direction; SQLite WAL/FULL selected as the bounded P0 integration candidate. Production schemas/backends remain unqualified.
 Decision gate: P0-04/06, P1-04, P5-09/10. Bounded P0 evidence is recorded below; production qualification and owner sign-off remain pending.
 
 ## Context and authority
