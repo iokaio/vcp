@@ -1,3 +1,4 @@
+// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
 //! Session- and turn-scoped helpers for talking to model provider APIs.
 //!
 //! `ModelClient` is intended to live for the lifetime of a Codex session and holds the stable
@@ -257,6 +258,8 @@ impl RequestRouteTelemetry {
 /// call site.
 #[derive(Debug, Clone)]
 pub struct ModelClient {
+    // VCP: inherited by clones, including helper clients derived from this session.
+    host_work: Option<Arc<dyn codex_extension_api::HostWorkAdmission>>,
     state: Arc<ModelClientState>,
     agent_identity_policy: AgentIdentityAuthPolicy,
     prompt_cache_key_override: Option<String>,
@@ -512,6 +515,7 @@ impl ModelClient {
                 agent_identity_session_fallback: AgentIdentitySessionFallback::default(),
                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
             }),
+            host_work: None,
             agent_identity_policy,
             prompt_cache_key_override: None,
             codex_responses_headers: None,
@@ -523,6 +527,14 @@ impl ModelClient {
 
     pub(crate) fn with_restored_history(mut self, restored_history: bool) -> Self {
         self.restored_history = restored_history;
+        self
+    }
+
+    pub(crate) fn with_host_work(
+        mut self,
+        gate: Option<Arc<dyn codex_extension_api::HostWorkAdmission>>,
+    ) -> Self {
+        self.host_work = gate;
         self
     }
 
@@ -639,6 +651,11 @@ impl ModelClient {
         mut extra_headers: ApiHeaderMap,
         api_provider_override: Option<ApiProvider>,
     ) -> Result<RealtimeWebrtcCallStart> {
+        if self.host_work.is_some() {
+            return Err(CodexErr::Io(std::io::Error::other(
+                "VCP host does not authorize realtime",
+            )));
+        }
         // Create the media call over HTTP first, then retain matching auth so realtime can attach
         // the server-side control WebSocket to the call id from that HTTP response.
         let client_setup = self
@@ -672,6 +689,11 @@ impl ModelClient {
         &self,
         mut extra_headers: ApiHeaderMap,
     ) -> Result<ApiHeaderMap> {
+        if self.host_work.is_some() {
+            return Err(CodexErr::Io(std::io::Error::other(
+                "VCP host does not authorize realtime",
+            )));
+        }
         let client_setup = self
             .current_client_setup(ClientRouting::ConfiguredProvider)
             .await?;
@@ -697,6 +719,11 @@ impl ModelClient {
         effort: Option<ReasoningEffortConfig>,
         session_telemetry: &SessionTelemetry,
     ) -> Result<Vec<ApiMemorySummarizeOutput>> {
+        if self.host_work.is_some() {
+            return Err(CodexErr::Io(std::io::Error::other(
+                "VCP host requires local governed memory",
+            )));
+        }
         if raw_memories.is_empty() {
             return Ok(Vec::new());
         }
@@ -1427,6 +1454,9 @@ impl ModelClientSession {
         session_telemetry: &SessionTelemetry,
         responses_metadata: &CodexResponsesMetadata,
     ) -> std::result::Result<(), ApiError> {
+        if self.client.host_work.is_some() {
+            return Ok(());
+        }
         if !self.client.responses_websocket_enabled() {
             return Ok(());
         }
@@ -2056,6 +2086,9 @@ impl ModelClientSession {
         service_tier: Option<String>,
         responses_metadata: &CodexResponsesMetadata,
     ) -> Result<()> {
+        if self.client.host_work.is_some() {
+            return Ok(());
+        }
         if !self.client.responses_websocket_enabled() {
             return Ok(());
         }
@@ -2118,6 +2151,19 @@ impl ModelClientSession {
         responses_metadata: &CodexResponsesMetadata,
         inference_trace: &InferenceTraceContext,
     ) -> Result<ResponseStream> {
+        let host_permit = self
+            .client
+            .host_work
+            .as_ref()
+            .map(|gate| {
+                gate.admit(
+                    self.client.state.thread_id,
+                    codex_extension_api::HostWorkKind::Model,
+                    "responses",
+                )
+            })
+            .transpose()
+            .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
         let wire_api = self.client.state.provider.info().wire_api;
         match wire_api {
             WireApi::Responses => {
@@ -2138,7 +2184,9 @@ impl ModelClientSession {
                         )
                         .await?
                     {
-                        WebsocketStreamOutcome::Stream(stream) => return Ok(stream),
+                        WebsocketStreamOutcome::Stream(stream) => {
+                            return Ok(stream.with_host_permit(host_permit));
+                        }
                         WebsocketStreamOutcome::FallbackToHttp => {
                             self.try_switch_fallback_transport(session_telemetry, model_info);
                         }
@@ -2158,6 +2206,7 @@ impl ModelClientSession {
                 .await
             }
         }
+        .map(|stream| stream.with_host_permit(host_permit))
     }
 
     /// Permanently disables WebSockets for this Codex session and resets WebSocket state.
@@ -2398,6 +2447,7 @@ where
 
     (
         ResponseStream {
+            host_permit: None,
             rx_event,
             consumer_dropped: consumer_dropped_for_stream,
         },

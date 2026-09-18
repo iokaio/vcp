@@ -50,6 +50,12 @@ already include these changes; normal builds never apply patches.
    external package identities/checksums are retained. See the
    [scoped lifecycle guide](../../../../docs/development/scoped-lifecycle.md).
 
+8. `0008-lifecycle-recovery.patch` adds private startup/model/tool admission,
+   completion receipts and native Job Object membership observation. The original
+   lifecycle host gains existing serialization, hashing and process dependencies;
+   external dependency identities are unchanged. See the
+   [recovery guide](../../../../docs/development/lifecycle-recovery.md).
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

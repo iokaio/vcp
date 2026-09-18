@@ -1,3 +1,4 @@
+// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
 use filedescriptor::OwnedHandle;
 use std::io;
 use std::os::windows::io::AsRawHandle;
@@ -10,6 +11,8 @@ use winapi::shared::ntdef::NT_SUCCESS;
 use winapi::shared::ntdef::NTSTATUS;
 use winapi::um::jobapi2::AssignProcessToJobObject;
 use winapi::um::jobapi2::CreateJobObjectW;
+// VCP modification: observe kernel-confirmed process-tree quiescence.
+use winapi::um::jobapi2::QueryInformationJobObject;
 use winapi::um::jobapi2::SetInformationJobObject;
 use winapi::um::jobapi2::TerminateJobObject;
 use winapi::um::processthreadsapi::OpenProcess;
@@ -39,6 +42,27 @@ pub struct JobObject {
 }
 
 impl JobObject {
+    /// Queries the kernel's live membership count; a successful terminate call
+    /// alone does not prove all members have stopped.
+    pub fn active_process_count(&self) -> io::Result<u32> {
+        let mut accounting: winapi::um::winnt::JOBOBJECT_BASIC_ACCOUNTING_INFORMATION =
+            unsafe { std::mem::zeroed() };
+        let result = unsafe {
+            QueryInformationJobObject(
+                self.handle.as_raw_handle().cast(),
+                winapi::um::winnt::JobObjectBasicAccountingInformation,
+                std::ptr::addr_of_mut!(accounting).cast(),
+                std::mem::size_of_val(&accounting) as u32,
+                std::ptr::null_mut(),
+            )
+        };
+        if result == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(accounting.ActiveProcesses)
+        }
+    }
+
     /// Creates a Job Object configured to terminate all members when its last handle closes.
     pub fn create() -> io::Result<Self> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };

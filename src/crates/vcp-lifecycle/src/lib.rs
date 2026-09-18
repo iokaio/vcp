@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
-//! P0-03 in-memory host fence over retained Codex controllers.
+//! P0 lifecycle qualification host over retained Codex controllers.
 //!
-//! One instance owns one registered tree. It is not the canonical store, an
-//! effect/budget gate, startup sandbox, or the product `/pause` command.
+//! One instance owns one registered tree, a private checkpoint and dispatch
+//! receipts. Production storage, provider accounting and CLI policy remain with
+//! their owning implementation tasks.
 use codex_core::CodexThread;
 use codex_extension_api::TurnStartAdmission;
 use codex_protocol::ThreadId;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
-use tokio::sync::{oneshot, Notify};
+use tokio::sync::{Notify, oneshot};
+mod journal;
+pub use journal::Work;
+pub mod control;
+#[cfg(windows)]
+pub mod process;
 
 #[derive(Clone, Debug)]
 pub struct Revision {
@@ -26,9 +32,11 @@ pub struct View {
     pub interrupt_complete: bool,
     pub interruption_error: Option<Error>,
     pub starts_in_flight: usize,
+    pub unresolved_work: usize,
+    pub pending_commands: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Error {
     UnknownThread,
     DuplicateThread,
@@ -43,6 +51,12 @@ pub enum Error {
     InterruptFailed,
     Overflow,
     Poisoned,
+    PersistenceFailed,
+    UnresolvedWork,
+    CommandConflict,
+    InvalidCommand,
+    PendingCommand,
+    RevalidationFailed,
 }
 
 struct Entry {
@@ -63,9 +77,55 @@ struct State {
     root: Option<ThreadId>,
     sealing: bool,
     entries: HashMap<ThreadId, Entry>,
+    workspace: String,
+    journal: Option<journal::Journal>,
+    journal_closed: bool,
+    work: Vec<Work>,
+    commands: Vec<control::CommandRecord>,
+    startups: Vec<(std::path::PathBuf, Option<ThreadId>)>,
+    startups_in_flight: usize,
 }
 
 impl State {
+    fn checkpoint(&mut self) -> Result<(), Error> {
+        if self.journal_closed {
+            return Err(Error::OwnerLost);
+        }
+        if self.journal.is_none() {
+            return Ok(());
+        }
+        let mut threads = Vec::new();
+        let mut pending: Vec<_> = self.root.into_iter().collect();
+        while let Some(id) = pending.pop() {
+            let entry = &self.entries[&id];
+            threads.push(journal::Thread {
+                id,
+                parent: entry.parent,
+                held: entry.held,
+            });
+            let mut children: Vec<_> = self
+                .entries
+                .iter()
+                .filter_map(|(child, entry)| (entry.parent == Some(id)).then_some(*child))
+                .collect();
+            children.sort_by_key(|id| id.to_string());
+            pending.extend(children);
+        }
+        let checkpoint = journal::Checkpoint {
+            format: 1,
+            workspace: self.workspace.clone(),
+            revision: self.revision,
+            threads,
+            work: self.work.clone(),
+            commands: self.commands.clone(),
+        };
+        if self.journal.as_mut().unwrap().append(&checkpoint).is_err() {
+            self.attached = false;
+            return Err(Error::PersistenceFailed);
+        }
+        Ok(())
+    }
+
     fn revision(&self) -> Revision {
         Revision {
             instance: self.instance.clone(),
@@ -127,6 +187,8 @@ struct Inner {
     changed: Notify,
     runtime: tokio::runtime::Handle,
     deadline: Duration,
+    #[cfg(windows)]
+    jobs: Mutex<HashMap<ThreadId, Vec<Arc<codex_utils_pty::JobObject>>>>,
 }
 
 /// Cloneable host API. The separate owner lease controls owner lifetime.
@@ -144,7 +206,29 @@ impl std::fmt::Debug for Lifecycle {
 pub struct OwnerLease(Lifecycle);
 impl Drop for OwnerLease {
     fn drop(&mut self) {
-        self.0.lose_owner();
+        let _ = self.0.lose_owner();
+    }
+}
+impl OwnerLease {
+    pub async fn close(self) -> Result<(), Error> {
+        if let Some(waiter) = self.0.lose_owner() {
+            waiter.wait().await?;
+        }
+        let mut state = self.0.0.state.lock().map_err(|_| Error::Poisoned)?;
+        // Interruption has drained every registered controller/process. Any
+        // still-unresolved work remains in the final checkpoint. Late callbacks
+        // from this owner can no longer acknowledge or write after reacquisition.
+        if state.startups_in_flight != 0
+            || state
+                .entries
+                .values()
+                .any(|entry| !entry.interrupted || entry.starts != 0)
+        {
+            return Err(Error::IncompleteInterruption);
+        }
+        state.journal_closed = true;
+        state.journal = None;
+        Ok(())
     }
 }
 
@@ -184,13 +268,171 @@ impl Lifecycle {
                 root: None,
                 sealing: false,
                 entries: HashMap::new(),
+                workspace: String::new(),
+                journal: None,
+                journal_closed: false,
+                work: Vec::new(),
+                commands: Vec::new(),
+                startups: Vec::new(),
+                startups_in_flight: 0,
             }),
             changed: Notify::new(),
             runtime: tokio::runtime::Handle::current(),
             deadline,
+            #[cfg(windows)]
+            jobs: Mutex::new(HashMap::new()),
         }));
         let owner = OwnerLease(lifecycle.clone());
         (lifecycle, owner)
+    }
+
+    /// Acquires exclusive ownership of a private prototype checkpoint. Reopen
+    /// always holds the root; it never starts a thread or replays an effect.
+    /// The caller must bind recovered controllers and explicitly reconcile them.
+    pub fn open(
+        path: &std::path::Path,
+        workspace: &str,
+        deadline: Duration,
+    ) -> std::io::Result<(Self, OwnerLease)> {
+        if workspace.is_empty() {
+            return Err(std::io::Error::other("workspace identity is required"));
+        }
+        let (journal, recovered) = journal::Journal::open(path, workspace)?;
+        let (host, owner) = Self::new(deadline);
+        {
+            let mut state = host.0.state.lock().unwrap();
+            state.workspace = workspace.into();
+            state.journal = Some(journal);
+            if let Some(checkpoint) = recovered {
+                state.revision = checkpoint.revision;
+                state.work = checkpoint.work;
+                state.commands = checkpoint.commands;
+                for thread in checkpoint.threads {
+                    if thread.parent.is_none() {
+                        state.root = Some(thread.id);
+                    }
+                    state.entries.insert(
+                        thread.id,
+                        Entry {
+                            thread: Weak::new(),
+                            parent: thread.parent,
+                            held: thread.held || thread.parent.is_none(),
+                            interrupted: false,
+                            interruption_error: None,
+                            starts: 0,
+                        },
+                    );
+                }
+            }
+            state
+                .advance()
+                .and_then(|_| state.checkpoint())
+                .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
+        }
+        Ok((host, owner))
+    }
+
+    pub fn threads(&self) -> Result<Vec<ThreadId>, Error> {
+        let state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
+        let mut ids: Vec<_> = state.entries.keys().copied().collect();
+        ids.sort_by_key(|id| id.to_string());
+        Ok(ids)
+    }
+
+    pub fn root(&self) -> Result<Option<ThreadId>, Error> {
+        Ok(self.0.state.lock().map_err(|_| Error::Poisoned)?.root)
+    }
+
+    /// One-use authority supplied by the owning CLI before a retained session
+    /// constructor. It is never checkpointed or restored as live authority.
+    pub fn authorize_startup(
+        &self,
+        workspace: &std::path::Path,
+        resumed: Option<ThreadId>,
+    ) -> Result<(), Error> {
+        let workspace = workspace
+            .canonicalize()
+            .map_err(|_| Error::RevalidationFailed)?;
+        let mut state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
+        if !state.attached {
+            return Err(Error::OwnerLost);
+        }
+        if state.sealing {
+            return Err(Error::Busy);
+        }
+        if let Some(id) = resumed {
+            if !state.entries.contains_key(&id) {
+                return Err(Error::UnknownThread);
+            }
+        } else if state.root.is_some_and(|id| state.held(id)) {
+            return Err(Error::Held);
+        }
+        state.startups.push((workspace, resumed));
+        Ok(())
+    }
+
+    pub fn work(&self) -> Result<Vec<Work>, Error> {
+        Ok(self
+            .0
+            .state
+            .lock()
+            .map_err(|_| Error::Poisoned)?
+            .work
+            .clone())
+    }
+
+    /// Recovery acknowledgement after independent observation. The host must be
+    /// paused and quiescent; a receipt does not replay or grant dispatch authority.
+    pub fn reconcile(
+        &self,
+        work_id: u64,
+        expected: &Revision,
+        evidence: &str,
+    ) -> Result<(), Error> {
+        let mut state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
+        state.check(expected)?;
+        let work = state
+            .work
+            .iter()
+            .find(|work| work.id == work_id)
+            .ok_or(Error::UnknownThread)?;
+        if evidence.trim().is_empty() || work.receipt.is_some() {
+            return Err(Error::UnresolvedWork);
+        }
+        if !state.held(work.thread) {
+            return Err(Error::NotHeld);
+        }
+        if !state.entries[&work.thread].interrupted {
+            return Err(Error::IncompleteInterruption);
+        }
+        state.advance()?;
+        state
+            .work
+            .iter_mut()
+            .find(|work| work.id == work_id)
+            .unwrap()
+            .receipt = Some(evidence.into());
+        state.checkpoint()
+    }
+
+    /// Bind the retained controller with the exact recovered identity. Binding
+    /// grants no start authority, and an existing controller cannot be replaced.
+    pub fn bind_recovered(&self, thread: Arc<CodexThread>) -> Result<(), Error> {
+        let mut state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
+        if !state.attached {
+            return Err(Error::OwnerLost);
+        }
+        let id = thread.session_configured().thread_id;
+        if !state.held(id) {
+            return Err(Error::NotHeld);
+        }
+        let entry = state.entries.get_mut(&id).ok_or(Error::UnknownThread)?;
+        if entry.thread.upgrade().is_some() {
+            return Err(Error::DuplicateThread);
+        }
+        entry.thread = Arc::downgrade(&thread);
+        state.advance()?;
+        state.checkpoint()
     }
 
     pub fn attach_root(&self, thread: Arc<CodexThread>) -> Result<ThreadId, Error> {
@@ -215,6 +457,7 @@ impl Lifecycle {
                 starts: 0,
             },
         );
+        state.checkpoint()?;
         Ok(id)
     }
 
@@ -251,6 +494,7 @@ impl Lifecycle {
                 starts: 0,
             },
         );
+        state.checkpoint()?;
         Ok(id)
     }
 
@@ -265,6 +509,16 @@ impl Lifecycle {
             interrupt_complete: entry.interrupted,
             interruption_error: entry.interruption_error,
             starts_in_flight: entry.starts,
+            unresolved_work: state
+                .work
+                .iter()
+                .filter(|work| work.receipt.is_none() && state.below(work.thread, id))
+                .count(),
+            pending_commands: state
+                .commands
+                .iter()
+                .filter(|command| command.result.is_none() && state.below(command.thread, id))
+                .count(),
         })
     }
 
@@ -282,9 +536,9 @@ impl Lifecycle {
         }))
     }
 
-    /// Seals synchronously, then owns draining/cancellation independently of the
-    /// returned waiter. Completion means retained interruption completed, not a
-    /// durable pause, drained tool receipts or native process-tree quiescence.
+    /// Seals/checkpoints synchronously, then owns draining/cancellation even if
+    /// the waiter disappears. Unknown effects remain visible and block resume.
+    /// Native process confirmation covers jobs registered through this host.
     pub fn hold(&self, id: ThreadId, expected: &Revision) -> Result<HoldWaiter, Error> {
         let mut state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
         state.check(expected)?;
@@ -294,6 +548,7 @@ impl Lifecycle {
         state.advance()?;
         state.entries.get_mut(&id).unwrap().held = true;
         state.sealing = true;
+        state.startups.clear();
         let selected: Vec<_> = state
             .entries
             .keys()
@@ -304,8 +559,12 @@ impl Lifecycle {
             state.entries.get_mut(child).unwrap().interrupted = false;
             state.entries.get_mut(child).unwrap().interruption_error = None;
         }
+        // Seal in memory first. Even if persistence fails, still interrupt every
+        // selected controller; failed acknowledgement must not leave work alive.
+        let durable = state.checkpoint();
         drop(state);
-        Ok(HoldWaiter(self.interrupt_owned(selected, true)))
+        let waiter = HoldWaiter(self.interrupt_owned(selected, true));
+        durable.map(|_| waiter)
     }
 
     pub fn resume(&self, id: ThreadId, expected: &Revision) -> Result<(), Error> {
@@ -325,9 +584,16 @@ impl Lifecycle {
         {
             return Err(Error::IncompleteInterruption);
         }
+        if state
+            .work
+            .iter()
+            .any(|work| work.receipt.is_none() && state.below(work.thread, id))
+        {
+            return Err(Error::UnresolvedWork);
+        }
         state.advance()?;
         state.entries.get_mut(&id).unwrap().held = false;
-        Ok(())
+        state.checkpoint()
     }
 
     fn interrupt_owned(
@@ -339,6 +605,7 @@ impl Lifecycle {
         let (reply, waiter) = oneshot::channel();
         drop(self.0.runtime.spawn(async move {
             let result = lifecycle.interrupt_selected(selected, clear_sealing).await;
+            drop(lifecycle);
             let _ = reply.send(result);
         }));
         waiter
@@ -350,14 +617,15 @@ impl Lifecycle {
         clear_sealing: bool,
     ) -> Result<(), Error> {
         let result = async {
-            tokio::time::timeout(self.0.deadline, async {
+            let drained = tokio::time::timeout(self.0.deadline, async {
                 loop {
                     let changed = self.0.changed.notified();
                     tokio::pin!(changed);
                     changed.as_mut().enable();
                     let drained = {
                         let state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
-                        selected.iter().all(|id| state.entries[id].starts == 0)
+                        state.startups_in_flight == 0
+                            && selected.iter().all(|id| state.entries[id].starts == 0)
                     };
                     if drained {
                         break;
@@ -367,7 +635,12 @@ impl Lifecycle {
                 Ok::<(), Error>(())
             })
             .await
-            .map_err(|_| Error::DrainTimeout)??;
+            .map_err(|_| Error::DrainTimeout)
+            .and_then(|result| result);
+            #[cfg(windows)]
+            let processes_stopped = self.stop_processes(&selected).await;
+            #[cfg(not(windows))]
+            let processes_stopped = Ok(());
             let threads: Vec<_> = {
                 let state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
                 selected
@@ -394,11 +667,12 @@ impl Lifecycle {
                     failed = true;
                 }
             }
-            if failed {
+            let interrupted = if failed {
                 Err(Error::InterruptFailed)
             } else {
                 Ok(())
-            }
+            };
+            drained.and(processes_stopped).and(interrupted)
         }
         .await;
         let mut state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
@@ -411,26 +685,32 @@ impl Lifecycle {
             state.sealing = false;
         }
         state.advance()?;
+        state.checkpoint()?;
         result
     }
 
-    fn lose_owner(&self) {
+    fn lose_owner(&self) -> Option<HoldWaiter> {
         let Ok(mut state) = self.0.state.lock() else {
-            return;
+            return None;
         };
         if !state.attached {
-            return;
+            return None;
         }
         state.attached = false;
+        state.startups.clear();
         let _ = state.advance();
         let selected: Vec<_> = state.entries.keys().copied().collect();
-        for entry in state.entries.values_mut() {
-            entry.held = true;
+        let root = state.root;
+        for (id, entry) in &mut state.entries {
+            // Owner loss adds the root hold; preserve each child's independent
+            // hold so deliberately resuming the root can release inherited holds.
+            entry.held |= Some(*id) == root;
             entry.interrupted = false;
             entry.interruption_error = None;
         }
+        let _ = state.checkpoint();
         drop(state);
-        drop(self.interrupt_owned(selected, false));
+        Some(HoldWaiter(self.interrupt_owned(selected, false)))
     }
 }
 
@@ -446,5 +726,99 @@ impl TurnStartAdmission for Lifecycle {
     }
     fn admit_continuation_start_for_thread(&self, id: ThreadId) -> Option<Box<dyn Send>> {
         self.admit(id)
+    }
+}
+
+struct WorkPermit {
+    host: Lifecycle,
+    id: u64,
+    completed: bool,
+}
+
+struct StartupPermit(Lifecycle);
+impl Drop for StartupPermit {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.0.0.state.lock() {
+            state.startups_in_flight -= 1;
+        }
+        self.0.0.changed.notify_waiters();
+    }
+}
+
+impl codex_extension_api::HostWorkPermit for WorkPermit {
+    fn complete(&mut self) -> Result<(), String> {
+        if self.completed {
+            return Ok(());
+        }
+        let mut state = self.host.0.state.lock().map_err(|_| "poisoned lifecycle")?;
+        if state.journal_closed {
+            return Err("owner checkpoint is closed".into());
+        }
+        // Receipt ingestion is allowed after owner loss or pause. It is not a
+        // state transition capable of dispatching new work.
+        state.advance().map_err(|error| format!("{error:?}"))?;
+        state
+            .work
+            .iter_mut()
+            .find(|work| work.id == self.id)
+            .ok_or("missing intent")?
+            .receipt = Some("retained operation completed".into());
+        state.checkpoint().map_err(|error| format!("{error:?}"))?;
+        self.completed = true;
+        Ok(())
+    }
+}
+
+impl codex_extension_api::HostWorkAdmission for Lifecycle {
+    fn admit_startup(
+        &self,
+        workspace: &std::path::Path,
+        resumed: Option<ThreadId>,
+    ) -> Result<Box<dyn Send>, String> {
+        let workspace = workspace
+            .canonicalize()
+            .map_err(|_| "unavailable startup workspace")?;
+        let mut state = self.0.state.lock().map_err(|_| "poisoned lifecycle")?;
+        if !state.attached || state.sealing {
+            return Err("startup owner unavailable".into());
+        }
+        let index = state
+            .startups
+            .iter()
+            .position(|grant| grant == &(workspace.clone(), resumed))
+            .ok_or("missing explicit startup authority")?;
+        state.startups.remove(index);
+        state.startups_in_flight = state
+            .startups_in_flight
+            .checked_add(1)
+            .ok_or("startup overflow")?;
+        Ok(Box::new(StartupPermit(self.clone())))
+    }
+
+    fn admit(
+        &self,
+        thread: ThreadId,
+        kind: codex_extension_api::HostWorkKind,
+        label: &str,
+    ) -> Result<Box<dyn codex_extension_api::HostWorkPermit>, String> {
+        let mut state = self.0.state.lock().map_err(|_| "poisoned lifecycle")?;
+        if !state.attached || state.held(thread) {
+            return Err("host dispatch is paused or unowned".into());
+        }
+        state.advance().map_err(|error| format!("{error:?}"))?;
+        let id = state.revision;
+        state.work.push(Work {
+            id,
+            thread,
+            kind: format!("{kind:?}"),
+            label: label.into(),
+            receipt: None,
+        });
+        state.checkpoint().map_err(|error| format!("{error:?}"))?;
+        Ok(Box::new(WorkPermit {
+            host: self.clone(),
+            id,
+            completed: false,
+        }))
     }
 }

@@ -1,7 +1,7 @@
 # ADR-004 — Prepared edits and execution receipts
 
 Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P2-04/07; later P4-03. No implementation, runtime result or owner sign-off is recorded here.
+Decision gate: P2-04/07; later P4-03. Bounded P0 evidence is recorded below; production qualification and owner sign-off remain pending.
 
 ## Context and authority
 
@@ -22,6 +22,8 @@ Detailed contracts and failure ordering are in the [supporting design](../archit
 Reuse Codex patch parsing and native process primitives, adapting them behind the VCP broker. Compare lock/version strategies against actual Windows races. Avoid claiming a hash check alone provides atomic compare-and-swap or protection from hostile concurrent path replacement.
 
 ## Qualification evidence
+
+P0-03/P0-05 [native evidence](../evaluations/p0-03-recovery-execution.md) qualifies durable prototype intent/receipt fencing, retained dispatch denial and Windows Job Object process control. Prepared file revisions and production reconciliation remain P2-04/07.
 
 E05/E07/E08/R02/R04 include CRLF, encoding, locked files, case changes, junction replacement, partial application and grandchild cancellation. A separate marker observer detects duplicate non-idempotent effects after restart. Editor version guarantees are qualified later with real APIs.
 

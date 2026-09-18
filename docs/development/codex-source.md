@@ -1,11 +1,13 @@
 # Committed Codex source and native build
 
-The P0-07 selection copies 7,937 files from Codex revision
+The current selection contains 7,938 files, including the original private
+work-admission module added by VCP. It copies upstream source from Codex revision
 `3d3ae4965ab370217e871b3a7f0d15589557ee4b` into
 `src/third_party/codex/`. This is an upstream qualification baseline. The binary
-still identifies itself as Codex; VCP's OpenRouter, budget, persistence, memory,
-pause/resume and authority adapters are not implemented. Do not use an upstream
-session as evidence that those VCP boundaries work.
+still identifies itself as Codex. The separate [lifecycle qualification host](lifecycle-recovery.md)
+now exercises private checkpoints, startup/dispatch authority and pause/reopen;
+production OpenRouter, budget, storage, memory and CLI integration remain with
+their owning tasks. Do not treat an ordinary upstream session as VCP acceptance.
 
 ## Selection and retained structure
 

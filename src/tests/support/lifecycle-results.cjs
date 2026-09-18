@@ -28,10 +28,20 @@ const cases = {
     'timed_out_drain_requires_successful_interruption_before_resume',
     'stale_foreign_and_unregistered_scope_cannot_gain_authority',
     'owner_loss_interrupts_active_work_and_cannot_be_resumed',
-    'released_controller_is_not_retained_or_reported_as_interrupted'
+    'released_controller_is_not_retained_or_reported_as_interrupted',
+    'checkpoint_reopen_requires_binding_interruption_and_deliberate_resume',
+    'aborted_model_request_requires_explicit_receipt_reconciliation',
+    'retained_patch_dispatch_records_intent_and_completion',
+    'pause_at_actual_tool_dispatch_prevents_file_effect',
+    'private_controls_are_revision_checked_idempotent_and_revalidated',
+    'startup_requires_explicit_single_use_workspace_authority',
+    'graceful_close_fences_late_receipts_before_releasing_writer_lock',
+    'native_pause_stops_grandchild_and_releases_exclusive_lock',
+    'native_argv_environment_crlf_and_bounded_output_are_observed'
   ]
 };
 function validateResults(text, group) {
+  if (/\bpanicked at\b/.test(text)) throw Error('Background Rust panic in lifecycle evidence');
   const expected = cases[group]?.map(name => (group === 'host' ? '' : prefix) + name);
   if (!expected) throw Error('Unknown lifecycle group');
   const rows = [...text.matchAll(/^test (\S+) \.\.\. (\S+)\s*$/gm)];

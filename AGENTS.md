@@ -224,6 +224,13 @@ embedding or retrieval commands when the change affects those behaviors. Select
 tests by the changed boundary; do not rebuild every upstream component or rerun
 large corpus measurements for an unrelated documentation or workflow edit.
 
+For lifecycle/recovery or native execution changes, use the local
+`scripts/build.ps1 -Mode RecoveryTests` qualification and retained
+`-Mode LifecycleTests` regressions. The private owner example uses a scripted
+loopback provider; it is not the product CLI or evidence of paid-provider support.
+See [the recovery guide](docs/development/lifecycle-recovery.md) for scope and
+independent process, filesystem and network observations.
+
 GitHub CI is a confirmation layer, not the primary development/test loop.
 Routine PR/main runs use fast checks on standard Ubuntu; full Windows
 qualification is manual-only. Do not dispatch it or repeatedly push intermediate

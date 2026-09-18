@@ -72,6 +72,11 @@ as a regular copy of `COPYING` for Windows. VCP's ordered
 the workspace/lockfile, then adds the local CPU embedding adapter and its reviewed
 dependencies. The sixth patch changes four controller/extension files and adds
 five continuation-admission cases to the retained turn-input integration suite.
+The eighth patch adds private startup/model/tool admission, completion receipt
+callbacks and native Job Object membership observation. Its new extension module
+is original VCP code; the surrounding retained modules preserve upstream ownership.
+Existing serialization, hashing and process dependencies are connected to the
+original lifecycle package without changing external package identities.
 The seventh patch adds thread identity to admission, an owned interruption method,
 three additional retained-controller cases, and the original `vcp-lifecycle`
 workspace/lock entry. Its Rust host and seven real-controller tests are original

@@ -1,3 +1,4 @@
+// VCP modification: private lifecycle admission, recovery receipts and native stop observation.
 use super::input_queue::InputQueue;
 use super::mcp_refresh::McpRefresh;
 use super::step_context::StepContext;
@@ -768,6 +769,18 @@ impl Session {
         git_enrichment_policy: GitEnrichmentPolicy,
         windows_sandbox_proxy_settings_mode: codex_sandboxing::WindowsSandboxProxySettingsMode,
     ) -> anyhow::Result<Arc<Self>> {
+        // VCP: consume explicit host startup authority before session effects.
+        let _host_startup = extensions
+            .work_admission()
+            .map(|gate| {
+                let resumed = match &initial_history {
+                    InitialHistory::Resumed(history) => Some(history.conversation_id),
+                    _ => None,
+                };
+                gate.admit_startup(config.cwd.as_path(), resumed)
+            })
+            .transpose()
+            .map_err(anyhow::Error::msg)?;
         debug!(
             "Configuring session: model={}; provider={:?}",
             session_configuration
@@ -1645,7 +1658,7 @@ impl Session {
                 agents_md_manager,
                 plugins_manager: Arc::clone(&plugins_manager),
                 mcp_manager: Arc::clone(&mcp_manager),
-                extensions,
+                extensions: extensions.clone(),
                 // TODO(jif): extract session to share between sub-agents
                 session_extension_data,
                 thread_extension_data,
@@ -1690,6 +1703,7 @@ impl Session {
                     &initial_history,
                     InitialHistory::Resumed(_) | InitialHistory::Forked(_)
                 ))
+                .with_host_work(extensions.work_admission())
                 .with_session_context(
                     crate::guardian::prompt_cache_key_override_for_review_session(
                         &session_configuration.session_source,

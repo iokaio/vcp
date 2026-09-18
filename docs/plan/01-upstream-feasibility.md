@@ -1,6 +1,6 @@
 # 01 — Native Windows foundation and upstream feasibility
 
-Status: P0-01, P0-02 and P0-07 complete; remaining tasks planned. P0-02 is bounded feasibility, not product integration. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
+Status: P0-01, P0-02, P0-03, P0-05 and P0-07 complete for bounded feasibility; remaining tasks planned. P0-02 is bounded feasibility, not product integration. Owns P0-01 through P0-09. Read [delivery conventions](00-delivery-contract.md), architecture sections 0–3 and 19.5, and [the upstream inventory](../architecture/open-source.md). Exact prerequisites are preserved in [the ledger](20-traceability.md).
 
 Use the [upstream experiment procedure](../development/upstream-qualification.md) for manifest/reconstruction details and the [qualification harness design](../architecture/qualification-release-design.md) for result records and fault supervision. [ADR-001](../adr/001-runtime-topology.md), [ADR-003](../adr/003-canonical-storage.md), [ADR-008](../adr/008-local-governed-memory.md), [ADR-015](../adr/015-portability-and-storage-choice.md) and [ADR-019](../adr/019-cloud-encryption-and-keys.md) now record the confirmed directions and pending experiments separately.
 
@@ -149,6 +149,8 @@ Measure cold load, warm inference/query, batch throughput, resident/mapped memor
 
 ## P0-03 — Codex lifecycle seam
 
+Completed feasibility: the [recovery implementation](../development/lifecycle-recovery.md) and [native acceptance evidence](../evaluations/p0-03-recovery-execution.md) qualify durable owner checkpoints, startup/model/tool gates, same-process private CLI pause/resume, fresh-process restoration and native process quiescence. Earlier increments below describe the progression; their unfinished obligations are superseded by this result. Global production wiring remains P0-08 and P1/P2/P3.
+
 The [native CLI trace](../evaluations/p0-07-cli-trace.md) now observes completion,
 tool receipt/file effects, retry and rejection through the unmodified retained
 loop. The [continuation admission increment](../development/continuation-admission.md)
@@ -199,6 +201,8 @@ Snapshot a declared watermark while additional writes occur. Compare full and in
 Resolve writer enrollment and anti-replay assumptions explicitly. Knowing a recipient public key must not create writer authority; a fresh offline machine without a trusted latest checkpoint cannot prove global freshness. Record that limitation rather than inventing cloud consensus. See [storage and portability design](../architecture/storage-portability-design.md) and [ADR-019](../adr/019-cloud-encryption-and-keys.md).
 
 ## P0-05 — Windows execution spike
+
+Completed after P0-03: [native evidence](../evaluations/p0-03-recovery-execution.md) qualifies the retained Job Object candidate, explicit argv/environment, Unicode/CRLF/long paths, bounded output draining, non-cooperative grandchild termination and exclusive-lock observations. Independent AppContainer/control canaries qualify a single-process filesystem/network candidate. This does not advertise a composed production sandbox; P2/P8 own that integration.
 
 1. Reuse candidate Codex process/job/PTY and policy code for argument-safe process launch with an explicit working root and environment.
 2. Exercise Unicode/spaces, CRLF, long paths within supported limits, file locks, junctions and process trees.

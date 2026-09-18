@@ -22,7 +22,7 @@ async function main(argv) {
   const manifest = { schema_version: 1, task_id: 'P0-03', status: 'running', started_at: new Date().toISOString(),
     binary_sha256: digest(fs.readFileSync(binary)), cargo_log_sha256: digest(fs.readFileSync(options['--cargo-log'])),
     host_binary_sha256: digest(fs.readFileSync(hostBinary)),
-    limitations: ['Scoped in-memory host and retained interruption; no startup/effect fencing, native tree-stop proof, durable checkpoint/reopen or CLI pause.'] };
+    limitations: ['Registered-controller feasibility tests; private owner-process and AppContainer experiments run separately through RecoveryTests.'] };
   const manifestPath = path.join(directory, 'manifest.json');
   writeManifest(manifestPath, manifest);
   const controller = new AbortController();
@@ -45,7 +45,11 @@ async function main(argv) {
       const output = attempt.artifacts.find(a => a.path.endsWith('-stdout.log'));
       const bytes = fs.readFileSync(path.join(path.dirname(result.manifestPath), output.path));
       if (digest(bytes) !== output.sha256) throw Error('Lifecycle output changed after capture');
-      manifest.tests_passed += validateResults(bytes.toString('utf8'), attempt.case_id);
+      const errorOutput = attempt.artifacts.find(a => a.path.endsWith('-stderr.log'));
+      if (!errorOutput) throw Error('Missing lifecycle stderr capture');
+      const errorBytes = fs.readFileSync(path.join(path.dirname(result.manifestPath), errorOutput.path));
+      if (digest(errorBytes) !== errorOutput.sha256) throw Error('Lifecycle stderr changed after capture');
+      manifest.tests_passed += validateResults(bytes.toString('utf8') + '\n' + errorBytes.toString('utf8'), attempt.case_id);
     }
     manifest.status = 'pass'; manifest.exit_code = 0;
   } catch (error) { manifest.status = 'fail'; manifest.exit_code = 1; manifest.reason = error.message; }

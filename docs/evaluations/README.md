@@ -3,6 +3,7 @@
 These reports describe executed checks with explicit scope and limitations.
 Raw evidence stays in ignored local artifact directories or CI artifacts.
 
+- [P0-03/P0-05 recovery and Windows execution](p0-03-recovery-execution.md): durable pause/reopen, private CLI controls, effect receipts, native process trees and observed isolation boundaries.
 - [P0-03 continuation admission](p0-03-continuation-admission.md): five new native gate regressions, retained drain compatibility and unfinished pause work.
 - [P0-03 scoped lifecycle](p0-03-scoped-lifecycle.md): local host and retained-controller qualification, with explicit recovery and effect-boundary limitations.
 

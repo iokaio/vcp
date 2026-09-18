@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "0f8da0ac7fc64cf561c9f10467a36f8318bc3de55d91c6d93793ae1e2e0d58b1",
-  "files_sha256": "2853a063526962d82a4c12ca02cdbb58ecb42f1b92c29d7393947059480c849a",
+  "selection_sha256": "3326d4bd00d7706e7fe5fa2667eea75afe92921cbc9018104064a4f51fb45aaf",
+  "files_sha256": "1d71d71256d50ac9b1649bcd8b8687dcc57c7da8d7fa95759b4f247d50247223",
   "files": [
     {
       "path": ".bazelignore",
@@ -545,8 +545,8 @@
         "sha256": "582bb7fb0b7d4c7cab24b4e3b8cc28344ddfe146ffbf2297448a3e995eead2b7"
       },
       "result": {
-        "bytes": 431690,
-        "sha256": "878bf40f05a03cadd2407dadf06715e65280edb5ddc82b31c372d0d98e803f04",
+        "bytes": 431866,
+        "sha256": "29a31d79d5e44fe5fa0b6351f9c105fa7f91540f06b463c13ef10e69d7a9d1b4",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -33655,11 +33655,11 @@
         "sha256": "7013ea18e7c40db547d9677d06ca8d5abd7ac6aec15f2202ac08c0a55ebd28c4"
       },
       "result": {
-        "bytes": 112875,
-        "sha256": "7013ea18e7c40db547d9677d06ca8d5abd7ac6aec15f2202ac08c0a55ebd28c4",
+        "bytes": 114659,
+        "sha256": "fe54272cc058c71f1fc4e5b4f22b75c8c5a02248fdfbb3cdba087a537c669816",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/core/src/client_common.rs",
@@ -33669,11 +33669,11 @@
         "sha256": "3cd5bded9103e4a4e60eb49c482616c6456f7b8702df87d36ee75d27f8d54473"
       },
       "result": {
-        "bytes": 4739,
-        "sha256": "3cd5bded9103e4a4e60eb49c482616c6456f7b8702df87d36ee75d27f8d54473",
+        "bytes": 5700,
+        "sha256": "0e8c22d85bb734ebe9f0ffbcc98a1915d472d2ec80c2cd286356a99c31ec06a8",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/core/src/client_common_tests.rs",
@@ -33837,11 +33837,11 @@
         "sha256": "ac0b2f6a2eac964081c1f20675c02b78cab2cd4fa5fd7152ed357f9a884f55c9"
       },
       "result": {
-        "bytes": 47282,
-        "sha256": "ac0b2f6a2eac964081c1f20675c02b78cab2cd4fa5fd7152ed357f9a884f55c9",
+        "bytes": 47410,
+        "sha256": "0bba102e3a7c263decaf4184e36d09e4a46aec58cc660c317f1ddb5317c3c7aa",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/core/src/compact_remote_v2_attempt.rs",
@@ -37631,11 +37631,11 @@
         "sha256": "3ad7285cb5d324572b40c38f3ba5c9a1c903080863f6b64bd5707b3855ae99af"
       },
       "result": {
-        "bytes": 89999,
-        "sha256": "3ad7285cb5d324572b40c38f3ba5c9a1c903080863f6b64bd5707b3855ae99af",
+        "bytes": 90693,
+        "sha256": "7552c7c9d7cf65385b31e2aeb01cc0cfec18f6a5da64df892023dddd06de68aa",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/core/src/session/snapshots/codex_core__codex_tests__fork_startup_context_then_first_turn_diff.snap",
@@ -39843,11 +39843,11 @@
         "sha256": "52d6ec5de7282fd42bd9810edbe19d0c75ee9445254e33e2a1a39e0ba7dac7b5"
       },
       "result": {
-        "bytes": 31019,
-        "sha256": "52d6ec5de7282fd42bd9810edbe19d0c75ee9445254e33e2a1a39e0ba7dac7b5",
+        "bytes": 31901,
+        "sha256": "92bc9e4063f8a393c56541eecb7de16788c81a2f4178fa77736e831822e6c324",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/core/src/tools/registry_tests.rs",
@@ -47655,11 +47655,11 @@
         "sha256": "fa6c40124197453211ba230ce313eca0bfa4b890448822a7103030af716f00c4"
       },
       "result": {
-        "bytes": 4262,
-        "sha256": "fa6c40124197453211ba230ce313eca0bfa4b890448822a7103030af716f00c4",
+        "bytes": 4454,
+        "sha256": "5005999545f1f04e3bc42dde0abde0bb66c70f25b2d1adbdb9a8a8279abac8e5",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/ext/extension-api/src/registry.rs",
@@ -47669,8 +47669,8 @@
         "sha256": "f64811a16caf880204076c4802cbe0985bc66797e330a1d1b9228e71ef44c360"
       },
       "result": {
-        "bytes": 12680,
-        "sha256": "d00e82408316ef05f72a28c94a3619b67d60b8f5f25ec6a4a316434f26c30ca1",
+        "bytes": 13175,
+        "sha256": "b12d38edc1b777e43beb8c58c90ae40a54581bdf2a7c8017c2d8b3a10459f941",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -47730,6 +47730,16 @@
         "mode": "100644"
       },
       "transformation": "none"
+    },
+    {
+      "path": "codex-rs/ext/extension-api/src/work_admission.rs",
+      "original": null,
+      "result": {
+        "bytes": 981,
+        "sha256": "3fa426a9967160ae9fc3b999203e599aae26d858617592c05ca5931ddf4044ac",
+        "mode": "100644"
+      },
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/ext/extension-api/tests/capabilities.rs",
@@ -104411,11 +104421,11 @@
         "sha256": "3c904bcd4ac33719bb843639c30be39ca6e9ceda350be311f970aaf3d748a476"
       },
       "result": {
-        "bytes": 8506,
-        "sha256": "3c904bcd4ac33719bb843639c30be39ca6e9ceda350be311f970aaf3d748a476",
+        "bytes": 9572,
+        "sha256": "377f2cd5ff35343858ccf1771925c0d00ebae398fa945b4c36e73cd4d3118199",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/utils/pty/src/win/mod.rs",

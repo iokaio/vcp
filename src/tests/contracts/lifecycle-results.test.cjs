@@ -11,7 +11,7 @@ test('empty, skipped, duplicate and missing native cases cannot pass', () => {
   const valid = fixture('continuation');
   for (const text of ['', valid.replace(' ... ok', ' ... ignored'), valid.replace(/^.*\n/, ''),
     valid.replace(cases.continuation[0], cases.continuation[1]), valid.replace('5 passed', '0 passed'),
-    valid.replace('0 ignored', '1 ignored'), valid + valid]) {
+    valid.replace('0 ignored', '1 ignored'), valid + valid, valid + "\nthread 'worker' panicked at worker.rs:1\n"]) {
     assert.throws(() => validateResults(text, 'continuation'));
   }
 });

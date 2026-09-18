@@ -13,6 +13,7 @@ These guides describe how to implement and qualify the planned system. The [deli
 - [Helper effect map](helper-effect-traces.md): review/compaction request ownership, usage discrepancies and pause/history adapter responsibilities.
 - [Continuation admission](continuation-admission.md): host gating of child/review/mailbox starts, native tests and remaining pause obligations.
 - [Scoped lifecycle host](scoped-lifecycle.md): registered thread authority, tree holds, owned retained interruption, owner loss and explicit readmission.
+- [Lifecycle recovery](lifecycle-recovery.md): durable private checkpoints, startup/dispatch authority, same-owner controls and native Windows qualification.
 - [Committed Munarium libraries](munarium-source.md): three libraries in the shared Cargo workspace, source reconstruction and native dependency evidence.
 - [Munarium native baseline](munarium-baseline.md): kernel/store/datastore qualification with real Tantivy and DiskANN and a checked dependency boundary.
 - [Gemini native baseline](gemini-baseline.md): reproducible 402-test comparison, explicit preparation and policy/skill/MCP adaptation boundaries.

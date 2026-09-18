@@ -1,7 +1,7 @@
 # ADR-016 — Full history, retention and pause lifecycle
 
 Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P3-04/05, P5-07, U05/U06. No implementation, runtime result or owner sign-off is recorded here.
+Decision gate: P3-04/05, P5-07, U05/U06. Bounded P0 evidence is recorded below; production qualification and owner sign-off remain pending.
 
 ## Context and authority
 
@@ -22,6 +22,8 @@ Detailed contracts and failure ordering are in the [memory design](../architectu
 Use canonical history and derived paged views rather than UI-tail logs as authority. Notice repeat cadence, additional retention defaults and historical vector availability remain explicit decisions. Saved policy must identify scope and action instead of an implicit global age cutoff.
 
 ## Qualification evidence
+
+P0-03 [native evidence](../evaluations/p0-03-recovery-execution.md) qualifies private CLI pause/status/resume, durable root/child restoration, command idempotency and unresolved-effect reconciliation in a synthetic owner. Product CLI, history/pruning and the supported console matrix remain at the production gates above.
 
 U05 tests date/timezone edges, active references, changed preview, crash during cleanup and stale indexes/snapshots. U06 requires `/pause`, inspection and `/resume` in one live CLI process, repeated pause and steering while paused with no new dispatch, plus real console close, process trees and post-reopen dispatch counts. Projection rebuild never executes effects.
 
