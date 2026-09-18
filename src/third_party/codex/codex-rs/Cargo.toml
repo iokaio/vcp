@@ -1,5 +1,10 @@
 [workspace]
 members = [
+    # VCP modification: typed P1 foundation in the retained workspace.
+    "../../../crates/vcp-domain",
+    "../../../crates/vcp-protocol",
+    "../../../crates/vcp-store",
+    "../../../crates/vcp-engine",
     # VCP modification: portable storage qualification shares the retained build graph.
     "../../../crates/vcp-storage-spike",
     # VCP modification: scoped retained-controller lifecycle qualification.

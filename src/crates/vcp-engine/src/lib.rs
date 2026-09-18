@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+//! Canonical command orchestration. Execution stays in the retained controller;
+//! handlers record decisions and effects through an injected canonical store.
+pub mod capture;
+pub mod command_handler;
+mod subscription;
+pub use command_handler::{Access, Engine, HostFacts};
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("current caller access denied")]
+    Access,
+    #[error("stale controller owner")]
+    Owner,
+    #[error("command target or immutable decision differs")]
+    Target,
+    #[error("operation requires current host evidence")]
+    Host,
+    #[error("domain: {0}")]
+    Domain(#[from] vcp_domain::Error),
+    #[error("canonical store: {0}")]
+    Store(#[from] vcp_store::Error),
+    #[error("protocol: {0}")]
+    Protocol(#[from] vcp_protocol::version::Error),
+    #[error("serialization: {0}")]
+    Json(#[from] serde_json::Error),
+}
+pub type Result<T> = std::result::Result<T, Error>;

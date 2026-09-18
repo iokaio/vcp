@@ -1,6 +1,6 @@
 # 03 — Canonical storage and atomic budget accounting
 
-Status: planned. Owns P1-04 and P1-05. Requires P1-01/P1-03 and P0 storage qualification; use P1-02 when wiring command envelopes. Read architecture sections 8 and 12 and [state/capture](02-engine-state-and-capture.md).
+Status: P1-04 in progress through the [durable foundation](../development/p1-foundation.md); accounting integration and P1-05 remain. Owns P1-04 and P1-05. Requires P1-01/P1-03 and P0 storage qualification; use P1-02 when wiring command envelopes. Read architecture sections 8 and 12 and [state/capture](02-engine-state-and-capture.md).
 
 ## Implementation references
 

@@ -1,0 +1,733 @@
+// SPDX-License-Identifier: Apache-2.0
+use crate::{Error, Result};
+use vcp_domain::{
+    artifact::*, effect::*, ids::*, revision::*, task::*, verification::*, workspace::*,
+};
+use vcp_protocol::{command::*, event::*};
+use vcp_store::contract::*;
+
+/// Supplied by the authenticated local host, never accepted from JSON commands.
+/// Revocation changes the workspace authority revision, invalidating old grants.
+pub struct Access {
+    pub actor: ActorId,
+    pub workspace: WorkspaceId,
+    pub session: SessionId,
+    pub authority: AuthorityRevision,
+    pub read: bool,
+    pub write: bool,
+    pub bootstrap: bool,
+}
+/// Observations collected by the host immediately before command admission.
+/// A user-supplied boolean inside an envelope cannot become this capability.
+pub struct HostFacts {
+    pub now: Timestamp,
+    pub policy: PolicyRevision,
+    pub resume: Option<ResumeEvidence>,
+    pub may_execute: bool,
+}
+impl HostFacts {
+    pub fn inspect(now: Timestamp) -> Self {
+        Self {
+            now,
+            policy: PolicyRevision::ZERO,
+            resume: None,
+            may_execute: false,
+        }
+    }
+}
+
+pub struct Engine<S: CanonicalStore> {
+    store: S,
+    controller: ControllerId,
+    owner: OwnerEpoch,
+    pub(crate) subscriptions:
+        std::collections::BTreeMap<SnapshotId, vcp_protocol::subscription::Cursor>,
+}
+impl<S: CanonicalStore> Engine<S> {
+    pub fn new(store: S) -> Result<Self> {
+        let owner = OwnerEpoch::new(store.state().watermark.get()).next()?;
+        Ok(Self {
+            store,
+            controller: ControllerId::new(),
+            owner,
+            subscriptions: Default::default(),
+        })
+    }
+    pub fn controller(&self) -> &ControllerId {
+        &self.controller
+    }
+    pub fn owner_epoch(&self) -> OwnerEpoch {
+        self.owner
+    }
+    pub fn store(&self) -> &S {
+        &self.store
+    }
+    pub fn store_mut(&mut self) -> &mut S {
+        &mut self.store
+    }
+    pub fn into_store(self) -> S {
+        self.store
+    }
+    pub fn authorize(&self, access: &Access) -> Result<()> {
+        if !access.read {
+            return Err(Error::Access);
+        }
+        let workspace = self.store.state().record(
+            Collection::Workspace,
+            access.workspace.as_str(),
+            &access.workspace,
+        );
+        match workspace {
+            Ok(record) => {
+                let workspace: Workspace = record.decode()?;
+                if workspace.authority != access.authority {
+                    return Err(Error::Access);
+                }
+                self.store.state().record(
+                    Collection::Session,
+                    access.session.as_str(),
+                    &access.workspace,
+                )?;
+            }
+            Err(_)
+                if access.bootstrap
+                    && access.write
+                    && access.authority == AuthorityRevision::ZERO => {}
+            Err(_) => return Err(Error::Access),
+        }
+        Ok(())
+    }
+    /// Interactive and headless adapters call this same handler. Neither owns a
+    /// scheduler or receives authority from fields supplied in serialized input.
+    pub async fn jsonl(
+        &mut self,
+        bytes: &[u8],
+        access: &Access,
+        host: &HostFacts,
+    ) -> Result<Vec<u8>> {
+        self.handle(CommandEnvelope::parse_jsonl(bytes)?, access, host)
+            .await?
+            .jsonl()
+            .map_err(Error::from)
+    }
+    pub async fn handle(
+        &mut self,
+        command: CommandEnvelope,
+        access: &Access,
+        host: &HostFacts,
+    ) -> Result<CommandReceipt> {
+        command.validate_version()?;
+        if vcp_protocol::canonical_bytes(&command)?.len() > vcp_protocol::version::MAX_COMMAND_BYTES
+        {
+            return Err(vcp_protocol::version::Error::Limit.into());
+        }
+        self.authorize(access)?;
+        if command.caller != access.actor
+            || command.workspace != access.workspace
+            || command.session != access.session
+        {
+            return Err(Error::Access);
+        }
+        if !access.write && !matches!(command.payload, Command::Inspect) {
+            return Err(Error::Access);
+        }
+        let digest = command.digest()?;
+        // A retry is authenticated under current access, then resolves the old
+        // receipt before stale state/owner checks. Restart cannot duplicate work.
+        if let Some(receipt) =
+            self.store
+                .state()
+                .command(&command.workspace, &command.id, &digest)?
+        {
+            return Ok(receipt);
+        }
+        if command.controller != self.controller || command.owner_epoch != self.owner {
+            return Err(Error::Owner);
+        }
+        let event_id = EventId::new();
+        let mut mutations = Vec::new();
+        let mut artifacts = Vec::new();
+        let mut accepted = command.expected;
+        let mut result = None;
+        let state = self.store.state();
+        let scope = || -> Result<Scope> {
+            Ok(Scope {
+                workspace: command.workspace.clone(),
+                session: command.session.clone(),
+                task: command.task.clone().ok_or(Error::Target)?,
+            })
+        };
+        let task = || -> Result<Task> {
+            let scope = scope()?;
+            let task: Task = state
+                .record(Collection::Task, scope.task.as_str(), &scope.workspace)?
+                .decode()?;
+            if task.scope != scope {
+                return Err(Error::Access);
+            }
+            Ok(task)
+        };
+        let mut put = |collection: Collection,
+                       id: String,
+                       revision: Revision,
+                       value: serde_json::Value,
+                       expected: Option<Revision>|
+         -> Result<()> {
+            let record = Record {
+                collection,
+                id,
+                workspace: command.workspace.clone(),
+                revision,
+                value,
+                references: Default::default(),
+            };
+            record.validate_shape()?;
+            mutations.push(Mutation::Put { expected, record });
+            accepted = revision;
+            Ok(())
+        };
+        let kind = match &command.payload {
+            Command::Initialize { binding } => {
+                if !access.bootstrap
+                    || command.task.is_some()
+                    || command.expected != Revision::ZERO
+                    || command.steering != SteeringRevision::ZERO
+                {
+                    return Err(Error::Access);
+                }
+                let workspace = Workspace {
+                    id: command.workspace.clone(),
+                    binding: binding.clone(),
+                    trust: Trust::Untrusted,
+                    revision: Revision::ZERO,
+                    authority: AuthorityRevision::ZERO,
+                    deletion: DeletionEpoch::ZERO,
+                };
+                workspace.validate()?;
+                let session = Session {
+                    id: command.session.clone(),
+                    workspace: command.workspace.clone(),
+                    revision: Revision::ZERO,
+                    configuration: Revision::ZERO,
+                    fork_origin: None,
+                };
+                put(
+                    Collection::Workspace,
+                    workspace.id.to_string(),
+                    workspace.revision,
+                    serde_json::to_value(workspace)?,
+                    None,
+                )?;
+                put(
+                    Collection::Session,
+                    session.id.to_string(),
+                    session.revision,
+                    serde_json::to_value(session)?,
+                    None,
+                )?;
+                EventKind::SessionStarted
+            }
+            Command::CreateTask {
+                root,
+                parent,
+                fork_origin,
+                objective,
+                fingerprint,
+                editing,
+                required_checks,
+            } => {
+                if command.expected != Revision::ZERO || command.steering != SteeringRevision::ZERO
+                {
+                    return Err(vcp_domain::Error::Stale.into());
+                }
+                let mut objective = objective.clone();
+                objective.source = event_id.clone();
+                objective.steering = SteeringRevision::ZERO;
+                let task = Task {
+                    scope: scope()?,
+                    root: root.clone(),
+                    parent: parent.clone(),
+                    fork_origin: fork_origin.clone(),
+                    revision: Revision::ZERO,
+                    steering: SteeringRevision::ZERO,
+                    objectives: vec![objective],
+                    state: TaskState::Pending,
+                    fingerprint: fingerprint.clone(),
+                    editing: *editing,
+                    required_checks: required_checks.clone(),
+                    cause: event_id.clone(),
+                    reason: "accepted objective".into(),
+                };
+                task.validate()?;
+                put(
+                    Collection::Task,
+                    task.scope.task.to_string(),
+                    task.revision,
+                    serde_json::to_value(task)?,
+                    None,
+                )?;
+                EventKind::TaskCreated
+            }
+            Command::Transition {
+                next,
+                reason,
+                verification,
+            } => {
+                let current = task()?;
+                let evidence = verification
+                    .as_ref()
+                    .map(|id| {
+                        state
+                            .record(Collection::Verification, id.as_str(), &command.workspace)?
+                            .decode::<Verification>()
+                    })
+                    .transpose()?;
+                if *next == TaskState::Running && !host.may_execute {
+                    return Err(Error::Host);
+                }
+                if *next == TaskState::Completed {
+                    for record in state.records.values().filter(|r| {
+                        r.workspace == command.workspace && r.collection == Collection::Task
+                    }) {
+                        let child: Task = record.decode()?;
+                        if child.parent.as_ref() == Some(&current.scope.task)
+                            && !child.state.terminal()
+                        {
+                            return Err(vcp_domain::Error::Evidence.into());
+                        }
+                    }
+                    // An evidence author cannot hide a canonical unknown effect.
+                    for record in state.records.values().filter(|r| {
+                        r.workspace == command.workspace && r.collection == Collection::Effect
+                    }) {
+                        let effect: Effect = record.decode()?;
+                        if effect.scope.task == current.scope.task
+                            && !matches!(
+                                effect.state,
+                                EffectState::Succeeded
+                                    | EffectState::Failed
+                                    | EffectState::Cancelled
+                            )
+                        {
+                            return Err(vcp_domain::Error::Evidence.into());
+                        }
+                    }
+                    if let Some(evidence) = &evidence {
+                        for id in evidence
+                            .outputs
+                            .iter()
+                            .chain(evidence.checks.iter().map(|c| &c.output))
+                        {
+                            let artifact: ArtifactDescriptor = state
+                                .record(Collection::Artifact, id.as_str(), &command.workspace)?
+                                .decode()?;
+                            if artifact.state != CaptureState::Complete {
+                                return Err(vcp_domain::Error::Evidence.into());
+                            }
+                        }
+                    }
+                }
+                let next = current.transition(
+                    &scope()?,
+                    command.expected,
+                    command.steering,
+                    *next,
+                    event_id.clone(),
+                    reason.clone(),
+                    evidence.as_ref(),
+                    host.resume.as_ref(),
+                )?;
+                put(
+                    Collection::Task,
+                    next.scope.task.to_string(),
+                    next.revision,
+                    serde_json::to_value(next)?,
+                    Some(current.revision),
+                )?;
+                EventKind::TaskTransition
+            }
+            Command::Steer { objective } => {
+                let current = task()?;
+                if current.steering != command.steering {
+                    return Err(vcp_domain::Error::Steering.into());
+                }
+                let mut objective = objective.clone();
+                objective.source = event_id.clone();
+                let next = current.steer(command.expected, objective)?;
+                put(
+                    Collection::Task,
+                    next.scope.task.to_string(),
+                    next.revision,
+                    serde_json::to_value(next)?,
+                    Some(current.revision),
+                )?;
+                EventKind::ObjectiveChanged
+            }
+            Command::ObserveFingerprint { fingerprint } => {
+                let current = task()?;
+                if current.steering != command.steering {
+                    return Err(vcp_domain::Error::Steering.into());
+                }
+                let next = current.observe_fingerprint(
+                    command.expected,
+                    fingerprint.clone(),
+                    event_id.clone(),
+                )?;
+                put(
+                    Collection::Task,
+                    next.scope.task.to_string(),
+                    next.revision,
+                    serde_json::to_value(next)?,
+                    Some(current.revision),
+                )?;
+                EventKind::FingerprintObserved
+            }
+            Command::StartTurn { id, trigger } => {
+                let current = task()?;
+                if current.revision != command.expected || current.steering != command.steering {
+                    return Err(vcp_domain::Error::Stale.into());
+                }
+                let turn = Turn {
+                    id: id.clone(),
+                    scope: scope()?,
+                    revision: Revision::ZERO,
+                    steering: current.steering,
+                    state: TurnState::Queued,
+                    trigger: trigger.clone(),
+                    cause: event_id.clone(),
+                    reason: "accepted turn".into(),
+                };
+                artifacts.push(trigger.clone());
+                put(
+                    Collection::Turn,
+                    id.to_string(),
+                    turn.revision,
+                    serde_json::to_value(turn)?,
+                    None,
+                )?;
+                EventKind::TurnTransition
+            }
+            Command::AdvanceTurn { id, next, reason } => {
+                let task = task()?;
+                let current: Turn = state
+                    .record(Collection::Turn, id.as_str(), &command.workspace)?
+                    .decode()?;
+                if current.scope != scope()? || command.steering != task.steering {
+                    return Err(Error::Target);
+                }
+                if matches!(next, TurnState::RequestingModel | TurnState::ExecutingTools)
+                    && (!host.may_execute || !dispatchable(state, &task)?)
+                {
+                    return Err(Error::Host);
+                }
+                let turn = current.transition(
+                    command.expected,
+                    task.steering,
+                    *next,
+                    event_id.clone(),
+                    reason.clone(),
+                    host.resume.as_ref(),
+                )?;
+                put(
+                    Collection::Turn,
+                    id.to_string(),
+                    turn.revision,
+                    serde_json::to_value(turn)?,
+                    Some(current.revision),
+                )?;
+                EventKind::TurnTransition
+            }
+            Command::ProposeEffect {
+                id,
+                operation_digest,
+            } => {
+                let task = task()?;
+                if task.revision != command.expected
+                    || task.steering != command.steering
+                    || !hash(operation_digest)
+                {
+                    return Err(Error::Target);
+                }
+                let effect = Effect {
+                    id: id.clone(),
+                    scope: scope()?,
+                    revision: Revision::ZERO,
+                    steering: task.steering,
+                    state: EffectState::Proposed,
+                    operation_digest: operation_digest.clone(),
+                    execution: None,
+                    exit_code: None,
+                    observed_changes: vec![],
+                    cause: event_id.clone(),
+                    reason: "prepared proposal".into(),
+                };
+                put(
+                    Collection::Effect,
+                    id.to_string(),
+                    effect.revision,
+                    serde_json::to_value(effect)?,
+                    None,
+                )?;
+                EventKind::EffectTransition
+            }
+            Command::AdvanceEffect {
+                id,
+                next,
+                reason,
+                execution,
+                exit_code,
+                observed_changes,
+            } => {
+                let task = task()?;
+                let current: Effect = state
+                    .record(Collection::Effect, id.as_str(), &command.workspace)?
+                    .decode()?;
+                if current.scope != scope()? {
+                    return Err(Error::Target);
+                }
+                if matches!(
+                    next,
+                    EffectState::Authorized | EffectState::DispatchRecorded | EffectState::Running
+                ) && (!host.may_execute
+                    || command.steering != task.steering
+                    || !dispatchable(state, &task)?)
+                {
+                    return Err(Error::Host);
+                }
+                let mut effect = current.transition(
+                    command.expected,
+                    command.steering,
+                    *next,
+                    event_id.clone(),
+                    reason.clone(),
+                )?;
+                if matches!(next, EffectState::DispatchRecorded | EffectState::Running)
+                    && execution.is_none()
+                {
+                    return Err(Error::Target);
+                }
+                if let Some(existing) = &current.execution {
+                    if execution.as_ref() != Some(existing) {
+                        return Err(Error::Target);
+                    }
+                }
+                effect.execution = execution.clone();
+                effect.exit_code = *exit_code;
+                effect.observed_changes = observed_changes.clone();
+                artifacts.extend(observed_changes.clone());
+                put(
+                    Collection::Effect,
+                    id.to_string(),
+                    effect.revision,
+                    serde_json::to_value(effect)?,
+                    Some(current.revision),
+                )?;
+                EventKind::EffectTransition
+            }
+            Command::RecordVerification { verification } => {
+                let task = task()?;
+                if task.revision != command.expected || verification.scope != scope()? {
+                    return Err(Error::Target);
+                }
+                // Stale observations remain attributable; completion separately
+                // checks their fingerprint and steering against current state.
+                artifacts.extend(verification.outputs.clone());
+                artifacts.extend(verification.checks.iter().map(|c| c.output.clone()));
+                put(
+                    Collection::Verification,
+                    verification.id.to_string(),
+                    Revision::ZERO,
+                    serde_json::to_value(verification)?,
+                    None,
+                )?;
+                EventKind::VerificationRecorded
+            }
+            Command::AttachArtifact { descriptor } => {
+                if descriptor.spec.scope != scope()? {
+                    return Err(Error::Target);
+                }
+                let key = key(Collection::Artifact, descriptor.spec.id.as_str());
+                let previous = state.records.get(&key).map(|r| r.revision);
+                if previous.unwrap_or_default() != command.expected {
+                    return Err(vcp_domain::Error::Stale.into());
+                }
+                let revision = previous
+                    .map(Revision::next)
+                    .transpose()?
+                    .unwrap_or_default();
+                put(
+                    Collection::Artifact,
+                    descriptor.spec.id.to_string(),
+                    revision,
+                    serde_json::to_value(descriptor)?,
+                    previous,
+                )?;
+                artifacts.push(descriptor.spec.id.clone());
+                EventKind::ArtifactAttached
+            }
+            Command::Rebind { binding } => {
+                if command.task.is_some() {
+                    return Err(Error::Target);
+                }
+                let current: Workspace = state
+                    .record(
+                        Collection::Workspace,
+                        command.workspace.as_str(),
+                        &command.workspace,
+                    )?
+                    .decode()?;
+                let next = current.rebind(command.expected, binding.clone())?;
+                put(
+                    Collection::Workspace,
+                    next.id.to_string(),
+                    next.revision,
+                    serde_json::to_value(next)?,
+                    Some(current.revision),
+                )?;
+                EventKind::WorkspaceBound
+            }
+            Command::Ask { approval } => {
+                let task = task()?;
+                let effect: Effect = state
+                    .record(
+                        Collection::Effect,
+                        approval.effect.as_str(),
+                        &command.workspace,
+                    )?
+                    .decode()?;
+                if approval.scope != scope()?
+                    || approval.scope != effect.scope
+                    || approval.revision != Revision::ZERO
+                    || approval.state != ApprovalState::Pending
+                    || approval.actor != access.actor
+                    || approval.effect_revision != effect.revision
+                    || approval.operation_digest != effect.operation_digest
+                    || approval.steering != task.steering
+                    || command.steering != task.steering
+                    || command.expected != effect.revision
+                    || approval.policy != host.policy
+                    || approval.expires_at <= host.now
+                {
+                    return Err(Error::Target);
+                }
+                put(
+                    Collection::Approval,
+                    approval.id.to_string(),
+                    approval.revision,
+                    serde_json::to_value(approval)?,
+                    None,
+                )?;
+                EventKind::ApprovalRequested
+            }
+            Command::Decide {
+                id,
+                operation_digest,
+                effect_revision,
+                allow,
+            } => {
+                let task = task()?;
+                let current: Approval = state
+                    .record(Collection::Approval, id.as_str(), &command.workspace)?
+                    .decode()?;
+                let effect: Effect = state
+                    .record(
+                        Collection::Effect,
+                        current.effect.as_str(),
+                        &command.workspace,
+                    )?
+                    .decode()?;
+                if current.scope != scope()?
+                    || current.state != ApprovalState::Pending
+                    || current.actor != access.actor
+                    || current.revision != command.expected
+                    || current.expires_at <= host.now
+                    || current.policy != host.policy
+                    || current.steering != task.steering
+                    || command.steering != task.steering
+                    || current.operation_digest != *operation_digest
+                    || effect.operation_digest != *operation_digest
+                    || current.effect_revision != *effect_revision
+                    || effect.revision != *effect_revision
+                {
+                    return Err(Error::Target);
+                }
+                let mut next = current.clone();
+                next.revision = next.revision.next()?;
+                next.state = if *allow {
+                    ApprovalState::Allowed
+                } else {
+                    ApprovalState::Denied
+                };
+                put(
+                    Collection::Approval,
+                    id.to_string(),
+                    next.revision,
+                    serde_json::to_value(next)?,
+                    Some(current.revision),
+                )?;
+                EventKind::ApprovalResolved
+            }
+            Command::Inspect => {
+                result = Some(CommandResult::Inspection {
+                    task: command.task.as_ref().map(|_| task()).transpose()?,
+                });
+                EventKind::CommandInspected
+            }
+        };
+        let result = result.unwrap_or(CommandResult::Accepted { revision: accepted });
+        let facts=mutations.iter().filter_map(|m|match m{Mutation::Put{record,..}=>Some(serde_json::json!({"collection":record.collection,"id":record.id,"revision":record.revision,"value":record.value})),_=>None}).collect::<Vec<_>>();
+        let event = EventInput {
+            id: event_id,
+            workspace: command.workspace.clone(),
+            session: command.session.clone(),
+            task: command.task.clone(),
+            actor: command.caller.clone(),
+            correlation: command.id.clone(),
+            causation: None,
+            timestamp: host.now,
+            kind,
+            artifacts,
+            data: serde_json::json!({"schema_version":1,"facts":facts}),
+        };
+        let transaction = Transaction {
+            id: TransactionId::new(),
+            expected_watermark: state.watermark,
+            mutations,
+            events: vec![event],
+            command: Some(ReceiptInput {
+                command: command.id,
+                workspace: command.workspace,
+                session: command.session,
+                digest,
+                result,
+            }),
+        };
+        self.store
+            .transact(transaction)
+            .await?
+            .command
+            .ok_or(Error::Target)
+    }
+}
+fn hash(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+}
+pub fn dispatchable(state: &State, task: &Task) -> Result<bool> {
+    if !task.can_dispatch(&task.scope, task.steering, true) {
+        return Ok(false);
+    }
+    let mut parent = task.parent.clone();
+    while let Some(id) = parent {
+        let ancestor: Task = state
+            .record(Collection::Task, id.as_str(), &task.scope.workspace)?
+            .decode()?;
+        if ancestor.state != TaskState::Running {
+            return Ok(false);
+        }
+        parent = ancestor.parent;
+    }
+    Ok(true)
+}
