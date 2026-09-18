@@ -15,6 +15,7 @@ async function main() {
   const file = path.join(directory, 'manifest.json');
   const manifest = { schema_version: 1, task_ids: ['P0-07'], status: 'running', started_at: new Date().toISOString(),
     node: process.version, platform: process.platform, binary, provider: 'synthetic-loopback', paid_requests: 0,
+    usage_semantics: 'Scripted provider usage is recorded separately from parent CLI usage. The pinned review path reports zero parent usage; this baseline records that discrepancy, not working VCP accounting.',
     limitations: ['Upstream native CLI trace only, not VCP runtime qualification.', 'Loopback observer does not prove absence of other network traffic.', 'Caller supplies the built executable; its hash is recorded, not an attestation of its compiler inputs.'], attempts: [] };
   writeManifest(file, manifest);
   const controller = new AbortController();
@@ -52,7 +53,8 @@ async function main() {
     manifest.ended_at = new Date().toISOString(); writeManifest(file, manifest);
     process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel);
     console.log(JSON.stringify({ status: manifest.status,
-      attempts: manifest.attempts.map(({ kind, status, requests, tool_effects, exit_code, reason }) => ({ kind, status, requests, tool_effects, exit_code, reason })), manifest: file }));
+      attempts: manifest.attempts.map(({ kind, status, requests, tool_effects, exit_code, reason, provider_usage, cli_usage, usage_matches_provider }) =>
+        ({ kind, status, requests, tool_effects, exit_code, reason, provider_usage, cli_usage, usage_matches_provider })), manifest: file }));
   }
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

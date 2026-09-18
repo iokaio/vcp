@@ -5,6 +5,19 @@ three library regressions, dependency validation and four real model checks.
 P0-07 remains `in_progress`. This result does not complete P0-02, VCP memory/index
 integration, OS network enforcement, pause/resume or release packaging.
 
+## Hosted qualification
+
+The final PR head `f106ffd2e972fe96fbb0023d9120fe2264638a56` passed
+[CI run 35300240974](https://github.com/iokaio/vcp/actions/runs/35300240974)
+on `ubuntu-8core-1000002541` and `win8core-1000002542` (group `wingroup`).
+Windows embedding qualification passed at 02:47:38 UTC on 2026-09-18; native
+CLI build, 102 patch/policy tests, 200 memory-library tests, five CLI traces and
+independent source reconstruction also passed. [PR #15](https://github.com/iokaio/vcp/pull/15)
+merged as `ebbc991b57cca51680c68df00bdb8226ec4838b8` after both jobs were green.
+Downloaded evidence remains under ignored
+`artifacts/ci/windows-35300240974-1/`; the embedding manifest is
+`embeddings/46f99168-1c75-490e-845b-d815962a90af/manifest.json` within that root.
+
 ## Source, assets and independent reference
 
 The [implementation guide](../development/local-embeddings.md) records the

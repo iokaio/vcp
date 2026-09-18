@@ -4,7 +4,7 @@ The shared workspace contains 158 Cargo packages: 154 from Codex, three
 [selected Munarium libraries](munarium-source.md), and the original
 [VCP CPU embedding helper](local-embeddings.md). Its
 [boundary inventory](../../src/third_party/components/codex-boundaries.json)
-assigns each package to exactly one of 23 review groups and anchors 32 concrete
+assigns each package to exactly one of 23 review groups and anchors 36 concrete
 source seams. It is a **static ownership and navigation record**. It does not
 prove absence of hidden effects, enable a VCP runtime or claim that an adapter
 already exists. Read it alongside [the source selection](codex-source.md),
@@ -67,8 +67,9 @@ uses the same pause boundary; reopening never blindly replays non-idempotent wor
 
 Use the P0 fixture's independent request/effect observer to pause during streaming,
 between preparation and dispatch, and while child input is queued. Assert zero
-new admissions after acknowledgement, reject stale completions, and preserve
-partial/unknown effects. Then repeat owner loss in a fresh Windows process. A
+new admissions after acknowledgement, prevent stale completions from authorizing
+further work, and retain late observations and partial/unknown effects for
+reconciliation. Then repeat owner loss in a fresh Windows process. A
 separate mock loop that does not traverse the retained session is insufficient
 evidence for this seam. [Engine execution design](../architecture/engine-execution-design.md)
 owns exact ordering and acceptance.
@@ -89,6 +90,12 @@ are expected. Retry admission must retain attempt identity and reconcile uncerta
 usage; background memory/review/children cannot use their own ungoverned client.
 Replace upstream memory ownership with VCP's local governed memory contract.
 Retained non-VCP service/provider APIs remain disabled in VCP entry points.
+
+The [helper effect map](helper-effect-traces.md) classifies the exercised review,
+compaction and shutdown entries and gives the adapter sequence. Nine native
+traces now include successful and rejected review/compaction requests. The
+observer records scripted provider usage separately from parent CLI usage;
+review's zero parent usage is an observed upstream limitation, not VCP accounting.
 
 Use scripted responses and an independent observer before live evaluations.
 Record the complete expected request sequence for main coding, compaction,
