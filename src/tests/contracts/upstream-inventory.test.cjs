@@ -8,6 +8,13 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { ownedRoot } = require('../support/experiments.cjs');
 const { validatePath, parseTree, attachContent, inventory } = require('../support/upstream-inventory.cjs');
+// These test argument/path rejection, not PowerShell startup performance. A
+// hosted Windows preflight exceeded 20 seconds; keep a bounded native deadline.
+const preflightTimeout = 60000;
+function completedPreflight(result) {
+  assert.equal(result.error, undefined,
+    `PowerShell preflight failed: ${result.error?.code || 'unknown'}\n${result.stdout || ''}\n${result.stderr || ''}`);
+}
 // Git's well-known blob identity for the exact bytes "hello\n".
 const object = 'ce013625030ba8dba906f756967f9e9ca394464a';
 test('rejects traversal, metadata, device paths and Windows case collisions', () => {
@@ -25,8 +32,8 @@ test('baseline command refuses build output inside the unmodified source root', 
   try {
     const result = spawnSync('pwsh', ['-NoProfile', '-File', path.resolve(__dirname, '../../../scripts/upstream/build-baseline.ps1'),
       '-SourceRoot', fixture.root, '-Commit', '0'.repeat(40), '-OutputRoot', path.join(fixture.root, 'output')],
-    { encoding: 'utf8', timeout: 20000, windowsHide: true });
-    assert.equal(result.error, undefined);
+    { encoding: 'utf8', timeout: preflightTimeout, windowsHide: true });
+    completedPreflight(result);
     assert.equal(result.status, 2, result.stdout + result.stderr);
     assert.match(result.stderr, /\[BASELINE_OUTPUT_IN_SOURCE\]/);
     assert.equal(fs.existsSync(path.join(fixture.root, 'output')), false);
@@ -59,8 +66,8 @@ test('either shared component protects both selected source trees before output 
       const inside = path.join(fixture.root, 'src/third_party', component, 'forbidden-output');
       for (const args of [['-OutputRoot', inside], ['-OutputRoot', outside, '-TargetRoot', inside]]) {
         const result = spawnSync('pwsh', ['-NoProfile', '-File', script, selection, ...args],
-          { encoding: 'utf8', timeout: 20000, windowsHide: true });
-        assert.equal(result.error, undefined);
+          { encoding: 'utf8', timeout: preflightTimeout, windowsHide: true });
+        completedPreflight(result);
         assert.equal(result.status, 2, result.stdout + result.stderr);
         assert.match(result.stderr, /\[BASELINE_OUTPUT_IN_SOURCE\]/);
         assert.equal(fs.existsSync(inside), false);
@@ -74,8 +81,8 @@ test('Windows short source aliases cannot bypass evidence or target containment'
   try {
     const alias = spawnSync('pwsh', ['-NoProfile', '-Command',
       '(New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:VCP_PATH_FIXTURE).ShortPath'],
-    { env: { ...process.env, VCP_PATH_FIXTURE: fixture.root }, encoding: 'utf8', timeout: 20000, windowsHide: true });
-    assert.equal(alias.error, undefined);
+    { env: { ...process.env, VCP_PATH_FIXTURE: fixture.root }, encoding: 'utf8', timeout: preflightTimeout, windowsHide: true });
+    completedPreflight(alias);
     assert.equal(alias.status, 0, alias.stderr);
     const shortRoot = alias.stdout.trim();
     if (shortRoot.toLowerCase() === fixture.root.toLowerCase()) { t.skip('Fixture volume has no Windows short alias'); return; }
@@ -84,8 +91,8 @@ test('Windows short source aliases cannot bypass evidence or target containment'
     for (const args of [['-OutputRoot', inside], ['-OutputRoot', outside, '-TargetRoot', inside]]) {
       const result = spawnSync('pwsh', ['-NoProfile', '-File', path.resolve(__dirname, '../../../scripts/upstream/build-baseline.ps1'),
         '-SourceRoot', shortRoot, '-Commit', '0'.repeat(40), ...args],
-      { encoding: 'utf8', timeout: 20000, windowsHide: true });
-      assert.equal(result.error, undefined);
+      { encoding: 'utf8', timeout: preflightTimeout, windowsHide: true });
+      completedPreflight(result);
       assert.equal(result.status, 2, result.stdout + result.stderr);
       assert.match(result.stderr, /\[BASELINE_OUTPUT_IN_SOURCE\]/);
       assert.equal(fs.existsSync(inside), false);
@@ -99,8 +106,8 @@ test('compiler experiments reject mutable aliases before allocating output', () 
     const output = path.join(fixture.container, 'experiment-output');
     const result = spawnSync('pwsh', ['-NoProfile', '-File', path.resolve(__dirname, '../../../scripts/upstream/build-baseline.ps1'),
       '-SourceRoot', fixture.root, '-Commit', '0'.repeat(40), '-OutputRoot', output, '-ExperimentToolchain', 'stable'],
-    { encoding: 'utf8', timeout: 20000, windowsHide: true });
-    assert.equal(result.error, undefined);
+    { encoding: 'utf8', timeout: preflightTimeout, windowsHide: true });
+    completedPreflight(result);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /ExperimentToolchain/);
     assert.equal(fs.existsSync(output), false);

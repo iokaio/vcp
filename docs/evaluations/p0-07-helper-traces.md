@@ -73,6 +73,23 @@ can display an interrupted-review explanation, which is not a success result.
 
 ## Scope and remaining work
 
+The first hosted follow-up, [run 35302378321](https://github.com/iokaio/vcp/actions/runs/35302378321),
+passed Linux but failed the Windows `upstream-inventory` suite: the existing
+mutable compiler-alias rejection subprocess hit its 20-second PowerShell
+deadline (`ETIMEDOUT`). The six helper-trace regressions passed. No altered
+policy outcome was observed; the retained failure did not include enough
+subprocess output to identify where the delay occurred. Evidence remains under
+`artifacts/ci/windows-35302378321-1/`.
+
+The follow-up gives these native preflight subprocesses a bounded 60-second
+deadline and the enclosing upstream-inventory case 90 seconds. The rejection,
+containment and no-output-allocation assertions remain intact. Timeout errors
+now include captured stdout/stderr for diagnosis. This is execution headroom
+for native tests, not a relaxed product policy or a passing result for the
+failed run. The replacement head still requires all hosted checks to pass.
+The follow-up `fast` run passed locally with the same 56 regressions, exit 0;
+its manifest is `artifacts/tests/5437d848-5a5f-4af6-8067-445bba4466f3/manifest.json`.
+
 The [source/effect map](../development/helper-effect-traces.md) classifies eight
 entries and describes the required gateway, history and pause adapters. Four
 new checked anchors bring the catalog to 36 anchors across the unchanged 158
