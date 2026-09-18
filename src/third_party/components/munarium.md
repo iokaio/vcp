@@ -6,6 +6,8 @@ Owner: P0-07 selection, P0-02 local-memory experiment, P5 production integration
 Root and selected original source declare Apache-2.0; upstream NOTICE identifies
 Copyright (c) 2026 Ioka LLC. Keep original LICENSE, NOTICE and source headers with
 this import; this record does not license transitive dependencies by inference.
+The embedded PostgreSQL/Snowball English stopword data has additional retained
+notices and byte provenance in [third-party attribution](../../../THIRD_PARTY_NOTICES.md#munarium-local-library-source).
 
 [Native qualification](../../../docs/development/munarium-baseline.md) identifies
 three libraries and their required contract inputs. [Executed evidence](../../../docs/evaluations/p0-07-munarium-datastore.md)

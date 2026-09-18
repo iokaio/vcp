@@ -41,6 +41,11 @@ The [dependency record](../../src/third_party/components/munarium-dependencies.j
 binds versions, registry checksums and declared licenses to the shared lockfile;
 it is not a release notice bundle.
 
+Embedded-data review also matched the 127-line English stopword fixture exactly
+to PostgreSQL 16.15 commit `7d3e000c5961a544302072058a1184e9a588837b`.
+The inherited Rust array remains unchanged. PostgreSQL/Snowball notices and the
+fixture's byte digest are retained in [third-party attribution](../../THIRD_PARTY_NOTICES.md#munarium-local-library-source).
+
 ## Executed native checks
 
 ```powershell

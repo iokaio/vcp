@@ -31,6 +31,18 @@ and membership in the shared Codex workspace. Modification comments identify
 these changes; Rust implementation and test bodies retain their original bytes.
 Server, provider and PostgreSQL packages are excluded.
 
+The embedded `PG_ENGLISH_STOP_WORDS` array and `pg16-english.stop` fixture derive
+from PostgreSQL's Snowball English stopword list. The 127-line fixture matches
+`src/backend/snowball/stopwords/english.stop` byte for byte at PostgreSQL 16.15
+commit `7d3e000c5961a544302072058a1184e9a588837b`, SHA-256
+`b3f772a000465cb76e23adb03b47073c591c156fad8f7af09c8b8e80d6bd8eac`.
+PostgreSQL's [Snowball provenance](https://github.com/postgres/postgres/blob/7d3e000c5961a544302072058a1184e9a588837b/src/backend/snowball/README)
+identifies Snowball and the stopword source. Retain the original
+[PostgreSQL notice](src/third_party/licenses/postgresql-16.15-COPYRIGHT) and
+[Snowball BSD notice](src/third_party/licenses/snowball-2.2.0-COPYING), the latter
+from Snowball `48a67a2831005f49c48ec29a5837640e23e54e6b` (2.2.0).
+Munarium's Apache source header does not replace these embedded-data terms.
+
 The [147-package dependency record](src/third_party/components/munarium-dependencies.json)
 records selected normal/build package identities, registry checksums and upstream
 license declarations for the native Windows feature set, bound to the shared

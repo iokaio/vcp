@@ -38,3 +38,7 @@ Selected source under src/third_party/munarium/ is derived from Munarium at
 Apache-2.0. Original LICENSE, NOTICE and source headers are retained. Three Cargo
 manifests are adapted for the shared workspace; Rust source and test bodies are
 unchanged. See src/third_party/patches/munarium/ and THIRD_PARTY_NOTICES.md.
+
+The selected Munarium source embeds PostgreSQL/Snowball English stopword data.
+Original PostgreSQL and Snowball copyright, conditions and disclaimers are
+retained under src/third_party/licenses/ and identified in THIRD_PARTY_NOTICES.md.
