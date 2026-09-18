@@ -76,3 +76,8 @@ scheduler code for controlled qualification. It is not exposed as a VCP session.
 The [effect inventory](codex-boundaries.json), [source guide](../../../docs/development/codex-boundaries.md) and P0-03/P0-08
 own replacement/injection before product use; no hidden effect is accepted merely
 because this source builds.
+
+Patch 0016 registers the original pure policy package and canonical engine/store
+dependencies. It changes no retained implementation or external dependency pin;
+[the authority guide](../../../docs/development/p2-policy.md) distinguishes this
+core increment from subsequent native broker qualification.

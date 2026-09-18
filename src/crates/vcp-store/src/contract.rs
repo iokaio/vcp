@@ -211,6 +211,37 @@ impl Record {
                 }
                 scope(&value.scope.workspace, value.id.as_str(), self.revision)?;
             }
+            Collection::Access if self.value["document_type"] == "vcp_authority_v1" => {
+                use vcp_domain::policy::*;
+                let value: AuthorityDocument = self.decode()?;
+                if value.schema_version != 1 {
+                    return Err(Error::Incompatible);
+                }
+                scope(&value.workspace, value.id.as_str(), value.revision)?;
+                match &value.data {
+                    AuthorityData::Policy { policy } => {
+                        if policy.workspace != value.workspace
+                            || value.id.as_str() != value.workspace.as_str()
+                            || policy.revision.get() != value.revision.get()
+                        {
+                            return Err(Error::Corruption("policy identity"));
+                        }
+                        vcp_policy::validate_policy(policy)
+                            .map_err(|_| Error::Corruption("policy shape"))?;
+                    }
+                    AuthorityData::Grant { grant } => {
+                        if grant.scope.workspace() != &value.workspace
+                            || value.id.as_str() != grant.id.as_str()
+                            || grant.revision != value.revision
+                            || grant.id.as_str() == value.workspace.as_str()
+                        {
+                            return Err(Error::Corruption("grant identity"));
+                        }
+                        vcp_policy::validate_grant(grant)
+                            .map_err(|_| Error::Corruption("grant shape"))?;
+                    }
+                }
+            }
             _ => {
                 if !self.value.is_object() {
                     return Err(Error::Corruption(
@@ -230,6 +261,24 @@ impl Record {
             refs.insert(key(Collection::Workspace, self.workspace.as_str()));
         }
         match self.collection {
+            Collection::Access if self.value["document_type"] == "vcp_authority_v1" => {
+                use vcp_domain::policy::*;
+                let value: AuthorityDocument = self.decode()?;
+                if let AuthorityData::Grant { grant } = value.data {
+                    if let Some(approval) = &grant.approval {
+                        refs.insert(key(Collection::Approval, approval.as_str()));
+                    }
+                    match grant.scope {
+                        GrantScope::Task { scope } => {
+                            refs.insert(key(Collection::Task, scope.task.as_str()));
+                        }
+                        GrantScope::Session { session, .. } => {
+                            refs.insert(key(Collection::Session, session.as_str()));
+                        }
+                        GrantScope::Workspace { .. } => (),
+                    }
+                }
+            }
             Collection::Session => {
                 let value: Session = self.decode()?;
                 if let Some(origin) = value.fork_origin {
@@ -321,6 +370,19 @@ impl Record {
     }
     fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
         Ok(match self.collection {
+            Collection::Access if self.value["document_type"] == "vcp_authority_v1" => {
+                use vcp_domain::policy::*;
+                match self.decode::<AuthorityDocument>()?.data {
+                    AuthorityData::Grant {
+                        grant:
+                            Grant {
+                                scope: GrantScope::Task { scope },
+                                ..
+                            },
+                    } => Some(scope),
+                    _ => None,
+                }
+            }
             Collection::Task => Some(self.decode::<Task>()?.scope),
             Collection::Turn => Some(self.decode::<Turn>()?.scope),
             Collection::Effect => Some(self.decode::<Effect>()?.scope),
@@ -439,6 +501,36 @@ impl State {
                 return Err(Error::Corruption("canonical key"));
             }
             record.validate_shape()?;
+            if record.collection == Collection::Access
+                && record.value["document_type"] == "vcp_authority_v1"
+            {
+                use vcp_domain::policy::*;
+                let document: AuthorityDocument = record.decode()?;
+                if let AuthorityData::Grant { grant } = document.data {
+                    if let Some(id) = &grant.approval {
+                        let approval: Approval = self
+                            .record(Collection::Approval, id.as_str(), &record.workspace)?
+                            .decode()?;
+                        if approval.state != vcp_protocol::command::ApprovalState::Allowed
+                            || grant.actor != approval.actor
+                            || grant.policy != approval.policy
+                            || grant.scope
+                                != (GrantScope::Task {
+                                    scope: approval.scope.clone(),
+                                })
+                            || grant.target
+                                != (GrantTarget::Exact {
+                                    digest: approval.operation_digest.clone(),
+                                })
+                            || grant.expires_at != approval.expires_at
+                            || Some(grant.authority) != approval.authority
+                            || Some(grant.binding) != approval.binding
+                        {
+                            return Err(Error::Corruption("grant differs from recorded approval"));
+                        }
+                    }
+                }
+            }
             for reference in record.required_references()? {
                 let target = self
                     .records

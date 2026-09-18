@@ -16,6 +16,7 @@ path = "tests/fixtures/store_child.rs"
 required-features = ["qualification"]
 
 [dependencies]
+vcp-policy = { path = "../vcp-policy" }
 vcp-domain = { path = "../vcp-domain" }
 vcp-protocol = { path = "../vcp-protocol" }
 serde = { workspace = true, features = ["derive"] }

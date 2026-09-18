@@ -358,13 +358,31 @@ impl Context {
         };
         let host = HostFacts {
             now: now(),
-            policy: PolicyRevision::ZERO,
+            policy: vcp_engine::policy::optional(
+                self.engine.store().state(),
+                &self.config.workspace,
+            )?
+            .map_or(PolicyRevision::ZERO, |policy| policy.revision),
             resume,
             may_execute: self.owner_alive,
         };
-        Ok(self
+        let receipt = self
             .runtime
-            .block_on(self.engine.handle(envelope, &self.access, &host))?)
+            .block_on(self.engine.handle(envelope, &self.access, &host))?;
+        // This trusted owner follows its own acknowledged authority change.
+        // Old external credentials and prepared operations retain stale epochs.
+        let workspace: Workspace = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Workspace,
+                self.config.workspace.as_str(),
+                &self.config.workspace,
+            )?
+            .decode()?;
+        self.access.authority = workspace.authority;
+        Ok(receipt)
     }
     pub fn can_start(&self, binding: &ThreadBinding) -> Result<()> {
         if !self.owner_alive {

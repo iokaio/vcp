@@ -62,6 +62,10 @@ async fn approval_is_bound_to_actor_operation_revision_expiry_and_current_steeri
         expires_at: Timestamp::new(200),
         state: ApprovalState::Pending,
         revision: Revision::ZERO,
+        controller: Some(engine.controller().clone()),
+        owner_epoch: Some(engine.owner_epoch()),
+        authority: Some(AuthorityRevision::ZERO),
+        binding: Some(Revision::ZERO),
     };
     engine
         .handle(
@@ -123,7 +127,7 @@ async fn approval_is_bound_to_actor_operation_revision_expiry_and_current_steeri
                 &engine,
                 Command::Steer { objective },
                 Some(id.clone()),
-                Revision::ZERO,
+                Revision::new(1),
             ),
             &access(),
             &host,
@@ -149,6 +153,395 @@ async fn approval_is_bound_to_actor_operation_revision_expiry_and_current_steeri
         .unwrap();
     assert_eq!(stored.state, ApprovalState::Pending);
 }
+#[tokio::test]
+async fn policy_questions_commit_waiting_answers_and_grants_once_on_both_backends() {
+    use std::collections::BTreeSet;
+    use vcp_domain::policy::*;
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for allow in [false, true] {
+            let temporary = tempfile::tempdir().unwrap();
+            let mut engine = setup(temporary.path(), backend).await;
+            let mut access = access();
+            let host = HostFacts::inspect(Timestamp::new(100));
+            let trust = command(
+                &engine,
+                Command::SetWorkspaceTrust {
+                    trust: Trust::Trusted,
+                },
+                None,
+                Revision::ZERO,
+            );
+            engine.handle(trust, &access, &host).await.unwrap();
+            access.authority = AuthorityRevision::new(1);
+            let root = RootId::new();
+            let policy = Policy {
+                workspace: access.workspace.clone(),
+                revision: PolicyRevision::ZERO,
+                mode: Autonomy::Ask,
+                denials: vec![],
+                workspace_roots: BTreeSet::from([root]),
+                automatic_effects: BTreeSet::new(),
+                timeout_ceiling_ms: Units::new(1000),
+                output_ceiling_bytes: ByteCount::new(4096),
+            };
+            let set = command(
+                &engine,
+                Command::SetPolicy {
+                    policy: policy.clone(),
+                },
+                None,
+                Revision::ZERO,
+            );
+            engine.handle(set, &access, &host).await.unwrap();
+            access.authority = AuthorityRevision::new(2);
+            let id = TaskId::new();
+            engine
+                .handle(
+                    command(&engine, creation(&id), Some(id.clone()), Revision::ZERO),
+                    &access,
+                    &host,
+                )
+                .await
+                .unwrap();
+            let effect = ToolRunId::new();
+            engine
+                .handle(
+                    command(
+                        &engine,
+                        Command::ProposeEffect {
+                            id: effect.clone(),
+                            operation_digest: "a".repeat(64),
+                        },
+                        Some(id.clone()),
+                        Revision::ZERO,
+                    ),
+                    &access,
+                    &host,
+                )
+                .await
+                .unwrap();
+            let approval = Approval {
+                id: ApprovalId::new(),
+                scope: Scope {
+                    workspace: access.workspace.clone(),
+                    session: access.session.clone(),
+                    task: id.clone(),
+                },
+                effect,
+                effect_revision: Revision::ZERO,
+                steering: SteeringRevision::ZERO,
+                operation_digest: "a".repeat(64),
+                actor: access.actor.clone(),
+                policy: PolicyRevision::ZERO,
+                expires_at: Timestamp::new(200),
+                state: ApprovalState::Pending,
+                revision: Revision::ZERO,
+                controller: Some(engine.controller().clone()),
+                owner_epoch: Some(engine.owner_epoch()),
+                authority: Some(access.authority),
+                binding: Some(Revision::ZERO),
+            };
+            let ask = command(
+                &engine,
+                Command::Ask {
+                    approval: approval.clone(),
+                },
+                Some(id.clone()),
+                Revision::ZERO,
+            );
+            // Headless JSONL returns after the same durable transaction. It does
+            // not wait for terminal input or treat a highlighted answer as consent.
+            let response = engine
+                .jsonl(&serde_json::to_vec(&ask).unwrap(), &access, &host)
+                .await
+                .unwrap();
+            assert_eq!(
+                serde_json::from_slice::<CommandReceipt>(&response)
+                    .unwrap()
+                    .result,
+                CommandResult::Accepted {
+                    revision: Revision::ZERO
+                }
+            );
+            let task: Task = engine
+                .store()
+                .state()
+                .record(Collection::Task, id.as_str(), &access.workspace)
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert_eq!(task.state, TaskState::WaitingForInput);
+            if allow {
+                engine
+                    .handle(
+                        command(
+                            &engine,
+                            Command::Transition {
+                                next: TaskState::Paused,
+                                reason: "owner paused while approval pending".into(),
+                                verification: None,
+                            },
+                            Some(id.clone()),
+                            task.revision,
+                        ),
+                        &access,
+                        &host,
+                    )
+                    .await
+                    .unwrap();
+            }
+            let decide = Command::Decide {
+                id: approval.id.clone(),
+                operation_digest: approval.operation_digest.clone(),
+                effect_revision: Revision::ZERO,
+                allow,
+            };
+            engine
+                .handle(
+                    command(&engine, decide.clone(), Some(id.clone()), Revision::ZERO),
+                    &access,
+                    &host,
+                )
+                .await
+                .unwrap();
+            let count = engine
+                .store()
+                .state()
+                .events
+                .iter()
+                .filter(|e| e.event.kind == vcp_protocol::event::EventKind::ApprovalResolved)
+                .count();
+            // A different command ID carrying the same answer returns the saved
+            // result without a second decision or grant. Opposite answers reject.
+            engine
+                .handle(
+                    command(&engine, decide, Some(id.clone()), Revision::ZERO),
+                    &access,
+                    &host,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                engine
+                    .store()
+                    .state()
+                    .events
+                    .iter()
+                    .filter(|e| e.event.kind == vcp_protocol::event::EventKind::ApprovalResolved)
+                    .count(),
+                count
+            );
+            let opposite = Command::Decide {
+                id: approval.id.clone(),
+                operation_digest: approval.operation_digest.clone(),
+                effect_revision: Revision::ZERO,
+                allow: !allow,
+            };
+            assert!(engine
+                .handle(
+                    command(&engine, opposite, Some(id.clone()), Revision::ZERO),
+                    &access,
+                    &host
+                )
+                .await
+                .is_err());
+            let grants =
+                vcp_engine::policy::grants(engine.store().state(), &access.workspace).unwrap();
+            assert_eq!(grants.len(), usize::from(allow));
+            if allow {
+                assert_eq!(grants[0].approval.as_ref(), Some(&approval.id));
+            }
+            // Accepting an answer never resumes a waiting/paused task itself.
+            let task: Task = engine
+                .store()
+                .state()
+                .record(Collection::Task, id.as_str(), &access.workspace)
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert_eq!(
+                task.state,
+                if allow {
+                    TaskState::Paused
+                } else {
+                    TaskState::WaitingForInput
+                }
+            );
+            drop(engine);
+            let reopened =
+                Engine::new(Store::open(temporary.path(), backend, &[]).await.unwrap()).unwrap();
+            assert_eq!(
+                vcp_engine::policy::current(reopened.store().state(), &access.workspace).unwrap(),
+                policy
+            );
+            assert_eq!(
+                vcp_engine::policy::grants(reopened.store().state(), &access.workspace).unwrap(),
+                grants
+            );
+            let saved: Approval = reopened
+                .store()
+                .state()
+                .record(
+                    Collection::Approval,
+                    approval.id.as_str(),
+                    &access.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert_eq!(
+                saved.state,
+                if allow {
+                    ApprovalState::Allowed
+                } else {
+                    ApprovalState::Denied
+                }
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn pending_question_survives_reopen_but_old_owner_cannot_supply_new_authority() {
+    use std::collections::BTreeSet;
+    use vcp_domain::policy::*;
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut engine = setup(temporary.path(), backend).await;
+        let mut access = access();
+        let host = HostFacts::inspect(Timestamp::new(100));
+        engine
+            .handle(
+                command(
+                    &engine,
+                    Command::SetWorkspaceTrust {
+                        trust: Trust::Trusted,
+                    },
+                    None,
+                    Revision::ZERO,
+                ),
+                &access,
+                &host,
+            )
+            .await
+            .unwrap();
+        access.authority = AuthorityRevision::new(1);
+        let policy = Policy {
+            workspace: access.workspace.clone(),
+            revision: PolicyRevision::ZERO,
+            mode: Autonomy::Ask,
+            denials: vec![],
+            workspace_roots: BTreeSet::new(),
+            automatic_effects: BTreeSet::new(),
+            timeout_ceiling_ms: Units::new(1000),
+            output_ceiling_bytes: ByteCount::new(4096),
+        };
+        engine
+            .handle(
+                command(&engine, Command::SetPolicy { policy }, None, Revision::ZERO),
+                &access,
+                &host,
+            )
+            .await
+            .unwrap();
+        access.authority = AuthorityRevision::new(2);
+        let id = TaskId::new();
+        engine
+            .handle(
+                command(&engine, creation(&id), Some(id.clone()), Revision::ZERO),
+                &access,
+                &host,
+            )
+            .await
+            .unwrap();
+        let effect = ToolRunId::new();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    Command::ProposeEffect {
+                        id: effect.clone(),
+                        operation_digest: "a".repeat(64),
+                    },
+                    Some(id.clone()),
+                    Revision::ZERO,
+                ),
+                &access,
+                &host,
+            )
+            .await
+            .unwrap();
+        let approval = Approval {
+            id: ApprovalId::new(),
+            scope: Scope {
+                workspace: access.workspace.clone(),
+                session: access.session.clone(),
+                task: id.clone(),
+            },
+            effect,
+            effect_revision: Revision::ZERO,
+            steering: SteeringRevision::ZERO,
+            operation_digest: "a".repeat(64),
+            actor: access.actor.clone(),
+            policy: PolicyRevision::ZERO,
+            expires_at: Timestamp::new(200),
+            state: ApprovalState::Pending,
+            revision: Revision::ZERO,
+            controller: Some(engine.controller().clone()),
+            owner_epoch: Some(engine.owner_epoch()),
+            authority: Some(access.authority),
+            binding: Some(Revision::ZERO),
+        };
+        engine
+            .handle(
+                command(
+                    &engine,
+                    Command::Ask {
+                        approval: approval.clone(),
+                    },
+                    Some(id.clone()),
+                    Revision::ZERO,
+                ),
+                &access,
+                &host,
+            )
+            .await
+            .unwrap();
+        drop(engine);
+        let mut reopened =
+            Engine::new(Store::open(temporary.path(), backend, &[]).await.unwrap()).unwrap();
+        let decide = command(
+            &reopened,
+            Command::Decide {
+                id: approval.id.clone(),
+                operation_digest: approval.operation_digest.clone(),
+                effect_revision: Revision::ZERO,
+                allow: true,
+            },
+            Some(id),
+            Revision::ZERO,
+        );
+        assert!(reopened.handle(decide, &access, &host).await.is_err());
+        let saved: Approval = reopened
+            .store()
+            .state()
+            .record(
+                Collection::Approval,
+                approval.id.as_str(),
+                &access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(saved.state, ApprovalState::Pending);
+        assert!(
+            vcp_engine::policy::grants(reopened.store().state(), &access.workspace)
+                .unwrap()
+                .is_empty()
+        );
+    }
+}
+
 fn command(
     engine: &Engine<Store>,
     payload: Command,

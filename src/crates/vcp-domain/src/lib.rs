@@ -4,6 +4,7 @@ pub mod accounting;
 pub mod artifact;
 pub mod effect;
 pub mod ids;
+pub mod policy;
 pub mod revision;
 pub mod task;
 pub mod verification;

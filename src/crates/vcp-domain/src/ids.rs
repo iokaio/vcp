@@ -43,6 +43,8 @@ ids!(
     ExecutionId,
     ArtifactId,
     ApprovalId,
+    GrantId,
+    AuthorityId,
     VerificationId,
     EventId,
     CommandId,

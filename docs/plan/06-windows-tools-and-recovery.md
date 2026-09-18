@@ -1,6 +1,6 @@
 # 06 — Windows execution, policy, prepared edits and recovery
 
-Status: planned. Owns P2-03, P2-04 and P2-07. P2-03 depends on domain/store and the P0 Windows/reuse decisions; P2-07 also requires the session loop and projections. Architecture sections 9, 10 and 14 govern effects.
+Status: P2-03 in progress with [authority and durable approvals](../development/p2-policy.md); P2-04 and P2-07 remain planned. P2-03 depends on domain/store and the P0 Windows/reuse decisions; P2-07 also requires the session loop and projections. Architecture sections 9, 10 and 14 govern effects.
 
 ## Implementation references
 

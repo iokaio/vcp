@@ -10,6 +10,7 @@ These guides describe how to implement and qualify the planned system. The [deli
 - [Implementation workflow](implementation-workflow.md): turn a ledger task into a concrete source change, contract checks and reviewable evidence.
 - [P2 repository/context foundation](p2-context.md): native scoped observations, instruction applicability and captured context seals consumed by the retained gateway.
 - [P2 OpenRouter gateway](p2-provider.md): retained sealed requests, bounded streaming, explicit provider constraints, observed costs and qualification limits.
+- [P2 authority and approvals](p2-policy.md): immutable operation decisions, scoped grants and durable waiting/answer records; native broker qualification remains.
 - [P1 retained canonical host](p1-retained-host.md): actual retained request admission, full native output capture, close/reopen reconciliation and complete phase qualification.
 - [P1 accounting and history](p1-accounting-history.md): shared root ledger, immutable adjustments, deterministic projections and current-authority history reads.
 - [P1 durable foundation](p1-foundation.md): typed commands, complete capture, canonical backends and native crash/activation tests; remaining P1 integration is explicit.

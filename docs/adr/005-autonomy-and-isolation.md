@@ -19,9 +19,20 @@ Detailed contracts and failure ordering are in the [supporting design](../archit
 
 ## Alternatives and unresolved choices
 
-Plan/ask/workspace/autonomous are candidate preset names, not accepted defaults. P2-03 must specify each effect class, default and escalation behavior; P8-01 qualifies which filesystem/network restrictions the chosen Windows mechanism enforces.
+The P2 authority increment implements plan/ask/workspace/autonomous, with workspace
+as the initial library default proposed by the architecture. The [source guide](../development/p2-policy.md)
+specifies effect classes, denial precedence and grant matching. Final usability
+and native broker acceptance remain pending; P8-01 qualifies which filesystem/
+network restrictions the chosen Windows mechanism enforces.
 
 ## Qualification evidence
+
+The [authority core increment](../evaluations/p2-policy-increment.md) records pure
+operation/preset/grant decisions and canonical question/answer persistence on
+both stores. Pending questions bind the owner and authority epochs; answering
+does not resume a waiting/paused task. Native dispatch and actual isolation remain
+separate required gates. No model risk classifier is used. Configured commands
+match exact invocation identity rather than interpreting shell prefixes as grants.
 
 P0-05 [native evidence](../evaluations/p0-03-recovery-execution.md) selects Job Objects for process ownership and a zero-capability AppContainer as a single-process isolation candidate. Live unrestricted controls and independent file/network observers pass. General toolchains, authority presets and composed containment remain P2/P8.
 
