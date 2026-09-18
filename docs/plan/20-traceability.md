@@ -55,10 +55,10 @@ Each linked task supplies code organization, implementation increments and testi
 | P5-10 Restore and handoff | P5-09, P3-04 | [Implementation and tests](11-encrypted-portability.md#p5-10--restore-and-sequential-handoff) | U04 on two Windows environments; wrong/missing key and tampering rejected, recovery/rotation verified, no lost records or overwritten divergent work | Planned |
 | P5-08 Integrated memory acceptance | P5-01…07, P5-09/10 | [Implementation and tests](15-integration-and-release.md#p5-08--integrated-memory-acceptance) | E13/E14/E20/M01–M08/U04/U05/U09; useful local recall and transparent limits | Planned |
 | P6-01 Group registry | P2-02, P5-06 | [Implementation and tests](12-routing-and-optimization.md#p6-01--versioned-registry) | Group/profile distinction, unknown capability/price and stale research handled explicitly | Planned |
-| P6-02 Routing/profiles | P6-01, P1-05 | [Implementation and tests](12-routing-and-optimization.md#p6-02--deterministic-profile-policy) | Deterministic baseline plus bounded decision contract/optional OpenRouter shadow adapter; schema, abstention, scope, pause and root cost enforced; quality floor intact | Planned |
+| P6-02 Routing/profiles | P6-01, P1-05 | [Implementation and tests](12-routing-and-optimization.md#p6-02--deterministic-profile-policy) | Deterministic baseline plus bounded contract/thin Rust adapter for actual Jev through OpenRouter and qualified permitted conventional-LLM fallback; schema/probability semantics, scope, pause, root cost and quality floor enforced | Planned |
 | P6-03 Escalation/handoff | P6-02, P2-05/08 | [Implementation and tests](12-routing-and-optimization.md#p6-03--escalation-and-model-handoff) | E04/E11/E12/U07; bounded escalation/review advice cannot suppress required checks, lose constraints or orphan tool results | Planned |
 | P6-05 Project optimizer | P6-03, P5-06, P3-02/03 | [Implementation and tests](12-routing-and-optimization.md#p6-05--optimize-workflow) | U07; local workflow survives disabled advice; all evaluator overhead and sparse/biased/pruned history labelled; no silent spend, authority or deletion changes | Planned |
-| P6-04 Profile qualification | P6-03/05, P5-08 | [Implementation and tests](12-routing-and-optimization.md#p6-04--profile-qualification) | E19/U07 with held-out baseline/advisory comparisons, false negatives, calibration limits and all failed-attempt/child/evaluator costs; unqualified purposes stay disabled | Planned |
+| P6-04 Profile qualification | P6-03/05, P5-08 | [Implementation and tests](12-routing-and-optimization.md#p6-04--profile-qualification) | E19/U07 with held-out deterministic/actual-Jev/conventional-LLM comparisons, false negatives, calibration limits and all failed-attempt/child/evaluator costs; unqualified purposes stay disabled | Planned |
 | P7-01 Skill discovery | P2-01/03 | [Implementation and tests](13-skills-and-mcp.md#p7-01--discovery-and-activation) | E02/E03/U08; no executable config-import dependency | Planned |
 | P7-02 Bundled development skills | P7-01, P2-06 | [Implementation and tests](13-skills-and-mcp.md#p7-02--built-in-skill-catalog) | U01–U03/U08 across representative language families; unavailable Windows toolchains reported | Planned |
 | P7-03 MCP | P7-01, P2-03/04 | [Implementation and tests](13-skills-and-mcp.md#p7-03--mcp-lifecycle-and-tool-calls) | E16/R06/U08; schema drift and uncertain remote effects preserve policy | Planned |
@@ -256,9 +256,15 @@ bounded-advice pattern within existing P6-02/03/05 and P6-04 qualification. It a
 no task IDs or prerequisite edges: the ledger remains 68 tasks, with 56 in the
 first-release closure. Earlier P2/P5 consumers retain their deterministic paths;
 memory governance, local retrieval, authority and completion remain independent
-of optional remote advice. P8 rechecks enabled purposes with actual delegation
-and packaged behavior. Direct Jev integration, new local inference dependencies
-and P10-03 observer agents are not introduced by this plan change.
+of optional remote advice. P6-02 qualifies actual Jev through OpenRouter as the
+preferred specialized candidate and a conventional OpenRouter LLM as a comparator
+and explicitly permitted fallback; P6-04 compares both against deterministic rules.
+The [Jev gateway contract](../architecture/decision-evaluation-design.md#jev-through-openrouter-qualification)
+requires endpoint, schema, native probability and usage qualification, including
+outage/model-drift behavior. P8 rechecks enabled purposes with actual delegation
+and packaged behavior. Direct TypeSafe access/credentials, LangChain or a
+Python/JavaScript decision runtime, new local inference dependencies and P10-03
+observer agents are not introduced by this plan change.
 
 ## Mechanical graph validation procedure
 

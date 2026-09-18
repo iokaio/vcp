@@ -12,6 +12,12 @@ and [P6 implementation work](../plan/12-routing-and-optimization.md).
 Those documents distinguish selected engineering proposals from deferred ideas
 while preserving OpenRouter, local retrieval, budgets and Rust authority.
 
+Plan revision 7 explicitly prioritizes actual Jev through OpenRouter qualification
+with a thin Rust adapter, compared with rules and a conventional OpenRouter LLM.
+See the [gateway qualification contract](decision-evaluation-design.md#jev-through-openrouter-qualification).
+LangChain's connector is a research reference, not a required VCP runtime. The
+discussion below remains the original exploration rather than current policy.
+
 ---
 
 Yes. In fact, after reading the current VCP architecture, I think **VCP is unusually well suited to a Codex + System-One hybrid**.

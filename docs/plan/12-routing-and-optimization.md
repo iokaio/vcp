@@ -7,14 +7,19 @@ Status: planned. Owns P6-01 through P6-05. Registry work follows P2-02 and P5-06
 Use `vcp-models/catalog` for gateway metadata and `vcp-routing/group_registry`, `eligibility`, `policy`, `selector`, `explanation`, `escalation`, `handoff`, `optimizer` and `evaluation` for VCP decisions. CLI interview/policy-diff presentation belongs in `vcp-cli/optimize`; policy revisions and outcome observations use the canonical store.
 
 P6-02 also owns the logical `vcp-decision` contract, deterministic evaluator and
-optional OpenRouter adapter; P6-03/P6-05 consume its bounded advice. Map proposed
+optional thin Rust OpenRouter adapter; P6-03/P6-05 consume its bounded advice.
+Qualify three implementations: deterministic rules as the baseline, actual Jev
+through OpenRouter as the preferred specialized candidate, and a conventional
+OpenRouter LLM as a comparator and explicitly permitted fallback. Map proposed
 `question`, `answer`, `validation`, `evaluation` and adapter modules into the
 existing workspace only when implementing useful behavior. This is not a second
 gateway, policy authority, scheduler or store. Follow
 [ADR-020](../adr/020-bounded-semantic-decisions.md) and the
 [decision design](../architecture/decision-evaluation-design.md#decision-contract).
-The [Jev exploration](../architecture/exploring-jev.md) motivates the abstraction;
-it does not select a Jev integration, licensed source import or measured default.
+The [Jev exploration](../architecture/exploring-jev.md) motivates the abstraction.
+[Jev-through-OpenRouter qualification](../architecture/decision-evaluation-design.md#jev-through-openrouter-qualification)
+defines the proposed actual-model integration; no measured default, source import
+or direct TypeSafe service integration is implied.
 
 `RoutingInput` binds task/role, capability/context needs, project policy, model pin/fallback permission, catalog/evaluation versions and remaining budget. `RoutingDecision` records all candidates, exclusions, selected group/model/provider, estimated cost, evidence and escalation reason. Final reservation uses the actual assembled request size.
 
@@ -59,6 +64,13 @@ Recheck [architecture section 7.2](../architecture/vcp-what.md#72-catalog-and-co
 when choosing what the gateway can actually report; unexposed provider identity or
 model version remains an explicit limitation.
 
+Record Jev as a distinct evaluator candidate, using `typesafe/jev-1.13` only as the
+current planning example. Refresh its exact OpenRouter model/endpoint identity,
+availability, constraints and prices during implementation; record observation
+dates and immutable model revisions where exposed. A renamed alias or successor
+does not inherit prior qualification. Do not freeze today's price or treat an
+OpenRouter catalog entry as proof that VCP's request/response contract works.
+
 ## P6-02 — Deterministic profile policy
 
 Implement an explainable selection pipeline: required capability/scope/provider filtering, measured quality floor, total estimated task cost and profile-dependent latency/capability preference. Low emphasizes fast inexpensive work with bounded escalation; high prioritizes capable successful completion under the same hard spending policy. Profiles need not map to one group.
@@ -70,8 +82,11 @@ semantic evaluator can provide bounded Boolean, Choice or Score advice among
 already eligible alternatives. The final selector remains a deterministic
 function of recorded inputs, including any validated advice. Replaying a recorded
 decision must not make another model request; reproducing a live provider answer
-is not promised. Disabled, unavailable, malformed, stale or abstaining evaluation
-uses the recorded baseline or the existing visible stop/input condition.
+is not promised. Disabled evaluation always uses the recorded baseline or existing
+visible stop/input condition and makes no evaluator call. Unavailable, malformed,
+stale or abstaining evaluation follows that same path unless the enabled policy
+explicitly permits a separately qualified conventional OpenRouter evaluator
+fallback after current-input revalidation and under the same remaining limits.
 
 Tests cover a cheap candidate that fails the quality floor, a fast candidate with expensive retry history, insufficient verification reserve, a strict pin and concurrent root allocations. Compare decisions against explicit eligibility/ordering assertions, not a duplicated implementation function.
 
@@ -110,6 +125,25 @@ schema/prompt/configuration versions, permitted evidence references and attempt
 attribution. Keep score, model-reported probability and independently measured
 calibration distinct; a score is never automatically a probability or confidence.
 
+Qualify the actual Jev endpoint and question/answer protocol before coding a
+transport mapping. Determine the documented request mode, authentication through
+OpenRouter, supported parameters, question limits, schema guarantees, cancellation,
+errors, usage categories and exposed native probability fields. Do not assume a
+Chat Completions request with a replaced model name implements Jev semantics.
+Use a thin Rust mapping through the shared gateway; no LangChain, Python/JavaScript
+runtime, Jev SDK or direct TypeSafe credential is required. Record unsupported or
+unobservable features and disable affected question modes until qualified.
+
+Preserve native answer semantics in versioned fixtures: Boolean yes-probability
+means the probability of the stated proposition, not an implicit true/false value
+obtained with a hardcoded threshold. Rust applies a separately qualified purpose
+threshold or abstains. For Choice and Score, preserve the answer, any native
+distribution and any provider confidence field separately; confidence is not
+automatically the winning choice's probability, the score itself or empirical
+calibration. Missing native probabilities remain unavailable, never invented from
+free-form text or replaced by one-hot certainty. A qualified discrete-only mode is
+a distinct capability and evaluation cohort.
+
 Validate the whole response before use: reject unknown, duplicate or missing
 question IDs, unlisted choice IDs, wrong types, non-finite/out-of-range numbers,
 invalid distributions and evidence outside the supplied scope. Do not coerce a
@@ -132,13 +166,26 @@ retained for accounting without influencing current work. Persist prepared input
 attempt/reservation linkage and outcome without holding a transaction across I/O.
 Reopening cannot blindly resend an uncertain prior request or clear its liability.
 
+Implement fallback as an explicit policy transition with a reason and source/
+destination evaluator identities. A conventional OpenRouter LLM is eligible only
+after its question modes, data restrictions, usage and per-purpose quality are
+separately qualified. It receives a fresh bounded reservation after current scope,
+pause and eligibility checks, while Jev's failed or unknown charge remains charged
+or reserved. Shared deadline, retry/call limits, root balance and verification
+reserve apply across both implementations. No qualified permitted fallback means
+deterministic behavior or the existing visible stop/input state; do not bypass
+OpenRouter by calling TypeSafe directly or silently widen provider permissions.
+If an old answer is stale, reconstruct the request from current authorized evidence
+and revisions before reconsidering fallback. Pause, revocation or task supersession
+cannot trigger a replacement call or implicitly resume work.
+
 Initially expose remote evaluation as explicitly enabled shadow comparison:
 record its advice alongside the baseline without changing the selected action.
 Shadow mode still sends authorized context and spends money, so it requires the
 same configured cap and visible attribution. P6-04 decides whether any individual
-purpose can graduate to advisory use. No direct Jev endpoint, SDK, credential or
-local inference asset becomes a requirement. Earlier P2/P5 work must remain usable
-without this later P6 service.
+purpose can graduate to advisory use. No direct TypeSafe endpoint/credential, Jev
+SDK or local inference asset becomes a requirement. Earlier P2/P5 work must remain
+usable without this later P6 service.
 
 Test deterministic-only and disabled modes with a transport that fails on any
 request. Use adversarial schema fixtures, evidence revocation, zero budget,
@@ -146,6 +193,12 @@ concurrent child admission, pause before send, late response after new steering,
 timeout with uncertain charge, restart and retry exhaustion. Assert eligible
 candidate membership and quality floors after advice, no recursive helper calls,
 all observed requests joined to reservations, and continued baseline behavior.
+Add actual-Jev protocol fixtures for missing probability fields, unsupported modes,
+outage, alias/version drift and changed provider data controls; verify fallback is
+qualified, permitted and separately attributed. Include adversarial state strings
+that imitate question definitions or inject options. Exact counts, date comparisons,
+arithmetic and authority/scope checks run in Rust, with fixtures proving remote
+judgment cannot override their results.
 
 ## P6-03 — Escalation and model handoff
 
@@ -247,6 +300,10 @@ explicit policy preview; accepting an unrelated routing change cannot enable pai
 evaluation or a new provider. Declining advice, unavailable evaluation and rollback
 must leave the local interview and selected policy workflow usable. Test a
 misleading saving estimate and a proposal to weaken a quality or authority gate.
+Separate actual Jev, conventional-LLM fallback and deterministic observations in
+cohorts and explanations. A fallback's result or cost cannot be presented as Jev
+performance, and a new alias or missing native output field invalidates affected
+comparisons rather than silently inheriting an earlier recommendation.
 
 ## P6-04 — Profile qualification
 
@@ -282,11 +339,15 @@ subsystem qualification must identify that pending release evidence explicitly.
 
 **Decision-layer qualification.** Follow
 [qualification and rollout](../architecture/decision-evaluation-design.md#qualification-and-rollout)
-within the same coherent P6 milestone. Compare deterministic routing with optional
-economical and stronger OpenRouter evaluators, controlling the downstream coding
-strategy and inputs. First run shadow mode, then evaluate declared per-purpose
-advisory policies on a held-out set; shadow agreement alone cannot establish a
-task-level improvement. Declare tuning, calibration and held-out partitions,
+within the same coherent P6 milestone. Compare three implementations on the same
+inputs: deterministic rules, actual Jev through OpenRouter, and a conventional
+OpenRouter LLM comparator/permitted fallback. A stronger conventional LLM is an
+optional fourth comparison, not a substitute for testing actual Jev. Complete the
+Jev protocol/capability/usage qualification first; unavailable actual-model access
+is a not-run comparison, not evidence from an emulation. Control the downstream
+coding strategy and inputs. First run shadow mode, then evaluate declared
+per-purpose advisory policies on a held-out set; shadow agreement alone cannot
+establish a task-level improvement. Declare tuning, calibration and held-out partitions,
 task/cohort sample requirements and severity-specific false-negative limits before
 running. Keep raw scores distinct from probabilities; measure calibration or Brier
 score only for outputs defined and evaluated as probabilities, and bind any fitted

@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Plan revision 6 — September 18, 2026. Delivery uses larger behavioral milestones
+Plan revision 7 — September 18, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded
 qualification already completed from remaining product implementation. Explicit
 pause while the CLI stays open is required alongside close-to-pause.
@@ -8,10 +8,14 @@ pause while the CLI stays open is required alongside close-to-pause.
 This revision incorporates the [JEV exploration](../architecture/exploring-jev.md)
 through [ADR-020](../adr/020-bounded-semantic-decisions.md) and the
 [bounded semantic decision design](../architecture/decision-evaluation-design.md).
-P6 plans typed advisory judgments for routing, escalation and optimization with a
-deterministic baseline and optional admitted OpenRouter assistance. Qualification
-precedes enabled defaults. Direct Jev access, remote retrieval and a new local model
-are not selected. The 68 task IDs, dependencies and current states are unchanged.
+P6 plans typed advisory judgments for routing, escalation and optimization. Qualify
+actual Jev through OpenRouter as the leading specialized candidate, alongside the
+deterministic baseline and a conventional OpenRouter LLM comparator/permitted
+fallback. Thin Rust adapters preserve VCP's gateway and lifecycle; LangChain is not
+a runtime dependency. [Transport qualification](../architecture/decision-evaluation-design.md#jev-through-openrouter-qualification)
+and held-out quality evidence precede enabled defaults. Direct TypeSafe access
+outside OpenRouter, remote retrieval and new local models remain unselected.
+The 68 task IDs, dependencies and current states are unchanged.
 
 Start with [the code layout](code-layout.md), [the delivery contract](00-delivery-contract.md), [test infrastructure and acceptance](16-test-fixtures-and-acceptance.md), then [upstream feasibility](01-upstream-feasibility.md). These files expand [architecture draft 0.4](../architecture/vcp-what.md) into coding and testing work. The architecture remains authoritative for product behavior; this directory owns the detailed execution instructions and repository layout.
 
@@ -105,8 +109,8 @@ The [implementation workflow](../development/implementation-workflow.md#delivery
 defines the preparation and publication boundary.
 
 At P6, group the bounded-decision contract, deterministic baseline, optional
-OpenRouter adapter, routing/escalation/optimizer callers, failure evidence and
-inspection into substantial behavioral work on one branch. P6-04's held-out
+Jev and LLM adapters within OpenRouter, routing/escalation/optimizer callers,
+failure evidence and inspection into substantial behavioral work on one branch. P6-04's held-out
 qualification still follows its existing prerequisites; missing evidence keeps
 remote advice disabled. This later grouping does not delay the current lifecycle
 recovery milestone or introduce a separate PR for each classifier/interface.

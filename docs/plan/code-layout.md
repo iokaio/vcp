@@ -97,7 +97,7 @@ remain planned integration work.
 | `vcp-context/` | Instructions, manifests, token planning, and compaction | [04](04-context-and-instructions.md) |
 | `vcp-models/` | Normalized requests, OpenRouter transport, and catalog | [05](05-openrouter-and-session-loop.md) |
 | `vcp-routing/` | Group selection, profiles, escalation, and optimization | [12](12-routing-and-optimization.md) |
-| `vcp-decision/` | Planned bounded Boolean/Choice/Score advice, deterministic evaluator, validation and optional OpenRouter adapter | [12](12-routing-and-optimization.md#p6-02--deterministic-profile-policy) |
+| `vcp-decision/` | Planned bounded Boolean/Choice/Score advice, deterministic evaluator and thin Rust OpenRouter adapter for actual Jev plus qualified conventional-LLM comparator/fallback | [12](12-routing-and-optimization.md#p6-02--deterministic-profile-policy) |
 | `vcp-budget/` | Reservations, settlement, and root/child cost attribution | [03](03-storage-and-budget.md) |
 | `vcp-policy/` | Authority, trust, approvals, and dispatch admission | [06](06-windows-tools-and-recovery.md) |
 | `vcp-tools/` | File, search, patch, process, and Git contracts | [06](06-windows-tools-and-recovery.md) |
@@ -123,7 +123,15 @@ stores; orchestration uses injected existing context, ledger and model interface
 `vcp-routing` consumes validated advice, while policy, budget and completion
 authorities remain outside the evaluator. Shared fixtures belong under the planned
 `src/tests/fixtures/decision/`; labelled held-out evaluations use `src/evals/`.
-Create no empty package, Jev SDK/provider or local model dependency from this map.
+Within the existing OpenRouter adapter, qualify actual Jev as the preferred
+specialized candidate and keep a conventional OpenRouter LLM as a separately
+qualified comparator/permitted fallback. Implement protocol and native-answer
+mapping in Rust under the
+[Jev gateway contract](../architecture/decision-evaluation-design.md#jev-through-openrouter-qualification),
+without assuming a Chat Completions model-name substitution is sufficient. The
+deterministic baseline remains a distinct implementation. Create no empty package,
+direct TypeSafe gateway/credential facility, Jev SDK, LangChain dependency,
+Python/JavaScript decision runtime or local model dependency from this map.
 
 ## Dependency and upstream boundaries
 
