@@ -1714,13 +1714,56 @@ impl ModelClientSession {
             let inference_trace_attempt = inference_trace.start_attempt();
             inference_trace_attempt.add_request_headers(&mut options.extra_headers);
             inference_trace_attempt.record_started(&request);
-            let client = ApiResponsesClient::new(
-                transport,
-                client_setup.api_provider,
-                client_setup.api_auth,
-            )
-            .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
-            let stream_result = client.stream_request(request, options).await;
+            // VCP: admit each fully built HTTP body. The host inserts enforced
+            // bounds and durably captures/reserves before any request is sent.
+            let mut body = serde_json::to_value(&request)
+                .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
+            let host_permit = self
+                .client
+                .host_work
+                .as_ref()
+                .map(|gate| {
+                    let purpose = match responses_metadata.request_kind {
+                        Some(crate::responses_metadata::CodexResponsesRequestKind::Compaction(
+                            _,
+                        )) => codex_extension_api::HostModelPurpose::Compaction,
+                        Some(crate::responses_metadata::CodexResponsesRequestKind::Memory) => {
+                            codex_extension_api::HostModelPurpose::Memory
+                        }
+                        _ => codex_extension_api::HostModelPurpose::Turn,
+                    };
+                    gate.admit_model(self.client.state.thread_id, &mut body, purpose)
+                })
+                .transpose()
+                .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
+            let response_capture = host_permit
+                .as_ref()
+                .and_then(|permit| permit.response_capture());
+            let mut api_provider = client_setup.api_provider;
+            if self.client.host_work.is_some() {
+                // Every retry needs a distinct reservation and send receipt.
+                api_provider.retry.max_attempts = 1;
+                api_provider.retry.retry_429 = false;
+                api_provider.retry.retry_5xx = false;
+                api_provider.retry.retry_transport = false;
+            }
+            let client = ApiResponsesClient::new(transport, api_provider, client_setup.api_auth)
+                .with_telemetry(Some(request_telemetry), Some(sse_telemetry))
+                .with_response_capture(response_capture);
+            let stream_result = client.stream_body(body, options).await;
+            if let Err(ApiError::Transport(codex_client::TransportError::Http {
+                body: Some(body),
+                ..
+            })) = &stream_result
+            {
+                if let Some(capture) = host_permit
+                    .as_ref()
+                    .and_then(|permit| permit.response_capture())
+                {
+                    capture(body.as_bytes())
+                        .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
+                }
+            }
 
             match stream_result {
                 Ok(stream) => {
@@ -1730,7 +1773,7 @@ impl ModelClientSession {
                         inference_trace_attempt,
                         Arc::clone(&self.client.state.provider),
                     );
-                    return Ok(stream);
+                    return Ok(stream.with_host_permit(host_permit));
                 }
                 Err(ApiError::Transport(unauthorized_transport))
                     if self
@@ -2151,23 +2194,12 @@ impl ModelClientSession {
         responses_metadata: &CodexResponsesMetadata,
         inference_trace: &InferenceTraceContext,
     ) -> Result<ResponseStream> {
-        let host_permit = self
-            .client
-            .host_work
-            .as_ref()
-            .map(|gate| {
-                gate.admit(
-                    self.client.state.thread_id,
-                    codex_extension_api::HostWorkKind::Model,
-                    "responses",
-                )
-            })
-            .transpose()
-            .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
         let wire_api = self.client.state.provider.info().wire_api;
         match wire_api {
             WireApi::Responses => {
-                if self.client.responses_websocket_enabled() {
+                // VCP hosted requests use the qualified HTTP capture/admission
+                // path. Unhosted upstream sessions retain WebSocket behavior.
+                if self.client.host_work.is_none() && self.client.responses_websocket_enabled() {
                     let request_trace = current_span_w3c_trace_context();
                     match self
                         .stream_responses_websocket(
@@ -2185,7 +2217,7 @@ impl ModelClientSession {
                         .await?
                     {
                         WebsocketStreamOutcome::Stream(stream) => {
-                            return Ok(stream.with_host_permit(host_permit));
+                            return Ok(stream);
                         }
                         WebsocketStreamOutcome::FallbackToHttp => {
                             self.try_switch_fallback_transport(session_telemetry, model_info);
@@ -2206,7 +2238,6 @@ impl ModelClientSession {
                 .await
             }
         }
-        .map(|stream| stream.with_host_permit(host_permit))
     }
 
     /// Permanently disables WebSockets for this Codex session and resets WebSocket state.

@@ -79,6 +79,10 @@
     {
       "path": "src/third_party/patches/codex/0012-p1-accounting-history-workspace.patch",
       "sha256": "05cfec0f7b7c52ea30487c07ec51e4f3dcb866ff37ae99b1fe04c5c9dd8ff02d"
+    },
+    {
+      "path": "src/third_party/patches/codex/0013-p1-canonical-host-integration.patch",
+      "sha256": "1775252d090f164c8e6d5d01d2fdf4be1ddc64400d16405e6e26e93d6679efdc"
     }
   ],
   "licenses": [

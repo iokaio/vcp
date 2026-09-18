@@ -14,6 +14,7 @@ use tokio::sync::{oneshot, Notify};
 mod journal;
 pub use journal::Work;
 pub mod control;
+pub mod foundation;
 pub mod integration;
 pub mod ports;
 #[cfg(windows)]

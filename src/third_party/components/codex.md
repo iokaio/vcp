@@ -40,6 +40,10 @@ Patch 0011 also registers the four original [P1 foundation packages](../../../do
 without changing external dependency pins or imported implementation.
 Patch 0012 registers the original budget and audit packages under the same rule;
 see [accounting and history](../../../docs/development/p1-accounting-history.md).
+Patch 0013 connects the [canonical host](../../../docs/development/p1-retained-host.md)
+to retained per-attempt HTTP admission and observed-body capture. It keeps the
+same controller and external dependency identities; the P0 journal remains a
+separate regression fixture rather than a second canonical store.
 
 Applicable source notices are retained unchanged:
 

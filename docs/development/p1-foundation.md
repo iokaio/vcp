@@ -2,10 +2,10 @@
 
 The first P1 increment implements typed domain transitions, private command
 admission, binary artifact staging and two canonical storage backends. It is a
-library foundation in the retained Cargo workspace. The retained controller's
-production integration remains P1 work; [accounting and history](p1-accounting-history.md)
-are implemented by the next library increment;
-this increment does not introduce a second scheduler or a usable product CLI.
+library foundation in the retained Cargo workspace. [Accounting and history](p1-accounting-history.md)
+and the [retained canonical host](p1-retained-host.md) build on these contracts.
+The host keeps the existing controller and connects its requests and native output
+to canonical admission and capture. A usable product CLI remains later work.
 
 ## Source and commands
 
@@ -128,6 +128,8 @@ Windows filesystem/process-failure envelope, not hardware power-loss durability,
 every filesystem, encrypted cloud transfer or final product installation.
 
 See the [P1 plan](../plan/02-engine-state-and-capture.md) and
-[storage/accounting plan](../plan/03-storage-and-budget.md) for remaining
-acceptance. The next increment covers the shared ledger and fresh-process history
-rebuild; retained model/helper transport observations remain outstanding.
+[storage/accounting plan](../plan/03-storage-and-budget.md) for the owning
+contracts. [Accounting/history](p1-accounting-history.md) implements the shared
+ledger and fresh-process rebuild; the [retained host](p1-retained-host.md) adds
+actual model/helper transport and native output observations. Their combined
+acceptance is recorded in [P1 qualification](../evaluations/p1-completion.md).

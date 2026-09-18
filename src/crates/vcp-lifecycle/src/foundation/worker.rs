@@ -1,0 +1,866 @@
+// SPDX-License-Identifier: Apache-2.0
+use super::{Config, ThreadBinding};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, SyncSender},
+        Arc, Mutex,
+    },
+    thread::JoinHandle,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, task::*, workspace::*};
+use vcp_engine::{Access, Engine, HostFacts};
+use vcp_protocol::{canonical_bytes, command::*};
+use vcp_store::{
+    artifact::{ArtifactWriter, LocalWriter},
+    contract::*,
+    Store,
+};
+type Failure = Box<dyn std::error::Error + Send + Sync>;
+type Result<T> = std::result::Result<T, Failure>;
+type Job = Box<dyn FnOnce(&mut Context) + Send>;
+struct Inner {
+    sender: Mutex<Option<SyncSender<Job>>>,
+    thread: Mutex<Option<JoinHandle<()>>>,
+    fenced: AtomicBool,
+}
+impl Drop for Inner {
+    fn drop(&mut self) {
+        self.sender.get_mut().unwrap().take();
+        if let Some(thread) = self.thread.get_mut().unwrap().take() {
+            let _ = thread.join();
+        }
+    }
+}
+#[derive(Clone)]
+pub struct Worker(Arc<Inner>);
+impl Worker {
+    pub fn open(config: Config) -> std::result::Result<Self, String> {
+        let (tx, rx) = mpsc::sync_channel::<Job>(32);
+        let (ready, ready_rx) = mpsc::sync_channel(1);
+        let thread = std::thread::Builder::new()
+            .name("vcp-canonical-store".into())
+            .spawn(move || match Context::open(config) {
+                Ok(mut context) => {
+                    let _ = ready.send(Ok(()));
+                    while let Ok(job) = rx.recv() {
+                        job(&mut context);
+                    }
+                }
+                Err(error) => {
+                    let _ = ready.send(Err(error.to_string()));
+                }
+            })
+            .map_err(|error| error.to_string())?;
+        ready_rx.recv().map_err(|_| "canonical worker stopped")??;
+        Ok(Self(Arc::new(Inner {
+            sender: Mutex::new(Some(tx)),
+            thread: Mutex::new(Some(thread)),
+            fenced: AtomicBool::new(false),
+        })))
+    }
+    pub fn fence(&self) {
+        self.0.fenced.store(true, Ordering::SeqCst);
+    }
+    pub fn fenced(&self) -> bool {
+        self.0.fenced.load(Ordering::SeqCst)
+    }
+    pub fn run<T: Send + 'static>(
+        &self,
+        operation: impl FnOnce(&mut Context) -> Result<T> + Send + 'static,
+    ) -> std::result::Result<T, String> {
+        if self.fenced() {
+            return Err("canonical capture/admission fenced; reopen required".into());
+        }
+        self.run_cleanup(operation)
+    }
+    pub fn run_cleanup<T: Send + 'static>(
+        &self,
+        operation: impl FnOnce(&mut Context) -> Result<T> + Send + 'static,
+    ) -> std::result::Result<T, String> {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let job: Job = Box::new(move |context| {
+            let result = operation(context).map_err(|error| error.to_string());
+            let _ = tx.send((result, context.interrupted_capture));
+        });
+        self.0
+            .sender
+            .lock()
+            .map_err(|_| "canonical queue poisoned")?
+            .as_ref()
+            .ok_or("canonical owner closed")?
+            .try_send(job)
+            .map_err(|_| "canonical queue unavailable or full")?;
+        match rx.recv_timeout(Duration::from_secs(30)) {
+            Ok((result, fenced)) => {
+                if fenced {
+                    self.fence();
+                }
+                result
+            }
+            Err(_) => {
+                self.fence();
+                Err("canonical operation outcome unknown; reopen required".into())
+            }
+        }
+    }
+}
+pub struct Context {
+    pub engine: Engine<Store>,
+    pub runtime: tokio::runtime::Runtime,
+    pub config: Config,
+    access: Access,
+    streams: HashMap<AttemptId, LocalWriter>,
+    outputs: HashMap<ArtifactId, (Scope, LocalWriter)>,
+    interrupted_capture: bool,
+    owner_alive: bool,
+}
+fn now() -> Timestamp {
+    Timestamp::new(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .min(u64::MAX as u128) as u64,
+    )
+}
+fn has_unpriced_media(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Array(values) => values.iter().any(has_unpriced_media),
+        serde_json::Value::Object(values) => {
+            matches!(
+                values.get("type").and_then(|value| value.as_str()),
+                Some(
+                    "input_image"
+                        | "image_url"
+                        | "input_audio"
+                        | "output_audio"
+                        | "audio"
+                        | "input_video"
+                        | "video"
+                        | "input_file"
+                        | "file"
+                )
+            ) || values.values().any(has_unpriced_media)
+        }
+        _ => false,
+    }
+}
+impl Context {
+    fn open(config: Config) -> Result<Self> {
+        if config.input_ceiling.get() == 0 || config.output_ceiling.get() == 0 {
+            return Err("provider ceilings required".into());
+        }
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let store = runtime.block_on(Store::open_with_artifact_limit(
+            &config.canonical_root,
+            config.backend,
+            &[],
+            config.artifact_limit.get(),
+        ))?;
+        let engine = Engine::new(store)?;
+        let access = Access {
+            actor: config.actor.clone(),
+            workspace: config.workspace.clone(),
+            session: config.session.clone(),
+            authority: AuthorityRevision::ZERO,
+            read: true,
+            write: true,
+            bootstrap: true,
+        };
+        let interrupted_capture = !engine.store().spool().unfinished()?.is_empty();
+        let mut context = Self {
+            engine,
+            runtime,
+            config,
+            access,
+            streams: HashMap::new(),
+            outputs: HashMap::new(),
+            interrupted_capture,
+            owner_alive: true,
+        };
+        if context.engine.store().state().records.is_empty() {
+            context.command(
+                Command::Initialize {
+                    binding: context.config.binding.clone(),
+                },
+                None,
+                Revision::ZERO,
+            )?;
+        } else {
+            let workspace: Workspace = context
+                .engine
+                .store()
+                .state()
+                .record(
+                    Collection::Workspace,
+                    context.config.workspace.as_str(),
+                    &context.config.workspace,
+                )?
+                .decode()?;
+            if workspace.binding != context.config.binding {
+                return Err("workspace binding requires explicit revalidation".into());
+            }
+            context.access.authority = workspace.authority;
+            // Resume never repeats a previously submitted HTTP request.
+            let attempts: Vec<Attempt> = context
+                .engine
+                .store()
+                .state()
+                .records
+                .values()
+                .filter(|r| r.collection == Collection::Attempt)
+                .map(Record::decode)
+                .collect::<std::result::Result<_, _>>()?;
+            for attempt in attempts {
+                if attempt.phase == ReservationState::Submitted {
+                    let actor = context.actor();
+                    context.runtime.block_on(vcp_budget::hold_uncertain(
+                        context.engine.store_mut(),
+                        &attempt.id,
+                        &attempt.scope,
+                        &actor,
+                        "owner reopened after possible send",
+                    ))?;
+                }
+            }
+            let effects: Vec<vcp_domain::effect::Effect> = context
+                .engine
+                .store()
+                .state()
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Effect)
+                .map(Record::decode)
+                .collect::<std::result::Result<_, _>>()?;
+            for effect in effects {
+                if matches!(
+                    effect.state,
+                    vcp_domain::effect::EffectState::DispatchRecorded
+                        | vcp_domain::effect::EffectState::Running
+                ) {
+                    context.command(
+                        Command::AdvanceEffect {
+                            id: effect.id,
+                            next: vcp_domain::effect::EffectState::OutcomeUnknown,
+                            reason: "owner reopened without terminal process observation".into(),
+                            execution: effect.execution,
+                            exit_code: None,
+                            observed_changes: effect.observed_changes,
+                        },
+                        Some(effect.scope.task),
+                        effect.revision,
+                    )?;
+                }
+            }
+            let tasks: Vec<Task> = context
+                .engine
+                .store()
+                .state()
+                .records
+                .values()
+                .filter(|r| r.collection == Collection::Task)
+                .map(Record::decode)
+                .collect::<std::result::Result<_, _>>()?;
+            for task in tasks {
+                if task.state == TaskState::Running {
+                    context.command(
+                        Command::Transition {
+                            next: TaskState::Paused,
+                            reason: "owning host reopened; deliberate resume required".into(),
+                            verification: None,
+                        },
+                        Some(task.scope.task),
+                        task.revision,
+                    )?;
+                }
+            }
+        }
+        Ok(context)
+    }
+    fn actor(&self) -> vcp_budget::Actor {
+        vcp_budget::Actor {
+            id: self.config.actor.clone(),
+            now: now(),
+        }
+    }
+    pub fn observe_usage(&mut self, observation: UsageObservation) -> Result<Settlement> {
+        let actor = self.actor();
+        Ok(self.runtime.block_on(vcp_budget::observe(
+            self.engine.store_mut(),
+            observation,
+            &actor,
+        ))?)
+    }
+    pub fn history_access(&self) -> vcp_audit::history::Access {
+        vcp_audit::history::Access {
+            workspace: self.access.workspace.clone(),
+            authority: self.access.authority,
+            read: true,
+            tasks: None,
+        }
+    }
+    pub fn command(
+        &mut self,
+        payload: Command,
+        task: Option<TaskId>,
+        expected: Revision,
+    ) -> Result<CommandReceipt> {
+        self.command_with_resume(payload, task, expected, None)
+    }
+    fn command_with_resume(
+        &mut self,
+        payload: Command,
+        task: Option<TaskId>,
+        expected: Revision,
+        resume: Option<ResumeEvidence>,
+    ) -> Result<CommandReceipt> {
+        let steering = task
+            .as_ref()
+            .and_then(|id| {
+                self.engine
+                    .store()
+                    .state()
+                    .record(Collection::Task, id.as_str(), &self.config.workspace)
+                    .ok()
+            })
+            .and_then(|row| row.decode::<Task>().ok())
+            .map_or(SteeringRevision::ZERO, |task| task.steering);
+        let envelope = CommandEnvelope {
+            version: 1,
+            id: CommandId::new(),
+            workspace: self.config.workspace.clone(),
+            session: self.config.session.clone(),
+            task,
+            caller: self.config.actor.clone(),
+            controller: self.engine.controller().clone(),
+            owner_epoch: self.engine.owner_epoch(),
+            expected,
+            steering,
+            payload,
+        };
+        let host = HostFacts {
+            now: now(),
+            policy: PolicyRevision::ZERO,
+            resume,
+            may_execute: self.owner_alive,
+        };
+        Ok(self
+            .runtime
+            .block_on(self.engine.handle(envelope, &self.access, &host))?)
+    }
+    pub fn can_start(&self, binding: &ThreadBinding) -> Result<()> {
+        if !self.owner_alive {
+            return Err("canonical owner is closed".into());
+        }
+        self.validate_binding(binding)?;
+        let mut id = Some(binding.scope.task.clone());
+        while let Some(current) = id {
+            let task: Task = self
+                .engine
+                .store()
+                .state()
+                .record(Collection::Task, current.as_str(), &binding.scope.workspace)?
+                .decode()?;
+            if task.state != TaskState::Running {
+                return Err("canonical task or ancestor is held".into());
+            }
+            id = task.parent;
+        }
+        Ok(())
+    }
+    pub fn resume(
+        &mut self,
+        binding: &ThreadBinding,
+        expected: Revision,
+        fingerprint: vcp_domain::verification::Fingerprint,
+    ) -> Result<CommandReceipt> {
+        self.validate_binding(binding)?;
+        if self.interrupted_capture {
+            return Err("capture recovery incomplete".into());
+        }
+        let task: Task = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Task,
+                binding.scope.task.as_str(),
+                &binding.scope.workspace,
+            )?
+            .decode()?;
+        if task.fingerprint != fingerprint {
+            return Err("repository fingerprint changed; refresh canonical task first".into());
+        }
+        let budget_current = vcp_budget::ledger(self.engine.store().state(), &binding.scope)
+            .map(|ledger| !ledger.overrun)
+            .unwrap_or(true);
+        let effects_reconciled = !self
+            .engine
+            .store()
+            .state()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Effect)
+            .map(Record::decode::<vcp_domain::effect::Effect>)
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|effect| {
+                matches!(
+                    effect.state,
+                    vcp_domain::effect::EffectState::DispatchRecorded
+                        | vcp_domain::effect::EffectState::Running
+                        | vcp_domain::effect::EffectState::OutcomeUnknown
+                )
+            });
+        self.command_with_resume(
+            Command::Transition {
+                next: TaskState::Running,
+                reason: "explicit host resume after current binding, budget and effect checks"
+                    .into(),
+                verification: None,
+            },
+            Some(task.scope.task),
+            expected,
+            Some(ResumeEvidence {
+                workspace_current: true,
+                policy_current: true,
+                budget_current,
+                effects_reconciled,
+                owner_current: true,
+            }),
+        )
+    }
+    pub fn validate_binding(&self, binding: &ThreadBinding) -> Result<()> {
+        let workspace: Workspace = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Workspace,
+                self.config.workspace.as_str(),
+                &self.config.workspace,
+            )?
+            .decode()?;
+        if workspace.authority != self.access.authority || workspace.binding != self.config.binding
+        {
+            return Err("workspace authority changed; rebind retained host".into());
+        }
+        let task: Task = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Task,
+                binding.scope.task.as_str(),
+                &self.config.workspace,
+            )?
+            .decode()?;
+        if task.scope != binding.scope || task.root != self.config.root_task {
+            return Err("thread binding differs from canonical root".into());
+        }
+        Ok(())
+    }
+    fn spec(&self, scope: &Scope, channel: Channel, schema: &str) -> ArtifactSpec {
+        ArtifactSpec {
+            id: ArtifactId::new(),
+            scope: scope.clone(),
+            media_type: "application/octet-stream".into(),
+            schema: schema.into(),
+            source: "retained-codex".into(),
+            channel,
+            retention: "full-work-history".into(),
+            omissions: vec![Omission::AuthenticationHeaders, Omission::RecoveryMaterial],
+        }
+    }
+    pub fn capture(
+        &mut self,
+        scope: &Scope,
+        channel: Channel,
+        bytes: &[u8],
+        schema: &str,
+    ) -> Result<ArtifactDescriptor> {
+        let mut writer = self
+            .engine
+            .store()
+            .spool()
+            .create(self.spec(scope, channel, schema))?;
+        for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
+            writer.write_chunk(chunk)?;
+        }
+        let descriptor = writer.finalize()?;
+        drop(writer);
+        self.command(
+            Command::AttachArtifact {
+                descriptor: descriptor.clone(),
+            },
+            Some(scope.task.clone()),
+            Revision::ZERO,
+        )?;
+        Ok(descriptor)
+    }
+    pub fn admit(
+        &mut self,
+        binding: &ThreadBinding,
+        mut body: serde_json::Value,
+    ) -> Result<(AttemptId, serde_json::Value)> {
+        if !self.owner_alive {
+            return Err("canonical owner is closed".into());
+        }
+        self.validate_binding(binding)?;
+        if self.interrupted_capture {
+            return Err("unfinished capture requires reconciliation".into());
+        }
+        if body["model"].as_str() != Some(&self.config.price.model) {
+            return Err("request model differs from admitted price/capability".into());
+        }
+        if !body.is_object() {
+            return Err("request body must be an object".into());
+        }
+        body["max_output_tokens"] = serde_json::json!(self.config.output_ceiling.get());
+        if has_unpriced_media(&body["input"]) {
+            return Err("multimodal request needs a qualified price/capability adapter".into());
+        }
+        // P1 qualifies text/function requests. Unknown native provider tools or
+        // multimodal charge categories need the P2 capability adapter.
+        if body
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .is_some_and(|tools| {
+                tools
+                    .iter()
+                    .any(|tool| !matches!(tool["type"].as_str(), Some("function" | "custom")))
+            })
+        {
+            return Err("unpriced provider tool".into());
+        }
+        let bytes = canonical_bytes(&body)?;
+        if bytes.len() as u64 > self.config.input_ceiling.get() {
+            return Err("request exceeds qualified text input byte ceiling".into());
+        }
+        let scope = &binding.scope;
+        let actor = self.actor();
+        if self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Ledger,
+                self.config.root_task.as_str(),
+                &self.config.workspace,
+            )
+            .is_err()
+        {
+            let root: Task = self
+                .engine
+                .store()
+                .state()
+                .record(
+                    Collection::Task,
+                    self.config.root_task.as_str(),
+                    &self.config.workspace,
+                )?
+                .decode()?;
+            self.runtime.block_on(vcp_budget::initialize(
+                self.engine.store_mut(),
+                root.scope,
+                self.config.cap.clone(),
+                self.config.protected,
+                None,
+                &actor,
+            ))?;
+        }
+        let capture = (|| -> Result<ArtifactDescriptor> {
+            let mut writer = self.engine.store().spool().create(self.spec(
+                scope,
+                Channel::RequestBody,
+                "responses-request/1",
+            ))?;
+            for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
+                writer.write_chunk(chunk)?;
+            }
+            Ok(writer.finalize()?)
+        })();
+        let descriptor = match capture {
+            Ok(descriptor) => descriptor,
+            Err(error) => {
+                self.interrupted_capture = true;
+                let _ = self.pause_root("request capture failed before send");
+                return Err(error);
+            }
+        };
+        let root = vcp_budget::ledger(self.engine.store().state(), scope)?;
+        let task: Task = self
+            .engine
+            .store()
+            .state()
+            .record(Collection::Task, scope.task.as_str(), &scope.workspace)?
+            .decode()?;
+        // Reserve all possible input/cache partitions conservatively. Prices
+        // retain their original identity; the bound intentionally overestimates.
+        let bounds = Usage {
+            input: Units::new(
+                self.config
+                    .input_ceiling
+                    .get()
+                    .checked_mul(3)
+                    .ok_or("input ceiling overflow")?,
+            ),
+            cache_read: self.config.input_ceiling,
+            cache_write: self.config.input_ceiling,
+            output: self.config.output_ceiling,
+            requests: Units::new(1),
+            ..Default::default()
+        };
+        let quote = vcp_budget::arithmetic::quote(self.config.price.clone(), bounds, actor.now)?;
+        let input = vcp_budget::Admission {
+            transaction: TransactionId::new(),
+            attempt: AttemptId::new(),
+            reservation: ReservationId::new(),
+            scope: scope.clone(),
+            agent: binding.agent.clone(),
+            role: binding.role,
+            request: descriptor.spec.id.clone(),
+            request_digest: descriptor.sha256.clone(),
+            quote,
+            previous: None,
+            expected_ledger: root.revision,
+            policy: root.policy,
+            steering: task.steering,
+            draw_protected: binding.role == RequestRole::Verification,
+            now: actor.now,
+        };
+        let attempt = self.runtime.block_on(vcp_budget::reserve_captured(
+            self.engine.store_mut(),
+            input,
+            descriptor,
+            &actor,
+        ))?;
+        let response = self.engine.store().spool().create(self.spec(
+            scope,
+            Channel::Response,
+            "responses-sse-observed-through-terminal/1",
+        ));
+        let response = match response {
+            Ok(writer) => writer,
+            Err(error) => {
+                self.interrupted_capture = true;
+                let _ = self.pause_root("response capture could not open before send");
+                return Err(error.into());
+            }
+        };
+        if let Err(error) = self.runtime.block_on(vcp_budget::submit(
+            self.engine.store_mut(),
+            &attempt.id,
+            scope,
+            attempt.revision,
+            &actor,
+        )) {
+            self.interrupted_capture = true;
+            let _ = self.pause_root("send admission durability failed");
+            return Err(error.into());
+        }
+        self.streams.insert(attempt.id.clone(), response);
+        Ok((attempt.id, body))
+    }
+    pub fn response_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {
+        for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
+            if let Err(error) = self
+                .streams
+                .get_mut(attempt)
+                .ok_or("response capture missing")?
+                .write_chunk(chunk)
+            {
+                let _ = self.pause_root("response capture failed");
+                return Err(error.into());
+            }
+        }
+        Ok(())
+    }
+    fn pause_root(&mut self, reason: &str) -> Result<()> {
+        let task: Task = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Task,
+                self.config.root_task.as_str(),
+                &self.config.workspace,
+            )?
+            .decode()?;
+        if task.state == TaskState::Running {
+            self.command(
+                Command::Transition {
+                    next: TaskState::Paused,
+                    reason: reason.into(),
+                    verification: None,
+                },
+                Some(task.scope.task),
+                task.revision,
+            )?;
+        }
+        Ok(())
+    }
+    pub fn pause_all(&mut self, reason: &str) -> Result<()> {
+        self.owner_alive = false;
+        let tasks: Vec<Task> = self
+            .engine
+            .store()
+            .state()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Task)
+            .map(Record::decode)
+            .collect::<std::result::Result<_, _>>()?;
+        for task in tasks {
+            if task.state == TaskState::Running {
+                self.command(
+                    Command::Transition {
+                        next: TaskState::Paused,
+                        reason: reason.into(),
+                        verification: None,
+                    },
+                    Some(task.scope.task),
+                    task.revision,
+                )?;
+            }
+        }
+        Ok(())
+    }
+    pub fn open_output(&mut self, scope: &Scope, channel: Channel) -> Result<ArtifactId> {
+        if !matches!(
+            channel,
+            Channel::Stdout | Channel::Stderr | Channel::ChildTranscript
+        ) {
+            return Err("invalid streaming output channel".into());
+        }
+        let spec = self.spec(scope, channel, "retained-full-output/1");
+        let id = spec.id.clone();
+        let writer = self.engine.store().spool().create(spec)?;
+        self.outputs.insert(id.clone(), (scope.clone(), writer));
+        Ok(id)
+    }
+    pub fn output_chunk(&mut self, id: &ArtifactId, bytes: &[u8]) -> Result<()> {
+        if let Err(error) = self
+            .outputs
+            .get_mut(id)
+            .ok_or("output capture missing")?
+            .1
+            .write_chunk(bytes)
+        {
+            let _ = self.pause_root("tool capture failed");
+            return Err(error.into());
+        }
+        Ok(())
+    }
+    pub fn finish_output(&mut self, id: &ArtifactId, abort: bool) -> Result<ArtifactDescriptor> {
+        let (scope, mut writer) = self.outputs.remove(id).ok_or("output capture missing")?;
+        let descriptor = if abort {
+            writer.abort()?
+        } else {
+            writer.finalize()?
+        };
+        drop(writer);
+        self.command(
+            Command::AttachArtifact {
+                descriptor: descriptor.clone(),
+            },
+            Some(scope.task),
+            Revision::ZERO,
+        )?;
+        Ok(descriptor)
+    }
+    pub fn complete(
+        &mut self,
+        binding: &ThreadBinding,
+        attempt: &AttemptId,
+        usage: Option<codex_protocol::protocol::TokenUsage>,
+        response_id: String,
+    ) -> Result<()> {
+        let mut writer = self
+            .streams
+            .remove(attempt)
+            .ok_or("response capture missing")?;
+        let descriptor = writer.finalize()?;
+        drop(writer);
+        self.command(
+            Command::AttachArtifact {
+                descriptor: descriptor.clone(),
+            },
+            Some(binding.scope.task.clone()),
+            Revision::ZERO,
+        )?;
+        let Some(usage) = usage else {
+            return self.unknown(binding, attempt, "terminal response omitted usage");
+        };
+        let unit = |value: i64| -> Result<Units> { Ok(Units::new(u64::try_from(value)?)) };
+        let normalized = Usage {
+            input: unit(usage.input_tokens)?,
+            cache_read: unit(usage.cached_input_tokens)?,
+            cache_write: unit(usage.cache_write_input_tokens)?,
+            output: unit(usage.output_tokens)?,
+            reasoning: unit(usage.reasoning_output_tokens)?,
+            requests: Units::new(1),
+            provider_tools: Units::ZERO,
+        };
+        let admitted = vcp_budget::attempt(
+            self.engine.store().state(),
+            attempt,
+            &binding.scope.workspace,
+        )?;
+        let actual = vcp_budget::arithmetic::quote(
+            admitted.quote.price.clone(),
+            normalized,
+            Timestamp::ZERO,
+        )?;
+        let observation = UsageObservation {
+            id: ObservationId::new(),
+            scope: binding.scope.clone(),
+            attempt: attempt.clone(),
+            provider_request: response_id,
+            mode: UsageMode::Cumulative {
+                version: Units::new(1),
+            },
+            amount: actual.amount,
+            final_usage: true,
+            raw: descriptor.spec.id,
+            correction: None,
+        };
+        let actor = self.actor();
+        self.runtime.block_on(vcp_budget::observe(
+            self.engine.store_mut(),
+            observation,
+            &actor,
+        ))?;
+        Ok(())
+    }
+    pub fn unknown(
+        &mut self,
+        binding: &ThreadBinding,
+        attempt: &AttemptId,
+        reason: &str,
+    ) -> Result<()> {
+        if let Some(mut writer) = self.streams.remove(attempt) {
+            let descriptor = writer.abort()?;
+            drop(writer);
+            self.command(
+                Command::AttachArtifact { descriptor },
+                Some(binding.scope.task.clone()),
+                Revision::ZERO,
+            )?;
+        }
+        let actor = self.actor();
+        self.runtime.block_on(vcp_budget::hold_uncertain(
+            self.engine.store_mut(),
+            attempt,
+            &binding.scope,
+            &actor,
+            reason,
+        ))?;
+        Ok(())
+    }
+}

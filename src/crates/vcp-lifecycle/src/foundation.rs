@@ -1,0 +1,392 @@
+// SPDX-License-Identifier: Apache-2.0
+//! Canonical persistence adapter for the retained controller. The worker only
+//! serializes storage operations; scheduling and interruption remain in Codex.
+#[cfg(windows)]
+mod process;
+mod worker;
+use crate::{Lifecycle, OwnerLease};
+use codex_extension_api::{
+    HostModelPurpose, HostResponseCapture, HostWorkAdmission, HostWorkKind, HostWorkPermit,
+    TurnStartAdmission,
+};
+use codex_protocol::{protocol::TokenUsage, ThreadId};
+#[cfg(windows)]
+pub use process::{CanonicalProcess, ProcessOutcome};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, workspace::*};
+use vcp_protocol::command::{Command, CommandReceipt};
+use vcp_store::{contract::State, BackendKind};
+
+#[derive(Clone)]
+pub struct Config {
+    pub canonical_root: PathBuf,
+    pub backend: BackendKind,
+    pub workspace: WorkspaceId,
+    pub session: SessionId,
+    pub binding: Binding,
+    pub actor: ActorId,
+    pub root_task: TaskId,
+    pub cap: Money,
+    pub protected: Micros,
+    pub price: PriceSnapshot,
+    pub input_ceiling: Units,
+    pub output_ceiling: Units,
+    pub artifact_limit: ByteCount,
+}
+#[derive(Clone)]
+pub struct ThreadBinding {
+    pub scope: Scope,
+    pub agent: AgentId,
+    pub role: RequestRole,
+}
+#[derive(Clone)]
+pub struct CanonicalHost {
+    runtime: Lifecycle,
+    worker: worker::Worker,
+    bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
+}
+pub struct CanonicalOwner {
+    runtime: Option<OwnerLease>,
+    worker: worker::Worker,
+}
+impl CanonicalOwner {
+    pub async fn close(mut self) -> Result<(), String> {
+        self.worker
+            .run_cleanup(|context| context.pause_all("owning host closed"))?;
+        if let Some(owner) = self.runtime.take() {
+            owner.close().await.map_err(|error| format!("{error:?}"))?;
+        }
+        Ok(())
+    }
+}
+impl Drop for CanonicalOwner {
+    fn drop(&mut self) {
+        self.runtime.take();
+        if self
+            .worker
+            .run_cleanup(|context| context.pause_all("owning host dropped"))
+            .is_err()
+        {
+            self.worker.fence();
+        }
+    }
+}
+impl std::fmt::Debug for CanonicalHost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CanonicalHost").finish_non_exhaustive()
+    }
+}
+pub struct OutputCapture {
+    worker: worker::Worker,
+    id: ArtifactId,
+    finished: bool,
+}
+impl OutputCapture {
+    pub fn write(&self, bytes: &[u8]) -> Result<(), String> {
+        if bytes.len() > vcp_store::artifact::CHUNK_BYTES {
+            return Err("output chunk exceeds bounded capture buffer".into());
+        }
+        let id = self.id.clone();
+        let bytes = bytes.to_vec();
+        self.worker
+            .run(move |context| context.output_chunk(&id, &bytes))
+            .inspect_err(|_| self.worker.fence())
+    }
+    pub fn finish(mut self) -> Result<ArtifactDescriptor, String> {
+        let id = self.id.clone();
+        let result = self
+            .worker
+            .run(move |context| context.finish_output(&id, false));
+        if result.is_ok() {
+            self.finished = true;
+        } else {
+            self.worker.fence();
+        }
+        result
+    }
+}
+impl Drop for OutputCapture {
+    fn drop(&mut self) {
+        if !self.finished {
+            let id = self.id.clone();
+            if self
+                .worker
+                .run_cleanup(move |context| context.finish_output(&id, true))
+                .is_err()
+            {
+                self.worker.fence();
+            }
+        }
+    }
+}
+impl CanonicalHost {
+    pub fn open(config: Config) -> Result<(Self, CanonicalOwner), String> {
+        let worker = worker::Worker::open(config)?;
+        let (runtime, owner) = Lifecycle::new(Duration::from_secs(5));
+        let owner = CanonicalOwner {
+            runtime: Some(owner),
+            worker: worker.clone(),
+        };
+        Ok((
+            Self {
+                runtime,
+                worker,
+                bindings: Arc::new(Mutex::new(HashMap::new())),
+            },
+            owner,
+        ))
+    }
+    pub fn lifecycle(&self) -> &Lifecycle {
+        &self.runtime
+    }
+    pub fn snapshot(&self) -> Result<State, String> {
+        self.worker
+            .run_cleanup(|context| Ok(context.engine.store().state().clone()))
+    }
+    pub fn observe_usage(&self, observation: UsageObservation) -> Result<Settlement, String> {
+        self.worker
+            .run_cleanup(move |context| context.observe_usage(observation))
+    }
+    pub fn unfinished_captures(&self) -> Result<Vec<ArtifactDescriptor>, String> {
+        self.worker
+            .run_cleanup(|context| Ok(context.engine.store().spool().unfinished()?))
+    }
+    pub fn command(
+        &self,
+        command: Command,
+        task: Option<TaskId>,
+        expected: Revision,
+    ) -> Result<CommandReceipt, String> {
+        self.worker
+            .run(move |context| context.command(command, task, expected))
+    }
+    pub fn register(&self, id: ThreadId, binding: ThreadBinding) -> Result<(), String> {
+        let checked = binding.clone();
+        self.worker.run(move |context| {
+            context.validate_binding(&checked)?;
+            Ok(())
+        })?;
+        let mut bindings = self.bindings.lock().map_err(|_| "binding lock poisoned")?;
+        if bindings.contains_key(&id) {
+            return Err("retained thread already bound".into());
+        }
+        bindings.insert(id, binding);
+        Ok(())
+    }
+    fn binding(&self, id: ThreadId) -> Result<ThreadBinding, String> {
+        self.bindings
+            .lock()
+            .map_err(|_| "binding lock poisoned")?
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| "retained thread has no canonical scope".into())
+    }
+    pub fn read_artifact(&self, id: ArtifactId) -> Result<Vec<u8>, String> {
+        self.worker.run_cleanup(move |context| {
+            let mut bytes = Vec::new();
+            vcp_audit::history::History::read_artifact(
+                context.engine.store(),
+                &context.history_access(),
+                &id,
+                &mut bytes,
+            )?;
+            Ok(bytes)
+        })
+    }
+    pub fn project(&self) -> Result<vcp_audit::projection::View, String> {
+        self.worker.run(|context| {
+            let workspace = context.config.workspace.clone();
+            Ok(context.runtime.block_on(vcp_audit::projection::publish(
+                context.engine.store_mut(),
+                &workspace,
+                2,
+            ))?)
+        })
+    }
+    /// Qualification and host adapters share the same full-output capture path.
+    pub fn capture(
+        &self,
+        id: ThreadId,
+        channel: Channel,
+        bytes: Vec<u8>,
+    ) -> Result<ArtifactDescriptor, String> {
+        let binding = self.binding(id)?;
+        self.worker.run(move |context| {
+            context.capture(&binding.scope, channel, &bytes, "retained-output/1")
+        })
+    }
+    pub fn open_output(&self, id: ThreadId, channel: Channel) -> Result<OutputCapture, String> {
+        let binding = self.binding(id)?;
+        let id = self
+            .worker
+            .run(move |context| context.open_output(&binding.scope, channel))?;
+        Ok(OutputCapture {
+            worker: self.worker.clone(),
+            id,
+            finished: false,
+        })
+    }
+    pub fn resume(
+        &self,
+        id: ThreadId,
+        expected: Revision,
+        fingerprint: vcp_domain::verification::Fingerprint,
+    ) -> Result<CommandReceipt, String> {
+        let binding = self.binding(id)?;
+        let view = self
+            .runtime
+            .inspect(id)
+            .map_err(|error| format!("{error:?}"))?;
+        if !view.owner_attached || view.local_hold || view.inherited_hold {
+            return Err("retained owner is not ready for canonical resume".into());
+        }
+        self.worker
+            .run(move |context| context.resume(&binding, expected, fingerprint))
+    }
+}
+impl TurnStartAdmission for CanonicalHost {
+    fn admit_turn_start(&self) -> Option<Box<dyn Send>> {
+        None
+    }
+    fn admit_continuation_start(&self) -> Option<Box<dyn Send>> {
+        None
+    }
+    fn admit_turn_start_for_thread(&self, id: ThreadId) -> Option<Box<dyn Send>> {
+        if self.worker.fenced() {
+            return None;
+        }
+        let binding = self.binding(id).ok()?;
+        self.worker
+            .run(move |context| context.can_start(&binding))
+            .ok()?;
+        self.runtime.admit_turn_start_for_thread(id)
+    }
+    fn admit_continuation_start_for_thread(&self, id: ThreadId) -> Option<Box<dyn Send>> {
+        self.admit_turn_start_for_thread(id)
+    }
+}
+struct ModelPermit {
+    worker: worker::Worker,
+    binding: ThreadBinding,
+    attempt: AttemptId,
+    runtime: Box<dyn HostWorkPermit>,
+    finished: bool,
+}
+impl HostWorkPermit for ModelPermit {
+    fn complete(&mut self) -> Result<(), String> {
+        Err("model completion requires response identity and usage".into())
+    }
+    fn response_capture(&self) -> Option<HostResponseCapture> {
+        let worker = self.worker.clone();
+        let attempt = self.attempt.clone();
+        Some(Arc::new(move |bytes| {
+            for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
+                let bytes = chunk.to_vec();
+                let attempt = attempt.clone();
+                worker
+                    .run(move |context| context.response_chunk(&attempt, &bytes))
+                    .inspect_err(|_| worker.fence())?;
+            }
+            Ok(())
+        }))
+    }
+    fn complete_model_response(
+        &mut self,
+        usage: Option<&TokenUsage>,
+        response_id: &str,
+    ) -> Result<(), String> {
+        let usage = usage.cloned();
+        let response_id = response_id.to_owned();
+        let attempt = self.attempt.clone();
+        let binding = self.binding.clone();
+        self.worker
+            .run(move |context| context.complete(&binding, &attempt, usage, response_id))
+            .inspect_err(|_| self.worker.fence())?;
+        self.runtime.complete()?;
+        self.finished = true;
+        Ok(())
+    }
+}
+impl Drop for ModelPermit {
+    fn drop(&mut self) {
+        if !self.finished {
+            let attempt = self.attempt.clone();
+            let binding = self.binding.clone();
+            if self
+                .worker
+                .run_cleanup(move |context| {
+                    context.unknown(&binding, &attempt, "retained response did not complete")
+                })
+                .is_err()
+            {
+                self.worker.fence();
+            }
+        }
+    }
+}
+impl HostWorkAdmission for CanonicalHost {
+    fn admit_startup(
+        &self,
+        workspace: &Path,
+        resumed: Option<ThreadId>,
+    ) -> Result<Box<dyn Send>, String> {
+        if self.worker.fenced() {
+            return Err("canonical host fenced".into());
+        }
+        self.runtime.admit_startup(workspace, resumed)
+    }
+    fn admit(
+        &self,
+        _thread: ThreadId,
+        _kind: HostWorkKind,
+        _label: &str,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        Err("canonical host requires captured model body or prepared tool authority".into())
+    }
+    fn admit_model(
+        &self,
+        thread: ThreadId,
+        body: &mut serde_json::Value,
+        purpose: HostModelPurpose,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        let mut binding = self.binding(thread)?;
+        match purpose {
+            HostModelPurpose::Compaction => binding.role = RequestRole::Compaction,
+            HostModelPurpose::Memory => {
+                return Err("memory inference requires governed local adapter".into())
+            }
+            HostModelPurpose::Turn => {}
+        }
+        let mut runtime = HostWorkAdmission::admit(
+            &self.runtime,
+            thread,
+            HostWorkKind::Model,
+            "canonical-responses",
+        )?;
+        let input = body.clone();
+        let admitted = binding.clone();
+        let admission = self
+            .worker
+            .run(move |context| context.admit(&admitted, input));
+        let (attempt, prepared) = match admission {
+            Ok(value) => value,
+            Err(error) => {
+                runtime.complete()?;
+                return Err(error);
+            }
+        };
+        *body = prepared;
+        Ok(Box::new(ModelPermit {
+            worker: self.worker.clone(),
+            binding,
+            attempt,
+            runtime,
+            finished: false,
+        }))
+    }
+}

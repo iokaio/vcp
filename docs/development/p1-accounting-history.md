@@ -2,8 +2,10 @@
 
 The second P1 increment adds `src/crates/vcp-budget` and `src/crates/vcp-audit`
 to the retained Cargo workspace. Both use the [canonical foundation](p1-foundation.md).
-They do not send model requests or start a second controller. Retained transport
-integration remains required before P1 completion.
+They do not send model requests or start a second controller. The
+[retained canonical host](p1-retained-host.md) connects actual transport attempts
+and native effects to these libraries; [P1 qualification](../evaluations/p1-completion.md)
+records the integrated acceptance evidence.
 
 ## Qualification
 
@@ -83,5 +85,6 @@ gaps without revealing removed payloads. The reader consumes canonical masks;
 the P5 retention owner still implements user previews, pruning policy and physical
 deletion. This increment does not authorize automatic pruning.
 
-The [qualification report](../evaluations/p1-accounting-history.md) distinguishes
-local library evidence from remaining retained-controller acceptance.
+The [increment report](../evaluations/p1-accounting-history.md) preserves its
+library evidence. [P1 qualification](../evaluations/p1-completion.md) adds the
+retained-controller acceptance and current source identities.

@@ -44,9 +44,9 @@ try{
     try{
         Stage 'contracts' 'cargo' (@("+$Toolchain",'test','-p','vcp-lifecycle','--lib','--tests')+$common+@('--','--test-threads=1'))
         $tests=Get-Content -LiteralPath (Join-Path $directory 'contracts.log') -Raw
-        foreach($count in @(5,3,16)){if($tests -notmatch "test result: ok\. $count passed; 0 failed; 0 ignored;"){throw "Missing expected $count-test contract group"}}
+        foreach($count in @(5,3,4,16)){if($tests -notmatch "test result: ok\. $count passed; 0 failed; 0 ignored;"){throw "Missing expected $count-test contract group"}}
         $rows=[regex]::Matches($tests,'(?m)^test ([^\r\n]+) \.\.\. ok\r?$')
-        if($rows.Count -ne 27){throw 'Expected all 27 native host/port contracts'}
+        if($rows.Count -ne 31){throw 'Expected all 31 native host/port/canonical contracts'}
         foreach($filter in @('contained_spawn_owns_immediate_descendant','rejected_job_assignment_resumes_existing_job_member')){
             Stage $filter 'cargo' (@("+$Toolchain",'test','-p','codex-utils-pty')+$common+@($filter,'--','--test-threads=1'))
             if((Get-Content -LiteralPath (Join-Path $directory ($filter+'.log')) -Raw) -notmatch 'test result: ok\. 1 passed; 0 failed; 0 ignored;'){throw 'Maintenance regression did not execute'}

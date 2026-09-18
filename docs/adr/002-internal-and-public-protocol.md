@@ -23,6 +23,15 @@ Use internal Rust contracts without freezing a public wire schema during P0/P1. 
 
 ## Qualification evidence
 
+P1 selects internal envelope version 1, typed UUID identities, decimal-string
+unsigned counters and a recursively canonicalized whole-envelope digest. Current
+access is checked before receipt lookup; matching durable receipts precede stale
+revision rejection. Bounded pull subscriptions declare snapshot and gap behavior.
+The [foundation guide](../development/p1-foundation.md) specifies these private
+formats and [P1 qualification](../evaluations/p1-completion.md) records native
+interactive/JSONL parity, restart and retained-consumer acceptance. Public wire
+negotiation, SDK generation and transport authentication remain P9 decisions.
+
 E01/E09/R01 cover CLI parity now and API parity later. Test stale answers, duplicate payload mismatch, counters beyond JavaScript precision, slow subscribers and reconnect after commit-before-reply. Record the supported version and enum-evolution rules before advertising an SDK.
 
 Attach exact source/package, fixture, configuration and environment identities, actual commands and pass/fail/not-run outcomes. No linked plan or ADR is itself passing evidence.

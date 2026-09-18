@@ -2,6 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // VCP addition: private host dispatch admission and durable receipt boundary.
 use codex_protocol::ThreadId;
+use std::sync::Arc;
+
+/// VCP: body bytes only; authentication headers never cross this boundary.
+pub type HostResponseCapture = Arc<dyn Fn(&[u8]) -> Result<(), String> + Send + Sync>;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostModelPurpose {
+    Turn,
+    Compaction,
+    Memory,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HostWorkKind {
@@ -12,6 +22,16 @@ pub enum HostWorkKind {
 /// Dropping a permit without a receipt leaves its outcome unknown. Completion
 /// may reconcile while paused, but cannot authorize new work.
 pub trait HostWorkPermit: Send {
+    fn complete_model_response(
+        &mut self,
+        usage: Option<&codex_protocol::protocol::TokenUsage>,
+        _response_id: &str,
+    ) -> Result<(), String> {
+        self.complete_model(usage)
+    }
+    fn response_capture(&self) -> Option<HostResponseCapture> {
+        None
+    }
     fn complete(&mut self) -> Result<(), String>;
     /// VCP: retain provider usage with the same durable dispatch receipt.
     fn complete_model(
@@ -23,6 +43,17 @@ pub trait HostWorkPermit: Send {
 }
 
 pub trait HostWorkAdmission: std::fmt::Debug + Send + Sync {
+    /// VCP: runs for each actual HTTP attempt after request construction. The
+    /// host may insert enforceable output bounds before capturing and admitting
+    /// the exact body. A permit must precede any network dispatch.
+    fn admit_model(
+        &self,
+        thread: ThreadId,
+        _body: &mut serde_json::Value,
+        _purpose: HostModelPurpose,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        self.admit(thread, HostWorkKind::Model, "responses")
+    }
     /// VCP: a host ceiling applies even to tools requested without advertisement.
     fn admit_tool(
         &self,

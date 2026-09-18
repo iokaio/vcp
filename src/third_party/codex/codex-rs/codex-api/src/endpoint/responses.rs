@@ -1,3 +1,4 @@
+// VCP modification: capture observed body bytes before SSE parsing; host admission supplies the exact request body.
 use crate::auth::SharedAuthProvider;
 use crate::common::ResponseStream;
 use crate::common::ResponsesApiRequest;
@@ -15,6 +16,7 @@ use codex_client::HttpTransport;
 use codex_client::RequestCompression;
 use codex_client::RequestTelemetry;
 use codex_protocol::protocol::SessionSource;
+use futures::StreamExt;
 use http::HeaderMap;
 use http::HeaderValue;
 use http::Method;
@@ -23,9 +25,12 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use tracing::instrument;
 
+type ResponseCapture = Arc<dyn Fn(&[u8]) -> Result<(), String> + Send + Sync>;
+
 pub struct ResponsesClient<T: HttpTransport> {
     session: EndpointSession<T>,
     sse_telemetry: Option<Arc<dyn SseTelemetry>>,
+    response_capture: Option<ResponseCapture>,
 }
 
 #[derive(Default)]
@@ -43,6 +48,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
         Self {
             session: EndpointSession::new(transport, provider, auth),
             sse_telemetry: None,
+            response_capture: None,
         }
     }
 
@@ -54,7 +60,13 @@ impl<T: HttpTransport> ResponsesClient<T> {
         Self {
             session: self.session.with_request_telemetry(request),
             sse_telemetry: sse,
+            response_capture: self.response_capture,
         }
+    }
+
+    pub fn with_response_capture(mut self, capture: Option<ResponseCapture>) -> Self {
+        self.response_capture = capture;
+        self
     }
 
     #[instrument(
@@ -72,6 +84,16 @@ impl<T: HttpTransport> ResponsesClient<T> {
         request: ResponsesApiRequest,
         options: ResponsesOptions,
     ) -> Result<ResponseStream, ApiError> {
+        let body = serde_json::to_value(request)
+            .map_err(|e| ApiError::Stream(format!("failed to encode responses request: {e}")))?;
+        self.stream_body(body, options).await
+    }
+
+    pub async fn stream_body(
+        &self,
+        body: Value,
+        options: ResponsesOptions,
+    ) -> Result<ResponseStream, ApiError> {
         let ResponsesOptions {
             session_id,
             thread_id,
@@ -80,7 +102,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
             compression,
             turn_state,
         } = options;
-        let body = EncodedJsonBody::encode(&request)
+        let body = EncodedJsonBody::encode(&body)
             .map_err(|e| ApiError::Stream(format!("failed to encode responses request: {e}")))?;
 
         let mut headers = extra_headers;
@@ -132,7 +154,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
             Compression::Zstd => RequestCompression::Zstd,
         };
 
-        let stream_response = self
+        let mut stream_response = self
             .session
             .stream_encoded_json_with(
                 Method::POST,
@@ -148,6 +170,18 @@ impl<T: HttpTransport> ResponsesClient<T> {
                 },
             )
             .await?;
+
+        if let Some(capture) = self.response_capture.clone() {
+            stream_response.bytes = stream_response
+                .bytes
+                .map(move |item| {
+                    item.and_then(|bytes| {
+                        capture(&bytes).map_err(codex_client::TransportError::Build)?;
+                        Ok(bytes)
+                    })
+                })
+                .boxed();
+        }
 
         Ok(spawn_response_stream(
             stream_response,

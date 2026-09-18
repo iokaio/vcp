@@ -1,0 +1,916 @@
+// SPDX-License-Identifier: Apache-2.0
+use codex_core::TurnInputRequest;
+use codex_extension_api::{AllowedTools, ExtensionRegistryBuilder};
+use codex_protocol::{protocol::EventMsg, user_input::UserInput};
+use core_test_support::{
+    responses::*,
+    test_codex::{test_codex, TestCodex},
+    wait_for_event,
+};
+use std::{sync::Arc, time::Duration};
+use vcp_domain::verification::Fingerprint;
+use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, task::*, workspace::*};
+use vcp_lifecycle::{
+    foundation::{CanonicalHost, Config, ThreadBinding},
+    integration::configure_fixture_provider,
+};
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fresh_process_history_preserves_actual_unknown_process_paused_child_and_late_charge() {
+    use vcp_domain::effect::EffectState;
+    use vcp_store::contract::{CanonicalStore, Mutation, Transaction};
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = temporary.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let config = config(&temporary.path().join("canonical"), &workspace, backend);
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let binding = task(&host, &config, config.root_task.clone(), None);
+        let server = start_mock_server().await;
+        let observed = mount_sse_sequence(
+            &server,
+            vec![sse(vec![
+                ev_assistant_message("history", "Retain observations."),
+                ev_completed_with_tokens("late-provider-response", 7),
+            ])],
+        )
+        .await;
+        let mut registry = ExtensionRegistryBuilder::new();
+        registry.turn_start_admission(Arc::new(host.clone()));
+        registry.work_admission(Arc::new(host.clone()));
+        let starter = host.clone();
+        let cwd = workspace.clone();
+        let model = config.price.model.clone();
+        let test = test_codex()
+            .with_extensions(Arc::new(registry.build()))
+            .with_auth(codex_login::CodexAuth::from_api_key(
+                "public-synthetic-p1-token",
+            ))
+            .with_allowed_tools(AllowedTools(vec![]))
+            .with_config(move |config| {
+                config.cwd = cwd.try_into().unwrap();
+                config.model = Some(model.clone());
+                configure_fixture_provider(config);
+                starter
+                    .lifecycle()
+                    .authorize_startup(config.cwd.as_path(), None)
+                    .unwrap();
+            })
+            .build_with_auto_env(&server)
+            .await
+            .unwrap();
+        let id = host.lifecycle().attach_root(test.codex.clone()).unwrap();
+        host.register(id, binding.clone()).unwrap();
+        turn(&test).await;
+        let child = task(
+            &host,
+            &config,
+            TaskId::new(),
+            Some(config.root_task.clone()),
+        );
+        host.command(
+            Command::Transition {
+                next: TaskState::Paused,
+                reason: "child intentionally held".into(),
+                verification: None,
+            },
+            Some(child.scope.task.clone()),
+            Revision::new(1),
+        )
+        .unwrap();
+        let process = host
+            .spawn_process(
+                id,
+                Revision::new(1),
+                std::path::Path::new(env!("CARGO_BIN_EXE_vcp-process-fixture")),
+                &["tree".into(), workspace.as_os_str().into()],
+                &workspace,
+                &std::collections::BTreeMap::new(),
+                128,
+            )
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !workspace.join("child-ready").exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let marker = std::fs::read(workspace.join("child-ready")).unwrap();
+        drop(process);
+        host.command(
+            Command::Transition {
+                next: TaskState::Paused,
+                reason: "retain unknown process before reconciliation".into(),
+                verification: None,
+            },
+            Some(config.root_task.clone()),
+            Revision::new(1),
+        )
+        .unwrap();
+        let state = host.snapshot().unwrap();
+        let attempt = state
+            .records
+            .values()
+            .find(|row| row.collection == Collection::Attempt)
+            .unwrap()
+            .decode::<Attempt>()
+            .unwrap();
+        let raw = host
+            .capture(
+                id,
+                Channel::Evidence,
+                b"{\"late_actual_micros\":120}".to_vec(),
+            )
+            .unwrap();
+        host.observe_usage(UsageObservation {
+            id: ObservationId::new(),
+            scope: binding.scope.clone(),
+            attempt: attempt.id,
+            provider_request: "late-provider-response".into(),
+            mode: UsageMode::Cumulative {
+                version: Units::new(2),
+            },
+            amount: Money {
+                currency: config.cap.currency.clone(),
+                micros: Micros::new(120),
+            },
+            final_usage: true,
+            raw: raw.spec.id,
+            correction: None,
+        })
+        .unwrap();
+        let live = host.project().unwrap();
+        assert_eq!(live.tasks[&child.scope.task].state, TaskState::Paused);
+        assert_eq!(live.ledgers[&config.root_task].settled.get(), 120);
+        assert!(live
+            .effects
+            .values()
+            .any(|effect| effect.state == EffectState::OutcomeUnknown));
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+        drop(test);
+        drop(host);
+        let mut store = vcp_store::Store::open(&config.canonical_root, backend, &[])
+            .await
+            .unwrap();
+        let mutations = store
+            .state()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Projection)
+            .map(|row| Mutation::DropProjection {
+                id: row.id.clone(),
+                expected: row.revision,
+            })
+            .collect();
+        let tx = Transaction {
+            id: TransactionId::new(),
+            expected_watermark: store.state().watermark,
+            mutations,
+            events: vec![],
+            command: None,
+        };
+        store.transact(tx).await.unwrap();
+        drop(store);
+        let output = temporary.path().join("rebuilt.json");
+        let result =
+            std::process::Command::new(env!("CARGO_BIN_EXE_vcp-canonical-rebuild-fixture"))
+                .arg(&config.canonical_root)
+                .arg(if backend == BackendKind::Sqlite {
+                    "sqlite"
+                } else {
+                    "files"
+                })
+                .arg(config.workspace.as_str())
+                .arg(live.watermark.get().to_string())
+                .arg(&output)
+                .output()
+                .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let rebuilt: vcp_audit::projection::View =
+            serde_json::from_slice(&std::fs::read(output).unwrap()).unwrap();
+        assert_eq!(rebuilt, live);
+        assert_eq!(observed.requests().len(), 1);
+        assert_eq!(
+            std::fs::read(workspace.join("child-ready")).unwrap(),
+            marker
+        );
+    }
+}
+use vcp_protocol::command::Command;
+use vcp_store::{contract::Collection, BackendKind};
+fn config(root: &std::path::Path, workspace: &std::path::Path, backend: BackendKind) -> Config {
+    let currency: Currency = "USD".to_owned().try_into().unwrap();
+    Config {
+        canonical_root: root.into(),
+        backend,
+        workspace: WorkspaceId::parse("canonical-workspace").unwrap(),
+        session: SessionId::parse("canonical-session").unwrap(),
+        binding: Binding {
+            host: HostId::parse("native-fixture").unwrap(),
+            root: workspace.to_string_lossy().into_owned(),
+            repository: "synthetic".into(),
+            worktree: "main".into(),
+            revision: Revision::ZERO,
+        },
+        actor: ActorId::parse("fixture-owner").unwrap(),
+        root_task: TaskId::parse("root-task").unwrap(),
+        cap: Money {
+            currency: currency.clone(),
+            micros: Micros::new(1000),
+        },
+        protected: Micros::ZERO,
+        price: PriceSnapshot {
+            id: "a".repeat(64),
+            provider: "scripted-loopback".into(),
+            model: "gpt-5.1".into(),
+            currency,
+            capability: "b".repeat(64),
+            valid_until: Timestamp::new(u64::MAX),
+            rates: [
+                ChargeCategory::Input,
+                ChargeCategory::Output,
+                ChargeCategory::CacheRead,
+                ChargeCategory::CacheWrite,
+                ChargeCategory::Request,
+                ChargeCategory::ProviderTool,
+            ]
+            .into_iter()
+            .map(|kind| {
+                (
+                    kind,
+                    Rate {
+                        micros: Micros::new(if kind == ChargeCategory::Request {
+                            100
+                        } else {
+                            0
+                        }),
+                        per_units: Units::new(1),
+                    },
+                )
+            })
+            .collect(),
+        },
+        input_ceiling: Units::new(500_000),
+        output_ceiling: Units::new(1024),
+        artifact_limit: ByteCount::new(vcp_store::artifact::DEFAULT_ARTIFACT_LIMIT),
+    }
+}
+fn task(
+    host: &CanonicalHost,
+    config: &Config,
+    id: TaskId,
+    parent: Option<TaskId>,
+) -> ThreadBinding {
+    host.command(
+        Command::CreateTask {
+            root: config.root_task.clone(),
+            parent,
+            fork_origin: None,
+            objective: Objective {
+                text: "Observe retained request and response".into(),
+                constraints: vec![],
+                acceptance: vec!["independent transport agrees".into()],
+                source: EventId::new(),
+                steering: SteeringRevision::ZERO,
+            },
+            fingerprint: Fingerprint {
+                repository: "a".repeat(64),
+                buffers: "b".repeat(64),
+                environment: "c".repeat(64),
+            },
+            editing: false,
+            required_checks: vec![],
+        },
+        Some(id.clone()),
+        Revision::ZERO,
+    )
+    .unwrap();
+    host.command(
+        Command::Transition {
+            next: TaskState::Running,
+            reason: "explicit fixture start".into(),
+            verification: None,
+        },
+        Some(id.clone()),
+        Revision::ZERO,
+    )
+    .unwrap();
+    ThreadBinding {
+        scope: Scope {
+            workspace: config.workspace.clone(),
+            session: config.session.clone(),
+            task: id,
+        },
+        agent: AgentId::new(),
+        role: RequestRole::Main,
+    }
+}
+async fn turn(test: &TestCodex) {
+    test.codex
+        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+            text: "Run the synthetic request.".into(),
+            text_elements: vec![],
+        }]))
+        .await
+        .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        wait_for_event(&test.codex, |event| {
+            matches!(event, EventMsg::TurnComplete(_))
+        }),
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn root_helper_compaction_and_child_transport_require_one_shared_reservation() {
+    use codex_core::{StartThreadOptions, TurnStartOptions};
+    use codex_protocol::protocol::{Op, SessionSource, SubAgentSource};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    };
+    use wiremock::{
+        matchers::{method, path},
+        Mock, ResponseTemplate,
+    };
+    let temporary = tempfile::tempdir().unwrap();
+    let workspace = temporary.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let workspace = workspace.canonicalize().unwrap();
+    let mut config = config(
+        &temporary.path().join("canonical"),
+        &workspace,
+        BackendKind::Sqlite,
+    );
+    config.cap.micros = Micros::new(500);
+    let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+    let root_binding = task(&host, &config, config.root_task.clone(), None);
+    let server = start_mock_server().await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(Mutex::new(Vec::<AttemptId>::new()));
+    let inspect = host.clone();
+    let count = calls.clone();
+    let ids = observed.clone();
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(move |request: &wiremock::Request| {
+            // Independent HTTP arrival observer: admission and send intent must
+            // already be visible before the scripted provider emits any response.
+            let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+            let digest = vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&body).unwrap());
+            let state = inspect.snapshot().unwrap();
+            let attempt = state
+                .records
+                .values()
+                .filter(|record| record.collection == Collection::Attempt)
+                .map(|record| record.decode::<Attempt>().unwrap())
+                .find(|attempt| {
+                    attempt.request_digest == digest && attempt.phase == ReservationState::Submitted
+                })
+                .expect("HTTP request lacks durable reservation/send intent");
+            assert!(attempt.send_intent.is_some());
+            ids.lock().unwrap().push(attempt.id);
+            let index = count.fetch_add(1, Ordering::SeqCst);
+            assert!(index < 5, "unaffordable HTTP request escaped host");
+            let response_id = format!("observed-{index}");
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse(vec![
+                    ev_response_created(&response_id),
+                    ev_assistant_message("summary", "Synthetic retained summary."),
+                    ev_completed_with_tokens(&response_id, 7),
+                ]))
+        })
+        .mount(&server)
+        .await;
+    let mut registry = ExtensionRegistryBuilder::new();
+    registry.turn_start_admission(Arc::new(host.clone()));
+    registry.work_admission(Arc::new(host.clone()));
+    let starter = host.clone();
+    let cwd = workspace.clone();
+    let model = config.price.model.clone();
+    let test = test_codex()
+        .with_extensions(Arc::new(registry.build()))
+        .with_auth(codex_login::CodexAuth::from_api_key(
+            "public-synthetic-p1-token",
+        ))
+        .with_allowed_tools(AllowedTools(vec![]))
+        .with_config(move |config| {
+            config.cwd = cwd.try_into().unwrap();
+            config.model = Some(model.clone());
+            configure_fixture_provider(config);
+            config.model_provider.experimental_bearer_token =
+                Some("public-synthetic-p1-secret-header".into());
+            starter
+                .lifecycle()
+                .authorize_startup(config.cwd.as_path(), None)
+                .unwrap();
+        })
+        .build_with_auto_env(&server)
+        .await
+        .unwrap();
+    let root = host.lifecycle().attach_root(test.codex.clone()).unwrap();
+    host.register(root, root_binding.clone()).unwrap();
+    turn(&test).await;
+    test.codex.submit(Op::Compact).await.unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        wait_for_event(&test.codex, |event| {
+            matches!(event, EventMsg::TurnComplete(_))
+        }),
+    )
+    .await
+    .unwrap();
+    let mut children = Vec::new();
+    for role in [RequestRole::Helper, RequestRole::Child] {
+        let mut binding = task(
+            &host,
+            &config,
+            TaskId::new(),
+            Some(config.root_task.clone()),
+        );
+        binding.role = role;
+        host.lifecycle()
+            .authorize_startup(&workspace, None)
+            .unwrap();
+        let mut extension_init = codex_extension_api::ExtensionDataInit::default();
+        extension_init.insert(AllowedTools(vec![]));
+        let child = test
+            .thread_manager
+            .start_thread(StartThreadOptions {
+                thread_extension_init: extension_init,
+                session_source: Some(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+                    parent_thread_id: root,
+                    depth: 1,
+                    agent_path: None,
+                    agent_nickname: None,
+                    agent_role: None,
+                })),
+                environments: Some(test.codex.environment_selections().await),
+                ..StartThreadOptions::new(test.config.clone())
+            })
+            .await
+            .unwrap()
+            .thread;
+        let id = host
+            .lifecycle()
+            .attach_child(
+                root,
+                &host.lifecycle().inspect(root).unwrap().revision,
+                child.clone(),
+            )
+            .unwrap();
+        host.register(id, binding).unwrap();
+        let input = TurnInputRequest::user_input(vec![UserInput::Text {
+            text: "Synthetic child request.".into(),
+            text_elements: vec![],
+        }])
+        .on_start(TurnStartOptions {
+            parent_turn_id: Some("owner-fixture".into()),
+            ..Default::default()
+        });
+        child.start_or_steer_turn(input).await.unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            wait_for_event(&child, |event| {
+                if let EventMsg::Error(error) = event {
+                    panic!("child error: {error:?}");
+                }
+                matches!(event, EventMsg::TurnComplete(_))
+            }),
+        )
+        .await
+        .unwrap();
+        children.push(child);
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
+    let state = host.snapshot().unwrap();
+    let roles: Vec<_> = state
+        .records
+        .values()
+        .filter(|record| record.collection == Collection::Attempt)
+        .map(|record| record.decode::<Attempt>().unwrap().role)
+        .collect();
+    for role in [
+        RequestRole::Main,
+        RequestRole::Compaction,
+        RequestRole::Helper,
+        RequestRole::Child,
+    ] {
+        assert!(roles.contains(&role), "missing {role:?}");
+    }
+    // One request remains affordable. Actual retained entry points race; the
+    // provider observer fails immediately if an unreserved request arrives.
+    let barrier = Arc::new(tokio::sync::Barrier::new(3));
+    let mut jobs = Vec::new();
+    for thread in [test.codex.clone(), children[0].clone(), children[1].clone()] {
+        let barrier = barrier.clone();
+        jobs.push(tokio::spawn(async move {
+            barrier.wait().await;
+            thread
+                .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+                    text: "Compete for last request.".into(),
+                    text_elements: vec![],
+                }]))
+                .await
+                .unwrap();
+            tokio::time::timeout(
+                Duration::from_secs(30),
+                wait_for_event(&thread, |event| matches!(event, EventMsg::TurnComplete(_))),
+            )
+            .await
+            .unwrap();
+        }));
+    }
+    for job in jobs {
+        job.await.unwrap();
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 5);
+    let state = host.snapshot().unwrap();
+    assert_eq!(
+        state
+            .records
+            .values()
+            .filter(|record| record.collection == Collection::Attempt)
+            .count(),
+        5
+    );
+    assert_eq!(
+        vcp_budget::ledger(&state, &root_binding.scope)
+            .unwrap()
+            .settled
+            .get(),
+        500
+    );
+    let ids = observed.lock().unwrap();
+    let unique: std::collections::BTreeSet<_> = ids.iter().collect();
+    assert_eq!(unique.len(), 5);
+    drop(ids);
+    owner.close().await.unwrap();
+    for child in children {
+        child.shutdown_and_wait().await.unwrap();
+    }
+    test.codex.shutdown_and_wait().await.unwrap();
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn actual_retained_http_body_and_full_response_match_canonical_admission() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = temporary.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let config = config(&temporary.path().join("canonical"), &workspace, backend);
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let binding = task(&host, &config, config.root_task.clone(), None);
+        let server = start_mock_server().await;
+        let full = "observed-model-output-".repeat(10_000);
+        let response = sse(vec![
+            ev_response_created("canonical-response"),
+            ev_assistant_message("full-output", &full),
+            ev_completed_with_tokens("canonical-response", 7),
+        ]);
+        let observed = mount_sse_sequence(
+            &server,
+            vec![
+                response.clone(),
+                sse(vec![
+                    ev_assistant_message("resumed", "Explicit new work after reopen."),
+                    ev_completed_with_tokens("resumed", 7),
+                ]),
+            ],
+        )
+        .await;
+        let mut registry = ExtensionRegistryBuilder::new();
+        registry.turn_start_admission(Arc::new(host.clone()));
+        registry.work_admission(Arc::new(host.clone()));
+        let starter = host.clone();
+        let cwd = workspace.clone();
+        let model = config.price.model.clone();
+        let test = test_codex()
+            .with_extensions(Arc::new(registry.build()))
+            .with_auth(codex_login::CodexAuth::from_api_key(
+                "public-synthetic-p1-secret-header",
+            ))
+            .with_allowed_tools(AllowedTools(vec![]))
+            .with_config(move |config| {
+                config.cwd = cwd.try_into().unwrap();
+                config.model = Some(model.clone());
+                configure_fixture_provider(config);
+                config.model_provider.experimental_bearer_token =
+                    Some("public-synthetic-p1-secret-header".into());
+                starter
+                    .lifecycle()
+                    .authorize_startup(config.cwd.as_path(), None)
+                    .unwrap();
+            })
+            .build_with_auto_env(&server)
+            .await
+            .unwrap();
+        let id = host.lifecycle().attach_root(test.codex.clone()).unwrap();
+        host.register(id, binding.clone()).unwrap();
+        turn(&test).await;
+        let requests = observed.requests();
+        assert_eq!(requests.len(), 1);
+        let body = requests[0].body_json();
+        assert_eq!(body["max_output_tokens"], 1024);
+        assert_eq!(
+            requests[0].header("authorization").as_deref(),
+            Some("Bearer public-synthetic-p1-secret-header")
+        );
+        let state = host.snapshot().unwrap();
+        let attempts: Vec<Attempt> = state
+            .records
+            .values()
+            .filter(|record| record.collection == Collection::Attempt)
+            .map(|record| record.decode().unwrap())
+            .collect();
+        assert_eq!(attempts.len(), requests.len());
+        assert_eq!(attempts[0].phase, ReservationState::Settled);
+        assert_eq!(attempts[0].charged.get(), 100);
+        assert!(attempts[0].send_intent.is_some());
+        let captured = host.read_artifact(attempts[0].request.clone()).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&captured).unwrap(),
+            body
+        );
+        assert!(!String::from_utf8_lossy(&captured).contains("public-synthetic-p1-secret-header"));
+        let responses: Vec<ArtifactDescriptor> = state
+            .records
+            .values()
+            .filter(|record| record.collection == Collection::Artifact)
+            .map(|record| record.decode::<ArtifactDescriptor>().unwrap())
+            .filter(|artifact| artifact.spec.channel == Channel::Response)
+            .collect();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(
+            host.read_artifact(responses[0].spec.id.clone()).unwrap(),
+            response.as_bytes()
+        );
+        assert!(responses[0].length.get() > 100_000);
+        #[cfg(windows)]
+        {
+            let process = host
+                .spawn_process(
+                    id,
+                    Revision::new(1),
+                    std::path::Path::new(env!("CARGO_BIN_EXE_vcp-process-fixture")),
+                    &["flood".into(), workspace.as_os_str().into()],
+                    &workspace,
+                    &std::collections::BTreeMap::new(),
+                    1024,
+                )
+                .unwrap();
+            let output = tokio::time::timeout(Duration::from_secs(30), process.wait())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(output.exit_code, Some(0));
+            assert_eq!(output.stdout_tail, vec![b'x'; 1024]);
+            assert_eq!(output.stderr_tail, vec![b'x'; 1024]);
+            for artifact in [output.stdout, output.stderr] {
+                assert_eq!(artifact.length.get(), 2 * 1024 * 1024);
+                assert_eq!(
+                    host.read_artifact(artifact.spec.id).unwrap(),
+                    vec![b'x'; 2 * 1024 * 1024]
+                );
+            }
+        }
+        let view = host.project().unwrap();
+        assert_eq!(view.ledgers[&config.root_task].settled.get(), 100);
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+        drop(test);
+        drop(host);
+        let (restored, restored_owner) = CanonicalHost::open(config.clone()).unwrap();
+        let state = restored.snapshot().unwrap();
+        let root: Task = state
+            .record(
+                Collection::Task,
+                config.root_task.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(root.state, TaskState::Paused);
+        assert_eq!(
+            vcp_budget::ledger(&state, &binding.scope)
+                .unwrap()
+                .settled
+                .get(),
+            100
+        );
+        assert_eq!(observed.requests().len(), 1);
+        let mut registry = ExtensionRegistryBuilder::new();
+        registry.turn_start_admission(Arc::new(restored.clone()));
+        registry.work_admission(Arc::new(restored.clone()));
+        let starter = restored.clone();
+        let cwd = workspace.clone();
+        let model = config.price.model.clone();
+        let reopened = test_codex()
+            .with_extensions(Arc::new(registry.build()))
+            .with_auth(codex_login::CodexAuth::from_api_key(
+                "public-synthetic-p1-token",
+            ))
+            .with_allowed_tools(AllowedTools(vec![]))
+            .with_config(move |config| {
+                config.cwd = cwd.try_into().unwrap();
+                config.model = Some(model.clone());
+                configure_fixture_provider(config);
+                starter
+                    .lifecycle()
+                    .authorize_startup(config.cwd.as_path(), None)
+                    .unwrap();
+            })
+            .build_with_auto_env(&server)
+            .await
+            .unwrap();
+        let id = restored
+            .lifecycle()
+            .attach_root(reopened.codex.clone())
+            .unwrap();
+        restored.register(id, binding.clone()).unwrap();
+        assert!(matches!(
+            reopened
+                .codex
+                .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+                    text: "not yet authorized to resume".into(),
+                    text_elements: vec![]
+                }]))
+                .await
+                .unwrap(),
+            codex_core::TurnInputSubmission::NotSubmitted { .. }
+        ));
+        let mut stale = root.fingerprint.clone();
+        stale.repository = "d".repeat(64);
+        assert!(restored.resume(id, root.revision, stale).is_err());
+        restored
+            .resume(id, root.revision, root.fingerprint)
+            .unwrap();
+        turn(&reopened).await;
+        assert_eq!(observed.requests().len(), 2);
+        assert_eq!(
+            vcp_budget::ledger(&restored.snapshot().unwrap(), &binding.scope)
+                .unwrap()
+                .settled
+                .get(),
+            200
+        );
+        restored_owner.close().await.unwrap();
+        reopened.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn real_capture_capacity_failure_fences_transport_and_preserves_exact_prefix() {
+    for request_failure in [true, false] {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = temporary.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let mut config = config(
+            &temporary.path().join("canonical"),
+            &workspace,
+            BackendKind::Files,
+        );
+        config.artifact_limit = ByteCount::new(if request_failure { 1 } else { 65_536 });
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let binding = task(&host, &config, config.root_task.clone(), None);
+        let server = start_mock_server().await;
+        let full = "capacity-failure-output-".repeat(20_000);
+        let response = sse(vec![
+            ev_response_created("interrupted"),
+            ev_assistant_message("large", &full),
+            ev_completed_with_tokens("interrupted", 7),
+        ]);
+        let observed = if request_failure {
+            mount_sse_once(&server, response.clone()).await
+        } else {
+            mount_sse_sequence(&server, vec![response.clone()]).await
+        };
+        let mut registry = ExtensionRegistryBuilder::new();
+        registry.turn_start_admission(Arc::new(host.clone()));
+        registry.work_admission(Arc::new(host.clone()));
+        let starter = host.clone();
+        let cwd = workspace.clone();
+        let model = config.price.model.clone();
+        let test = test_codex()
+            .with_extensions(Arc::new(registry.build()))
+            .with_auth(codex_login::CodexAuth::from_api_key(
+                "public-synthetic-capacity-token",
+            ))
+            .with_allowed_tools(AllowedTools(vec![]))
+            .with_config(move |config| {
+                config.cwd = cwd.try_into().unwrap();
+                config.model = Some(model.clone());
+                configure_fixture_provider(config);
+                config.model_provider.experimental_bearer_token =
+                    Some("public-synthetic-p1-secret-header".into());
+                starter
+                    .lifecycle()
+                    .authorize_startup(config.cwd.as_path(), None)
+                    .unwrap();
+            })
+            .build_with_auto_env(&server)
+            .await
+            .unwrap();
+        let id = host.lifecycle().attach_root(test.codex.clone()).unwrap();
+        host.register(id, binding.clone()).unwrap();
+        turn(&test).await;
+        let state = host.snapshot().unwrap();
+        let root: Task = state
+            .record(
+                Collection::Task,
+                config.root_task.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(root.state, TaskState::Paused);
+        assert_eq!(observed.requests().len(), usize::from(!request_failure));
+        assert!(matches!(
+            test.codex
+                .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+                    text: "must remain fenced".into(),
+                    text_elements: vec![]
+                }]))
+                .await
+                .unwrap(),
+            codex_core::TurnInputSubmission::NotSubmitted { .. }
+        ));
+        if request_failure {
+            assert_eq!(
+                state
+                    .records
+                    .values()
+                    .filter(|record| record.collection == Collection::Attempt)
+                    .count(),
+                0
+            );
+            let pending = host.unfinished_captures().unwrap();
+            assert_eq!(pending.len(), 1);
+            assert_eq!(pending[0].length.get(), 0);
+        } else {
+            let attempt = state
+                .records
+                .values()
+                .find(|record| record.collection == Collection::Attempt)
+                .unwrap()
+                .decode::<Attempt>()
+                .unwrap();
+            assert_eq!(attempt.phase, ReservationState::ReconciliationPending);
+            assert_eq!(
+                vcp_budget::ledger(&state, &binding.scope)
+                    .unwrap()
+                    .unresolved
+                    .get(),
+                100
+            );
+            let response_artifact = state
+                .records
+                .values()
+                .filter(|record| record.collection == Collection::Artifact)
+                .map(|record| record.decode::<ArtifactDescriptor>().unwrap())
+                .find(|artifact| artifact.spec.channel == Channel::Response)
+                .unwrap();
+            assert_eq!(response_artifact.state, CaptureState::Aborted);
+            assert!(response_artifact
+                .spec
+                .omissions
+                .contains(&Omission::CaptureFailure));
+            let retained = host.read_artifact(response_artifact.spec.id).unwrap();
+            assert!(retained.len() <= 65_536);
+            assert!(response.as_bytes().starts_with(&retained));
+        }
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+        drop(test);
+        drop(host);
+        let (restored, restored_owner) = CanonicalHost::open(config.clone()).unwrap();
+        let root: Task = restored
+            .snapshot()
+            .unwrap()
+            .record(
+                Collection::Task,
+                config.root_task.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(root.state, TaskState::Paused);
+        assert_eq!(observed.requests().len(), usize::from(!request_failure));
+        restored_owner.close().await.unwrap();
+    }
+}
