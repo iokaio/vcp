@@ -119,6 +119,10 @@
     {
       "path": "src/third_party/patches/codex/0022-p3-cli-workspace.patch",
       "sha256": "e211bcc809d37f91b5ba9118b701dfefa434c1f77944257a707766c97961c894"
+    },
+    {
+      "path": "src/third_party/patches/codex/0023-p3-inspection-workspace.patch",
+      "sha256": "7a20c3608e87f2f15c210f279034e3beb955ba380a660c16bdbaba1effab2596"
     }
   ],
   "licenses": [

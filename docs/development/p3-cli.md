@@ -241,3 +241,6 @@ Completion evidence on native Windows with Rust 1.98.1 and Node 24.21.0:
 P3-02 terminal interaction, P3-03 full paged inspectors and P3-04 expanded workspace
 continuation remain separate work items. Qualification uses synthetic loopback
 responses; it is not a live paid-provider conformance claim or release packaging.
+
+P3-03 subsequently completed its [common paged evidence inspectors](p3-inspection.md),
+including on-demand exact captured bytes and live-owner query delivery.

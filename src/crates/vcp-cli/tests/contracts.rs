@@ -20,6 +20,20 @@ fn malformed_commands_never_produce_typed_inputs() {
         vec!["vcp", "tasks", "pause", "../task"],
         vec!["vcp", "inspect", "task", "--view", "invented"],
         vec!["vcp", "inspect", "../task", "--view", "costs"],
+        vec!["vcp", "inspect", "task", "--view", "chain", "--limit", "0"],
+        vec![
+            "vcp", "inspect", "task", "--view", "chain", "--limit", "129",
+        ],
+        vec![
+            "vcp", "inspect", "task", "--view", "prompts", "--offset", "0",
+        ],
+        vec![
+            "vcp", "inspect", "task", "--view", "prompts", "--offset", "0", "--length", "65537",
+        ],
+        vec![
+            "vcp", "inspect", "task", "--view", "prompts", "--offset", "0", "--length", "1",
+            "--cursor", "{}",
+        ],
         vec!["vcp", "run", "text", "--format", "json"],
     ] {
         assert!(Cli::try_parse_from(args.clone()).is_err(), "{args:?}");

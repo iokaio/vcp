@@ -1,6 +1,6 @@
 # 07 — Interactive CLI, structured output and inspectors
 
-Status: P3-01 complete; P3-02 through P3-04 planned. Owns P3-01 through P3-04. Begin after P2 verification/recovery/continuity. Memory/history/pruning and vault UI extensions are owned by segments 09–11, not duplicate work here.
+Status: P3-01 and P3-03 common inspectors complete; P3-02 and P3-04 planned. Owns P3-01 through P3-04. Begin after P2 verification/recovery/continuity. Memory/history/pruning and vault UI extensions are owned by segments 09–11, not duplicate work here.
 
 ## Implementation references
 
@@ -96,6 +96,8 @@ or reconnect. Retain raw evidence while rendering sanitized text.
 Tests use a pseudo-console where available plus actual Windows Terminal/manual cases for close and keyboard behavior. Assert meaningful event attribution and input responsiveness with bounded queues; avoid snapshots of incidental timestamps or exact model wording.
 
 ## P3-03 — Evidence inspectors
+
+Implemented common navigation and existing-state views: [qualification and limits](../development/p3-inspection.md). Memory search/evidence and retention UI remain with their named later owners.
 
 Implement query-to-view adapters for context manifests, actual serialized prompts, output artifacts, routing decisions/exclusions, policy origins, tool receipts, known/unknown cost, verification and canonical memory references. Show unavailable/redacted/truncated ranges explicitly. Page large results and load full content on demand rather than duplicating whole transcripts in terminal memory.
 

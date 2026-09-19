@@ -264,6 +264,18 @@ impl CanonicalHost {
             .cloned()
             .ok_or_else(|| "retained thread has no canonical scope".into())
     }
+    pub fn inspect(
+        &self,
+        query: vcp_audit::inspection::InspectionQuery,
+    ) -> Result<vcp_audit::inspection::InspectionPage, String> {
+        self.worker.run_cleanup(move |context| {
+            Ok(vcp_audit::inspection::inspect(
+                context.engine.store(),
+                &context.history_access(),
+                &query,
+            )?)
+        })
+    }
     pub fn read_artifact(&self, id: ArtifactId) -> Result<Vec<u8>, String> {
         self.worker.run_cleanup(move |context| {
             let mut bytes = Vec::new();

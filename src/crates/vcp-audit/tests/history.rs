@@ -102,7 +102,9 @@ async fn capture(engine: &mut Engine<Store>, id: &TaskId, bytes: &[u8]) -> Artif
         omissions: vec![],
     };
     let mut writer = engine.store().spool().create(spec).unwrap();
-    writer.write_chunk(bytes).unwrap();
+    for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
+        writer.write_chunk(chunk).unwrap();
+    }
     let captured = writer.finalize().unwrap();
     drop(writer);
     issue(
@@ -674,6 +676,21 @@ async fn retention_masks_invalidate_old_cursors_and_prevent_historical_artifact_
         ),
         Err(Error::Removed)
     ));
+    let query = vcp_audit::inspection::InspectionQuery {
+        id: fixture.request.spec.id.to_string(),
+        view: vcp_audit::inspection::View::Prompts,
+        limit: 2,
+        cursor: None,
+        range: Some(vcp_audit::inspection::RangeRequest {
+            offset: 0,
+            length: 12,
+        }),
+    };
+    let removed =
+        vcp_audit::inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+    assert!(removed.items.is_empty());
+    assert_eq!(removed.gaps[0]["visibility"], "pruned");
+    assert_eq!(removed.gaps[0]["source"], fixture.request.spec.source);
     let fresh = history
         .start(
             fixture.engine.store(),
@@ -832,4 +849,220 @@ async fn killed_projection_activation_keeps_view_and_watermark_atomic() {
             );
         }
     }
+}
+
+#[tokio::test]
+async fn inspection_pages_navigate_canonical_evidence_and_survive_projection_rebuild() {
+    use vcp_audit::inspection::{self, InspectionQuery, View};
+    for kind in [BackendKind::Files, BackendKind::Sqlite] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut fixture = fixture(directory.path(), kind).await;
+        late_charge(&mut fixture).await;
+        projection::publish(fixture.engine.store_mut(), &access().workspace, 1)
+            .await
+            .unwrap();
+        let mut query = InspectionQuery {
+            id: fixture.effect.to_string(),
+            view: View::Chain,
+            limit: 2,
+            cursor: None,
+            range: None,
+        };
+        let first = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+        assert_eq!(first.scope.task, fixture.root);
+        assert!(first.next_cursor.is_some());
+        let mut items = Vec::new();
+        loop {
+            let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+            assert_eq!(page.source_watermark, first.source_watermark);
+            assert!(page.items.len() <= 2);
+            items.extend(page.items);
+            query.cursor = page.next_cursor;
+            if query.cursor.is_none() {
+                break;
+            }
+        }
+        for collection in [
+            "attempt",
+            "reservation",
+            "settlement",
+            "effect",
+            "artifact",
+            "workspace",
+        ] {
+            assert!(
+                items.iter().any(|i| i["collection"] == collection),
+                "{collection}"
+            );
+        }
+        let attempt = items.iter().find(|i| i["collection"] == "attempt").unwrap();
+        assert!(attempt["references"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!(format!(
+                "artifact:{}",
+                fixture.request.spec.id
+            ))));
+        assert!(items.iter().any(
+            |i| i.pointer("/event/event/kind") == Some(&serde_json::json!("effect_transition"))
+        ));
+        query.cursor = first.next_cursor.clone();
+        let mut wrong = query.clone();
+        wrong.view = View::Costs;
+        assert!(matches!(
+            inspection::inspect(fixture.engine.store(), &access(), &wrong),
+            Err(Error::Restart(_))
+        ));
+        let restricted = Access {
+            tasks: Some([fixture.child.clone()].into()),
+            ..access()
+        };
+        assert!(matches!(
+            inspection::inspect(fixture.engine.store(), &restricted, &query),
+            Err(Error::Access)
+        ));
+        let mut state = fixture.engine.store().state().clone();
+        let _ = projection::rebuild(&state, &access().workspace, 1, state.watermark).unwrap();
+        state
+            .records
+            .retain(|_, r| r.collection != Collection::Projection);
+        assert_eq!(
+            inspection::records(&state, &access(), &query).unwrap(),
+            inspection::inspect(fixture.engine.store(), &access(), &query).unwrap()
+        );
+        // A canonical change cannot silently mix pages.
+        capture(&mut fixture.engine, &fixture.root, b"new evidence").await;
+        assert!(matches!(
+            inspection::inspect(fixture.engine.store(), &access(), &query),
+            Err(Error::Restart(_))
+        ));
+    }
+}
+
+#[tokio::test]
+async fn inspection_ranges_preserve_binary_bytes_and_enforce_current_scope() {
+    use vcp_audit::inspection::{self, InspectionQuery, RangeRequest, View, MAX_RANGE};
+    let directory = tempfile::tempdir().unwrap();
+    let mut fixture = fixture(directory.path(), BackendKind::Files).await;
+    let bytes: Vec<u8> = (0..190_000).map(|n| (n % 256) as u8).collect();
+    let artifact = capture(&mut fixture.engine, &fixture.root, &bytes).await;
+    let mut query = InspectionQuery {
+        id: artifact.spec.id.to_string(),
+        view: View::Outputs,
+        limit: 1,
+        cursor: None,
+        range: Some(RangeRequest {
+            offset: 0,
+            length: MAX_RANGE,
+        }),
+    };
+    let mut recovered = Vec::new();
+    loop {
+        let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+        let item = &page.items[0];
+        let chunk: Vec<u8> = serde_json::from_value(item["bytes"].clone()).unwrap();
+        assert!(chunk.len() <= MAX_RANGE as usize);
+        recovered.extend(chunk);
+        let Some(next) = item["next_offset"].as_u64() else {
+            break;
+        };
+        query.range.as_mut().unwrap().offset = next;
+    }
+    assert_eq!(recovered, bytes);
+    let denied = Access {
+        tasks: Some([fixture.child.clone()].into()),
+        ..access()
+    };
+    assert!(matches!(
+        inspection::inspect(fixture.engine.store(), &denied, &query),
+        Err(Error::Access)
+    ));
+    let other = Access {
+        workspace: WorkspaceId::new(),
+        ..access()
+    };
+    assert!(inspection::inspect(fixture.engine.store(), &other, &query).is_err());
+    let stale = Access {
+        authority: AuthorityRevision::new(99),
+        ..access()
+    };
+    assert!(matches!(
+        inspection::inspect(fixture.engine.store(), &stale, &query),
+        Err(Error::Access)
+    ));
+    query.range.as_mut().unwrap().length = MAX_RANGE + 1;
+    assert!(matches!(
+        inspection::inspect(fixture.engine.store(), &access(), &query),
+        Err(Error::Limit)
+    ));
+    query.range = Some(RangeRequest {
+        offset: 0,
+        length: 16,
+    });
+    let spool_file = fixture
+        .engine
+        .store()
+        .spool()
+        .root()
+        .join(artifact.spec.id.as_str())
+        .join("seal.json");
+    // Removing metadata is not an empty output; corruption stays a hard error.
+    std::fs::rename(&spool_file, spool_file.with_extension("missing")).unwrap();
+    assert!(inspection::inspect(fixture.engine.store(), &access(), &query).is_err());
+}
+
+#[tokio::test]
+async fn inspection_marks_missing_and_incomplete_content_without_reconstruction() {
+    use vcp_audit::inspection::{self, InspectionQuery, RangeRequest, View};
+    let directory = tempfile::tempdir().unwrap();
+    let mut fixture = fixture(directory.path(), BackendKind::Files).await;
+    let mut spec = fixture.request.spec.clone();
+    spec.id = ArtifactId::new();
+    spec.channel = Channel::RequestBody;
+    spec.omissions = vec![Omission::AuthenticationHeaders];
+    let mut writer = fixture.engine.store().spool().create(spec).unwrap();
+    writer.write_chunk(b"partial\x1b[31m").unwrap();
+    let artifact = writer.abort().unwrap();
+    drop(writer);
+    issue(
+        &mut fixture.engine,
+        Command::AttachArtifact {
+            descriptor: artifact.clone(),
+        },
+        Some(fixture.root.clone()),
+        0,
+    )
+    .await;
+    let query = InspectionQuery {
+        id: artifact.spec.id.to_string(),
+        view: View::Prompts,
+        limit: 1,
+        cursor: None,
+        range: Some(RangeRequest {
+            offset: 0,
+            length: 100,
+        }),
+    };
+    let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+    assert_eq!(page.items[0]["text"], "partial\x1b[31m");
+    assert_eq!(page.items[0]["representation"], "captured_bytes");
+    assert_eq!(page.gaps[0]["capture_state"], "aborted");
+    assert!(page.gaps[0]["omissions"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("authentication_headers")));
+    let serialized = serde_json::to_string(&page).unwrap();
+    assert!(!serialized.contains('\x1b'));
+    let spec_file = fixture
+        .engine
+        .store()
+        .spool()
+        .root()
+        .join(artifact.spec.id.as_str())
+        .join("spec.json");
+    std::fs::rename(&spec_file, spec_file.with_extension("missing")).unwrap();
+    let missing = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+    assert!(missing.items.is_empty());
+    assert_eq!(missing.gaps[0]["visibility"], "missing");
+    assert_eq!(missing.gaps[0]["source"], artifact.spec.source);
 }
