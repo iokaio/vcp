@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "vcp-cli"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+workspace = "../../third_party/codex/codex-rs"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+vcp-domain = { path = "../vcp-domain" }
+vcp-protocol = { path = "../vcp-protocol" }
+vcp-lifecycle = { path = "../vcp-lifecycle" }
+vcp-engine = { path = "../vcp-engine" }
+codex-core = { workspace = true }
+codex-config = { workspace = true }
+codex-exec-server = { workspace = true }
+codex-extension-api = { workspace = true }
+codex-login = { workspace = true }
+codex-protocol = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

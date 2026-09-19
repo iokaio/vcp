@@ -16,6 +16,26 @@ fn access() -> Access {
 }
 
 #[tokio::test]
+async fn repeated_pause_is_durable_without_mutating_task_or_accepting_stale_input() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut engine = setup(temporary.path(), backend).await;
+        let id = TaskId::new();
+        let facts = HostFacts::inspect(Timestamp::new(100));
+        engine.handle(command(&engine, creation(&id), Some(id.clone()), Revision::ZERO), &access(), &facts).await.unwrap();
+        let pause = Command::Transition { next: TaskState::Paused, reason: "explicit pause".into(), verification: None };
+        let first = engine.handle(command(&engine, pause.clone(), Some(id.clone()), Revision::ZERO), &access(), &facts).await.unwrap();
+        let state = engine.store().state().record(Collection::Task, id.as_str(), &access().workspace).unwrap().clone();
+        let repeat = command(&engine, pause.clone(), Some(id.clone()), Revision::new(1));
+        let second = engine.handle(repeat.clone(), &access(), &facts).await.unwrap();
+        assert!(second.watermark > first.watermark);
+        assert_eq!(engine.store().state().record(Collection::Task, id.as_str(), &access().workspace).unwrap(), &state);
+        assert_eq!(engine.handle(repeat, &access(), &facts).await.unwrap(), second);
+        assert!(engine.handle(command(&engine, pause, Some(id), Revision::ZERO), &access(), &facts).await.is_err());
+    }
+}
+
+#[tokio::test]
 async fn approval_is_bound_to_actor_operation_revision_expiry_and_current_steering() {
     let temporary = tempfile::tempdir().unwrap();
     let mut engine = setup(temporary.path(), BackendKind::Sqlite).await;

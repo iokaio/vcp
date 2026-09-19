@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 mod authority;
+mod control;
 #[cfg(windows)]
 mod coding;
 #[cfg(windows)]

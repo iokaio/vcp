@@ -269,6 +269,19 @@ impl<S: CanonicalStore> Engine<S> {
                 )?;
                 EventKind::TaskCreated
             }
+            Command::Transition { next: TaskState::Paused, reason, verification: None }
+                if task()?.state == TaskState::Paused => {
+                let current = task()?;
+                if current.revision != command.expected || current.steering != command.steering {
+                    return Err(vcp_domain::Error::Stale.into());
+                }
+                if reason.trim().is_empty() || reason.len() > 4096 {
+                    return Err(vcp_domain::Error::Invalid("transition reason").into());
+                }
+                // Repeated explicit pause has its own durable acknowledgement,
+                // but does not change the task revision or resume descendants.
+                EventKind::TaskTransition
+            }
             Command::Transition {
                 next,
                 reason,
