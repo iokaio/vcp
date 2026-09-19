@@ -99,6 +99,10 @@
     {
       "path": "src/third_party/patches/codex/0017-p2-prepared-files.patch",
       "sha256": "2586f5646042619a7a54137814f25f8fcc71b976119107105150ec6cc3c33048"
+    },
+    {
+      "path": "src/third_party/patches/codex/0018-p2-owned-pty.patch",
+      "sha256": "690a89cd8fd6ea4ea9f0768a5685bdf0129dec92e4686fb39b1c9349b62ead8d"
     }
   ],
   "licenses": [

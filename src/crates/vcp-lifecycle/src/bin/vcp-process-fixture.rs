@@ -12,6 +12,32 @@ fn main() -> std::io::Result<()> {
             .ok_or_else(|| std::io::Error::other("missing fixture directory"))?,
     );
     match mode.to_str() {
+        Some("terminal") => {
+            use std::io::IsTerminal;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            let record = serde_json::json!({"stdin_terminal":std::io::stdin().is_terminal(),
+                "stdout_terminal":std::io::stdout().is_terminal(),"input":input});
+            std::fs::write(
+                directory.join("terminal.json"),
+                serde_json::to_vec(&record)?,
+            )?;
+            println!("terminal stdout");
+            eprintln!("terminal stderr");
+        }
+        Some("orphan") => {
+            let _child = Command::new(std::env::current_exe()?)
+                .arg("locked-child")
+                .arg(&directory)
+                .spawn()?;
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            while !directory.join("child-ready").exists() {
+                if std::time::Instant::now() > until {
+                    return Err(std::io::Error::other("descendant did not start"));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
         Some("verify") => {
             let content = std::fs::read(directory.join("fixture.txt"))?;
             if content != b"answer = 42\n" {

@@ -1175,6 +1175,36 @@
         "history",
         "scheduler"
       ]
+    },
+    {
+      "id": "owned-conpty-launch",
+      "group": "execution-sandbox",
+      "package": "codex-utils-pty",
+      "path": "utils/pty/src/win/owned.rs",
+      "symbol": "pub fn spawn_owned_pty(",
+      "observation": "Explicit owned Job Object launch reuses retained ConPTY creation; all callers require host authority and explicit environment. No descendant preservation on this path.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "process",
+        "filesystem"
+      ]
+    },
+    {
+      "id": "canonical-terminal-observer",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/process/pty.rs",
+      "symbol": "pub fn spawn_pty_with_capture(",
+      "observation": "Owner-gated terminal launch captures merged output, binds bounded initial input, retains source guards and drains native job membership before receipts.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "process",
+        "filesystem",
+        "history",
+        "scheduler"
+      ]
     }
   ],
   "groups": [

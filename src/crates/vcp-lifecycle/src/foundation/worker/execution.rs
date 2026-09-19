@@ -46,6 +46,15 @@ impl Context {
             .get(prepared.profile().name())
             .map(|p| p.digest())
             .transpose()?;
+        let mut isolation = BTreeSet::from([
+            Isolation::JobTree,
+            Isolation::FilteredEnvironment,
+            Isolation::Timeout,
+            Isolation::OutputLimit,
+        ]);
+        if codex_utils_pty::owned_pty_supported() {
+            isolation.insert(Isolation::Pty);
+        }
         self.authority_decision(
             binding,
             prepared.authority(),
@@ -53,12 +62,7 @@ impl Context {
             current.as_deref() == Some(prepared.profile().digest()?.as_str())
                 && root.identity == prepared.root().identity
                 && root.path() == prepared.root().path(),
-            &BTreeSet::from([
-                Isolation::JobTree,
-                Isolation::FilteredEnvironment,
-                Isolation::Timeout,
-                Isolation::OutputLimit,
-            ]),
+            &isolation,
         )
     }
 }

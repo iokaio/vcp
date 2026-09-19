@@ -1,5 +1,7 @@
 # Reviewed evaluation summaries
 
+- [P2 owned terminal increment](p2-pty-increment.md): bounded initial input, merged output, native descendant ownership and remaining interaction/loop work.
+
 - [P2 prepared process increment](p2-process-increment.md): native profiles, canonical receipts, output/deadline limits and owner-close observation; PTY and loop integration remain.
 - [P2 prepared native file increment](p2-tools-increment.md): exact file preparation, native version-checked mutation and canonical broker receipts; process and retained-loop integration remain.
 - [P2 authority core increment](p2-policy-increment.md): pure policy decisions and canonical approval/grant persistence; native dispatch acceptance remains.

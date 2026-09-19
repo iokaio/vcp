@@ -83,3 +83,8 @@ revision 6a466a7e2fe2b1255752c1e74f69b31f0216084d. The original license and
 source/destination records are retained under src/third_party/licenses/ and
 src/third_party/components/gemini-cli.md. VCP authority/resource rules are
 identified modifications; the port does not include a Google SDK runtime.
+
+VCP's owned terminal path adapts the selected Codex ConPTY implementation,
+including WezTerm-derived MIT source. Original copyright and license notices
+remain in utils/pty/src/win/. Explicit owned-job launch and the new VCP wrapper
+are recorded modifications; see THIRD_PARTY_NOTICES.md and the Codex component.

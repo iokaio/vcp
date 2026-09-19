@@ -1,6 +1,6 @@
 # 06 — Windows execution, policy, prepared edits and recovery
 
-Status: P2-03 in progress with [authority and durable approvals](../development/p2-policy.md); P2-04 is in progress with [prepared native files](../development/p2-tools.md) and the [process broker](../development/p2-process.md). P2-07 remains planned. P2-03 depends on domain/store and the P0 Windows/reuse decisions; P2-07 also requires the session loop and projections. Architecture sections 9, 10 and 14 govern effects.
+Status: P2-03 in progress with [authority and durable approvals](../development/p2-policy.md); P2-04 is in progress with [prepared native files](../development/p2-tools.md), the [process broker](../development/p2-process.md) and [owned terminals](../development/p2-pty.md). P2-07 remains planned. P2-03 depends on domain/store and the P0 Windows/reuse decisions; P2-07 also requires the session loop and projections. Architecture sections 9, 10 and 14 govern effects.
 
 ## Implementation references
 
