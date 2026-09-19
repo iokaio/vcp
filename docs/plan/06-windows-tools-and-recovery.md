@@ -1,6 +1,6 @@
 # 06 — Windows execution, policy, prepared edits and recovery
 
-Status: P2-03 in progress with [authority and durable approvals](../development/p2-policy.md); P2-04 is in progress with [prepared native files](../development/p2-tools.md), the [process broker](../development/p2-process.md) and [owned terminals](../development/p2-pty.md). P2-07 remains planned. P2-03 depends on domain/store and the P0 Windows/reuse decisions; P2-07 also requires the session loop and projections. Architecture sections 9, 10 and 14 govern effects.
+Status: P2-03 complete with [authority acceptance](../evaluations/p2-policy-completion.md); P2-04 is in progress with [prepared native files](../development/p2-tools.md), the [process broker](../development/p2-process.md) and [owned terminals](../development/p2-pty.md). P2-07 remains planned. P2-03 depends on domain/store and the P0 Windows/reuse decisions; P2-07 also requires the session loop and projections. Architecture sections 9, 10 and 14 govern effects.
 
 ## Implementation references
 
@@ -18,7 +18,8 @@ defines immutable operations, receipts and recovery ordering.
 [ADR-004](../adr/004-edits-and-execution.md),
 [ADR-005](../adr/005-autonomy-and-isolation.md) and
 [ADR-016](../adr/016-history-and-pause.md) track the relevant qualification work.
-Windows mechanisms and exact autonomy defaults remain measured selections.
+The qualified authority default is workspace mode. Broader Windows isolation
+mechanisms remain measured selections under P8-01.
 
 ## Code organization
 

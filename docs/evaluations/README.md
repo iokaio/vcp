@@ -1,6 +1,8 @@
 # Reviewed evaluation summaries
 
-- [P2 Cargo and documentation verification](p2-framework-verification.md): native fixture qualification in progress, with explicit compiler profiles and preserved failure evidence.
+- [P2 Cargo and documentation verification](p2-framework-verification.md): passing native fixtures with explicit compiler profiles and preserved failure evidence.
+
+- [P2 authority acceptance](p2-policy-completion.md): completed P2-03 preset, canonical-question and native broker evidence with explicit later platform/CLI boundaries.
 
 - [P2 deterministic compaction](p2-context-compaction.md): complete-pair previews, current-source validation and native context contracts.
 
