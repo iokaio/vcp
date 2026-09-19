@@ -36,9 +36,9 @@ pwsh -NoProfile -File scripts/upstream/build-baseline.ps1 -SelectedCodex -Mode L
 pwsh -NoProfile -File scripts/test.ps1 -Suite fast
 ```
 
-The P1 runner requires all 70 named contracts across seven packages: 39 foundation,
-accounting and history contracts, 27 retained P0 regressions and four canonical
-host integration contracts. It records stable input hashes, actual commands,
+The original P1 acceptance covered 70 named contracts across seven packages.
+The runner now requires 83 contracts, including the subsequent canonical coding,
+authority and [verification](p2-verification.md) regressions. It records stable input hashes, actual commands,
 toolchain/filesystem identity and logs in ignored `artifacts/p1/<run>/`.
 The additional integration runner covers the retained native containment
 regressions and seven-request private coding trace. Recovery and lifecycle modes

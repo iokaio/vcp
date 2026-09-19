@@ -1,5 +1,7 @@
 # Reviewed evaluation summaries
 
+- [P2 native verification increment](p2-verification-increment.md): actual project checks, source applicability, retained failure evidence and honest completion.
+
 - [P2 canonical coding loop](p2-canonical-coding-loop.md): native retained read/edit/process traces, nested guidance, uncertain charges and deliberate reopen.
 
 - [P2 response tool boundary](p2-response-tool-boundary.md): native strict/default scheduling controls, interrupted streams and source reconstruction.

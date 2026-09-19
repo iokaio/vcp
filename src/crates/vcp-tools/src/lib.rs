@@ -4,6 +4,7 @@ pub mod patch;
 pub mod process;
 pub mod read;
 pub mod schema;
+pub mod verification;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, path::Path};
 use vcp_domain::{policy::*, workspace::Scope, *};

@@ -33,6 +33,8 @@ impl CanonicalHost {
         let conflict = self.tool_conflict.clone();
         self.worker.run(move |context| {
             context.check_external_command(&command)?;
+            #[cfg(windows)]
+            context.check_verification_command(&command, task.as_ref())?;
             if changes_authority(&command) {
                 // Keep worker -> lifecycle lock order. Admission cannot acquire a
                 // permit between this quiescence check and the durable mutation.

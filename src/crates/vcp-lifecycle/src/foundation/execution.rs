@@ -8,7 +8,7 @@ use vcp_tools::process::{Pins, Prepared, Profile, Request};
 pub struct ProcessProposal {
     thread: ThreadId,
     binding: ThreadBinding,
-    prepared: Arc<Prepared>,
+    pub(super) prepared: Arc<Prepared>,
     controller: ControllerId,
     owner: OwnerEpoch,
     effect: ToolRunId,

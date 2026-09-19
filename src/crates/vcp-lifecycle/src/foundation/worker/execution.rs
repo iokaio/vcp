@@ -8,7 +8,7 @@ impl Context {
         if !self.owner_alive || self.authority_pending {
             return Err("owner is closed".into());
         }
-        if !self.coding.is_empty() {
+        if !self.coding.is_empty() || !self.verification.is_empty() {
             return Err("process profile refresh requires fresh coding owner setup".into());
         }
         self.process_profiles.insert(profile.name().into(), profile);

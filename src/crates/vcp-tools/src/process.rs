@@ -312,9 +312,7 @@ pub fn prepare(
         },
         parent,
     )?;
-    let executable = executable_root
-        .read(Path::new(name), 64 * 1024 * 1024)?
-        .version;
+    let executable = executable_root.version(Path::new(name), 256 * 1024 * 1024)?;
     let directory = root.hold(
         if request.directory.is_empty() {
             None
