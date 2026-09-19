@@ -81,7 +81,42 @@ impl Context {
         binding: &ThreadBinding,
         prepared: &vcp_tools::Prepared,
     ) -> Result<vcp_policy::Decision> {
+        let root = self.tool_root()?;
+        self.authority_decision(
+            binding,
+            prepared.authority(),
+            &BTreeSet::from([root.identity.root.clone()]),
+            root.identity == prepared.root().identity && root.path() == prepared.root().path(),
+            &BTreeSet::from([Isolation::PathContainment, Isolation::OutputLimit]),
+        )
+    }
+    pub fn authority_decision(
+        &self,
+        binding: &ThreadBinding,
+        prepared: &vcp_policy::Prepared,
+        roots: &BTreeSet<RootId>,
+        resources_current: bool,
+        isolation: &BTreeSet<Isolation>,
+    ) -> Result<vcp_policy::Decision> {
         let state = self.engine.store().state();
+        if prepared.operation().effects != BTreeSet::from([EffectClass::Read])
+            && state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Effect)
+                .filter_map(|row| row.decode::<Effect>().ok())
+                .any(|effect| {
+                    effect.scope.workspace == binding.scope.workspace
+                        && effect.state == EffectState::OutcomeUnknown
+                })
+        {
+            return Ok(vcp_policy::Decision::Deny {
+                origin: "effect reconciliation".into(),
+                reason:
+                    "an uncertain workspace effect requires reconciliation before another mutation"
+                        .into(),
+            });
+        }
         let workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -97,12 +132,9 @@ impl Context {
             )?
             .decode()?;
         let policy = vcp_engine::policy::current(state, &workspace.id)?;
-        let root = self.tool_root()?;
-        let roots = BTreeSet::from([root.identity.root.clone()]);
-        let isolation = BTreeSet::from([Isolation::PathContainment, Isolation::OutputLimit]);
         Ok(vcp_engine::policy::evaluate(
             state,
-            prepared.authority(),
+            prepared,
             &vcp_policy::Facts {
                 workspace: &workspace,
                 scope: &binding.scope,
@@ -112,10 +144,9 @@ impl Context {
                 now: now(),
                 owner_current: self.owner_alive,
                 task_running: self.can_start(binding).is_ok(),
-                resources_current: root.identity == prepared.root().identity
-                    && root.path() == prepared.root().path(),
-                registered_roots: &roots,
-                isolation: &isolation,
+                resources_current,
+                registered_roots: roots,
+                isolation,
                 host_denials: &[],
             },
         )?)
@@ -161,6 +192,27 @@ impl Context {
     )> {
         self.can_start(binding)?;
         prepared.revalidate()?;
+        let decision = self.tool_decision(binding, prepared)?;
+        self.propose_authority(
+            binding,
+            prepared.authority(),
+            &prepared.evidence()?,
+            decision,
+        )
+    }
+    pub fn propose_authority(
+        &mut self,
+        binding: &ThreadBinding,
+        prepared: &vcp_policy::Prepared,
+        evidence: &[u8],
+        decision: vcp_policy::Decision,
+    ) -> Result<(
+        ToolRunId,
+        ArtifactId,
+        vcp_policy::Decision,
+        Option<ApprovalId>,
+    )> {
+        self.can_start(binding)?;
         let task: Task = self
             .engine
             .store()
@@ -174,14 +226,14 @@ impl Context {
         let plan = self.capture(
             &binding.scope,
             Channel::Evidence,
-            &prepared.evidence()?,
+            evidence,
             "vcp-prepared-tool-v1",
         )?;
         let effect = ToolRunId::new();
         self.command(
             Command::ProposeEffect {
                 id: effect.clone(),
-                operation_digest: prepared.authority().digest().into(),
+                operation_digest: prepared.digest().into(),
             },
             Some(binding.scope.task.clone()),
             task.revision,
@@ -194,11 +246,10 @@ impl Context {
             vec![plan.spec.id.clone()],
             "registered tool validated exact arguments and native sources",
         )?;
-        let decision = self.tool_decision(binding, prepared)?;
         let mut question = None;
         match &decision {
             vcp_policy::Decision::Question { .. } => {
-                let operation = prepared.authority().operation();
+                let operation = prepared.operation();
                 let id = ApprovalId::new();
                 self.command(
                     Command::Ask {
@@ -208,7 +259,7 @@ impl Context {
                             effect: effect.clone(),
                             effect_revision: Revision::new(1),
                             steering: task.steering,
-                            operation_digest: prepared.authority().digest().into(),
+                            operation_digest: prepared.digest().into(),
                             actor: self.config.actor.clone(),
                             policy: operation.policy,
                             expires_at: Timestamp::new(now().get().saturating_add(300_000)),

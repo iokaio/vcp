@@ -61,7 +61,10 @@ pub(crate) mod native {
         let mut options = OpenOptions::new();
         options
             .access_mode(if directory {
-                FILE_READ_ATTRIBUTES
+                // Attribute-only opens do not establish the intended sharing
+                // conflict for directory rename. Request directory read access
+                // so omitting FILE_SHARE_DELETE actually pins the namespace.
+                FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES
             } else {
                 FILE_GENERIC_READ
             })
@@ -248,5 +251,19 @@ impl Root {
             return Err(Error::Stale);
         }
         Ok(())
+    }
+    /// Keep native deny-write/delete sharing and ancestor guards alive while
+    /// verifying executable/source bytes. The caller retains this guard across
+    /// dispatch; a path/hash check followed by closing the handle is insufficient.
+    pub fn pin_version(&self, expected: &FileVersion) -> Result<HeldPath> {
+        if expected.root != self.identity.root || expected.binding != self.identity.binding {
+            return Err(Error::Stale);
+        }
+        let held = self.hold(Some(Path::new(&expected.path)), false)?;
+        if held.native_identity != expected.native_identity {
+            return Err(Error::Stale);
+        }
+        self.revalidate(expected)?;
+        Ok(held)
     }
 }

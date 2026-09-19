@@ -14,7 +14,9 @@ fn main() -> std::io::Result<()> {
     match mode.to_str() {
         Some("verify") => {
             let content = std::fs::read(directory.join("fixture.txt"))?;
-            if content != b"answer = 42\n" { return Err(std::io::Error::other("fixture assertion failed")); }
+            if content != b"answer = 42\n" {
+                return Err(std::io::Error::other("fixture assertion failed"));
+            }
             println!("fixture assertion passed: answer = 42");
         }
         Some("tree") => {
@@ -58,6 +60,7 @@ fn main() -> std::io::Result<()> {
                 "cwd": std::env::current_dir()?,
                 "fixture_env": std::env::var("VCP_FIXTURE_VALUE").ok(),
                 "inherited": std::env::var("VCP_FIXTURE_MUST_NOT_INHERIT").ok(),
+                "ci": std::env::var("CI").ok(),
             });
             std::fs::write(directory.join("argv.json"), serde_json::to_vec(&record)?)?;
             std::io::stdout().write_all(b"one\r\ntwo\r\n")?;

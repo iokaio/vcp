@@ -87,3 +87,9 @@ apply-patch engine and registers original file tools. Existing callers retain
 their matcher/line-ending modes; external dependency pins do not change. The
 [native file guide](../../../docs/development/p2-tools.md) maps preparation,
 canonical broker authority and the staged Windows write envelope.
+
+The original [process broker](../../../docs/development/p2-process.md) reuses the
+retained Job Object suspended-launch APIs without another vendor patch or
+external dependency change. Native profile preparation, scoped pins, command-line
+conversion, canonical receipts and owned output/deadline observers live in the
+original `vcp-tools`, `vcp-repository` and `vcp-lifecycle` packages.

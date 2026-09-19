@@ -1115,6 +1115,66 @@
         "policy",
         "scheduler"
       ]
+    },
+    {
+      "id": "prepared-process-profile",
+      "group": "prepared-tools",
+      "package": "vcp-tools",
+      "path": "../../../crates/vcp-tools/src/process.rs",
+      "symbol": "pub fn prepare(",
+      "observation": "Explicit host profiles bind executable, directory, pinned inputs, source snapshot, argv, environment and limits without spawning.",
+      "effect_class": "read-only",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "file-read"
+      ]
+    },
+    {
+      "id": "pinned-native-source",
+      "group": "repository-observation",
+      "package": "vcp-repository",
+      "path": "../../../crates/vcp-repository/src/path.rs",
+      "symbol": "pub fn pin_version(",
+      "observation": "Retains native deny-write/delete source and directory-read ancestor guards across trusted dispatch.",
+      "effect_class": "read-only",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "file-read"
+      ]
+    },
+    {
+      "id": "canonical-prepared-process",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation/execution.rs",
+      "symbol": "pub fn dispatch_process(",
+      "observation": "One-use owner tickets recheck profile/policy and native pins before durable intent and contained launch; outcomes preserve partial/unknown effects.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "filesystem",
+        "process",
+        "history",
+        "policy",
+        "scheduler"
+      ]
+    },
+    {
+      "id": "bounded-process-observer",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/process.rs",
+      "symbol": "pub fn spawn_bounded_process_with_capture(",
+      "observation": "Retained Job Object launch, explicit environment, output limits and deadline; close drains the owned observer before checkpoint closure. No generic filesystem/network sandbox claim.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "process",
+        "filesystem",
+        "network",
+        "history",
+        "scheduler"
+      ]
     }
   ],
   "groups": [

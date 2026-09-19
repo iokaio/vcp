@@ -14,6 +14,9 @@ use vcp_lifecycle::{
     foundation::{CanonicalHost, Config, ThreadBinding},
     integration::configure_fixture_provider,
 };
+#[cfg(windows)]
+#[path = "support/process_broker.rs"]
+mod process_broker;
 
 fn configure_provider_fixture(config: &mut codex_core::config::Config) {
     let fixture_url = config.model_provider.base_url.clone();
@@ -267,7 +270,8 @@ async fn native_file_broker_enforces_current_policy_approvals_and_source_version
             vcp_policy::Decision::Allow { grant: Some(_), .. }
         ));
         assert!(reused.question.is_none());
-        assert_eq!(host.dispatch_tool(reused).unwrap().result["complete"], true);
+        let reused_result = host.dispatch_tool(reused).unwrap().result;
+        assert_eq!(reused_result["complete"], true, "{reused_result}");
         assert_eq!(
             std::fs::read(workspace.join("file.txt")).unwrap(),
             b"after\r\n"

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+#[cfg(windows)]
+mod execution;
 mod provider;
 #[cfg(windows)]
 mod tools;
@@ -25,6 +27,7 @@ type Failure = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, Failure>;
 type Job = Box<dyn FnOnce(&mut Context) + Send>;
 struct Inner {
+    thread_id: std::thread::ThreadId,
     sender: Mutex<Option<SyncSender<Job>>>,
     thread: Mutex<Option<JoinHandle<()>>>,
     fenced: AtomicBool,
@@ -58,7 +61,9 @@ impl Worker {
             })
             .map_err(|error| error.to_string())?;
         ready_rx.recv().map_err(|_| "canonical worker stopped")??;
+        let thread_id = thread.thread().id();
         Ok(Self(Arc::new(Inner {
+            thread_id,
             sender: Mutex::new(Some(tx)),
             thread: Mutex::new(Some(thread)),
             fenced: AtomicBool::new(false),
@@ -83,6 +88,12 @@ impl Worker {
         &self,
         operation: impl FnOnce(&mut Context) -> Result<T> + Send + 'static,
     ) -> std::result::Result<T, String> {
+        if std::thread::current().id() == self.0.thread_id {
+            self.fence();
+            #[cfg(debug_assertions)]
+            eprintln!("canonical worker rejected synchronous self-reentry");
+            return Err("canonical worker cannot synchronously reenter itself".into());
+        }
         let (tx, rx) = mpsc::sync_channel(1);
         let job: Job = Box::new(move |context| {
             let result = operation(context).map_err(|error| error.to_string());
@@ -121,6 +132,8 @@ pub struct Context {
     owner_alive: bool,
     provider_required: bool,
     provider: Option<provider::Provider>,
+    #[cfg(windows)]
+    process_profiles: HashMap<String, vcp_tools::process::Profile>,
 }
 fn now() -> Timestamp {
     Timestamp::new(
@@ -197,6 +210,8 @@ impl Context {
             owner_alive: true,
             provider_required,
             provider: None,
+            #[cfg(windows)]
+            process_profiles: HashMap::new(),
         };
         if context.engine.store().state().records.is_empty() {
             context.command(

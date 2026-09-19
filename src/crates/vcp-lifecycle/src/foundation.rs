@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Canonical persistence adapter for the retained controller. The worker only
 //! serializes storage operations; scheduling and interruption remain in Codex.
+#[cfg(windows)]
+mod execution;
 pub mod openrouter;
 #[cfg(windows)]
 mod process;
@@ -13,6 +15,8 @@ use codex_extension_api::{
     TurnStartAdmission,
 };
 use codex_protocol::{protocol::TokenUsage, ThreadId};
+#[cfg(windows)]
+pub use execution::{PreparedProcess, PreparedProcessOutcome, ProcessProposal};
 #[cfg(windows)]
 pub use process::{CanonicalProcess, ProcessOutcome};
 use std::{
@@ -54,7 +58,25 @@ pub struct CanonicalHost {
     runtime: Lifecycle,
     worker: worker::Worker,
     bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
-    tool_conflict: Arc<Mutex<()>>,
+    tool_conflict: Arc<std::sync::atomic::AtomicBool>,
+}
+struct EffectLease(Arc<std::sync::atomic::AtomicBool>);
+impl EffectLease {
+    fn acquire(flag: &Arc<std::sync::atomic::AtomicBool>) -> Result<Self, String> {
+        flag.compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        )
+        .map_err(|_| "workspace has an active conflicting operation")?;
+        Ok(Self(flag.clone()))
+    }
+}
+impl Drop for EffectLease {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 pub struct CanonicalOwner {
     runtime: Option<OwnerLease>,
@@ -108,6 +130,18 @@ impl OutputCapture {
         let result = self
             .worker
             .run(move |context| context.finish_output(&id, false));
+        if result.is_ok() {
+            self.finished = true;
+        } else {
+            self.worker.fence();
+        }
+        result
+    }
+    pub fn finish_partial(mut self) -> Result<ArtifactDescriptor, String> {
+        let id = self.id.clone();
+        let result = self
+            .worker
+            .run_cleanup(move |context| context.finish_output(&id, true));
         if result.is_ok() {
             self.finished = true;
         } else {
@@ -182,7 +216,7 @@ impl CanonicalHost {
                 runtime,
                 worker,
                 bindings: Arc::new(Mutex::new(HashMap::new())),
-                tool_conflict: Arc::new(Mutex::new(())),
+                tool_conflict: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
             owner,
         ))

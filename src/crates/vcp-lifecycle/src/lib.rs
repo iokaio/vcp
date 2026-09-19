@@ -194,6 +194,8 @@ struct Inner {
     deadline: Duration,
     #[cfg(windows)]
     jobs: Mutex<HashMap<ThreadId, Vec<Arc<codex_utils_pty::JobObject>>>>,
+    #[cfg(windows)]
+    process_observers: Mutex<HashMap<ThreadId, Vec<Arc<std::sync::atomic::AtomicBool>>>>,
 }
 
 /// Cloneable host API. The separate owner lease controls owner lifetime.
@@ -287,6 +289,8 @@ impl Lifecycle {
             deadline,
             #[cfg(windows)]
             jobs: Mutex::new(HashMap::new()),
+            #[cfg(windows)]
+            process_observers: Mutex::new(HashMap::new()),
         }));
         let owner = OwnerLease(lifecycle.clone());
         (lifecycle, owner)
