@@ -34,6 +34,10 @@ pub struct ResultBody {
     pub status: Status,
     pub usage: Option<ObservedUsage>,
     pub calls: Vec<Call>,
+    /// Non-whitespace visible text from completed assistant items. Deltas and
+    /// opaque reasoning cannot establish that the response is usable.
+    #[serde(default)]
+    pub visible_text_bytes: u64,
     pub raw_terminal_sha256: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +73,7 @@ pub struct Stream {
     total: usize,
     events: usize,
     pending: BTreeMap<String, Pending>,
+    messages: BTreeMap<String, String>,
     terminal: Option<ResultBody>,
     terminal_data: Option<String>,
     done: bool,
@@ -93,6 +98,7 @@ impl Stream {
             total: 0,
             events: 0,
             pending: BTreeMap::new(),
+            messages: BTreeMap::new(),
             terminal: None,
             terminal_data: None,
             done: false,
@@ -213,6 +219,10 @@ impl Stream {
             return Err(Error::Protocol("conflicting event after terminal"));
         }
         match kind {
+            "response.output_item.done" if value["item"]["type"] == "message" => {
+                self.observe_message(&value["item"])?;
+                Ok(Some(Event::Opaque { kind: kind.into() }))
+            }
             "response.output_text.delta" => {
                 let text = value["delta"]
                     .as_str()
@@ -341,7 +351,8 @@ impl Stream {
                                 });
                             }
                         }
-                        Some("message" | "reasoning") => (),
+                        Some("message") => self.observe_message(item)?,
+                        Some("reasoning") => (),
                         _ => return Err(Error::Capability("unsupported response item")),
                     }
                 }
@@ -361,6 +372,11 @@ impl Stream {
                     status,
                     usage,
                     calls,
+                    visible_text_bytes: self
+                        .messages
+                        .values()
+                        .map(|text| text.trim().len() as u64)
+                        .sum(),
                     raw_terminal_sha256: vcp_protocol::digest_bytes(text.as_bytes()),
                 });
                 self.terminal_data = Some(text.into());
@@ -376,6 +392,47 @@ impl Stream {
                 Ok(Some(Event::Opaque { kind: kind.into() }))
             }
         }
+    }
+    fn observe_message(&mut self, item: &Value) -> Result<()> {
+        if item["role"] != "assistant"
+            || item
+                .get("status")
+                .is_some_and(|status| status != "completed")
+        {
+            return Err(Error::Protocol("completed assistant message required"));
+        }
+        let id = identity(item, "id")?;
+        let content = item["content"]
+            .as_array()
+            .ok_or(Error::Protocol("message content"))?;
+        let mut text = String::new();
+        for part in content {
+            let field = match part["type"].as_str() {
+                Some("output_text") => "text",
+                Some("refusal") => "refusal",
+                _ => return Err(Error::Capability("unsupported assistant content")),
+            };
+            let part = part[field]
+                .as_str()
+                .ok_or(Error::Protocol("assistant text"))?;
+            if text.len() + part.len() > 1024 * 1024 {
+                return Err(Error::Limit("assistant message"));
+            }
+            text.push_str(part);
+        }
+        if let Some(previous) = self.messages.get(&id) {
+            if previous != &text {
+                return Err(Error::Protocol(
+                    "terminal message differs from completed item",
+                ));
+            }
+        } else {
+            if self.messages.len() >= 256 {
+                return Err(Error::Limit("assistant messages"));
+            }
+            self.messages.insert(id, text);
+        }
+        Ok(())
     }
     /// No executable proposal is exposed until the captured prefix ends on a
     /// frame boundary and a qualified terminal agrees with observed fragments.

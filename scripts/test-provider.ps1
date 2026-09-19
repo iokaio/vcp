@@ -53,7 +53,7 @@ try{
         Stage 'contracts' 'cargo' ($arguments+@('--','--test-threads=1'))
         $tests=Get-Content -LiteralPath (Join-Path $directory 'contracts.log') -Raw
         $rows=[regex]::Matches($tests,'(?m)^test ([^\r\n]+) \.\.\. ok\r?$')
-        if($rows.Count -ne 21){throw "Expected all 21 provider/context contracts; observed $($rows.Count)"}
+        if($rows.Count -ne 25){throw "Expected all 25 provider/context/handoff contracts; observed $($rows.Count)"}
         $record.tests=@($rows|ForEach-Object{$_.Groups[1].Value})
         Stage 'retained-deadline' 'cargo' @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','-j',"$Jobs",'-p','codex-api','--lib','absolute_deadline_stops_silent_and_keepalive_streams','--','--test-threads=1')
         if((Get-Content -LiteralPath (Join-Path $directory 'retained-deadline.log') -Raw) -notmatch 'test result: ok\. 1 passed; 0 failed; 0 ignored;'){throw 'Retained deadline regression did not execute'}
