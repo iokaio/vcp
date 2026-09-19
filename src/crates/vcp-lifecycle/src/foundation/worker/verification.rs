@@ -276,21 +276,21 @@ impl Context {
             affected.push("AGENTS.md".into());
         }
         let mut extra_bytes = 0usize;
+        let parents = self.instruction_parents(binding)?;
         for group in affected.chunks(256) {
-            let instructions = root.instructions(group, &[], 256 * 1024)?;
+            let instructions = root.instructions(group, &parents, 256 * 1024)?;
             // The manifest's absence/version probes also fence instruction files
-            // ignored by ordinary discovery. No parent grant is inferred.
+            // ignored by ordinary discovery and explicit parent grants.
             for probe in instructions.probes {
                 if !observed.manifest.ignore_dependencies.contains(&probe) {
                     observed.manifest.ignore_dependencies.push(probe);
                 }
             }
             for document in instructions.documents {
-                if !observed
-                    .sources
-                    .iter()
-                    .any(|s| s.version.path == document.source.version.path)
-                {
+                if !observed.sources.iter().any(|s| {
+                    s.version.root == document.source.version.root
+                        && s.version.path == document.source.version.path
+                }) {
                     extra_bytes += document.source.bytes.len();
                     if extra_bytes > 256 * 1024 {
                         return Err("verification instruction capture ceiling".into());
@@ -299,17 +299,26 @@ impl Context {
                 }
             }
         }
-        observed
+        observed.sources.sort_by(|a, b| {
+            (&a.version.root, &a.version.path).cmp(&(&b.version.root, &b.version.path))
+        });
+        // Parent versions live in instruction probes; they are not ordinary
+        // workspace files or additional check-discovery/search roots.
+        observed.manifest.files = observed
             .sources
-            .sort_by(|a, b| a.version.path.cmp(&b.version.path));
-        observed.manifest.files = observed.sources.iter().map(|s| s.version.clone()).collect();
+            .iter()
+            .filter(|s| s.version.root == root.identity.root)
+            .map(|s| s.version.clone())
+            .collect();
         observed
             .manifest
             .ignore_dependencies
-            .sort_by(|a, b| a.path.cmp(&b.path));
+            .sort_by(|a, b| (&a.root, &a.path).cmp(&(&b.root, &b.path)));
+        let mut roots = parents;
+        roots.push(root.clone());
         vcp_repository::instructions::revalidate_probes(
             &observed.manifest.ignore_dependencies,
-            std::slice::from_ref(&root),
+            &roots,
         )?;
         observed.digest = vcp_protocol::digest_bytes(&canonical_bytes(&observed.manifest)?);
         Ok((root, observed))
@@ -769,11 +778,20 @@ impl Context {
         if current.manifest != candidate.manifest {
             return Err("completion evidence is stale after a source/configuration edit".into());
         }
+        let mut roots = self.instruction_parents(binding)?;
+        roots.push(root);
         let _sources = current
-            .manifest
-            .files
+            .sources
             .iter()
-            .map(|f| root.pin_version(f))
+            .map(|source| {
+                roots
+                    .iter()
+                    .find(|r| r.identity.root == source.version.root)
+                    .ok_or_else(|| {
+                        vcp_repository::Error::Scope("verification source root missing".into())
+                    })?
+                    .pin_version(&source.version)
+            })
             .collect::<vcp_repository::Result<Vec<_>>>()?;
         let _processes = candidate
             .prepared

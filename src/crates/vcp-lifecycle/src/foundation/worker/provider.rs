@@ -146,6 +146,8 @@ impl Context {
     fn validate_ready(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
         #[cfg(windows)]
         self.validate_continuity_ready(binding)?;
+        #[cfg(windows)]
+        self.instruction_parents(binding)?;
         let provider = self
             .provider
             .as_ref()

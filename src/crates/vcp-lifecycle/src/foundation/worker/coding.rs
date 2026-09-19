@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 mod continuity;
+mod instructions;
 use super::*;
 use crate::foundation::coding::CodingConfig;
 use codex_extension_api::{AllowedTools, ToolName};
@@ -23,6 +24,7 @@ pub(super) struct Loop {
     probes: Vec<vcp_repository::instructions::Probe>,
     final_response: Option<Vec<ArtifactId>>,
     continuity: Option<continuity::Continuity>,
+    instruction_parents: Option<Vec<vcp_repository::Root>>,
 }
 struct Eligible {
     attempt: AttemptId,
@@ -196,6 +198,7 @@ impl Context {
                 probes: vec![],
                 final_response: None,
                 continuity: None,
+                instruction_parents: None,
             },
         );
         Ok(())
@@ -236,7 +239,8 @@ impl Context {
             self.tool_identity(binding, name)?;
         }
         let root = self.tool_root()?;
-        let instructions = root.instructions(&affected, &[], 256 * 1024)?;
+        let parents = self.instruction_parents(binding)?;
+        let instructions = root.instructions(&affected, &parents, 256 * 1024)?;
         let task: Task = self
             .engine
             .store()
@@ -312,7 +316,9 @@ impl Context {
                 })
             },
         )?;
-        self.prepare_context(binding, sealed, schemas, vec![root])?;
+        let mut roots = parents;
+        roots.push(root);
+        self.prepare_context(binding, sealed, schemas, roots)?;
         self.coding.get_mut(&binding.scope.task).unwrap().revisions = Some(current);
         self.coding.get_mut(&binding.scope.task).unwrap().probes = probes;
         self.coding
@@ -547,7 +553,9 @@ impl Context {
             .coding
             .get(&binding.scope.task)
             .ok_or("coding setup missing")?;
-        vcp_repository::instructions::revalidate_probes(&state.probes, &[self.tool_root()?])?;
+        let mut roots = self.instruction_parents(binding)?;
+        roots.push(self.tool_root()?);
+        vcp_repository::instructions::revalidate_probes(&state.probes, &roots)?;
         Ok(())
     }
     fn reject_coding_call(
@@ -610,7 +618,11 @@ impl Context {
             _ => return Ok(true),
         };
         self.validate_coding_sources(binding)?;
-        let instructions = self.tool_root()?.instructions(&paths, &[], 256 * 1024)?;
+        let instructions = self.tool_root()?.instructions(
+            &paths,
+            &self.instruction_parents(binding)?,
+            256 * 1024,
+        )?;
         let remaining = self.coding_remaining().ok_or("coding deadline missing")?;
         let state = self
             .coding

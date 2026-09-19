@@ -52,6 +52,7 @@ These guides describe how to implement and qualify the planned system. The [deli
 - [Local resource qualification](local-memory-resources.md): three declared corpus sizes, native resident/committed/mapped measurements, sampled disk growth and repeated query checks.
 - [Local governance adapter](local-governance-spike.md): scoped Munarium gates, disputed proposal evidence and pin-aware supersession in the corpus experiment.
 - [Qualification and release design](../architecture/qualification-release-design.md): test runner/result contracts, independent fault oracles and packaged acceptance.
+- [Explicit parent instructions](p2-parent-instructions.md): owner grants, instruction-only scope and current-source fences; native qualification pending.
 - [Code layout](../plan/code-layout.md): responsibility boundaries and proposed paths.
 - [ADR index](../adr/README.md): confirmed directions and unresolved engineering gates.
 

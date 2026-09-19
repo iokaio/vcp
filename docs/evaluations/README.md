@@ -1,8 +1,11 @@
 # Reviewed evaluation summaries
 
+- [P2 parent instruction grants](p2-parent-instructions.md): explicit ancestor reads, stale instruction fences and verification applicability on both stores.
+
 - [P2 Cargo and documentation verification](p2-framework-verification.md): passing native fixtures with explicit compiler profiles and preserved failure evidence.
 
 - [P2 authority acceptance](p2-policy-completion.md): completed P2-03 preset, canonical-question and native broker evidence with explicit later platform/CLI boundaries.
+- [P2 OpenRouter live smoke](p2-openrouter-live.md): capped two-model Responses API compatibility with current attribution and cost evidence; Jev remains a later P6 adapter gate.
 
 - [P2 deterministic compaction](p2-context-compaction.md): complete-pair previews, current-source validation and native context contracts.
 

@@ -94,10 +94,17 @@ examples are not imported as production compatibility fixtures; deterministic
 tests use original synthetic records. No real model/price support is promised
 without the separately capped live smoke gate.
 
+The opt-in `scripts/test-openrouter-live.ps1` runner supplies the P2-02 live gate
+without changing routine CI. It admits at most `$10` across fixed Luna and Claude
+Sonnet public-synthetic requests, performs zero retries, checks the current catalog
+and records exact Responses API attribution, usage and cost. Jev remains a later
+P6 decision-adapter qualification and is intentionally outside this regular runner.
+
 ## Reproduction
 
 ```powershell
 pwsh -NoProfile -File scripts/test-provider.ps1
+pwsh -NoProfile -File scripts/test-openrouter-live.ps1 -SpendCapUsd 10
 pwsh -NoProfile -File scripts/test-integration.ps1
 pwsh -NoProfile -File scripts/upstream/build-baseline.ps1 -SelectedCodex -Mode RecoveryTests -ExperimentToolchain 1.98.0 -OutputRoot artifacts/build -TargetRoot artifacts/upstream/codex-target
 pwsh -NoProfile -File scripts/upstream/build-baseline.ps1 -SelectedCodex -Mode LifecycleTests -ExperimentToolchain 1.98.0 -OutputRoot artifacts/build -TargetRoot artifacts/upstream/codex-target
