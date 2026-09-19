@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Side-effect-free native tool preparation. A plan is data, not authority.
 pub mod patch;
+pub mod process;
 pub mod read;
 pub mod schema;
 use serde::{Deserialize, Serialize};

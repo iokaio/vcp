@@ -34,6 +34,13 @@ does not resume a waiting/paused task. Native dispatch and actual isolation rema
 separate required gates. No model risk classifier is used. Configured commands
 match exact invocation identity rather than interpreting shell prefixes as grants.
 
+The [native process increment](../evaluations/p2-process-increment.md) exercises
+actual dispatch denial, exact-grant reuse and explicitly selected reduced
+isolation. Required but unavailable filesystem/network controls still deny
+dispatch. Autonomous fixture policy explicitly covers each executable root and
+opaque effect; this is not permission inferred from project text or a new
+automatic-execution default.
+
 P0-05 [native evidence](../evaluations/p0-03-recovery-execution.md) selects Job Objects for process ownership and a zero-capability AppContainer as a single-process isolation candidate. Live unrestricted controls and independent file/network observers pass. General toolchains, authority presets and composed containment remain P2/P8.
 
 E06/R03 use grant reuse, deny precedence, shell redirection, opaque commands, expiry and stale responses. E07/R04 must observe blocked outside-root access and process/network behavior on real supported hosts, independently of the matcher decision.

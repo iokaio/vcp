@@ -2,7 +2,8 @@
 
 P2-04 is in progress. `vcp-tools` prepares read/list/literal-search and multi-file
 patch operations; the canonical host owns questions, dispatch and receipts.
-Process/PTY broker integration, retained model-tool scheduling and full close/
+The [process broker](p2-process.md) extends this boundary; PTY integration,
+retained model-tool scheduling and full close/
 recovery acceptance remain subsequent work. The existing P1 trusted-host process
 entry point is not a model-facing execution capability.
 
@@ -37,7 +38,7 @@ bound inputs still match.
 
 ## Windows concurrency envelope
 
-Directory handles reject reparse components and deny ancestor deletion while
+Directory handles request directory read access, reject reparse components and deny ancestor deletion while
 resolving a target. An existing mutation target is opened with explicit read,
 write and delete access, denying other write/delete handles; its native identity
 and full bytes must match the prepared observation. Hard-linked targets reject
@@ -82,9 +83,9 @@ pwsh -NoProfile -File scripts/upstream/build-baseline.ps1 -SelectedCodex -Mode L
 pwsh -NoProfile -File scripts/test.ps1 -Suite fast
 ```
 
-The tool runner requires all 26 domain/protocol/repository/policy/tool contracts
+The tool runner requires all 28 domain/protocol/repository/policy/tool contracts
 and runs the 65 retained patch library regressions. The integration runner
-requires 34 host contracts, two containment regressions and the seven-request
+requires 35 host contracts, two containment regressions and the seven-request
 private CLI trace. Commands emit input hashes and stage logs under ignored
 `artifacts/` directories. See the [reviewed evidence](../evaluations/p2-tools-increment.md)
 for measured boundaries and remaining acceptance.

@@ -8,6 +8,11 @@ retained model-tool scheduling remain required before task completion. See the
 
 ## Qualified behavior
 
+Subsequent [process qualification](p2-process-increment.md) isolated a
+directory-only guard case that these child-file-handle tests did not cover.
+Directory guards were strengthened to require directory read access; see that
+report for the regression and the revised native concurrency evidence.
+
 | Boundary | Observed acceptance |
 |---|---|
 | Preparation | Read, list, literal search and multi-file patches perform no candidate writes; schemas reject extra authority fields; full source versions and exact arguments bind the operation |

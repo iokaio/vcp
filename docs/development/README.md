@@ -1,5 +1,6 @@
 # Development design and implementation guides
 
+- [Prepared native processes](p2-process.md): explicit profiles, canonical dispatch, output/deadline limits and remaining PTY/recovery qualification.
 - [P0 handoff and concrete source map](p0-handoff.md): qualified candidates, reproducible setup and the segment 02 edit map.
 - [Retained integration and Gemini ports](p0-integration.md): local coding/receipt/budget/memory trace, neutral comparisons and source maintenance.
 

@@ -134,6 +134,12 @@ fn native_parent_guards_long_paths_and_junction_rejection_keep_effects_contained
     fs::create_dir(&outside).unwrap();
     fs::write(outside.join("marker"), b"outside-human").unwrap();
     let r = root(&inside);
+    fs::create_dir(inside.join("empty-parent")).unwrap();
+    let missing = r
+        .mutation_target(&probe(&r, "empty-parent/new.txt"))
+        .unwrap();
+    assert!(fs::rename(inside.join("empty-parent"), inside.join("moved-parent")).is_err());
+    assert!(missing.apply(Some(b"guarded creation"), None).complete);
     let junction = inside.join("escape");
     let cmd = std::env::var_os("SystemRoot")
         .map(std::path::PathBuf::from)

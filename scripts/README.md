@@ -7,7 +7,7 @@ deadline regression; [the provider guide](../docs/development/p2-provider.md)
 distinguishes scripted qualification from live compatibility.
 `test-policy.ps1` runs 47 authority/foundation contracts with native crash
 regressions enabled; see [authority and approvals](../docs/development/p2-policy.md).
-`test-tools.ps1` runs 26 prepared-file/repository/authority contracts and retained
+`test-tools.ps1` runs 28 prepared-tool/repository/authority contracts and retained
 patch unit regressions; [native file tools](../docs/development/p2-tools.md) also
 require canonical host integration and recovery/lifecycle qualification.
 

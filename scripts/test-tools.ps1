@@ -53,7 +53,7 @@ try{
         Stage 'contracts' 'cargo' ($arguments+@('--','--test-threads=1'))
         $tests=Get-Content -LiteralPath (Join-Path $directory 'contracts.log') -Raw
         $rows=[regex]::Matches($tests,'(?m)^test ([^\r\n]+) \.\.\. ok\r?$')
-        if($rows.Count -ne 26){throw "Expected all 26 prepared-file/repository/authority contracts; observed $($rows.Count)"}
+        if($rows.Count -ne 28){throw "Expected all 28 prepared-tool/repository/authority contracts; observed $($rows.Count)"}
         $record.tests=@($rows|ForEach-Object{$_.Groups[1].Value})
         Stage 'retained-patch' 'cargo' @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','-j',"$Jobs",'-p','codex-apply-patch','--lib','--','--test-threads=1')
     }finally{Pop-Location}

@@ -69,10 +69,7 @@ impl CanonicalHost {
     /// Consumes one owner-bound ticket. Every file gets a fresh native version
     /// check and current authority check, then a durable intent before mutation.
     pub fn dispatch_tool(&self, ticket: ToolProposal) -> Result<ToolOutcome, String> {
-        let _conflict = self
-            .tool_conflict
-            .try_lock()
-            .map_err(|_| "workspace tool conflict; retry scheduling after the current operation")?;
+        let _conflict = EffectLease::acquire(&self.tool_conflict)?;
         let mut permit = HostWorkAdmission::admit(
             &self.runtime,
             ticket.thread,

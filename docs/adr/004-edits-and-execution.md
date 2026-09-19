@@ -36,6 +36,15 @@ case-only rename. Memory-mapped writers and hardware power loss remain outside
 the qualified envelope. Process dispatch and production reconciliation still
 require the full P2-04/07 gates; no store migration is introduced here.
 
+The [prepared-process increment](../evaluations/p2-process-increment.md) adds
+explicit executable/environment profiles, pinned script inputs, native argv and
+shell conversion, canonical process receipts and bounded output/deadline
+observers. Owner close drains those observers before checkpoint closure. It also
+strengthens directory guards after a directory-only rename test exposed the
+attribute-only limitation. PTY, full reconciliation and coordinated in-flight
+revocation remain at the owning gates. No stored format migration is required;
+process profiles must be configured again after reopening.
+
 E05/E07/E08/R02/R04 include CRLF, encoding, locked files, case changes, junction replacement, partial application and grandchild cancellation. A separate marker observer detects duplicate non-idempotent effects after restart. Editor version guarantees are qualified later with real APIs.
 
 Attach exact source/package, fixture, configuration and environment identities, actual commands and pass/fail/not-run outcomes. No linked plan or ADR is itself passing evidence.
