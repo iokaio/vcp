@@ -34,6 +34,16 @@ try{
     $env:RUST_MIN_STACK='16777216';$env:CODEX_TEST_ENVIRONMENT='local';$env:VCP_TEST_GIT=(Get-Command git -CommandType Application).Source;$env:VCP_TEST_NODE=(Get-Command node -CommandType Application).Source;$env:CARGO_TARGET_DIR=$paths.target
     $record.node=& $env:VCP_TEST_NODE --version
     $record.node_sha256=(Get-FileHash -LiteralPath $env:VCP_TEST_NODE).Hash.ToLowerInvariant()
+    $env:VCP_TEST_CARGO=& rustup which --toolchain "$Toolchain" cargo
+    if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $env:VCP_TEST_CARGO)){$record.status='not_run';$record.exit_code=3;throw 'Real native Cargo executable unavailable'}
+    $env:VCP_TEST_COMPILER_PATH=(Split-Path -Parent $env:VCP_TEST_CARGO)+';'+$env:PATH
+    foreach($name in @('LIB','INCLUDE','LIBPATH')){
+        [Environment]::SetEnvironmentVariable("VCP_TEST_COMPILER_$name",[Environment]::GetEnvironmentVariable($name),'Process')
+    }
+    $record.cargo=& $env:VCP_TEST_CARGO --version
+    $record.cargo_sha256=(Get-FileHash -LiteralPath $env:VCP_TEST_CARGO).Hash.ToLowerInvariant()
+    $realRustc=Join-Path (Split-Path -Parent $env:VCP_TEST_CARGO) 'rustc.exe'
+    $record.rustc_sha256=(Get-FileHash -LiteralPath $realRustc).Hash.ToLowerInvariant()
     $record.msvc=$env:VCToolsVersion;$record.rustc=& rustc "+$Toolchain" --version
     $record.platform=[Runtime.InteropServices.RuntimeInformation]::OSDescription
     $record.vcp_commit=& git -C $repository rev-parse HEAD
@@ -47,9 +57,9 @@ try{
     try{
         Stage 'contracts' 'cargo' (@("+$Toolchain",'test','-p','vcp-lifecycle','--lib','--tests')+$common+@('--','--test-threads=1'))
         $tests=Get-Content -LiteralPath (Join-Path $directory 'contracts.log') -Raw
-        foreach($count in @(5,3,16,17)){if($tests -notmatch "test result: ok\. $count passed; 0 failed; 0 ignored;"){throw "Missing expected $count-test contract group"}}
+        foreach($count in @(5,3,16,18)){if($tests -notmatch "test result: ok\. $count passed; 0 failed; 0 ignored;"){throw "Missing expected $count-test contract group"}}
         $rows=[regex]::Matches($tests,'(?m)^test ([^\r\n]+) \.\.\. ok\r?$')
-        if($rows.Count -ne 44){throw 'Expected all 44 native host/port/canonical contracts'}
+        if($rows.Count -ne 45){throw 'Expected all 45 native host/port/canonical contracts'}
         foreach($filter in @('contained_spawn_owns_immediate_descendant','rejected_job_assignment_resumes_existing_job_member')){
             Stage $filter 'cargo' (@("+$Toolchain",'test','-p','codex-utils-pty')+$common+@($filter,'--','--test-threads=1'))
             if((Get-Content -LiteralPath (Join-Path $directory ($filter+'.log')) -Raw) -notmatch 'test result: ok\. 1 passed; 0 failed; 0 ignored;'){throw 'Maintenance regression did not execute'}

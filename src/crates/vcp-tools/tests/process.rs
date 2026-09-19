@@ -21,6 +21,11 @@ fn profiles_reject_model_authority_environment_credentials_and_implicit_shells()
     .is_err());
     for environment in [
         BTreeMap::from([("OPENROUTER_API_KEY".into(), "synthetic-denied".into())]),
+        BTreeMap::from([(
+            "CARGO_REGISTRIES_CRATES_IO_TOKEN".into(),
+            "synthetic-denied".into(),
+        )]),
+        BTreeMap::from([("RUSTC_WRAPPER".into(), "synthetic-override.exe".into())]),
         BTreeMap::from([("PATH".into(), "one".into()), ("Path".into(), "two".into())]),
     ] {
         assert!(Profile::new(
