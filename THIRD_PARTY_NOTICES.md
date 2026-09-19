@@ -166,6 +166,12 @@ independent PyTorch/Transformers generator and hashed reference-tool requirement
 
 ## Remaining dependencies and assets
 
+The P2 owned terminal adapter modifies the selected Codex ConPTY path at
+`utils/pty/src/win/{mod.rs,psuedocon.rs}`, preserving the original WezTerm MIT
+notices. Original VCP wrapper code and exports add explicit owned-job behavior;
+no new external dependency or upstream revision is introduced. The ordered
+patch and result inventory are recorded with the [Codex component](src/third_party/components/codex.md).
+
 The original [local corpus qualification executable](src/crates/vcp-memory-spike/Cargo.toml)
 calls the retained Munarium governance, in-memory store, datastore and VCP embedding APIs. Its public synthetic
 corpus and checks are original VCP material; it does not copy additional upstream

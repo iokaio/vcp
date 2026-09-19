@@ -2,9 +2,11 @@
 
 P2-03/P2-04 remain in progress. The canonical host now has an original process
 broker around the retained Windows Job Object launcher. It complements
-[prepared file tools](p2-tools.md). PTY dispatch, retained model-tool scheduling,
+[prepared file tools](p2-tools.md). Retained model-tool scheduling,
 complete restart reconciliation and installed CLI integration remain subsequent
 work. The P1 trusted-host process API remains a qualification interface.
+The [owned terminal increment](p2-pty.md) adds bounded initial input and native
+ConPTY observation; ongoing interactive control remains separate work.
 
 ## Profiles and authority
 

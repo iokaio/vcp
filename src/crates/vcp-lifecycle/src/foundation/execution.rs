@@ -124,12 +124,17 @@ impl CanonicalHost {
             let arguments:Vec<OsString>=prepared.arguments().iter().map(OsString::from).collect();
             let environment:BTreeMap<OsString,OsString>=prepared.environment().iter().map(|(k,v)|(k.into(),v.into())).collect();
             let op=prepared.authority().operation();
-            let process=runtime.spawn_bounded_process_with_capture(thread,&prepared.executable(),&arguments,&prepared.directory(),&environment,64*1024,
+            let limits=crate::process::Limits{timeout:Duration::from_millis(op.timeout_ms.get()),output_bytes:op.output_bytes.get()};
+            let process=if let Some(terminal)=prepared.profile().terminal() {
+                runtime.spawn_pty_with_capture(thread,&prepared.executable(),&arguments,&prepared.directory(),&environment,
+                    codex_utils_pty::TerminalSize{rows:terminal.rows,cols:terminal.cols},prepared.input().map(str::to_owned),limits,
+                    Arc::new(move|bytes|out.write(bytes).map_err(std::io::Error::other)),pins.clone())?
+            } else { runtime.spawn_bounded_process_with_capture(thread,&prepared.executable(),&arguments,&prepared.directory(),&environment,64*1024,
                 Some(Arc::new(move|bytes|out.write(bytes).map_err(std::io::Error::other))),
                 Some(Arc::new(move|bytes|err.write(bytes).map_err(std::io::Error::other))),
-                Some(crate::process::Limits{timeout:Duration::from_millis(op.timeout_ms.get()),output_bytes:op.output_bytes.get()}),prepared.profile().mode()==vcp_tools::process::Mode::Cmd,Some(pins.clone()))?;
+                Some(limits),prepared.profile().mode()==vcp_tools::process::Mode::Cmd,Some(pins.clone()))? };
             let identity=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"execution":run,"process_id":process.id(),"identity_authority":"owned process/job handles; PID is diagnostic only","job_processes":process.active_process_count()?}))?,"vcp-process-start-v1")?;
-            context.tool_advance(&binding,&effect,EffectState::Running,Some(run),vec![plan,identity.spec.id],"native process created suspended, assigned to owned job and resumed")?;
+            context.tool_advance(&binding,&effect,EffectState::Running,Some(run),vec![plan,identity.spec.id],"native process launched with owned job membership before execution")?;
             Ok((process,pins))
         });
         match started {

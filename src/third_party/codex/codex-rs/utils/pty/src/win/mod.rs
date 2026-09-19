@@ -21,6 +21,7 @@
 // Local modifications:
 // - Place spawned processes in a Job Object so kill operations terminate the
 //   full process tree, while normal root exit preserves background descendants.
+// - VCP owned launches terminate descendants on root exit instead of detaching them.
 
 use anyhow::Context as _;
 use filedescriptor::OwnedHandle;
@@ -43,6 +44,7 @@ use winapi::um::winbase::INFINITE;
 
 pub(crate) mod conpty;
 mod job;
+pub(crate) mod owned;
 mod procthreadattr;
 mod psuedocon;
 
@@ -55,6 +57,7 @@ pub use psuedocon::conpty_supported;
 pub struct WinChild {
     proc: Mutex<OwnedHandle>,
     job: Arc<JobObject>,
+    owned: bool,
 }
 
 impl WinChild {
@@ -62,7 +65,11 @@ impl WinChild {
         Self {
             proc: Mutex::new(proc),
             job,
+            owned: false,
         }
+    }
+    pub(crate) fn new_owned(proc: OwnedHandle, job: Arc<JobObject>) -> Self {
+        Self { proc: Mutex::new(proc), job, owned: true }
     }
 
     fn is_complete(&mut self) -> IoResult<Option<ExitStatus>> {
@@ -86,6 +93,12 @@ impl WinChild {
     }
 
     fn preserve_descendants(&self) {
+        if self.owned {
+            if let Err(err) = self.job.terminate() {
+                log::warn!("owned ConPTY failed to terminate descendants: {err}");
+            }
+            return;
+        }
         if let Err(err) = self.job.preserve_descendants() {
             log::warn!("ConPTY failed to preserve descendants after root exit: {err}");
         }

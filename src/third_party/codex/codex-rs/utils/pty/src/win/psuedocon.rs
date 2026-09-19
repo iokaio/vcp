@@ -1,5 +1,6 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::upper_case_acronyms)]
+// VCP modification: explicit owned Job Object launch with retained ConPTY creation.
 
 // This file is copied from https://github.com/wezterm/wezterm (MIT license).
 // Copyright (c) 2018-Present Wez Furlong
@@ -130,6 +131,7 @@ impl Drop for PsuedoCon {
 }
 
 impl PsuedoCon {
+    pub(crate) fn owned_supported() -> bool { CONPTY_RELEASE.is_some() }
     pub fn raw_handle(&self) -> HPCON {
         self.con
     }
@@ -169,6 +171,9 @@ impl PsuedoCon {
 
     pub fn spawn_command(&mut self, cmd: CommandBuilder) -> anyhow::Result<WinChild> {
         let job = Arc::new(JobObject::create()?);
+        self.spawn_in_job(cmd, job, false)
+    }
+    pub(crate) fn spawn_in_job(&mut self, cmd: CommandBuilder, job: Arc<JobObject>, owned: bool) -> anyhow::Result<WinChild> {
         let mut si: STARTUPINFOEXW = unsafe { mem::zeroed() };
         si.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
         si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
@@ -229,7 +234,7 @@ impl PsuedoCon {
             }
         }
 
-        Ok(WinChild::new(proc, job))
+        Ok(if owned { WinChild::new_owned(proc, job) } else { WinChild::new(proc, job) })
     }
 }
 

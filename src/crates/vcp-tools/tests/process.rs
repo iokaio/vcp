@@ -99,6 +99,7 @@ fn prepared_process_pins_executable_and_rejects_changed_script_or_directory() {
             directory: String::new(),
             timeout_ms: 1000,
             output_bytes: 1024,
+            input: None,
         },
     );
     assert!(matches!(
@@ -107,6 +108,45 @@ fn prepared_process_pins_executable_and_rejects_changed_script_or_directory() {
             "executable and workspace root identities collide"
         ))
     ));
+    let terminal_probe = |terminal: bool, input: &str| {
+        let profile = if terminal {
+            profile.clone().with_terminal(24, 80).unwrap()
+        } else {
+            profile.clone()
+        };
+        prepare(
+            Root::open(root.identity.clone(), &workspace).unwrap(),
+            Identity {
+                scope: identity.scope.clone(),
+                actor: identity.actor.clone(),
+                host: identity.host.clone(),
+                binding: identity.binding,
+                authority: identity.authority,
+                steering: identity.steering,
+                policy: identity.policy,
+            },
+            profile,
+            Request {
+                profile: "fixture".into(),
+                arguments: vec![],
+                directory: String::new(),
+                timeout_ms: 1000,
+                output_bytes: 1024,
+                input: Some(input.into()),
+            },
+        )
+    };
+    assert!(terminal_probe(false, "unbound pipe input").is_err());
+    assert!(terminal_probe(true, &"x".repeat(32769)).is_err());
+    let first = terminal_probe(true, "one\n").unwrap();
+    let changed = terminal_probe(true, "two\n").unwrap();
+    assert_ne!(first.authority().digest(), changed.authority().digest());
+    assert!(first
+        .authority()
+        .operation()
+        .required_isolation
+        .contains(&Isolation::Pty));
+    assert!(profile.clone().with_terminal(0, 80).is_err());
     let prepared = prepare(
         root,
         identity,
@@ -117,6 +157,7 @@ fn prepared_process_pins_executable_and_rejects_changed_script_or_directory() {
             directory: String::new(),
             timeout_ms: 1000,
             output_bytes: 1024,
+            input: None,
         },
     )
     .unwrap();

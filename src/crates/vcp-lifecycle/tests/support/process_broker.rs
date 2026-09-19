@@ -30,6 +30,7 @@ fn request(mode: &str, directory: &Path) -> Request {
         directory: String::new(),
         timeout_ms: 10_000,
         output_bytes: 1024 * 1024,
+        input: None,
     }
 }
 async fn ready(path: &Path) {
@@ -328,6 +329,7 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
                         directory: String::new(),
                         timeout_ms: 10_000,
                         output_bytes: 64 * 1024,
+                        input: None,
                     },
                 )
                 .unwrap();
@@ -385,6 +387,106 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
         .await
         .unwrap();
         assert!(server.received_requests().await.unwrap().is_empty());
+        assert!(
+            codex_utils_pty::owned_pty_supported(),
+            "this native qualification requires owned ConPTY support"
+        );
+        host.configure_process_profile(
+            profile("fixture", &executable, true)
+                .with_terminal(24, 100)
+                .unwrap(),
+        )
+        .unwrap();
+        let mut terminal = request("terminal", &workspace);
+        terminal.input = Some("hello ü ; &\r\n".into());
+        let ticket = host.prepare_process(id, terminal).unwrap();
+        let result = host.dispatch_process(ticket).unwrap().wait().await.unwrap();
+        assert_eq!(
+            result.exit_code,
+            Some(0),
+            "terminal: {:?}; {:?}",
+            result.reason,
+            String::from_utf8_lossy(&result.stdout_tail)
+        );
+        let terminal: serde_json::Value =
+            serde_json::from_slice(&fs::read(workspace.join("terminal.json")).unwrap()).unwrap();
+        assert_eq!(terminal["stdin_terminal"], true);
+        assert_eq!(terminal["stdout_terminal"], true);
+        assert_eq!(terminal["input"].as_str().unwrap().trim(), "hello ü ; &");
+        assert!(String::from_utf8_lossy(&result.stdout_tail).contains("terminal stdout"));
+        assert!(String::from_utf8_lossy(&result.stdout_tail).contains("terminal stderr"));
+        assert_eq!(result.stderr.length.get(), 0);
+        host.configure_process_profile(
+            Profile::new(
+                "powershell".into(),
+                system.join("System32/WindowsPowerShell/v1.0/powershell.exe"),
+                Mode::PowerShell,
+                BTreeMap::from([("SystemRoot".into(), system.to_str().unwrap().into())]),
+                BTreeSet::new(),
+                true,
+            )
+            .unwrap()
+            .with_terminal(24, 100)
+            .unwrap(),
+        )
+        .unwrap();
+        let ticket = host
+            .prepare_process(
+                id,
+                Request {
+                    profile: "powershell".into(),
+                    arguments: vec!["Write-Output 'terminal powershell'".into()],
+                    directory: String::new(),
+                    timeout_ms: 10_000,
+                    output_bytes: 65536,
+                    input: None,
+                },
+            )
+            .unwrap();
+        let result = host.dispatch_process(ticket).unwrap().wait().await.unwrap();
+        assert_eq!(
+            result.exit_code,
+            Some(0),
+            "process: {:?}; {:?}",
+            result.reason,
+            String::from_utf8_lossy(&result.stdout_tail)
+        );
+        assert!(String::from_utf8_lossy(&result.stdout_tail).contains("terminal powershell"));
+        let detached = workspace.join("terminal-descendant");
+        fs::create_dir(&detached).unwrap();
+        let ticket = host
+            .prepare_process(id, request("orphan", &detached))
+            .unwrap();
+        let result = host.dispatch_process(ticket).unwrap().wait().await.unwrap();
+        assert_eq!(result.exit_code, Some(0));
+        assert!(detached.join("child-ready").exists());
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            fs::OpenOptions::new()
+                .write(true)
+                .share_mode(0)
+                .open(detached.join("locked"))
+                .unwrap();
+        }
+        let mut flood = request("flood", &workspace);
+        flood.output_bytes = 32768;
+        let ticket = host.prepare_process(id, flood).unwrap();
+        let result = host.dispatch_process(ticket).unwrap().wait().await.unwrap();
+        assert_eq!(result.reason.as_deref(), Some("output limit exceeded"));
+        assert_eq!(result.stdout.state, CaptureState::Aborted);
+        assert!(result.stdout.length.get() <= 32768 + 8192);
+        let timed = workspace.join("terminal-deadline");
+        fs::create_dir(&timed).unwrap();
+        let mut timed_request = request("tree", &timed);
+        timed_request.timeout_ms = 1500;
+        let ticket = host.prepare_process(id, timed_request).unwrap();
+        let process = host.dispatch_process(ticket).unwrap();
+        ready(&timed.join("child-ready")).await;
+        assert!(process.active_process_count().unwrap() >= 2);
+        let result = process.wait().await.unwrap();
+        assert_eq!(result.reason.as_deref(), Some("process deadline elapsed"));
+        host.configure_process_profile(profile("fixture", &executable, true))
+            .unwrap();
         policy.revision = PolicyRevision::new(4);
         policy.denials.push(Denial {
             id: "executable-read-denial".into(),
@@ -425,6 +527,14 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
         )
         .unwrap();
         let closing = workspace.join("closing-child");
+        if backend == BackendKind::Sqlite {
+            host.configure_process_profile(
+                profile("fixture", &executable, true)
+                    .with_terminal(24, 80)
+                    .unwrap(),
+            )
+            .unwrap();
+        }
         fs::create_dir(&closing).unwrap();
         let ticket = host.prepare_process(id, request("tree", &closing)).unwrap();
         let process = host.dispatch_process(ticket).unwrap();

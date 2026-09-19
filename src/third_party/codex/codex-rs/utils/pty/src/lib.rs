@@ -41,6 +41,9 @@ pub use pty::conpty_supported;
 pub use pty::spawn_process as spawn_pty_process;
 #[cfg(windows)]
 pub use win::JobObject;
+// VCP addition: explicit owned ConPTY primitive; it conveys no policy authority.
+#[cfg(windows)]
+pub use win::owned::{OwnedPty, OwnedPtyChild, owned_pty_supported, spawn_owned_pty};
 #[cfg(windows)]
 pub use win::PsuedoCon;
 #[cfg(windows)]

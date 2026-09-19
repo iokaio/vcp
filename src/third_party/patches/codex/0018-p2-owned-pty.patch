@@ -1,0 +1,182 @@
+diff --git a/codex-rs/utils/pty/src/lib.rs b/codex-rs/utils/pty/src/lib.rs
+index 1200c11..f0936e3 100644
+--- a/codex-rs/utils/pty/src/lib.rs
++++ b/codex-rs/utils/pty/src/lib.rs
+@@ -41,6 +41,9 @@ pub use pty::conpty_supported;
+ pub use pty::spawn_process as spawn_pty_process;
+ #[cfg(windows)]
+ pub use win::JobObject;
++// VCP addition: explicit owned ConPTY primitive; it conveys no policy authority.
++#[cfg(windows)]
++pub use win::owned::{OwnedPty, OwnedPtyChild, owned_pty_supported, spawn_owned_pty};
+ #[cfg(windows)]
+ pub use win::PsuedoCon;
+ #[cfg(windows)]
+diff --git a/codex-rs/utils/pty/src/win/mod.rs b/codex-rs/utils/pty/src/win/mod.rs
+index 05063cf..5cb5b8e 100644
+--- a/codex-rs/utils/pty/src/win/mod.rs
++++ b/codex-rs/utils/pty/src/win/mod.rs
+@@ -21,6 +21,7 @@
+ // Local modifications:
+ // - Place spawned processes in a Job Object so kill operations terminate the
+ //   full process tree, while normal root exit preserves background descendants.
++// - VCP owned launches terminate descendants on root exit instead of detaching them.
+ 
+ use anyhow::Context as _;
+ use filedescriptor::OwnedHandle;
+@@ -43,6 +44,7 @@ use winapi::um::winbase::INFINITE;
+ 
+ pub(crate) mod conpty;
+ mod job;
++pub(crate) mod owned;
+ mod procthreadattr;
+ mod psuedocon;
+ 
+@@ -55,6 +57,7 @@ pub use psuedocon::conpty_supported;
+ pub struct WinChild {
+     proc: Mutex<OwnedHandle>,
+     job: Arc<JobObject>,
++    owned: bool,
+ }
+ 
+ impl WinChild {
+@@ -62,8 +65,12 @@ impl WinChild {
+         Self {
+             proc: Mutex::new(proc),
+             job,
++            owned: false,
+         }
+     }
++    pub(crate) fn new_owned(proc: OwnedHandle, job: Arc<JobObject>) -> Self {
++        Self { proc: Mutex::new(proc), job, owned: true }
++    }
+ 
+     fn is_complete(&mut self) -> IoResult<Option<ExitStatus>> {
+         let mut status: DWORD = 0;
+@@ -86,6 +93,12 @@ impl WinChild {
+     }
+ 
+     fn preserve_descendants(&self) {
++        if self.owned {
++            if let Err(err) = self.job.terminate() {
++                log::warn!("owned ConPTY failed to terminate descendants: {err}");
++            }
++            return;
++        }
+         if let Err(err) = self.job.preserve_descendants() {
+             log::warn!("ConPTY failed to preserve descendants after root exit: {err}");
+         }
+diff --git a/codex-rs/utils/pty/src/win/psuedocon.rs b/codex-rs/utils/pty/src/win/psuedocon.rs
+index 1b83478..85df734 100644
+--- a/codex-rs/utils/pty/src/win/psuedocon.rs
++++ b/codex-rs/utils/pty/src/win/psuedocon.rs
+@@ -1,5 +1,6 @@
+ #![allow(clippy::expect_used)]
+ #![allow(clippy::upper_case_acronyms)]
++// VCP modification: explicit owned Job Object launch with retained ConPTY creation.
+ 
+ // This file is copied from https://github.com/wezterm/wezterm (MIT license).
+ // Copyright (c) 2018-Present Wez Furlong
+@@ -130,6 +131,7 @@ impl Drop for PsuedoCon {
+ }
+ 
+ impl PsuedoCon {
++    pub(crate) fn owned_supported() -> bool { CONPTY_RELEASE.is_some() }
+     pub fn raw_handle(&self) -> HPCON {
+         self.con
+     }
+@@ -169,6 +171,9 @@ impl PsuedoCon {
+ 
+     pub fn spawn_command(&mut self, cmd: CommandBuilder) -> anyhow::Result<WinChild> {
+         let job = Arc::new(JobObject::create()?);
++        self.spawn_in_job(cmd, job, false)
++    }
++    pub(crate) fn spawn_in_job(&mut self, cmd: CommandBuilder, job: Arc<JobObject>, owned: bool) -> anyhow::Result<WinChild> {
+         let mut si: STARTUPINFOEXW = unsafe { mem::zeroed() };
+         si.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
+         si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+@@ -229,7 +234,7 @@ impl PsuedoCon {
+             }
+         }
+ 
+-        Ok(WinChild::new(proc, job))
++        Ok(if owned { WinChild::new_owned(proc, job) } else { WinChild::new(proc, job) })
+     }
+ }
+ 
+diff --git a/codex-rs/utils/pty/src/win/owned.rs b/codex-rs/utils/pty/src/win/owned.rs
+new file mode 100644
+--- /dev/null
++++ b/codex-rs/utils/pty/src/win/owned.rs
+@@ -0,0 +1,71 @@
++// SPDX-License-Identifier: Apache-2.0
++// VCP addition: owned native adapter over the retained MIT ConPTY implementation.
++use super::conpty::RawConPty;
++use super::{JobObject, PsuedoCon, WinChild};
++use crate::TerminalSize;
++use portable_pty::{Child, cmdbuilder::CommandBuilder};
++use std::os::windows::io::{AsRawHandle, BorrowedHandle};
++use std::{collections::BTreeMap, ffi::OsString, fs::File, io, path::Path, sync::Arc};
++
++pub fn owned_pty_supported() -> bool {
++    PsuedoCon::owned_supported()
++}
++pub struct OwnedPty {
++    pub input: File,
++    pub output: File,
++    pub console: Arc<PsuedoCon>,
++    pub child: OwnedPtyChild,
++}
++pub struct OwnedPtyChild(WinChild);
++impl OwnedPtyChild {
++    pub fn id(&self) -> Option<u32> {
++        self.0.process_id()
++    }
++    pub fn wait(&mut self) -> io::Result<i32> {
++        self.0.wait().map(|s| s.exit_code() as i32)
++    }
++}
++pub fn spawn_owned_pty(
++    executable: &Path,
++    arguments: &[OsString],
++    directory: &Path,
++    environment: &BTreeMap<OsString, OsString>,
++    size: TerminalSize,
++    job: Arc<JobObject>,
++) -> anyhow::Result<OwnedPty> {
++    anyhow::ensure!(
++        owned_pty_supported(),
++        "owned PTY requires ReleasePseudoConsole support"
++    );
++    anyhow::ensure!(
++        executable.is_absolute() && directory.is_absolute(),
++        "absolute PTY paths required"
++    );
++    anyhow::ensure!(
++        (1..=500).contains(&size.rows) && (1..=500).contains(&size.cols),
++        "PTY size bounds"
++    );
++    let raw = RawConPty::new(size.cols as i16, size.rows as i16)?;
++    let (mut console, input, output) = raw.into_handles();
++    // Duplicate as standard owned files; source descriptors are then released.
++    let input: File = unsafe { BorrowedHandle::borrow_raw(input.as_raw_handle()) }
++        .try_clone_to_owned()?
++        .into();
++    let output: File = unsafe { BorrowedHandle::borrow_raw(output.as_raw_handle()) }
++        .try_clone_to_owned()?
++        .into();
++    let mut command = CommandBuilder::new(executable);
++    command.cwd(directory);
++    command.env_clear();
++    command.args(arguments);
++    for (key, value) in environment {
++        command.env(key, value);
++    }
++    let child = console.spawn_in_job(command, job, true)?;
++    Ok(OwnedPty {
++        input,
++        output,
++        console: Arc::new(console),
++        child: OwnedPtyChild(child),
++    })
++}

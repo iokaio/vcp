@@ -12,6 +12,11 @@ pub enum Mode {
     PowerShell,
     Cmd,
 }
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct Terminal {
+    pub rows: u16,
+    pub cols: u16,
+}
 /// Explicit reduced-isolation selection. Restricted requirements are checked
 /// separately against actual platform capabilities and cannot be approved away.
 #[derive(Clone, Debug, Serialize)]
@@ -23,6 +28,7 @@ pub struct Profile {
     required: BTreeSet<Isolation>,
     reduced_isolation: bool,
     inputs: Vec<String>,
+    terminal: Option<Terminal>,
 }
 impl Profile {
     pub fn new(
@@ -83,6 +89,7 @@ impl Profile {
             required,
             reduced_isolation,
             inputs: vec![],
+            terminal: None,
         })
     }
     /// Trusted read-only script/config dependencies stay pinned for the entire
@@ -104,6 +111,18 @@ impl Profile {
     pub fn name(&self) -> &str {
         &self.name
     }
+    pub fn with_terminal(mut self, rows: u16, cols: u16) -> Result<Self> {
+        if !(1..=500).contains(&rows) || !(1..=500).contains(&cols) || self.mode == Mode::Cmd {
+            return Err(Error::Invalid(
+                "terminal dimensions or unsupported cmd PTY conversion",
+            ));
+        }
+        self.terminal = Some(Terminal { rows, cols });
+        Ok(self)
+    }
+    pub fn terminal(&self) -> Option<Terminal> {
+        self.terminal
+    }
     pub fn executable_root_id(&self) -> Result<RootId> {
         RootId::parse(format!("exec-{}", self.name)).map_err(|_| Error::Invalid("profile identity"))
     }
@@ -124,9 +143,11 @@ pub struct Request {
     pub directory: String,
     pub timeout_ms: u64,
     pub output_bytes: u64,
+    #[serde(default)]
+    pub input: Option<String>,
 }
 pub fn definition() -> serde_json::Value {
-    serde_json::json!({"type":"function","name":"vcp_exec","strict":true,"description":"Run an explicit configured executable profile. Shell profiles accept exactly one script argument. Processes are opaque effects and need current authority. Limits and reduced isolation are explicit.","parameters":{"type":"object","properties":{"profile":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"directory":{"type":"string"},"timeout_ms":{"type":"integer"},"output_bytes":{"type":"integer"}},"required":["profile","arguments","directory","timeout_ms","output_bytes"],"additionalProperties":false}})
+    serde_json::json!({"type":"function","name":"vcp_exec","strict":true,"description":"Run an explicit executable profile. Shell profiles take one script. Terminal profiles accept bounded initial input and produce merged terminal output. Processes are opaque effects requiring current authority.","parameters":{"type":"object","properties":{"profile":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"directory":{"type":"string"},"timeout_ms":{"type":"integer"},"output_bytes":{"type":"integer"},"input":{"type":["string","null"]}},"required":["profile","arguments","directory","timeout_ms","output_bytes","input"],"additionalProperties":false}})
 }
 impl Request {
     pub fn from_arguments(arguments: &str) -> Result<Self> {
@@ -147,6 +168,7 @@ pub struct Prepared {
     arguments: Vec<String>,
     snapshot: serde_json::Value,
     inputs: Vec<FileVersion>,
+    input: Option<String>,
 }
 pub struct Pins {
     pub directory: HeldPath,
@@ -154,6 +176,9 @@ pub struct Pins {
     pub inputs: Vec<HeldPath>,
 }
 impl Prepared {
+    pub fn input(&self) -> Option<&str> {
+        self.input.as_deref()
+    }
     pub fn authority(&self) -> &vcp_policy::Prepared {
         &self.authority
     }
@@ -248,6 +273,10 @@ pub fn prepare(
         || request.timeout_ms > 120_000
         || request.output_bytes == 0
         || request.output_bytes > 8 * 1024 * 1024
+        || request
+            .input
+            .as_ref()
+            .is_some_and(|s| s.len() > 32 * 1024 || s.contains('\0') || profile.terminal.is_none())
     {
         return Err(Error::Invalid("process scope or bounds"));
     }
@@ -311,6 +340,9 @@ pub fn prepare(
         Isolation::OutputLimit,
     ]);
     required.extend(profile.required.iter().copied());
+    if profile.terminal.is_some() {
+        required.insert(Isolation::Pty);
+    }
     if !profile.reduced_isolation {
         required.extend([Isolation::WorkspaceFilesystem, Isolation::NoNetwork]);
     }
@@ -388,5 +420,6 @@ pub fn prepare(
         arguments,
         snapshot,
         inputs,
+        input: request.input,
     })
 }

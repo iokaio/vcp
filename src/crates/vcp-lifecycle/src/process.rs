@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Native Windows feasibility adapter over the retained Codex Job Object.
 //! Job membership is process containment, not filesystem/network isolation.
+mod pty;
 use super::{Error, Lifecycle};
 use codex_extension_api::{HostWorkAdmission, HostWorkKind, HostWorkPermit};
 use codex_protocol::ThreadId;

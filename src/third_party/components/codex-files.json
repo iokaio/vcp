@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "396d537a2ebc71c44dcc3c9f89f5620432f918612a4ca1c43bcab123b91535a0",
-  "files_sha256": "f08100ac0284dc4cc1dc2273037b0178181729caa483ceadfbe1c3bbe62fd6ec",
+  "selection_sha256": "a499d4e1ae817e8e8a247ecd904a2e97946b3dabd95f5c472ca113eb8e3153c7",
+  "files_sha256": "d5da30adab0271f35e09567b43bfb6485033e8a0e4c9158c69e412c8717b4be7",
   "files": [
     {
       "path": ".bazelignore",
@@ -104281,11 +104281,11 @@
         "sha256": "92475acd26e972bad0f9e0010fe970f19529ed968e12f305393d39082cfe8310"
       },
       "result": {
-        "bytes": 1882,
-        "sha256": "92475acd26e972bad0f9e0010fe970f19529ed968e12f305393d39082cfe8310",
+        "bytes": 2065,
+        "sha256": "97a6b29ef5cdb92bfe9278ea323066fbdc288c5f51013540c1e16ee2bcf4b891",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/utils/pty/src/pipe.rs",
@@ -104435,11 +104435,21 @@
         "sha256": "4f355ebc286683984158ff5b3cc3994c55e8b4eaea39775da905d91fd1fbbb14"
       },
       "result": {
-        "bytes": 5869,
-        "sha256": "4f355ebc286683984158ff5b3cc3994c55e8b4eaea39775da905d91fd1fbbb14",
+        "bytes": 6366,
+        "sha256": "a194a3c2560b7ae58a17e26b1368650626a9c9b78489dfa5aafbba0b23604a45",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
+    },
+    {
+      "path": "codex-rs/utils/pty/src/win/owned.rs",
+      "original": null,
+      "result": {
+        "bytes": 2334,
+        "sha256": "efecc8a78947288c9eb183be9cce803a83c705932639333b0fab3485b7001ae8",
+        "mode": "100644"
+      },
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/utils/pty/src/win/procthreadattr.rs",
@@ -104463,11 +104473,11 @@
         "sha256": "32c19b244e451a03c0da2e57a7911c69361d033c91d256ad22e61b2711487090"
       },
       "result": {
-        "bytes": 12753,
-        "sha256": "32c19b244e451a03c0da2e57a7911c69361d033c91d256ad22e61b2711487090",
+        "bytes": 13140,
+        "sha256": "2a2557b70e79ba3fb48eeed3df92942fd15689368837885dfa29c46e11e54451",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/utils/pty/src/win/psuedocon_tests.rs",

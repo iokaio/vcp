@@ -93,3 +93,11 @@ retained Job Object suspended-launch APIs without another vendor patch or
 external dependency change. Native profile preparation, scoped pins, command-line
 conversion, canonical receipts and owned output/deadline observers live in the
 original `vcp-tools`, `vcp-repository` and `vcp-lifecycle` packages.
+
+Patch 0018 for [owned terminal processes](../../../docs/development/p2-pty.md) adapts the already selected Codex revision
+`3d3ae4965ab370217e871b3a7f0d15589557ee4b`, specifically
+`codex-rs/utils/pty/src/win/{mod.rs,psuedocon.rs}` (retained WezTerm MIT notices)
+and the Apache-2.0 crate exports. The adaptation adds an explicit owned-job launch
+and original wrapper around retained ConPTY primitives; ordinary callers retain
+their existing descendant behavior. No new external dependency is required.
+The ordered patch, result hashes and root notices record the adaptation.

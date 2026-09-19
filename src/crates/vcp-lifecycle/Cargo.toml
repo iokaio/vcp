@@ -29,7 +29,7 @@ codex-utils-pty = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util"] }
+tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util", "fs"] }
 
 [dev-dependencies]
 wiremock = { workspace = true }
