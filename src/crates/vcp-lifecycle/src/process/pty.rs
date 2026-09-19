@@ -44,6 +44,7 @@ impl Lifecycle {
             || limits.timeout > Duration::from_secs(120)
             || limits.output_bytes == 0
             || limits.output_bytes > 8 * 1024 * 1024
+            || !(1..=128).contains(&limits.process_count)
             || input.as_ref().is_some_and(|s| s.len() > 32 * 1024)
         {
             return Err(io::Error::other("PTY bounds"));
@@ -60,7 +61,7 @@ impl Lifecycle {
             permit.complete().map_err(io::Error::other)?;
             return Err(io::Error::other("PTY launch sealed"));
         }
-        let job = Arc::new(JobObject::create_without_breakaway()?);
+        let job = Arc::new(JobObject::create_with_process_limit(limits.process_count)?);
         let executable = application_path(executable)?;
         let pty = codex_utils_pty::spawn_owned_pty(
             &executable,

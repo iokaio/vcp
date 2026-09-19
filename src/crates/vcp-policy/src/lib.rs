@@ -212,9 +212,15 @@ fn matches_target(target: &GrantTarget, prepared: &Prepared) -> bool {
     }
 }
 fn denies(rule: &Denial, op: &Operation) -> bool {
-    if rule.tool.as_ref().is_some_and(|tool| tool != &op.tool)
-        || !rule.effects.is_empty() && rule.effects.is_disjoint(&op.effects)
-    {
+    if rule.tool.as_ref().is_some_and(|tool| tool != &op.tool) {
+        return false;
+    }
+    // Opaque operations have no complete resource/effect closure. A caller's
+    // declared inputs cannot prove that a scoped denial is irrelevant.
+    if op.effects.contains(&EffectClass::Opaque) {
+        return true;
+    }
+    if !rule.effects.is_empty() && rule.effects.is_disjoint(&op.effects) {
         return false;
     }
     if rule.roots.is_empty() && rule.paths.is_empty() {

@@ -48,6 +48,7 @@ impl Context {
             .transpose()?;
         let mut isolation = BTreeSet::from([
             Isolation::JobTree,
+            Isolation::ProcessCount,
             Isolation::FilteredEnvironment,
             Isolation::Timeout,
             Isolation::OutputLimit,

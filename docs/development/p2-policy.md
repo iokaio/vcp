@@ -19,6 +19,12 @@ Process identity includes executable identity, exact argument vector, explicit
 shell choice, directory and filtered-environment digest. Shell/process and
 remote invocations carry conservative opaque effects; matching shell text alone
 cannot grant execution.
+An opaque operation cannot establish a complete effect/resource closure.
+Any denial whose tool selector is absent or matches therefore applies, even
+when its effect class or resource prefix is absent from the declared inputs.
+Bounded local operations retain resource-specific denial matching. The
+[execution ceilings report](../evaluations/p2-execution-ceilings.md) covers
+abstract decisions and native denied dispatch.
 
 The evaluator checks owner/task availability, current scope/revisions/source
 facts, trusted workspace, resource limits and actual platform capabilities.

@@ -89,6 +89,30 @@ impl JobObject {
         Ok(job)
     }
 
+    /// VCP: bound simultaneous members, including the root, before any launch.
+    pub fn create_with_process_limit(count: u32) -> io::Result<Self> {
+        if count == 0 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "zero process limit"));
+        }
+        let job = Self::create_without_breakaway()?;
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            | winapi::um::winnt::JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+        limits.BasicLimitInformation.ActiveProcessLimit = count;
+        let configured = unsafe {
+            SetInformationJobObject(
+                job.handle.as_raw_handle().cast(),
+                JobObjectExtendedLimitInformation,
+                std::ptr::addr_of_mut!(limits).cast(),
+                std::mem::size_of_val(&limits) as u32,
+            )
+        };
+        if configured == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(job)
+    }
+
     /// Captures an owned process handle before its numeric identifier can be reused.
     pub fn open_process_handle(process_id: u32) -> io::Result<std::os::windows::io::OwnedHandle> {
         let handle = unsafe {

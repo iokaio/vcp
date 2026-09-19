@@ -88,3 +88,7 @@ VCP's owned terminal path adapts the selected Codex ConPTY implementation,
 including WezTerm-derived MIT source. Original copyright and license notices
 remain in utils/pty/src/win/. Explicit owned-job launch and the new VCP wrapper
 are recorded modifications; see THIRD_PARTY_NOTICES.md and the Codex component.
+
+VCP's process-count adaptation adds bounded owned-job creation to the selected
+Codex Windows Job Object utility. The ordered patch and result inventory retain
+the same upstream revision and license.

@@ -42,6 +42,7 @@ struct Control {
 pub struct Limits {
     pub timeout: Duration,
     pub output_bytes: u64,
+    pub process_count: u32,
 }
 
 #[derive(Debug)]
@@ -261,6 +262,7 @@ impl Lifecycle {
                 || l.timeout > Duration::from_secs(120)
                 || l.output_bytes == 0
                 || l.output_bytes > 8 * 1024 * 1024
+                || !(1..=128).contains(&l.process_count)
         }) {
             return Err(io::Error::other("process limits"));
         }
@@ -282,7 +284,10 @@ impl Lifecycle {
             permit.complete().map_err(io::Error::other)?;
             return Err(io::Error::other("process launch sealed"));
         }
-        let job = Arc::new(JobObject::create_without_breakaway()?);
+        let job = Arc::new(match limits {
+            Some(limits) => JobObject::create_with_process_limit(limits.process_count)?,
+            None => JobObject::create_without_breakaway()?,
+        });
         let mut command = Command::new(executable);
         if cmd_script {
             use std::os::windows::process::CommandExt;

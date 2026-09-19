@@ -103,6 +103,10 @@
     {
       "path": "src/third_party/patches/codex/0018-p2-owned-pty.patch",
       "sha256": "690a89cd8fd6ea4ea9f0768a5685bdf0129dec92e4686fb39b1c9349b62ead8d"
+    },
+    {
+      "path": "src/third_party/patches/codex/0019-p2-process-count.patch",
+      "sha256": "e1770c0a22ab3121b4e5b609b169e5d911482192de7057a40ae22093f1570858"
     }
   ],
   "licenses": [

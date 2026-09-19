@@ -172,6 +172,12 @@ notices. Original VCP wrapper code and exports add explicit owned-job behavior;
 no new external dependency or upstream revision is introduced. The ordered
 patch and result inventory are recorded with the [Codex component](src/third_party/components/codex.md).
 
+The P2 process-count adaptation extends the same selected revision's
+`codex-rs/utils/pty/src/win/job.rs` with a pre-launch active-process limit.
+Patch `0019-p2-process-count.patch` records this modification; ordinary upstream
+callers keep their existing behavior. No additional external source or dependency
+is imported.
+
 The original [local corpus qualification executable](src/crates/vcp-memory-spike/Cargo.toml)
 calls the retained Munarium governance, in-memory store, datastore and VCP embedding APIs. Its public synthetic
 corpus and checks are original VCP material; it does not copy additional upstream

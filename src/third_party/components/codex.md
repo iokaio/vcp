@@ -101,3 +101,9 @@ and the Apache-2.0 crate exports. The adaptation adds an explicit owned-job laun
 and original wrapper around retained ConPTY primitives; ordinary callers retain
 their existing descendant behavior. No new external dependency is required.
 The ordered patch, result hashes and root notices record the adaptation.
+
+Patch 0019 extends the selected `codex-rs/utils/pty/src/win/job.rs` with a
+pre-launch active-process limit for owned VCP jobs. Existing upstream callers
+are unchanged. The original broker uses this for both pipes and terminals;
+see [process limits](../../../docs/development/p2-process.md#native-launch-and-limits).
+The source revision, license and external dependency pins are unchanged.
