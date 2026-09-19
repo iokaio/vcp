@@ -5,17 +5,17 @@ param([string]$OutputRoot,[string]$TargetRoot,[ValidateRange(1,16)][int]$Jobs=4)
 $ErrorActionPreference='Stop'
 $repository=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if(-not $IsWindows){Write-Output '{"status":"not_run","reason":"Native Windows required"}';exit 3}
-if(-not $OutputRoot){$OutputRoot=Join-Path $repository 'artifacts/context'}
+if(-not $OutputRoot){$OutputRoot=Join-Path $repository 'artifacts/tools'}
 if(-not $TargetRoot){$TargetRoot=Join-Path $repository 'artifacts/upstream/codex-target'}
 foreach($tool in @('node','cargo','rustup','git')){if(-not(Get-Command $tool -CommandType Application -ErrorAction SilentlyContinue)){Write-Output "{`"status`":`"not_run`",`"reason`":`"Missing $tool`"}";exit 3}}
 $paths=& node -e "const m=require(process.argv[1]),p=require('node:path'),r=process.argv[2];console.log(JSON.stringify({output:m.outside(process.argv[3],[p.join(r,'src')]),target:m.outside(process.argv[4],[p.join(r,'src')])}));" (Join-Path $repository 'src/tests/support/model-assets.cjs') $repository $OutputRoot $TargetRoot
 if($LASTEXITCODE -ne 0){exit 2};$paths=$paths|ConvertFrom-Json
 $directory=Join-Path $paths.output ([guid]::NewGuid().ToString());New-Item -ItemType Directory -Path $directory -Force|Out-Null
-$record=[ordered]@{schema_version=1;task_id='P2-01';status='prepared';started_at=[DateTime]::UtcNow.ToString('o');stages=@()}
+$record=[ordered]@{schema_version=1;task_id='P2-03/P2-04';status='prepared';started_at=[DateTime]::UtcNow.ToString('o');stages=@()}
 $manifest=Join-Path $directory 'manifest.json'
 function Save-Record {$record|ConvertTo-Json -Depth 16|Set-Content -LiteralPath $manifest -Encoding utf8}
 function Stage([string]$Name,[string]$Program,[string[]]$Arguments){
-    $log=Join-Path $directory ($Name+'.log');Write-Host "Context qualification: $Name"
+    $log=Join-Path $directory ($Name+'.log');Write-Host "Tool qualification: $Name"
     & $Program @Arguments *> $log;$code=$LASTEXITCODE
     $record.stages+=@{name=$Name;command=@($Program)+$Arguments;exit_code=$code;log=$Name+'.log';sha256=(Get-FileHash -LiteralPath $log).Hash.ToLowerInvariant()};Save-Record
     if($code -ne 0 -or (Get-Content -LiteralPath $log -Raw) -match 'panicked at'){throw "$Name failed or had a background panic"}
@@ -38,11 +38,12 @@ try{
     $record.filesystem="$($volume.FileSystemType)"
     $env:VCP_TEST_GIT=(Get-Command git -CommandType Application).Source
     $record.git=& $env:VCP_TEST_GIT --version
-    $record.scope='Native repository observation and context assembly; no provider request or product coding-loop acceptance'
+    $record.scope='Native prepared files and retained patch regressions; canonical broker integration runs in test-integration.ps1'
     $record.vcp_commit=& git -C $repository rev-parse HEAD
-    $packages=@('vcp-domain','vcp-protocol','vcp-repository','vcp-context')
+    $packages=@('vcp-domain','vcp-protocol','vcp-repository','vcp-policy','vcp-tools')
     $inputs=@($packages|ForEach-Object{Get-ChildItem -LiteralPath (Join-Path $repository "src/crates/$_") -Recurse -File|Where-Object{$_.Extension -eq '.rs' -or $_.Name -eq 'Cargo.toml'}|ForEach-Object FullName})
     $inputs+=@($PSCommandPath,(Join-Path $repository 'src/third_party/codex/codex-rs/Cargo.lock'),(Join-Path $repository 'src/third_party/components/codex-files.json'))
+    $inputs+=@(Get-ChildItem -LiteralPath (Join-Path $repository 'src/third_party/codex/codex-rs/apply-patch/src') -Recurse -File | Where-Object Extension -eq '.rs' | ForEach-Object FullName)
     $record.inputs=@($inputs|Sort-Object|ForEach-Object{@{path=[IO.Path]::GetRelativePath($repository,$_).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()}})
     $record.status='running';Save-Record
     Push-Location -LiteralPath (Join-Path $repository 'src/third_party/codex/codex-rs')
@@ -52,8 +53,9 @@ try{
         Stage 'contracts' 'cargo' ($arguments+@('--','--test-threads=1'))
         $tests=Get-Content -LiteralPath (Join-Path $directory 'contracts.log') -Raw
         $rows=[regex]::Matches($tests,'(?m)^test ([^\r\n]+) \.\.\. ok\r?$')
-        if($rows.Count -ne 22){throw "Expected all 22 context/repository contracts; observed $($rows.Count)"}
+        if($rows.Count -ne 26){throw "Expected all 26 prepared-file/repository/authority contracts; observed $($rows.Count)"}
         $record.tests=@($rows|ForEach-Object{$_.Groups[1].Value})
+        Stage 'retained-patch' 'cargo' @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','-j',"$Jobs",'-p','codex-apply-patch','--lib','--','--test-threads=1')
     }finally{Pop-Location}
     foreach($row in $record.inputs){if((Get-FileHash -LiteralPath (Join-Path $repository $row.path)).Hash.ToLowerInvariant() -ne $row.sha256){throw 'Source changed during qualification; rerun with stable inputs'}}
     $record.status='pass';$record.exit_code=0

@@ -25,6 +25,17 @@ Reuse Codex patch parsing and native process primitives, adapting them behind th
 
 P0-03/P0-05 [native evidence](../evaluations/p0-03-recovery-execution.md) qualifies durable prototype intent/receipt fencing, retained dispatch denial and Windows Job Object process control. Prepared file revisions and production reconciliation remain P2-04/07.
 
+The P2 [prepared-file increment](../evaluations/p2-tools-increment.md) selects
+exact retained patch preparation, parent guards and deny-write/delete source
+handles for bounded native file operations. Candidate bytes are staged and
+synced; existing files are written through the version-checked handle, preserving
+identity. This is not crash-atomic replacement. Per-file intent/outcome capture
+preserves partial application without rollback. Native tests cover concurrent
+handle conflicts, stale bytes, hard links, junction rejection, long paths and
+case-only rename. Memory-mapped writers and hardware power loss remain outside
+the qualified envelope. Process dispatch and production reconciliation still
+require the full P2-04/07 gates; no store migration is introduced here.
+
 E05/E07/E08/R02/R04 include CRLF, encoding, locked files, case changes, junction replacement, partial application and grandchild cancellation. A separate marker observer detects duplicate non-idempotent effects after restart. Editor version guarantees are qualified later with real APIs.
 
 Attach exact source/package, fixture, configuration and environment identities, actual commands and pass/fail/not-run outcomes. No linked plan or ADR is itself passing evidence.

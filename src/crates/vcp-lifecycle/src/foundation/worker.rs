@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 mod provider;
+#[cfg(windows)]
+mod tools;
 use super::{Config, ThreadBinding};
 use std::{
     collections::HashMap,

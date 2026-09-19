@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "vcp-tools"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+workspace = "../../third_party/codex/codex-rs"
+
+[dependencies]
+vcp-domain = { path = "../vcp-domain" }
+vcp-protocol = { path = "../vcp-protocol" }
+vcp-policy = { path = "../vcp-policy" }
+vcp-repository = { path = "../vcp-repository" }
+codex-apply-patch = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

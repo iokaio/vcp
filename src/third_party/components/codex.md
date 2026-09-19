@@ -81,3 +81,9 @@ Patch 0016 registers the original pure policy package and canonical engine/store
 dependencies. It changes no retained implementation or external dependency pin;
 [the authority guide](../../../docs/development/p2-policy.md) distinguishes this
 core increment from subsequent native broker qualification.
+
+Patch 0017 adds a pure exact/unambiguous preparation entry point in the retained
+apply-patch engine and registers original file tools. Existing callers retain
+their matcher/line-ending modes; external dependency pins do not change. The
+[native file guide](../../../docs/development/p2-tools.md) maps preparation,
+canonical broker authority and the staged Windows write envelope.

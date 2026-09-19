@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Scoped, bounded observations. This package never changes the Git index or
-//! grants execution authority from repository contents.
+//! Scoped observations and native file primitives. Mutations require authority
+//! from the trusted broker; repository contents cannot grant it. Git index
+//! changes are not performed by these file primitives.
 pub mod discovery;
 pub mod git;
 pub mod instructions;
+#[cfg(windows)]
+pub mod mutation;
 pub mod observation;
 pub mod path;
 use serde::{Deserialize, Serialize};

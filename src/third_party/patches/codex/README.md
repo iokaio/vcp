@@ -90,6 +90,9 @@ already include these changes; normal builds never apply patches.
     External dependency pins are unchanged. See [the provider guide](../../../../docs/development/p2-provider.md).
 16. `0016-p2-policy-workspace.patch` registers original authority evaluation and
     canonical policy dependencies. External pins are unchanged. See [the authority guide](../../../../docs/development/p2-policy.md).
+17. `0017-p2-prepared-files.patch` exposes pure exact preparation through retained
+    patch/line-ending machinery and registers original native tool dependencies.
+    Existing caller semantics and external pins are unchanged. See [the native file guide](../../../../docs/development/p2-tools.md).
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

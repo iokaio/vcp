@@ -15,7 +15,20 @@ pub fn relative(path: &Path) -> Result<String> {
         let part = part
             .to_str()
             .ok_or(Error::Unsupported("non-Unicode path"))?;
-        if part.contains([':', '\0']) || part.ends_with(['.', ' ']) {
+        let stem = part.split('.').next().unwrap_or("").to_ascii_uppercase();
+        let device = matches!(
+            stem.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        ) || stem
+            .strip_prefix("COM")
+            .or_else(|| stem.strip_prefix("LPT"))
+            .is_some_and(|s| s.len() == 1 && s.as_bytes()[0].is_ascii_digit());
+        if device
+            || part
+                .chars()
+                .any(|c| c.is_control() || matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+            || part.ends_with(['.', ' '])
+        {
             return Err(Error::Scope(
                 "alternate stream or ambiguous component".into(),
             ));
@@ -37,7 +50,7 @@ pub struct HeldPath {
 }
 
 #[cfg(windows)]
-mod native {
+pub(crate) mod native {
     use super::*;
     use std::{
         fs::OpenOptions,
@@ -75,7 +88,7 @@ mod native {
         }
         Ok(file)
     }
-    fn info(file: &File) -> Result<BY_HANDLE_FILE_INFORMATION> {
+    pub(crate) fn info(file: &File) -> Result<BY_HANDLE_FILE_INFORMATION> {
         let mut value = std::mem::MaybeUninit::zeroed();
         if unsafe { GetFileInformationByHandle(file.as_raw_handle().cast(), value.as_mut_ptr()) }
             == 0

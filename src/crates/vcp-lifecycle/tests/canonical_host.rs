@@ -30,6 +30,285 @@ fn configure_provider_fixture(config: &mut codex_core::config::Config) {
     config.model_provider.base_url = fixture_url;
     config.model = Some("gpt-5.1".into());
 }
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_file_broker_enforces_current_policy_approvals_and_source_versions() {
+    use std::collections::BTreeSet;
+    use vcp_domain::policy::{Autonomy, Policy};
+    use vcp_tools::Request;
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        std::fs::write(workspace.join("file.txt"), b"before\r\n").unwrap();
+        let git = std::env::var_os("VCP_TEST_GIT")
+            .expect("runner supplies the explicit Git fixture dependency");
+        for args in [vec!["init", "--quiet"], vec!["add", "--", "file.txt"]] {
+            assert!(std::process::Command::new(&git)
+                .current_dir(&workspace)
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success());
+        }
+        let original_index = std::fs::read(workspace.join(".git/index")).unwrap();
+        let config = config(&temp.path().join("canonical"), &workspace, backend);
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let binding = task(&host, &config, config.root_task.clone(), None);
+        let server = start_mock_server().await;
+        let mut registry = ExtensionRegistryBuilder::new();
+        registry.turn_start_admission(Arc::new(host.clone()));
+        registry.work_admission(Arc::new(host.clone()));
+        let starter = host.clone();
+        let cwd = workspace.clone();
+        let test = test_codex()
+            .with_extensions(Arc::new(registry.build()))
+            .with_auth(codex_login::CodexAuth::from_api_key(
+                "synthetic-tool-fixture",
+            ))
+            .with_allowed_tools(AllowedTools(vec![]))
+            .with_config(move |c| {
+                c.cwd = cwd.try_into().unwrap();
+                configure_fixture_provider(c);
+                starter
+                    .lifecycle()
+                    .authorize_startup(c.cwd.as_path(), None)
+                    .unwrap();
+            })
+            .build_with_auto_env(&server)
+            .await
+            .unwrap();
+        let id = host.lifecycle().attach_root(test.codex.clone()).unwrap();
+        host.register(id, binding.clone()).unwrap();
+        host.command(
+            Command::SetWorkspaceTrust {
+                trust: Trust::Trusted,
+            },
+            None,
+            Revision::ZERO,
+        )
+        .unwrap();
+        let mut policy = Policy {
+            workspace: config.workspace.clone(),
+            revision: PolicyRevision::ZERO,
+            mode: Autonomy::Workspace,
+            denials: vec![],
+            workspace_roots: BTreeSet::from([RootId::parse(config.workspace.as_str()).unwrap()]),
+            automatic_effects: BTreeSet::new(),
+            timeout_ceiling_ms: Units::new(30_000),
+            output_ceiling_bytes: ByteCount::new(1024 * 1024),
+        };
+        host.command(
+            Command::SetPolicy {
+                policy: policy.clone(),
+            },
+            None,
+            Revision::ZERO,
+        )
+        .unwrap();
+        let read = host
+            .prepare_tool(
+                id,
+                Request::Read {
+                    path: "file.txt".into(),
+                    max_bytes: 1024,
+                },
+            )
+            .unwrap();
+        assert!(matches!(read.decision, vcp_policy::Decision::Allow { .. }));
+        let output = host.dispatch_tool(read).unwrap();
+        assert_eq!(output.result["text"], "before\r\n");
+        let patch="*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** Add File: new.txt\n+created\n*** End Patch";
+        let prepared = host
+            .prepare_tool(
+                id,
+                Request::Patch {
+                    patch: patch.into(),
+                },
+            )
+            .unwrap();
+        std::fs::write(workspace.join("file.txt"), b"human\r\n").unwrap();
+        assert!(host.dispatch_tool(prepared).is_err());
+        assert!(!workspace.join("new.txt").exists());
+        assert_eq!(
+            std::fs::read(workspace.join("file.txt")).unwrap(),
+            b"human\r\n"
+        );
+        std::fs::write(workspace.join("file.txt"), b"before\r\n").unwrap();
+        let prepared = host
+            .prepare_tool(
+                id,
+                Request::Patch {
+                    patch: patch.into(),
+                },
+            )
+            .unwrap();
+        policy.revision = PolicyRevision::new(1);
+        policy.mode = Autonomy::Plan;
+        host.command(
+            Command::SetPolicy {
+                policy: policy.clone(),
+            },
+            None,
+            Revision::ZERO,
+        )
+        .unwrap();
+        assert!(host.dispatch_tool(prepared).is_err());
+        assert!(!workspace.join("new.txt").exists());
+        let denied = host
+            .prepare_tool(
+                id,
+                Request::Patch {
+                    patch: patch.into(),
+                },
+            )
+            .unwrap();
+        assert!(matches!(denied.decision, vcp_policy::Decision::Deny { .. }));
+        assert!(host.dispatch_tool(denied).is_err());
+        policy.revision = PolicyRevision::new(2);
+        policy.mode = Autonomy::Ask;
+        host.command(
+            Command::SetPolicy {
+                policy: policy.clone(),
+            },
+            None,
+            Revision::new(1),
+        )
+        .unwrap();
+        let prepared = host
+            .prepare_tool(
+                id,
+                Request::Patch {
+                    patch: patch.into(),
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            prepared.decision,
+            vcp_policy::Decision::Question { .. }
+        ));
+        let approval = prepared.question.clone().unwrap();
+        let current: Task = host
+            .snapshot()
+            .unwrap()
+            .record(
+                Collection::Task,
+                binding.scope.task.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(current.state, TaskState::WaitingForInput);
+        host.command(
+            Command::Decide {
+                id: approval,
+                operation_digest: prepared.digest().into(),
+                effect_revision: Revision::new(1),
+                allow: true,
+            },
+            Some(binding.scope.task.clone()),
+            Revision::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(workspace.join("file.txt")).unwrap(),
+            b"before\r\n"
+        );
+        assert!(!workspace.join("new.txt").exists());
+        host.resume(id, current.revision, current.fingerprint)
+            .unwrap();
+        let result = host.dispatch_tool(prepared).unwrap();
+        assert_eq!(result.result["complete"], true, "{}", result.result);
+        assert_eq!(
+            std::fs::read(workspace.join("file.txt")).unwrap(),
+            b"after\r\n"
+        );
+        assert_eq!(
+            std::fs::read(workspace.join("new.txt")).ok().as_deref(),
+            Some(b"created\n".as_slice()),
+            "{}",
+            result.result
+        );
+        let state = host.snapshot().unwrap();
+        let effect: vcp_domain::effect::Effect = state
+            .record(
+                Collection::Effect,
+                result.effect.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(effect.state, vcp_domain::effect::EffectState::Succeeded);
+        assert_eq!(effect.observed_changes.len(), 6);
+        let bytes = host.read_artifact(result.evidence.spec.id).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+            result.result
+        );
+        // Repeating the same explicitly approved operation after the caller
+        // restores its original source needs no second question.
+        std::fs::write(workspace.join("file.txt"), b"before\r\n").unwrap();
+        std::fs::remove_file(workspace.join("new.txt")).unwrap();
+        let reused = host
+            .prepare_tool(
+                id,
+                Request::Patch {
+                    patch: patch.into(),
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            reused.decision,
+            vcp_policy::Decision::Allow { grant: Some(_), .. }
+        ));
+        assert!(reused.question.is_none());
+        assert_eq!(host.dispatch_tool(reused).unwrap().result["complete"], true);
+        assert_eq!(
+            std::fs::read(workspace.join("file.txt")).unwrap(),
+            b"after\r\n"
+        );
+        assert!(server.received_requests().await.unwrap().is_empty());
+        assert_eq!(
+            std::fs::read(workspace.join(".git/index")).unwrap(),
+            original_index
+        );
+        // A later-file sharing conflict must preserve the earlier committed
+        // effect and the remaining human bytes, without automatic rollback.
+        policy.revision = PolicyRevision::new(3);
+        policy.mode = Autonomy::Workspace;
+        host.command(Command::SetPolicy { policy }, None, Revision::new(2))
+            .unwrap();
+        let partial=host.prepare_tool(id,Request::Patch{patch:"*** Begin Patch\n*** Update File: file.txt\n@@\n-after\n+first-applied\n*** Update File: new.txt\n@@\n-created\n+second-applied\n*** End Patch".into()}).unwrap();
+        use std::os::windows::fs::OpenOptionsExt;
+        let locked = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(workspace.join("new.txt"))
+            .unwrap();
+        let partial = host.dispatch_tool(partial).unwrap();
+        assert_eq!(partial.result["complete"], false);
+        assert_eq!(partial.result["files"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            std::fs::read(workspace.join("file.txt")).unwrap(),
+            b"first-applied\r\n"
+        );
+        assert_eq!(
+            std::fs::read(workspace.join("new.txt")).unwrap(),
+            b"created\n"
+        );
+        drop(locked);
+        assert_eq!(
+            std::fs::read(workspace.join(".git/index")).unwrap(),
+            original_index
+        );
+        owner.close().await.unwrap();
+    }
+}
 fn provider_snapshot() -> (vcp_models::catalog::Snapshot, Vec<u8>) {
     use vcp_models::catalog::*;
     let raw=serde_json::to_vec(&serde_json::json!({"data":{"id":"gpt-5.1","endpoints":[{"tag":"fixture/region","status":0,"context_length":32000,"max_prompt_tokens":24000,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.0001"}}]}})).unwrap();

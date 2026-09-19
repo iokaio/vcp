@@ -32,6 +32,9 @@ use thiserror::Error;
 use file_update::AppliedPatch;
 pub use file_update::ApplyPatchFileUpdate;
 use file_update::derive_new_contents_from_chunks;
+// VCP modification: pure, exact and unambiguous preparation retains upstream
+// line-ending handling without allowing the parser to perform disk effects.
+pub use file_update::prepare_file_update;
 pub use file_update::unified_diff_from_chunks;
 pub use file_update::unified_diff_from_chunks_with_context;
 pub(crate) use file_update::unified_diff_from_chunks_with_mode;
