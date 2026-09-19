@@ -11,6 +11,11 @@ workspace = "../../third_party/codex/codex-rs"
 name = "vcp"
 path = "src/main.rs"
 
+[[bin]]
+name = "vcp-terminal-fixture"
+path = "src/bin/vcp-terminal-fixture.rs"
+required-features = ["qualification"]
+
 [features]
 qualification = []
 
@@ -39,5 +44,6 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "ti
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Memory", "Win32_System_Threading"] }
 
 [dev-dependencies]
+codex-utils-pty = { workspace = true }
 tempfile = { workspace = true }
 wiremock = { workspace = true }

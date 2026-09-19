@@ -10,6 +10,8 @@ pub mod input;
 pub mod jsonl;
 pub mod outcome;
 pub mod output;
+pub mod questions;
 #[cfg(windows)]
 pub mod session;
 pub mod settings;
+pub mod terminal;

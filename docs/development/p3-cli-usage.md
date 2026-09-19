@@ -1,7 +1,7 @@
 # Structured native CLI
 
-P3-01 supplies the Windows `vcp` executable and P3-03 supplies paged evidence
-inspection. P3-02's interactive terminal remains a separate work item.
+P3-01 supplies the Windows `vcp` executable, P3-02 supplies its interactive
+terminal and P3-03 supplies paged evidence inspection.
 
 Build from `src/third_party/codex/codex-rs` in a native Visual C++ x64 environment:
 
@@ -79,6 +79,14 @@ turn and a persisted cap for its independent root. It quotes bounded history
 through that turn under the new scope; permissions, effects and liabilities are
 not imported. Oversized or unavailable historical evidence fails closed.
 
+Text execution with terminal stdin/stdout/stderr opens the interactive workflow.
+Use `/pause` (or Ctrl+C), `/resume`, `/cost`, `/history`, `/agents`, `/status`,
+`/inspect <id>`, `/read <artifact-id> <byte-offset>` and `/next`. Plain text queues
+durable guidance and keeps the task paused until deliberate `/resume`.
+`/answer <question-id> allow|deny` records a decision without resuming. `/cancel`
+ends work and `/exit` preserves a pause. `/memory` and `/optimize` report not ready.
+See [terminal behavior and native qualification](p3-terminal.md).
+
 Pause/cancel reach the live owner's current-user-only Windows named pipe. Scope,
 identity, epoch, revision and idempotency are checked by the canonical stop path.
 An unreachable owner is an explicit error and never creates another writer.
@@ -139,7 +147,8 @@ receipt. Read/control results carry `data` with a watermark or command receipt;
 their success does not assert that a task completed. Diagnostics use stderr.
 Output loss closes the owner and durably pauses pending/running tasks; no final
 line can be promised to a disconnected consumer. Ctrl+C requests cancellation;
-console close uses the existing durable owner-loss pause policy.
+console close uses the existing durable owner-loss pause policy. In interactive
+text mode Ctrl+C pauses and leaves the CLI open; `/cancel` explicitly cancels.
 
 Exit codes: 0 verified completion/command success; 1 internal or output failure;
 2 invalid configuration/control delivery; 3 failed verification or incomplete;

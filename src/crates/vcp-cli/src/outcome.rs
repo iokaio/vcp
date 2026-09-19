@@ -8,7 +8,7 @@ use vcp_domain::{
     workspace::Scope,
 };
 use vcp_lifecycle::foundation::CanonicalHost;
-use vcp_protocol::command::{Approval, ApprovalState, CommandReceipt};
+use vcp_protocol::command::{Approval, Command, CommandReceipt};
 use vcp_store::contract::Collection;
 
 pub struct Outcome {
@@ -24,6 +24,7 @@ impl Outcome {
     /// turn; only the latest turn contributes its terminal condition.
     pub fn read(host: &CanonicalHost, scope: &Scope) -> Result<Self, String> {
         let state = host.snapshot()?;
+        let now = crate::settings::now();
         let task: Task = state
             .record(Collection::Task, scope.task.as_str(), &scope.workspace)
             .and_then(|row| row.decode())
@@ -81,6 +82,7 @@ impl Outcome {
             ..Conditions::default()
         };
         let mut approvals = Vec::new();
+        let mut approval_owner = None;
         let mut turns = Vec::new();
         for record in state
             .records
@@ -116,10 +118,22 @@ impl Outcome {
                     let approval: Approval = record.decode().map_err(|e| e.to_string())?;
                     if approval.scope.session == scope.session
                         && included.contains(&approval.scope.task)
-                        && approval.state == ApprovalState::Pending
+                        && crate::questions::actionable(&state, &approval, now)?
                     {
-                        approvals.push(approval);
-                        conditions.required_input = true;
+                        if approval_owner.is_none() {
+                            approval_owner = Some(host.control_envelope(
+                                vcp_domain::ids::CommandId::new(),
+                                scope.task.clone(),
+                                task.revision,
+                                Command::Inspect,
+                            )?);
+                        }
+                        if approval_owner.as_ref().is_some_and(|owner| {
+                            crate::questions::belongs_to_owner(&approval, owner)
+                        }) {
+                            approvals.push(approval);
+                            conditions.required_input = true;
+                        }
                     }
                 }
                 Collection::Turn => {

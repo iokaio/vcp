@@ -1,6 +1,6 @@
 # 07 — Interactive CLI, structured output and inspectors
 
-Status: P3-01 and P3-03 common inspectors complete; P3-02 and P3-04 planned. Owns P3-01 through P3-04. Begin after P2 verification/recovery/continuity. Memory/history/pruning and vault UI extensions are owned by segments 09–11, not duplicate work here.
+Status: P3-01, P3-02 terminal workflow and P3-03 common inspectors complete; P3-04 planned. Owns P3-01 through P3-04. Begin after P2 verification/recovery/continuity. Memory/history/pruning and vault UI extensions are owned by segments 09–11, not duplicate work here.
 
 ## Implementation references
 
@@ -60,6 +60,11 @@ Test malformed/stale owner identity and duplicate pause commands alongside the
 same-process structured control path.
 
 ## P3-02 — Terminal workflow
+
+Implemented: [terminal contract and native qualification](../development/p3-terminal.md).
+The same-console acceptance exposed and corrected a P2-07 prerequisite: cancelled
+model producers now record retained termination after durable uncertain-cost
+accounting, allowing deliberate resume without forgiving the unknown charge.
 
 1. Render objective, current step, model/group, known/reserved/uncertain cost, relevant changes and current-result checks. Support input while work is running through steering revisions.
 2. Implement scoped questions with durable IDs and explicit answer/cancel handling. Do not submit a highlighted default without a user action.

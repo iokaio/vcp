@@ -244,3 +244,6 @@ responses; it is not a live paid-provider conformance claim or release packaging
 
 P3-03 subsequently completed its [common paged evidence inspectors](p3-inspection.md),
 including on-demand exact captured bytes and live-owner query delivery.
+
+P3-02 subsequently completed the [interactive terminal workflow](p3-terminal.md),
+including native input/resize/close and actual ConPTY pause/steer/answer/resume.
