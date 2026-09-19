@@ -1,5 +1,10 @@
 # Reviewed evaluation summaries
 
+- [P2 reliable local coding qualification](p2-completion.md): completed P2-01
+  through P2-08 with native context/provider/policy/tools gates, retained-loop
+  integration, honest verification, pause/recovery and current live provider
+  compatibility.
+
 - [P2 parent instruction grants](p2-parent-instructions.md): explicit ancestor reads, stale instruction fences and verification applicability on both stores.
 
 - [P2 Cargo and documentation verification](p2-framework-verification.md): passing native fixtures with explicit compiler profiles and preserved failure evidence.

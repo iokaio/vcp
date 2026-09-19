@@ -1,7 +1,7 @@
 # ADR-004 — Prepared edits and execution receipts
 
-Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P2-04/07; later P4-03. Bounded P0 evidence is recorded below; production qualification and owner sign-off remain pending.
+Status: P2 prepared edits, Windows execution and recovery qualified; editor-specific integration remains later work.
+Decision gate: P2-04/07 complete; later P4-03 remains open. Bounded P0 and P2 evidence is recorded below; release qualification and owner sign-off remain separate.
 
 ## Context and authority
 
@@ -46,6 +46,13 @@ revocation remain at the owning gates. No stored format migration is required;
 process profiles must be configured again after reopening.
 
 E05/E07/E08/R02/R04 include CRLF, encoding, locked files, case changes, junction replacement, partial application and grandchild cancellation. A separate marker observer detects duplicate non-idempotent effects after restart. Editor version guarantees are qualified later with real APIs.
+
+The [consolidated P2 qualification](../evaluations/p2-completion.md) closes the
+P2-04/P2-07 gate with native prepared-file/tool contracts, explicit process and
+PTY profiles, Job Object tree ownership, bounded output/deadlines/counts,
+authority-change and pause fencing, durable unknown-effect preservation, exclusive
+reopen and deliberate revision-checked resume. It does not claim atomic multi-file
+replacement or the later editor dirty-buffer contract.
 
 Attach exact source/package, fixture, configuration and environment identities, actual commands and pass/fail/not-run outcomes. No linked plan or ADR is itself passing evidence.
 

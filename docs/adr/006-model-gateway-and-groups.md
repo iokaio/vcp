@@ -1,7 +1,7 @@
 # ADR-006 — Model gateway, catalog and capability groups
 
-Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P2-02, P6-01. P2-02 has a bounded implementation increment; live compatibility and final qualification remain pending.
+Status: P2 OpenRouter gateway qualified; versioned capability groups remain a P6 decision.
+Decision gate: P2-02 complete; P6-01 remains open. Scripted and capped live P2 evidence is recorded below.
 
 ## Context and authority
 
@@ -41,6 +41,14 @@ These scripted fixtures do not qualify a real model/provider pair. Automatic
 retry orchestration and a separately capped live smoke run remain required.
 
 E11/E12/R05 exercise truncated streams, malformed fragments, duplicate terminal events, rate limits, cancellation and ambiguous sends. A separately capped live smoke run confirms advertised compatibility; mocks prove control flow only.
+
+The [consolidated P2 qualification](../evaluations/p2-completion.md) closes the
+gateway gate with normalized provider/context contracts, explicit retry attempts,
+absolute deadlines, retained request admission and unknown-liability handling.
+The separately authorized [live smoke](../evaluations/p2-openrouter-live.md)
+qualifies two current Responses API model/provider paths with observed attribution,
+usage and cost. Catalog observations remain dated; P6 still owns group membership,
+fallback policy and routing quality.
 
 Attach exact source/package, fixture, configuration and environment identities, actual commands and pass/fail/not-run outcomes. No linked plan or ADR is itself passing evidence.
 

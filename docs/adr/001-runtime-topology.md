@@ -1,7 +1,7 @@
 # ADR-001 — Runtime and process topology
 
-Status: confirmed direction with bounded native P0 evidence; production topology remains subject to P1/P2/P5/P8 qualification.
-Decision gate: P0-02/03/05/08/06; P2-07. Engineering evidence is linked below; this does not assert human sign-off or release readiness.
+Status: confirmed direction with bounded native P0–P2 evidence; production topology remains subject to P5/P8 integration and release qualification.
+Decision gate: P0-02/03/05/08/06 and P2-07 complete. Engineering evidence is linked below; this does not assert human sign-off or release readiness.
 
 ## Context and authority
 
