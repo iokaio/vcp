@@ -32,6 +32,11 @@ hashes support executables up to 256 MiB without retaining their bytes in contex
 ordinary source capture keeps its separate 64 MiB maximum. Native handles pin
 executable identity through execution and final completion revalidation.
 
+Native compiler profiles may explicitly provide `LIB`, `INCLUDE` and `LIBPATH`
+alongside `PATH`, and a dedicated `CARGO_HOME`. No ambient environment is inherited. Registry credentials and
+compiler-wrapper overrides remain unsupported. The Cargo fixture uses the
+selected toolchain's real executables and a separate disposable build directory.
+
 The bounded parsers require a zero exit, nonzero observed tests, complete runner
 summaries and every configured acceptance-test name. Missing, failed, cancelled,
 skipped or filtered tests cannot pass. The current TAP subset rejects nested
@@ -79,6 +84,11 @@ response changes cost. Current quantitative ledger fields remain visible.
 
 ## Qualification and remaining scope
 
+The [Cargo/documentation fixture increment](../evaluations/p2-framework-verification.md)
+passed its focused native trace on both stores, full native integration/foundation
+contracts and retained recovery/lifecycle checks. Results and limits are recorded
+separately.
+
 Run `scripts/test-tools.ps1`, `scripts/test-integration.ps1` and
 `scripts/test-p1.ps1` on native Windows with the documented toolchain. The latter
 two resolve and record the explicit installed Node executable and version. The
@@ -89,9 +99,10 @@ cited/uncited analysis, changed analysis and an uncovered project path.
 Additional cases exercise a late child effect, an ignored instruction change
 and fresh-owner reopen in the same test process with edits made while closed.
 
-This increment does not qualify arbitrary test frameworks, Cargo execution on a
-real Rust fixture, documentation-specific checks, Git/index diffs, excluded files
-or dynamic dependencies outside the selected workspace. The native CLI has no
+The additional fixture runs real Cargo tests against an edited Rust function and
+Node tests against a README link. Both preserve seeded failures before accepting
+the repaired source. This does not qualify arbitrary test frameworks, Git/index
+diffs, excluded files or dynamic dependencies outside the selected workspace. The native CLI has no
 editor buffers; editor integration remains deferred.
 Before/after hashes detect changed observations, not a transient edit restored
 between observations. Existing files are pinned through completion, but Windows

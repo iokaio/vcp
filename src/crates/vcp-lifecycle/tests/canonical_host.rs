@@ -26,6 +26,9 @@ mod coding_verification;
 #[path = "support/context_continuity.rs"]
 mod context_continuity;
 #[cfg(windows)]
+#[path = "support/framework_verification.rs"]
+mod framework_verification;
+#[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;
 #[cfg(windows)]

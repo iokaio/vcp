@@ -65,6 +65,10 @@ impl Profile {
             "CI",
             "RUST_BACKTRACE",
             "CARGO_TARGET_DIR",
+            "CARGO_HOME",
+            "LIB",
+            "INCLUDE",
+            "LIBPATH",
         ];
         let mut names = BTreeSet::new();
         for (key, value) in &environment {
