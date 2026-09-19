@@ -4,11 +4,14 @@ P2-03 is in progress. The original `vcp-policy` package evaluates immutable
 operations; the canonical engine records policies, grants and user decisions in
 the existing store. These APIs are trusted host/library interfaces. A serialized
 operation, an `Allow` decision or a grant record is not an executable capability.
-P2-04 must connect the native broker and prove actual dispatch counts before
-P2-03 acceptance is complete. Retained model-requested tools remain denied by
-the canonical host pending that adapter.
+The native file/process brokers now enforce current decisions. Full retained
+loop acceptance remains before P2-03 completion. Retained model-requested tools
+remain denied by the canonical host pending their registered wrappers.
 The [coordination adapter](p2-authority-coordination.md) now fences and drains
 active work before applying authority changes; idle configuration remains usable.
+The [host tool ceiling adapter](p2-host-tool-authority.md) supplies validated,
+explicit owner rules independently of user policy and preflights current
+authority before native revalidation.
 
 ## Pure decisions
 
@@ -90,7 +93,7 @@ Rebinding invalidates host-specific grants rather than transferring authority.
 
 The retained host follows its own acknowledged authority epoch, reads current
 tool-policy revisions for questions/context seals, and keeps budget admission
-separate. Native tool execution integration remains an explicit subsequent gate.
+separate. Full retained-loop authority acceptance remains a subsequent gate.
 
 ## Qualification
 

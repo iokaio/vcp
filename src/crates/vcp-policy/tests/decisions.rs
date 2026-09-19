@@ -166,6 +166,27 @@ fn explicit_denials_precede_existing_grants_and_preset_authority() {
     };
     let mut facts = f.facts();
     facts.host_denials = std::slice::from_ref(&denial);
+    assert!(validate_host_denials(facts.host_denials).is_ok());
+    assert!(validate_host_denials(&[denial.clone(), denial.clone()]).is_err());
+    for invalid in [
+        Denial {
+            origin: RuleOrigin::User,
+            ..denial.clone()
+        },
+        Denial {
+            tool: Some(String::new()),
+            ..denial.clone()
+        },
+        Denial {
+            paths: vec!["../outside".into()],
+            ..denial.clone()
+        },
+    ] {
+        let mut facts = f.facts();
+        facts.host_denials = std::slice::from_ref(&invalid);
+        assert!(evaluate(&p, &f.policy, &[grant.clone()], &facts).is_err());
+    }
+    facts.host_denials = std::slice::from_ref(&denial);
     assert!(
         matches!(evaluate(&p, &f.policy, &[grant.clone()], &facts).unwrap(), Decision::Deny { origin, .. } if origin == denial.id)
     );

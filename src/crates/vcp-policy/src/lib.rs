@@ -79,6 +79,7 @@ pub fn evaluate(
     facts: &Facts<'_>,
 ) -> Result<Decision> {
     validate_policy(policy)?;
+    validate_host_denials(facts.host_denials)?;
     let op = prepared.operation();
     if !facts.owner_current || !facts.task_running {
         return Ok(deny("controller", "owner or task admission is held"));
@@ -352,11 +353,26 @@ pub fn validate_operation(op: &Operation) -> Result<()> {
 fn validate_denial(rule: &Denial) -> Result<()> {
     if !text(&rule.id, 128)
         || !text(&rule.reason, 4096)
+        || rule.tool.as_ref().is_some_and(|tool| !text(tool, 128))
         || rule.paths.len() > 128
         || rule.paths.iter().any(|p| !relative(p))
         || rule.roots.len() > 64
     {
         return Err(Error::Invalid("denial rule"));
+    }
+    Ok(())
+}
+/// Host ceilings are explicit trusted configuration, separate from user policy.
+pub fn validate_host_denials(rules: &[Denial]) -> Result<()> {
+    if rules.len() > 256 {
+        return Err(Error::Invalid("host denial limit"));
+    }
+    let mut ids = BTreeSet::new();
+    for rule in rules {
+        validate_denial(rule)?;
+        if rule.origin != RuleOrigin::Host || !ids.insert(&rule.id) {
+            return Err(Error::Invalid("host denial origin or duplicate identity"));
+        }
     }
     Ok(())
 }

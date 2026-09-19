@@ -1,5 +1,7 @@
 # Development design and implementation guides
 
+- [Host tool ceilings](p2-host-tool-authority.md): explicit owner configuration, canonical preflight and current authority for fresh native observations.
+
 - [Coordinated authority changes](p2-authority-coordination.md): stop and drain active work before policy, trust, grant, binding or steering changes; continuation stays deliberate.
 
 - [Owned terminal processes](p2-pty.md): prepared terminal input, merged output and owned ConPTY qualification.

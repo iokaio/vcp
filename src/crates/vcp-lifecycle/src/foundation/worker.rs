@@ -170,6 +170,7 @@ fn has_unpriced_media(value: &serde_json::Value) -> bool {
 }
 impl Context {
     fn open(config: Config) -> Result<Self> {
+        vcp_policy::validate_host_denials(&config.host_tool_denials)?;
         if config.input_ceiling.get() == 0 || config.output_ceiling.get() == 0 {
             return Err("provider ceilings required".into());
         }

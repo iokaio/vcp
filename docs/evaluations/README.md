@@ -1,5 +1,7 @@
 # Reviewed evaluation summaries
 
+- [P2 host tool authority](p2-host-tool-authority.md): separate host denials, grants/policy precedence and native preflight qualification.
+
 - [P2 authority coordination](p2-authority-coordination.md): owned stop before authority changes, partial-stream accounting and deliberate continuation.
 
 - [P2 execution ceilings](p2-execution-ceilings.md): trusted native process-count bounds and conservative opaque-operation policy checks.

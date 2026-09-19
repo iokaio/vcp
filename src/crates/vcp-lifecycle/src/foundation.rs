@@ -48,6 +48,9 @@ pub struct Config {
     pub input_ceiling: Units,
     pub output_ceiling: Units,
     pub artifact_limit: ByteCount,
+    /// Explicit trusted host ceilings for native tools. Immutable for this
+    /// owner; neither user policy nor restored history can replace these rules.
+    pub host_tool_denials: Vec<vcp_domain::policy::Denial>,
 }
 #[derive(Clone)]
 pub struct ThreadBinding {

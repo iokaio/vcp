@@ -14,11 +14,14 @@ use vcp_lifecycle::{
     foundation::{CanonicalHost, Config, ThreadBinding},
     integration::configure_fixture_provider,
 };
+#[path = "support/authority_stream.rs"]
+mod authority_stream;
+#[cfg(windows)]
+#[path = "support/host_tool_authority.rs"]
+mod host_tool_authority;
 #[cfg(windows)]
 #[path = "support/process_broker.rs"]
 mod process_broker;
-#[path = "support/authority_stream.rs"]
-mod authority_stream;
 
 fn configure_provider_fixture(config: &mut codex_core::config::Config) {
     let fixture_url = config.model_provider.base_url.clone();
@@ -161,8 +164,14 @@ async fn native_file_broker_enforces_current_policy_approvals_and_source_version
             Revision::ZERO,
         )
         .unwrap();
-        assert!(host.dispatch_tool(prepared).is_err());
+        std::fs::rename(workspace.join("file.txt"), workspace.join("hidden.txt")).unwrap();
+        let error = host.dispatch_tool(prepared).err().unwrap();
+        assert!(
+            error.contains("authority rejected before native revalidation"),
+            "{error}"
+        );
         assert!(!workspace.join("new.txt").exists());
+        std::fs::rename(workspace.join("hidden.txt"), workspace.join("file.txt")).unwrap();
         let denied = host
             .prepare_tool(
                 id,
@@ -906,6 +915,7 @@ fn config(root: &std::path::Path, workspace: &std::path::Path, backend: BackendK
         input_ceiling: Units::new(500_000),
         output_ceiling: Units::new(1024),
         artifact_limit: ByteCount::new(vcp_store::artifact::DEFAULT_ARTIFACT_LIMIT),
+        host_tool_denials: vec![],
     }
 }
 fn task(
