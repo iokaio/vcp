@@ -1,5 +1,7 @@
 # Reviewed evaluation summaries
 
+- [P2 authority acceptance](p2-policy-completion.md): completed P2-03 preset, canonical-question and native broker evidence with explicit later platform/CLI boundaries.
+
 - [P2 deterministic compaction](p2-context-compaction.md): complete-pair previews, current-source validation and native context contracts.
 
 - [P2 retained verification integration](p2-loop-verification.md): native check calls, isolated verification responses and immutable final-cost evidence.
