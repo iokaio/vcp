@@ -119,6 +119,8 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
                 EffectClass::Write,
                 EffectClass::Execute,
                 EffectClass::Network,
+                EffectClass::Install,
+                EffectClass::Publish,
                 EffectClass::Opaque,
             ]),
             timeout_ceiling_ms: Units::new(120_000),
@@ -344,6 +346,51 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
             if name=="cmd"{assert_eq!(fs::read_to_string(workspace.join("cmd marker.txt")).unwrap().trim(),"preserved");}
             if name=="powershell"{assert_eq!(fs::read_to_string(workspace.join("powershell ü.txt")).unwrap().trim(),"exact ; &");}
         }
+        for terminal in [false, true] {
+            let directory = workspace.join(if terminal {
+                "count-terminal"
+            } else {
+                "count-pipes"
+            });
+            fs::create_dir(&directory).unwrap();
+            let bounded = profile("fixture", &executable, true)
+                .with_process_count(2)
+                .unwrap();
+            let bounded = if terminal {
+                bounded.with_terminal(24, 80).unwrap()
+            } else {
+                bounded
+            };
+            host.configure_process_profile(bounded).unwrap();
+            let ticket = host
+                .prepare_process(id, request("process-count", &directory))
+                .unwrap();
+            let process = host.dispatch_process(ticket).unwrap();
+            ready(&directory.join("count-result")).await;
+            assert_eq!(
+                fs::read_to_string(directory.join("count-result")).unwrap(),
+                "blocked"
+            );
+            assert_eq!(process.active_process_count().unwrap(), 2);
+            assert!(!directory.join("excess-marker").exists());
+            use std::os::windows::fs::OpenOptionsExt;
+            assert!(fs::OpenOptions::new()
+                .write(true)
+                .share_mode(0)
+                .open(directory.join("locked"))
+                .is_err());
+            fs::write(directory.join("finish"), b"finish").unwrap();
+            let result = process.wait().await.unwrap();
+            assert_eq!(result.exit_code, Some(0));
+            assert!(fs::OpenOptions::new()
+                .write(true)
+                .share_mode(0)
+                .open(directory.join("locked"))
+                .is_ok());
+            assert!(!directory.join("excess-marker").exists());
+        }
+        host.configure_process_profile(profile("fixture", &executable, true))
+            .unwrap();
         let mut flood = request("flood", &workspace);
         flood.output_bytes = 32768;
         let ticket = host.prepare_process(id, flood).unwrap();
@@ -524,6 +571,50 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
             },
             None,
             Revision::new(4),
+        )
+        .unwrap();
+        for (index, effect) in [
+            EffectClass::Write,
+            EffectClass::Install,
+            EffectClass::Publish,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            policy.revision = PolicyRevision::new(6 + index as u64);
+            policy.denials = vec![Denial {
+                id: "opaque-ceiling".into(),
+                origin: RuleOrigin::User,
+                reason: "synthetic scoped ceiling".into(),
+                effects: BTreeSet::from([effect]),
+                tool: Some("vcp_exec".into()),
+                roots: BTreeSet::from([RootId::parse("unobserved-root").unwrap()]),
+                paths: vec!["restricted".into()],
+            }];
+            host.command(
+                Command::SetPolicy {
+                    policy: policy.clone(),
+                },
+                None,
+                Revision::new(5 + index as u64),
+            )
+            .unwrap();
+            let marker = workspace.join(format!("denied-{index}"));
+            let denied = host.prepare_process(id, request("write", &marker)).unwrap();
+            assert!(
+                matches!(&denied.decision, vcp_policy::Decision::Deny { origin, .. } if origin == "opaque-ceiling")
+            );
+            assert!(host.dispatch_process(denied).is_err());
+            assert!(!marker.exists());
+        }
+        policy.revision = PolicyRevision::new(9);
+        policy.denials.clear();
+        host.command(
+            Command::SetPolicy {
+                policy: policy.clone(),
+            },
+            None,
+            Revision::new(8),
         )
         .unwrap();
         let closing = workspace.join("closing-child");

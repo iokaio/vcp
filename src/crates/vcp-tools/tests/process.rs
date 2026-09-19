@@ -147,6 +147,23 @@ fn prepared_process_pins_executable_and_rejects_changed_script_or_directory() {
         .required_isolation
         .contains(&Isolation::Pty));
     assert!(profile.clone().with_terminal(0, 80).is_err());
+    assert_eq!(profile.process_count(), 32);
+    assert!(profile.clone().with_process_count(0).is_err());
+    assert!(profile.clone().with_process_count(129).is_err());
+    assert_ne!(
+        profile.digest().unwrap(),
+        profile
+            .clone()
+            .with_process_count(2)
+            .unwrap()
+            .digest()
+            .unwrap()
+    );
+    assert!(first
+        .authority()
+        .operation()
+        .required_isolation
+        .contains(&Isolation::ProcessCount));
     let prepared = prepare(
         root,
         identity,

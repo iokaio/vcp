@@ -12,6 +12,37 @@ fn main() -> std::io::Result<()> {
             .ok_or_else(|| std::io::Error::other("missing fixture directory"))?,
     );
     match mode.to_str() {
+        Some("process-count") => {
+            let _first = Command::new(std::env::current_exe()?)
+                .arg("locked-child")
+                .arg(&directory)
+                .spawn()?;
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            while !directory.join("child-ready").exists() {
+                if std::time::Instant::now() > until {
+                    return Err(std::io::Error::other("first child did not start"));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let additional = Command::new(std::env::current_exe()?)
+                .arg("write")
+                .arg(directory.join("excess-marker"))
+                .spawn();
+            let blocked = match additional {
+                Err(_) => true,
+                Ok(mut child) => !child.wait()?.success(),
+            };
+            std::fs::write(
+                directory.join("count-result"),
+                if blocked { "blocked" } else { "started" },
+            )?;
+            while !directory.join("finish").exists() {
+                if std::time::Instant::now() > until {
+                    return Err(std::io::Error::other("count fixture not released"));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
         Some("terminal") => {
             use std::io::IsTerminal;
             let mut input = String::new();

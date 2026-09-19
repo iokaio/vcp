@@ -21,6 +21,7 @@ pub enum EffectClass {
 pub enum Isolation {
     PathContainment,
     JobTree,
+    ProcessCount,
     FilteredEnvironment,
     WorkspaceFilesystem,
     NoNetwork,

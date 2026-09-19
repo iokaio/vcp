@@ -29,6 +29,7 @@ pub struct Profile {
     reduced_isolation: bool,
     inputs: Vec<String>,
     terminal: Option<Terminal>,
+    process_count: u32,
 }
 impl Profile {
     pub fn new(
@@ -90,6 +91,7 @@ impl Profile {
             reduced_isolation,
             inputs: vec![],
             terminal: None,
+            process_count: 32,
         })
     }
     /// Trusted read-only script/config dependencies stay pinned for the entire
@@ -110,6 +112,17 @@ impl Profile {
     }
     pub fn name(&self) -> &str {
         &self.name
+    }
+    /// Host ceiling, including the root. Model arguments cannot raise this limit.
+    pub fn with_process_count(mut self, count: u32) -> Result<Self> {
+        if !(1..=128).contains(&count) {
+            return Err(Error::Invalid("process count ceiling"));
+        }
+        self.process_count = count;
+        Ok(self)
+    }
+    pub fn process_count(&self) -> u32 {
+        self.process_count
     }
     pub fn with_terminal(mut self, rows: u16, cols: u16) -> Result<Self> {
         if !(1..=500).contains(&rows) || !(1..=500).contains(&cols) || self.mode == Mode::Cmd {
@@ -335,6 +348,7 @@ pub fn prepare(
     arguments.extend(request.arguments.clone());
     let mut required = BTreeSet::from([
         Isolation::JobTree,
+        Isolation::ProcessCount,
         Isolation::FilteredEnvironment,
         Isolation::Timeout,
         Isolation::OutputLimit,
@@ -403,6 +417,8 @@ pub fn prepare(
             EffectClass::Write,
             EffectClass::Execute,
             EffectClass::Network,
+            EffectClass::Install,
+            EffectClass::Publish,
             EffectClass::Opaque,
         ]),
         required_isolation: required,

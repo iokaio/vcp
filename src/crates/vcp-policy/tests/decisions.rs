@@ -176,6 +176,33 @@ fn explicit_denials_precede_existing_grants_and_preset_authority() {
     assert!(!allowed(
         evaluate(&p, &f.policy, &[grant], &f.facts()).unwrap()
     ));
+    // An opaque operation cannot establish that a scoped rule is unrelated.
+    // The bounded operation above still uses its complete declared resources.
+    let mut opaque = f.operation();
+    opaque.effects.insert(EffectClass::Opaque);
+    let opaque = Prepared::new(opaque).unwrap();
+    let grant = f.grant(&opaque);
+    for effect in [
+        EffectClass::Write,
+        EffectClass::Install,
+        EffectClass::Publish,
+    ] {
+        let rule = &mut f.policy.denials[0];
+        rule.effects = BTreeSet::from([effect]);
+        rule.roots = BTreeSet::from([RootId::new()]);
+        rule.paths = vec!["unrelated/declared/input".into()];
+        assert!(allowed(
+            evaluate(&p, &f.policy, &[f.grant(&p)], &f.facts()).unwrap()
+        ));
+        assert!(matches!(
+            evaluate(&opaque, &f.policy, &[grant.clone()], &f.facts()).unwrap(),
+            Decision::Deny { .. }
+        ));
+    }
+    f.policy.denials[0].tool = Some("different-tool".into());
+    assert!(allowed(
+        evaluate(&opaque, &f.policy, &[grant], &f.facts()).unwrap()
+    ));
 }
 #[test]
 fn every_approval_bound_change_invalidates_exact_grant_without_erasing_original() {

@@ -21,7 +21,11 @@ and bounded time/output limits. They cannot supply executable identity,
 environment, native capabilities or approval state. Shell profiles require one
 explicit script; PowerShell disables profiles and interaction, and cmd disables
 AutoRun. Direct and shell execution are both classified as opaque process, read,
-write and network effects. Matching a shell prefix grants nothing.
+write, network, install and publish effects. Matching a shell prefix grants nothing.
+Opaque operations cannot prove a complete resource/effect scope, so any host or
+user denial with no tool selector, or with a matching tool selector, denies them.
+Narrow declared inputs do not exempt opaque execution from a scoped denial.
+Bounded file tools retain their resource-specific policy checks.
 The cmd adapter passes the explicitly authorized script using
 [Windows raw command-line conversion](https://doc.rust-lang.org/std/os/windows/process/trait.CommandExt.html#tymethod.raw_arg)
 with the outer quotes expected by `/s /c`; normal CRT argv escaping is unsuitable
@@ -65,6 +69,15 @@ settings such as SystemRoot, PATH, TEMP and CI, rejecting duplicate names and
 credential variable names. The trusted host must never put credentials in these
 public values. Provider authentication stays in the engine.
 
+Profiles default to 32 simultaneous processes, including the root. A trusted
+host can set `with_process_count(1..=128)`; the value is included in the profile
+and approval digest and cannot be raised through model arguments. Both pipe and
+PTY brokers require the `ProcessCount` capability and configure the native
+[active-process limit](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_limit_information)
+before the root runs. Excess descendants cannot join and execute. This is a
+concurrency ceiling, not a cumulative spawn, CPU or memory quota. Legacy P0
+qualification launches retain their existing behavior.
+
 An independent timer terminates the job at its deadline. Both output streams
 drain concurrently into canonical captures with bounded display prefixes. The
 combined output ceiling triggers termination; every already-observed chunk is
@@ -84,7 +97,7 @@ observation records unknown state without automatic retry.
 
 ## Isolation scope
 
-The broker enforces owned process trees, explicit environment, deadlines and
+The broker enforces owned process trees, simultaneous process count, explicit environment, deadlines and
 bounded output. Arbitrary filesystem/network restrictions are unavailable here.
 A profile requiring them is denied even after approval. Running with the measured
 controls requires an explicit `reduced_isolation` profile; no silent downgrade
@@ -97,3 +110,5 @@ Run `scripts/test-tools.ps1` for preparation/repository regressions and
 `RecoveryTests` and `LifecycleTests` commands in the
 [file-tool guide](p2-tools.md#reproduction), followed by the fast suite. Final run
 identities and outcomes are recorded in the [reviewed increment report](../evaluations/p2-process-increment.md).
+Subsequent process-count and opaque-denial qualification is recorded in the
+[execution ceilings report](../evaluations/p2-execution-ceilings.md).
