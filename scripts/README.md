@@ -1,6 +1,6 @@
 # Build and test scripts
 
-`test-context.ps1` runs 23 native repository/context and foundational type contracts
+`test-context.ps1` runs 27 native repository/context and foundational type contracts
 with bounded Git observations and real artifact stores. See [P2 context](../docs/development/p2-context.md).
 `test-provider.ps1` runs 17 provider/context contracts and the retained absolute
 deadline regression; [the provider guide](../docs/development/p2-provider.md)

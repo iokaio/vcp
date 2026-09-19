@@ -1,5 +1,7 @@
 # Development design and implementation guides
 
+- [Context continuity](p2-context-continuity.md): bounded historical previews, original-source dependencies and revision-aware reuse.
+
 - [Native verification and completion](p2-verification.md): discovered checks, source applicability, durable evidence and current-owner completion.
 
 - [Canonical coding loop](p2-canonical-coding-loop.md): fresh context, prepared retained tools, durable conversation pairs and cumulative request bounds.
