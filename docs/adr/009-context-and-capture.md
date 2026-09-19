@@ -1,7 +1,7 @@
 # ADR-009 — Versioned context and full activity capture
 
-Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P1-03, P2-08, P3-03. No implementation, runtime result or owner sign-off is recorded here.
+Status: P1 capture and P2 context continuity qualified; P3 evidence inspectors remain open.
+Decision gate: P1-03 and P2-08 complete; P3-03 remains open. Runtime evidence is linked below; owner release sign-off remains separate.
 
 ## Context and authority
 
@@ -49,3 +49,9 @@ no-follow observations, scoped instruction probes, deterministic range selection
 and captured-byte seals. Filesystem observation is in `vcp-repository`; pure
 selection and injected artifact verification are in `vcp-context`. Actual retained
 send fencing and provider compatibility remain unqualified P2 integration work.
+
+The [consolidated P2 qualification](../evaluations/p2-completion.md) supersedes
+that incremental limitation: retained send fencing, parent-instruction
+applicability, envelope admission, deterministic complete-pair compaction,
+preserved originals and fresh-process continuity pass in the canonical host.
+P3-03 still owns the user-facing exact prompt/history inspectors.

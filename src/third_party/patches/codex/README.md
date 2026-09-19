@@ -102,6 +102,13 @@ already include these changes; normal builds never apply patches.
 20. `0020-p2-response-tool-boundary.patch` adds opt-in completed-response gating
     before retained tool construction. Unsuccessful streams discard deferred
     calls; ordinary scheduling remains unchanged without this host requirement.
+21. `0021-p2-controller-retries.patch` exposes normalized header/transport failure
+    and bounded retry hooks to the owning host. Every hosted retry obtains fresh
+    durable admission with a predecessor link; pause invalidates its timer and
+    authenticated clients cannot perform hidden recovery requests. Raw HTTP error
+    bodies cannot settle SSE usage, and expired deadlines prevent the transport's
+    first poll (with a retained unit regression). Ordinary
+    unhosted behavior and external dependency pins remain unchanged.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

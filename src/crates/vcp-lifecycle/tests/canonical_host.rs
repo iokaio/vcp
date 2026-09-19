@@ -29,14 +29,16 @@ mod context_continuity;
 #[path = "support/framework_verification.rs"]
 mod framework_verification;
 #[cfg(windows)]
-#[path = "support/parent_instructions.rs"]
-mod parent_instructions;
-#[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;
 #[cfg(windows)]
+#[path = "support/parent_instructions.rs"]
+mod parent_instructions;
+#[cfg(windows)]
 #[path = "support/process_broker.rs"]
 mod process_broker;
+#[path = "support/provider_retries.rs"]
+mod provider_retries;
 #[path = "support/response_boundary.rs"]
 mod response_boundary;
 #[cfg(windows)]

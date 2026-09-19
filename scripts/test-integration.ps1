@@ -11,7 +11,7 @@ foreach($tool in @('node','cargo','rustup','git')){if(-not(Get-Command $tool -Co
 $paths=& node -e "const m=require(process.argv[1]),p=require('node:path'),r=process.argv[2];console.log(JSON.stringify({output:m.outside(process.argv[3],[p.join(r,'src')]),target:m.outside(process.argv[4],[p.join(r,'src')])}));" (Join-Path $repository 'src/tests/support/model-assets.cjs') $repository $OutputRoot $TargetRoot
 if($LASTEXITCODE -ne 0){exit 2};$paths=$paths|ConvertFrom-Json
 $directory=Join-Path $paths.output ([guid]::NewGuid().ToString());New-Item -ItemType Directory -Path $directory -Force|Out-Null
-$record=[ordered]@{schema_version=1;task_id='P0-08/P0-09';status='prepared';started_at=[DateTime]::UtcNow.ToString('o');stages=@()}
+$record=[ordered]@{schema_version=1;task_id='P0-08/P0-09/P2-01..08';status='prepared';started_at=[DateTime]::UtcNow.ToString('o');stages=@()}
 $manifest=Join-Path $directory 'manifest.json'
 function Save-Record {$record|ConvertTo-Json -Depth 12|Set-Content -LiteralPath $manifest -Encoding utf8}
 function Stage([string]$Name,[string]$Program,[string[]]$Arguments){
@@ -57,9 +57,12 @@ try{
     try{
         Stage 'contracts' 'cargo' (@("+$Toolchain",'test','-p','vcp-lifecycle','--lib','--tests')+$common+@('--','--test-threads=1'))
         $tests=Get-Content -LiteralPath (Join-Path $directory 'contracts.log') -Raw
-        foreach($count in @(5,3,16,19)){if($tests -notmatch "test result: ok\. $count passed; 0 failed; 0 ignored;"){throw "Missing expected $count-test contract group"}}
+        foreach($count in @(15,3,16,22,1)){if($tests -notmatch "test result: ok\. $count passed; 0 failed; 0 ignored;"){throw "Missing expected $count-test contract group"}}
         $rows=[regex]::Matches($tests,'(?m)^test ([^\r\n]+) \.\.\. ok\r?$')
-        if($rows.Count -ne 46){throw 'Expected all 46 native host/port/canonical contracts'}
+        if($rows.Count -ne 60){throw "Expected all 60 native host/port/canonical/console contracts; observed $($rows.Count)"}
+        $record.tests=@($rows|ForEach-Object{$_.Groups[1].Value})
+        Stage 'retained-expired-deadline' 'cargo' (@("+$Toolchain",'test','-p','codex-core','--lib')+$common+@('vcp_expired_header_deadline_never_polls_transport','--','--test-threads=1'))
+        if((Get-Content -LiteralPath (Join-Path $directory 'retained-expired-deadline.log') -Raw) -notmatch 'test result: ok\. 1 passed; 0 failed; 0 ignored;'){throw 'Expired deadline regression did not execute'}
         foreach($filter in @('contained_spawn_owns_immediate_descendant','rejected_job_assignment_resumes_existing_job_member')){
             Stage $filter 'cargo' (@("+$Toolchain",'test','-p','codex-utils-pty')+$common+@($filter,'--','--test-threads=1'))
             if((Get-Content -LiteralPath (Join-Path $directory ($filter+'.log')) -Raw) -notmatch 'test result: ok\. 1 passed; 0 failed; 0 ignored;'){throw 'Maintenance regression did not execute'}

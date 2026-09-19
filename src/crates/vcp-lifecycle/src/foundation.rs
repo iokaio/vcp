@@ -2,6 +2,8 @@
 //! Canonical persistence adapter for the retained controller. The worker only
 //! serializes storage operations; scheduling and interruption remain in Codex.
 mod authority;
+mod scheduler;
+use scheduler::{EffectLease, Scheduler};
 #[cfg(windows)]
 pub mod coding;
 #[cfg(windows)]
@@ -67,25 +69,7 @@ pub struct CanonicalHost {
     runtime: Lifecycle,
     worker: worker::Worker,
     bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
-    tool_conflict: Arc<std::sync::atomic::AtomicBool>,
-}
-struct EffectLease(Arc<std::sync::atomic::AtomicBool>);
-impl EffectLease {
-    fn acquire(flag: &Arc<std::sync::atomic::AtomicBool>) -> Result<Self, String> {
-        flag.compare_exchange(
-            false,
-            true,
-            std::sync::atomic::Ordering::SeqCst,
-            std::sync::atomic::Ordering::SeqCst,
-        )
-        .map_err(|_| "workspace has an active conflicting operation")?;
-        Ok(Self(flag.clone()))
-    }
-}
-impl Drop for EffectLease {
-    fn drop(&mut self) {
-        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
-    }
+    scheduler: Arc<Scheduler>,
 }
 pub struct CanonicalOwner {
     runtime: Option<OwnerLease>,
@@ -225,7 +209,7 @@ impl CanonicalHost {
                 runtime,
                 worker,
                 bindings: Arc::new(Mutex::new(HashMap::new())),
-                tool_conflict: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                scheduler: Arc::new(Scheduler::default()),
             },
             owner,
         ))
@@ -359,6 +343,12 @@ impl TurnStartAdmission for CanonicalHost {
     }
 }
 struct ModelPermit {
+    host: CanonicalHost,
+    thread: ThreadId,
+    purpose: HostModelPurpose,
+    generation: u64,
+    retries: u32,
+    retry_scheduled: bool,
     worker: worker::Worker,
     binding: ThreadBinding,
     attempt: AttemptId,
@@ -367,6 +357,63 @@ struct ModelPermit {
     deadline: Option<std::time::Instant>,
 }
 impl HostWorkPermit for ModelPermit {
+    fn retry_delay(
+        &mut self,
+        failure: codex_extension_api::HostModelFailure,
+        retry_after_ms: Option<u64>,
+    ) -> Result<Option<Duration>, String> {
+        if self.finished
+            || self.host.runtime.admission_generation(self.thread).ok() != Some(self.generation)
+        {
+            return Ok(None);
+        }
+        let Some(deadline) = self.deadline else {
+            return Ok(None);
+        };
+        let failure = match failure {
+            codex_extension_api::HostModelFailure::Http(status) => {
+                vcp_models::retry::http_failure(status)
+            }
+            codex_extension_api::HostModelFailure::Timeout => vcp_models::retry::Failure::Timeout,
+            codex_extension_api::HostModelFailure::Transport => {
+                vcp_models::retry::Failure::Transient
+            }
+            codex_extension_api::HostModelFailure::Protocol => vcp_models::retry::Failure::Protocol,
+        };
+        let binding = self.binding.clone();
+        let attempt = self.attempt.clone();
+        let count = self.retries;
+        let delay = self.worker.run(move |context| {
+            context.schedule_retry(&binding, attempt, count, deadline, failure, retry_after_ms)
+        })?;
+        if delay.is_some() {
+            self.runtime.complete()?;
+            self.finished = true;
+            self.retry_scheduled = true;
+        }
+        Ok(delay)
+    }
+    fn retry_current(&self) -> bool {
+        if !self.retry_scheduled
+            || self.host.runtime.admission_generation(self.thread).ok() != Some(self.generation)
+        {
+            return false;
+        }
+        let binding = self.binding.clone();
+        let attempt = self.attempt.clone();
+        self.worker
+            .run(move |context| context.retry_current(&binding, &attempt))
+            .is_ok()
+    }
+    fn admit_retry(
+        &mut self,
+        body: &mut serde_json::Value,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        if !self.retry_current() {
+            return Err("provider retry cancelled by current owner/context/deadline".into());
+        }
+        self.host.admit_model(self.thread, body, self.purpose)
+    }
     fn response_deadline(&self) -> Option<std::time::Instant> {
         self.deadline
     }
@@ -382,6 +429,20 @@ impl HostWorkPermit for ModelPermit {
                 let attempt = attempt.clone();
                 worker
                     .run(move |context| context.response_chunk(&attempt, &bytes))
+                    .inspect_err(|_| worker.fence())?;
+            }
+            Ok(())
+        }))
+    }
+    fn response_error_capture(&self) -> Option<HostResponseCapture> {
+        let worker = self.worker.clone();
+        let attempt = self.attempt.clone();
+        Some(Arc::new(move |bytes| {
+            for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
+                let bytes = chunk.to_vec();
+                let attempt = attempt.clone();
+                worker
+                    .run(move |context| context.response_error_chunk(&attempt, &bytes))
                     .inspect_err(|_| worker.fence())?;
             }
             Ok(())
@@ -406,6 +467,17 @@ impl HostWorkPermit for ModelPermit {
 }
 impl Drop for ModelPermit {
     fn drop(&mut self) {
+        if self.retry_scheduled {
+            let attempt = self.attempt.clone();
+            let binding = self.binding.clone();
+            if self
+                .worker
+                .run_cleanup(move |context| context.cancel_retry(&binding, &attempt))
+                .is_err()
+            {
+                self.worker.fence();
+            }
+        }
         if !self.finished {
             let attempt = self.attempt.clone();
             let binding = self.binding.clone();
@@ -469,6 +541,10 @@ impl HostWorkAdmission for CanonicalHost {
         purpose: HostModelPurpose,
     ) -> Result<Box<dyn HostWorkPermit>, String> {
         let mut binding = self.binding(thread)?;
+        let generation = self
+            .runtime
+            .admission_generation(thread)
+            .map_err(|e| format!("{e:?}"))?;
         match purpose {
             HostModelPurpose::Compaction => binding.role = RequestRole::Compaction,
             HostModelPurpose::Memory => {
@@ -487,7 +563,7 @@ impl HostWorkAdmission for CanonicalHost {
         let admission = self
             .worker
             .run(move |context| context.admit(&admitted, input));
-        let (attempt, prepared, deadline) = match admission {
+        let (attempt, prepared, deadline, retries) = match admission {
             Ok(value) => value,
             Err(error) => {
                 runtime.complete()?;
@@ -496,6 +572,12 @@ impl HostWorkAdmission for CanonicalHost {
         };
         *body = prepared;
         Ok(Box::new(ModelPermit {
+            host: self.clone(),
+            thread,
+            purpose,
+            generation,
+            retries,
+            retry_scheduled: false,
             worker: self.worker.clone(),
             binding,
             attempt,

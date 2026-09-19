@@ -11,6 +11,7 @@ pub struct ToolProposal {
     owner: OwnerEpoch,
     effect: ToolRunId,
     plan: ArtifactId,
+    generation: u64,
     pub decision: vcp_policy::Decision,
     pub question: Option<ApprovalId>,
 }
@@ -33,6 +34,7 @@ impl CanonicalHost {
         thread: ThreadId,
         request: vcp_tools::Request,
     ) -> Result<ToolProposal, String> {
+        let generation = scheduler::generation(&self.runtime, thread)?;
         let binding = self.binding(thread)?;
         let scoped = binding.clone();
         let (prepared, controller, owner) = self.worker.run(move |context| {
@@ -62,6 +64,7 @@ impl CanonicalHost {
             owner,
             effect,
             plan,
+            generation,
             decision,
             question,
         })
@@ -69,7 +72,46 @@ impl CanonicalHost {
     /// Consumes one owner-bound ticket. Every file gets a fresh native version
     /// check and current authority check, then a durable intent before mutation.
     pub fn dispatch_tool(&self, ticket: ToolProposal) -> Result<ToolOutcome, String> {
-        let _conflict = EffectLease::acquire(&self.tool_conflict)?;
+        let lease = self
+            .scheduler
+            .try_acquire(ticket.prepared.authority().operation())?;
+        self.dispatch_tool_leased(ticket, lease)
+    }
+    /// Wait without blocking the retained reactor. Queued work is fenced by
+    /// owner generation; native identity and authority are rechecked at dispatch.
+    pub async fn schedule_tool(&self, ticket: ToolProposal) -> Result<ToolOutcome, String> {
+        let mut queued = scheduler::QueuedEffect::new(self, &ticket.binding, &ticket.effect);
+        let scheduled = self
+            .schedule(
+                ticket.prepared.authority().operation(),
+                ticket.thread,
+                ticket.generation,
+            )
+            .await;
+        let lease = match scheduled {
+            Ok(lease) => lease,
+            Err(error) => {
+                self.cancel_queued_effect(ticket.binding, ticket.effect, error.clone())?;
+                return Err(error);
+            }
+        };
+        let host = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let result = host.dispatch_tool_leased(ticket, lease);
+            if result.is_ok() {
+                queued.dispatched();
+            }
+            result
+        })
+        .await
+        .map_err(|error| format!("scheduled tool worker failed: {error}"))?
+    }
+    fn dispatch_tool_leased(
+        &self,
+        ticket: ToolProposal,
+        _lease: EffectLease,
+    ) -> Result<ToolOutcome, String> {
+        scheduler::check_generation(&self.runtime, ticket.thread, ticket.generation)?;
         let mut permit = HostWorkAdmission::admit(
             &self.runtime,
             ticket.thread,
@@ -187,11 +229,12 @@ impl CanonicalHost {
             let change = change.clone();
             let runtime = self.runtime.clone();
             let thread = ticket.thread;
+            let generation = ticket.generation;
             let effect = ticket.effect.clone();
             let execution = execution.clone();
             let outcome=self.worker.run(move|context|{
                 let state=runtime.0.state.lock().map_err(|_|"poisoned lifecycle")?;
-                if !state.attached || state.held(thread) {return Err("file dispatch is paused or unowned".into());}
+                if !state.attached || state.held(thread) || !state.admission_current(thread, generation) {return Err("file dispatch is paused, superseded or unowned".into());}
                 if !matches!(context.tool_decision(&binding,&prepared)?,vcp_policy::Decision::Allow{..}) {return Err("tool authority changed before file dispatch".into());}
                 // All paths were validated before the first write. Repeat the
                 // current file's identity check under deny-write/delete sharing.

@@ -19,6 +19,7 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             "missing_cost",
             "stale_instructions",
             "deadline",
+            "empty",
         ] {
             let temp = tempfile::tempdir().unwrap();
             let workspace = temp.path().join("workspace");
@@ -110,7 +111,9 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 requests.lock().unwrap().push(body);
                 let mut events = vec![];
                 let mut output = vec![];
-                if index < 4 {
+                if mode == "empty" {
+                    events.push(ev_assistant_message("empty-answer", " \n\t "));
+                } else if index < 4 {
                     let (name, arguments) = if index == 1 {
                         ("vcp_patch", serde_json::json!({"patch":"*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** Update File: AGENTS.md\n@@\n-instruction version one\n+instruction version two\n*** End Patch"}))
                     } else if index==3 { ("vcp_exec", serde_json::json!({"profile":"fixture","arguments":["verify",directory.to_str().unwrap()],"directory":"","timeout_ms":10_000,"output_bytes":1_048_576,"input":null})) }
@@ -118,6 +121,11 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     let item = serde_json::json!({"type":"function_call","id":format!("item-{index}"),"call_id":format!("call-{index}"),"name":name,"arguments":arguments.to_string(),"status":"completed"});
                     events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item}));
                     output.push(item);
+                    if mode == "complete" && index == 0 {
+                        let sibling = serde_json::json!({"type":"function_call","id":"sibling-item","call_id":"sibling-read","name":"vcp_read","arguments":serde_json::json!({"path":"fixture.txt","max_bytes":1024}).to_string(),"status":"completed"});
+                        events.push(serde_json::json!({"type":"response.output_item.done","output_index":1,"item":sibling}));
+                        output.push(sibling);
+                    }
                 } else { events.push(ev_assistant_message("done", "Observed the file change.")); }
                 let cost = if mode=="missing_cost" {serde_json::Value::Null}else{serde_json::json!(0.0001)};
                 if mode=="stale_instructions" { std::fs::write(directory.join("AGENTS.md"), "concurrent human guidance").unwrap(); }
@@ -160,7 +168,9 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     max_requests: if mode == "limit" { 2 } else { 8 },
                     // Leave native capture/startup headroom before submission;
                     // the server then withholds its response beyond this bound.
-                    deadline: Timestamp::new(now + if mode == "deadline" { 10_000 } else { 300_000 }),
+                    deadline: Timestamp::new(
+                        now + if mode == "deadline" { 10_000 } else { 300_000 },
+                    ),
                 },
             )
             .unwrap();
@@ -186,10 +196,28 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             };
             assert_eq!(count.load(Ordering::SeqCst), expected, "{backend:?} {mode}");
             let requests = observed.lock().unwrap().clone();
+            assert_eq!(requests[0]["parallel_tool_calls"], true);
+            if mode == "complete" {
+                let input = requests[1]["input"].as_array().unwrap();
+                for (call, expected) in [("call-0", "before"), ("sibling-read", "answer = 42")] {
+                    let output = input
+                        .iter()
+                        .find(|item| {
+                            item["type"] == "function_call_output" && item["call_id"] == call
+                        })
+                        .unwrap();
+                    assert!(
+                        output["output"].as_str().unwrap().contains(expected),
+                        "result must retain original call correlation: {output}"
+                    );
+                }
+            }
             let first = requests[0].to_string();
             assert!(first.contains("Observe retained request and response"));
             assert!(!first.contains("Run the synthetic request."));
             assert!(first.contains("instruction version one"));
+            assert!(first.contains("not_ready"));
+            assert!(first.contains("fixed_qualified_model"));
             assert!(!first.contains("nested scoped guidance"));
             if mode == "nested" {
                 assert!(requests[1].to_string().contains("nested scoped guidance"));
@@ -204,7 +232,10 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     .unwrap()
                     .contains("New instruction scope selected"));
             }
-            if !matches!(mode, "missing_cost" | "stale_instructions" | "deadline") {
+            if !matches!(
+                mode,
+                "missing_cost" | "stale_instructions" | "deadline" | "empty"
+            ) {
                 if matches!(mode, "complete" | "process_fail") {
                     assert!(requests[2].to_string().contains("instruction version two"));
                     let item = requests[4]["input"]
@@ -250,10 +281,20 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     "before\n"
                 );
             }
-            let view = host.project().unwrap();
+            let view = host
+                .project()
+                .unwrap_or_else(|error| panic!("{backend:?} {mode}: {error}"));
+            if mode == "empty" {
+                assert!(
+                    host.complete_coding_turn(id).is_err(),
+                    "empty response must not establish an accounted final answer"
+                );
+            }
             assert_eq!(
                 view.effects.len(),
-                if matches!(mode, "complete" | "process_fail") {
+                if mode == "complete" {
+                    5
+                } else if mode == "process_fail" {
                     4
                 } else if mode == "nested" {
                     3
@@ -277,7 +318,7 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             )));
             if matches!(
                 mode,
-                "limit" | "missing_cost" | "stale_instructions" | "deadline"
+                "limit" | "missing_cost" | "stale_instructions" | "deadline" | "empty"
             ) {
                 assert_eq!(view.tasks[&config.root_task].state, TaskState::Paused);
             }

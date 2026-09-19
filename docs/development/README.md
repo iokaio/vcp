@@ -1,5 +1,7 @@
 # Development design and implementation guides
 
+- [Completed P2 integration](p2-completion.md): controller retries, resource scheduling, canonical recovery, native console close and attributed handoff; supersedes earlier P2 increment status notes.
+
 - [Context continuity](p2-context-continuity.md): bounded historical previews, original-source dependencies and revision-aware reuse.
 
 - [Verification in the retained loop](p2-loop-verification.md): isolated checks, canonical unexecuted pairs and final-cost completion evidence.

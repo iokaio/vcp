@@ -3,8 +3,11 @@ mod authority;
 #[cfg(windows)]
 mod coding;
 #[cfg(windows)]
+mod console;
+#[cfg(windows)]
 mod execution;
 mod provider;
+pub(super) mod recovery;
 #[cfg(windows)]
 mod tools;
 #[cfg(windows)]
@@ -34,14 +37,18 @@ type Job = Box<dyn FnOnce(&mut Context) + Send>;
 struct Inner {
     thread_id: std::thread::ThreadId,
     sender: Mutex<Option<SyncSender<Job>>>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    thread: Mutex<Option<JoinHandle<std::result::Result<(), String>>>>,
     fenced: AtomicBool,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
         self.sender.get_mut().unwrap().take();
         if let Some(thread) = self.thread.get_mut().unwrap().take() {
-            let _ = thread.join();
+            match thread.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => eprintln!("canonical store shutdown failed: {error}"),
+                Err(_) => eprintln!("canonical store worker panicked during shutdown"),
+            }
         }
     }
 }
@@ -59,9 +66,11 @@ impl Worker {
                     while let Ok(job) = rx.recv() {
                         job(&mut context);
                     }
+                    context.close().map_err(|error| error.to_string())
                 }
                 Err(error) => {
                     let _ = ready.send(Err(error.to_string()));
+                    Err(error.to_string())
                 }
             })
             .map_err(|error| error.to_string())?;
@@ -177,6 +186,11 @@ fn has_unpriced_media(value: &serde_json::Value) -> bool {
     }
 }
 impl Context {
+    fn close(self) -> Result<()> {
+        self.runtime.block_on(self.engine.into_store().close())?;
+        Ok(())
+    }
+
     fn open(config: Config) -> Result<Self> {
         vcp_policy::validate_host_denials(&config.host_tool_denials)?;
         if config.input_ceiling.get() == 0 || config.output_ceiling.get() == 0 {
@@ -274,35 +288,7 @@ impl Context {
                     ))?;
                 }
             }
-            let effects: Vec<vcp_domain::effect::Effect> = context
-                .engine
-                .store()
-                .state()
-                .records
-                .values()
-                .filter(|row| row.collection == Collection::Effect)
-                .map(Record::decode)
-                .collect::<std::result::Result<_, _>>()?;
-            for effect in effects {
-                if matches!(
-                    effect.state,
-                    vcp_domain::effect::EffectState::DispatchRecorded
-                        | vcp_domain::effect::EffectState::Running
-                ) {
-                    context.command(
-                        Command::AdvanceEffect {
-                            id: effect.id,
-                            next: vcp_domain::effect::EffectState::OutcomeUnknown,
-                            reason: "owner reopened without terminal process observation".into(),
-                            execution: effect.execution,
-                            exit_code: None,
-                            observed_changes: effect.observed_changes,
-                        },
-                        Some(effect.scope.task),
-                        effect.revision,
-                    )?;
-                }
-            }
+            context.reconcile_effects()?;
             let tasks: Vec<Task> = context
                 .engine
                 .store()
@@ -466,8 +452,17 @@ impl Context {
         if task.fingerprint != fingerprint {
             return Err("repository fingerprint changed; refresh canonical task first".into());
         }
+        self.revalidate_resume_environment(binding)?;
         let budget_current = vcp_budget::ledger(self.engine.store().state(), &binding.scope)
-            .map(|ledger| !ledger.overrun)
+            .map(|ledger| {
+                !ledger.overrun
+                    && ledger
+                        .settled
+                        .get()
+                        .saturating_add(ledger.active.get())
+                        .saturating_add(ledger.unresolved.get())
+                        < ledger.cap.get()
+            })
             .unwrap_or(true);
         let effects_reconciled = !self
             .engine
@@ -577,7 +572,12 @@ impl Context {
         &mut self,
         binding: &ThreadBinding,
         mut body: serde_json::Value,
-    ) -> Result<(AttemptId, serde_json::Value, Option<std::time::Instant>)> {
+    ) -> Result<(
+        AttemptId,
+        serde_json::Value,
+        Option<std::time::Instant>,
+        u32,
+    )> {
         if !self.owner_alive {
             return Err("canonical owner is closed".into());
         }
@@ -713,7 +713,11 @@ impl Context {
             request: descriptor.spec.id.clone(),
             request_digest: descriptor.sha256.clone(),
             quote,
-            previous: None,
+            previous: self
+                .provider
+                .as_ref()
+                .and_then(|p| p.retries.get(&binding.scope.task))
+                .map(|r| r.predecessor.clone()),
             expected_ledger: root.revision,
             policy: root.policy,
             steering: task.steering,
@@ -735,6 +739,14 @@ impl Context {
             Ok(writer) => writer,
             Err(error) => {
                 self.interrupted_capture = true;
+                // No send intent exists yet: this is positive local no-send
+                // evidence, so it must not become an ambiguous liability.
+                self.runtime.block_on(vcp_budget::release_before_send(
+                    self.engine.store_mut(),
+                    &attempt.id,
+                    scope,
+                    &actor,
+                ))?;
                 let _ = self.pause_root("response capture could not open before send");
                 return Err(error.into());
             }
@@ -769,9 +781,27 @@ impl Context {
             }
             (other, _) => other,
         };
-        Ok((attempt.id, body, deadline))
+        let retry = self
+            .provider
+            .as_mut()
+            .and_then(|p| p.retries.remove(&binding.scope.task));
+        let (deadline, retries) = retry.map_or((deadline, 0), |r| (Some(r.deadline), r.count));
+        Ok((attempt.id, body, deadline, retries))
     }
     pub fn response_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {
+        self.response_error_chunk(attempt, bytes)?;
+        if self.provider_required {
+            self.provider
+                .as_mut()
+                .ok_or("provider configuration missing")?
+                .streams
+                .get_mut(attempt)
+                .ok_or("provider stream missing")?
+                .push(bytes)?;
+        }
+        Ok(())
+    }
+    pub fn response_error_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {
         for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
             if let Err(error) = self
                 .streams
@@ -782,15 +812,6 @@ impl Context {
                 let _ = self.pause_root("response capture failed");
                 return Err(error.into());
             }
-        }
-        if self.provider_required {
-            self.provider
-                .as_mut()
-                .ok_or("provider configuration missing")?
-                .streams
-                .get_mut(attempt)
-                .ok_or("provider stream missing")?
-                .push(bytes)?;
         }
         Ok(())
     }
@@ -960,6 +981,15 @@ impl Context {
         attempt: &AttemptId,
         reason: &str,
     ) -> Result<()> {
+        self.retain_unknown(binding, attempt, reason, true)
+    }
+    pub(super) fn retain_unknown(
+        &mut self,
+        binding: &ThreadBinding,
+        attempt: &AttemptId,
+        reason: &str,
+        pause: bool,
+    ) -> Result<()> {
         // Cancellation may arrive after raw final usage but before the retained
         // completion callback. Keep that observation rather than losing a known
         // charge. Parsing failure still preserves an unknown liability.
@@ -992,7 +1022,9 @@ impl Context {
             &actor,
             reason,
         ))?;
-        self.pause_root("provider outcome requires accounting reconciliation")?;
+        if pause {
+            self.pause_root("provider outcome requires accounting reconciliation")?;
+        }
         Ok(())
     }
 }

@@ -48,6 +48,18 @@ impl Snapshot {
     }
 }
 impl Store {
+    /// Finish backend shutdown before releasing the canonical owner lock.
+    /// Callers requiring an immediate reopen must await this method: dropping a
+    /// SQLite connection alone does not wait for its native worker to terminate.
+    pub async fn close(self) -> Result<()> {
+        let Self {
+            backend, _owner, ..
+        } = self;
+        let result = backend.close().await;
+        drop(_owner);
+        result
+    }
+
     pub async fn open(root: &Path, kind: BackendKind, forbidden_roots: &[PathBuf]) -> Result<Self> {
         Self::open_with_artifact_limit(root, kind, forbidden_roots, DEFAULT_ARTIFACT_LIMIT).await
     }

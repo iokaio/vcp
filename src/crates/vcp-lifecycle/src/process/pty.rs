@@ -40,6 +40,34 @@ impl Lifecycle {
         observer: OutputObserver,
         resources: Arc<dyn Send + Sync>,
     ) -> io::Result<Process> {
+        self.spawn_pty_with_capture_generation(
+            thread,
+            executable,
+            args,
+            cwd,
+            environment,
+            size,
+            input,
+            limits,
+            observer,
+            resources,
+            None,
+        )
+    }
+    pub(crate) fn spawn_pty_with_capture_generation(
+        &self,
+        thread: ThreadId,
+        executable: &Path,
+        args: &[OsString],
+        cwd: &Path,
+        environment: &BTreeMap<OsString, OsString>,
+        size: codex_utils_pty::TerminalSize,
+        input: Option<String>,
+        limits: Limits,
+        observer: OutputObserver,
+        resources: Arc<dyn Send + Sync>,
+        generation: Option<u64>,
+    ) -> io::Result<Process> {
         if limits.timeout.is_zero()
             || limits.timeout > Duration::from_secs(120)
             || limits.output_bytes == 0
@@ -56,7 +84,10 @@ impl Lifecycle {
             .state
             .lock()
             .map_err(|_| io::Error::other("poisoned lifecycle"))?;
-        if !state.attached || state.held(thread) {
+        if !state.attached
+            || state.held(thread)
+            || generation.is_some_and(|expected| !state.admission_current(thread, expected))
+        {
             drop(state);
             permit.complete().map_err(io::Error::other)?;
             return Err(io::Error::other("PTY launch sealed"));

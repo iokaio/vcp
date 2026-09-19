@@ -279,6 +279,45 @@ fn complete_schema_validated_calls_only_appear_after_terminal_and_clean_end() {
     assert_eq!(result.usage, None);
 }
 #[test]
+fn visible_answer_requires_completed_assistant_text_and_reconciles_terminal_duplicates() {
+    let message = json!({"type":"message","id":"answer","role":"assistant","content":[{"type":"output_text","text":"visible answer"}]});
+    let mut parser = stream();
+    parser
+        .push(&sse(
+            json!({"type":"response.output_text.delta","delta":"unconfirmed delta"}),
+        ))
+        .unwrap();
+    parser.push(&sse(terminal(json!([])))).unwrap();
+    assert_eq!(parser.finish().unwrap().visible_text_bytes, 0);
+    let mut parser = stream();
+    parser
+        .push(&sse(
+            json!({"type":"response.output_item.done","item":message}),
+        ))
+        .unwrap();
+    parser
+        .push(&sse(terminal(json!([message.clone()]))))
+        .unwrap();
+    assert_eq!(
+        parser.finish().unwrap().visible_text_bytes,
+        "visible answer".len() as u64
+    );
+    let mut parser = stream();
+    parser
+        .push(&sse(
+            json!({"type":"response.output_item.done","item":message}),
+        ))
+        .unwrap();
+    let mut changed = message.clone();
+    changed["content"][0]["text"] = json!("changed answer");
+    assert!(parser.push(&sse(terminal(json!([changed])))).is_err());
+    let mut parser = stream();
+    let mut whitespace = message;
+    whitespace["content"][0]["text"] = json!(" \n\t ");
+    parser.push(&sse(terminal(json!([whitespace])))).unwrap();
+    assert_eq!(parser.finish().unwrap().visible_text_bytes, 0);
+}
+#[test]
 fn framing_survives_every_utf8_crlf_and_json_split_and_combined_events() {
     let mut bytes = b"\xef\xbb\xbf: keepalive\r\n\r\n".to_vec();
     bytes.extend(sse(

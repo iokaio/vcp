@@ -2,7 +2,27 @@
 //! Retained tool wrappers; canonical assembly owns the actual provider body.
 use super::*;
 use codex_extension_api::*;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
+
+/// Explicit seams for later memory/group implementations. The P2 driver cannot
+/// infer readiness or silently create a helper model request.
+#[derive(Clone, Copy, Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityState {
+    NotReady,
+    FixedQualifiedModel,
+}
+#[derive(Clone, Debug, serde::Serialize, PartialEq, Eq)]
+pub struct Capabilities {
+    pub memory: CapabilityState,
+    pub routing: CapabilityState,
+}
+pub fn capabilities() -> Capabilities {
+    Capabilities {
+        memory: CapabilityState::NotReady,
+        routing: CapabilityState::FixedQualifiedModel,
+    }
+}
 
 /// Trusted per-owner setup. It cannot be deserialized from model arguments.
 #[derive(Clone, serde::Serialize)]
@@ -126,6 +146,11 @@ impl ToolContributor for CanonicalHost {
     }
 }
 impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
+    fn supports_parallel_tool_calls(&self) -> bool {
+        // Only VCP's prepared resource scheduler may decide which effects
+        // overlap. Verification remains an isolated retained operation.
+        self.name != "vcp_verify"
+    }
     fn tool_name(&self) -> ToolName {
         ToolName::plain(self.name.clone())
     }
@@ -185,7 +210,7 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     if !matches!(proposal.decision, vcp_policy::Decision::Allow { .. }) {
                         return Ok(json!({"executed":false,"decision":format!("{:?}", proposal.decision),"question":proposal.question,"effect":proposal.effect()}));
                     }
-                    let outcome = self.host.dispatch_process(proposal)?.wait().await?;
+                    let outcome = self.host.schedule_process(proposal).await?.wait().await?;
                     sources.extend([outcome.evidence.spec.id.clone(), outcome.stdout.spec.id.clone(), outcome.stderr.spec.id.clone()]);
                     return Ok(json!({"effect":outcome.effect,"evidence":outcome.evidence.spec.id,"exit_code":outcome.exit_code,"reason":outcome.reason,
                         "stdout":{"artifact":outcome.stdout.spec.id,"bytes":outcome.stdout.length,"tail":String::from_utf8_lossy(&outcome.stdout_tail),"truncated":outcome.stdout.length.get()>outcome.stdout_tail.len() as u64},
@@ -196,7 +221,7 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 if !matches!(proposal.decision, vcp_policy::Decision::Allow { .. }) {
                     return Ok(json!({"executed":false,"decision":format!("{:?}", proposal.decision),"question":proposal.question,"effect":proposal.effect()}));
                 }
-                let outcome = self.host.dispatch_tool(proposal)?;
+                let outcome = self.host.schedule_tool(proposal).await?;
                 sources.push(outcome.evidence.spec.id.clone());
                 Ok(json!({"effect":outcome.effect,"evidence":outcome.evidence.spec.id,"result":outcome.result}))
             }.await;

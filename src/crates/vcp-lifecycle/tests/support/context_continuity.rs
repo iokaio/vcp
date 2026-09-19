@@ -4,18 +4,18 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     sync::{
-        Mutex,
         atomic::{AtomicUsize, Ordering},
+        Mutex,
     },
 };
 use vcp_domain::policy::{Autonomy, EffectClass, Policy};
 use vcp_lifecycle::foundation::{
-    coding::{CodingConfig, allowed_tools},
+    coding::{allowed_tools, CodingConfig},
     verification::VerificationConfig,
 };
 use wiremock::{
-    Mock, ResponseTemplate,
     matchers::{method, path},
+    Mock, ResponseTemplate,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -30,7 +30,7 @@ async fn run(backend: BackendKind, oversized: bool) {
     let workspace = temp.path().join("workspace");
     fs::create_dir(&workspace).unwrap();
     let workspace = workspace.canonicalize().unwrap();
-    fs::write(workspace.join("AGENTS.md"), "Original scoped guidance").unwrap();
+    fs::write(workspace.join("AGENTS.md"), "Original scoped guidance\ndata: {\"reasoning\":\"repository fixture, not provider state\"}\n").unwrap();
     fs::write(
         workspace.join("evidence.txt"),
         format!(
@@ -55,7 +55,7 @@ async fn run(backend: BackendKind, oversized: bool) {
             events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item}));
             output.push(item);
         } else { events.push(ev_assistant_message("final", "Observed historical sources; no completion claim.")); }
-        events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("continuity-{n}"),"status":"completed","output":output,"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":if n==6 {serde_json::Value::Null}else{serde_json::json!(0.0001)}}}}));
+        events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("continuity-{n}"),"status":"completed","output":output,"reasoning_details":{"opaque":"synthetic-private-provider-state"},"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":if n==6 {serde_json::Value::Null}else{serde_json::json!(0.0001)}}}}));
         ResponseTemplate::new(200).insert_header("content-type","text/event-stream").set_body_string(sse(events))
     }).mount(&server).await;
     let mut originals: BTreeMap<ArtifactId, Vec<u8>> = BTreeMap::new();
@@ -295,6 +295,69 @@ async fn run(backend: BackendKind, oversized: bool) {
             .filter(|a| a.spec.schema == "canonical-compaction-projection/1")
             .collect();
         assert!(!projections.is_empty());
+        let handoffs: Vec<_> = artifacts
+            .iter()
+            .filter(|a| a.spec.schema == "canonical-context-handoff/1")
+            .collect();
+        assert_eq!(handoffs.len(), count.load(Ordering::SeqCst));
+        let mut saw_opaque_omission = false;
+        for artifact in handoffs {
+            let bytes = host.read_artifact(artifact.spec.id.clone()).unwrap();
+            let packet: vcp_context::handoff::Packet = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(packet.manifest.revisions.scope, binding.scope);
+            assert!(packet.discarded.iter().all(|field| packet
+                .references
+                .iter()
+                .any(|source| source.spec.id == field.artifact
+                    && source.spec.channel == Channel::Response)));
+            assert!(packet.current_state["task"]["objectives"].is_array());
+            assert!(packet.current_state["continuity"]["original_base"].is_object());
+            assert_eq!(
+                packet.remaining.get(),
+                packet.ledger.cap.get().saturating_sub(
+                    packet.ledger.settled.get()
+                        + packet.ledger.active.get()
+                        + packet.ledger.unresolved.get()
+                        + packet.ledger.protected.get()
+                )
+            );
+            for reference in &packet.references {
+                let original = host.read_artifact(reference.spec.id.clone()).unwrap();
+                assert_eq!(vcp_protocol::digest_bytes(&original), reference.sha256);
+            }
+            if packet
+                .discarded
+                .iter()
+                .any(|d| d.field.ends_with("/reasoning_details"))
+            {
+                saw_opaque_omission = true;
+                // Opaque values remain only in originals, never portable text.
+                assert!(!String::from_utf8(bytes.clone())
+                    .unwrap()
+                    .contains("synthetic-private-provider-state"));
+            }
+            if packet.manifest.revisions.steering.get() > 0 {
+                let workspace = &packet.current_state["workspace"];
+                assert!(workspace["changes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|c| c["path"] == "evidence.txt"));
+                let source = workspace["sources"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|s| s["version"]["path"] == "evidence.txt")
+                    .unwrap();
+                let id: ArtifactId = serde_json::from_value(source["artifact"].clone()).unwrap();
+                assert!(packet.references.iter().any(|r| r.spec.id == id));
+                assert_eq!(
+                    host.read_artifact(id).unwrap(),
+                    b"Current independently edited source: 42"
+                );
+            }
+        }
+        assert!(saw_opaque_omission);
         for artifact in &projections {
             let projection: serde_json::Value =
                 serde_json::from_slice(&host.read_artifact(artifact.spec.id.clone()).unwrap())
@@ -319,11 +382,9 @@ async fn run(backend: BackendKind, oversized: bool) {
             .filter(|i| i["type"] == "message")
             .map(|i| serde_json::from_str(i["content"][0]["text"].as_str().unwrap()).unwrap())
             .collect();
-        assert!(
-            quoted
-                .iter()
-                .any(|p| p["kind"] == "history" && p["trust"] == "untrusted")
-        );
+        assert!(quoted
+            .iter()
+            .any(|p| p["kind"] == "history" && p["trust"] == "untrusted"));
         assert_eq!(
             last["input"]
                 .as_array()

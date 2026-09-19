@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Plan revision 11 — September 18, 2026. Delivery uses larger behavioral milestones
+Plan revision 12 — September 19, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded
 qualification already completed from remaining product implementation. Explicit
 pause while the CLI stays open is required alongside close-to-pause.
@@ -32,9 +32,11 @@ identifies the original P1 starting points. All six P1 tasks now have
 [canonical foundation acceptance](../evaluations/p1-completion.md): typed
 commands, full capture, both stores, shared accounting and rebuilt history through
 the [retained host](../development/p1-retained-host.md). The common-compiler CLI
-build and retained regressions passed. P2 provider/policy/context integration and
-the [canonical coding loop](../development/p2-canonical-coding-loop.md) are in
-progress. Usable product interfaces and release acceptance remain planned.
+build and retained regressions passed. All eight P2 tasks now have
+[reliable local coding acceptance](../evaluations/p2-completion.md): versioned
+context, the OpenRouter gateway, authority/tools, retained coding and verification,
+pause/recovery and compaction pass their native Windows gates. Usable product
+interfaces and release acceptance remain planned.
 Use `docs/` for documentation, `src/` for source and test assets, and `scripts/`
 for build/test automation. Preserve useful Codex modules instead of creating
 empty replacement crates merely to match a diagram. Follow

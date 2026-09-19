@@ -1771,3 +1771,18 @@ async fn non_chatgpt_codex_endpoints_omit_attestation_generation() {
     );
     assert_eq!(attestation_calls.load(Ordering::Relaxed), 0);
 }
+
+#[tokio::test]
+async fn vcp_expired_header_deadline_never_polls_transport() {
+    let polled = std::cell::Cell::new(false);
+    let result = super::bounded_response_headers(std::time::Instant::now(), async {
+        polled.set(true);
+        Ok(())
+    })
+    .await;
+    assert!(matches!(result, Err(codex_api::ApiError::Stream(_))));
+    assert!(
+        !polled.get(),
+        "an expired deadline must not poll an immediately ready transport"
+    );
+}

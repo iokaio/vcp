@@ -111,6 +111,10 @@
     {
       "path": "src/third_party/patches/codex/0020-p2-response-tool-boundary.patch",
       "sha256": "6ebea6efc96b0b82f92a8f79375b70fae8c73984e81f3fa407d3b2be6f42765e"
+    },
+    {
+      "path": "src/third_party/patches/codex/0021-p2-controller-retries.patch",
+      "sha256": "2a7a3906496473cf603411c5a4f646796e4e6bf8600f7eabf22951982874322c"
     }
   ],
   "licenses": [

@@ -76,6 +76,13 @@ fn sql_error(error: sqlx::Error) -> Error {
     Error::Database(error)
 }
 impl Backend {
+    pub(crate) async fn close(self) -> Result<()> {
+        match self {
+            Self::Sqlite(connection) => connection.close().await.map_err(sql_error),
+            Self::Files(journal) => journal.file.sync_all().map_err(Error::from),
+        }
+    }
+
     pub(crate) async fn open(root: &Path, kind: BackendKind) -> Result<(Self, State, Vec<Commit>)> {
         match kind {
             BackendKind::Sqlite => {
