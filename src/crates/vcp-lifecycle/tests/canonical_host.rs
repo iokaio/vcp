@@ -17,6 +17,8 @@ use vcp_lifecycle::{
 #[cfg(windows)]
 #[path = "support/process_broker.rs"]
 mod process_broker;
+#[path = "support/authority_stream.rs"]
+mod authority_stream;
 
 fn configure_provider_fixture(config: &mut codex_core::config::Config) {
     let fixture_url = config.model_provider.base_url.clone();

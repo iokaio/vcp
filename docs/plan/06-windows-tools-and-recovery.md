@@ -4,6 +4,11 @@ Status: P2-03 in progress with [authority and durable approvals](../development/
 
 ## Implementation references
 
+The [authority coordination adapter](../development/p2-authority-coordination.md)
+connects active policy/trust/grant/binding/steering changes to owned stopping and
+canonical pause. It remains a trusted host interface pending the governed loop
+and CLI adapters.
+
 Read [dispatch ordering](../architecture/vcp-what.md#92-tool-dispatch-sequence),
 [file/process semantics](../architecture/vcp-what.md#93-file-changes-and-editor-conflicts),
 [policy decisions](../architecture/vcp-what.md#102-decision-order) and
