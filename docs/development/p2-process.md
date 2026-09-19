@@ -31,8 +31,11 @@ The cmd adapter passes the explicitly authorized script using
 with the outer quotes expected by `/s /c`; normal CRT argv escaping is unsuitable
 for cmd redirection. Direct execution retains ordinary argument-vector handling.
 
-Preparation captures executable identity/hash, directory identity, bounded
-discovered source versions and exclusions, actual argv, environment digest,
+Preparation captures executable identity/hash, directory identity and bounded
+source observations. Native executable versions use streaming hashes up
+to 256 MiB; their bytes are not source/context captures. This supports the
+[verification runner](p2-verification.md) while preserving source capture bounds.
+It also records discovered source versions and exclusions, actual argv, environment digest,
 profile digest and schema. Source, executable or profile changes invalidate the
 ticket. Discovery respects documented exclusions; it is not an inventory of all
 dynamic dependencies or external inputs an opaque program might access.

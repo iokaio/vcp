@@ -12,6 +12,24 @@ pub fn digest_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+/// Hash an already bounded reader without retaining its contents in memory.
+pub fn digest_reader(mut reader: impl std::io::Read) -> std::io::Result<(String, u64)> {
+    let mut hash = Sha256::new();
+    let mut bytes = [0u8; 64 * 1024];
+    let mut length = 0u64;
+    loop {
+        let count = reader.read(&mut bytes)?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&bytes[..count]);
+        length = length
+            .checked_add(count as u64)
+            .ok_or_else(|| std::io::Error::other("digest byte count overflow"))?;
+    }
+    Ok((format!("{:x}", hash.finalize()), length))
+}
+
 /// Digest v1: UTF-8 JSON, recursive lexicographic object keys, array order retained.
 /// Numeric domain counters already serialize as canonical decimal strings.
 pub fn canonical_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, serde_json::Error> {

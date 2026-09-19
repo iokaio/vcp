@@ -27,6 +27,9 @@ mod host_tool_authority;
 mod process_broker;
 #[path = "support/response_boundary.rs"]
 mod response_boundary;
+#[cfg(windows)]
+#[path = "support/verification.rs"]
+mod verification;
 
 fn configure_provider_fixture(config: &mut codex_core::config::Config) {
     let fixture_url = config.model_provider.base_url.clone();

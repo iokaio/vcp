@@ -66,7 +66,9 @@ compaction remains disabled until its canonical adapter is implemented.
 The assembler currently selects objectives, state, instructions and tool pairs.
 Full provider bytes remain in history; this increment does not implement semantic
 selection of assistant prose, compaction, retry orchestration, ongoing terminal
-interaction, or verification-based task completion. Model prose and a process
+interaction, or automatic verification-based task completion. The separate
+[native verification adapter](p2-verification.md) provides owner-driven checks
+and current-evidence completion. Model prose and a process
 exit code alone do not certify completion. A paused stale-call sequence requires
 fresh owner setup; transparent same-owner recovery is subsequent work.
 

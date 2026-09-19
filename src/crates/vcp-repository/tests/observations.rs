@@ -28,6 +28,37 @@ fn root(path: &Path) -> Root {
     )
     .unwrap()
 }
+#[test]
+fn streaming_native_versions_pin_large_executables_without_source_capture() {
+    use std::io::Write;
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().canonicalize().unwrap();
+    let root = root(&path);
+    let file = path.join("large.exe");
+    let mut output = fs::File::create(&file).unwrap();
+    // A bounded public synthetic executable-shaped input above the source cap.
+    output.set_len(65 * 1024 * 1024).unwrap();
+    output.write_all(b"synthetic-version-fixture").unwrap();
+    drop(output);
+    assert!(root.read(Path::new("large.exe"), 64 * 1024 * 1024).is_err());
+    let version = root
+        .version(Path::new("large.exe"), 256 * 1024 * 1024)
+        .unwrap();
+    assert_eq!(version.bytes.get(), 65 * 1024 * 1024);
+    let held = root.pin_version(&version).unwrap();
+    assert!(fs::write(&file, b"changed").is_err());
+    drop(held);
+    fs::write(&file, b"changed").unwrap();
+    assert!(root.pin_version(&version).is_err());
+    assert!(root.version(Path::new("large.exe"), 0).is_err());
+    assert!(root
+        .version(Path::new("large.exe"), 256 * 1024 * 1024 + 1)
+        .is_err());
+    let mut unavailable = std::io::Cursor::new(b"digest boundary");
+    let (digest, length) = vcp_protocol::digest_reader(&mut unavailable).unwrap();
+    assert_eq!(digest, vcp_protocol::digest_bytes(b"digest boundary"));
+    assert_eq!(length, 15);
+}
 fn write(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) {
     let path = path.as_ref();
     fs::create_dir_all(path.parent().unwrap()).unwrap();

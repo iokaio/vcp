@@ -32,6 +32,114 @@ fn identity() -> Identity {
         policy: PolicyRevision::ZERO,
     }
 }
+#[test]
+fn verification_discovers_real_targets_and_rejects_shell_hooks_and_wrong_projects() {
+    use vcp_tools::verification::*;
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().canonicalize().unwrap();
+    let root = root(&path);
+    fs::create_dir(path.join("project")).unwrap();
+    fs::write(
+        path.join("project/acceptance.cjs"),
+        b"// synthetic target\n",
+    )
+    .unwrap();
+    let requirement = Requirement {
+        manifest: "project/package.json".into(),
+        runner: Runner::Node,
+        profile: "node".into(),
+        expected_tests: vec!["acceptance".into()],
+        rationale: "explicit expected project target".into(),
+    };
+    let observe = || {
+        let scan = root
+            .discover(&vcp_repository::discovery::Limits::default())
+            .unwrap();
+        let manifest = vcp_repository::observation::Manifest {
+            version: 1,
+            identity: root.identity.clone(),
+            git: None,
+            files: scan.sources.iter().map(|s| s.version.clone()).collect(),
+            ignore_dependencies: scan.ignore_dependencies,
+            exclusions: scan.exclusions,
+            bounded_scan_complete: scan.complete,
+        };
+        vcp_repository::observation::Observation {
+            digest: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&manifest).unwrap()),
+            manifest,
+            sources: scan.sources,
+            git: None,
+        }
+    };
+    for (script, valid) in [
+        ("node --test acceptance.cjs", true),
+        ("node --test", false),
+        ("node --test missing.cjs", false),
+        ("node --test ../acceptance.cjs", false),
+        ("node --test acceptance.cjs && echo success", false),
+        ("node --test acceptance.cjs acceptance.cjs", false),
+        ("node --test *.cjs", false),
+    ] {
+        fs::write(
+            path.join("project/package.json"),
+            serde_json::to_vec(&serde_json::json!({"scripts":{"test":script}})).unwrap(),
+        )
+        .unwrap();
+        let plans = discover(&observe(), std::slice::from_ref(&requirement)).unwrap();
+        assert_eq!(plans[0].not_run.is_none(), valid, "{script}");
+        assert_eq!(plans[0].request.directory, "project");
+    }
+    fs::write(
+        path.join("project/package.json"),
+        br#"{"scripts":{"test":"node --test acceptance.cjs","pretest":"echo setup"}}"#,
+    )
+    .unwrap();
+    assert!(
+        discover(&observe(), std::slice::from_ref(&requirement)).unwrap()[0]
+            .not_run
+            .as_ref()
+            .unwrap()
+            .contains("hooks")
+    );
+    fs::remove_file(path.join("project/package.json")).unwrap();
+    assert!(
+        discover(&observe(), std::slice::from_ref(&requirement)).unwrap()[0]
+            .not_run
+            .is_some()
+    );
+    let mut incomplete = observe();
+    incomplete.manifest.bounded_scan_complete = false;
+    assert!(
+        discover(&incomplete, std::slice::from_ref(&requirement)).unwrap()[0]
+            .not_run
+            .as_ref()
+            .unwrap()
+            .contains("incomplete")
+    );
+    fs::write(
+        path.join("project/Cargo.toml"),
+        b"[package]\nname='synthetic'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    let cargo = Requirement {
+        manifest: "project/Cargo.toml".into(),
+        runner: Runner::Cargo,
+        profile: "cargo".into(),
+        ..requirement
+    };
+    let plans = discover(&observe(), &[cargo]).unwrap();
+    assert!(plans[0].not_run.is_none());
+    assert_eq!(
+        &plans[0].request.arguments[..5],
+        [
+            "test",
+            "--locked",
+            "--offline",
+            "--manifest-path",
+            "Cargo.toml"
+        ]
+    );
+}
 fn prepare_at(root: &Root, request: Request) -> vcp_tools::Result<Prepared> {
     prepare(
         root.clone(),

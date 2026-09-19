@@ -246,11 +246,36 @@ impl Root {
         if expected.root != self.identity.root || expected.binding != self.identity.binding {
             return Err(Error::Stale);
         }
-        let observed = self.read(Path::new(&expected.path), expected.bytes.get().max(1))?;
-        if observed.version != *expected {
+        let observed = self.version(Path::new(&expected.path), expected.bytes.get().max(1))?;
+        if observed != *expected {
             return Err(Error::Stale);
         }
         Ok(())
+    }
+    /// Streaming identity for bounded native executables. Source capture retains
+    /// its separate 64 MiB ceiling; executable bytes never become context text.
+    pub fn version(&self, path: &Path, limit: u64) -> Result<FileVersion> {
+        if limit == 0 || limit > 256 * 1024 * 1024 {
+            return Err(Error::Limit("version bytes"));
+        }
+        let normalized = relative(path)?;
+        let held = self.hold(Some(path), false)?;
+        let expected = held.file.metadata()?.len();
+        if expected > limit {
+            return Err(Error::Limit("version bytes"));
+        }
+        let (sha256, length) = vcp_protocol::digest_reader((&held.file).take(limit + 1))?;
+        if length != expected || length > limit {
+            return Err(Error::Stale);
+        }
+        Ok(FileVersion {
+            root: self.identity.root.clone(),
+            binding: self.identity.binding,
+            path: normalized,
+            native_identity: held.native_identity.clone(),
+            sha256,
+            bytes: ByteCount::new(length),
+        })
     }
     /// Keep native deny-write/delete sharing and ancestor guards alive while
     /// verifying executable/source bytes. The caller retains this guard across

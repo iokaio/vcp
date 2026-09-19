@@ -7,6 +7,8 @@ mod execution;
 mod provider;
 #[cfg(windows)]
 mod tools;
+#[cfg(windows)]
+mod verification;
 use super::{Config, ThreadBinding};
 use std::{
     collections::HashMap,
@@ -140,6 +142,8 @@ pub struct Context {
     coding: HashMap<TaskId, coding::Loop>,
     #[cfg(windows)]
     process_profiles: HashMap<String, vcp_tools::process::Profile>,
+    #[cfg(windows)]
+    verification: HashMap<TaskId, verification::Setup>,
 }
 fn now() -> Timestamp {
     Timestamp::new(
@@ -222,6 +226,8 @@ impl Context {
             coding: HashMap::new(),
             #[cfg(windows)]
             process_profiles: HashMap::new(),
+            #[cfg(windows)]
+            verification: HashMap::new(),
         };
         if context.engine.store().state().records.is_empty() {
             context.command(

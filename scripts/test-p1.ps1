@@ -31,7 +31,9 @@ try{
     if(-not $vsRoot){$record.status='not_run';$record.exit_code=3;throw 'Native Visual C++ x64 tools missing'}
     $env:PATH=(Split-Path -Parent $vswhere)+';'+$env:PATH
     & (Join-Path $vsRoot 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation|Out-Null
-    $env:RUST_MIN_STACK='16777216';$env:CODEX_TEST_ENVIRONMENT='local';$env:VCP_TEST_GIT=(Get-Command git -CommandType Application).Source;$env:CARGO_TARGET_DIR=$paths.target
+    $env:RUST_MIN_STACK='16777216';$env:CODEX_TEST_ENVIRONMENT='local';$env:VCP_TEST_GIT=(Get-Command git -CommandType Application).Source;$env:VCP_TEST_NODE=(Get-Command node -CommandType Application).Source;$env:CARGO_TARGET_DIR=$paths.target
+    $record.node=& $env:VCP_TEST_NODE --version
+    $record.node_sha256=(Get-FileHash -LiteralPath $env:VCP_TEST_NODE).Hash.ToLowerInvariant()
     $record.msvc=$env:VCToolsVersion;$record.rustc=& rustc '+1.98.0' --version
     $record.platform=[Runtime.InteropServices.RuntimeInformation]::OSDescription
     $volume=Get-Volume -DriveLetter ([IO.Path]::GetPathRoot($repository).Substring(0,1))
@@ -50,7 +52,7 @@ try{
         Stage 'contracts' 'cargo' ($arguments+@('--','--test-threads=1'))
         $tests=Get-Content -LiteralPath (Join-Path $directory 'contracts.log') -Raw
         $rows=[regex]::Matches($tests,'(?m)^test ([^\r\n]+) \.\.\. ok\r?$')
-        if($rows.Count -ne 80){throw "Expected all 80 foundation/accounting/history/retained contracts; observed $($rows.Count)"}
+        if($rows.Count -ne 83){throw "Expected all 83 foundation/accounting/history/retained contracts; observed $($rows.Count)"}
         $record.tests=@($rows|ForEach-Object{$_.Groups[1].Value})
     }finally{Pop-Location}
     foreach($row in $record.inputs){if((Get-FileHash -LiteralPath (Join-Path $repository $row.path)).Hash.ToLowerInvariant() -ne $row.sha256){throw 'Source changed during qualification; rerun with stable inputs'}}

@@ -11,6 +11,8 @@ pub mod openrouter;
 mod process;
 #[cfg(windows)]
 mod tools;
+#[cfg(windows)]
+pub mod verification;
 mod worker;
 use crate::{Lifecycle, OwnerLease};
 pub use authority::AuthorityChange;
