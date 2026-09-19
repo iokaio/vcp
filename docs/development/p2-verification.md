@@ -64,7 +64,7 @@ Unchanged analysis requires explicit complete, same-task canonical citations.
 Changes outside every configured project block completion.
 
 `complete_verified` requires quiescent retained work, the current owner's opaque
-verification candidate, unchanged task/authority/accounting revisions and fresh
+verification candidate, unchanged task/authority/effect revisions and fresh
 native sources. It pins existing selected files against write/delete, checks
 directory membership and dependency probes again, revalidates executable pins,
 and confirms current access to every evidence artifact before the canonical
@@ -73,6 +73,9 @@ bypass this gate. Canonical outstanding children, effects, issues and failing or
 missing required checks still block completion.
 The commit fence checks current effects across the workspace again, including
 effects added by a terminal child after the root's verification was recorded.
+The [retained verification integration](p2-loop-verification.md) additionally
+records a new immutable completion candidate when only the final accounted model
+response changes cost. Current quantitative ledger fields remain visible.
 
 ## Qualification and remaining scope
 
@@ -94,8 +97,9 @@ Before/after hashes detect changed observations, not a transient edit restored
 between observations. Existing files are pinned through completion, but Windows
 does not provide an atomic filesystem-plus-canonical-store transaction for new
 directory entries. Those acceptance limits remain part of P2-06 work. The model
-tool wrapper and automatic end-of-turn completion integration also remain; a
-later accounting change currently requires fresh verification.
+tool wrapper and owning-driver completion API are described in the
+[retained integration](p2-loop-verification.md). The installed CLI's automatic
+end-of-turn control flow remains outstanding.
 
 The implementation lives in `src/crates/vcp-tools/src/verification.rs`,
 `src/crates/vcp-lifecycle/src/foundation/verification.rs` and its canonical worker module.

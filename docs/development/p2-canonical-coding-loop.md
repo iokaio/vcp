@@ -1,7 +1,7 @@
 # Canonical coding through the retained loop
 
 P2-01 and P2-05 remain in progress. `CanonicalHost` now supplies registered
-`vcp_read`, `vcp_list`, `vcp_search`, `vcp_patch` and `vcp_exec` wrappers to the
+`vcp_read`, `vcp_list`, `vcp_search`, `vcp_patch`, `vcp_exec` and `vcp_verify` wrappers to the
 retained Codex scheduler. Each actual model request assembles fresh canonical
 context, passes the OpenRouter codec and shared accounting, and captures its
 exact manifest/body. This is an internal native host milestone; the installable
@@ -68,7 +68,8 @@ Full provider bytes remain in history; this increment does not implement semanti
 selection of assistant prose, compaction, retry orchestration, ongoing terminal
 interaction, or automatic verification-based task completion. The separate
 [native verification adapter](p2-verification.md) provides owner-driven checks
-and current-evidence completion. Model prose and a process
+and current-evidence completion. Its [retained tool integration](p2-loop-verification.md)
+adds isolated `vcp_verify` calls and final-cost evidence. Model prose and a process
 exit code alone do not certify completion. A paused stale-call sequence requires
 fresh owner setup; transparent same-owner recovery is subsequent work.
 

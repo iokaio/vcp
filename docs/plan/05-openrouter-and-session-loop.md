@@ -140,6 +140,10 @@ Tests in `src/tests/end-to-end/coding_loop/` drive a deterministic read/change/t
 
 ## P2-06 — Verification and honest completion
 
+Current [retained integration](../development/p2-loop-verification.md) connects
+owner-configured checks to `vcp_verify` and final-cost completion evidence. The
+remaining contracts below continue to define task completion.
+
 Discover project checks from real configuration/instructions, bind each to the tested workspace fingerprint and record passed/failed/not-run. Relevant changes invalidate old results. Explanatory analysis can finish with cited evidence; edited code needs proportionate checks and explicit limitations.
 
 Completion is a controller decision supported by the current diff, applicable checks, outstanding issues and known/uncertain spend. A model saying “done,” a successful child branch or a zero exit code for an unrelated check is insufficient. Preserve failed checks and partial artifacts when the task fails or blocks.

@@ -20,6 +20,9 @@ mod authority_stream;
 #[path = "support/coding.rs"]
 mod coding;
 #[cfg(windows)]
+#[path = "support/coding_verification.rs"]
+mod coding_verification;
+#[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;
 #[cfg(windows)]
