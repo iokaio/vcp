@@ -4,9 +4,11 @@ P2-03 is in progress. The original `vcp-policy` package evaluates immutable
 operations; the canonical engine records policies, grants and user decisions in
 the existing store. These APIs are trusted host/library interfaces. A serialized
 operation, an `Allow` decision or a grant record is not an executable capability.
-The native file/process brokers now enforce current decisions. Full retained
-loop acceptance remains before P2-03 completion. Retained model-requested tools
-remain denied by the canonical host pending their registered wrappers.
+The native file/process brokers and registered retained coding wrappers enforce
+current decisions. The [authority acceptance assessment](../evaluations/p2-policy-completion.md)
+records completed P2-03 contracts and native observations. Model-requested
+operations use prepared wrappers rather than obtaining
+execution authority from their names or serialized arguments.
 The [coordination adapter](p2-authority-coordination.md) now fences and drains
 active work before applying authority changes; idle configuration remains usable.
 The [host tool ceiling adapter](p2-host-tool-authority.md) supplies validated,
@@ -93,7 +95,8 @@ Rebinding invalidates host-specific grants rather than transferring authority.
 
 The retained host follows its own acknowledged authority epoch, reads current
 tool-policy revisions for questions/context seals, and keeps budget admission
-separate. Full retained-loop authority acceptance remains a subsequent gate.
+separate. The retained coding and verification wrappers apply the same current
+identity and denial checks before native dispatch.
 
 ## Qualification
 
