@@ -535,6 +535,10 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
         host.configure_process_profile(profile("fixture", &executable, true))
             .unwrap();
         policy.revision = PolicyRevision::new(4);
+        let stale = host
+            .prepare_process(id, request("verify", &workspace))
+            .unwrap();
+        let stale_effect = stale.effect().clone();
         policy.denials.push(Denial {
             id: "executable-read-denial".into(),
             origin: RuleOrigin::User,
@@ -556,6 +560,23 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
         // must be reported first, before the executable is opened or hashed.
         let hidden = tools.join("fixture-hidden.exe");
         fs::rename(&executable, &hidden).unwrap();
+        let error = host.dispatch_process(stale).err().unwrap();
+        assert!(
+            error.contains("authority rejected before native revalidation"),
+            "{error}"
+        );
+        let state = host.snapshot().unwrap();
+        let cancelled: vcp_domain::effect::Effect = state
+            .record(
+                vcp_store::contract::Collection::Effect,
+                stale_effect.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(cancelled.state, vcp_domain::effect::EffectState::Cancelled);
+        assert!(cancelled.execution.is_none());
         let denied = host.prepare_process(id, request("verify", &workspace));
         assert!(denied
             .err()
@@ -699,6 +720,15 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
             // independently of the caller subsequently collecting process results.
             assert_eq!(process.active_process_count().unwrap(), 0);
             let result = process.wait().await.unwrap();
+            let observed: serde_json::Value = serde_json::from_slice(
+                &host.read_artifact(result.evidence.spec.id.clone()).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(observed["observed_workspace"]["complete"], false);
+            assert!(observed["observed_workspace"]["reason"]
+                .as_str()
+                .unwrap()
+                .contains("current authority"));
             assert_ne!(result.exit_code, Some(0));
             use std::os::windows::fs::OpenOptionsExt;
             assert!(fs::OpenOptions::new()

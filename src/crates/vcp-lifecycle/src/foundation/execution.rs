@@ -65,8 +65,14 @@ impl CanonicalHost {
         let (prepared, controller, owner, effect, plan, decision, question) =
             self.worker.run(move |context| {
                 let prepared = context.prepare_process(&scoped, request)?;
-                let _pins = prepared.pin()?;
-                let decision = context.process_decision(&scoped, &prepared)?;
+                let mut decision = context.process_decision(&scoped, &prepared)?;
+                let _pins = if matches!(decision, vcp_policy::Decision::Deny { .. }) {
+                    None
+                } else {
+                    let pins = prepared.pin()?;
+                    decision = context.process_decision(&scoped, &prepared)?;
+                    Some(pins)
+                };
                 let (effect, plan, decision, question) = context.propose_authority(
                     &scoped,
                     prepared.authority(),
@@ -116,6 +122,7 @@ impl CanonicalHost {
             tokio::runtime::Handle::try_current().map_err(|_| "live process runtime required")?;
         let started=self.worker.run(move|context|{
             if context.engine.controller()!=&controller || context.engine.owner_epoch()!=owner{return Err("prepared process belongs to another owner".into());}
+            if !matches!(context.process_preflight(&binding,&prepared)?,vcp_policy::Decision::Allow{..}){return Err("current process authority rejected before native revalidation".into());}
             let pins=Arc::new(prepared.pin()?);
             if !matches!(context.process_decision(&binding,&prepared)?,vcp_policy::Decision::Allow{..}){return Err("current process authority rejected".into());}
             context.tool_advance(&binding,&effect,EffectState::Authorized,None,vec![plan.clone()],"current process policy and native identities accepted")?;
@@ -243,8 +250,15 @@ impl PreparedProcess {
         let reason = observed.stop_reason.clone();
         let total = (observed.stdout.total, observed.stderr.total);
         let evidence=self.host.worker.run_cleanup(move|context|{
-            let discovery=prepared.root().discover(&vcp_repository::discovery::Limits::default());
-            let sources=match discovery{Ok(scan)=>serde_json::json!({"complete":scan.complete,"sources":scan.sources.iter().map(|s|&s.version).collect::<Vec<_>>(),"exclusions":scan.exclusions}),Err(e)=>serde_json::json!({"complete":false,"error":e.to_string()})};
+            // Drained output is already observed work. A new filesystem scan
+            // needs current read authority even while recording a late outcome.
+            let sources=match context.process_decision(&binding,&prepared) {
+                Ok(vcp_policy::Decision::Allow{..})=>match prepared.root().discover(&vcp_repository::discovery::Limits::default()) {
+                    Ok(scan)=>serde_json::json!({"complete":scan.complete,"sources":scan.sources.iter().map(|s|&s.version).collect::<Vec<_>>(),"exclusions":scan.exclusions}),
+                    Err(e)=>serde_json::json!({"complete":false,"error":e.to_string()})
+                },
+                _=>serde_json::json!({"complete":false,"reason":"current authority does not permit a fresh workspace observation"})
+            };
             let evidence=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"schema_version":1,"effect":effect,"execution":execution,"exit_code":exit,"stop_reason":reason,"stdout_bytes":total.0,"stderr_bytes":total.1,"output_complete":!partial,"owned_processes_remaining":0,"observed_workspace":sources,"external_effects":"opaque; reduced isolation does not inventory external filesystem/network effects"}))?,"vcp-process-outcome-v1")?;
             let mut receipts=vec![plan,evidence.spec.id.clone()];receipts.extend(output);
             let current:Effect=context.engine.store().state().record(Collection::Effect,effect.as_str(),&binding.scope.workspace)?.decode()?;

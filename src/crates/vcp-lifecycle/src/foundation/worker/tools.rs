@@ -55,17 +55,7 @@ impl Context {
         if workspace.trust != Trust::Trusted {
             return Err("workspace trust is required before tool preparation reads".into());
         }
-        let root = RootId::parse(workspace.id.as_str())?;
-        // Preparation also observes source bytes. A read-denied root cannot
-        // become readable by asking to prepare a write. Path-specific read
-        // denials conservatively hold preparation until a narrower root exists.
-        if policy.denials.iter().any(|r| {
-            (r.effects.is_empty() || r.effects.contains(&EffectClass::Read))
-                && (r.roots.is_empty() || r.roots.contains(&root))
-                && r.tool.as_deref().is_none_or(|name| name == tool)
-        }) {
-            return Err("trusted read denial prevents tool preparation".into());
-        }
+        self.tool_read_access(&RootId::parse(workspace.id.as_str())?, tool)?;
         Ok(vcp_tools::Identity {
             scope: binding.scope.clone(),
             actor: self.config.actor.clone(),
@@ -76,11 +66,55 @@ impl Context {
             policy: policy.revision,
         })
     }
+    pub fn tool_read_access(&self, root: &RootId, tool: &str) -> Result<()> {
+        let policy =
+            vcp_engine::policy::current(self.engine.store().state(), &self.config.workspace)?;
+        // Preparation also observes source bytes. A read-denied root cannot
+        // become readable by asking to prepare a write. Path-specific read
+        // denials conservatively hold preparation until a narrower root exists.
+        if self
+            .config
+            .host_tool_denials
+            .iter()
+            .chain(policy.denials.iter())
+            .any(|r| {
+                (r.effects.is_empty() || r.effects.contains(&EffectClass::Read))
+                    && (r.roots.is_empty() || r.roots.contains(root))
+                    && r.tool.as_deref().is_none_or(|name| name == tool)
+            })
+        {
+            return Err("trusted read denial prevents tool preparation".into());
+        }
+        Ok(())
+    }
+    /// Canonical-only admission before native reads. A successful preflight is
+    /// never sufficient for dispatch: the broker still revalidates native state.
+    pub fn tool_preflight(
+        &self,
+        binding: &ThreadBinding,
+        prepared: &vcp_tools::Prepared,
+    ) -> Result<vcp_policy::Decision> {
+        let decision = self.authority_decision(
+            binding,
+            prepared.authority(),
+            &BTreeSet::from([RootId::parse(self.config.workspace.as_str())?]),
+            true,
+            &BTreeSet::from([Isolation::PathContainment, Isolation::OutputLimit]),
+        )?;
+        if !matches!(decision, vcp_policy::Decision::Deny { .. }) {
+            self.tool_identity(binding, &prepared.authority().operation().tool)?;
+        }
+        Ok(decision)
+    }
     pub fn tool_decision(
         &self,
         binding: &ThreadBinding,
         prepared: &vcp_tools::Prepared,
     ) -> Result<vcp_policy::Decision> {
+        let preflight = self.tool_preflight(binding, prepared)?;
+        if matches!(preflight, vcp_policy::Decision::Deny { .. }) {
+            return Ok(preflight);
+        }
         let root = self.tool_root()?;
         self.authority_decision(
             binding,
@@ -147,7 +181,7 @@ impl Context {
                 resources_current,
                 registered_roots: roots,
                 isolation,
-                host_denials: &[],
+                host_denials: &self.config.host_tool_denials,
             },
         )?)
     }
@@ -191,8 +225,11 @@ impl Context {
         Option<ApprovalId>,
     )> {
         self.can_start(binding)?;
-        prepared.revalidate()?;
-        let decision = self.tool_decision(binding, prepared)?;
+        let mut decision = self.tool_decision(binding, prepared)?;
+        if !matches!(decision, vcp_policy::Decision::Deny { .. }) {
+            prepared.revalidate()?;
+            decision = self.tool_decision(binding, prepared)?;
+        }
         self.propose_authority(
             binding,
             prepared.authority(),
@@ -226,8 +263,14 @@ impl Context {
         let plan = self.capture(
             &binding.scope,
             Channel::Evidence,
-            evidence,
-            "vcp-prepared-tool-v1",
+            &canonical_bytes(&serde_json::json!({
+                "schema": "vcp-prepared-tool/2",
+                "controller": self.engine.controller(),
+                "owner": self.engine.owner_epoch(),
+                "host_tool_denials": self.config.host_tool_denials,
+                "prepared": serde_json::from_slice::<serde_json::Value>(evidence)?,
+            }))?,
+            "vcp-prepared-tool-v2",
         )?;
         let effect = ToolRunId::new();
         self.command(
@@ -244,7 +287,7 @@ impl Context {
             EffectState::Validated,
             None,
             vec![plan.spec.id.clone()],
-            "registered tool validated exact arguments and native sources",
+            "registered tool recorded prepared identity and current policy decision",
         )?;
         let mut question = None;
         match &decision {

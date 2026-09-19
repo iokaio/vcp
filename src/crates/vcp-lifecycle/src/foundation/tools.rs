@@ -88,6 +88,12 @@ impl CanonicalHost {
             if context.engine.controller() != &controller || context.engine.owner_epoch() != owner {
                 return Err("prepared ticket belongs to another owner".into());
             }
+            if !matches!(
+                context.tool_preflight(&binding, &prepared)?,
+                vcp_policy::Decision::Allow { .. }
+            ) {
+                return Err("current tool authority rejected before native revalidation".into());
+            }
             prepared.revalidate()?;
             match context.tool_decision(&binding, &prepared)? {
                 vcp_policy::Decision::Allow { origin, .. } => {
