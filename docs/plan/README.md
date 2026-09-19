@@ -32,8 +32,9 @@ identifies the original P1 starting points. All six P1 tasks now have
 [canonical foundation acceptance](../evaluations/p1-completion.md): typed
 commands, full capture, both stores, shared accounting and rebuilt history through
 the [retained host](../development/p1-retained-host.md). The common-compiler CLI
-build and retained regressions passed. P2 provider/policy/context integration,
-usable product interfaces and release acceptance remain planned.
+build and retained regressions passed. P2 provider/policy/context integration and
+the [canonical coding loop](../development/p2-canonical-coding-loop.md) are in
+progress. Usable product interfaces and release acceptance remain planned.
 Use `docs/` for documentation, `src/` for source and test assets, and `scripts/`
 for build/test automation. Preserve useful Codex modules instead of creating
 empty replacement crates merely to match a diagram. Follow

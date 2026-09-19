@@ -5,7 +5,7 @@ use vcp_models::{catalog::Snapshot, request, stream};
 use vcp_repository::Root;
 
 pub(super) struct Provider {
-    snapshot: Snapshot,
+    pub(super) snapshot: Snapshot,
     prepared: HashMap<TaskId, Ready>,
     pub streams: HashMap<AttemptId, stream::Stream>,
     pub timeout: Duration,
@@ -29,6 +29,10 @@ impl Context {
     ) -> Result<()> {
         if !self.owner_alive || self.authority_pending {
             return Err("provider configuration waits for current authority owner".into());
+        }
+        #[cfg(windows)]
+        if !self.coding.is_empty() {
+            return Err("provider refresh requires fresh coding owner setup".into());
         }
         if timeout.is_zero() || timeout > Duration::from_secs(120) {
             return Err("provider deadline must be within 120 seconds".into());
@@ -235,6 +239,18 @@ impl Context {
         binding: &ThreadBinding,
         retained: &serde_json::Value,
     ) -> Result<Prepared> {
+        #[cfg(windows)]
+        if let Err(error) = self.check_coding_bounds() {
+            self.pause_root("canonical root coding limit requires attention")?;
+            return Err(error);
+        }
+        #[cfg(windows)]
+        if self.coding.contains_key(&binding.scope.task) {
+            if let Err(error) = self.assemble_coding_context(binding) {
+                self.pause_root("canonical coding context or request limit requires attention")?;
+                return Err(error);
+            }
+        }
         let ready = self
             .provider
             .as_mut()
@@ -294,7 +310,7 @@ impl Context {
             Some(binding.scope.task.clone()),
             Revision::ZERO,
         )?;
-        self.capture(
+        let normalized_capture = self.capture(
             &binding.scope,
             Channel::Evidence,
             &canonical_bytes(&normalized)?,
@@ -320,7 +336,7 @@ impl Context {
                 },
                 amount,
                 final_usage: true,
-                raw: descriptor.spec.id,
+                raw: descriptor.spec.id.clone(),
                 correction: None,
             },
             &actor,
@@ -331,6 +347,15 @@ impl Context {
             .is_some_and(|model| model != &self.config.price.model)
         {
             self.pause_root("observed served model differs from admitted model pin")?;
+        }
+        #[cfg(windows)]
+        if self.coding.contains_key(&binding.scope.task) {
+            self.complete_coding_response(
+                binding,
+                attempt,
+                normalized,
+                vec![descriptor.spec.id, normalized_capture.spec.id],
+            )?;
         }
         Ok(())
     }

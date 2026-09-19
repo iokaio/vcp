@@ -17,6 +17,9 @@ use vcp_lifecycle::{
 #[path = "support/authority_stream.rs"]
 mod authority_stream;
 #[cfg(windows)]
+#[path = "support/coding.rs"]
+mod coding;
+#[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;
 #[cfg(windows)]

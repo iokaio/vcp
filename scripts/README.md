@@ -2,7 +2,7 @@
 
 `test-context.ps1` runs 22 native repository/context and foundational type contracts
 with bounded Git observations and real artifact stores. See [P2 context](../docs/development/p2-context.md).
-`test-provider.ps1` runs 16 provider/context contracts and the retained absolute
+`test-provider.ps1` runs 17 provider/context contracts and the retained absolute
 deadline regression; [the provider guide](../docs/development/p2-provider.md)
 distinguishes scripted qualification from live compatibility.
 `test-policy.ps1` runs 47 authority/foundation contracts with native crash

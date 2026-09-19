@@ -63,8 +63,9 @@ Hosted requests use the qualified HTTP path. Hidden transport retries are disabl
 an upstream retry must enter admission again. Compaction is attributed from trusted
 retained metadata. Helpers and children retain explicit task/root bindings and the
 same ledger. Remote memory inference remains denied pending its governed local
-adapter. Model-requested tools require a later prepared broker; the private native
-operation API already requires host authority and records the exact operation
+adapter. The subsequent [P2 coding host](p2-canonical-coding-loop.md) adds prepared
+model-requested tools. The private native operation API also requires host
+authority and records the exact operation
 digest. A child fixture explicitly carries the same permitted tool exposure as
 its parent; default upstream tools cannot grant themselves VCP authority.
 
