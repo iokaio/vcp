@@ -1,3 +1,4 @@
+// VCP modification: host-owned tools wait for a qualified response boundary.
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -334,11 +335,20 @@ pub(crate) async fn handle_output_item_done(
                 .await;
 
             let cancellation_token = ctx.cancellation_token.child_token();
-            let tool_future: InFlightFuture<'static> = Box::pin(
-                ctx.tool_runtime
-                    .clone()
-                    .handle_tool_call(call, cancellation_token),
-            );
+            let runtime = ctx.tool_runtime.clone();
+            // Constructing the retained tool future starts a Tokio task. For
+            // strict hosts, defer the constructor itself until response drain.
+            let tool_future: InFlightFuture<'static> = if ctx
+                .sess
+                .services
+                .extensions
+                .work_admission()
+                .is_some_and(|host| host.requires_completed_response())
+            {
+                Box::pin(async move { runtime.handle_tool_call(call, cancellation_token).await })
+            } else {
+                Box::pin(runtime.handle_tool_call(call, cancellation_token))
+            };
 
             output.needs_follow_up = true;
             output.tool_future = Some(tool_future);

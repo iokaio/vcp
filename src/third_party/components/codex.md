@@ -5,6 +5,16 @@ Origin: OpenAI Codex, exact revision
 Owner: P0-07 (selection/build) and P0-08 (integration/effect replacement).
 State: imported with bounded P0 integration; not a production VCP runtime.
 
+P2-05 response-boundary adaptation: the same selected Apache-2.0 source in
+`codex-rs/ext/extension-api/src/work_admission.rs`,
+`codex-rs/core/src/stream_events_utils.rs` and
+`codex-rs/core/src/session/turn.rs` gains an explicit trusted-host option to
+defer tool construction until a successful response boundary. Failed streams
+discard pending calls for that option. Existing default scheduling is retained.
+No additional upstream paths or external dependencies are imported. Patch 0020
+and [native qualification](../../../docs/evaluations/p2-response-tool-boundary.md)
+record the implementation and independent reconstruction.
+
 [Selection](codex-selection.json), [result inventory](codex-files.json),
 [manifest](../upstreams.toml), [build/reconstruction procedure](../../../docs/development/codex-source.md)
 and [original native baseline](../../../docs/evaluations/p0-07-native-candidates.md)

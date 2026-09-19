@@ -94,6 +94,15 @@ already include these changes; normal builds never apply patches.
     patch/line-ending machinery and registers original native tool dependencies.
     Existing caller semantics and external pins are unchanged. See [the native file guide](../../../../docs/development/p2-tools.md).
 
+18. `0018-p2-owned-pty.patch` adds explicit owned-job ConPTY launch and an
+    original wrapper around the retained terminal primitives. WezTerm-derived
+    notices remain. See [owned terminals](../../../../docs/development/p2-pty.md).
+19. `0019-p2-process-count.patch` adds a trusted active-process ceiling to owned
+    Windows jobs. See [process limits](../../../../docs/development/p2-process.md#native-launch-and-limits).
+20. `0020-p2-response-tool-boundary.patch` adds opt-in completed-response gating
+    before retained tool construction. Unsuccessful streams discard deferred
+    calls; ordinary scheduling remains unchanged without this host requirement.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

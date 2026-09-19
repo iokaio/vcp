@@ -92,3 +92,7 @@ are recorded modifications; see THIRD_PARTY_NOTICES.md and the Codex component.
 VCP's process-count adaptation adds bounded owned-job creation to the selected
 Codex Windows Job Object utility. The ordered patch and result inventory retain
 the same upstream revision and license.
+
+VCP's response-boundary adaptation defers retained tool construction until a
+trusted host admits a completed response. Failed streams discard pending calls.
+The selected OpenAI Codex Apache-2.0 source and attribution remain unchanged.
