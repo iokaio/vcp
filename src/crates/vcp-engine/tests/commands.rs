@@ -16,6 +16,315 @@ fn access() -> Access {
 }
 
 #[tokio::test]
+async fn session_creation_and_fork_boundaries_are_durable_scoped_and_idempotent() {
+    use vcp_domain::artifact::{ArtifactSpec, Channel};
+    use vcp_store::artifact::ArtifactWriter;
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut engine = setup(temp.path(), backend).await;
+        let mut facts = HostFacts::inspect(Timestamp::new(100));
+        facts.may_execute = true;
+        let task = TaskId::new();
+        engine
+            .handle(
+                command(&engine, creation(&task), Some(task.clone()), Revision::ZERO),
+                &access(),
+                &facts,
+            )
+            .await
+            .unwrap();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    Command::Transition {
+                        next: TaskState::Running,
+                        reason: "fixture".into(),
+                        verification: None,
+                    },
+                    Some(task.clone()),
+                    Revision::ZERO,
+                ),
+                &access(),
+                &facts,
+            )
+            .await
+            .unwrap();
+        let mut writer = engine
+            .store()
+            .spool()
+            .create(ArtifactSpec {
+                id: ArtifactId::new(),
+                scope: Scope {
+                    workspace: access().workspace,
+                    session: access().session,
+                    task: task.clone(),
+                },
+                media_type: "text/plain".into(),
+                schema: "turn-trigger/1".into(),
+                source: "fixture".into(),
+                channel: Channel::Evidence,
+                retention: "history".into(),
+                omissions: vec![],
+            })
+            .unwrap();
+        writer.write_chunk(b"turn input").unwrap();
+        let descriptor = writer.finalize().unwrap();
+        let trigger = descriptor.spec.id.clone();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    Command::AttachArtifact { descriptor },
+                    Some(task.clone()),
+                    Revision::ZERO,
+                ),
+                &access(),
+                &facts,
+            )
+            .await
+            .unwrap();
+        let turn = TurnId::new();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    Command::StartTurn {
+                        id: turn.clone(),
+                        trigger,
+                    },
+                    Some(task.clone()),
+                    Revision::new(1),
+                ),
+                &access(),
+                &facts,
+            )
+            .await
+            .unwrap();
+        let fork = SessionId::new();
+        let request = command(
+            &engine,
+            Command::CreateSession {
+                id: fork.clone(),
+                fork_through: Some(turn.clone()),
+            },
+            None,
+            Revision::ZERO,
+        );
+        let watermark = engine.store().state().watermark;
+        assert!(engine
+            .handle(request.clone(), &access(), &facts)
+            .await
+            .is_err());
+        assert_eq!(engine.store().state().watermark, watermark);
+        for (revision, next) in [
+            TurnState::AssemblingContext,
+            TurnState::ReservingBudget,
+            TurnState::RequestingModel,
+            TurnState::ProcessingResponse,
+            TurnState::Verifying,
+            TurnState::Completed,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            engine
+                .handle(
+                    command(
+                        &engine,
+                        Command::AdvanceTurn {
+                            id: turn.clone(),
+                            next,
+                            reason: "observed fixture stage".into(),
+                        },
+                        Some(task.clone()),
+                        Revision::new(revision as u64),
+                    ),
+                    &access(),
+                    &facts,
+                )
+                .await
+                .unwrap();
+        }
+        let before = engine
+            .store()
+            .state()
+            .record(Collection::Task, task.as_str(), &access().workspace)
+            .unwrap()
+            .clone();
+        let receipt = engine
+            .handle(request.clone(), &access(), &facts)
+            .await
+            .unwrap();
+        assert_eq!(
+            engine
+                .handle(request.clone(), &access(), &facts)
+                .await
+                .unwrap(),
+            receipt
+        );
+        let session: Session = engine
+            .store()
+            .state()
+            .record(Collection::Session, fork.as_str(), &access().workspace)
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(session.fork_origin, Some(access().session));
+        assert_eq!(session.fork_through, Some(turn.clone()));
+        assert_eq!(
+            engine
+                .store()
+                .state()
+                .record(Collection::Task, task.as_str(), &access().workspace)
+                .unwrap(),
+            &before
+        );
+        let mut denied = access();
+        denied.write = false;
+        let fresh = command(
+            &engine,
+            Command::CreateSession {
+                id: SessionId::new(),
+                fork_through: None,
+            },
+            None,
+            Revision::ZERO,
+        );
+        assert!(engine.handle(fresh.clone(), &denied, &facts).await.is_err());
+        engine.handle(fresh, &access(), &facts).await.unwrap();
+        let completed: Turn = engine
+            .store()
+            .state()
+            .record(Collection::Turn, turn.as_str(), &access().workspace)
+            .unwrap()
+            .decode()
+            .unwrap();
+        let active = TurnId::new();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    Command::StartTurn {
+                        id: active.clone(),
+                        trigger: completed.trigger.clone(),
+                    },
+                    Some(task.clone()),
+                    Revision::new(1),
+                ),
+                &access(),
+                &facts,
+            )
+            .await
+            .unwrap();
+        let steer = command(
+            &engine,
+            Command::Steer {
+                objective: Objective {
+                    text: "A new explicit objective".into(),
+                    constraints: vec![],
+                    acceptance: vec![],
+                    source: EventId::new(),
+                    steering: SteeringRevision::new(1),
+                },
+            },
+            Some(task.clone()),
+            Revision::new(1),
+        );
+        engine.handle(steer, &access(), &facts).await.unwrap();
+        let superseded: Turn = engine
+            .store()
+            .state()
+            .record(Collection::Turn, active.as_str(), &access().workspace)
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(superseded.state, TurnState::Paused);
+        assert_eq!(superseded.steering, SteeringRevision::ZERO);
+        assert_eq!(
+            engine
+                .store()
+                .state()
+                .record(Collection::Turn, turn.as_str(), &access().workspace)
+                .unwrap()
+                .decode::<Turn>()
+                .unwrap(),
+            completed
+        );
+        engine.into_store().close().await.unwrap();
+        let mut reopened =
+            Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
+        assert_eq!(
+            reopened.handle(request, &access(), &facts).await.unwrap(),
+            receipt
+        );
+    }
+}
+
+#[tokio::test]
+async fn repeated_pause_is_durable_without_mutating_task_or_accepting_stale_input() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut engine = setup(temporary.path(), backend).await;
+        let id = TaskId::new();
+        let facts = HostFacts::inspect(Timestamp::new(100));
+        engine
+            .handle(
+                command(&engine, creation(&id), Some(id.clone()), Revision::ZERO),
+                &access(),
+                &facts,
+            )
+            .await
+            .unwrap();
+        let pause = Command::Transition {
+            next: TaskState::Paused,
+            reason: "explicit pause".into(),
+            verification: None,
+        };
+        let first = engine
+            .handle(
+                command(&engine, pause.clone(), Some(id.clone()), Revision::ZERO),
+                &access(),
+                &facts,
+            )
+            .await
+            .unwrap();
+        let state = engine
+            .store()
+            .state()
+            .record(Collection::Task, id.as_str(), &access().workspace)
+            .unwrap()
+            .clone();
+        let repeat = command(&engine, pause.clone(), Some(id.clone()), Revision::new(1));
+        let second = engine
+            .handle(repeat.clone(), &access(), &facts)
+            .await
+            .unwrap();
+        assert!(second.watermark > first.watermark);
+        assert_eq!(
+            engine
+                .store()
+                .state()
+                .record(Collection::Task, id.as_str(), &access().workspace)
+                .unwrap(),
+            &state
+        );
+        assert_eq!(
+            engine.handle(repeat, &access(), &facts).await.unwrap(),
+            second
+        );
+        assert!(engine
+            .handle(
+                command(&engine, pause, Some(id), Revision::ZERO),
+                &access(),
+                &facts
+            )
+            .await
+            .is_err());
+    }
+}
+
+#[tokio::test]
 async fn approval_is_bound_to_actor_operation_revision_expiry_and_current_steering() {
     let temporary = tempfile::tempdir().unwrap();
     let mut engine = setup(temporary.path(), BackendKind::Sqlite).await;

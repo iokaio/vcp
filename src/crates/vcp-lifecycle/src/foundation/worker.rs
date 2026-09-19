@@ -4,6 +4,7 @@ mod authority;
 mod coding;
 #[cfg(windows)]
 mod console;
+mod control;
 #[cfg(windows)]
 mod execution;
 mod provider;
@@ -299,19 +300,14 @@ impl Context {
                 .map(Record::decode)
                 .collect::<std::result::Result<_, _>>()?;
             for task in tasks {
-                if task.state == TaskState::Running {
-                    context.command(
-                        Command::Transition {
-                            next: TaskState::Paused,
-                            reason: "owning host reopened; deliberate resume required".into(),
-                            verification: None,
-                        },
-                        Some(task.scope.task),
-                        task.revision,
-                    )?;
+                if matches!(task.state, TaskState::Pending | TaskState::Running) {
+                    context
+                        .recovery_pause(task, "owning host reopened; deliberate resume required")?;
                 }
             }
         }
+        #[cfg(windows)]
+        context.stop_coding_turns("owner recovered canonical turn")?;
         Ok(context)
     }
     fn actor(&self) -> vcp_budget::Actor {
@@ -622,36 +618,7 @@ impl Context {
         }
         let scope = &binding.scope;
         let actor = self.actor();
-        if self
-            .engine
-            .store()
-            .state()
-            .record(
-                Collection::Ledger,
-                self.config.root_task.as_str(),
-                &self.config.workspace,
-            )
-            .is_err()
-        {
-            let root: Task = self
-                .engine
-                .store()
-                .state()
-                .record(
-                    Collection::Task,
-                    self.config.root_task.as_str(),
-                    &self.config.workspace,
-                )?
-                .decode()?;
-            self.runtime.block_on(vcp_budget::initialize(
-                self.engine.store_mut(),
-                root.scope,
-                self.config.cap.clone(),
-                self.config.protected,
-                None,
-                &actor,
-            ))?;
-        }
+        self.initialize_root_budget()?;
         let capture = (|| -> Result<ArtifactDescriptor> {
             let mut writer = self.engine.store().spool().create(self.spec(
                 scope,
@@ -724,12 +691,32 @@ impl Context {
             draw_protected: binding.role == RequestRole::Verification,
             now: actor.now,
         };
-        let attempt = self.runtime.block_on(vcp_budget::reserve_captured(
+        #[cfg(windows)]
+        self.coding_stage(
+            binding,
+            TurnState::ReservingBudget,
+            "reserving captured request budget",
+        )?;
+        let reservation = self.runtime.block_on(vcp_budget::reserve_captured(
             self.engine.store_mut(),
             input,
             descriptor,
             &actor,
-        ))?;
+        ));
+        let attempt = match reservation {
+            Ok(attempt) => attempt,
+            Err(error) => {
+                #[cfg(windows)]
+                if matches!(error, vcp_budget::Error::Exhausted(_)) {
+                    self.coding_stage(
+                        binding,
+                        TurnState::BudgetExhausted,
+                        "canonical budget admission denied",
+                    )?;
+                }
+                return Err(error.into());
+            }
+        };
         let response = self.engine.store().spool().create(self.spec(
             scope,
             Channel::Response,
@@ -751,6 +738,12 @@ impl Context {
                 return Err(error.into());
             }
         };
+        #[cfg(windows)]
+        self.coding_stage(
+            binding,
+            TurnState::RequestingModel,
+            "captured request reserved for model admission",
+        )?;
         if let Err(error) = self.runtime.block_on(vcp_budget::submit(
             self.engine.store_mut(),
             &attempt.id,
@@ -837,6 +830,44 @@ impl Context {
                 task.revision,
             )?;
         }
+        #[cfg(windows)]
+        self.stop_coding_turns(reason)?;
+        Ok(())
+    }
+    pub fn initialize_root_budget(&mut self) -> Result<()> {
+        if !self.owner_alive {
+            return Err("budget initialization requires live owner".into());
+        }
+        let state = self.engine.store().state();
+        if state
+            .record(
+                Collection::Ledger,
+                self.config.root_task.as_str(),
+                &self.config.workspace,
+            )
+            .is_ok()
+        {
+            return Ok(());
+        }
+        let root: Task = state
+            .record(
+                Collection::Task,
+                self.config.root_task.as_str(),
+                &self.config.workspace,
+            )?
+            .decode()?;
+        if root.scope.session != self.config.session || root.parent.is_some() {
+            return Err("root budget scope denied".into());
+        }
+        let actor = self.actor();
+        self.runtime.block_on(vcp_budget::initialize(
+            self.engine.store_mut(),
+            root.scope,
+            self.config.cap.clone(),
+            self.config.protected,
+            None,
+            &actor,
+        ))?;
         Ok(())
     }
     pub fn pause_all(&mut self, reason: &str) -> Result<()> {
@@ -851,19 +882,39 @@ impl Context {
             .map(Record::decode)
             .collect::<std::result::Result<_, _>>()?;
         for task in tasks {
-            if task.state == TaskState::Running {
-                self.command(
-                    Command::Transition {
-                        next: TaskState::Paused,
-                        reason: reason.into(),
-                        verification: None,
-                    },
-                    Some(task.scope.task),
-                    task.revision,
-                )?;
+            if matches!(task.state, TaskState::Pending | TaskState::Running) {
+                self.recovery_pause(task, reason)?;
             }
         }
+        #[cfg(windows)]
+        self.stop_coding_turns(reason)?;
         Ok(())
+    }
+    /// The exclusive store owner recovers every session, including one selected
+    /// before a crash. External command access remains bound to its session.
+    fn recovery_pause(&mut self, task: Task, reason: &str) -> Result<()> {
+        if task.scope.workspace != self.config.workspace {
+            return Err("recovery workspace denied".into());
+        }
+        let configured = std::mem::replace(&mut self.config.session, task.scope.session.clone());
+        let access = std::mem::replace(&mut self.access.session, task.scope.session.clone());
+        let result = (|| {
+            self.command(
+                Command::Transition {
+                    next: TaskState::Paused,
+                    reason: reason.into(),
+                    verification: None,
+                },
+                Some(task.scope.task),
+                task.revision,
+            )?;
+            #[cfg(windows)]
+            self.stop_coding_turns(reason)?;
+            Ok(())
+        })();
+        self.config.session = configured;
+        self.access.session = access;
+        result
     }
     pub fn open_output(&mut self, scope: &Scope, channel: Channel) -> Result<ArtifactId> {
         if !matches!(

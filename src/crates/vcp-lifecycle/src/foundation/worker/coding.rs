@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 mod continuity;
+mod fork;
 mod handoff;
 mod instructions;
+mod turns;
 use super::*;
 use crate::foundation::coding::CodingConfig;
 use codex_extension_api::{AllowedTools, ToolName};
@@ -15,6 +17,7 @@ use vcp_models::{
 };
 
 pub(super) struct Loop {
+    turn: Option<TurnId>,
     config: CodingConfig,
     operating: Part,
     history: Vec<Part>,
@@ -160,6 +163,7 @@ impl Context {
         )?;
         // Restore references, never execution permits. Every referenced source
         // is re-read through current history access during each assembly.
+        let inherited = self.fork_history(binding)?;
         let descriptors = self
             .engine
             .store()
@@ -183,6 +187,10 @@ impl Context {
         }
         pairs.sort_by_key(|p| p.sequence);
         let mut history = Vec::new();
+        if let Some(part) = inherited {
+            history_sources.push(part.artifact.clone());
+            history.push(part);
+        }
         for (index, pair) in pairs.iter().enumerate() {
             if pair.sequence != index as u64 || pair.parts.iter().any(|p| p.scope != binding.scope)
             {
@@ -200,6 +208,7 @@ impl Context {
         self.coding.insert(
             binding.scope.task.clone(),
             Loop {
+                turn: None,
                 config,
                 operating,
                 history,
@@ -217,6 +226,11 @@ impl Context {
     }
     pub(super) fn assemble_coding_context(&mut self, binding: &ThreadBinding) -> Result<()> {
         self.can_start(binding)?;
+        self.coding_stage(
+            binding,
+            TurnState::AssemblingContext,
+            "assembling current captured sources",
+        )?;
         if binding.role == RequestRole::Compaction {
             return Err("canonical compaction adapter required".into());
         }
@@ -350,6 +364,11 @@ impl Context {
         response: ResultBody,
         sources: Vec<ArtifactId>,
     ) -> Result<()> {
+        self.coding_stage(
+            binding,
+            TurnState::ProcessingResponse,
+            "accounted provider response received",
+        )?;
         let current = self.context_revisions(binding)?;
         if response.calls.is_empty() && response.visible_text_bytes == 0 {
             self.pause_root(
@@ -360,6 +379,11 @@ impl Context {
             // or executable calls while keeping the paused task inspectable.
             return Ok(());
         }
+        let next_stage = if response.calls.is_empty() {
+            TurnState::Verifying
+        } else {
+            TurnState::ExecutingTools
+        };
         let state = self
             .coding
             .get_mut(&binding.scope.task)
@@ -396,6 +420,7 @@ impl Context {
                 self.record_coding_result(binding, attempt.clone(), call,
                     serde_json::json!({"executed":false,"complete":false,"reason":"verification requires an isolated response"}),sources.clone())?;
             }
+            self.coding_stage(binding, next_stage, "tool response handling")?;
             return Ok(());
         }
         state.calls = response
@@ -408,6 +433,11 @@ impl Context {
                 sources: sources.clone(),
             })
             .collect();
+        self.coding_stage(
+            binding,
+            next_stage,
+            "completed response ready for tool handling or final verification",
+        )?;
         Ok(())
     }
     pub fn coding_completion(&self, binding: &ThreadBinding) -> Result<VerificationId> {

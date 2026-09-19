@@ -382,7 +382,7 @@ pub fn prepare_admission(
     let amount = input.quote.amount.micros;
     let draw = if input.draw_protected {
         if input.role != RequestRole::Verification || root.protected < amount {
-            return Err(Error::Denied("protected verification reserve"));
+            return Err(Error::Exhausted("protected verification reserve"));
         }
         amount
     } else {
@@ -397,7 +397,7 @@ pub fn prepare_admission(
         amount,
     ])? > root.cap
     {
-        return Err(Error::Denied("root cap"));
+        return Err(Error::Exhausted("root cap"));
     }
     for (child, cap) in &root.allocations {
         if !descends(state, &input.scope.task, child, &input.scope.workspace)? {
@@ -415,7 +415,7 @@ pub fn prepare_admission(
             }
         }
         if add(sum(committed)?, amount)? > *cap {
-            return Err(Error::Denied("child allocation"));
+            return Err(Error::Exhausted("child allocation"));
         }
     }
     let day = day(
@@ -437,7 +437,7 @@ pub fn prepare_admission(
             }
         }
         if sum([sum(today)?, amount, protected])? > daily.cap {
-            return Err(Error::Denied("local root daily cap"));
+            return Err(Error::Exhausted("local root daily cap"));
         }
     }
     let reservation = Reservation {

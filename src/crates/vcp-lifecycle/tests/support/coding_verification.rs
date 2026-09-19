@@ -213,6 +213,9 @@ async fn run(backend: BackendKind, mode: &'static str) {
     )
     .unwrap();
     assert!(host.complete_coding_turn(thread).is_err());
+    let turn = host
+        .begin_coding_turn(thread, "Run the accepted task".into())
+        .unwrap();
     test.codex
         .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
             text: "Run the accepted task".into(),
@@ -290,6 +293,34 @@ async fn run(backend: BackendKind, mode: &'static str) {
     if matches!(mode, "pass" | "siblings") {
         complete.unwrap_or_else(|e| panic!("{backend:?}/{mode}: {e}"));
         let state = host.snapshot().unwrap();
+        let completed_turn: vcp_domain::task::Turn = state
+            .record(Collection::Turn, turn.as_str(), &config.workspace)
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(completed_turn.state, vcp_domain::task::TurnState::Completed);
+        let completed_task: Task = state
+            .record(
+                Collection::Task,
+                config.root_task.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(
+            completed_turn.cause, completed_task.cause,
+            "completion is one canonical transaction"
+        );
+        host.command(
+            Command::CreateSession {
+                id: SessionId::new(),
+                fork_through: Some(turn.clone()),
+            },
+            None,
+            Revision::ZERO,
+        )
+        .unwrap();
         let refreshed: Vec<Verification> = state
             .records
             .values()

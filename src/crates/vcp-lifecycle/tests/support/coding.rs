@@ -186,7 +186,26 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 TaskState::Running,
                 "invented pre-response calls cannot pause the root"
             );
+            let turn = host
+                .begin_coding_turn(id, "Run the synthetic request.".into())
+                .unwrap();
             coding_turn(&test, backend, mode).await;
+            let canonical_turn: vcp_domain::task::Turn = host
+                .snapshot()
+                .unwrap()
+                .record(Collection::Turn, turn.as_str(), &config.workspace)
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert_eq!(
+                canonical_turn.state,
+                if matches!(mode, "complete" | "nested" | "process_fail") {
+                    vcp_domain::task::TurnState::Verifying
+                } else {
+                    vcp_domain::task::TurnState::Paused
+                },
+                "{backend:?} {mode}"
+            );
             let expected = if matches!(mode, "complete" | "nested" | "process_fail") {
                 5
             } else if mode == "limit" {

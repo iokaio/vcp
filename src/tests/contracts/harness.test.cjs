@@ -142,7 +142,7 @@ test('PowerShell wrapper selects one Node executable when PATH has two installat
     fs.mkdirSync(directory);
     const executable = path.join(directory, process.platform === 'win32' ? 'node.exe' : 'node');
     try { fs.linkSync(process.execPath, executable); }
-    catch (error) { if (error.code !== 'EXDEV') throw error; fs.copyFileSync(process.execPath, executable); }
+    catch (error) { if (!['EXDEV', 'EPERM', 'EACCES'].includes(error.code)) throw error; fs.copyFileSync(process.execPath, executable); }
   }
   const env = environment();
   const key = Object.keys(env).find(k => k.toUpperCase() === 'PATH') || 'PATH';

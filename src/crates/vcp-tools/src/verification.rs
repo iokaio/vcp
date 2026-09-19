@@ -13,7 +13,8 @@ pub enum Runner {
     Cargo,
 }
 /// Explicit owner acceptance, not model-supplied assertions about coverage.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Requirement {
     pub manifest: String,
     pub runner: Runner,

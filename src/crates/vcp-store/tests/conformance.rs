@@ -67,6 +67,7 @@ async fn backends_share_atomicity_receipts_scope_and_revision_contract() {
                     revision: Revision::ZERO,
                     configuration: Revision::ZERO,
                     fork_origin: None,
+                    fork_through: None,
                 },
             )
             .unwrap(),

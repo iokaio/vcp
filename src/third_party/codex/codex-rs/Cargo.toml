@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    # VCP modification: structured and interactive CLI adapters.
+    "../../../crates/vcp-cli",
     # VCP modification: OpenRouter codec and bounded provider normalization.
     "../../../crates/vcp-models",
     "../../../crates/vcp-policy",

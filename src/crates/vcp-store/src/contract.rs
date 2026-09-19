@@ -136,6 +136,9 @@ impl Record {
             }
             Collection::Session => {
                 let value: Session = self.decode()?;
+                if value.fork_through.is_some() && value.fork_origin.is_none() {
+                    return Err(Error::Corruption("fork boundary requires session ancestry"));
+                }
                 scope(&value.workspace, value.id.as_str(), value.revision)?;
             }
             Collection::Task => {
@@ -283,6 +286,9 @@ impl Record {
                 let value: Session = self.decode()?;
                 if let Some(origin) = value.fork_origin {
                     refs.insert(key(Collection::Session, origin.as_str()));
+                }
+                if let Some(turn) = value.fork_through {
+                    refs.insert(key(Collection::Turn, turn.as_str()));
                 }
             }
             Collection::Task => {
@@ -558,6 +564,21 @@ impl State {
                     .decode()?;
                 if task.scope != scope {
                     return Err(Error::Access);
+                }
+            }
+            if record.collection == Collection::Session {
+                let session: Session = record.decode()?;
+                if let Some(boundary) = session.fork_through {
+                    let turn: Turn = self
+                        .record(Collection::Turn, boundary.as_str(), &record.workspace)?
+                        .decode()?;
+                    if Some(&turn.scope.session) != session.fork_origin.as_ref()
+                        || turn.state != vcp_domain::task::TurnState::Completed
+                    {
+                        return Err(Error::Corruption(
+                            "session fork boundary differs from ancestry",
+                        ));
+                    }
                 }
             }
             if record.collection == Collection::Task {

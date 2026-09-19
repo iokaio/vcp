@@ -17490,6 +17490,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcp-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "codex-config",
+ "codex-core",
+ "codex-exec-server",
+ "codex-extension-api",
+ "codex-login",
+ "codex-protocol",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "vcp-domain",
+ "vcp-engine",
+ "vcp-lifecycle",
+ "vcp-models",
+ "vcp-protocol",
+ "vcp-repository",
+ "vcp-store",
+ "vcp-tools",
+ "windows-sys 0.61.2",
+ "wiremock",
+]
+
+[[package]]
 name = "vcp-context"
 version = "0.1.0"
 dependencies = [
