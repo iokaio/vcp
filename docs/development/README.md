@@ -1,5 +1,7 @@
 # Development design and implementation guides
 
+- [Context continuity](p2-context-continuity.md): bounded historical previews, original-source dependencies and revision-aware reuse.
+
 - [Verification in the retained loop](p2-loop-verification.md): isolated checks, canonical unexecuted pairs and final-cost completion evidence.
 
 - [Native verification and completion](p2-verification.md): discovered checks, source applicability, durable evidence and current-owner completion.

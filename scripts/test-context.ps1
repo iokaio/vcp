@@ -52,7 +52,7 @@ try{
         Stage 'contracts' 'cargo' ($arguments+@('--','--test-threads=1'))
         $tests=Get-Content -LiteralPath (Join-Path $directory 'contracts.log') -Raw
         $rows=[regex]::Matches($tests,'(?m)^test ([^\r\n]+) \.\.\. ok\r?$')
-        if($rows.Count -ne 23){throw "Expected all 23 context/repository contracts; observed $($rows.Count)"}
+        if($rows.Count -ne 27){throw "Expected all 27 context/repository contracts; observed $($rows.Count)"}
         $record.tests=@($rows|ForEach-Object{$_.Groups[1].Value})
     }finally{Pop-Location}
     foreach($row in $record.inputs){if((Get-FileHash -LiteralPath (Join-Path $repository $row.path)).Hash.ToLowerInvariant() -ne $row.sha256){throw 'Source changed during qualification; rerun with stable inputs'}}

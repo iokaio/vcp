@@ -144,6 +144,8 @@ impl Context {
         Ok(verified)
     }
     fn validate_ready(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
+        #[cfg(windows)]
+        self.validate_continuity_ready(binding)?;
         let provider = self
             .provider
             .as_ref()

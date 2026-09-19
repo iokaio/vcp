@@ -1,6 +1,6 @@
 # 04 — Repository context, AGENTS.md and continuity
 
-Status: P2-01 in progress with the [native repository/context increment](../evaluations/p2-context-increment.md); P2-08 planned. Owns P2-01 and P2-08. P2-01 requires durable capture/storage; P2-08 follows the session loop, budget and projections. Consult architecture section 6 and [routing](12-routing-and-optimization.md) for the model-envelope handshake.
+Status: P2-01 in progress with the [native repository/context increment](../evaluations/p2-context-increment.md); P2-08 in progress with [deterministic compaction](../development/p2-context-continuity.md). Owns P2-01 and P2-08. P2-01 requires durable capture/storage; P2-08 follows the session loop, budget and projections. Consult architecture section 6 and [routing](12-routing-and-optimization.md) for the model-envelope handshake.
 
 ## Implementation references
 
