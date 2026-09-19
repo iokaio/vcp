@@ -187,6 +187,29 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
         assert_eq!(actual["args"], serde_json::json!(expected));
         assert_eq!(actual["ci"], "synthetic-public-setting");
         assert_eq!(actual["inherited"], serde_json::Value::Null);
+        // An observed process exit is not enough to release the resource claim:
+        // the canonical outcome must be collected and committed first.
+        let first = host
+            .prepare_process(id, request("verify", &workspace))
+            .unwrap();
+        let second = host
+            .prepare_process(id, request("verify", &workspace))
+            .unwrap();
+        let first = host.dispatch_process(first).unwrap();
+        let queued_host = host.clone();
+        let second = tokio::spawn(async move { queued_host.schedule_process(second).await });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(
+            !second.is_finished(),
+            "conflicting process must queue until committed receipt"
+        );
+        assert_eq!(first.wait().await.unwrap().exit_code, Some(0));
+        let second = tokio::time::timeout(Duration::from_secs(5), second)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(second.wait().await.unwrap().exit_code, Some(0));
         policy.revision = PolicyRevision::new(1);
         policy.mode = Autonomy::Plan;
         host.command(
@@ -671,6 +694,15 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
                 .unwrap();
             let process = host.dispatch_process(live).unwrap();
             ready(&directory.join("child-ready")).await;
+            let queued_host = host.clone();
+            let queued_effect = queued.effect().clone();
+            let queued = tokio::spawn(async move { queued_host.schedule_process(queued).await });
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            assert!(
+                !queued.is_finished(),
+                "conflicting effect must await the running process"
+            );
+            assert!(!directory.join("queued-marker").exists());
             let original = get_task();
             let (change, target, revision) = if terminal {
                 let mut objective = original.objectives.last().unwrap().clone();
@@ -742,7 +774,23 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
             assert!(host
                 .resume(id, paused.revision, paused.fingerprint.clone())
                 .is_err());
-            assert!(host.dispatch_process(queued).is_err());
+            assert!(tokio::time::timeout(Duration::from_secs(5), queued)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err());
+            let cancelled: vcp_domain::effect::Effect = host
+                .snapshot()
+                .unwrap()
+                .record(
+                    Collection::Effect,
+                    queued_effect.as_str(),
+                    &config.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert_eq!(cancelled.state, vcp_domain::effect::EffectState::Cancelled);
             assert!(!directory.join("queued-marker").exists());
             if !terminal {
                 policy.revision = PolicyRevision::new(11);

@@ -13,6 +13,15 @@ pub enum HostModelPurpose {
     Memory,
 }
 
+/// Provider-independent classification. No credentials or provider response text.
+#[derive(Clone, Copy, Debug)]
+pub enum HostModelFailure {
+    Http(u16),
+    Timeout,
+    Transport,
+    Protocol,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HostWorkKind {
     Model,
@@ -22,6 +31,24 @@ pub enum HostWorkKind {
 /// Dropping a permit without a receipt leaves its outcome unknown. Completion
 /// may reconcile while paused, but cannot authorize new work.
 pub trait HostWorkPermit: Send {
+    /// Qualify a new accounted attempt. The caller waits without a store lock,
+    /// checks freshness during the wait, and retains this permit until admission.
+    fn retry_delay(
+        &mut self,
+        _failure: HostModelFailure,
+        _retry_after_ms: Option<u64>,
+    ) -> Result<Option<std::time::Duration>, String> {
+        Ok(None)
+    }
+    fn retry_current(&self) -> bool {
+        false
+    }
+    fn admit_retry(
+        &mut self,
+        _body: &mut serde_json::Value,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        Err("host retry is not enabled".into())
+    }
     /// VCP: one absolute deadline covers headers and body, including keepalives.
     fn response_deadline(&self) -> Option<std::time::Instant> {
         None
@@ -35,6 +62,10 @@ pub trait HostWorkPermit: Send {
     }
     fn response_capture(&self) -> Option<HostResponseCapture> {
         None
+    }
+    /// Non-success HTTP bodies are raw evidence, never successful SSE events.
+    fn response_error_capture(&self) -> Option<HostResponseCapture> {
+        self.response_capture()
     }
     fn complete(&mut self) -> Result<(), String>;
     /// VCP: retain provider usage with the same durable dispatch receipt.

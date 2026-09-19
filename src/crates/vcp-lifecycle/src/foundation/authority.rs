@@ -30,7 +30,7 @@ impl CanonicalHost {
         expected: Revision,
     ) -> Result<CommandReceipt, String> {
         let runtime = self.runtime.clone();
-        let conflict = self.tool_conflict.clone();
+        let scheduler = self.scheduler.clone();
         self.worker.run(move |context| {
             context.check_external_command(&command)?;
             #[cfg(windows)]
@@ -44,7 +44,7 @@ impl CanonicalHost {
                     || state.startups_in_flight != 0
                     || state.entries.values().any(|entry| entry.starts != 0)
                     || state.work.iter().any(|work| work.receipt.is_none())
-                    || conflict.load(Ordering::SeqCst)
+                    || scheduler.busy()
                 {
                     return Err("active work requires coordinated change_authority".into());
                 }

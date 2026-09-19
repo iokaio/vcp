@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 mod continuity;
+mod handoff;
 mod instructions;
 use super::*;
 use crate::foundation::coding::CodingConfig;
 use codex_extension_api::{AllowedTools, ToolName};
 use vcp_context::{
     manifest::{Content, Kind, Part, Revisions, Trust as ContextTrust},
-    selection::{Utf8ByteCeiling, assemble},
+    selection::{assemble, Utf8ByteCeiling},
 };
 use vcp_models::{
     request,
@@ -138,12 +139,23 @@ impl Context {
         config
             .validate(now())
             .map_err(|e| -> Failure { e.into() })?;
+        let capabilities = crate::foundation::coding::capabilities();
+        self.capture(
+            &binding.scope,
+            Channel::Evidence,
+            &canonical_bytes(&capabilities)?,
+            "canonical-coding-capabilities/1",
+        )?;
         let operating = self.coding_part(
             &binding.scope,
             Kind::Operating,
             ContextTrust::Operating,
             Content::Text {
-                text: config.operating.clone(),
+                text: format!(
+                    "{}\nCurrent host capabilities: {}",
+                    config.operating,
+                    serde_json::to_string(&capabilities)?
+                ),
             },
         )?;
         // Restore references, never execution permits. Every referenced source
@@ -300,6 +312,9 @@ impl Context {
             now(),
         )?;
         let probes = instructions.probes;
+        // Denied context must not initialize accounting. Once authority and
+        // envelope checks pass, pin the ledger before continuity/handoff facts.
+        self.ensure_coding_ledger()?;
         let parts = self.compact_coding_parts(binding, parts, &current, |parts| {
             Ok(request::encode(parts, &envelope, &schemas, &snapshot)?)
         })?;
@@ -318,6 +333,7 @@ impl Context {
         )?;
         let mut roots = parents;
         roots.push(root);
+        self.capture_coding_handoff(binding, &sealed)?;
         self.prepare_context(binding, sealed, schemas, roots)?;
         self.coding.get_mut(&binding.scope.task).unwrap().revisions = Some(current);
         self.coding.get_mut(&binding.scope.task).unwrap().probes = probes;
@@ -335,6 +351,15 @@ impl Context {
         sources: Vec<ArtifactId>,
     ) -> Result<()> {
         let current = self.context_revisions(binding)?;
+        if response.calls.is_empty() && response.visible_text_bytes == 0 {
+            self.pause_root(
+                "provider returned no completed visible answer or executable tool call",
+            )?;
+            // Capture and usage settlement succeeded. This is a semantic
+            // rejection, not a broken capture boundary: leave no final answer
+            // or executable calls while keeping the paused task inspectable.
+            return Ok(());
+        }
         let state = self
             .coding
             .get_mut(&binding.scope.task)
@@ -607,14 +632,12 @@ impl Context {
                 }
                 paths
             }
-            "vcp_exec" => vec![
-                std::path::PathBuf::from(
-                    call.arguments["directory"]
-                        .as_str()
-                        .ok_or("process directory missing")?,
-                )
-                .join(".vcp-context-scope"),
-            ],
+            "vcp_exec" => vec![std::path::PathBuf::from(
+                call.arguments["directory"]
+                    .as_str()
+                    .ok_or("process directory missing")?,
+            )
+            .join(".vcp-context-scope")],
             _ => return Ok(true),
         };
         self.validate_coding_sources(binding)?;

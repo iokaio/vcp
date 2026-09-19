@@ -71,6 +71,9 @@ struct Entry {
     interrupted: bool,
     interruption_error: Option<Error>,
     starts: usize,
+    // Scoped pause generation; ordinary work revisions and sibling holds do
+    // not invalidate this thread's queued callbacks.
+    admission_generation: u64,
 }
 
 struct State {
@@ -91,6 +94,11 @@ struct State {
 }
 
 impl State {
+    fn admission_current(&self, thread: ThreadId, expected: u64) -> bool {
+        self.entries
+            .get(&thread)
+            .is_some_and(|entry| entry.admission_generation == expected)
+    }
     fn checkpoint(&mut self) -> Result<(), Error> {
         if self.journal_closed {
             return Err(Error::OwnerLost);
@@ -263,6 +271,22 @@ impl Drop for StartPermit {
 }
 
 impl Lifecycle {
+    /// A pause invalidates queued callbacks even if the owner resumes before
+    /// they wake. Ordinary work/receipt revisions do not invalidate siblings.
+    pub(crate) fn admission_generation(&self, id: ThreadId) -> Result<u64, Error> {
+        let state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
+        if !state.attached {
+            return Err(Error::OwnerLost);
+        }
+        if state.held(id) {
+            return Err(Error::Held);
+        }
+        Ok(state
+            .entries
+            .get(&id)
+            .ok_or(Error::UnknownThread)?
+            .admission_generation)
+    }
     /// Call inside the owning Tokio runtime. The deadline bounds start draining;
     /// expiry leaves holds in place and reports failure. Retained interruption
     /// stays owned until complete, so a late stop cannot race readmission.
@@ -331,6 +355,7 @@ impl Lifecycle {
                             interrupted: false,
                             interruption_error: None,
                             starts: 0,
+                            admission_generation: 0,
                         },
                     );
                 }
@@ -466,6 +491,7 @@ impl Lifecycle {
                 interrupted: false,
                 interruption_error: None,
                 starts: 0,
+                admission_generation: 0,
             },
         );
         state.checkpoint()?;
@@ -503,6 +529,7 @@ impl Lifecycle {
                 interrupted: false,
                 interruption_error: None,
                 starts: 0,
+                admission_generation: 0,
             },
         );
         state.checkpoint()?;
@@ -584,6 +611,11 @@ impl Lifecycle {
             .filter(|child| state.below(*child, id))
             .collect();
         for child in &selected {
+            let entry = state.entries.get_mut(child).unwrap();
+            entry.admission_generation = entry
+                .admission_generation
+                .checked_add(1)
+                .ok_or(Error::Overflow)?;
             state.entries.get_mut(child).unwrap().interrupted = false;
             state.entries.get_mut(child).unwrap().interruption_error = None;
         }
@@ -591,6 +623,7 @@ impl Lifecycle {
         // selected controller; failed acknowledgement must not leave work alive.
         let durable = state.checkpoint();
         drop(state);
+        self.0.changed.notify_waiters();
         let waiter = HoldWaiter(self.interrupt_owned(selected, true));
         durable.map(|_| waiter)
     }

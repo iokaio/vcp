@@ -5,6 +5,48 @@ use std::{collections::BTreeMap, ffi::OsString};
 use vcp_domain::effect::{Effect, EffectState};
 use vcp_store::contract::Collection;
 use vcp_tools::process::{Pins, Prepared, Profile, Request};
+
+fn fence_process_owner(runtime: &Lifecycle) {
+    if runtime.hold_owner().is_err() {
+        // A subtree may already be draining, making another coordinated hold
+        // Busy without holding its siblings. Unknown native ownership must still
+        // prevent every new launch before the resource claim is released.
+        let root_can_admit =
+            runtime.0.state.lock().is_ok_and(|state| {
+                state.attached && state.root.is_some_and(|root| !state.held(root))
+            });
+        if root_can_admit {
+            let _ = runtime.lose_owner();
+        }
+    }
+}
+
+/// A launched process is not safely observed until its identity and Running
+/// state are durable. Errors (including unwinding) fence queued dispatch before
+/// the caller can release its resource claim.
+pub(super) fn observe_process_start<T>(
+    runtime: &Lifecycle,
+    operation: impl FnOnce() -> Result<T, Box<dyn std::error::Error + Send + Sync>>,
+) -> Result<T, Box<dyn std::error::Error + Send + Sync>> {
+    struct Fence<'a> {
+        runtime: &'a Lifecycle,
+        observed: bool,
+    }
+    impl Drop for Fence<'_> {
+        fn drop(&mut self) {
+            if !self.observed {
+                fence_process_owner(self.runtime);
+            }
+        }
+    }
+    let mut fence = Fence {
+        runtime,
+        observed: false,
+    };
+    let result = operation()?;
+    fence.observed = true;
+    Ok(result)
+}
 pub struct ProcessProposal {
     thread: ThreadId,
     binding: ThreadBinding,
@@ -13,6 +55,7 @@ pub struct ProcessProposal {
     owner: OwnerEpoch,
     effect: ToolRunId,
     plan: ArtifactId,
+    generation: u64,
     pub decision: vcp_policy::Decision,
     pub question: Option<ApprovalId>,
 }
@@ -60,6 +103,7 @@ impl CanonicalHost {
         thread: ThreadId,
         request: Request,
     ) -> Result<ProcessProposal, String> {
+        let generation = scheduler::generation(&self.runtime, thread)?;
         let binding = self.binding(thread)?;
         let scoped = binding.clone();
         let (prepared, controller, owner, effect, plan, decision, question) =
@@ -97,12 +141,48 @@ impl CanonicalHost {
             owner,
             effect,
             plan,
+            generation,
             decision,
             question,
         })
     }
     pub fn dispatch_process(&self, ticket: ProcessProposal) -> Result<PreparedProcess, String> {
-        let conflict = EffectLease::acquire(&self.tool_conflict)?;
+        let conflict = self
+            .scheduler
+            .try_acquire(ticket.prepared.authority().operation())?;
+        self.dispatch_process_leased(ticket, conflict)
+    }
+    pub async fn schedule_process(
+        &self,
+        ticket: ProcessProposal,
+    ) -> Result<PreparedProcess, String> {
+        let mut queued = scheduler::QueuedEffect::new(self, &ticket.binding, &ticket.effect);
+        let scheduled = self
+            .schedule(
+                ticket.prepared.authority().operation(),
+                ticket.thread,
+                ticket.generation,
+            )
+            .await;
+        let conflict = match scheduled {
+            Ok(conflict) => conflict,
+            Err(error) => {
+                self.cancel_queued_effect(ticket.binding, ticket.effect, error.clone())?;
+                return Err(error);
+            }
+        };
+        let result = self.dispatch_process_leased(ticket, conflict);
+        if result.is_ok() {
+            queued.dispatched();
+        }
+        result
+    }
+    fn dispatch_process_leased(
+        &self,
+        ticket: ProcessProposal,
+        conflict: EffectLease,
+    ) -> Result<PreparedProcess, String> {
+        scheduler::check_generation(&self.runtime, ticket.thread, ticket.generation)?;
         let stdout = Arc::new(self.open_output(ticket.thread, Channel::Stdout)?);
         let stderr = Arc::new(self.open_output(ticket.thread, Channel::Stderr)?);
         let (out, err) = (stdout.clone(), stderr.clone());
@@ -116,6 +196,7 @@ impl CanonicalHost {
         let run = execution.clone();
         let runtime = self.runtime.clone();
         let thread = ticket.thread;
+        let generation = ticket.generation;
         // Launch on the caller's live reactor, never the store worker's
         // current-thread runtime (which is not an execution scheduler).
         let reactor =
@@ -127,22 +208,24 @@ impl CanonicalHost {
             if !matches!(context.process_decision(&binding,&prepared)?,vcp_policy::Decision::Allow{..}){return Err("current process authority rejected".into());}
             context.tool_advance(&binding,&effect,EffectState::Authorized,None,vec![plan.clone()],"current process policy and native identities accepted")?;
             context.tool_advance(&binding,&effect,EffectState::DispatchRecorded,Some(run.clone()),vec![plan.clone()],"one owned native process dispatch recorded")?;
+            observe_process_start(&runtime, || {
             let _entered=reactor.enter();
             let arguments:Vec<OsString>=prepared.arguments().iter().map(OsString::from).collect();
             let environment:BTreeMap<OsString,OsString>=prepared.environment().iter().map(|(k,v)|(k.into(),v.into())).collect();
             let op=prepared.authority().operation();
             let limits=crate::process::Limits{timeout:Duration::from_millis(op.timeout_ms.get()),output_bytes:op.output_bytes.get(),process_count:prepared.profile().process_count()};
             let process=if let Some(terminal)=prepared.profile().terminal() {
-                runtime.spawn_pty_with_capture(thread,&prepared.executable(),&arguments,&prepared.directory(),&environment,
+                runtime.spawn_pty_with_capture_generation(thread,&prepared.executable(),&arguments,&prepared.directory(),&environment,
                     codex_utils_pty::TerminalSize{rows:terminal.rows,cols:terminal.cols},prepared.input().map(str::to_owned),limits,
-                    Arc::new(move|bytes|out.write(bytes).map_err(std::io::Error::other)),pins.clone())?
-            } else { runtime.spawn_bounded_process_with_capture(thread,&prepared.executable(),&arguments,&prepared.directory(),&environment,64*1024,
+                    Arc::new(move|bytes|out.write(bytes).map_err(std::io::Error::other)),pins.clone(),Some(generation))?
+            } else { runtime.spawn_bounded_process_with_capture_generation(thread,&prepared.executable(),&arguments,&prepared.directory(),&environment,64*1024,
                 Some(Arc::new(move|bytes|out.write(bytes).map_err(std::io::Error::other))),
                 Some(Arc::new(move|bytes|err.write(bytes).map_err(std::io::Error::other))),
-                Some(limits),prepared.profile().mode()==vcp_tools::process::Mode::Cmd,Some(pins.clone()))? };
-            let identity=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"execution":run,"process_id":process.id(),"identity_authority":"owned process/job handles; PID is diagnostic only","job_processes":process.active_process_count()?}))?,"vcp-process-start-v1")?;
+                Some(limits),prepared.profile().mode()==vcp_tools::process::Mode::Cmd,Some(pins.clone()),Some(generation))? };
+            let identity=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"execution":run,"process_id":process.id(),"process_identity":super::worker::recovery::process_identity(process.id()),"identity_authority":"owned process/job handles; PID is diagnostic only","job_processes":process.active_process_count()?}))?,"vcp-process-start-v1")?;
             context.tool_advance(&binding,&effect,EffectState::Running,Some(run),vec![plan,identity.spec.id],"native process launched with owned job membership before execution")?;
             Ok((process,pins))
+            })
         });
         match started {
             Ok((process, pins)) => Ok(PreparedProcess {
@@ -160,6 +243,11 @@ impl CanonicalHost {
                 finished: false,
             }),
             Err(error) => {
+                // A timed-out worker callback may still reach the native launch
+                // gate. Invalidate its generation before giving up this claim.
+                if self.worker.fenced() {
+                    fence_process_owner(&self.runtime);
+                }
                 let binding = ticket.binding;
                 let effect = ticket.effect;
                 let reason = error.clone();
@@ -194,6 +282,17 @@ impl CanonicalHost {
                                 current.observed_changes,
                                 &reason,
                             )?;
+                            if next == EffectState::OutcomeUnknown {
+                                let task: vcp_domain::task::Task = context.engine.store().state()
+                                    .record(Collection::Task, binding.scope.task.as_str(), &binding.scope.workspace)?.decode()?;
+                                if task.state == vcp_domain::task::TaskState::Running {
+                                    context.command(Command::Transition {
+                                        next: vcp_domain::task::TaskState::Paused,
+                                        reason: "native startup observation failed; reconcile before resume".into(),
+                                        verification: None,
+                                    }, Some(binding.scope.task.clone()), task.revision)?;
+                                }
+                            }
                         }
                         Ok(())
                     })
@@ -283,6 +382,10 @@ impl PreparedProcess {
 impl Drop for PreparedProcess {
     fn drop(&mut self) {
         if !self.finished {
+            // A termination request is not a quiescence receipt. Fence queued
+            // callbacks before this process's resource lease can be released.
+            // Hold owns the native drain even when its waiter is dropped.
+            fence_process_owner(&self.host.runtime);
             self.process.take();
             let binding = self.binding.clone();
             let effect = self.effect.clone();
@@ -312,6 +415,29 @@ impl Drop for PreparedProcess {
                             current.observed_changes,
                             "process observation interrupted; no automatic replay",
                         )?;
+                        let task: vcp_domain::task::Task = context
+                            .engine
+                            .store()
+                            .state()
+                            .record(
+                                Collection::Task,
+                                binding.scope.task.as_str(),
+                                &binding.scope.workspace,
+                            )?
+                            .decode()?;
+                        if task.state == vcp_domain::task::TaskState::Running {
+                            context.command(
+                                Command::Transition {
+                                    next: vcp_domain::task::TaskState::Paused,
+                                    reason:
+                                        "process observation interrupted; reconcile before resume"
+                                            .into(),
+                                    verification: None,
+                                },
+                                Some(binding.scope.task),
+                                task.revision,
+                            )?;
+                        }
                     }
                     Ok(())
                 })

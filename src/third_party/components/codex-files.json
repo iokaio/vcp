@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "f25da042c4a080be01c04ed4cdb19229698d2477182acfad2d3c0eea15b1506d",
-  "files_sha256": "8aceac845060e8b5ef3e32264ea0bba1ac84e4ce141e81e4a64c1fee19fb6179",
+  "selection_sha256": "be06e024b9042acd1c87bd9af556c3607c673370c777d75d3c5a20878dc27660",
+  "files_sha256": "c19144683c93086651a0ebe1d3029c37d8028a672be18b21cf53e7354297b9fc",
   "files": [
     {
       "path": ".bazelignore",
@@ -33655,8 +33655,8 @@
         "sha256": "7013ea18e7c40db547d9677d06ca8d5abd7ac6aec15f2202ac08c0a55ebd28c4"
       },
       "result": {
-        "bytes": 117332,
-        "sha256": "18b4b463d593fdae93393e686ba653cdec4f3b63421bfb041dba9f8851a796a0",
+        "bytes": 121420,
+        "sha256": "bcd0523ded6b87b3d2a0df99e70679029372c60c8aea9ae393508acfefd24acd",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -33697,11 +33697,11 @@
         "sha256": "915834d77221e02cdbb2aa77664ee420a60a7a0f9e45263dc7706645dcec3d64"
       },
       "result": {
-        "bytes": 62828,
-        "sha256": "915834d77221e02cdbb2aa77664ee420a60a7a0f9e45263dc7706645dcec3d64",
+        "bytes": 63285,
+        "sha256": "cfbf4abba7582937499720f61edeffb4f2834c3d880c4295c85cafb495834d44",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/core/src/codex_delegate.rs",
@@ -47655,8 +47655,8 @@
         "sha256": "fa6c40124197453211ba230ce313eca0bfa4b890448822a7103030af716f00c4"
       },
       "result": {
-        "bytes": 4500,
-        "sha256": "a9d414a3fbb90a530fa3fb0b116f627abdd7db8df95127691fb025b5832fcc46",
+        "bytes": 4522,
+        "sha256": "d3858cc18eec9e77f9e3c62b1425187983a0ba78c81ebee9b7a1f428a6b0c448",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -47735,8 +47735,8 @@
       "path": "codex-rs/ext/extension-api/src/work_admission.rs",
       "original": null,
       "result": {
-        "bytes": 3091,
-        "sha256": "60cc4dcf1db56ca6b02403cd5d53658d3c15d7a21fbb473bf82aa12ef55d4e1b",
+        "bytes": 4074,
+        "sha256": "6ee045bec29fc5423c30a011c17062ff09988af6988bcb9bad45f3958b20b3d8",
         "mode": "100644"
       },
       "transformation": "patch-series"

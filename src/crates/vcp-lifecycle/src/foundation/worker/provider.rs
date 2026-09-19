@@ -9,6 +9,14 @@ pub(super) struct Provider {
     prepared: HashMap<TaskId, Ready>,
     pub streams: HashMap<AttemptId, stream::Stream>,
     pub timeout: Duration,
+    active: HashMap<TaskId, Ready>,
+    pub(super) retries: HashMap<TaskId, PendingRetry>,
+}
+pub(super) struct PendingRetry {
+    pub predecessor: AttemptId,
+    pub count: u32,
+    pub deadline: std::time::Instant,
+    not_before: std::time::Instant,
 }
 struct Ready {
     context: VerifiedContext,
@@ -48,7 +56,12 @@ impl Context {
         {
             return Err("provider snapshot differs from captured endpoint catalog".into());
         }
-        if !self.streams.is_empty() {
+        if !self.streams.is_empty()
+            || self
+                .provider
+                .as_ref()
+                .is_some_and(|p| !p.retries.is_empty())
+        {
             return Err("provider refresh waits for active attempts".into());
         }
         if snapshot.price.currency != self.config.cap.currency
@@ -77,6 +90,8 @@ impl Context {
             prepared: HashMap::new(),
             streams: HashMap::new(),
             timeout,
+            active: HashMap::new(),
+            retries: HashMap::new(),
         });
         self.provider_required = true;
         Ok(())
@@ -146,6 +161,17 @@ impl Context {
     fn validate_ready(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
         #[cfg(windows)]
         self.validate_continuity_ready(binding)?;
+        self.validate_ready_context(binding, ready)
+    }
+    fn validate_retry_sources(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
+        // Reservation/failure accounting makes the prior dynamic facts stale.
+        // Fence sources and authority here; coding admission reassembles current
+        // facts and a fresh handoff before the next reservation is created.
+        #[cfg(windows)]
+        self.validate_continuity_sources(binding)?;
+        self.validate_ready_context(binding, ready)
+    }
+    fn validate_ready_context(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
         #[cfg(windows)]
         self.instruction_parents(binding)?;
         let provider = self
@@ -255,13 +281,28 @@ impl Context {
                 return Err(error);
             }
         }
-        let ready = self
+        let provider = self
             .provider
             .as_mut()
-            .ok_or("OpenRouter configuration required after reopen")?
-            .prepared
-            .remove(&binding.scope.task)
-            .ok_or("fresh sealed context required for every retained attempt")?;
+            .ok_or("OpenRouter configuration required after reopen")?;
+        #[cfg(windows)]
+        let reassembled = self.coding.contains_key(&binding.scope.task);
+        #[cfg(not(windows))]
+        let reassembled = false;
+        let ready = if let Some(retry) = provider.retries.get(&binding.scope.task) {
+            let now = std::time::Instant::now();
+            if now < retry.not_before || now >= retry.deadline {
+                return Err("retry timer is not eligible".into());
+            }
+            if reassembled {
+                provider.prepared.remove(&binding.scope.task)
+            } else {
+                provider.active.remove(&binding.scope.task)
+            }
+        } else {
+            provider.prepared.remove(&binding.scope.task)
+        }
+        .ok_or("fresh sealed context required for every retained attempt")?;
         self.validate_ready(binding, &ready)?;
         let ready = Ready {
             context: self.verify_context(ready.context.into_sealed())?,
@@ -282,7 +323,126 @@ impl Context {
         )?;
         // Recheck after durable capture, ordered with all canonical commands.
         self.validate_ready(binding, &ready)?;
+        self.provider
+            .as_mut()
+            .ok_or("provider configuration missing")?
+            .active
+            .insert(binding.scope.task.clone(), ready);
         Ok(Prepared { body, stream })
+    }
+    pub fn schedule_retry(
+        &mut self,
+        binding: &ThreadBinding,
+        attempt: AttemptId,
+        count: u32,
+        deadline: std::time::Instant,
+        failure: vcp_models::retry::Failure,
+        retry_after_ms: Option<u64>,
+    ) -> Result<Option<Duration>> {
+        self.can_start(binding)?;
+        let Some(provider) = self.provider.as_ref() else {
+            return Ok(None);
+        };
+        if provider.retries.contains_key(&binding.scope.task) {
+            return Err("retry already scheduled".into());
+        }
+        self.validate_retry_sources(
+            binding,
+            provider
+                .active
+                .get(&binding.scope.task)
+                .ok_or("retry source context missing")?,
+        )?;
+        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+            return Ok(None);
+        };
+        let now = now();
+        let policy = vcp_models::retry::Policy {
+            max_retries: 2,
+            base_delay_ms: 100,
+            max_delay_ms: 5_000,
+            deadline: Timestamp::new(now.get().saturating_add(remaining.as_millis() as u64)),
+        };
+        let Some(retry) = policy.next(
+            attempt.clone(),
+            count,
+            now,
+            failure,
+            true,
+            retry_after_ms,
+            true,
+        )?
+        else {
+            return Ok(None);
+        };
+        let delay = Duration::from_millis(retry.not_before.get() - now.get());
+        self.retain_unknown(
+            binding,
+            &attempt,
+            "provider failure retained before bounded retry",
+            false,
+        )?;
+        self.capture(
+            &binding.scope,
+            Channel::Evidence,
+            &canonical_bytes(&serde_json::json!({
+                "predecessor": attempt, "retry": count + 1, "failure": failure,
+                "not_before": retry.not_before, "deadline": policy.deadline,
+                "prior_liability_unresolved": true
+            }))?,
+            "provider-retry/1",
+        )?;
+        self.provider
+            .as_mut()
+            .ok_or("provider configuration missing")?
+            .retries
+            .insert(
+                binding.scope.task.clone(),
+                PendingRetry {
+                    predecessor: attempt,
+                    count: count + 1,
+                    deadline,
+                    not_before: std::time::Instant::now() + delay,
+                },
+            );
+        Ok(Some(delay))
+    }
+    pub fn retry_current(&self, binding: &ThreadBinding, attempt: &AttemptId) -> Result<()> {
+        self.can_start(binding)?;
+        let provider = self
+            .provider
+            .as_ref()
+            .ok_or("provider configuration missing")?;
+        let retry = provider
+            .retries
+            .get(&binding.scope.task)
+            .ok_or("retry cancelled")?;
+        if &retry.predecessor != attempt || std::time::Instant::now() >= retry.deadline {
+            return Err("retry predecessor/deadline changed".into());
+        }
+        self.validate_retry_sources(
+            binding,
+            provider
+                .active
+                .get(&binding.scope.task)
+                .ok_or("retry source context missing")?,
+        )
+    }
+    pub fn cancel_retry(&mut self, binding: &ThreadBinding, attempt: &AttemptId) -> Result<()> {
+        if self.provider.as_ref().is_some_and(|p| {
+            p.retries
+                .get(&binding.scope.task)
+                .is_some_and(|r| &r.predecessor == attempt)
+        }) {
+            let provider = self
+                .provider
+                .as_mut()
+                .ok_or("provider configuration missing")?;
+            provider.retries.remove(&binding.scope.task);
+            provider.active.remove(&binding.scope.task);
+            self.pause_root("provider retry cancelled; prior liability retained")?;
+        }
+        Ok(())
     }
     pub(super) fn complete_provider(
         &mut self,
@@ -290,6 +450,9 @@ impl Context {
         attempt: &AttemptId,
         response_id: &str,
     ) -> Result<()> {
+        if let Some(provider) = self.provider.as_mut() {
+            provider.active.remove(&binding.scope.task);
+        }
         let parser = self
             .provider
             .as_mut()

@@ -152,7 +152,7 @@ impl CanonicalHost {
     ) -> Result<CommandReceipt, String> {
         let binding = self.binding(thread)?;
         let runtime = self.runtime.clone();
-        let conflict = self.tool_conflict.clone();
+        let scheduler = self.scheduler.clone();
         self.worker.run(move |context| {
             let state = runtime.0.state.lock().map_err(|_| "lifecycle poisoned")?;
             if !state.attached
@@ -160,7 +160,7 @@ impl CanonicalHost {
                 || state.startups_in_flight != 0
                 || state.entries.values().any(|entry| entry.starts != 0)
                 || state.work.iter().any(|work| work.receipt.is_none())
-                || conflict.load(std::sync::atomic::Ordering::SeqCst)
+                || scheduler.busy()
             {
                 return Err("completion requires quiescent retained work".into());
             }

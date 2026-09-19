@@ -4,8 +4,8 @@ use crate::foundation::verification::{ObservedCheck, VerificationConfig};
 use vcp_context::manifest::Revisions;
 use vcp_domain::{effect::*, verification::*};
 use vcp_repository::{
-    Root,
     observation::{Manifest, Observation},
+    Root,
 };
 use vcp_tools::verification::Plan;
 
@@ -219,6 +219,73 @@ impl Context {
             "ledger":ledger,"verification_records":checks
         });
         Ok((facts, current.manifest))
+    }
+    /// Capture the actual destination-side bytes as well as the original base.
+    /// Reuse complete same-task captures by hash; every returned dependency is
+    /// read again under current history access before the packet is published.
+    pub(super) fn handoff_workspace(
+        &mut self,
+        binding: &ThreadBinding,
+    ) -> Result<(serde_json::Value, Vec<ArtifactId>)> {
+        let setup = self
+            .verification
+            .get(&binding.scope.task)
+            .ok_or("verification baseline missing")?;
+        let base = setup.baseline.manifest.clone();
+        let mut references = setup.baseline.sources.clone();
+        references.push(setup.baseline_artifact.clone());
+        let (_, observed) = self.verification_observe(binding)?;
+        let existing: Vec<ArtifactDescriptor> = self
+            .engine
+            .store()
+            .state()
+            .records
+            .values()
+            .filter(|r| r.collection == Collection::Artifact)
+            .map(Record::decode)
+            .collect::<std::result::Result<_, _>>()?;
+        let mut current = Vec::new();
+        for source in &observed.sources {
+            let id = if let Some(artifact) = existing.iter().find(|a| {
+                a.spec.scope == binding.scope
+                    && a.state == CaptureState::Complete
+                    && a.sha256 == source.version.sha256
+                    && a.length == source.version.bytes
+            }) {
+                artifact.spec.id.clone()
+            } else {
+                self.capture(
+                    &binding.scope,
+                    Channel::Evidence,
+                    &source.bytes,
+                    "handoff-source/1",
+                )?
+                .spec
+                .id
+            };
+            current.push(serde_json::json!({"version":source.version,"artifact":id}));
+            references.push(id);
+        }
+        let changed = base
+            .files
+            .iter()
+            .chain(observed.manifest.files.iter())
+            .filter(|file| !base.files.contains(file) || !observed.manifest.files.contains(file))
+            .map(|file| file.path.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        let delta = changed
+            .iter()
+            .map(|path| {
+                serde_json::json!({"path":path,
+            "before":base.files.iter().find(|f| &f.path == path),
+            "after":observed.manifest.files.iter().find(|f| &f.path == path)})
+            })
+            .collect::<Vec<_>>();
+        Ok((
+            serde_json::json!({"base":base,"current":observed.manifest,"sources":current,
+            "changes":delta,"meaning":"Observed before/after file versions and captured bytes; authorship is not inferred"}),
+            references,
+        ))
     }
     pub fn check_verification_command(
         &self,

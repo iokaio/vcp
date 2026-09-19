@@ -257,6 +257,36 @@ impl Lifecycle {
         cmd_script: bool,
         resources: Option<Arc<dyn Send + Sync>>,
     ) -> io::Result<Process> {
+        self.spawn_bounded_process_with_capture_generation(
+            thread,
+            executable,
+            args,
+            cwd,
+            environment,
+            output_limit,
+            stdout_observer,
+            stderr_observer,
+            limits,
+            cmd_script,
+            resources,
+            None,
+        )
+    }
+    pub(crate) fn spawn_bounded_process_with_capture_generation(
+        &self,
+        thread: ThreadId,
+        executable: &Path,
+        args: &[OsString],
+        cwd: &Path,
+        environment: &BTreeMap<OsString, OsString>,
+        output_limit: usize,
+        stdout_observer: Option<OutputObserver>,
+        stderr_observer: Option<OutputObserver>,
+        limits: Option<Limits>,
+        cmd_script: bool,
+        resources: Option<Arc<dyn Send + Sync>>,
+        generation: Option<u64>,
+    ) -> io::Result<Process> {
         if limits.is_some_and(|l| {
             l.timeout.is_zero()
                 || l.timeout > Duration::from_secs(120)
@@ -279,7 +309,10 @@ impl Lifecycle {
             .state
             .lock()
             .map_err(|_| io::Error::other("poisoned lifecycle"))?;
-        if !state.attached || state.held(thread) {
+        if !state.attached
+            || state.held(thread)
+            || generation.is_some_and(|expected| !state.admission_current(thread, expected))
+        {
             drop(state);
             permit.complete().map_err(io::Error::other)?;
             return Err(io::Error::other("process launch sealed"));

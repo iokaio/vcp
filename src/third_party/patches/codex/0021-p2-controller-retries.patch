@@ -1,0 +1,296 @@
+warning: unable to access 'C:\Users\tdotn/.config/git/ignore': Permission denied
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index d2932ce..8bf5cfd 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -1629,6 +1629,10 @@ impl ModelClientSession {
+             .map(AuthManager::unauthorized_recovery);
+         let mut provider_auth_recovery_attempted = false;
+         let mut pending_retry = PendingUnauthorizedRetry::default();
++        // VCP: retain the preceding permit through backoff and fresh admission.
++        // Its drop cancels an abandoned timer; every actual retry gets a new
++        // canonical reservation and preserves the predecessor liability.
++        let mut host_retry: Option<Box<dyn codex_extension_api::HostWorkPermit>> = None;
+         loop {
+             let client_setup = self
+                 .client
+@@ -1718,24 +1722,31 @@ impl ModelClientSession {
+             // bounds and durably captures/reserves before any request is sent.
+             let mut body = serde_json::to_value(&request)
+                 .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
+-            let host_permit = self
+-                .client
+-                .host_work
+-                .as_ref()
+-                .map(|gate| {
+-                    let purpose = match responses_metadata.request_kind {
+-                        Some(crate::responses_metadata::CodexResponsesRequestKind::Compaction(
+-                            _,
+-                        )) => codex_extension_api::HostModelPurpose::Compaction,
+-                        Some(crate::responses_metadata::CodexResponsesRequestKind::Memory) => {
+-                            codex_extension_api::HostModelPurpose::Memory
+-                        }
+-                        _ => codex_extension_api::HostModelPurpose::Turn,
+-                    };
+-                    gate.admit_model(self.client.state.thread_id, &mut body, purpose)
+-                })
+-                .transpose()
+-                .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
++            let mut host_permit = if let Some(mut predecessor) = host_retry.take() {
++                Some(
++                    predecessor
++                        .admit_retry(&mut body)
++                        .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?,
++                )
++            } else {
++                self.client
++                    .host_work
++                    .as_ref()
++                    .map(|gate| {
++                        let purpose = match responses_metadata.request_kind {
++                            Some(
++                                crate::responses_metadata::CodexResponsesRequestKind::Compaction(_),
++                            ) => codex_extension_api::HostModelPurpose::Compaction,
++                            Some(crate::responses_metadata::CodexResponsesRequestKind::Memory) => {
++                                codex_extension_api::HostModelPurpose::Memory
++                            }
++                            _ => codex_extension_api::HostModelPurpose::Turn,
++                        };
++                        gate.admit_model(self.client.state.thread_id, &mut body, purpose)
++                    })
++                    .transpose()
++                    .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?
++            };
+             let response_capture = host_permit
+                 .as_ref()
+                 .and_then(|permit| permit.response_capture());
+@@ -1745,7 +1756,7 @@ impl ModelClientSession {
+             let mut api_provider = client_setup.api_provider;
+             if self.client.host_work.is_some() {
+                 // Every retry needs a distinct reservation and send receipt.
+-                api_provider.retry.max_attempts = 1;
++                api_provider.retry.max_attempts = 0;
+                 api_provider.retry.retry_429 = false;
+                 api_provider.retry.retry_5xx = false;
+                 api_provider.retry.retry_transport = false;
+@@ -1755,16 +1766,7 @@ impl ModelClientSession {
+                 .with_response_capture(response_capture)
+                 .with_response_deadline(response_deadline);
+             let stream_result = if let Some(deadline) = response_deadline {
+-                tokio::time::timeout_at(
+-                    tokio::time::Instant::from_std(deadline),
+-                    client.stream_body(body, options),
+-                )
+-                .await
+-                .unwrap_or_else(|_| {
+-                    Err(ApiError::Stream(
+-                        "VCP response deadline elapsed before headers".into(),
+-                    ))
+-                })
++                bounded_response_headers(deadline, client.stream_body(body, options)).await
+             } else {
+                 client.stream_body(body, options).await
+             };
+@@ -1775,13 +1777,69 @@ impl ModelClientSession {
+             {
+                 if let Some(capture) = host_permit
+                     .as_ref()
+-                    .and_then(|permit| permit.response_capture())
++                    .and_then(|permit| permit.response_error_capture())
+                 {
+                     capture(body.as_bytes())
+                         .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
+                 }
+             }
+ 
++            if let (Err(error), Some(permit)) = (&stream_result, host_permit.as_mut()) {
++                use codex_extension_api::HostModelFailure;
++                let (failure, retry_after_ms) = match error {
++                    ApiError::Transport(codex_client::TransportError::Http {
++                        status,
++                        headers,
++                        ..
++                    }) => (
++                        HostModelFailure::Http(status.as_u16()),
++                        headers
++                            .as_ref()
++                            .and_then(|h| h.get("retry-after"))
++                            // Only delta seconds are qualified. An unsupported
++                            // or overflowing value must not become an early retry.
++                            .map(|v| {
++                                v.to_str()
++                                    .ok()
++                                    .and_then(|v| v.parse::<u64>().ok())
++                                    .and_then(|seconds| seconds.checked_mul(1000))
++                                    .unwrap_or(u64::MAX)
++                            }),
++                    ),
++                    ApiError::Transport(codex_client::TransportError::Timeout) => {
++                        (HostModelFailure::Timeout, None)
++                    }
++                    ApiError::Transport(
++                        codex_client::TransportError::Connection(_)
++                        | codex_client::TransportError::Network(_),
++                    ) => (HostModelFailure::Transport, None),
++                    _ => (HostModelFailure::Protocol, None),
++                };
++                if let Some(delay) = permit
++                    .retry_delay(failure, retry_after_ms)
++                    .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?
++                {
++                    let debug = extract_response_debug_context_from_api_error(error);
++                    inference_trace_attempt.record_failed(error, debug.request_id.as_deref(), &[]);
++                    let eligible = tokio::time::Instant::now() + delay;
++                    loop {
++                        if !permit.retry_current() {
++                            return Err(CodexErr::Io(std::io::Error::other(
++                                "VCP provider retry cancelled",
++                            )));
++                        }
++                        let Some(remaining) =
++                            eligible.checked_duration_since(tokio::time::Instant::now())
++                        else {
++                            break;
++                        };
++                        tokio::time::sleep(remaining.min(std::time::Duration::from_millis(25)))
++                            .await;
++                    }
++                    host_retry = host_permit.take();
++                    continue;
++                }
++            }
+             match stream_result {
+                 Ok(stream) => {
+                     let (stream, _) = map_response_stream(
+@@ -1793,11 +1851,12 @@ impl ModelClientSession {
+                     return Ok(stream.with_host_permit(host_permit));
+                 }
+                 Err(ApiError::Transport(unauthorized_transport))
+-                    if self
+-                        .client
+-                        .state
+-                        .provider
+-                        .is_recoverable_auth_error(&unauthorized_transport) =>
++                    if self.client.host_work.is_none()
++                        && self
++                            .client
++                            .state
++                            .provider
++                            .is_recoverable_auth_error(&unauthorized_transport) =>
+                 {
+                     let response_debug_context =
+                         extract_response_debug_context(&unauthorized_transport);
+@@ -2922,6 +2981,22 @@ impl WebsocketTelemetry for ApiTelemetry {
+     }
+ }
+ 
++// VCP: Tokio's timeout polls its inner future before checking the timer. Reject
++// an already-expired carried deadline before the transport's first poll, which
++// can otherwise initiate a send after durable retry admission exhausted time.
++async fn bounded_response_headers<T>(
++    deadline: std::time::Instant,
++    request: impl std::future::Future<Output = std::result::Result<T, ApiError>>,
++) -> std::result::Result<T, ApiError> {
++    let elapsed = || ApiError::Stream("VCP response deadline elapsed before headers".into());
++    if std::time::Instant::now() >= deadline {
++        return Err(elapsed());
++    }
++    tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), request)
++        .await
++        .unwrap_or_else(|_| Err(elapsed()))
++}
++
+ #[cfg(test)]
+ #[path = "client_tests.rs"]
+ mod tests;
+diff --git a/codex-rs/core/src/client_tests.rs b/codex-rs/core/src/client_tests.rs
+index b36b23a..788a69a 100644
+--- a/codex-rs/core/src/client_tests.rs
++++ b/codex-rs/core/src/client_tests.rs
+@@ -1771,3 +1771,18 @@ async fn non_chatgpt_codex_endpoints_omit_attestation_generation() {
+     );
+     assert_eq!(attestation_calls.load(Ordering::Relaxed), 0);
+ }
++
++#[tokio::test]
++async fn vcp_expired_header_deadline_never_polls_transport() {
++    let polled = std::cell::Cell::new(false);
++    let result = super::bounded_response_headers(std::time::Instant::now(), async {
++        polled.set(true);
++        Ok(())
++    })
++    .await;
++    assert!(matches!(result, Err(codex_api::ApiError::Stream(_))));
++    assert!(
++        !polled.get(),
++        "an expired deadline must not poll an immediately ready transport"
++    );
++}
+diff --git a/codex-rs/ext/extension-api/src/lib.rs b/codex-rs/ext/extension-api/src/lib.rs
+index 3697b25..6516089 100644
+--- a/codex-rs/ext/extension-api/src/lib.rs
++++ b/codex-rs/ext/extension-api/src/lib.rs
+@@ -107,5 +107,6 @@ pub use user_instructions::LoadedUserInstructions;
+ pub use user_instructions::ThreadInstructionsProvider;
+ pub use user_instructions::UserInstructionsProvider;
+ pub use work_admission::{
+-    HostModelPurpose, HostResponseCapture, HostWorkAdmission, HostWorkKind, HostWorkPermit,
++    HostModelFailure, HostModelPurpose, HostResponseCapture, HostWorkAdmission, HostWorkKind,
++    HostWorkPermit,
+ };
+diff --git a/codex-rs/ext/extension-api/src/work_admission.rs b/codex-rs/ext/extension-api/src/work_admission.rs
+index 13fdbef..a7891cd 100644
+--- a/codex-rs/ext/extension-api/src/work_admission.rs
++++ b/codex-rs/ext/extension-api/src/work_admission.rs
+@@ -13,6 +13,15 @@ pub enum HostModelPurpose {
+     Memory,
+ }
+ 
++/// Provider-independent classification. No credentials or provider response text.
++#[derive(Clone, Copy, Debug)]
++pub enum HostModelFailure {
++    Http(u16),
++    Timeout,
++    Transport,
++    Protocol,
++}
++
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub enum HostWorkKind {
+     Model,
+@@ -22,6 +31,24 @@ pub enum HostWorkKind {
+ /// Dropping a permit without a receipt leaves its outcome unknown. Completion
+ /// may reconcile while paused, but cannot authorize new work.
+ pub trait HostWorkPermit: Send {
++    /// Qualify a new accounted attempt. The caller waits without a store lock,
++    /// checks freshness during the wait, and retains this permit until admission.
++    fn retry_delay(
++        &mut self,
++        _failure: HostModelFailure,
++        _retry_after_ms: Option<u64>,
++    ) -> Result<Option<std::time::Duration>, String> {
++        Ok(None)
++    }
++    fn retry_current(&self) -> bool {
++        false
++    }
++    fn admit_retry(
++        &mut self,
++        _body: &mut serde_json::Value,
++    ) -> Result<Box<dyn HostWorkPermit>, String> {
++        Err("host retry is not enabled".into())
++    }
+     /// VCP: one absolute deadline covers headers and body, including keepalives.
+     fn response_deadline(&self) -> Option<std::time::Instant> {
+         None
+@@ -36,6 +63,10 @@ pub trait HostWorkPermit: Send {
+     fn response_capture(&self) -> Option<HostResponseCapture> {
+         None
+     }
++    /// Non-success HTTP bodies are raw evidence, never successful SSE events.
++    fn response_error_capture(&self) -> Option<HostResponseCapture> {
++        self.response_capture()
++    }
+     fn complete(&mut self) -> Result<(), String>;
+     /// VCP: retain provider usage with the same durable dispatch receipt.
+     fn complete_model(
