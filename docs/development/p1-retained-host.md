@@ -37,7 +37,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Suite fast
 ```
 
 The original P1 acceptance covered 70 named contracts across seven packages.
-The runner now requires 86 contracts, including the subsequent canonical coding,
+The runner now requires 87 contracts, including the subsequent canonical coding,
 authority and [verification](p2-verification.md) regressions. It records stable input hashes, actual commands,
 toolchain/filesystem identity and logs in ignored `artifacts/p1/<run>/`.
 The additional integration runner covers the retained native containment

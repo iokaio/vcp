@@ -2,9 +2,14 @@
 
 `test-context.ps1` runs 27 native repository/context and foundational type contracts
 with bounded Git observations and real artifact stores. See [P2 context](../docs/development/p2-context.md).
-`test-provider.ps1` runs 17 provider/context contracts and the retained absolute
+`test-provider.ps1` runs 21 provider/context contracts and the retained absolute
 deadline regression; [the provider guide](../docs/development/p2-provider.md)
 distinguishes scripted qualification from live compatibility.
+`test-openrouter-live.ps1` is the explicit paid P2-02 smoke gate for Luna and
+Claude Sonnet. It uses only a public synthetic marker, performs zero retries,
+requires `OPENROUTER_API_KEY`, and enforces an aggregate maximum cap of `$10`.
+It is never called by routine CI or deterministic test commands. Jev retains its
+separate later decision-adapter qualification in P6 and is not a regular runner.
 `test-policy.ps1` runs 47 authority/foundation contracts with native crash
 regressions enabled; see [authority and approvals](../docs/development/p2-policy.md).
 `test-tools.ps1` runs 31 prepared-tool/repository/verification/authority contracts and retained

@@ -29,6 +29,9 @@ mod context_continuity;
 #[path = "support/framework_verification.rs"]
 mod framework_verification;
 #[cfg(windows)]
+#[path = "support/parent_instructions.rs"]
+mod parent_instructions;
+#[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;
 #[cfg(windows)]

@@ -62,6 +62,17 @@ pub fn allowed_tools() -> AllowedTools {
     )
 }
 impl CanonicalHost {
+    /// Explicit read grants for ancestor AGENTS.md files only. Configure after
+    /// coding setup and before its first request or verification baseline.
+    pub fn configure_instruction_roots(
+        &self,
+        thread: ThreadId,
+        parents: Vec<vcp_repository::Root>,
+    ) -> Result<(), String> {
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.configure_instruction_roots(&binding, parents))
+    }
     /// Owning turn driver calls this after retained TurnComplete. The host picks
     /// the latest observed verification; model arguments cannot select old proof.
     pub fn complete_coding_turn(&self, thread: ThreadId) -> Result<CommandReceipt, String> {
