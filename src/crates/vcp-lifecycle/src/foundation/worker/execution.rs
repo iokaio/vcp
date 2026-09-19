@@ -5,7 +5,7 @@ use vcp_domain::policy::{EffectClass, Isolation};
 use vcp_tools::process::{Prepared, Profile, Request};
 impl Context {
     pub fn configure_process(&mut self, profile: Profile) -> Result<()> {
-        if !self.owner_alive {
+        if !self.owner_alive || self.authority_pending {
             return Err("owner is closed".into());
         }
         self.process_profiles.insert(profile.name().into(), profile);

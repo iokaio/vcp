@@ -7,6 +7,8 @@ operation, an `Allow` decision or a grant record is not an executable capability
 P2-04 must connect the native broker and prove actual dispatch counts before
 P2-03 acceptance is complete. Retained model-requested tools remain denied by
 the canonical host pending that adapter.
+The [coordination adapter](p2-authority-coordination.md) now fences and drains
+active work before applying authority changes; idle configuration remains usable.
 
 ## Pure decisions
 

@@ -551,8 +551,25 @@ impl Lifecycle {
     /// the waiter disappears. Unknown effects remain visible and block resume.
     /// Native process confirmation covers jobs registered through this host.
     pub fn hold(&self, id: ThreadId, expected: &Revision) -> Result<HoldWaiter, Error> {
-        let mut state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
+        let state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
         state.check(expected)?;
+        self.hold_locked(id, state)
+    }
+
+    /// Trusted controller operation: choose and fence the current owner tree
+    /// atomically, without retrying a revision observed before work completed.
+    pub(crate) fn hold_owner(&self) -> Result<HoldWaiter, Error> {
+        let state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
+        state.check(&state.revision())?;
+        let root = state.root.ok_or(Error::UnknownThread)?;
+        self.hold_locked(root, state)
+    }
+
+    fn hold_locked(
+        &self,
+        id: ThreadId,
+        mut state: std::sync::MutexGuard<'_, State>,
+    ) -> Result<HoldWaiter, Error> {
         if !state.entries.contains_key(&id) {
             return Err(Error::UnknownThread);
         }

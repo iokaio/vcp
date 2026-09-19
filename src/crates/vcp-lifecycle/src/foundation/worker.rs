@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+mod authority;
 #[cfg(windows)]
 mod execution;
 mod provider;
@@ -130,6 +131,7 @@ pub struct Context {
     outputs: HashMap<ArtifactId, (Scope, LocalWriter)>,
     interrupted_capture: bool,
     owner_alive: bool,
+    authority_pending: bool,
     provider_required: bool,
     provider: Option<provider::Provider>,
     #[cfg(windows)]
@@ -208,6 +210,7 @@ impl Context {
             outputs: HashMap::new(),
             interrupted_capture,
             owner_alive: true,
+            authority_pending: false,
             provider_required,
             provider: None,
             #[cfg(windows)]
@@ -402,6 +405,9 @@ impl Context {
         Ok(receipt)
     }
     pub fn can_start(&self, binding: &ThreadBinding) -> Result<()> {
+        if self.authority_pending {
+            return Err("authority change is stopping work".into());
+        }
         if !self.owner_alive {
             return Err("canonical owner is closed".into());
         }
@@ -427,6 +433,9 @@ impl Context {
         expected: Revision,
         fingerprint: vcp_domain::verification::Fingerprint,
     ) -> Result<CommandReceipt> {
+        if self.authority_pending {
+            return Err("authority change is stopping work".into());
+        }
         self.validate_binding(binding)?;
         if self.interrupted_capture {
             return Err("capture recovery incomplete".into());

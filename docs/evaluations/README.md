@@ -1,5 +1,7 @@
 # Reviewed evaluation summaries
 
+- [P2 authority coordination](p2-authority-coordination.md): owned stop before authority changes, partial-stream accounting and deliberate continuation.
+
 - [P2 execution ceilings](p2-execution-ceilings.md): trusted native process-count bounds and conservative opaque-operation policy checks.
 
 - [P2 owned terminal increment](p2-pty-increment.md): bounded initial input, merged output, native descendant ownership and remaining interaction/loop work.

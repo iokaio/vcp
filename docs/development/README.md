@@ -1,5 +1,7 @@
 # Development design and implementation guides
 
+- [Coordinated authority changes](p2-authority-coordination.md): stop and drain active work before policy, trust, grant, binding or steering changes; continuation stays deliberate.
+
 - [Owned terminal processes](p2-pty.md): prepared terminal input, merged output and owned ConPTY qualification.
 
 - [Prepared native processes](p2-process.md): explicit profiles, canonical dispatch, output/deadline limits and remaining PTY/recovery qualification.

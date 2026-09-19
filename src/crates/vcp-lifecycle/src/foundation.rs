@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Canonical persistence adapter for the retained controller. The worker only
 //! serializes storage operations; scheduling and interruption remain in Codex.
+mod authority;
 #[cfg(windows)]
 mod execution;
 pub mod openrouter;
@@ -10,6 +11,7 @@ mod process;
 mod tools;
 mod worker;
 use crate::{Lifecycle, OwnerLease};
+pub use authority::AuthorityChange;
 use codex_extension_api::{
     HostModelPurpose, HostResponseCapture, HostWorkAdmission, HostWorkKind, HostWorkPermit,
     TurnStartAdmission,
@@ -242,8 +244,7 @@ impl CanonicalHost {
         task: Option<TaskId>,
         expected: Revision,
     ) -> Result<CommandReceipt, String> {
-        self.worker
-            .run(move |context| context.command(command, task, expected))
+        self.command_checked(command, task, expected)
     }
     pub fn register(&self, id: ThreadId, binding: ThreadBinding) -> Result<(), String> {
         let checked = binding.clone();

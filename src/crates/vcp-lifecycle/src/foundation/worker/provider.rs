@@ -27,6 +27,9 @@ impl Context {
         raw: Vec<u8>,
         timeout: Duration,
     ) -> Result<()> {
+        if !self.owner_alive || self.authority_pending {
+            return Err("provider configuration waits for current authority owner".into());
+        }
         if timeout.is_zero() || timeout > Duration::from_secs(120) {
             return Err("provider deadline must be within 120 seconds".into());
         }

@@ -617,6 +617,119 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
             Revision::new(8),
         )
         .unwrap();
+        for terminal in [false, true] {
+            use vcp_store::contract::Collection;
+            let get_task = || -> Task {
+                host.snapshot()
+                    .unwrap()
+                    .record(
+                        Collection::Task,
+                        config.root_task.as_str(),
+                        &config.workspace,
+                    )
+                    .unwrap()
+                    .decode()
+                    .unwrap()
+            };
+            let directory = workspace.join(if terminal {
+                "steering-stop"
+            } else {
+                "policy-stop"
+            });
+            fs::create_dir(&directory).unwrap();
+            let mut bounded = profile("fixture", &executable, true);
+            if terminal {
+                bounded = bounded.with_terminal(24, 80).unwrap();
+            }
+            host.configure_process_profile(bounded).unwrap();
+            let queued = host
+                .prepare_process(id, request("write", &directory.join("queued-marker")))
+                .unwrap();
+            let live = host
+                .prepare_process(id, request("tree", &directory))
+                .unwrap();
+            let process = host.dispatch_process(live).unwrap();
+            ready(&directory.join("child-ready")).await;
+            let original = get_task();
+            let (change, target, revision) = if terminal {
+                let mut objective = original.objectives.last().unwrap().clone();
+                objective.text = "synthetic revised objective".into();
+                (
+                    Command::Steer { objective },
+                    Some(config.root_task.clone()),
+                    original.revision,
+                )
+            } else {
+                policy.revision = PolicyRevision::new(10);
+                policy.mode = Autonomy::Plan;
+                (
+                    Command::SetPolicy {
+                        policy: policy.clone(),
+                    },
+                    None,
+                    Revision::new(9),
+                )
+            };
+            assert!(host
+                .command(change.clone(), target.clone(), revision)
+                .unwrap_err()
+                .contains("coordinated"));
+            let control = host.change_authority(change, target, revision).unwrap();
+            assert_eq!(get_task().state, TaskState::Paused);
+            assert!(host
+                .prepare_process(id, request("verify", &workspace))
+                .is_err());
+            if terminal {
+                drop(control);
+                tokio::time::timeout(Duration::from_secs(10), async {
+                    while get_task().steering == original.steering {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .unwrap();
+                assert_eq!(
+                    get_task().objectives.last().unwrap().text,
+                    "synthetic revised objective"
+                );
+            } else {
+                control.wait().await.unwrap();
+            }
+            // Acknowledged authority change must itself observe native quiescence,
+            // independently of the caller subsequently collecting process results.
+            assert_eq!(process.active_process_count().unwrap(), 0);
+            let result = process.wait().await.unwrap();
+            assert_ne!(result.exit_code, Some(0));
+            use std::os::windows::fs::OpenOptionsExt;
+            assert!(fs::OpenOptions::new()
+                .write(true)
+                .share_mode(0)
+                .open(directory.join("locked"))
+                .is_ok());
+            let view = host.lifecycle().inspect(id).unwrap();
+            assert!(view.owner_attached && view.local_hold && view.interrupt_complete);
+            let paused = get_task();
+            assert!(host
+                .resume(id, paused.revision, paused.fingerprint.clone())
+                .is_err());
+            assert!(host.dispatch_process(queued).is_err());
+            assert!(!directory.join("queued-marker").exists());
+            if !terminal {
+                policy.revision = PolicyRevision::new(11);
+                policy.mode = Autonomy::Autonomous;
+                host.command(
+                    Command::SetPolicy {
+                        policy: policy.clone(),
+                    },
+                    None,
+                    Revision::new(10),
+                )
+                .unwrap();
+            }
+            host.lifecycle().resume(id, &view.revision).unwrap();
+            host.resume(id, paused.revision, paused.fingerprint)
+                .unwrap();
+        }
         let closing = workspace.join("closing-child");
         if backend == BackendKind::Sqlite {
             host.configure_process_profile(
