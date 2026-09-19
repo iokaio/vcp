@@ -194,6 +194,13 @@ is not release qualification. The selected Munarium graph includes Tantivy and
 DiskANN; release asset packaging remains qualification work. Record exact origin,
 license, selected paths and modifications as those components land.
 
+The P2 response-boundary adaptation modifies the selected Codex extension
+admission trait and retained stream/turn handling under Apache-2.0. Ordered patch
+`0020-p2-response-tool-boundary.patch` records opt-in host deferral of tool
+construction until a successful response boundary; failed streams discard those
+calls. Original upstream scheduling remains the default. Source paths, revision
+and resulting hashes are in [the Codex component record](src/third_party/components/codex.md).
+
 ## Gemini behavioral adaptation
 
 The bounded Rust policy/scheduler port in `src/crates/vcp-lifecycle/src/ports.rs`,

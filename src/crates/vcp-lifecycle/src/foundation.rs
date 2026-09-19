@@ -418,6 +418,9 @@ impl Drop for ModelPermit {
     }
 }
 impl HostWorkAdmission for CanonicalHost {
+    fn requires_completed_response(&self) -> bool {
+        true
+    }
     fn admit_startup(
         &self,
         workspace: &Path,

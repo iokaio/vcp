@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "6417e53e032dca394fb925d3ec30e8e7b2df18231fc81b0fde8ae502c4ad0f5c",
-  "files_sha256": "30fe21442b20dba458f8fd26709196b6f66f6fe848b0cc47f91b16c8d0a436e8",
+  "selection_sha256": "f25da042c4a080be01c04ed4cdb19229698d2477182acfad2d3c0eea15b1506d",
+  "files_sha256": "8aceac845060e8b5ef3e32264ea0bba1ac84e4ce141e81e4a64c1fee19fb6179",
   "files": [
     {
       "path": ".bazelignore",
@@ -37813,11 +37813,11 @@
         "sha256": "77060a5de9158ef69cc172fd9109af1cb074da15391ef03b574b6d2a362672a5"
       },
       "result": {
-        "bytes": 119902,
-        "sha256": "77060a5de9158ef69cc172fd9109af1cb074da15391ef03b574b6d2a362672a5",
+        "bytes": 120416,
+        "sha256": "9ba7f49e573e5b2354a77f9567843d9f06059599c4016e92cbe25835b9dbc71e",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/core/src/session/turn_context.rs",
@@ -38205,11 +38205,11 @@
         "sha256": "10c955dd6103faddf4c14e00e5e19e848bf24a765a4c18fa32dce580f7050fce"
       },
       "result": {
-        "bytes": 20476,
-        "sha256": "10c955dd6103faddf4c14e00e5e19e848bf24a765a4c18fa32dce580f7050fce",
+        "bytes": 21026,
+        "sha256": "084b9393d5a153b053e3921fd29e25440ae46523c274c68295bc66de05bd5f6f",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/core/src/stream_events_utils_tests.rs",
@@ -47735,8 +47735,8 @@
       "path": "codex-rs/ext/extension-api/src/work_admission.rs",
       "original": null,
       "result": {
-        "bytes": 2864,
-        "sha256": "62e6d9399ad72ee8c6d22294903ef96f76fbc7dfdb759f8e6b12321266780bb1",
+        "bytes": 3091,
+        "sha256": "60cc4dcf1db56ca6b02403cd5d53658d3c15d7a21fbb473bf82aa12ef55d4e1b",
         "mode": "100644"
       },
       "transformation": "patch-series"

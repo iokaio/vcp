@@ -47,6 +47,11 @@ pub trait HostWorkPermit: Send {
 }
 
 pub trait HostWorkAdmission: std::fmt::Debug + Send + Sync {
+    /// VCP: defer tool construction until the complete response is admitted.
+    /// A failed/interrupted stream discards pending calls without dispatch.
+    fn requires_completed_response(&self) -> bool {
+        false
+    }
     /// VCP: runs for each actual HTTP attempt after request construction. The
     /// host may insert enforceable output bounds before capturing and admitting
     /// the exact body. A permit must precede any network dispatch.

@@ -1,3 +1,4 @@
+// VCP modification: unsuccessful responses cannot dispatch deferred host tools.
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::marker::PhantomData;
@@ -3001,6 +3002,17 @@ async fn try_run_sampling_request(
     )
     .await;
 
+    if (outcome.is_err() || cancellation_token.is_cancelled())
+        && sess
+            .services
+            .extensions
+            .work_admission()
+            .is_some_and(|host| host.requires_completed_response())
+    {
+        // These futures have not constructed a native/tool task. Dropping them
+        // preserves partial response history without admitting an effect.
+        in_flight = FuturesOrdered::new();
+    }
     let tool_blocking_timing_guard = if in_flight.is_empty() {
         None
     } else {

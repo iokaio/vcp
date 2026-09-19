@@ -1,5 +1,7 @@
 # Development design and implementation guides
 
+- [Completed-response tool boundary](p2-response-tool-boundary.md): defer host tool construction until accepted completion and discard pending calls after failed streams.
+
 - [Host tool ceilings](p2-host-tool-authority.md): explicit owner configuration, canonical preflight and current authority for fresh native observations.
 
 - [Coordinated authority changes](p2-authority-coordination.md): stop and drain active work before policy, trust, grant, binding or steering changes; continuation stays deliberate.

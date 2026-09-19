@@ -1,0 +1,78 @@
+diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
+index 24e59a3..ead0e53 100644
+--- a/codex-rs/core/src/session/turn.rs
++++ b/codex-rs/core/src/session/turn.rs
+@@ -1,3 +1,4 @@
++// VCP modification: unsuccessful responses cannot dispatch deferred host tools.
+ use std::collections::HashMap;
+ use std::collections::HashSet;
+ use std::marker::PhantomData;
+@@ -3001,6 +3002,17 @@ async fn try_run_sampling_request(
+     )
+     .await;
+ 
++    if (outcome.is_err() || cancellation_token.is_cancelled())
++        && sess
++            .services
++            .extensions
++            .work_admission()
++            .is_some_and(|host| host.requires_completed_response())
++    {
++        // These futures have not constructed a native/tool task. Dropping them
++        // preserves partial response history without admitting an effect.
++        in_flight = FuturesOrdered::new();
++    }
+     let tool_blocking_timing_guard = if in_flight.is_empty() {
+         None
+     } else {
+diff --git a/codex-rs/core/src/stream_events_utils.rs b/codex-rs/core/src/stream_events_utils.rs
+index 3e3456e..89313e7 100644
+--- a/codex-rs/core/src/stream_events_utils.rs
++++ b/codex-rs/core/src/stream_events_utils.rs
+@@ -1,3 +1,4 @@
++// VCP modification: host-owned tools wait for a qualified response boundary.
+ use std::pin::Pin;
+ use std::sync::Arc;
+ 
+@@ -334,11 +335,20 @@ pub(crate) async fn handle_output_item_done(
+                 .await;
+ 
+             let cancellation_token = ctx.cancellation_token.child_token();
+-            let tool_future: InFlightFuture<'static> = Box::pin(
+-                ctx.tool_runtime
+-                    .clone()
+-                    .handle_tool_call(call, cancellation_token),
+-            );
++            let runtime = ctx.tool_runtime.clone();
++            // Constructing the retained tool future starts a Tokio task. For
++            // strict hosts, defer the constructor itself until response drain.
++            let tool_future: InFlightFuture<'static> = if ctx
++                .sess
++                .services
++                .extensions
++                .work_admission()
++                .is_some_and(|host| host.requires_completed_response())
++            {
++                Box::pin(async move { runtime.handle_tool_call(call, cancellation_token).await })
++            } else {
++                Box::pin(runtime.handle_tool_call(call, cancellation_token))
++            };
+ 
+             output.needs_follow_up = true;
+             output.tool_future = Some(tool_future);
+diff --git a/codex-rs/ext/extension-api/src/work_admission.rs b/codex-rs/ext/extension-api/src/work_admission.rs
+index d83c38f..13fdbef 100644
+--- a/codex-rs/ext/extension-api/src/work_admission.rs
++++ b/codex-rs/ext/extension-api/src/work_admission.rs
+@@ -47,6 +47,11 @@ pub trait HostWorkPermit: Send {
+ }
+ 
+ pub trait HostWorkAdmission: std::fmt::Debug + Send + Sync {
++    /// VCP: defer tool construction until the complete response is admitted.
++    /// A failed/interrupted stream discards pending calls without dispatch.
++    fn requires_completed_response(&self) -> bool {
++        false
++    }
+     /// VCP: runs for each actual HTTP attempt after request construction. The
+     /// host may insert enforceable output bounds before capturing and admitting
+     /// the exact body. A permit must precede any network dispatch.
