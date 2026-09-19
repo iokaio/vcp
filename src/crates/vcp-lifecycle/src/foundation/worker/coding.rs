@@ -20,6 +20,7 @@ pub(super) struct Loop {
     revisions: Option<Revisions>,
     calls: Vec<Eligible>,
     probes: Vec<vcp_repository::instructions::Probe>,
+    final_response: Option<Vec<ArtifactId>>,
 }
 struct Eligible {
     attempt: AttemptId,
@@ -191,6 +192,7 @@ impl Context {
                 revisions: None,
                 calls: vec![],
                 probes: vec![],
+                final_response: None,
             },
         );
         Ok(())
@@ -226,6 +228,7 @@ impl Context {
             "vcp_search",
             "vcp_patch",
             "vcp_exec",
+            "vcp_verify",
         ] {
             self.tool_identity(binding, name)?;
         }
@@ -306,6 +309,10 @@ impl Context {
         self.prepare_context(binding, sealed, schemas, vec![root])?;
         self.coding.get_mut(&binding.scope.task).unwrap().revisions = Some(current);
         self.coding.get_mut(&binding.scope.task).unwrap().probes = probes;
+        self.coding
+            .get_mut(&binding.scope.task)
+            .unwrap()
+            .final_response = None;
         Ok(())
     }
     pub(super) fn complete_coding_response(
@@ -339,6 +346,21 @@ impl Context {
             self.pause_root("provider reused an observed coding call identity")?;
             return Err("coding response reused a historical call identity".into());
         }
+        state.final_response = if response.calls.is_empty() {
+            Some(sources.clone())
+        } else {
+            None
+        };
+        if response.calls.len() > 1 && response.calls.iter().any(|call| call.name == "vcp_verify") {
+            // Retained async tasks need not acquire their execution lock in
+            // response order. Never infer that a mixed check precedes/follows
+            // sibling effects; retain explicit unexecuted pairs for reassembly.
+            for call in response.calls {
+                self.record_coding_result(binding, attempt.clone(), call,
+                    serde_json::json!({"executed":false,"complete":false,"reason":"verification requires an isolated response"}),sources.clone())?;
+            }
+            return Ok(());
+        }
         state.calls = response
             .calls
             .into_iter()
@@ -351,14 +373,61 @@ impl Context {
             .collect();
         Ok(())
     }
+    pub fn coding_completion(&self, binding: &ThreadBinding) -> Result<VerificationId> {
+        let current = self.context_revisions(binding)?;
+        let state = self
+            .coding
+            .get(&binding.scope.task)
+            .ok_or("coding setup missing")?;
+        if !state.calls.is_empty() || state.revisions.as_ref() != Some(&current) {
+            return Err("coding turn has pending calls or stale authority".into());
+        }
+        let sources = state
+            .final_response
+            .as_ref()
+            .ok_or("no accounted final coding response")?;
+        for source in sources {
+            self.coding_artifact(source)?;
+        }
+        self.latest_verification(binding)
+    }
     pub fn admit_coding_tool(
         &mut self,
         binding: &ThreadBinding,
         id: &str,
         name: &ToolName,
     ) -> Result<()> {
-        let current = self.context_revisions(binding)?;
-        self.validate_coding_sources(binding)?;
+        // Reject invented/replayed call identities before a stale-call path can
+        // change task state. Only a real completed-response call owns that path.
+        if !self.coding.get(&binding.scope.task).is_some_and(|s| {
+            s.calls.iter().any(|e| {
+                e.call.id == id
+                    && !e.admitted
+                    && AllowedTools(vec![ToolName::plain(e.call.name.clone())]).contains(name)
+            })
+        }) {
+            return Err("call is not an unconsumed accounted completed response".into());
+        }
+        let freshness = self.context_revisions(binding).and_then(|current| {
+            self.validate_coding_sources(binding)?;
+            if self
+                .coding
+                .get(&binding.scope.task)
+                .and_then(|s| s.revisions.as_ref())
+                != Some(&current)
+            {
+                return Err("coding tool context changed".into());
+            }
+            Ok(current)
+        });
+        let current = match freshness {
+            Ok(current) => current,
+            Err(error) => {
+                self.reject_coding_call(binding, id, name, &error.to_string())?;
+                self.pause_root("stale coding call requires deliberate source/authority refresh")?;
+                return Err(error);
+            }
+        };
         let state = self
             .coding
             .get_mut(&binding.scope.task)
@@ -391,8 +460,40 @@ impl Context {
         name: &str,
         arguments: &str,
     ) -> Result<(AttemptId, Call, Vec<ArtifactId>)> {
-        let current = self.context_revisions(binding)?;
-        self.validate_coding_sources(binding)?;
+        let eligible = self
+            .coding
+            .get(&binding.scope.task)
+            .and_then(|s| {
+                s.calls
+                    .iter()
+                    .find(|e| e.call.id == id && e.call.name == name && e.admitted)
+            })
+            .ok_or("one-use completed call admission required")?;
+        if arguments.len() > 256 * 1024
+            || serde_json::from_str::<serde_json::Value>(arguments)? != eligible.call.arguments
+        {
+            return Err("wrapper arguments differ from captured response".into());
+        }
+        let freshness = self.context_revisions(binding).and_then(|current| {
+            self.validate_coding_sources(binding)?;
+            if self
+                .coding
+                .get(&binding.scope.task)
+                .and_then(|s| s.revisions.as_ref())
+                != Some(&current)
+            {
+                return Err("coding tool context changed".into());
+            }
+            Ok(current)
+        });
+        let current = match freshness {
+            Ok(current) => current,
+            Err(error) => {
+                self.reject_coding_call(binding, id, &ToolName::plain(name), &error.to_string())?;
+                self.pause_root("stale coding call requires deliberate source/authority refresh")?;
+                return Err(error);
+            }
+        };
         let state = self
             .coding
             .get_mut(&binding.scope.task)
@@ -431,6 +532,7 @@ impl Context {
             "vcp_search",
             "vcp_patch",
             "vcp_exec",
+            "vcp_verify",
         ] {
             self.tool_identity(binding, name)?;
         }
@@ -441,8 +543,34 @@ impl Context {
         vcp_repository::instructions::revalidate_probes(&state.probes, &[self.tool_root()?])?;
         Ok(())
     }
+    fn reject_coding_call(
+        &mut self,
+        binding: &ThreadBinding,
+        id: &str,
+        name: &ToolName,
+        reason: &str,
+    ) -> Result<()> {
+        let Some(state) = self.coding.get_mut(&binding.scope.task) else {
+            return Ok(());
+        };
+        let Some(index) = state.calls.iter().position(|e| {
+            e.call.id == id
+                && AllowedTools(vec![ToolName::plain(e.call.name.clone())]).contains(name)
+        }) else {
+            return Ok(());
+        };
+        let call = state.calls.remove(index);
+        self.record_coding_result(
+            binding,
+            call.attempt,
+            call.call,
+            serde_json::json!({"executed":false,"complete":false,"reason":reason,"stale":true}),
+            call.sources,
+        )
+    }
     pub fn select_coding_paths(&mut self, binding: &ThreadBinding, call: &Call) -> Result<bool> {
         let paths = match call.name.as_str() {
+            "vcp_verify" => self.verification_paths(binding)?,
             "vcp_read" => vec![std::path::PathBuf::from(
                 call.arguments["path"].as_str().ok_or("read path missing")?,
             )],

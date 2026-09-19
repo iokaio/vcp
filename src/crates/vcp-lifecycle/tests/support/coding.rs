@@ -123,7 +123,7 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 if mode=="stale_instructions" { std::fs::write(directory.join("AGENTS.md"), "concurrent human guidance").unwrap(); }
                 events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("coding-{index}"),"status":"completed","output":output,"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":cost}}}));
                 let response = ResponseTemplate::new(200).insert_header("content-type", "text/event-stream").set_body_string(sse(events));
-                if mode=="deadline" {response.set_delay(Duration::from_secs(2))}else{response}
+                if mode=="deadline" {response.set_delay(Duration::from_secs(20))}else{response}
             }).mount(&server).await;
             let mut registry = ExtensionRegistryBuilder::new();
             registry.turn_start_admission(Arc::new(host.clone()));
@@ -158,7 +158,9 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     operating: "Use prepared tools and report observed evidence only.".into(),
                     affected_paths: vec!["file.txt".into()],
                     max_requests: if mode == "limit" { 2 } else { 8 },
-                    deadline: Timestamp::new(now + if mode == "deadline" { 1000 } else { 300_000 }),
+                    // Leave native capture/startup headroom before submission;
+                    // the server then withholds its response beyond this bound.
+                    deadline: Timestamp::new(now + if mode == "deadline" { 10_000 } else { 300_000 }),
                 },
             )
             .unwrap();
@@ -169,7 +171,12 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 &codex_extension_api::ToolName::plain("vcp_read")
             )
             .is_err());
-            turn(&test).await;
+            assert_eq!(
+                host.project().unwrap().tasks[&config.root_task].state,
+                TaskState::Running,
+                "invented pre-response calls cannot pause the root"
+            );
+            coding_turn(&test, backend, mode).await;
             let expected = if matches!(mode, "complete" | "nested" | "process_fail") {
                 5
             } else if mode == "limit" {
@@ -353,7 +360,7 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     &codex_extension_api::ToolName::plain("vcp_exec")
                 )
                 .is_err());
-                turn(&test).await;
+                coding_turn(&test, backend, "reopen").await;
                 assert_eq!(count.load(Ordering::SeqCst), 6);
                 let request = observed.lock().unwrap()[5].clone();
                 assert!(request
@@ -420,12 +427,7 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     }]))
                     .await
                     .unwrap();
-                tokio::time::timeout(
-                    Duration::from_secs(30),
-                    wait_for_event(&helper, |event| matches!(event, EventMsg::TurnComplete(_))),
-                )
-                .await
-                .unwrap();
+                coding_turn_complete(&helper, backend, "helper-limit").await;
                 assert_eq!(
                     count.load(Ordering::SeqCst),
                     6,
@@ -441,4 +443,35 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             }
         }
     }
+}
+
+async fn coding_turn(test: &TestCodex, backend: BackendKind, mode: &str) {
+    test.codex
+        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+            text: "Run the synthetic request.".into(),
+            text_elements: vec![],
+        }]))
+        .await
+        .unwrap();
+    coding_turn_complete(&test.codex, backend, mode).await;
+}
+
+async fn coding_turn_complete(thread: &codex_core::CodexThread, backend: BackendKind, mode: &str) {
+    let mut last = None;
+    // Native durable capture and process setup can contend with other local
+    // qualification. Product request/deadline limits remain independently set.
+    let result = tokio::time::timeout(Duration::from_secs(120), async {
+        loop {
+            let event = thread.next_event().await.unwrap();
+            if matches!(event.msg, EventMsg::TurnComplete(_)) {
+                break;
+            }
+            last = Some(event.msg);
+        }
+    })
+    .await;
+    assert!(
+        result.is_ok(),
+        "{backend:?}/{mode}: turn did not finish; last event: {last:?}"
+    );
 }
