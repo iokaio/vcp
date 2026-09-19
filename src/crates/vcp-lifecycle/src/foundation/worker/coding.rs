@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
+mod continuity;
 use super::*;
 use crate::foundation::coding::CodingConfig;
 use codex_extension_api::{AllowedTools, ToolName};
 use vcp_context::{
     manifest::{Content, Kind, Part, Revisions, Trust as ContextTrust},
-    selection::{assemble, Utf8ByteCeiling},
+    selection::{Utf8ByteCeiling, assemble},
 };
 use vcp_models::{
     request,
@@ -21,6 +22,7 @@ pub(super) struct Loop {
     calls: Vec<Eligible>,
     probes: Vec<vcp_repository::instructions::Probe>,
     final_response: Option<Vec<ArtifactId>>,
+    continuity: Option<continuity::Continuity>,
 }
 struct Eligible {
     attempt: AttemptId,
@@ -193,6 +195,7 @@ impl Context {
                 calls: vec![],
                 probes: vec![],
                 final_response: None,
+                continuity: None,
             },
         );
         Ok(())
@@ -293,6 +296,9 @@ impl Context {
             now(),
         )?;
         let probes = instructions.probes;
+        let parts = self.compact_coding_parts(binding, parts, &current, |parts| {
+            Ok(request::encode(parts, &envelope, &schemas, &snapshot)?)
+        })?;
         let sealed = assemble(
             parts,
             current.clone(),
@@ -520,6 +526,7 @@ impl Context {
         Ok((eligible.attempt, eligible.call, eligible.sources))
     }
     fn validate_coding_sources(&self, binding: &ThreadBinding) -> Result<()> {
+        self.validate_continuity_sources(binding)?;
         if self
             .coding_remaining()
             .is_some_and(|remaining| remaining.is_zero())
@@ -592,12 +599,14 @@ impl Context {
                 }
                 paths
             }
-            "vcp_exec" => vec![std::path::PathBuf::from(
-                call.arguments["directory"]
-                    .as_str()
-                    .ok_or("process directory missing")?,
-            )
-            .join(".vcp-context-scope")],
+            "vcp_exec" => vec![
+                std::path::PathBuf::from(
+                    call.arguments["directory"]
+                        .as_str()
+                        .ok_or("process directory missing")?,
+                )
+                .join(".vcp-context-scope"),
+            ],
             _ => return Ok(true),
         };
         self.validate_coding_sources(binding)?;

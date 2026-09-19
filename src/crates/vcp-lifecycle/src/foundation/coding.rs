@@ -2,7 +2,7 @@
 //! Retained tool wrappers; canonical assembly owns the actual provider body.
 use super::*;
 use codex_extension_api::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Trusted per-owner setup. It cannot be deserialized from model arguments.
 #[derive(Clone, serde::Serialize)]
@@ -66,6 +66,17 @@ impl CanonicalHost {
     /// the latest observed verification; model arguments cannot select old proof.
     pub fn complete_coding_turn(&self, thread: ThreadId) -> Result<CommandReceipt, String> {
         self.complete_when_quiescent(thread, None)
+    }
+    /// Explicit owner setup; never supplied by a model tool. Requires an
+    /// existing verification baseline so current diff/base stays authoritative.
+    pub fn configure_continuity(
+        &self,
+        thread: ThreadId,
+        config: vcp_context::compaction::Config,
+    ) -> Result<(), String> {
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.configure_continuity(&binding, config))
     }
     pub fn configure_coding(&self, thread: ThreadId, config: CodingConfig) -> Result<(), String> {
         let binding = self.binding(thread)?;

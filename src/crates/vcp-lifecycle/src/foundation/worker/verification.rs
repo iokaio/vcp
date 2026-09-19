@@ -4,8 +4,8 @@ use crate::foundation::verification::{ObservedCheck, VerificationConfig};
 use vcp_context::manifest::Revisions;
 use vcp_domain::{effect::*, verification::*};
 use vcp_repository::{
-    observation::{Manifest, Observation},
     Root,
+    observation::{Manifest, Observation},
 };
 use vcp_tools::verification::Plan;
 
@@ -107,6 +107,118 @@ impl Context {
             .filter(|e| e.scope.workspace == binding.scope.workspace)
             .collect::<Vec<_>>();
         Ok(vcp_protocol::digest_bytes(&canonical_bytes(&effects)?))
+    }
+    pub(super) fn continuity_facts(
+        &self,
+        binding: &ThreadBinding,
+    ) -> Result<(serde_json::Value, Manifest)> {
+        let setup = self
+            .verification
+            .get(&binding.scope.task)
+            .ok_or("continuity requires an owner verification baseline")?;
+        self.verification_bytes(&binding.scope, &setup.baseline_artifact)?;
+        for source in &setup.baseline.sources {
+            self.verification_bytes(&binding.scope, source)?;
+        }
+        let (_, current) = self.verification_observe(binding)?;
+        let records = &self.engine.store().state().records;
+        let effects = records
+            .values()
+            .filter(|r| r.collection == Collection::Effect)
+            .map(Record::decode::<Effect>)
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|e| e.scope.workspace == binding.scope.workspace)
+            .collect::<Vec<_>>();
+        let attempts = records
+            .values()
+            .filter(|r| r.collection == Collection::Attempt)
+            .map(Record::decode::<Attempt>)
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|a| a.root == self.config.root_task)
+            .collect::<Vec<_>>();
+        let mut uncertain_attempts = Vec::new();
+        for attempt in attempts.iter().filter(|a| {
+            !matches!(
+                a.phase,
+                ReservationState::Settled
+                    | ReservationState::Released
+                    | ReservationState::ExplicitlyResolved
+            )
+        }) {
+            let reservation: Reservation = self
+                .engine
+                .store()
+                .state()
+                .record(
+                    Collection::Reservation,
+                    attempt.reservation.as_str(),
+                    &attempt.scope.workspace,
+                )?
+                .decode()?;
+            uncertain_attempts.push(serde_json::json!({
+                "id":attempt.id,"task":attempt.scope.task,"role":attempt.role,"phase":attempt.phase,
+                "reservation":attempt.reservation,"request":attempt.request,"previous":attempt.previous,
+                "provider_request":attempt.provider_request,"quoted_reserve":attempt.quote.amount,
+                "charged":attempt.charged,"held_liability":reservation.liability,"uncertainty":attempt.uncertain,
+                "source_records_sha256":vcp_protocol::digest_bytes(&canonical_bytes(&(attempt,&reservation))?)
+            }));
+        }
+        let effect_summaries = effects
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "id":e.id,"task":e.scope.task,"state":e.state,"exit_code":e.exit_code
+                })
+            })
+            .collect::<Vec<_>>();
+        let unresolved_effects = effects
+            .iter()
+            .filter(|e| {
+                !matches!(
+                    e.state,
+                    EffectState::Succeeded | EffectState::Failed | EffectState::Cancelled
+                )
+            })
+            .collect::<Vec<_>>();
+        let stopped_effects = effects
+            .iter()
+            .filter(|e| matches!(e.state, EffectState::Failed | EffectState::Cancelled))
+            .collect::<Vec<_>>();
+        let ledger = records
+            .values()
+            .find(|r| r.collection == Collection::Ledger && r.id == self.config.root_task.as_str())
+            .map(Record::decode::<Ledger>)
+            .transpose()?;
+        let checks = records
+            .values()
+            .filter(|r| r.collection == Collection::Verification)
+            .map(Record::decode::<Verification>)
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|v| v.scope == binding.scope)
+            .collect::<Vec<_>>();
+        for report in &checks {
+            for artifact in report
+                .outputs
+                .iter()
+                .chain(report.checks.iter().map(|c| &c.output))
+            {
+                self.verification_bytes(&binding.scope, artifact)?;
+            }
+        }
+        let facts = serde_json::json!({
+            "schema":"canonical-current-continuity/1",
+            "meaning":"Current observed state kept outside historical summaries. Check applicability must be revalidated before completion.",
+            "original_base":setup.baseline.manifest,"base_artifact":setup.baseline_artifact,
+            "current_source":current.manifest,"effects":effect_summaries,"unresolved_effects":unresolved_effects,"stopped_effects":stopped_effects,
+            "effect_history_digest":vcp_protocol::digest_bytes(&canonical_bytes(&effects)?),
+            "uncertain_attempts":uncertain_attempts,"attempt_count":attempts.len(),
+            "attempt_history_digest":vcp_protocol::digest_bytes(&canonical_bytes(&attempts)?),
+            "ledger":ledger,"verification_records":checks
+        });
+        Ok((facts, current.manifest))
     }
     pub fn check_verification_command(
         &self,

@@ -60,12 +60,14 @@ it restores history references, never executable call eligibility. Cumulative
 root attempts survive reopen and include helpers/children. The strictest configured
 request limit and deadline apply across all requests, including manually prepared
 helper contexts; a child cannot widen them. Context capacity,
-deadline, unresolved calls and request-limit failures pause the root. Automatic
-compaction remains disabled until its canonical adapter is implemented.
+deadline, unresolved calls and request-limit failures pause the root. The owner
+can enable [deterministic compaction](p2-context-continuity.md) after configuring
+its verification baseline. Current facts remain mandatory, and an oversized
+compacted request still pauses before transport admission.
 
 The assembler currently selects objectives, state, instructions and tool pairs.
 Full provider bytes remain in history; this increment does not implement semantic
-selection of assistant prose, compaction, retry orchestration, ongoing terminal
+selection of assistant prose, retry orchestration, ongoing terminal
 interaction, or automatic verification-based task completion. The separate
 [native verification adapter](p2-verification.md) provides owner-driven checks
 and current-evidence completion. Its [retained tool integration](p2-loop-verification.md)
