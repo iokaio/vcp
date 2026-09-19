@@ -504,6 +504,11 @@ impl Drop for ModelPermit {
                 .run_cleanup(move |context| {
                     context.unknown(&binding, &attempt, "retained response did not complete")
                 })
+                // Dropping the response permit terminates this local producer.
+                // Its missing provider receipt remains an uncertain canonical
+                // liability; that is distinct from live retained work. Record
+                // producer termination only after that liability is durable.
+                .and_then(|()| self.runtime.complete())
                 .is_err()
             {
                 self.worker.fence();

@@ -76,6 +76,67 @@ impl Fixture {
             profile,
         }
     }
+    async fn terminal(&self, objective: &str) -> codex_utils_pty::SpawnedProcess {
+        use codex_utils_pty::{spawn_pty_process, TerminalSize};
+        use std::collections::HashMap;
+        let mut environment: HashMap<String, String> = std::env::vars().collect();
+        environment.insert(
+            "OPENROUTER_API_KEY".into(),
+            "synthetic-cli-qualification".into(),
+        );
+        let args: Vec<String> = vec![
+            "--workspace".into(),
+            self.workspace.to_string_lossy().into_owned(),
+            "--data-dir".into(),
+            self.data.to_string_lossy().into_owned(),
+            "--config".into(),
+            self.profile.to_string_lossy().into_owned(),
+            "run".into(),
+            objective.into(),
+            "--autonomy".into(),
+            "autonomous".into(),
+        ];
+        spawn_pty_process(
+            env!("CARGO_BIN_EXE_vcp"),
+            &args,
+            &self.workspace,
+            &environment,
+            &None,
+            TerminalSize {
+                rows: 30,
+                cols: 100,
+            },
+            &[],
+        )
+        .await
+        .unwrap()
+    }
+    fn task_id(&self) -> String {
+        let directory = fs::read_dir(self.data.join("workspaces"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let descriptor: Value =
+            serde_json::from_slice(&fs::read(directory.join("workspace.json")).unwrap()).unwrap();
+        descriptor["config"]["root_task"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+    async fn approval(&self, task: &str, id: Option<&str>) -> Option<Value> {
+        let output = self
+            .run(&["inspect", task, "--view", "policy", "--limit", "128"])
+            .await;
+        let values = records(&output);
+        values[0]["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["collection"] == "approval" && id.is_none_or(|id| item["id"] == id))
+            .map(|item| item["record"].clone())
+    }
     fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_vcp"));
         command
@@ -310,6 +371,295 @@ fn response(index: usize, mode: &str) -> String {
         json!({"type":"message","id":format!("final-{index}"),"role":"assistant","status":"completed","content":[{"type":"output_text","text":"Observed completion.","annotations":[]}]})
     };
     [json!({"type":"response.output_item.done","output_index":0,"item":item}),json!({"type":"response.completed","response":{"id":format!("response-{index}"),"status":"completed","output":[item],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}})].into_iter().map(|event|format!("data: {event}\n\n")).collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_terminal_pauses_steers_resizes_and_resumes_in_same_console() {
+    use codex_utils_pty::TerminalSize;
+    use std::time::Duration;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(response(0, "complete"))
+                .set_delay(Duration::from_secs(30)),
+        )
+        .mount(&server)
+        .await;
+    let fixture = Fixture::new(&server.uri(), "complete");
+    let mut child = fixture
+        .terminal("Inspect café e\u{301} 漢字 and wait for guidance")
+        .await;
+    let writer = child.session.writer_sender();
+    let output = tokio::spawn(async move {
+        let mut captured = Vec::new();
+        while let Some(bytes) = child.stdout_rx.recv().await {
+            assert!(
+                captured.len() + bytes.len() <= 2 * 1024 * 1024,
+                "terminal flood exceeded test bound"
+            );
+            captured.extend(bytes);
+        }
+        captured
+    });
+    let exercise = async {
+        while server.received_requests().await.unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let directory = fs::read_dir(fixture.data.join("workspaces"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let descriptor: Value =
+            serde_json::from_slice(&fs::read(directory.join("workspace.json")).unwrap()).unwrap();
+        let task = descriptor["config"]["root_task"].as_str().unwrap();
+        eprintln!("terminal qualification: provider started, pausing");
+        writer.send(b"/pause\r".to_vec()).await.unwrap();
+        loop {
+            let status = fixture.run(&["tasks", "status", task]).await;
+            let value = records(&status);
+            if value[0]["data"]["records"][0]["state"] == "paused" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        eprintln!("terminal qualification: paused, steering");
+        let request_count = server.received_requests().await.unwrap().len();
+        child
+            .session
+            .resize(TerminalSize { rows: 12, cols: 24 })
+            .unwrap();
+        writer
+            .send(
+                "/pause\r/cost\r/history\rKeep café e\u{301} 漢字 intact\r"
+                    .as_bytes()
+                    .to_vec(),
+            )
+            .await
+            .unwrap();
+        loop {
+            let status = fixture.run(&["tasks", "status", task]).await;
+            let value = records(&status);
+            let task = &value[0]["data"]["records"][0];
+            if task["objectives"].as_array().unwrap().last().unwrap()["text"]
+                .as_str()
+                .unwrap()
+                .contains("Keep café")
+            {
+                assert_eq!(task["state"], "paused");
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            request_count,
+            "paused input dispatched work"
+        );
+        eprintln!("terminal qualification: guidance applied, resuming");
+        child
+            .session
+            .resize(TerminalSize {
+                rows: 30,
+                cols: 100,
+            })
+            .unwrap();
+        loop {
+            writer.send(b"/resume\r".to_vec()).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            if server.received_requests().await.unwrap().len() > request_count {
+                break;
+            }
+        }
+        eprintln!("terminal qualification: resumed, cancelling");
+        writer.send(b"/cancel\r".to_vec()).await.unwrap();
+        let exit = (&mut child.exit_rx).await.unwrap();
+        assert!(
+            matches!(exit, 6 | 7),
+            "cancel must report cancellation or unresolved effects: {exit}"
+        );
+        let status = fixture.run(&["tasks", "status", task]).await;
+        assert_eq!(
+            records(&status)[0]["data"]["records"][0]["state"],
+            "cancelled"
+        );
+    };
+    if tokio::time::timeout(Duration::from_secs(90), exercise)
+        .await
+        .is_err()
+    {
+        child.session.terminate();
+        let captured = tokio::time::timeout(Duration::from_secs(5), output)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .map(|v| {
+                let text = String::from_utf8_lossy(&v);
+                text.chars()
+                    .rev()
+                    .take(12000)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect::<String>()
+            });
+        panic!("same-console terminal workflow timed out; output: {captured:?}");
+    }
+    child.session.terminate();
+    let captured = tokio::time::timeout(Duration::from_secs(10), output)
+        .await
+        .unwrap()
+        .unwrap();
+    let text = String::from_utf8_lossy(&captured);
+    assert!(
+        text.contains("/pause /resume"),
+        "interactive renderer never started: {text}"
+    );
+    assert!(!text.contains("synthetic-cli-qualification"));
+    assert_eq!(
+        fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
+        "41\n"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_terminal_question_requires_explicit_answer_and_resume() {
+    use codex_utils_pty::TerminalSize;
+    use std::time::Duration;
+    let server = MockServer::start().await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(move |_: &wiremock::Request| {
+            let index = count.fetch_add(1, Ordering::SeqCst);
+            let response = ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(response(if index == 0 { 0 } else { 2 }, "question"));
+            if index == 0 {
+                response
+            } else {
+                response.set_delay(Duration::from_secs(30))
+            }
+        })
+        .mount(&server)
+        .await;
+    let fixture = Fixture::new(&server.uri(), "question");
+    let mut child = fixture
+        .terminal("Change value to 42 only after explicit approval")
+        .await;
+    let writer = child.session.writer_sender();
+    let output = tokio::spawn(async move {
+        let mut captured = Vec::new();
+        while let Some(bytes) = child.stdout_rx.recv().await {
+            assert!(captured.len() + bytes.len() <= 2 * 1024 * 1024);
+            captured.extend(bytes);
+        }
+        captured
+    });
+    let exercise = async {
+        while calls.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let task = fixture.task_id();
+        let approval = loop {
+            if let Some(approval) = fixture.approval(&task, None).await {
+                break approval;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        assert_eq!(approval["state"], "pending");
+        let id = approval["id"].as_str().unwrap();
+        writer.send(b"/pause\r".to_vec()).await.unwrap();
+        loop {
+            let status = fixture.run(&["tasks", "status", &task]).await;
+            if records(&status)[0]["data"]["records"][0]["state"] == "paused" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let before = calls.load(Ordering::SeqCst);
+        child
+            .session
+            .resize(TerminalSize { rows: 10, cols: 20 })
+            .unwrap();
+        writer.send(b"\r/status\r/pause\r".to_vec()).await.unwrap();
+        // Allow at least two reducer ticks: redraw and blank Enter cannot choose an answer.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            fixture.approval(&task, Some(id)).await.unwrap()["state"],
+            "pending"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), before);
+        writer
+            .send(format!("/answer {id} allow\r").into_bytes())
+            .await
+            .unwrap();
+        loop {
+            if fixture.approval(&task, Some(id)).await.unwrap()["state"] == "allowed" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let status = fixture.run(&["tasks", "status", &task]).await;
+        assert_eq!(records(&status)[0]["data"]["records"][0]["state"], "paused");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            before,
+            "answer dispatched a model request"
+        );
+        assert_eq!(
+            fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
+            "41\n",
+            "answer dispatched the pending write"
+        );
+        loop {
+            writer.send(b"/resume\r".to_vec()).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            if calls.load(Ordering::SeqCst) > before {
+                break;
+            }
+        }
+        eprintln!("terminal qualification: resumed, cancelling");
+        writer.send(b"/cancel\r".to_vec()).await.unwrap();
+        assert!(matches!((&mut child.exit_rx).await.unwrap(), 6 | 7));
+    };
+    if tokio::time::timeout(Duration::from_secs(90), exercise)
+        .await
+        .is_err()
+    {
+        child.session.terminate();
+        let captured = tokio::time::timeout(Duration::from_secs(5), output)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .map(|v| {
+                let text = String::from_utf8_lossy(&v);
+                text.chars()
+                    .rev()
+                    .take(12000)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect::<String>()
+            });
+        panic!("terminal question workflow timed out; output: {captured:?}");
+    }
+    child.session.terminate();
+    let captured = tokio::time::timeout(Duration::from_secs(10), output)
+        .await
+        .unwrap()
+        .unwrap();
+    let text = String::from_utf8_lossy(&captured);
+    assert!(
+        text.contains("Answer recorded"),
+        "explicit answer receipt was not rendered: {text}"
+    );
+    assert!(!text.contains("synthetic-cli-qualification"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

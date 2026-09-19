@@ -162,6 +162,41 @@ async fn cli_control_authenticates_before_stopping_and_retries_without_another_e
                 codex_core::TurnInputSubmission::NotSubmitted { .. }
             ));
             assert_eq!(server.requests().await.len(), 1);
+            // The cancelled response producer has stopped even though no final
+            // provider usage arrived. Its money remains reserved as uncertain;
+            // that liability must not strand the retained pause forever.
+            let retained = host.lifecycle().inspect(thread).unwrap();
+            assert_eq!(retained.unresolved_work, 0);
+            let state = host.snapshot().unwrap();
+            let before = vcp_budget::ledger(&state, &task.scope).unwrap();
+            assert!(before.unresolved.get() > 0);
+            assert_eq!(before.settled, Micros::ZERO);
+            let attempts: Vec<Attempt> = state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Attempt)
+                .map(|row| row.decode().unwrap())
+                .collect();
+            assert_eq!(attempts.len(), 1);
+            assert_eq!(attempts[0].phase, ReservationState::ReconciliationPending);
+            if next == TaskState::Paused {
+                host.lifecycle().resume(thread, &retained.revision).unwrap();
+                assert!(!host.lifecycle().inspect(thread).unwrap().local_hold);
+                // Releasing the retained hold cannot bypass canonical pause.
+                assert!(matches!(
+                    test.codex
+                        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+                            text: "canonical pause still fences admission".into(),
+                            text_elements: vec![],
+                        }]))
+                        .await
+                        .unwrap(),
+                    codex_core::TurnInputSubmission::NotSubmitted { .. }
+                ));
+                let after = host.snapshot().unwrap();
+                assert_eq!(vcp_budget::ledger(&after, &task.scope).unwrap(), before);
+                assert_eq!(server.requests().await.len(), 1);
+            }
             let _ = release.send(());
             owner.close().await.unwrap();
             test.codex.shutdown_and_wait().await.unwrap();

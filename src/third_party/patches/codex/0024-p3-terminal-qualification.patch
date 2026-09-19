@@ -1,0 +1,12 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 8a86890..d4b1565 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17500,6 +17500,7 @@ dependencies = [
+  "codex-extension-api",
+  "codex-login",
+  "codex-protocol",
++ "codex-utils-pty",
+  "serde",
+  "serde_json",
+  "tempfile",

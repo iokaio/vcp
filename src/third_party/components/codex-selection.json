@@ -123,6 +123,10 @@
     {
       "path": "src/third_party/patches/codex/0023-p3-inspection-workspace.patch",
       "sha256": "7a20c3608e87f2f15c210f279034e3beb955ba380a660c16bdbaba1effab2596"
+    },
+    {
+      "path": "src/third_party/patches/codex/0024-p3-terminal-qualification.patch",
+      "sha256": "6fd256d2b49eaf9364dfc2f2288a855b40a21815eb4276dfda89bbf2e23808ce"
     }
   ],
   "licenses": [

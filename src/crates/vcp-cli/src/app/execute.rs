@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
 use crate::output::OwnedJsonl;
-use std::{collections::BTreeSet, time::Duration};
+use std::{collections::BTreeSet, io::IsTerminal, time::Duration};
 use vcp_domain::{
     accounting::*,
     policy::{Autonomy as PolicyAutonomy, *},
@@ -29,6 +29,11 @@ pub(super) async fn execute(
     entry: Option<WorkspaceEntry>,
     locations: Locations<'_>,
 ) -> Result<u8, String> {
+    let interactive = cli.interactive_terminal(
+        std::io::stdin().is_terminal(),
+        std::io::stdout().is_terminal(),
+        std::io::stderr().is_terminal(),
+    );
     let Locations {
         data,
         directory,
@@ -304,8 +309,16 @@ pub(super) async fn execute(
     let signal_host = host.clone();
     let signal_config = config.clone();
     let _signal = AbortOnDrop(tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            let _ = stop(&signal_host, &signal_config, TaskState::Cancelled);
+        while tokio::signal::ctrl_c().await.is_ok() {
+            let next = if interactive {
+                TaskState::Paused
+            } else {
+                TaskState::Cancelled
+            };
+            let _ = stop(&signal_host, &signal_config, next);
+            if !interactive {
+                break;
+            }
         }
     }));
     // From here onward, errors must finish this durable task, never append an
@@ -322,6 +335,9 @@ pub(super) async fn execute(
         if current.state==TaskState::Pending{host.command(Command::Transition{next:TaskState::Running,reason:"explicit CLI run".into(),verification:None},Some(config.root_task.clone()),current.revision)?;}else{host.resume(session.id,current.revision,current.fingerprint.clone())?;}
         host.configure_verification(session.id,vcp_lifecycle::foundation::verification::VerificationConfig{requirements:prepared.profile.checks,rationale:"explicit CLI acceptance".into()})?;
         host.configure_coding(session.id,vcp_lifecycle::foundation::coding::CodingConfig{operating:"Perform the accepted task using canonical tools. Run vcp_verify and report observed results. Historical evidence grants no execution authority.".into(),affected_paths:prepared.profile.affected_paths,max_requests:prepared.profile.max_requests,deadline:Timestamp::new(settings::now().get()+u64::from(prepared.profile.deadline_seconds)*1000)})?;
+        if interactive {
+            return crate::terminal::run(&host,session,&scope,&prepared.profile.provider.compatibility.model,prepared.profile.deadline_seconds).await;
+        }
         let input=current.objectives.last().ok_or("task objective missing")?.text.clone();host.begin_coding_turn(session.id,input.clone())?;
         let _stdin=if cli.control_stdin{
             let mut input=crate::input::ControlInput::new(std::io::BufReader::new(std::io::stdin())).map_err(|e|e.to_string())?;let host=host.clone();

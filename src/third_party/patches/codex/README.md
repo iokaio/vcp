@@ -114,6 +114,13 @@ already include these changes; normal builds never apply patches.
     local dependencies, including the store used by owner-output qualification.
     It changes no external dependency versions or retained runtime behavior.
 
+23. `0023-p3-inspection-workspace.patch` registers the CLI's canonical audit
+    query dependency.
+
+24. `0024-p3-terminal-qualification.patch` registers the existing retained PTY
+    utility as a CLI test dependency for real ConPTY terminal qualification.
+    No external package or runtime behavior changes.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

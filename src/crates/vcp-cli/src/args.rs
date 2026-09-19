@@ -146,6 +146,19 @@ pub struct ValidatedCli {
     pub command: ValidatedCommand,
 }
 
+impl ValidatedCli {
+    /// A redirected stream or automation input keeps the finite CLI protocol.
+    /// The terminal renderer writes stderr, so it must also be a console.
+    pub fn interactive_terminal(&self, stdin: bool, stdout: bool, stderr: bool) -> bool {
+        self.format == Format::Text
+            && !self.non_interactive
+            && !self.control_stdin
+            && stdin
+            && stdout
+            && stderr
+    }
+}
+
 pub enum ValidatedCommand {
     Run(ValidatedRun),
     Resume(Resume),
