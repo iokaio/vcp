@@ -24,8 +24,12 @@ use vcp_store::{
 #[serde(tag = "kind", deny_unknown_fields)]
 pub enum Query {
     Sessions,
-    Task { task: TaskId },
-    Inspect { id: String, view: View },
+    Task {
+        task: TaskId,
+    },
+    Inspect {
+        request: vcp_audit::inspection::InspectionQuery,
+    },
 }
 
 pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Value, String> {
@@ -40,42 +44,16 @@ pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Va
             vec![serde_json::to_value(task_from(state, workspace, task)?)
                 .map_err(|e| e.to_string())?]
         }
-        Query::Inspect { id, view } => {
-            let target = state
-                .records
-                .values()
-                .find(|r| r.workspace == *workspace && r.id == *id)
-                .ok_or("inspection target unavailable")?;
-            let task = if target.collection == Collection::Task {
-                Some(target.id.as_str())
-            } else {
-                target
-                    .value
-                    .pointer("/scope/task")
-                    .or_else(|| target.value.pointer("/spec/scope/task"))
-                    .and_then(Value::as_str)
-            };
-            if task.is_none() {
-                return Err("inspection target has no task scope".into());
-            }
-            if matches!(view, View::Memory | View::Routing) {
-                return Ok(
-                    json!({"watermark":state.watermark,"workspace":workspace,"capabilities":vcp_lifecycle::foundation::coding::capabilities(),"view":view}),
-                );
-            }
-            state.records.values().filter(|r|{
-                if r.workspace!=*workspace {return false;}
-                let scoped=r.value.pointer("/scope/task").or_else(||r.value.pointer("/spec/scope/task")).and_then(Value::as_str)==task;
-                match view {
-                    View::Policy=>matches!(r.collection,Collection::Workspace|Collection::Approval|Collection::Access)&&(scoped||r.collection!=Collection::Approval),
-                    View::Costs=>scoped&&matches!(r.collection,Collection::Ledger|Collection::Reservation|Collection::Attempt|Collection::Settlement),
-                    View::Tools=>scoped&&matches!(r.collection,Collection::Effect|Collection::Artifact),
-                    View::Verification=>scoped&&r.collection==Collection::Verification,
-                    View::Prompts=>scoped&&r.collection==Collection::Artifact&&r.value.pointer("/spec/channel").and_then(Value::as_str)==Some("request_body"),
-                    View::Outputs=>scoped&&r.collection==Collection::Artifact&&matches!(r.value.pointer("/spec/channel").and_then(Value::as_str),Some("response"|"stdout"|"stderr"|"child_transcript")),
-                    _=>scoped&&r.collection==Collection::Artifact&&r.value.pointer("/spec/channel").and_then(Value::as_str)==Some("evidence"),
-                }
-            }).map(|r|json!({"collection":r.collection,"id":r.id,"revision":r.revision,"record":r.value})).collect()
+        Query::Inspect { request } => {
+            return serde_json::to_value(
+                vcp_audit::inspection::records(
+                    state,
+                    &inspection_access(state, workspace)?,
+                    request,
+                )
+                .map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string());
         }
     };
     let mut records = Vec::new();
@@ -90,6 +68,39 @@ pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Va
     Ok(
         json!({"watermark":state.watermark,"workspace":workspace,"truncated":records.len()<selected.len(),"records":records}),
     )
+}
+fn inspection_access(
+    state: &State,
+    workspace: &WorkspaceId,
+) -> Result<vcp_audit::history::Access, String> {
+    let current: vcp_domain::workspace::Workspace = state
+        .record(Collection::Workspace, workspace.as_str(), workspace)
+        .and_then(|r| r.decode())
+        .map_err(|e| e.to_string())?;
+    Ok(vcp_audit::history::Access {
+        workspace: workspace.clone(),
+        authority: current.authority,
+        read: true,
+        tasks: None,
+    })
+}
+pub fn query_store(
+    store: &Store,
+    workspace: &WorkspaceId,
+    request: &Query,
+) -> Result<Value, String> {
+    if let Query::Inspect { request } = request {
+        return serde_json::to_value(
+            vcp_audit::inspection::inspect(
+                store,
+                &inspection_access(store.state(), workspace)?,
+                request,
+            )
+            .map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string());
+    }
+    query(store.state(), workspace, request)
 }
 fn task_from(state: &State, workspace: &WorkspaceId, task: &TaskId) -> Result<Task, String> {
     state
@@ -227,9 +238,8 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
     let read = match &cli.command {
         ValidatedCommand::Sessions(Sessions::List) => Some(Query::Sessions),
         ValidatedCommand::Tasks(Tasks::Status { task }) => Some(Query::Task { task: task.clone() }),
-        ValidatedCommand::Inspect { id, view } => Some(Query::Inspect {
-            id: id.clone(),
-            view: *view,
+        ValidatedCommand::Inspect { request } => Some(Query::Inspect {
+            request: request.clone(),
         }),
         _ => None,
     };
@@ -243,7 +253,7 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         .await;
         let value = match store {
             Ok(store) => {
-                let value = query(store.state(), &entry.config.workspace, &query_request);
+                let value = query_store(&store, &entry.config.workspace, &query_request);
                 store.close().await.map_err(|e| e.to_string())?;
                 value?
             }

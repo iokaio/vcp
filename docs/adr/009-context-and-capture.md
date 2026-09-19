@@ -1,7 +1,7 @@
 # ADR-009 — Versioned context and full activity capture
 
-Status: P1 capture and P2 context continuity qualified; P3 evidence inspectors remain open.
-Decision gate: P1-03 and P2-08 complete; P3-03 remains open. Runtime evidence is linked below; owner release sign-off remains separate.
+Status: P1 capture, P2 context continuity and P3 common evidence inspectors qualified.
+Decision gate: P1-03, P2-08 and the common/current-state P3-03 increment complete. Runtime evidence is linked below; owner release sign-off remains separate.
 
 ## Context and authority
 
@@ -55,3 +55,10 @@ that incremental limitation: retained send fencing, parent-instruction
 applicability, envelope admission, deterministic complete-pair compaction,
 preserved originals and fresh-process continuity pass in the canonical host.
 P3-03 still owns the user-facing exact prompt/history inspectors.
+
+[P3-03 inspector qualification](../development/p3-inspection.md) now covers paged
+canonical relationships and exact captured request/output ranges with current
+access and retention checks. Captured requests match actual synthetic HTTP input
+in both closed-store and live-owner queries. Memory-specific retrieval and
+retention controls remain later work; full-digest range verification retains its
+documented I/O cost.

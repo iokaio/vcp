@@ -53,6 +53,16 @@ pub enum Command {
         id: String,
         #[arg(long, value_enum)]
         view: View,
+        #[arg(long, default_value_t = 64, value_parser = clap::value_parser!(u32).range(1..=128))]
+        limit: u32,
+        /// JSON cursor returned by the preceding page.
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Read an artifact byte range on demand.
+        #[arg(long, requires = "length", conflicts_with = "cursor")]
+        offset: Option<u64>,
+        #[arg(long, requires = "offset", conflicts_with = "cursor", value_parser = clap::value_parser!(u32).range(1..=65536))]
+        length: Option<u32>,
     },
 }
 #[derive(Debug, Args)]
@@ -105,6 +115,7 @@ pub enum Tasks {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum View {
+    Chain,
     Context,
     Prompts,
     Outputs,
@@ -140,7 +151,9 @@ pub enum ValidatedCommand {
     Resume(Resume),
     Sessions(Sessions),
     Tasks(Tasks),
-    Inspect { id: String, view: View },
+    Inspect {
+        request: vcp_audit::inspection::InspectionQuery,
+    },
 }
 
 impl Cli {
@@ -157,7 +170,34 @@ impl Cli {
             Command::Resume(resume) => ValidatedCommand::Resume(resume),
             Command::Sessions { command } => ValidatedCommand::Sessions(command),
             Command::Tasks { command } => ValidatedCommand::Tasks(command),
-            Command::Inspect { id, view } => ValidatedCommand::Inspect { id, view },
+            Command::Inspect {
+                id,
+                view,
+                limit,
+                cursor,
+                offset,
+                length,
+            } => {
+                let view =
+                    serde_json::from_value(serde_json::to_value(view).map_err(|e| e.to_string())?)
+                        .map_err(|e| e.to_string())?;
+                let cursor = cursor
+                    .map(|s| {
+                        serde_json::from_str(&s).map_err(|_| "invalid inspection cursor".to_owned())
+                    })
+                    .transpose()?;
+                ValidatedCommand::Inspect {
+                    request: vcp_audit::inspection::InspectionQuery {
+                        id,
+                        view,
+                        limit,
+                        cursor,
+                        range: offset.zip(length).map(|(offset, length)| {
+                            vcp_audit::inspection::RangeRequest { offset, length }
+                        }),
+                    },
+                }
+            }
         };
         Ok(ValidatedCli {
             workspace,

@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "65422b5ecc126fbe236ff8d56038072456c1f4b00e9cfffefbc3cfaf868e9911",
-  "files_sha256": "91572fa6fbe38727546a5a271e28dcf4f76f2b623b29f5452c6473e3fdbbd3fe",
+  "selection_sha256": "d683c3dc88b0121433d4bdc9e67640c90b676e01a84068be1c2dafabe4eae744",
+  "files_sha256": "10e08862cd8658862da8c637901dc10d760326761093e354e690d00fe0c3b519",
   "files": [
     {
       "path": ".bazelignore",
@@ -545,8 +545,8 @@
         "sha256": "582bb7fb0b7d4c7cab24b4e3b8cc28344ddfe146ffbf2297448a3e995eead2b7"
       },
       "result": {
-        "bytes": 434865,
-        "sha256": "af8a94a9847a39c47dad050a8f79310c5fdebc4ee8ed96e82dc0258f8fc3427a",
+        "bytes": 434879,
+        "sha256": "eae14de17c5a19765d5ab32221ddcf2706de581dfeb047dc34cc0f00d877f3e6",
         "mode": "100644"
       },
       "transformation": "patch-series"

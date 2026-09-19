@@ -213,6 +213,43 @@ async fn executable_owner_controls_authenticate_and_cancel_inflight_work() {
     let status = fixture.run(&["tasks", "status", task.as_str()]).await;
     assert_eq!(status.status.code(), Some(0));
     records(&status);
+    let prompts = fixture
+        .run(&["inspect", task.as_str(), "--view", "prompts"])
+        .await;
+    assert_eq!(
+        prompts.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&prompts.stderr)
+    );
+    let prompts = records(&prompts)[0]["data"]["items"].clone();
+    let artifact = prompts
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["collection"] == "artifact")
+        .unwrap();
+    let content = fixture
+        .run(&[
+            "inspect",
+            artifact["id"].as_str().unwrap(),
+            "--view",
+            "prompts",
+            "--offset",
+            "0",
+            "--length",
+            "65536",
+        ])
+        .await;
+    assert_eq!(
+        content.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&content.stderr)
+    );
+    let bytes: Vec<u8> =
+        serde_json::from_value(records(&content)[0]["data"]["items"][0]["bytes"].clone()).unwrap();
+    assert_eq!(bytes, server.received_requests().await.unwrap()[0].body);
     let envelope = control::request(
         &pipe,
         &Request::Prepare {
@@ -338,7 +375,7 @@ async fn executable_closed_consumer_pauses_before_send_and_resume_keeps_its_cap(
     );
     let costs = fixture.run(&["inspect", task, "--view", "costs"]).await;
     let values = records(&costs);
-    let ledger = values[0]["data"]["records"]
+    let ledger = values[0]["data"]["items"]
         .as_array()
         .unwrap()
         .iter()
@@ -407,6 +444,76 @@ async fn executable_runs_verifies_lists_inspects_and_forks() {
         );
         records(&output);
     }
+    // P3-03: page canonical evidence and recover the exact bytes sent to HTTP.
+    let mut cursor: Option<String> = None;
+    let mut inspected = Vec::new();
+    loop {
+        let mut args = vec!["inspect", task, "--view", "chain", "--limit", "32"];
+        if let Some(token) = &cursor {
+            args.extend(["--cursor", token]);
+        }
+        let output = fixture.run(&args).await;
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let data = records(&output)[0]["data"].clone();
+        inspected.extend(data["items"].as_array().unwrap().iter().cloned());
+        if data["next_cursor"].is_null() {
+            break;
+        }
+        cursor = Some(data["next_cursor"].to_string());
+    }
+    for collection in ["attempt", "reservation", "effect", "verification", "access"] {
+        assert!(
+            inspected.iter().any(|i| i["collection"] == collection),
+            "missing {collection}"
+        );
+    }
+    let request_artifacts: Vec<_> = inspected
+        .iter()
+        .filter(|i| i.pointer("/record/spec/channel") == Some(&json!("request_body")))
+        .collect();
+    assert!(!request_artifacts.is_empty());
+    let http_requests = server.received_requests().await.unwrap();
+    for artifact in request_artifacts {
+        let id = artifact["id"].as_str().unwrap();
+        let mut offset = 0u64;
+        let mut bytes = Vec::new();
+        loop {
+            let offset_text = offset.to_string();
+            let output = fixture
+                .run(&[
+                    "inspect",
+                    id,
+                    "--view",
+                    "prompts",
+                    "--offset",
+                    &offset_text,
+                    "--length",
+                    "65536",
+                ])
+                .await;
+            assert_eq!(
+                output.status.code(),
+                Some(0),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let item = records(&output)[0]["data"]["items"][0].clone();
+            bytes.extend(serde_json::from_value::<Vec<u8>>(item["bytes"].clone()).unwrap());
+            let Some(next) = item["next_offset"].as_u64() else {
+                break;
+            };
+            offset = next;
+        }
+        assert!(
+            http_requests.iter().any(|r| r.body == bytes),
+            "inspector must return actual serialized request bytes"
+        );
+    }
     let turns: Vec<_> = values
         .iter()
         .flat_map(|v| {
@@ -420,7 +527,7 @@ async fn executable_runs_verifies_lists_inspects_and_forks() {
     assert!(!turns.is_empty(), "completed turn event must be visible");
     let turn = turns.last().unwrap()["id"].as_str().unwrap();
     let before = records(&fixture.run(&["inspect", task, "--view", "tools"]).await)[0]["data"]
-        ["records"]
+        ["items"]
         .clone();
     let fork = fixture
         .run(&["sessions", "fork", session, "--through-turn", turn])
@@ -441,7 +548,7 @@ async fn executable_runs_verifies_lists_inspects_and_forks() {
     assert!(inherited.contains("canonical-coding-fork-history/1"));
     assert!(inherited.contains("Observed completion."));
     let after = records(&fixture.run(&["inspect", task, "--view", "tools"]).await)[0]["data"]
-        ["records"]
+        ["items"]
         .clone();
     assert_eq!(
         before, after,

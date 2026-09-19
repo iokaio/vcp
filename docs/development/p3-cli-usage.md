@@ -1,7 +1,7 @@
 # Structured native CLI
 
-P3-01 supplies the Windows `vcp` executable. P3-02's interactive terminal and
-P3-03's paged artifact-content inspectors are separate work items.
+P3-01 supplies the Windows `vcp` executable and P3-03 supplies paged evidence
+inspection. P3-02's interactive terminal remains a separate work item.
 
 Build from `src/third_party/codex/codex-rs` in a native Visual C++ x64 environment:
 
@@ -86,10 +86,52 @@ An unreachable owner is an explicit error and never creates another writer.
 values on an inherited input handle, with the same checks and bounded framing.
 Read-only commands use the live owner when the canonical store is locked.
 
-Inspect views are `context`, `prompts`, `outputs`, `routing`, `policy`, `tools`,
-`costs`, `verification`, and `memory`. P3-01 returns bounded records and artifact
-references, with explicit truncation. Memory is not ready; routing reports the
-fixed qualified-model capability. Full artifact browsing belongs to P3-03.
+Inspect views are `chain`, `context`, `prompts`, `outputs`, `routing`, `policy`,
+`tools`, `costs`, `verification`, and `memory`. P3-03 returns an `InspectionPage`
+in result `data`: task/workspace/session `scope`, `source_watermark`, `view`,
+`items`, explicit `gaps`, and `next_cursor`. Session/status commands retain their
+existing `records` shape. Memory search is not ready (P5-06); routing exposes
+existing attempts and captured evidence with an explicit fixed-model limitation.
+Requested model identity is separate from served identity; the latter is not
+normalized in canonical attempts and must be read from captured response evidence
+when the provider actually reported it.
+
+```text
+vcp inspect <task-or-effect-id> --view chain --limit 32
+vcp inspect <same-id> --view chain --limit 32 --cursor '<next_cursor JSON>'
+vcp inspect <artifact-id> --view prompts --offset 0 --length 65536
+```
+
+`chain` includes canonical relationships and chronological events, so tool
+proposal/authority, dispatch, outcome, request/reservation and verification can
+be followed without executing anything. Other views filter canonical records;
+context and policy evidence artifacts retain manifests, instruction/path
+provenance, omission reasons and prepared policy receipts. Use each artifact ID
+with `--offset`/`--length` to read that evidence. Collection-qualified references
+identify records; use their task scope with the corresponding view to inspect
+shared workspace authority.
+
+Pages contain at most 128 items and 512 KiB of record/event payload. Pass the
+returned cursor unchanged with the same target, view and limit. A changed
+canonical watermark, authority or retention scope requires restarting without a
+cursor; pages never silently mix revisions. Oversized individual records/events
+are explicitly marked truncated.
+
+Artifact reads return at most 64 KiB, with exact `bytes` (`byte_array` encoding),
+optional valid UTF-8 `text`, byte offsets, descriptor and `next_offset`. Continue
+until `next_offset` is null to retrieve the retained content. These are captured
+bytes, never a reconstruction from current workspace files. Split UTF-8 and
+binary content remain lossless in `bytes`; terminal output JSON-escapes controls.
+Pruned and missing content return a gap with source identity, not a fabricated
+empty result. Aborted/pending capture and excluded authentication/recovery
+material have explicit omission/redaction markers. Current workspace, task
+access and retention are checked for every read, also through the live owner.
+
+Range memory is bounded. The existing spool verifies the whole artifact digest
+on each range read, so I/O still scales with artifact size. No unauthenticated
+seek index or second transcript database is introduced.
+
+Qualification and scope: [P3-03 evidence inspectors](p3-inspection.md).
 
 JSONL version 1 emits `accepted`, `event`, `required_input`, `cursor_gap`, and one
 final `result`. Task results carry scope, all observed conditions, and a durable

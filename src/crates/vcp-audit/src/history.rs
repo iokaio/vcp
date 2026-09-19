@@ -83,7 +83,7 @@ pub struct Access {
     pub read: bool,
     pub tasks: Option<BTreeSet<TaskId>>,
 }
-fn authorize(state: &State, access: &Access) -> Result<Workspace> {
+pub(crate) fn authorize(state: &State, access: &Access) -> Result<Workspace> {
     if !access.read {
         return Err(Error::Access);
     }
@@ -99,7 +99,7 @@ fn authorize(state: &State, access: &Access) -> Result<Workspace> {
     }
     Ok(workspace)
 }
-fn allows(access: &Access, task: Option<&TaskId>) -> bool {
+pub(crate) fn allows(access: &Access, task: Option<&TaskId>) -> bool {
     access
         .tasks
         .as_ref()
@@ -154,7 +154,7 @@ pub struct RetentionMask {
     pub deletion: DeletionEpoch,
     pub reason: String,
 }
-fn masks(state: &State, workspace: &WorkspaceId) -> Result<Vec<RetentionMask>> {
+pub(crate) fn masks(state: &State, workspace: &WorkspaceId) -> Result<Vec<RetentionMask>> {
     let mut result = Vec::new();
     for record in state
         .records

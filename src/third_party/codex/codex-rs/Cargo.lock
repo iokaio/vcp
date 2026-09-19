@@ -17504,6 +17504,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "vcp-audit",
  "vcp-domain",
  "vcp-engine",
  "vcp-lifecycle",

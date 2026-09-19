@@ -166,7 +166,12 @@ async fn handle(
         Request::Query {
             workspace: requested,
             query,
-        } if requested == *workspace => crate::app::query(&host.snapshot()?, workspace, &query),
+        } if requested == *workspace => match query {
+            crate::app::Query::Inspect { request } => {
+                serde_json::to_value(host.inspect(request)?).map_err(|e| e.to_string())
+            }
+            query => crate::app::query(&host.snapshot()?, workspace, &query),
+        },
         Request::Prepare {
             workspace: requested,
             task,
