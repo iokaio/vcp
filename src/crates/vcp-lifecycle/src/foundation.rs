@@ -3,6 +3,8 @@
 //! serializes storage operations; scheduling and interruption remain in Codex.
 mod authority;
 #[cfg(windows)]
+pub mod coding;
+#[cfg(windows)]
 mod execution;
 pub mod openrouter;
 #[cfg(windows)]
@@ -418,6 +420,25 @@ impl Drop for ModelPermit {
     }
 }
 impl HostWorkAdmission for CanonicalHost {
+    #[cfg(windows)]
+    fn admit_tool(
+        &self,
+        thread: ThreadId,
+        call_id: &str,
+        name: &codex_extension_api::ToolName,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        let binding = self.binding(thread)?;
+        let call_id = call_id.to_owned();
+        let name = name.clone();
+        self.worker
+            .run(move |context| context.admit_coding_tool(&binding, &call_id, &name))?;
+        HostWorkAdmission::admit(
+            &self.runtime,
+            thread,
+            HostWorkKind::Tool,
+            "canonical-coding-wrapper",
+        )
+    }
     fn requires_completed_response(&self) -> bool {
         true
     }

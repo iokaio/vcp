@@ -7,6 +7,29 @@ use vcp_models::{catalog::*, request::*, retry::*, stream::*, Error};
 fn tools() -> Value {
     json!([{"type":"function","name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}])
 }
+#[test]
+fn nullable_tool_input_accepts_only_explicit_string_or_null() {
+    let mut schema = tools();
+    schema[0]["parameters"]["properties"]["path"]["type"] = json!(["string", "null"]);
+    let parsed = Tools::parse(&schema).unwrap();
+    assert!(parsed
+        .validate_call("read_file", r#"{"path":null}"#)
+        .is_ok());
+    assert!(parsed
+        .validate_call("read_file", r#"{"path":"line\n"}"#)
+        .is_ok());
+    for invalid in [r#"{"path":1}"#, r#"{"path":[]}"#, r#"{}"#] {
+        assert!(parsed.validate_call("read_file", invalid).is_err());
+    }
+    for unsupported in [
+        json!(["string", "integer"]),
+        json!(["string", "string"]),
+        json!(["string", "null", "boolean"]),
+    ] {
+        schema[0]["parameters"]["properties"]["path"]["type"] = unsupported;
+        assert!(Tools::parse(&schema).is_err());
+    }
+}
 fn stream() -> Stream {
     Stream::new(Tools::parse(&tools()).unwrap())
 }

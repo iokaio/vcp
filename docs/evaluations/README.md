@@ -1,5 +1,7 @@
 # Reviewed evaluation summaries
 
+- [P2 canonical coding loop](p2-canonical-coding-loop.md): native retained read/edit/process traces, nested guidance, uncertain charges and deliberate reopen.
+
 - [P2 response tool boundary](p2-response-tool-boundary.md): native strict/default scheduling controls, interrupted streams and source reconstruction.
 
 - [P2 host tool authority](p2-host-tool-authority.md): separate host denials, grants/policy precedence and native preflight qualification.

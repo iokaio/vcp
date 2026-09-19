@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 mod authority;
 #[cfg(windows)]
+mod coding;
+#[cfg(windows)]
 mod execution;
 mod provider;
 #[cfg(windows)]
@@ -135,6 +137,8 @@ pub struct Context {
     provider_required: bool,
     provider: Option<provider::Provider>,
     #[cfg(windows)]
+    coding: HashMap<TaskId, coding::Loop>,
+    #[cfg(windows)]
     process_profiles: HashMap<String, vcp_tools::process::Profile>,
 }
 fn now() -> Timestamp {
@@ -214,6 +218,8 @@ impl Context {
             authority_pending: false,
             provider_required,
             provider: None,
+            #[cfg(windows)]
+            coding: HashMap::new(),
             #[cfg(windows)]
             process_profiles: HashMap::new(),
         };
@@ -750,6 +756,13 @@ impl Context {
             .provider
             .as_ref()
             .map(|provider| std::time::Instant::now() + provider.timeout);
+        #[cfg(windows)]
+        let deadline = match (deadline, self.coding_remaining()) {
+            (Some(provider), Some(remaining)) => {
+                Some(provider.min(std::time::Instant::now() + remaining))
+            }
+            (other, _) => other,
+        };
         Ok((attempt.id, body, deadline))
     }
     pub fn response_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {
@@ -973,6 +986,7 @@ impl Context {
             &actor,
             reason,
         ))?;
+        self.pause_root("provider outcome requires accounting reconciliation")?;
         Ok(())
     }
 }

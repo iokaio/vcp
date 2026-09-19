@@ -2,9 +2,10 @@
 
 P2-05 is in progress. The retained Codex loop remains the scheduler. Its host
 admission trait now offers `requires_completed_response()`, defaulting to false
-for existing callers. `CanonicalHost` enables it. Registered prepared tool
-wrappers and automatic context assembly are subsequent work; the production
-canonical host still denies model-requested tools.
+for existing callers. `CanonicalHost` enables it. The subsequent
+[canonical coding milestone](p2-canonical-coding-loop.md) adds registered prepared
+wrappers and automatic context assembly; other model-requested handlers remain
+denied.
 
 When this requirement is enabled, receiving a completed tool item records the
 observation but defers construction of its execution future. This distinction

@@ -8,6 +8,9 @@ impl Context {
         if !self.owner_alive || self.authority_pending {
             return Err("owner is closed".into());
         }
+        if !self.coding.is_empty() {
+            return Err("process profile refresh requires fresh coding owner setup".into());
+        }
         self.process_profiles.insert(profile.name().into(), profile);
         Ok(())
     }
@@ -33,6 +36,11 @@ impl Context {
         binding: &ThreadBinding,
         prepared: &Prepared,
     ) -> Result<vcp_policy::Decision> {
+        if self.coding_remaining().is_some_and(|remaining| {
+            u128::from(prepared.authority().operation().timeout_ms.get()) > remaining.as_millis()
+        }) {
+            return Err("prepared process exceeds remaining coding deadline".into());
+        }
         let current = self
             .process_profiles
             .get(prepared.profile().name())

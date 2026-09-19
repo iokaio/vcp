@@ -28,7 +28,7 @@ Caching admission conservatively uses at least the ordinary input rate.
 
 `request.rs` supports text messages and local function tools with a bounded JSON
 schema subset: typed objects with explicit properties/no additional keys,
-required keys, arrays, scalar types and enums. Unknown schema keywords, remote
+required keys, arrays, scalar types, explicit string/null unions and enums. Unknown schema keywords, remote
 tools, multimodal content and hidden provider plugins are incompatible. Logical
 trust, source ranges and scoped instruction applicability remain attributed in
 the conversion. Tool arguments must match a registered schema.

@@ -90,9 +90,7 @@ fn schema(value: &Value, depth: usize, nodes: &mut usize) -> Result<()> {
     }) {
         return Err(Error::Capability("unsupported schema keyword"));
     }
-    let kind = value["type"]
-        .as_str()
-        .ok_or(Error::Capability("explicit schema type"))?;
+    let (kind, _) = schema_kind(value)?;
     if !matches!(
         kind,
         "object" | "array" | "string" | "integer" | "number" | "boolean" | "null"
@@ -134,6 +132,22 @@ fn schema(value: &Value, depth: usize, nodes: &mut usize) -> Result<()> {
     }
     Ok(())
 }
+fn schema_kind(schema: &Value) -> Result<(&str, bool)> {
+    if let Some(kind) = schema["type"].as_str() {
+        return Ok((kind, false));
+    }
+    // Explicit nullable strings cover bounded terminal input. General unions
+    // require their own compatibility qualification.
+    if let Some(kinds) = schema["type"].as_array() {
+        if kinds.len() == 2
+            && kinds.contains(&Value::String("string".into()))
+            && kinds.contains(&Value::String("null".into()))
+        {
+            return Ok(("string", true));
+        }
+    }
+    Err(Error::Capability("explicit supported schema type"))
+}
 fn conforms(schema: &Value, value: &Value, depth: usize) -> Result<()> {
     if depth > 8 {
         return Err(Error::Limit("argument nesting"));
@@ -144,7 +158,11 @@ fn conforms(schema: &Value, value: &Value, depth: usize) -> Result<()> {
     {
         return Err(Error::Protocol("argument enum"));
     }
-    let valid = match schema["type"].as_str().unwrap() {
+    let (kind, nullable) = schema_kind(schema)?;
+    if nullable && value.is_null() {
+        return Ok(());
+    }
+    let valid = match kind {
         "object" => {
             let values = value
                 .as_object()

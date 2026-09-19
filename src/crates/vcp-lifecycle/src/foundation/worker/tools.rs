@@ -94,6 +94,12 @@ impl Context {
         binding: &ThreadBinding,
         prepared: &vcp_tools::Prepared,
     ) -> Result<vcp_policy::Decision> {
+        if self
+            .coding_remaining()
+            .is_some_and(|remaining| remaining.is_zero())
+        {
+            return Err("canonical coding deadline elapsed before tool dispatch".into());
+        }
         let decision = self.authority_decision(
             binding,
             prepared.authority(),
