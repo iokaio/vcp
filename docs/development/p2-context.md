@@ -69,7 +69,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Suite fast
 
 The context runner requires native Windows, Rust 1.98.0, Visual C++ x64 tools,
 Git and the existing offline dependency cache. It verifies selected source and
-records input hashes, commands, toolchain, filesystem and the 19 actual tests.
+records input hashes, commands, toolchain, filesystem and the 22 current tests (including native mutation regressions added in P2-04).
 Missing prerequisites return `not_run`. Ordinary baseline toolchain selection is
 unchanged. Synthetic fixtures use disposable directories; no credentials or
 paid calls are required. Outputs remain under ignored `artifacts/context/`.

@@ -95,6 +95,10 @@
     {
       "path": "src/third_party/patches/codex/0016-p2-policy-workspace.patch",
       "sha256": "8ed3ff5b38ddd4a26d4f65c1699e76d65ed534b7d5c5d25318a3d87b60de651c"
+    },
+    {
+      "path": "src/third_party/patches/codex/0017-p2-prepared-files.patch",
+      "sha256": "2586f5646042619a7a54137814f25f8fcc71b976119107105150ec6cc3c33048"
     }
   ],
   "licenses": [

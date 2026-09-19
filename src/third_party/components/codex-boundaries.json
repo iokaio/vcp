@@ -1062,6 +1062,59 @@
         "history",
         "policy"
       ]
+    },
+    {
+      "id": "pure-exact-patch-preparation",
+      "group": "tools-policy",
+      "package": "codex-apply-patch",
+      "path": "apply-patch/src/file_update.rs",
+      "symbol": "pub fn prepare_file_update(",
+      "observation": "Pure exact unambiguous preparation reuses retained mixed-line-ending machinery without filesystem calls.",
+      "effect_class": "pure",
+      "vcp_boundary": "tool-broker",
+      "effects": []
+    },
+    {
+      "id": "native-file-preparation",
+      "group": "prepared-tools",
+      "package": "vcp-tools",
+      "path": "../../../crates/vcp-tools/src/lib.rs",
+      "symbol": "pub fn prepare(",
+      "observation": "Bounded root reads and literal schemas bind native versions, absent destinations and complete before/after bytes; no candidate mutation occurs.",
+      "effect_class": "read-only",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "file-read"
+      ]
+    },
+    {
+      "id": "native-file-mutation",
+      "group": "repository-observation",
+      "package": "vcp-repository",
+      "path": "../../../crates/vcp-repository/src/mutation.rs",
+      "symbol": "pub fn apply(",
+      "observation": "Trusted broker must commit intent before staged version-checked native file effects; partial outcomes and actual namespace identity remain explicit.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "filesystem"
+      ]
+    },
+    {
+      "id": "canonical-file-broker",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation/tools.rs",
+      "symbol": "pub fn dispatch_tool(",
+      "observation": "Owner-bound one-use tickets recheck current authority before each native file and preserve per-file intent/outcome artifacts without automatic rollback.",
+      "effect_class": "effectful",
+      "vcp_boundary": "tool-broker",
+      "effects": [
+        "filesystem",
+        "history",
+        "policy",
+        "scheduler"
+      ]
     }
   ],
   "groups": [
@@ -1260,7 +1313,8 @@
       "handling": "retain-with-adapters",
       "owner_tasks": [
         "P0-05",
-        "P0-08"
+        "P0-08",
+        "P2-04"
       ],
       "gate": "Prepared revision-checked effects, current policy and durable dispatch/receipts; policy-file amendment and migration are writes, not pure matching.",
       "effect_ceiling": "effectful",
@@ -1679,7 +1733,8 @@
         "P1-06",
         "P2-01",
         "P2-02",
-        "P2-03"
+        "P2-03",
+        "P2-04"
       ],
       "gate": "Retained controller with one canonical storage/accounting worker, private current-authority commands, per-HTTP admission/raw capture and native output observation. Earlier P0 journal is a separate regression fixture; P2/P3 own provider and product CLI policy.",
       "effect_ceiling": "effectful",
@@ -1813,7 +1868,8 @@
       ],
       "handling": "retain-with-adapters",
       "owner_tasks": [
-        "P2-01"
+        "P2-01",
+        "P2-04"
       ],
       "gate": "Explicit native root handles and bounded contained Git observations; parent access only through registered instruction roots. Product policy integration remains P2 work.",
       "effect_ceiling": "effectful",
@@ -1871,6 +1927,26 @@
       ],
       "gate": "Pure immutable prepared-operation identity and trusted-denial/scoped-grant decisions; canonical engine owns durable questions, answers and policy records. Native dispatch remains a separate broker gate.",
       "effect_ceiling": "pure",
+      "vcp_boundary": "tool-broker"
+    },
+    {
+      "id": "prepared-tools",
+      "packages": [
+        "vcp-tools"
+      ],
+      "capabilities": [
+        "data",
+        "instruction",
+        "filesystem",
+        "process",
+        "network"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P2-04"
+      ],
+      "gate": "Trusted scoped observations and pure retained patch preparation produce immutable arguments, source versions and candidate bytes. Canonical native broker owns actual effects; broad dependency capabilities are not authority.",
+      "effect_ceiling": "effectful",
       "vcp_boundary": "tool-broker"
     }
   ],

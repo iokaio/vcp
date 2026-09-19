@@ -1,16 +1,17 @@
+// VCP modification: expose pure exact preparation with ambiguous-match rejection.
 use codex_exec_server::ExecutorFileSystem;
 use codex_exec_server::FileSystemSandboxContext;
 use codex_exec_server::ReadFileOptions;
 use codex_utils_path_uri::PathUri;
 use similar::TextDiff;
 
+use crate::seek_sequence;
+use crate::text_file::Replacement;
+use crate::text_file::SourceFile;
 use crate::ApplyPatchError;
 use crate::ApplyPatchFileUpdateMode;
 use crate::IoError;
 use crate::UpdateFileChunk;
-use crate::seek_sequence;
-use crate::text_file::Replacement;
-use crate::text_file::SourceFile;
 
 #[cfg(test)]
 #[path = "file_update_tests.rs"]
@@ -59,7 +60,7 @@ pub(crate) async fn derive_new_contents_from_chunks(
             }
 
             let replacements =
-                compute_replacements(&original_lines, &path_text, chunks, update_file_mode)?;
+                compute_replacements(&original_lines, &path_text, chunks, update_file_mode, false)?;
             let mut new_lines = apply_replacements(original_lines, &replacements);
             if !new_lines.last().is_some_and(String::is_empty) {
                 new_lines.push(String::new());
@@ -70,7 +71,7 @@ pub(crate) async fn derive_new_contents_from_chunks(
             let mut source_file = SourceFile::parse(&original_contents);
             let original_lines = source_file.line_texts();
             let replacements =
-                compute_replacements(&original_lines, &path_text, chunks, update_file_mode)?;
+                compute_replacements(&original_lines, &path_text, chunks, update_file_mode, false)?;
             source_file.apply_replacements(&replacements);
             source_file.into_contents()
         }
@@ -81,6 +82,52 @@ pub(crate) async fn derive_new_contents_from_chunks(
     })
 }
 
+/// VCP: compute candidate bytes without filesystem access. Exact context must
+/// identify one occurrence; fuzzy matching cannot silently choose a different edit.
+pub fn prepare_file_update(
+    original: &str,
+    chunks: &[UpdateFileChunk],
+) -> Result<String, ApplyPatchError> {
+    let mut source = SourceFile::parse(original);
+    let replacements = compute_replacements(
+        &source.line_texts(),
+        "prepared source",
+        chunks,
+        ApplyPatchFileUpdateMode::PreserveLineEndings,
+        true,
+    )?;
+    source.apply_replacements(&replacements);
+    Ok(source.into_contents())
+}
+
+fn find_sequence(
+    lines: &[String],
+    pattern: &[String],
+    start: usize,
+    eof: bool,
+    mode: ApplyPatchFileUpdateMode,
+    strict: bool,
+) -> Option<usize> {
+    if !strict {
+        return seek_sequence::seek_sequence(lines, pattern, start, eof, mode);
+    }
+    if pattern.is_empty() {
+        return Some(start);
+    }
+    if pattern.len() > lines.len() {
+        return None;
+    }
+    let end = lines.len() - pattern.len();
+    let begin = if eof { end.max(start) } else { start };
+    let mut matches = (begin..=end).filter(|&i| lines[i..i + pattern.len()] == *pattern);
+    let first = matches.next()?;
+    if matches.next().is_some() {
+        None
+    } else {
+        Some(first)
+    }
+}
+
 /// Compute a list of replacements needed to transform `original_lines` into the
 /// new lines, given the patch `chunks`. Each replacement is returned as
 /// `(start_index, old_len, new_lines)`.
@@ -89,6 +136,7 @@ fn compute_replacements(
     path: &str,
     chunks: &[UpdateFileChunk],
     update_file_mode: ApplyPatchFileUpdateMode,
+    strict: bool,
 ) -> std::result::Result<Vec<Replacement>, ApplyPatchError> {
     let mut replacements: Vec<Replacement> = Vec::new();
     let mut line_index: usize = 0;
@@ -97,12 +145,13 @@ fn compute_replacements(
         // If a chunk has a `change_context`, we use seek_sequence to find it, then
         // adjust our `line_index` to continue from there.
         if let Some(ctx_line) = &chunk.change_context {
-            if let Some(idx) = seek_sequence::seek_sequence(
+            if let Some(idx) = find_sequence(
                 original_lines,
                 std::slice::from_ref(ctx_line),
                 line_index,
                 /*eof*/ false,
                 update_file_mode,
+                strict,
             ) {
                 line_index = idx + 1;
             } else {
@@ -142,17 +191,18 @@ fn compute_replacements(
         // touching the end‑of‑file can be located reliably.
 
         let mut pattern: &[String] = &chunk.old_lines;
-        let mut found = seek_sequence::seek_sequence(
+        let mut found = find_sequence(
             original_lines,
             pattern,
             line_index,
             chunk.is_end_of_file,
             update_file_mode,
+            strict,
         );
 
         let mut new_slice: &[String] = &chunk.new_lines;
 
-        if found.is_none() && pattern.last().is_some_and(String::is_empty) {
+        if !strict && found.is_none() && pattern.last().is_some_and(String::is_empty) {
             // Retry without the trailing empty line which represents the final
             // newline in the file.
             pattern = &pattern[..pattern.len() - 1];
@@ -160,12 +210,13 @@ fn compute_replacements(
                 new_slice = &new_slice[..new_slice.len() - 1];
             }
 
-            found = seek_sequence::seek_sequence(
+            found = find_sequence(
                 original_lines,
                 pattern,
                 line_index,
                 chunk.is_end_of_file,
                 update_file_mode,
+                strict,
             );
         }
 

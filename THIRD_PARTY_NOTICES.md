@@ -98,6 +98,10 @@ deadline through retained HTTP response headers/body. Existing external dependen
 pins remain unchanged; see [the provider guide](docs/development/p2-provider.md).
 Patch 0016 registers the original policy package and canonical store/engine
 dependencies without changing external pins. See [the authority guide](docs/development/p2-policy.md).
+Patch 0017 exposes pure exact/unambiguous preparation in the retained apply-patch
+engine, reusing its original line-ending machinery, and registers the original
+prepared-tools package. Existing caller behavior and external pins are unchanged.
+See [the native file guide](docs/development/p2-tools.md).
 
 Patch 0013 adapts retained HTTP request/response and private host admission seams
 to the canonical foundation. Original VCP host code reuses those APIs and existing

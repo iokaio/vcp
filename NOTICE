@@ -47,6 +47,9 @@ The P2 context patch registers original repository and context packages with
 existing pinned dependencies and retained native process containment.
 The P2 provider patch registers original codec/host dependencies and adds a host
 deadline to retained HTTP response headers and body without changing external pins.
+The P2 prepared-file patch exposes pure exact preparation in the retained Codex
+patch engine and registers original native tool dependencies. Original upstream
+line-ending and parser behavior is retained for existing callers.
 The P2 policy patch registers original authority evaluation and canonical policy
 dependencies using the same external dependency pins.
 The canonical host patch adapts retained HTTP admission and raw-body capture

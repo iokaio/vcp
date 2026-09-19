@@ -4,6 +4,8 @@
 pub mod openrouter;
 #[cfg(windows)]
 mod process;
+#[cfg(windows)]
+mod tools;
 mod worker;
 use crate::{Lifecycle, OwnerLease};
 use codex_extension_api::{
@@ -19,6 +21,8 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+#[cfg(windows)]
+pub use tools::{ToolOutcome, ToolProposal};
 use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, workspace::*};
 use vcp_protocol::command::{Command, CommandReceipt};
 use vcp_store::{contract::State, BackendKind};
@@ -50,6 +54,7 @@ pub struct CanonicalHost {
     runtime: Lifecycle,
     worker: worker::Worker,
     bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
+    tool_conflict: Arc<Mutex<()>>,
 }
 pub struct CanonicalOwner {
     runtime: Option<OwnerLease>,
@@ -177,6 +182,7 @@ impl CanonicalHost {
                 runtime,
                 worker,
                 bindings: Arc::new(Mutex::new(HashMap::new())),
+                tool_conflict: Arc::new(Mutex::new(())),
             },
             owner,
         ))

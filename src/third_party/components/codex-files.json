@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "a7d49aa7199bc9a94374ec024bb0492b8d3be23d8f44e53d6d65c9d384efeb1f",
-  "files_sha256": "a264e6a79f332eaa5fdafcb40ae63af6785e5a508e43c3a57a3dc5aae59bcaf7",
+  "selection_sha256": "396d537a2ebc71c44dcc3c9f89f5620432f918612a4ca1c43bcab123b91535a0",
+  "files_sha256": "f08100ac0284dc4cc1dc2273037b0178181729caa483ceadfbe1c3bbe62fd6ec",
   "files": [
     {
       "path": ".bazelignore",
@@ -545,8 +545,8 @@
         "sha256": "582bb7fb0b7d4c7cab24b4e3b8cc28344ddfe146ffbf2297448a3e995eead2b7"
       },
       "result": {
-        "bytes": 434220,
-        "sha256": "00adcd74c6027751f28c62b13b0aff869aed1e7bd8c14ec02a22f4138607d58a",
+        "bytes": 434465,
+        "sha256": "53bc5bb67b8cfb96fcfb10edca1ae39e2542355f34d3f2dbdd33a28e8ec21302",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -559,8 +559,8 @@
         "sha256": "5f531fe8a45a1ab7d9cf56f03eb31dfb5ec2ecfb7574bebaada6130382e5877f"
       },
       "result": {
-        "bytes": 20985,
-        "sha256": "23d35f18eb39a099d14b31c4b26960ac20326cfdd97940a89a13d796afeb9a16",
+        "bytes": 21097,
+        "sha256": "1b5d728bc832dcf7dd344bb7021dbabcc694d6051c0db209bda751d097c7bb5e",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -22231,11 +22231,11 @@
         "sha256": "f954105ba036f1c3748fc2ed605ce9a677d619e56ce25f89bffdcad3377734f9"
       },
       "result": {
-        "bytes": 12338,
-        "sha256": "f954105ba036f1c3748fc2ed605ce9a677d619e56ce25f89bffdcad3377734f9",
+        "bytes": 13808,
+        "sha256": "4dbbf132710f81a5d2aaa4c3100d2c311525c1340dfc1f3bb4af3be023d0cd27",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/apply-patch/src/file_update_tests.rs",
@@ -22273,11 +22273,11 @@
         "sha256": "5e6f736f3a4b66c1d651baa9b85ce6e6921de170faf901e6c2f78ad9a383eaf9"
       },
       "result": {
-        "bytes": 47610,
-        "sha256": "5e6f736f3a4b66c1d651baa9b85ce6e6921de170faf901e6c2f78ad9a383eaf9",
+        "bytes": 47807,
+        "sha256": "216139c2580bc7e8fb84782c585584c6a646ce112f9557cb627c093f3ce0e8b7",
         "mode": "100644"
       },
-      "transformation": "none"
+      "transformation": "patch-series"
     },
     {
       "path": "codex-rs/apply-patch/src/main.rs",

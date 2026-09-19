@@ -17567,9 +17567,11 @@ dependencies = [
  "vcp-domain",
  "vcp-engine",
  "vcp-models",
+ "vcp-policy",
  "vcp-protocol",
  "vcp-repository",
  "vcp-store",
+ "vcp-tools",
  "wiremock",
 ]
 
@@ -17666,6 +17668,21 @@ dependencies = [
  "vcp-domain",
  "vcp-policy",
  "vcp-protocol",
+]
+
+[[package]]
+name = "vcp-tools"
+version = "0.1.0"
+dependencies = [
+ "codex-apply-patch",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "vcp-domain",
+ "vcp-policy",
+ "vcp-protocol",
+ "vcp-repository",
 ]
 
 [[package]]

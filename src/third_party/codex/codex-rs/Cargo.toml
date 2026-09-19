@@ -3,6 +3,8 @@ members = [
     # VCP modification: OpenRouter codec and bounded provider normalization.
     "../../../crates/vcp-models",
     "../../../crates/vcp-policy",
+    # VCP modification: prepared native file tools behind canonical authority.
+    "../../../crates/vcp-tools",
     # VCP modification: scoped repository/context consumers of the canonical foundation.
     "../../../crates/vcp-repository",
     "../../../crates/vcp-context",
