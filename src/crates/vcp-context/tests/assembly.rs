@@ -107,6 +107,259 @@ fn encode(parts: &[Part], envelope: &Envelope, tools: &Value) -> Result<Vec<u8>>
     )?)
 }
 
+fn handoff_fixture() -> vcp_context::handoff::Packet {
+    let rev = revisions();
+    let mut parts = base(&rev);
+    for content in [
+        Content::ToolCall {
+            id: "call-1".into(),
+            name: "read".into(),
+            arguments: json!({"path":"file"}),
+        },
+        Content::ToolResult {
+            id: "call-1".into(),
+            output: "untrusted historical output".into(),
+        },
+    ] {
+        let bytes = content.bytes().unwrap();
+        let kind = if matches!(content, Content::ToolCall { .. }) {
+            Kind::ToolCall
+        } else {
+            Kind::ToolResult
+        };
+        let mut p = part(
+            &rev,
+            if kind == Kind::ToolCall {
+                "call"
+            } else {
+                "result"
+            },
+            kind,
+            Trust::Untrusted,
+            std::str::from_utf8(&bytes).unwrap(),
+        );
+        p.content = content;
+        parts.push(p);
+    }
+    let sealed = assemble(
+        parts,
+        rev.clone(),
+        envelope(20_000),
+        json!([]),
+        vec![],
+        &Utf8ByteCeiling,
+        encode,
+    )
+    .unwrap();
+    let references = sealed
+        .manifest
+        .included
+        .iter()
+        .map(|p| ArtifactDescriptor {
+            spec: ArtifactSpec {
+                id: p.artifact.clone(),
+                scope: rev.scope.clone(),
+                media_type: "application/json".into(),
+                schema: "fixture/1".into(),
+                source: "synthetic".into(),
+                channel: Channel::Evidence,
+                retention: "history".into(),
+                omissions: vec![],
+            },
+            state: CaptureState::Complete,
+            length: p.source_length,
+            sha256: p.source_hash.clone(),
+            retained: vec![Range {
+                start: ByteCount::ZERO,
+                end: p.source_length,
+            }],
+        })
+        .collect();
+    let ledger = vcp_domain::accounting::Ledger {
+        schema_version: 1,
+        scope: rev.scope,
+        revision: Revision::ZERO,
+        policy: PolicyRevision::ZERO,
+        currency: "USD".to_owned().try_into().unwrap(),
+        cap: Micros::new(1000),
+        protected: Micros::new(100),
+        settled: Micros::new(200),
+        active: Micros::new(50),
+        unresolved: Micros::new(75),
+        allocations: Default::default(),
+        daily: None,
+        overrun: false,
+    };
+    vcp_context::handoff::Packet::new(
+        sealed.manifest,
+        ledger,
+        json!({"unknown_effect":"must reconcile"}),
+        references,
+        vec![],
+    )
+    .unwrap()
+}
+
+#[test]
+fn handoff_preserves_complete_pairs_constraints_and_uncertain_budget_on_destination_reassembly() {
+    let packet = handoff_fixture();
+    assert_eq!(packet.remaining.get(), 575);
+    let restored: vcp_context::handoff::Packet =
+        serde_json::from_slice(&vcp_protocol::canonical_bytes(&packet).unwrap()).unwrap();
+    let mut target = envelope(9000);
+    target.model = "different-provider/model".into();
+    let sealed = restored
+        .reassemble(
+            &packet.manifest.revisions,
+            &packet.ledger,
+            target,
+            json!([]),
+            &Utf8ByteCeiling,
+            |id| {
+                Ok(packet
+                    .manifest
+                    .included
+                    .iter()
+                    .find(|p| &p.artifact == id)
+                    .unwrap()
+                    .content
+                    .bytes()
+                    .unwrap())
+            },
+            encode,
+        )
+        .unwrap();
+    assert_eq!(sealed.manifest.included, packet.manifest.included);
+    assert_eq!(sealed.manifest.envelope.model, "different-provider/model");
+    assert!(std::str::from_utf8(sealed.body())
+        .unwrap()
+        .contains("Preserve the user's staged edits"));
+}
+
+#[test]
+fn handoff_rejects_incompatible_pairs_small_envelopes_and_revoked_or_modified_sources() {
+    let packet = handoff_fixture();
+    for target in [
+        Envelope {
+            supports_tools: false,
+            ..envelope(9000)
+        },
+        Envelope {
+            preserves_trust: false,
+            ..envelope(9000)
+        },
+        envelope(200),
+    ] {
+        assert!(packet
+            .reassemble(
+                &packet.manifest.revisions,
+                &packet.ledger,
+                target,
+                json!([]),
+                &Utf8ByteCeiling,
+                |id| packet
+                    .manifest
+                    .included
+                    .iter()
+                    .find(|p| &p.artifact == id)
+                    .unwrap()
+                    .content
+                    .bytes(),
+                encode
+            )
+            .is_err());
+    }
+    assert!(packet
+        .reassemble(
+            &packet.manifest.revisions,
+            &packet.ledger,
+            envelope(9000),
+            json!([]),
+            &Utf8ByteCeiling,
+            |_| Err(Error::Stale),
+            encode
+        )
+        .is_err());
+    assert!(packet
+        .reassemble(
+            &packet.manifest.revisions,
+            &packet.ledger,
+            envelope(9000),
+            json!([]),
+            &Utf8ByteCeiling,
+            |_| Ok(b"changed".to_vec()),
+            encode
+        )
+        .is_err());
+}
+
+#[test]
+fn handoff_rejects_stale_steering_accounting_scope_and_orphan_results() {
+    let packet = handoff_fixture();
+    let mut current = packet.manifest.revisions.clone();
+    current.steering = current.steering.next().unwrap();
+    assert!(packet
+        .reassemble(
+            &current,
+            &packet.ledger,
+            envelope(9000),
+            json!([]),
+            &Utf8ByteCeiling,
+            |_| panic!("reject stale authority before reads"),
+            encode
+        )
+        .is_err());
+    let mut ledger = packet.ledger.clone();
+    ledger.unresolved = Micros::new(80);
+    assert!(packet
+        .reassemble(
+            &packet.manifest.revisions,
+            &ledger,
+            envelope(9000),
+            json!([]),
+            &Utf8ByteCeiling,
+            |_| panic!("reject changed liability before reads"),
+            encode
+        )
+        .is_err());
+    let mut forged = packet.clone();
+    forged.references[0].spec.scope.task = TaskId::new();
+    assert!(forged
+        .reassemble(
+            &packet.manifest.revisions,
+            &packet.ledger,
+            envelope(9000),
+            json!([]),
+            &Utf8ByteCeiling,
+            |_| panic!("reject foreign reference before reads"),
+            encode
+        )
+        .is_err());
+    let mut orphan = packet.clone();
+    orphan
+        .manifest
+        .included
+        .retain(|p| p.kind != Kind::ToolCall);
+    assert!(orphan
+        .reassemble(
+            &packet.manifest.revisions,
+            &packet.ledger,
+            envelope(9000),
+            json!([]),
+            &Utf8ByteCeiling,
+            |id| packet
+                .manifest
+                .included
+                .iter()
+                .find(|p| &p.artifact == id)
+                .unwrap()
+                .content
+                .bytes(),
+            encode
+        )
+        .is_err());
+}
+
 #[test]
 fn hostile_evidence_stays_attributed_and_mandatory_state_survives_smaller_envelopes() {
     let revisions = revisions();
