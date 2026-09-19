@@ -74,7 +74,7 @@ async fn backends_share_atomicity_receipts_scope_and_revision_contract() {
         assert!(store.transact(missing).await.is_err());
         assert_eq!(store.state(), snapshot.state());
         store.checkpoint().unwrap();
-        drop(store);
+        store.close().await.unwrap();
         let mut reopened = Store::open(&root, backend, &[]).await.unwrap();
         assert_eq!(reopened.state(), snapshot.state());
         assert_eq!(
@@ -87,7 +87,7 @@ async fn backends_share_atomicity_receipts_scope_and_revision_contract() {
         );
         assert_eq!(reopened.transact(transaction).await.unwrap(), receipt);
         assert!(reopened.configuration().await.is_ok());
-        drop(reopened);
+        reopened.close().await.unwrap();
         assert!(Store::open(
             &root,
             if backend == BackendKind::Sqlite {
