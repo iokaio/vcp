@@ -45,6 +45,10 @@ pub enum Command {
     Initialize {
         binding: Binding,
     },
+    CreateSession {
+        id: SessionId,
+        fork_through: Option<TurnId>,
+    },
     CreateTask {
         root: TaskId,
         parent: Option<TaskId>,

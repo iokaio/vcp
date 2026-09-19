@@ -38,6 +38,10 @@ pub struct ResultBody {
     /// opaque reasoning cannot establish that the response is usable.
     #[serde(default)]
     pub visible_text_bytes: u64,
+    /// Completed message identities and text, never speculative deltas. This
+    /// evidence can be quoted by a conversation fork without replaying calls.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub completed_messages: BTreeMap<String, String>,
     pub raw_terminal_sha256: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -378,6 +382,7 @@ impl Stream {
                         .map(|text| text.trim().len() as u64)
                         .sum(),
                     raw_terminal_sha256: vcp_protocol::digest_bytes(text.as_bytes()),
+                    completed_messages: self.messages.clone(),
                 });
                 self.terminal_data = Some(text.into());
                 Ok(Some(Event::TerminalObserved))

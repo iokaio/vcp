@@ -1205,6 +1205,50 @@
         "history",
         "scheduler"
       ]
+    },
+    {
+      "id": "vcp-cli-output-owner",
+      "group": "vcp-cli",
+      "package": "vcp-cli",
+      "path": "../../../crates/vcp-cli/src/output.rs",
+      "symbol": "pub struct OwnedJsonl",
+      "observation": "A bounded writer carries bytes only; output failure closes the canonical owner and invokes durable pause.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "filesystem",
+        "process"
+      ]
+    },
+    {
+      "id": "vcp-cli-structured-control",
+      "group": "vcp-cli",
+      "package": "vcp-cli",
+      "path": "../../../crates/vcp-cli/src/input.rs",
+      "symbol": "pub struct ControlInput",
+      "observation": "Bounded private input framing carries authenticated command envelopes to the canonical stop path independently of output backpressure; the reader owns no execution capability.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "process"
+      ]
+    },
+    {
+      "id": "vcp-cli-private-owner",
+      "group": "vcp-cli",
+      "package": "vcp-cli",
+      "path": "../../../crates/vcp-cli/src/control.rs",
+      "symbol": "pub fn serve",
+      "observation": "Current-user-only Windows pipe with explicit DACL and remote-client rejection delivers bounded scoped controls to the existing canonical owner; no second writer or public attach service.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "scheduler",
+        "process",
+        "credential"
+      ]
     }
   ],
   "groups": [
@@ -2038,6 +2082,28 @@
       "gate": "Trusted scoped observations and pure retained patch preparation produce immutable arguments, source versions and candidate bytes. Canonical native broker owns actual effects; broad dependency capabilities are not authority.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "tool-broker"
+    },
+    {
+      "id": "vcp-cli",
+      "packages": [
+        "vcp-cli"
+      ],
+      "capabilities": [
+        "data",
+        "scheduler",
+        "clock",
+        "filesystem",
+        "process",
+        "network",
+        "credential"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P3-01"
+      ],
+      "gate": "Native CLI commands enter the canonical retained owner; current-user-only private controls cannot create another writer. Bounded output loss invokes durable owner shutdown. Synthetic executable qualification never enables production endpoint overrides.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
     }
   ],
   "classification_scope": "Every selected package inherits an explicit conservative module effect ceiling and primary owner; named entries refine that envelope after source review, including delegates/callbacks. These are trust classifications, not formal purity proof, runtime enforcement or an exhaustive per-function call graph."

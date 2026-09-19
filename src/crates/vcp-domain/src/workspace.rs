@@ -66,6 +66,9 @@ pub struct Session {
     pub revision: Revision,
     pub configuration: Revision,
     pub fork_origin: Option<SessionId>,
+    /// Immutable canonical turn boundary; later events are not inherited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_through: Option<TurnId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

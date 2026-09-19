@@ -120,6 +120,8 @@ async fn setup(
                 },
             )
             .unwrap();
+            host.begin_coding_turn(id, "Run the synthetic request.".into())
+                .unwrap();
         }
     } else {
         let sealed = sealed_provider_context(&host, id, &snapshot, None);
@@ -458,6 +460,18 @@ async fn provider_retry_reassembles_coding_continuity_with_current_liability() {
             1
         );
         let state = host.snapshot().unwrap();
+        let turns: Vec<vcp_domain::task::Turn> = state
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Turn)
+            .map(|row| row.decode().unwrap())
+            .collect();
+        assert_eq!(
+            turns.len(),
+            1,
+            "retry remains within the submitted user turn"
+        );
+        assert_eq!(turns[0].state, vcp_domain::task::TurnState::Verifying);
         let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
         assert_eq!(ledger.unresolved.get(), 100);
         assert_eq!(ledger.settled.get(), 100);
@@ -478,6 +492,86 @@ async fn provider_retry_reassembles_coding_continuity_with_current_liability() {
         assert_eq!(handoffs[1]["remaining"], "1000");
         drop(requests);
         owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn coding_budget_denial_is_durable_before_any_provider_send() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (host, owner, binding, test, server) =
+            setup(&temp, backend, Duration::from_secs(10), 1, true).await;
+        turn(&test).await;
+        let state = host.snapshot().unwrap();
+        let turns: Vec<vcp_domain::task::Turn> = state
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Turn)
+            .map(|row| row.decode().unwrap())
+            .collect();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].state, vcp_domain::task::TurnState::BudgetExhausted);
+        assert_eq!(
+            state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Attempt)
+                .count(),
+            0
+        );
+        assert!(server.received_requests().await.unwrap().is_empty());
+        let task: Task = state
+            .record(
+                Collection::Task,
+                binding.scope.task.as_str(),
+                &binding.scope.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let cancel = host
+            .control_envelope(
+                CommandId::new(),
+                binding.scope.task.clone(),
+                task.revision,
+                Command::Transition {
+                    next: TaskState::Cancelled,
+                    reason: "cancel after budget denial".into(),
+                    verification: None,
+                },
+            )
+            .unwrap();
+        host.stop(cancel).unwrap();
+        owner.close().await.unwrap();
+        let stopped = host.snapshot().unwrap();
+        assert_eq!(
+            stopped
+                .record(
+                    Collection::Turn,
+                    turns[0].id.as_str(),
+                    &binding.scope.workspace
+                )
+                .unwrap()
+                .decode::<vcp_domain::task::Turn>()
+                .unwrap()
+                .state,
+            vcp_domain::task::TurnState::BudgetExhausted
+        );
+        assert_eq!(
+            stopped
+                .record(
+                    Collection::Task,
+                    binding.scope.task.as_str(),
+                    &binding.scope.workspace
+                )
+                .unwrap()
+                .decode::<Task>()
+                .unwrap()
+                .state,
+            TaskState::Cancelled
+        );
         test.codex.shutdown_and_wait().await.unwrap();
     }
 }

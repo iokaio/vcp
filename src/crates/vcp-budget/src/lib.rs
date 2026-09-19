@@ -12,6 +12,8 @@ pub enum Error {
     Overflow,
     #[error("budget denied: {0}")]
     Denied(&'static str),
+    #[error("budget exhausted: {0}")]
+    Exhausted(&'static str),
     #[error("accounting conflict: {0}")]
     Conflict(&'static str),
     #[error("domain: {0}")]

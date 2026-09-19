@@ -1,6 +1,6 @@
 # 07 — Interactive CLI, structured output and inspectors
 
-Status: planned. Owns P3-01 through P3-04. Begin after P2 verification/recovery/continuity. Memory/history/pruning and vault UI extensions are owned by segments 09–11, not duplicate work here.
+Status: P3-01 complete; P3-02 through P3-04 planned. Owns P3-01 through P3-04. Begin after P2 verification/recovery/continuity. Memory/history/pruning and vault UI extensions are owned by segments 09–11, not duplicate work here.
 
 ## Implementation references
 
@@ -20,6 +20,9 @@ Adapt selected Codex C06 CLI/TUI components. Organize `vcp-cli` as `args`, `comm
 Define presentation records for task/agent status, model/group/cost, pending questions, verification and artifact references. The UI reads immutable projections and uses cursors. It can show memory/routing capabilities as not ready during development, but must not fabricate a working release feature.
 
 ## P3-01 — Structured command surface
+
+Implemented and qualified: [completion evidence](../development/p3-cli.md#executable-completion--2026-09-19)
+and [native command/profile usage](../development/p3-cli-usage.md).
 
 Implement run/task-file input, session list/resume/fork, pause/cancel, status, inspect and `--format jsonl`. Validate all flags before creating billable work. Keep stdout strictly versioned event/result JSONL and stderr diagnostics; process binary output goes through artifact references or a declared encoded content type.
 

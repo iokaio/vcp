@@ -115,6 +115,10 @@
     {
       "path": "src/third_party/patches/codex/0021-p2-controller-retries.patch",
       "sha256": "2a7a3906496473cf603411c5a4f646796e4e6bf8600f7eabf22951982874322c"
+    },
+    {
+      "path": "src/third_party/patches/codex/0022-p3-cli-workspace.patch",
+      "sha256": "e211bcc809d37f91b5ba9118b701dfefa434c1f77944257a707766c97961c894"
     }
   ],
   "licenses": [

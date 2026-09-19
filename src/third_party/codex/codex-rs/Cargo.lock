@@ -17507,7 +17507,13 @@ dependencies = [
  "vcp-domain",
  "vcp-engine",
  "vcp-lifecycle",
+ "vcp-models",
  "vcp-protocol",
+ "vcp-repository",
+ "vcp-store",
+ "vcp-tools",
+ "windows-sys 0.61.2",
+ "wiremock",
 ]
 
 [[package]]

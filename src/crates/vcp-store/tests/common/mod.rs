@@ -26,6 +26,7 @@ pub fn session() -> Session {
         revision: Revision::ZERO,
         configuration: Revision::ZERO,
         fork_origin: None,
+        fork_through: None,
     }
 }
 pub fn task() -> Task {

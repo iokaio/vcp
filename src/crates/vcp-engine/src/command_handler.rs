@@ -211,6 +211,7 @@ impl<S: CanonicalStore> Engine<S> {
                     revision: Revision::ZERO,
                     configuration: Revision::ZERO,
                     fork_origin: None,
+                    fork_through: None,
                 };
                 put(
                     Collection::Workspace,
@@ -223,6 +224,57 @@ impl<S: CanonicalStore> Engine<S> {
                     Collection::Session,
                     session.id.to_string(),
                     session.revision,
+                    serde_json::to_value(session)?,
+                    None,
+                )?;
+                EventKind::SessionStarted
+            }
+            Command::CreateSession { id, fork_through } => {
+                if command.task.is_some()
+                    || command.expected != Revision::ZERO
+                    || command.steering != SteeringRevision::ZERO
+                    || id == &command.session
+                {
+                    return Err(Error::Target);
+                }
+                let source: Session = state
+                    .record(
+                        Collection::Session,
+                        command.session.as_str(),
+                        &command.workspace,
+                    )?
+                    .decode()?;
+                if let Some(turn) = fork_through {
+                    let turn: Turn = state
+                        .record(Collection::Turn, turn.as_str(), &command.workspace)?
+                        .decode()?;
+                    if turn.scope.session != command.session || turn.state != TurnState::Completed {
+                        return Err(Error::Target);
+                    }
+                    // A stored row alone cannot claim a retained history boundary.
+                    if !state.events.iter().any(|event| {
+                        event.event.id == turn.cause
+                            && event.event.session == command.session
+                            && matches!(
+                                event.event.kind,
+                                EventKind::TurnTransition | EventKind::TaskTransition
+                            )
+                    }) {
+                        return Err(Error::Target);
+                    }
+                }
+                let session = Session {
+                    id: id.clone(),
+                    workspace: command.workspace.clone(),
+                    revision: Revision::ZERO,
+                    configuration: source.configuration,
+                    fork_origin: fork_through.as_ref().map(|_| command.session.clone()),
+                    fork_through: fork_through.clone(),
+                };
+                put(
+                    Collection::Session,
+                    id.to_string(),
+                    Revision::ZERO,
                     serde_json::to_value(session)?,
                     None,
                 )?;
@@ -269,8 +321,11 @@ impl<S: CanonicalStore> Engine<S> {
                 )?;
                 EventKind::TaskCreated
             }
-            Command::Transition { next: TaskState::Paused, reason, verification: None }
-                if task()?.state == TaskState::Paused => {
+            Command::Transition {
+                next: TaskState::Paused,
+                reason,
+                verification: None,
+            } if task()?.state == TaskState::Paused => {
                 let current = task()?;
                 if current.revision != command.expected || current.steering != command.steering {
                     return Err(vcp_domain::Error::Stale.into());
@@ -351,6 +406,37 @@ impl<S: CanonicalStore> Engine<S> {
                     evidence.as_ref(),
                     host.resume.as_ref(),
                 )?;
+                if next.state == TaskState::Completed {
+                    // The verified task and its final turn boundary must share
+                    // a commit; a crash cannot strand a completed conversation
+                    // in Verifying with no usable fork boundary.
+                    for row in state.records.values().filter(|row| {
+                        row.collection == Collection::Turn && row.workspace == command.workspace
+                    }) {
+                        let turn: Turn = row.decode()?;
+                        if turn.scope != current.scope
+                            || turn.steering != current.steering
+                            || turn.state != TurnState::Verifying
+                        {
+                            continue;
+                        }
+                        let completed = turn.transition(
+                            turn.revision,
+                            current.steering,
+                            TurnState::Completed,
+                            event_id.clone(),
+                            "owning task verification accepted".into(),
+                            None,
+                        )?;
+                        put(
+                            Collection::Turn,
+                            turn.id.to_string(),
+                            completed.revision,
+                            serde_json::to_value(completed)?,
+                            Some(turn.revision),
+                        )?;
+                    }
+                }
                 put(
                     Collection::Task,
                     next.scope.task.to_string(),
@@ -368,6 +454,45 @@ impl<S: CanonicalStore> Engine<S> {
                 let mut objective = objective.clone();
                 objective.source = event_id.clone();
                 let next = current.steer(command.expected, objective)?;
+                // A superseded turn retains its old steering identity. Pause
+                // it in the same commit before accepting the new objective;
+                // later work must start a turn under the new revision.
+                for row in state.records.values().filter(|row| {
+                    row.collection == Collection::Turn && row.workspace == command.workspace
+                }) {
+                    let turn: Turn = row.decode()?;
+                    if turn.scope != current.scope
+                        || turn.steering != current.steering
+                        || matches!(
+                            turn.state,
+                            TurnState::Completed
+                                | TurnState::Failed
+                                | TurnState::Cancelled
+                                | TurnState::Paused
+                                | TurnState::Blocked
+                                | TurnState::WaitingForInput
+                                | TurnState::BudgetExhausted
+                                | TurnState::Cancelling
+                        )
+                    {
+                        continue;
+                    }
+                    let paused = turn.transition(
+                        turn.revision,
+                        current.steering,
+                        TurnState::Paused,
+                        event_id.clone(),
+                        "superseded by explicit steering".into(),
+                        None,
+                    )?;
+                    put(
+                        Collection::Turn,
+                        turn.id.to_string(),
+                        paused.revision,
+                        serde_json::to_value(paused)?,
+                        Some(turn.revision),
+                    )?;
+                }
                 put(
                     Collection::Task,
                     next.scope.task.to_string(),

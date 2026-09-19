@@ -39,7 +39,8 @@ use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, workspace::*};
 use vcp_protocol::command::{Command, CommandReceipt};
 use vcp_store::{contract::State, BackendKind};
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub canonical_root: PathBuf,
     pub backend: BackendKind,
@@ -158,6 +159,11 @@ impl Drop for OutputCapture {
     }
 }
 impl CanonicalHost {
+    /// Persist the explicitly admitted root cap before a CLI can detach or
+    /// select another task. Reopening never replaces an existing ledger cap.
+    pub fn initialize_root_budget(&self) -> Result<(), String> {
+        self.worker.run(|context| context.initialize_root_budget())
+    }
     /// Enable the explicit OpenRouter contract for every retained request.
     /// Reopening an enabled store requires fresh configuration and context.
     pub fn configure_provider(

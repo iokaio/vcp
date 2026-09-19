@@ -26,6 +26,13 @@ pub struct Cli {
     pub non_interactive: bool,
     #[arg(long, global = true, default_value = ".")]
     pub workspace: PathBuf,
+    #[arg(long, global = true)]
+    pub data_dir: Option<PathBuf>,
+    /// Explicit user-owned profile, outside the workspace and sync roots.
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
+    #[arg(long, global = true)]
+    pub control_stdin: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -42,6 +49,7 @@ pub enum Command {
         command: Tasks,
     },
     Inspect {
+        #[arg(value_parser = scoped_id)]
         id: String,
         #[arg(long, value_enum)]
         view: View,
@@ -94,7 +102,8 @@ pub enum Tasks {
         task: TaskId,
     },
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum View {
     Context,
     Prompts,
@@ -113,20 +122,75 @@ pub struct ValidatedRun {
     pub budget: Micros,
     pub autonomy: Autonomy,
 }
+
+/// Every command resolves its workspace and task input before opening an owner
+/// or touching canonical state. These values cannot contain a deferred file read.
+pub struct ValidatedCli {
+    pub workspace: PathBuf,
+    pub format: Format,
+    pub non_interactive: bool,
+    pub data_dir: Option<PathBuf>,
+    pub config: Option<PathBuf>,
+    pub control_stdin: bool,
+    pub command: ValidatedCommand,
+}
+
+pub enum ValidatedCommand {
+    Run(ValidatedRun),
+    Resume(Resume),
+    Sessions(Sessions),
+    Tasks(Tasks),
+    Inspect { id: String, view: View },
+}
+
+impl Cli {
+    pub fn validate(self, persisted_cap: Option<Micros>) -> Result<ValidatedCli, String> {
+        let workspace = self
+            .workspace
+            .canonicalize()
+            .map_err(|_| "workspace must be an existing accessible directory")?;
+        if !workspace.is_dir() || workspace.to_str().is_none() {
+            return Err("workspace must be a Unicode directory".into());
+        }
+        let command = match self.command.ok_or("a command is required")? {
+            Command::Run(run) => ValidatedCommand::Run(run.validate(persisted_cap)?),
+            Command::Resume(resume) => ValidatedCommand::Resume(resume),
+            Command::Sessions { command } => ValidatedCommand::Sessions(command),
+            Command::Tasks { command } => ValidatedCommand::Tasks(command),
+            Command::Inspect { id, view } => ValidatedCommand::Inspect { id, view },
+        };
+        Ok(ValidatedCli {
+            workspace,
+            format: self.format,
+            non_interactive: self.non_interactive,
+            data_dir: self.data_dir,
+            config: self.config,
+            control_stdin: self.control_stdin,
+            command,
+        })
+    }
+}
 impl Run {
     pub fn validate(&self, persisted_cap: Option<Micros>) -> Result<ValidatedRun, String> {
-        let budget = self.budget_usd.or(persisted_cap)
+        let budget = self
+            .budget_usd
+            .or(persisted_cap)
             .filter(|cap| cap.get() > 0)
             .ok_or("an explicit --budget-usd or persisted budget cap is required")?;
         let objective = match (&self.objective, &self.file) {
             (Some(text), None) => text.clone(),
             (None, Some(path)) => {
                 let file = File::open(path).map_err(|_| "task file could not be opened")?;
-                if !file.metadata().map_err(|_| "task file metadata unavailable")?.is_file() {
+                if !file
+                    .metadata()
+                    .map_err(|_| "task file metadata unavailable")?
+                    .is_file()
+                {
                     return Err("task input must be a regular file".into());
                 }
                 let mut bytes = Vec::new();
-                file.take((MAX_TASK_BYTES + 1) as u64).read_to_end(&mut bytes)
+                file.take((MAX_TASK_BYTES + 1) as u64)
+                    .read_to_end(&mut bytes)
                     .map_err(|_| "task file could not be read")?;
                 if bytes.len() > MAX_TASK_BYTES {
                     return Err("task file exceeds 65536 bytes".into());
@@ -136,31 +200,52 @@ impl Run {
             }
             _ => return Err("supply exactly one objective or --file".into()),
         };
-        if objective.trim().is_empty() || objective.len() > MAX_TASK_BYTES || objective.contains('\0') {
+        if objective.trim().is_empty()
+            || objective.len() > MAX_TASK_BYTES
+            || objective.contains('\0')
+        {
             return Err("task text must contain 1–65536 UTF-8 bytes without NUL".into());
         }
-        Ok(ValidatedRun { objective, budget, autonomy: self.autonomy })
+        Ok(ValidatedRun {
+            objective,
+            budget,
+            autonomy: self.autonomy,
+        })
     }
 }
 /// Decimal USD to integer micros, without float rounding, exponent or sign syntax.
 pub fn parse_usd(value: &str) -> Result<Micros, String> {
-    let invalid = || "budget must be positive decimal USD with at most six fractional digits".to_owned();
+    let invalid =
+        || "budget must be positive decimal USD with at most six fractional digits".to_owned();
     let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
-    if whole.is_empty() || !whole.bytes().all(|b| b.is_ascii_digit())
-        || fraction.len() > 6 || !fraction.bytes().all(|b| b.is_ascii_digit())
-        || (value.contains('.') && fraction.is_empty()) {
+    if whole.is_empty()
+        || !whole.bytes().all(|b| b.is_ascii_digit())
+        || fraction.len() > 6
+        || !fraction.bytes().all(|b| b.is_ascii_digit())
+        || (value.contains('.') && fraction.is_empty())
+    {
         return Err(invalid());
     }
     let whole = whole.parse::<u64>().map_err(|_| invalid())?;
-    let fractional = if fraction.is_empty() { 0 } else {
+    let fractional = if fraction.is_empty() {
+        0
+    } else {
         fraction.parse::<u64>().map_err(|_| invalid())? * 10u64.pow(6 - fraction.len() as u32)
     };
-    let amount = whole.checked_mul(1_000_000).and_then(|v| v.checked_add(fractional))
-        .filter(|v| *v > 0).ok_or_else(invalid)?;
+    let amount = whole
+        .checked_mul(1_000_000)
+        .and_then(|v| v.checked_add(fractional))
+        .filter(|v| *v > 0)
+        .ok_or_else(invalid)?;
     Ok(Micros::new(amount))
 }
 fn task_id(value: &str) -> Result<TaskId, String> {
     TaskId::parse(value).map_err(|_| "invalid task ID".into())
+}
+fn scoped_id(value: &str) -> Result<String, String> {
+    TaskId::parse(value)
+        .map(|id| id.to_string())
+        .map_err(|_| "invalid scoped ID".into())
 }
 fn session_id(value: &str) -> Result<SessionId, String> {
     SessionId::parse(value).map_err(|_| "invalid session ID".into())

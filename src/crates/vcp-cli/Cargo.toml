@@ -7,6 +7,13 @@ license = "Apache-2.0"
 publish = false
 workspace = "../../third_party/codex/codex-rs"
 
+[[bin]]
+name = "vcp"
+path = "src/main.rs"
+
+[features]
+qualification = []
+
 [dependencies]
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
@@ -15,13 +22,21 @@ vcp-domain = { path = "../vcp-domain" }
 vcp-protocol = { path = "../vcp-protocol" }
 vcp-lifecycle = { path = "../vcp-lifecycle" }
 vcp-engine = { path = "../vcp-engine" }
+vcp-store = { path = "../vcp-store" }
+vcp-models = { path = "../vcp-models" }
+vcp-tools = { path = "../vcp-tools" }
+vcp-repository = { path = "../vcp-repository" }
 codex-core = { workspace = true }
 codex-config = { workspace = true }
 codex-exec-server = { workspace = true }
 codex-extension-api = { workspace = true }
 codex-login = { workspace = true }
 codex-protocol = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util", "signal"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Memory", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+wiremock = { workspace = true }
