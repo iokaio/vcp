@@ -2,6 +2,8 @@
 
 - [P2 deterministic compaction](p2-context-compaction.md): complete-pair previews, current-source validation and native context contracts.
 
+- [P2 retained verification integration](p2-loop-verification.md): native check calls, isolated verification responses and immutable final-cost evidence.
+
 - [P2 native verification increment](p2-verification-increment.md): actual project checks, source applicability, retained failure evidence and honest completion.
 
 - [P2 canonical coding loop](p2-canonical-coding-loop.md): native retained read/edit/process traces, nested guidance, uncertain charges and deliberate reopen.

@@ -143,6 +143,13 @@ impl CanonicalHost {
         thread: ThreadId,
         verification: VerificationId,
     ) -> Result<CommandReceipt, String> {
+        self.complete_when_quiescent(thread, Some(verification))
+    }
+    pub(super) fn complete_when_quiescent(
+        &self,
+        thread: ThreadId,
+        verification: Option<VerificationId>,
+    ) -> Result<CommandReceipt, String> {
         let binding = self.binding(thread)?;
         let runtime = self.runtime.clone();
         let conflict = self.tool_conflict.clone();
@@ -157,6 +164,12 @@ impl CanonicalHost {
             {
                 return Err("completion requires quiescent retained work".into());
             }
+            // Select final-response evidence under the same owner/admission
+            // fence as completion. A new turn cannot clear it between lookups.
+            let verification = match verification {
+                Some(id) => id,
+                None => context.coding_completion(&binding)?,
+            };
             context.complete_verified(&binding, &verification)
         })
     }

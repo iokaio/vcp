@@ -19,6 +19,7 @@ pub(super) struct Setup {
     baseline: Baseline,
     baseline_artifact: ArtifactId,
     candidates: HashMap<VerificationId, Candidate>,
+    latest: Option<VerificationId>,
 }
 struct Candidate {
     verification: Verification,
@@ -26,6 +27,7 @@ struct Candidate {
     manifest: Manifest,
     prepared: Vec<Arc<vcp_tools::process::Prepared>>,
     accounting: String,
+    effects: String,
 }
 pub(crate) struct Run {
     pub plans: Vec<Plan>,
@@ -37,6 +39,75 @@ pub(crate) struct Run {
     environment: String,
 }
 impl Context {
+    pub(super) fn latest_verification(&self, binding: &ThreadBinding) -> Result<VerificationId> {
+        self.verification
+            .get(&binding.scope.task)
+            .and_then(|s| s.latest.clone())
+            .ok_or_else(|| "no observed verification for this owner".into())
+    }
+    pub(super) fn verification_paths(
+        &self,
+        binding: &ThreadBinding,
+    ) -> Result<Vec<std::path::PathBuf>> {
+        self.tool_identity(binding, "vcp_verify")?;
+        let policy =
+            vcp_engine::policy::current(self.engine.store().state(), &binding.scope.workspace)?;
+        // A verification runner can have opaque effects. A named workflow
+        // ceiling must not disappear when its process uses the vcp_exec broker.
+        if self
+            .config
+            .host_tool_denials
+            .iter()
+            .chain(policy.denials.iter())
+            .any(|rule| rule.tool.as_deref() == Some("vcp_verify"))
+        {
+            return Err("current policy denies the verification workflow".into());
+        }
+        let setup = self
+            .verification
+            .get(&binding.scope.task)
+            .ok_or("verification is not configured")?;
+        let (_, observed) = self.verification_observe(binding)?;
+        let mut paths: Vec<_> = observed
+            .manifest
+            .files
+            .iter()
+            .map(|f| {
+                std::path::Path::new(&f.path)
+                    .parent()
+                    .unwrap_or(std::path::Path::new(""))
+                    .join(".vcp-context-scope")
+            })
+            .collect();
+        paths.extend(
+            setup
+                .config
+                .requirements
+                .iter()
+                .map(|r| std::path::PathBuf::from(&r.manifest)),
+        );
+        if paths.is_empty() {
+            paths.push("AGENTS.md".into());
+        }
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+    fn verification_effects(&self, binding: &ThreadBinding) -> Result<String> {
+        let effects = self
+            .engine
+            .store()
+            .state()
+            .records
+            .values()
+            .filter(|r| r.collection == Collection::Effect)
+            .map(Record::decode::<Effect>)
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|e| e.scope.workspace == binding.scope.workspace)
+            .collect::<Vec<_>>();
+        Ok(vcp_protocol::digest_bytes(&canonical_bytes(&effects)?))
+    }
     pub fn check_verification_command(
         &self,
         command: &Command,
@@ -243,6 +314,7 @@ impl Context {
                 baseline,
                 baseline_artifact,
                 candidates: HashMap::new(),
+                latest: None,
             },
         );
         Ok(())
@@ -308,6 +380,17 @@ impl Context {
             .spec
             .id)
     }
+    fn verification_ledger(&self) -> Result<Option<Ledger>> {
+        self.engine
+            .store()
+            .state()
+            .records
+            .values()
+            .find(|r| r.collection == Collection::Ledger && r.id == self.config.root_task.as_str())
+            .map(Record::decode::<Ledger>)
+            .transpose()
+            .map_err(Into::into)
+    }
     fn verification_accounting(&self) -> Result<(CostCertainty, String)> {
         let rows: Vec<Attempt> = self
             .engine
@@ -342,7 +425,10 @@ impl Context {
                     .into(),
             }
         };
-        Ok((cost, vcp_protocol::digest_bytes(&canonical_bytes(&rows)?)))
+        Ok((
+            cost,
+            vcp_protocol::digest_bytes(&canonical_bytes(&(rows, self.verification_ledger()?))?),
+        ))
     }
     pub fn finish_verification(
         &mut self,
@@ -462,7 +548,7 @@ impl Context {
         let report = self.capture(&binding.scope, Channel::Evidence, &canonical_bytes(&serde_json::json!({
             "before":run.before.manifest,"after":after.as_ref().ok().map(|(_,o)| &o.manifest),
             "observation_error":after.as_ref().err().map(ToString::to_string),"changed_paths":changed,"editing":editing,
-            "accepted_revisions":run.revisions,"cost":cost,"accounting_digest":accounting,
+            "accepted_revisions":run.revisions,"cost":cost,"accounting_digest":accounting,"ledger":self.verification_ledger()?,
             "scope":"bounded native disk sources; no editor buffers; excluded files and external dynamic dependencies are not qualified",
             "source_artifacts":outputs,"applicability":if fresh {"current"} else {"stale"}
         }))?, "verification-result/1")?;
@@ -502,8 +588,13 @@ impl Context {
             Some(binding.scope.task.clone()),
             expected,
         )?;
+        self.verification
+            .get_mut(&binding.scope.task)
+            .unwrap()
+            .latest = Some(verification.id.clone());
         if fresh {
             let revisions = self.context_revisions(binding)?;
+            let effects = self.verification_effects(binding)?;
             self.verification
                 .get_mut(&binding.scope.task)
                 .unwrap()
@@ -516,6 +607,7 @@ impl Context {
                         manifest: run.before.manifest,
                         prepared,
                         accounting,
+                        effects,
                     },
                 );
         }
@@ -555,10 +647,10 @@ impl Context {
             .and_then(|s| s.candidates.get(id))
             .ok_or("no current owner verification capability; verify again")?;
         if revisions != candidate.revisions
-            || self.verification_accounting()?.1 != candidate.accounting
+            || self.verification_effects(binding)? != candidate.effects
         {
             return Err(
-                "completion evidence is stale after task, authority or accounting changes".into(),
+                "completion evidence is stale after task, authority or effect changes".into(),
             );
         }
         let (root, current) = self.verification_observe(binding)?;
@@ -605,7 +697,27 @@ impl Context {
         {
             return Err("required verification did not pass".into());
         }
-        let evidence = candidate.verification.id.clone();
+        let mut evidence = candidate.verification.id.clone();
+        let (cost, accounting) = self.verification_accounting()?;
+        if accounting != candidate.accounting {
+            // The final accounted prose response does not change tested source.
+            // Preserve the original report and capture a new current-cost record.
+            let mut refreshed = candidate.verification.clone();
+            refreshed.id = VerificationId::new();
+            refreshed.cost = cost;
+            let receipt = self.capture(&binding.scope, Channel::Evidence,
+                &canonical_bytes(&serde_json::json!({"previous_verification":evidence,"current_accounting_digest":accounting,"cost":refreshed.cost,"ledger":self.verification_ledger()?,"accepted_revisions":revisions}))?,
+                "verification-completion-refresh/1")?;
+            refreshed.outputs.push(receipt.spec.id);
+            evidence = refreshed.id.clone();
+            self.command(
+                Command::RecordVerification {
+                    verification: refreshed,
+                },
+                Some(binding.scope.task.clone()),
+                revisions.task_state,
+            )?;
+        }
         self.command(
             Command::Transition {
                 next: TaskState::Completed,

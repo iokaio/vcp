@@ -39,6 +39,11 @@ pub fn schemas() -> Value {
         .as_array_mut()
         .unwrap()
         .push(vcp_tools::process::definition());
+    schemas.as_array_mut().unwrap().push(json!({
+        "type":"function","name":"vcp_verify","strict":true,
+        "description":"Run the owner's configured acceptance checks against current sources. For unchanged analysis, cite complete same-task artifact IDs. This records evidence; it cannot declare completion.",
+        "parameters":{"type":"object","properties":{"citations":{"type":"array","items":{"type":"string"}}},"required":["citations"],"additionalProperties":false}
+    }));
     schemas
 }
 pub fn allowed_tools() -> AllowedTools {
@@ -49,6 +54,7 @@ pub fn allowed_tools() -> AllowedTools {
             "vcp_search",
             "vcp_patch",
             "vcp_exec",
+            "vcp_verify",
         ]
         .into_iter()
         .map(ToolName::plain)
@@ -56,6 +62,11 @@ pub fn allowed_tools() -> AllowedTools {
     )
 }
 impl CanonicalHost {
+    /// Owning turn driver calls this after retained TurnComplete. The host picks
+    /// the latest observed verification; model arguments cannot select old proof.
+    pub fn complete_coding_turn(&self, thread: ThreadId) -> Result<CommandReceipt, String> {
+        self.complete_when_quiescent(thread, None)
+    }
     pub fn configure_coding(&self, thread: ThreadId, config: CodingConfig) -> Result<(), String> {
         let binding = self.binding(thread)?;
         self.worker
@@ -135,6 +146,16 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 let selected = normalized.clone();
                 if !self.host.worker.run(move |context| context.select_coding_paths(&scoped, &selected))? {
                     return Ok(json!({"executed":false,"reason":"New instruction scope selected. Review the refreshed context before issuing this operation again."}));
+                }
+                if self.name == "vcp_verify" {
+                    #[derive(serde::Deserialize)]
+                    #[serde(deny_unknown_fields)]
+                    struct Input { citations: Vec<ArtifactId> }
+                    let input: Input = serde_json::from_str(&arguments).map_err(|e| e.to_string())?;
+                    let report = self.host.verify(self.thread, input.citations).await?;
+                    sources.extend(report.outputs.clone());
+                    sources.extend(report.checks.iter().map(|c| c.output.clone()));
+                    return Ok(json!({"verification":report,"complete":false}));
                 }
                 if self.name == "vcp_exec" {
                     let request = vcp_tools::process::Request::from_arguments(&arguments).map_err(|e| e.to_string())?;
