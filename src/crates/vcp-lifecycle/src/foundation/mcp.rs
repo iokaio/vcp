@@ -186,6 +186,8 @@ pub(super) struct ResumeProof {
     pub generation: u64,
 }
 pub struct McpProposal {
+    #[cfg(feature = "qualification")]
+    before_receipt: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
     unsent: scheduler::QueuedEffect,
     thread: ThreadId,
     binding: ThreadBinding,
@@ -216,6 +218,18 @@ impl ControlOutcome {
     }
 }
 impl McpProposal {
+    /// Stop after a successful validated reply, before durable receipt capture.
+    /// Cancellation retains the ordinary unfinished-call recovery semantics.
+    #[cfg(feature = "qualification")]
+    pub fn qualification_block_before_receipt(
+        mut self,
+        arrived: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    ) -> Self {
+        self.before_receipt = Some((arrived, release));
+        self
+    }
+
     pub fn effect(&self) -> &ToolRunId {
         &self.effect
     }
@@ -504,6 +518,15 @@ impl CanonicalHost {
         } else {
             result.clone()
         };
+        #[cfg(feature = "qualification")]
+        if success {
+            if let Some((arrived, release)) = ticket.before_receipt.take() {
+                arrived.notify_one();
+                tokio::time::timeout_at(deadline, release.notified())
+                    .await
+                    .map_err(|_| "MCP qualification receipt barrier deadline")?;
+            }
+        }
         let document = serde_json::json!({"schema_version":1,"effect":ticket.effect,"execution":execution,"identity":ticket.operation.receipt_identity(),"result":captured_result,"external_content":true,"grants_authority":false,"source":ticket.provenance.evidence()?});
         let binding = ticket.binding.clone();
         let effect = ticket.effect.clone();
@@ -927,6 +950,8 @@ impl CanonicalHost {
             Ok((Arc::new(authority),provenance,context.engine.controller().clone(),context.engine.owner_epoch(),effect,plan,decision,question))
         })?;
         Ok(McpProposal {
+            #[cfg(feature = "qualification")]
+            before_receipt: None,
             unsent: scheduler::QueuedEffect::new(self, &binding, &effect),
             thread,
             binding,

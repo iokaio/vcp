@@ -125,6 +125,8 @@ struct RemoteConnection {
 }
 pub struct RemoteProposal {
     #[cfg(feature = "qualification")]
+    before_receipt: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
+    #[cfg(feature = "qualification")]
     before_http: Option<(bool, Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
     unsent: scheduler::QueuedEffect,
     thread: ThreadId,
@@ -145,6 +147,18 @@ pub struct RemoteProposal {
     pub question: Option<ApprovalId>,
 }
 impl RemoteProposal {
+    /// Stop after a successful validated reply, before durable receipt capture.
+    /// Cancellation retains the ordinary unfinished-call recovery semantics.
+    #[cfg(feature = "qualification")]
+    pub fn qualification_block_before_receipt(
+        mut self,
+        arrived: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    ) -> Self {
+        self.before_receipt = Some((arrived, release));
+        self
+    }
+
     #[cfg(feature = "qualification")]
     pub fn qualification_block_before_http(
         &mut self,
@@ -368,6 +382,8 @@ impl CanonicalHost {
             );
         }
         Ok(RemoteProposal {
+            #[cfg(feature = "qualification")]
+            before_receipt: None,
             #[cfg(feature = "qualification")]
             before_http: None,
             unsent,
@@ -611,6 +627,15 @@ impl CanonicalHost {
                 });
             }
         };
+        #[cfg(feature = "qualification")]
+        if success {
+            if let Some((arrived, release)) = ticket.before_receipt.take() {
+                arrived.notify_one();
+                tokio::time::timeout_at(wire_run.deadline, release.notified())
+                    .await
+                    .map_err(|_| "MCP qualification receipt barrier deadline")?;
+            }
+        }
         let document = serde_json::json!({"schema_version":1,"effect":ticket.effect,"execution":execution,"identity":ticket.operation.receipt_identity(),"result":value,"source":ticket.provenance.evidence()?,"wire_artifacts":wire_run.artifacts});
         let binding = ticket.binding.clone();
         let effect = ticket.effect.clone();

@@ -1,7 +1,11 @@
 # P7-03 exact numeric/schema qualification
 
-Status: exact numeric/schema increment qualified. P7-03 remains in progress for
-the two final fault proofs listed below.
+Status: exact numeric/schema increment qualified. P7-03's two final fault proofs
+were still pending when this campaign completed.
+
+Follow-up: the [final fault campaign](p7-03-final-faults.md) now closes those
+proofs and completes P7-03's documented subset. The evidence below records the
+numeric increment before that follow-up.
 
 [ADR-028](../adr/028-exact-mcp-schema-profile.md) and the
 [profile contract](../development/p7-mcp-schema.md) define this increment. It must
