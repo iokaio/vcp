@@ -21,6 +21,158 @@ use vcp_repository::{path::HeldPath, FileVersion, Root, RootIdentity};
 use vcp_store::{contract::Collection, restore_import::Imported};
 type Result<T> = std::result::Result<T, String>;
 
+/// Derive a local descriptor without mutating the authenticated import. Publish
+/// it as rebind-pending, then use the ordinary canonical Rebind command. This
+/// ordering preserves the exact import proof across a pre-activation crash.
+pub fn restored_configuration(
+    store: &vcp_store::Store,
+    imported: &Imported,
+    materialized: &Materialized,
+    actor: vcp_domain::ActorId,
+    host: vcp_domain::HostId,
+    prior: Option<&super::Config>,
+) -> Result<super::Config> {
+    use vcp_domain::{
+        accounting::{Ledger, Money, PriceSnapshot},
+        task::Task,
+        workspace::Trust,
+        ByteCount, Micros, Timestamp, Units,
+    };
+    materialized.revalidate()?;
+    if materialized.workspace() != imported.workspace()
+        || materialized.state_digest() != imported.state_digest()
+        || materialized.source_manifest() != imported.source_manifest()
+        || digest_bytes(&canonical_bytes(store.state()).map_err(|e| e.to_string())?)
+            != imported.state_digest()
+        || store
+            .canonical_anchor()
+            .canonicalize()
+            .map_err(|_| "import root unavailable")?
+            != imported
+                .root()
+                .canonicalize()
+                .map_err(|_| "import root unavailable")?
+        || prior.is_some_and(|config| &config.workspace != imported.workspace())
+    {
+        return Err("restored configuration proof or source changed".into());
+    }
+    let checkpoint = imported
+        .checkpoint()
+        .ok_or("restored workspace checkpoint missing")?;
+    let artifact: ArtifactDescriptor = store
+        .state()
+        .record(
+            Collection::Artifact,
+            checkpoint.manifest.as_str(),
+            imported.workspace(),
+        )
+        .map_err(|e| e.to_string())?
+        .decode()
+        .map_err(|e| e.to_string())?;
+    let scope = &artifact.spec.scope;
+    let task: Task = store
+        .state()
+        .record(Collection::Task, scope.task.as_str(), imported.workspace())
+        .map_err(|e| e.to_string())?
+        .decode()
+        .map_err(|e| e.to_string())?;
+    if task.parent.is_some() || task.scope != *scope {
+        return Err("restored checkpoint does not identify a root task".into());
+    }
+    let workspace: Workspace = store
+        .state()
+        .record(
+            Collection::Workspace,
+            imported.workspace().as_str(),
+            imported.workspace(),
+        )
+        .map_err(|e| e.to_string())?
+        .decode()
+        .map_err(|e| e.to_string())?;
+    if workspace.trust != Trust::Untrusted {
+        return Err("restored execution authority was not sanitized".into());
+    }
+    let ledger = store
+        .state()
+        .records
+        .get(&vcp_store::contract::key(
+            Collection::Ledger,
+            scope.task.as_str(),
+        ))
+        .map(|row| row.decode::<Ledger>())
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    if ledger.as_ref().is_some_and(|ledger| ledger.scope != *scope) {
+        return Err("restored ledger scope differs".into());
+    }
+    // USD/zero is an unconfigured local budget ceiling when no ledger exists,
+    // not a price estimate or a newly admitted canonical monetary fact.
+    let cap = ledger
+        .as_ref()
+        .map(|ledger| Money {
+            currency: ledger.currency.clone(),
+            micros: ledger.cap,
+        })
+        .or_else(|| prior.map(|config| config.cap.clone()))
+        .unwrap_or(Money {
+            currency: "USD"
+                .to_owned()
+                .try_into()
+                .map_err(|_| "default currency invalid")?,
+            micros: Micros::ZERO,
+        });
+    let protected = ledger
+        .as_ref()
+        .map(|ledger| ledger.protected)
+        .or_else(|| prior.map(|config| config.protected))
+        .unwrap_or(Micros::ZERO);
+    let native = materialized
+        .root()
+        .hold(None, true)
+        .map_err(|e| e.to_string())?;
+    let mut binding = workspace.binding;
+    binding.host = host;
+    binding.root = materialized.root().path().to_string_lossy().into_owned();
+    binding.repository = digest_bytes(native.native_identity.as_bytes());
+    binding.worktree = binding.repository.clone();
+    let config = super::Config {
+        canonical_root: imported.root().to_owned(),
+        backend: imported.backend(),
+        workspace: imported.workspace().clone(),
+        session: scope.session.clone(),
+        root_task: scope.task.clone(),
+        actor,
+        binding,
+        cap: cap.clone(),
+        protected,
+        price: prior
+            .map(|config| config.price.clone())
+            .unwrap_or(PriceSnapshot {
+                id: digest_bytes(b"vcp-restored-unconfigured-price/1"),
+                provider: "unconfigured".into(),
+                model: "unconfigured".into(),
+                currency: cap.currency,
+                capability: digest_bytes(b"vcp-restored-unconfigured-capability/1"),
+                valid_until: Timestamp::ZERO,
+                rates: BTreeMap::new(),
+            }),
+        input_ceiling: prior
+            .map(|config| config.input_ceiling)
+            .unwrap_or(Units::new(1)),
+        output_ceiling: prior
+            .map(|config| config.output_ceiling)
+            .unwrap_or(Units::new(1)),
+        artifact_limit: prior
+            .map(|config| config.artifact_limit)
+            .unwrap_or(ByteCount::new(vcp_store::artifact::DEFAULT_ARTIFACT_LIMIT)),
+        host_tool_denials: prior
+            .map(|config| config.host_tool_denials.clone())
+            .unwrap_or_default(),
+    };
+    materialized.revalidate()?;
+    Ok(config)
+}
+
 pub struct Materialized {
     root: Root,
     state_digest: String,

@@ -28,6 +28,7 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-020 — Bounded semantic decisions](020-bounded-semantic-decisions.md) | Proposed P6-02/03/04/05; P7/P8 integration checks under existing dependencies |
 | [ADR-021 — Retention replay bases](021-retention-replay-bases.md) | P5-07 sealed replay and physical cleanup |
 | [ADR-022 — Retention selection and cleanup](022-retention-selection-and-cleanup.md) | P5-07 exact selection, protection and automatic policy |
+| [ADR-023 — Canonical selection activation](023-canonical-selection-activation.md) | P3-06/P5-10 leased descriptor selection and revision-checked activation |
 
 ## Maintaining a decision
 

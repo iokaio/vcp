@@ -40,12 +40,19 @@ transaction does not undo its retained checkpoint.
 
 The canonical host regression
 `paused_backup_captures_native_dirty_untracked_and_generation_lineage_without_model_work`
-passed for Files and SQLite in 3.30 seconds. It creates a real Git repository,
+passed for Files and SQLite in 7.42 seconds. It creates a real Git repository,
 retains staged/unstaged/untracked files, verifies unchanged Git index bytes,
 captures a nonempty native lexical generation and checks direct source links.
 The task remains paused, no provider attempt exists, and an already cancelled
 checkpoint does not advance the canonical watermark. The test uses explicit
 local trust and authorization; the untrusted fixture was correctly rejected.
+The extended test publishes the actual checkpoint through the production
+encrypted backup pipeline, then retries its durable operation without advancing
+its revision or creating a model attempt. Independently supplied recovery material
+then authenticates that actual ciphertext for import into the other backend. The
+public materialization API recovers dirty/untracked bytes and derives a local
+descriptor without changing the imported canonical state. This is a local native
+integration test, not the separate two-Windows OneDrive qualification.
 
 ## Explicit workspace materialization
 
@@ -67,7 +74,11 @@ The returned opaque proof holds directory/file pins and binds the imported state
 source manifest and actual destination identity. Final revalidation checks exact
 contents, including unexpected new files or empty directories. Canonical selection
 and rebind remain separate, revision-checked operations; materialization grants no
-execution authority.
+execution authority. Fresh-host descriptors carry expired, unconfigured provider
+metadata with no rates; normal execution still requires a separately prepared
+local provider profile. Existing ledger balances/caps remain canonical facts. The
+descriptor is activated with rebind pending before an ordinary canonical rebind,
+so a pre-activation retry can still validate the original imported state digest.
 
 Six native materialization tests passed, including six actual process kills at
 allocation, creation, recorded identity, source write, prepublication and
