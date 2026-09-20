@@ -23,7 +23,7 @@ signing capability; public setup is not a secret cache.
 `vcp backup configure --vault DIRECTORY --staging DIRECTORY --manual-only`
 stores a revisioned setup under independent local trust. Subsequent updates
 require `--expected-revision N`. The alternative `--automatic` records requested
-policy; automatic lifecycle execution is not claimed by this partial increment.
+policy for completion and controlled pause/exit hooks.
 Vault and staging directories must already exist. `backup status` reports local
 publication and uncovered canonical sequence ranges independently from cloud
 transfer and restore verification, which are not inferred from local copies.
@@ -43,3 +43,18 @@ No free-space reservation or power-loss qualification is claimed.
 
 `vcp workspace rebind WORKSPACE_ID` is the structured alias for existing rebind.
 It also holds the selection lease and does not silently grant execution rights.
+
+Automatic hooks use only the verified signing capability explicitly loaded into
+the current owner by backup controls. They do not reopen a recovery file or use a
+secret cache. Configured owners without loaded material report backup pending;
+local task state remains unchanged. Paused tasks can inspect or cancel backup
+progress without resuming provider work. Repeated observations of the same task
+state do not enqueue repeated backups, and an existing operation is shared rather
+than duplicated. Failed preparation stays visible for deliberate retry.
+
+A controlled CLI exit allows at most two seconds for local backup progress, then
+requests cancellation before closing canonical ownership. Already admitted copy
+obligations remain durable for reconciliation; an accepted preparation that has
+not yet created a canonical snapshot job is reported as in-memory progress, not
+as a saved snapshot. No process is launched to continue publication after exit.
+Abrupt process termination relies on durable job recovery, not an exit hook.
