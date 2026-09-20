@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Durable governed observations. Remembered commands never confer authority.
 pub mod access;
+pub mod embedding;
 pub mod extraction;
 pub mod extractors;
 mod fix_proof;
@@ -8,13 +9,16 @@ pub mod gates;
 pub mod history;
 pub mod ingest;
 pub mod lexical;
+pub mod local_resources;
 pub mod preferences;
 pub mod projections;
 pub mod proof;
+pub mod publication;
 pub mod repository;
 pub mod runner;
 pub mod search_record;
 pub mod tokenizer;
+pub mod vector;
 pub use vcp_domain::memory;
 
 #[derive(Debug, thiserror::Error)]

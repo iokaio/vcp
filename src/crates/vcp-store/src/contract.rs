@@ -19,6 +19,8 @@ use vcp_protocol::{
 };
 #[path = "ingestion_contract.rs"]
 mod ingestion_contract;
+#[path = "search_contract.rs"]
+mod search_contract;
 
 pub const FORMAT_VERSION: u32 = 1;
 pub const MAX_TRANSACTION_BYTES: usize = 8 * 1024 * 1024;
@@ -156,6 +158,9 @@ impl Record {
         }
         if ingestion_contract::kind(self)?.is_some() {
             return ingestion_contract::shape(self);
+        }
+        if search_contract::kind(self)?.is_some() {
+            return search_contract::shape(self);
         }
         let scope = |workspace: &WorkspaceId, id: &str, revision: Revision| -> Result<()> {
             if workspace != &self.workspace || id != self.id || revision != self.revision {
@@ -370,6 +375,10 @@ impl Record {
             refs.extend(ingestion_contract::references(self)?);
             return Ok(refs);
         }
+        if search_contract::kind(self)?.is_some() {
+            refs.extend(search_contract::references(self)?);
+            return Ok(refs);
+        }
         if let Some(kind) = self.memory_kind()? {
             use vcp_domain::memory::*;
             if let Some(scope) = self.task_scope()? {
@@ -566,6 +575,9 @@ impl Record {
     pub(crate) fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
         if crate::redaction_contract::kind(self)?.is_some() {
             return Ok(Some(crate::redaction_contract::scope(self)?));
+        }
+        if search_contract::kind(self)?.is_some() {
+            return search_contract::scope(self);
         }
         if ingestion_contract::kind(self)?.is_some() {
             return ingestion_contract::scope(self).map(Some);
@@ -849,6 +861,7 @@ impl State {
                     // turn input, verification, approval, or effect observation.
                     if record.memory_kind()?.is_none()
                         && ingestion_contract::kind(record)?.is_none()
+                        && search_contract::kind(record)?.is_none()
                         && record.collection != Collection::Task
                         && record.collection != Collection::Ledger
                         && reference.split(':').next() != Some("ledger")
@@ -965,6 +978,7 @@ impl State {
         crate::redaction_contract::validate(self)?;
         crate::accounting_contract::validate(self)?;
         ingestion_contract::validate(self)?;
+        search_contract::validate(self)?;
         Ok(())
     }
     pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {
@@ -1020,6 +1034,7 @@ impl State {
                         {
                             crate::accounting_contract::transition(previous, record)?;
                             ingestion_contract::transition(previous, record)?;
+                            search_contract::transition(previous, record)?;
                             if previous.immutable_memory()? {
                                 return Err(Error::Conflict("immutable memory evidence"));
                             }
@@ -1173,6 +1188,7 @@ impl State {
             .insert(transaction.id.clone(), receipt.clone());
         result.validate()?;
         crate::accounting_contract::admission(self, &result, transaction)?;
+        search_contract::publication(self, &result, transaction)?;
         Ok((
             result,
             Commit {

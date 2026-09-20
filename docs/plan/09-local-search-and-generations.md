@@ -1,6 +1,6 @@
 # 09 — Tantivy, local embeddings, DiskANN and retrieval generations
 
-Status: P5-03 complete; P5-04 through P5-06 planned. Owns P5-03 through P5-06. Requires P5-02 and local-runtime qualification; P5-06 additionally needs P3-03 inspectors. Architecture section 13 supplies the retrieval contract.
+Status: P5-03 through P5-05 complete; P5-06 planned. Owns P5-03 through P5-06. Requires P5-02 and local-runtime qualification; P5-06 additionally needs P3-03 inspectors. Architecture section 13 supplies the retrieval contract.
 
 ## Design references and prerequisite records
 
@@ -68,6 +68,13 @@ publishes; internal ordinal changes may not alter stable source references.
 
 ## P5-04 — Local vectors and DiskANN
 
+Implemented by `vcp-memory::{embedding,vector,local_resources}` and the canonical
+host's bounded `build_memory_vectors` operation. The [native qualification
+record](../development/p5-vectors.md) documents real CPU inference under an
+independently observed network boundary, exhaustive-neighbor comparison,
+reopen/corruption checks, cancellation on both stores and resource measurement
+semantics. P5-05 owns coherent publication of these private components.
+
 1. Provision the pinned embedding artifact with digest, dimensions, normalization, token/chunk limits, license and runtime version. Explain downloads/setup; missing assets are not-ready, never a remote endpoint.
 2. Implement bounded CPU batching/cancellation and vector caching keyed by source/chunk and embedding specification. Track resident memory, mapped pages, temporary disk and build peaks independently.
 3. Implement the qualified DiskANN storage/provider boundary, stable vector-to-chunk mapping, rebuild/reopen and schema checks. Reject dimension/model mismatches before publishing.
@@ -106,6 +113,13 @@ many tempting records in another workspace and verify both returned IDs and
 absence of forbidden text in diagnostics.
 
 ## P5-05 — Coherent publication and recovery
+
+Implemented by `vcp-memory::publication`, the typed canonical search contract and
+the host's admitted `publish_memory` operation. The [qualification record](../development/p5-publication.md)
+covers actual process termination at all eight boundaries on both stores,
+complete-empty coverage, source-backed native publication, current-epoch recovery,
+Windows namespace guards and snapshot/reader cleanup fences. P5-06 owns retrieval
+fusion and final context handoff authorization.
 
 Implement the state progression `pending intent -> building private components -> validated -> manifest durable -> active pointer published -> old generation eligible for cleanup` with canonical watermark and schema/embedding versions. Freeze a compatible lexical/vector view; do not pair two mutable indexes solely because their timestamps look recent.
 

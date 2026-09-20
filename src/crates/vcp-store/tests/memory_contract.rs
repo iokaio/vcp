@@ -378,6 +378,14 @@ fn sequence_advances_and_index_status_cannot_rewrite_committed_work() {
         expected: Some(Revision::ZERO),
         record: intent_record(&intent),
     };
+    // P5-05 tightens Ready: acknowledgement must accompany its immutable
+    // generation manifest and active pointer in the publication transaction.
+    assert!(state.prepare(&tx).is_err());
+    intent.status = IndexStatus::Failed;
+    tx.mutations[0] = Mutation::Put {
+        expected: Some(Revision::ZERO),
+        record: intent_record(&intent),
+    };
     state.prepare(&tx).unwrap();
     intent.transaction = TransactionId::new();
     tx.mutations[0] = Mutation::Put {

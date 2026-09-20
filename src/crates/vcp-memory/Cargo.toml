@@ -8,6 +8,8 @@ publish = false
 workspace = "../../third_party/codex/codex-rs"
 
 [dependencies]
+vcp-embedding = { path = "../vcp-embedding" }
+munarium-datastore = { path = "../../third_party/munarium/server/src/munarium-datastore", default-features = false, features = ["vector-diskann"] }
 tantivy = { version = "0.22", default-features = false, features = ["mmap"] }
 vcp-models = { path = "../vcp-models" }
 munarium-core = { path = "../../third_party/munarium/server/src/munarium-core" }

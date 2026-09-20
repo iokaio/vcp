@@ -101,21 +101,6 @@ pub(crate) fn resolve(root: &Path) -> Result<Option<(PathBuf, RewriteReceipt)>> 
     }
     Ok(Some((path, receipt)))
 }
-pub(crate) fn pin(root: &Path) -> Result<File> {
-    let path = root.join("root-snapshot.lock");
-    if path.exists() {
-        reject_link(&path)?;
-    }
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)?;
-    file.try_lock_shared()
-        .map_err(|_| Error::Conflict("root cleanup in progress"))?;
-    Ok(file)
-}
 /// Enumerates only recognized content-bearing files in one retired physical
 /// root. Routing records, root locks and contained replacement roots are kept.
 /// Unknown entries fail closed. This is an inventory, never deletion authority.

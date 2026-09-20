@@ -9,6 +9,7 @@ pub mod memory;
 pub mod policy;
 pub mod redaction;
 pub mod revision;
+pub mod search;
 pub mod task;
 pub mod verification;
 pub mod workspace;
