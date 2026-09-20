@@ -307,6 +307,8 @@ fn process_kill_job_recovery_at_durable_boundaries() {
             "prepared",
             "encrypted",
             "admitted",
+            "owned",
+            "partial",
             "copied",
             "completed",
         ] {
@@ -360,7 +362,7 @@ fn process_kill_job_recovery_at_durable_boundaries() {
                     .count(),
                 1
             );
-            assert_eq!(job.watermark.get(), 1);
+            assert_eq!(job.watermark.get(), 2);
             assert_eq!(
                 store
                     .state()
@@ -424,6 +426,20 @@ fn snapshot_process_child() {
             .unwrap();
         if store.state().watermark.get() == 0 {
             store.transact(initial()).await.unwrap();
+            let spec = spec();
+            let mut writer = store.spool().create(spec).unwrap();
+            for chunk in b"retained synthetic snapshot source"
+                .repeat(9000)
+                .chunks(vcp_store::artifact::CHUNK_BYTES)
+            {
+                writer.write_chunk(chunk).unwrap();
+            }
+            let descriptor = writer.finalize().unwrap();
+            drop(writer);
+            store
+                .transact(attach(store.state(), descriptor, None))
+                .await
+                .unwrap();
         }
         let job = if let Ok(job) = Jobs::inspect(&store, &id, &ws) {
             job
@@ -461,7 +477,8 @@ fn snapshot_process_child() {
             job.stage,
             Stage::CiphertextReady | Stage::Admitted
         ));
-        let (_, mut ciphertext, permit) = jobs.admit(&mut store, &id, &ws, &trust).await.unwrap();
+        let (admitted, mut ciphertext, permit) =
+            jobs.admit(&mut store, &id, &ws, &trust).await.unwrap();
         barrier("admitted");
         let vault = Vault::open(
             &root.join("vault"),
@@ -473,8 +490,26 @@ fn snapshot_process_child() {
             ],
         )
         .unwrap();
+        let prior = admitted.copy_identity().cloned();
+        let store_ref = &mut store;
         let receipt = vault
-            .publish(&mut ciphertext, &permit, &|| false, &|_| {})
+            .publish_recorded(
+                &mut ciphertext,
+                &permit,
+                prior.as_ref(),
+                |identity| async {
+                    jobs.record_copy(store_ref, &id, &ws, identity).await?;
+                    barrier("owned");
+                    Ok(())
+                },
+                &|| false,
+                &|phase| {
+                    if matches!(phase, vcp_store::vault_publish::Phase::CiphertextBytes(_)) {
+                        barrier("partial");
+                    }
+                },
+            )
+            .await
             .unwrap();
         drop(ciphertext);
         barrier("copied");

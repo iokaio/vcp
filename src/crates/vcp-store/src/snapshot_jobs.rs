@@ -59,14 +59,25 @@ pub struct Job {
     pub archive_digest: Option<String>,
     finalization: Option<Finalization>,
     pub publication: Option<serde_json::Value>,
+    copy_identity: Option<crate::vault_publish::CopyIdentity>,
     pub pins: BTreeSet<String>,
+}
+impl Job {
+    pub fn copy_identity(&self) -> Option<&crate::vault_publish::CopyIdentity> {
+        self.copy_identity.as_ref()
+    }
 }
 pub struct Jobs {
     directory: Arc<Directory>,
 }
 pub struct Capture {
-    pub job: Job,
+    job: Job,
     snapshot: Snapshot,
+}
+impl Capture {
+    pub fn job(&self) -> &Job {
+        &self.job
+    }
 }
 pub struct Prepared {
     job: CommandId,
@@ -212,6 +223,7 @@ impl Jobs {
             archive_digest: None,
             finalization: None,
             publication: None,
+            copy_identity: None,
             pins,
         };
         put(store, &job, None).await?;
@@ -275,6 +287,16 @@ impl Jobs {
         }
         job.inventory = Some(prepared.inventory);
         job.archive_digest = Some(prepared.digest);
+        let archive = self.archive(&job)?;
+        if archive.workspace() != &job.workspace
+            || archive.inputs() != &job.inputs
+            || archive.state().watermark != job.watermark
+            || digest_bytes(&canonical_bytes(archive.state())?) != job.state_digest
+        {
+            return Err(Error::Conflict(
+                "prepared archive differs from captured snapshot",
+            ));
+        }
         job.stage = Stage::ArchiveReady;
         advance(store, job).await
     }
@@ -451,6 +473,30 @@ impl Jobs {
         }
         Ok((job, ciphertext, permit))
     }
+    pub async fn record_copy(
+        &self,
+        store: &mut Store,
+        id: &CommandId,
+        workspace: &WorkspaceId,
+        identity: crate::vault_publish::CopyIdentity,
+    ) -> Result<Job> {
+        let mut job = Self::inspect(store, id, workspace)?;
+        if job.stage != Stage::Admitted
+            || !identity.matches(
+                id,
+                job.finalization
+                    .as_ref()
+                    .ok_or(Error::Corruption("snapshot finalization missing"))?,
+            )
+        {
+            return Err(Error::Conflict("snapshot owned copy differs"));
+        }
+        if job.copy_identity.as_ref() == Some(&identity) {
+            return Ok(job);
+        }
+        job.copy_identity = Some(identity);
+        advance(store, job).await
+    }
     pub async fn complete(
         &self,
         store: &mut Store,
@@ -617,6 +663,11 @@ pub(crate) fn shape(record: &Record) -> Result<()> {
     }
     if let Some(finalization) = &job.finalization {
         if !hash(&finalization.sha256)
+            || digest_bytes(&canonical_bytes(&(
+                "vcp-key-reference/1",
+                &finalization.recipient,
+                finalization.writer,
+            ))?) != job.key_ref
             || finalization.bytes > 65 * 1024 * 1024
             || finalization.manifest.workspace != job.workspace
             || finalization.manifest.deletion != job.deletion
@@ -624,6 +675,16 @@ pub(crate) fn shape(record: &Record) -> Result<()> {
             || finalization.manifest.objects.len() > 4096
         {
             return Err(Error::Corruption("snapshot finalized identity"));
+        }
+    }
+    if let Some(copy) = &job.copy_identity {
+        if !matches!(job.stage, Stage::Admitted | Stage::Published)
+            || !job
+                .finalization
+                .as_ref()
+                .is_some_and(|f| copy.matches(&job.id, f))
+        {
+            return Err(Error::Corruption("snapshot copy identity"));
         }
     }
     if (job.stage == Stage::Published) != job.publication.is_some() {
@@ -679,6 +740,12 @@ pub(crate) fn transition(before: &Record, after: &Record) -> Result<()> {
         && !new.active
         && (new.stage == Stage::Cancelled && old.stage != Stage::Admitted
             || old.stage == Stage::Published && new.stage == Stage::Published);
+    let ownership = old.active
+        && new.active
+        && old.stage == Stage::Admitted
+        && new.stage == Stage::Admitted
+        && old.copy_identity != new.copy_identity
+        && new.copy_identity.is_some();
     let forward = old.active
         && new.active
         && matches!(
@@ -688,7 +755,7 @@ pub(crate) fn transition(before: &Record, after: &Record) -> Result<()> {
                 | (Stage::CiphertextReady, Stage::Admitted)
                 | (Stage::Admitted, Stage::Published)
         );
-    if !release && !forward
+    if !release && !forward && !ownership
         || old.id != new.id
         || old.workspace != new.workspace
         || old.inputs != new.inputs

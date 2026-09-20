@@ -537,69 +537,83 @@ impl Vault {
             }
             Err(_) => return Err(fail(FailureCode::VaultUnavailable)),
         };
-        let mut partial = OwnedPartial {
+        let partial = OwnedPartial {
             file,
             directory: self.directory.clone(),
             object: object.clone(),
         };
-        let result = (|| -> Result<()> {
-            let mut copied = 0u64;
-            struct Output<'a> {
-                file: &'a mut File,
-                copied: &'a mut u64,
-                cancelled: &'a dyn Fn() -> bool,
-                observe: &'a dyn Fn(Phase),
-            }
-            impl Write for Output<'_> {
-                fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-                    if (self.cancelled)() {
-                        return Err(std::io::Error::other("publication cancelled"));
-                    }
-                    let count = self.file.write(bytes)?;
-                    *self.copied += count as u64;
-                    (self.observe)(Phase::CiphertextBytes(*self.copied));
-                    Ok(count)
-                }
-                fn flush(&mut self) -> std::io::Result<()> {
-                    self.file.flush()
-                }
-            }
-            source.copy_ciphertext(Output {
-                file: &mut partial.file,
-                copied: &mut copied,
-                cancelled,
-                observe,
-            })?;
-            observe(Phase::BeforeFinalize);
-            if cancelled() {
-                return Err(Error::Unavailable("publication cancelled"));
-            }
-            partial.file.sync_all()?;
-            if copied != permit.bytes
-                || file_digest(&mut partial.file, permit.bytes)? != permit.ciphertext
-            {
-                return Err(Error::Corruption("vault copy integrity"));
-            }
-            Ok(())
-        })();
-        if result.is_err() {
-            let code = if cancelled() {
-                FailureCode::Cancelled
-            } else {
-                FailureCode::CopyFailed
-            };
-            return match partial.cleanup() {
-                Ok(()) => Err(fail(code)),
-                Err(partial) => Err(PublicationFailure {
-                    code: FailureCode::CleanupPending,
-                    cleanup_pending: Some(partial),
-                }),
-            };
-        }
-        drop(partial);
-        observe(Phase::LocallyPublished);
-        Ok(published(permit, object, cancelled()))
+        finish_copy(source, permit, partial, cancelled, observe)
     }
+}
+fn finish_copy(
+    source: &mut FinalizedCiphertext,
+    permit: &PublicationPermit,
+    mut partial: OwnedPartial,
+    cancelled: &dyn Fn() -> bool,
+    observe: &dyn Fn(Phase),
+) -> std::result::Result<Published, PublicationFailure> {
+    let object = partial.object.clone();
+    let fail = |code| PublicationFailure {
+        code,
+        cleanup_pending: None,
+    };
+    let result = (|| -> Result<()> {
+        let mut copied = 0u64;
+        struct Output<'a> {
+            file: &'a mut File,
+            copied: &'a mut u64,
+            cancelled: &'a dyn Fn() -> bool,
+            observe: &'a dyn Fn(Phase),
+        }
+        impl Write for Output<'_> {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if (self.cancelled)() {
+                    return Err(std::io::Error::other("publication cancelled"));
+                }
+                let count = self.file.write(bytes)?;
+                *self.copied += count as u64;
+                (self.observe)(Phase::CiphertextBytes(*self.copied));
+                Ok(count)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.file.flush()
+            }
+        }
+        source.copy_ciphertext(Output {
+            file: &mut partial.file,
+            copied: &mut copied,
+            cancelled,
+            observe,
+        })?;
+        observe(Phase::BeforeFinalize);
+        if cancelled() {
+            return Err(Error::Unavailable("publication cancelled"));
+        }
+        partial.file.sync_all()?;
+        if copied != permit.bytes
+            || file_digest(&mut partial.file, permit.bytes)? != permit.ciphertext
+        {
+            return Err(Error::Corruption("vault copy integrity"));
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let code = if cancelled() {
+            FailureCode::Cancelled
+        } else {
+            FailureCode::CopyFailed
+        };
+        return match partial.cleanup() {
+            Ok(()) => Err(fail(code)),
+            Err(partial) => Err(PublicationFailure {
+                code: FailureCode::CleanupPending,
+                cleanup_pending: Some(partial),
+            }),
+        };
+    }
+    drop(partial);
+    observe(Phase::LocallyPublished);
+    Ok(published(permit, object, cancelled()))
 }
 fn published(permit: &PublicationPermit, object: String, cancelled: bool) -> Published {
     Published {
@@ -653,4 +667,203 @@ fn existing(path: &Path, permit: &PublicationPermit) -> Result<()> {
         return Err(Error::Conflict("existing vault object differs"));
     }
     Ok(())
+}
+
+/// Public diagnostics of an owned native ciphertext object. Only the canonical
+/// admitted job journal supplies this receipt back to recovery.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CopyIdentity {
+    operation: CommandId,
+    native: String,
+    ciphertext: String,
+    bytes: u64,
+}
+impl CopyIdentity {
+    pub(crate) fn matches(
+        &self,
+        operation: &CommandId,
+        finalization: &crate::vault_crypto::Finalization,
+    ) -> bool {
+        self.operation == *operation
+            && self.ciphertext == finalization.sha256
+            && self.bytes == finalization.bytes
+            && !self.native.is_empty()
+            && self.native.len() <= 128
+    }
+}
+fn native_identity(file: &File) -> Result<String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+        let mut value = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+        // SAFETY: live file handle and correctly sized writable output buffer.
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), value.as_mut_ptr()) } == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // SAFETY: successful API call initialized the whole output structure.
+        let value = unsafe { value.assume_init() };
+        Ok(format!(
+            "{:08x}:{:08x}{:08x}:{:08x}{:08x}",
+            value.dwVolumeSerialNumber,
+            value.nFileIndexHigh,
+            value.nFileIndexLow,
+            value.ftCreationTime.dwHighDateTime,
+            value.ftCreationTime.dwLowDateTime
+        ))
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let m = file.metadata()?;
+        Ok(format!("{}:{}", m.dev(), m.ino()))
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = file;
+        Err(Error::Incompatible)
+    }
+}
+fn matching_prefix(source: &mut FinalizedCiphertext, file: &mut File) -> Result<()> {
+    let length = file.metadata()?.len();
+    if length > source.bytes() {
+        return Err(Error::Corruption("vault partial exceeds final ciphertext"));
+    }
+    file.seek(SeekFrom::Start(0))?;
+    struct Prefix<'a> {
+        file: &'a mut File,
+        remaining: u64,
+    }
+    impl Write for Prefix<'_> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let n = self.remaining.min(bytes.len() as u64) as usize;
+            if n > 0 {
+                let mut expected = vec![0; n];
+                self.file.read_exact(&mut expected)?;
+                if expected != bytes[..n] {
+                    return Err(std::io::Error::other("vault partial differs"));
+                }
+                self.remaining -= n as u64;
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    source.copy_ciphertext(Prefix {
+        file,
+        remaining: length,
+    })
+}
+impl Vault {
+    /// Persist native ownership through the canonical owner callback before the
+    /// first ciphertext byte. The lengthy copy then runs without owner access.
+    /// Recovery never truncates an unrecorded or replaced same-name file. A
+    /// create-to-receipt crash therefore remains an explicit conflict/pending
+    /// obligation rather than guessed ownership of a foreign object.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn publish_recorded<F, Fut>(
+        &self,
+        source: &mut FinalizedCiphertext,
+        permit: &PublicationPermit,
+        prior: Option<&CopyIdentity>,
+        on_owned: F,
+        cancelled: &dyn Fn() -> bool,
+        observe: &dyn Fn(Phase),
+    ) -> std::result::Result<Published, PublicationFailure>
+    where
+        F: FnOnce(CopyIdentity) -> Fut,
+        Fut: std::future::Future<Output = Result<()>>,
+    {
+        let fail = |code| PublicationFailure {
+            code,
+            cleanup_pending: None,
+        };
+        if source.sha256() != permit.ciphertext
+            || source.bytes() != permit.bytes
+            || source.finalization().manifest != permit.proof.manifest
+        {
+            return Err(fail(FailureCode::IdentityConflict));
+        }
+        let object = format!("{}.age", permit.operation);
+        let path = self.directory.path.join(&object);
+        observe(Phase::BeforeCopy);
+        if cancelled() {
+            return Err(fail(FailureCode::Cancelled));
+        }
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create_new(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options
+                .share_mode(1)
+                .access_mode(0xC001_0000)
+                .custom_flags(0x0020_0000);
+        }
+        let mut file = match options.open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if existing(&path, permit).is_ok() {
+                    return Ok(published(permit, object, cancelled()));
+                }
+                let prior = prior.ok_or_else(|| fail(FailureCode::IdentityConflict))?;
+                options.create_new(false);
+                let mut file = options
+                    .open(&path)
+                    .map_err(|_| fail(FailureCode::VaultUnavailable))?;
+                if private_paths::redirected(
+                    &file
+                        .metadata()
+                        .map_err(|_| fail(FailureCode::VaultUnavailable))?,
+                ) || !prior.matches(&permit.operation, &source.finalization())
+                    || native_identity(&file).ok().as_ref() != Some(&prior.native)
+                    || matching_prefix(source, &mut file).is_err()
+                {
+                    return Err(fail(FailureCode::IdentityConflict));
+                }
+                file
+            }
+            Err(_) => return Err(fail(FailureCode::VaultUnavailable)),
+        };
+        let identity = CopyIdentity {
+            operation: permit.operation.clone(),
+            native: native_identity(&file).map_err(|_| fail(FailureCode::CopyFailed))?,
+            ciphertext: permit.ciphertext.clone(),
+            bytes: permit.bytes,
+        };
+        let partial = OwnedPartial {
+            file: file
+                .try_clone()
+                .map_err(|_| fail(FailureCode::CopyFailed))?,
+            directory: self.directory.clone(),
+            object,
+        };
+        if on_owned(identity).await.is_err() {
+            drop(file);
+            return match partial.cleanup() {
+                Ok(()) => Err(fail(FailureCode::CopyFailed)),
+                Err(partial) => Err(PublicationFailure {
+                    code: FailureCode::CleanupPending,
+                    cleanup_pending: Some(partial),
+                }),
+            };
+        }
+        if file
+            .set_len(0)
+            .and_then(|()| file.seek(SeekFrom::Start(0)).map(|_| ()))
+            .is_err()
+        {
+            return Err(PublicationFailure {
+                code: FailureCode::CleanupPending,
+                cleanup_pending: Some(partial),
+            });
+        }
+        drop(file);
+        finish_copy(source, permit, partial, cancelled, observe)
+    }
 }

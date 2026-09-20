@@ -279,7 +279,7 @@ impl Inputs {
                 let source = state.record(collection, id, workspace)?;
                 if source.value["document_type"]
                     .as_str()
-                    .is_some_and(|s| s.starts_with("vcp_redacted_"))
+                    .is_some_and(|s| s.starts_with("vcp_memory_redacted_"))
                 {
                     return Err(Error::Conflict("generation source was purged"));
                 }
@@ -369,4 +369,70 @@ impl Inputs {
             generations,
         })
     }
+}
+
+pub(crate) fn generation_component(
+    record: &crate::contract::Record,
+) -> Result<Option<GenerationId>> {
+    if record.collection != Collection::Artifact {
+        return Ok(None);
+    }
+    let descriptor: ArtifactDescriptor = record.decode()?;
+    if descriptor.spec.schema != "vcp-backup-generation-component/1" {
+        return Ok(None);
+    }
+    let id = descriptor
+        .spec
+        .source
+        .strip_prefix("generation:")
+        .ok_or(Error::Corruption("generation component origin"))?;
+    let id = GenerationId::parse(id)?;
+    if record.references.iter().any(|reference| {
+        !reference.starts_with("artifact:")
+            && !reference.starts_with("claim:")
+            && reference != &crate::contract::key(Collection::Generation, id.as_str())
+    }) {
+        return Err(Error::Corruption("generation component reference type"));
+    }
+    Ok(Some(id))
+}
+pub(crate) fn component_scope(state: &State, record: &crate::contract::Record) -> Result<()> {
+    let Some(id) = generation_component(record)? else {
+        return Ok(());
+    };
+    let descriptor: ArtifactDescriptor = record.decode()?;
+    let generation: Generation = state
+        .record(Collection::Generation, id.as_str(), &record.workspace)?
+        .decode()?;
+    generation.validate()?;
+    if generation.scope != descriptor.spec.scope {
+        return Err(Error::Access);
+    }
+    for reference in &record.references {
+        let target = state
+            .records
+            .get(reference)
+            .ok_or(Error::Corruption("component source missing"))?;
+        if target.workspace != record.workspace {
+            return Err(Error::Access);
+        }
+        if target.collection == Collection::Claim
+            && !matches!(
+                target.value["document_type"].as_str(),
+                Some("vcp_memory_version_v1" | "vcp_memory_redacted_version_v1")
+            )
+        {
+            return Err(Error::Corruption("component claim version reference"));
+        }
+    }
+    Ok(())
+}
+pub(crate) fn cross_task_provenance(
+    record: &crate::contract::Record,
+    target: &crate::contract::Record,
+    reference: &str,
+) -> Result<bool> {
+    Ok(generation_component(record)?.is_some()
+        && record.references.contains(reference)
+        && matches!(target.collection, Collection::Artifact | Collection::Claim))
 }

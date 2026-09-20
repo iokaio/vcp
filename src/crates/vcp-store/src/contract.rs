@@ -371,6 +371,9 @@ impl Record {
             return Ok(refs);
         }
         let mut refs = self.references.clone();
+        if let Some(id) = crate::snapshot_inputs::generation_component(self)? {
+            refs.insert(key(Collection::Generation, id.as_str()));
+        }
         if self.collection != Collection::Workspace {
             refs.insert(key(Collection::Workspace, self.workspace.as_str()));
         }
@@ -862,6 +865,7 @@ impl State {
                     }
                 }
             }
+            crate::snapshot_inputs::component_scope(self, record)?;
             for reference in record.required_references()? {
                 let target = self
                     .records
@@ -870,6 +874,8 @@ impl State {
                 if target.workspace != record.workspace {
                     return Err(Error::Access);
                 }
+                let backup_provenance =
+                    crate::snapshot_inputs::cross_task_provenance(record, target, &reference)?;
                 if let (Some(source), Some(target)) = (record.task_scope()?, target.task_scope()?) {
                     // Fork and parent links are explicit task relationships. Data
                     // belonging to another task cannot be reused as this task's
@@ -880,6 +886,7 @@ impl State {
                         && record.collection != Collection::Task
                         && record.collection != Collection::Ledger
                         && reference.split(':').next() != Some("ledger")
+                        && !backup_provenance
                         && source != target
                     {
                         return Err(Error::Access);
