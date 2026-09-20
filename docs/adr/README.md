@@ -27,6 +27,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-019 — Cloud encryption and developer-controlled keys](019-cloud-encryption-and-keys.md) | P0-04/06, P3-06, P5-09/10, P8-03 |
 | [ADR-020 — Bounded semantic decisions](020-bounded-semantic-decisions.md) | Proposed P6-02/03/04/05; P7/P8 integration checks under existing dependencies |
 
+| [ADR-021 � Retention replay bases](021-retention-replay-bases.md) | P5-07 storage foundation |
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.

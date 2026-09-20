@@ -66,7 +66,9 @@ pub(crate) fn validate(state: &State) -> Result<()> {
                 &attempt.scope.workspace,
             )?
             .decode()?;
-        if raw.state != CaptureState::Complete {
+        if raw.state != CaptureState::Complete
+            && !(raw.state == CaptureState::Purged && settled_for_retention(state, attempt)?)
+        {
             return Err(Error::Corruption("usage evidence is incomplete"));
         }
         let entry = charged.entry(attempt.id.clone()).or_default();
@@ -162,7 +164,10 @@ pub(crate) fn validate(state: &State) -> Result<()> {
                 &attempt.scope.workspace,
             )?
             .decode()?;
-        if request.state != CaptureState::Complete || request.sha256 != attempt.request_digest {
+        if (request.state != CaptureState::Complete
+            && !(request.state == CaptureState::Purged && settled_for_retention(state, attempt)?))
+            || request.sha256 != attempt.request_digest
+        {
             return Err(Error::Corruption(
                 "request must be fully captured before admission",
             ));
@@ -501,4 +506,29 @@ pub(crate) fn admission(before: &State, after: &State, transaction: &Transaction
         }
     }
     Ok(())
+}
+
+fn settled_for_retention(state: &State, attempt: &Attempt) -> Result<bool> {
+    let reservation: Reservation = state
+        .record(
+            Collection::Reservation,
+            attempt.reservation.as_str(),
+            &attempt.scope.workspace,
+        )?
+        .decode()?;
+    let task: Task = state
+        .record(
+            Collection::Task,
+            attempt.scope.task.as_str(),
+            &attempt.scope.workspace,
+        )?
+        .decode()?;
+    Ok(task.state.terminal()
+        && reservation.liability == vcp_domain::Micros::ZERO
+        && matches!(
+            reservation.phase,
+            ReservationState::Settled
+                | ReservationState::Released
+                | ReservationState::ExplicitlyResolved
+        ))
 }

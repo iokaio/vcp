@@ -8,6 +8,8 @@ pub enum CaptureState {
     Pending,
     Complete,
     Aborted,
+    /// Original identity/digest/length survive, but no payload bytes are retained.
+    Purged,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -80,6 +82,12 @@ impl ArtifactDescriptor {
                 .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
         {
             return Err(Error::Invalid("artifact hash"));
+        }
+        if self.state == CaptureState::Purged {
+            if !self.retained.is_empty() {
+                return Err(Error::Invalid("purged artifact retains payload extent"));
+            }
+            return Ok(());
         }
         if self.retained
             != vec![Range {

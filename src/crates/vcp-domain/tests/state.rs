@@ -31,6 +31,7 @@ fn task() -> Task {
         required_checks: vec!["fixture".into()],
         cause: EventId::new(),
         reason: "created".into(),
+        redaction: None,
     }
 }
 fn evidence(task: &Task) -> Verification {

@@ -103,7 +103,18 @@ pub fn query(
         .filter(|v| v.proposal.claim == *claim && at.is_none_or(|seq| v.memory_seq <= seq))
         .collect();
     versions.sort_by_key(|v| v.memory_seq);
-    if versions.len() > 256 {
+    let mut purged = Vec::new();
+    for row in store.state().records.values().filter(|r| {
+        r.workspace == access.workspace
+            && r.collection == Collection::Claim
+            && r.value["document_type"] == vcp_domain::redaction::VERSION
+    }) {
+        let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
+        if version.claim == *claim && at.is_none_or(|seq| version.memory_seq <= seq) {
+            purged.push(version);
+        }
+    }
+    if versions.len() + purged.len() > 256 {
         return Err(Error::Invalid(
             "claim history exceeds bounded query limit".into(),
         ));
@@ -111,9 +122,28 @@ pub fn query(
     let current = versions
         .iter()
         .filter(|v| v.resolution.outcome == Outcome::Accepted)
-        .max_by_key(|v| v.memory_seq)
-        .map(|v| v.id.clone());
+        .map(|v| (v.memory_seq, v.id.clone()))
+        .chain(
+            purged
+                .iter()
+                .filter(|v| v.outcome == Outcome::Accepted)
+                .map(|v| (v.memory_seq, v.id.clone())),
+        )
+        .max()
+        .map(|(_, id)| id);
     let mut rows = Vec::new();
+    for version in purged {
+        access::redacted_scope(store.state(), access, &version.scope, &version.sources)?;
+        rows.push(VersionView {
+            current: current.as_ref() == Some(&version.id),
+            id: version.id,
+            memory_seq: version.memory_seq,
+            version: None,
+            visibility: "purged",
+            applicable: false,
+            evidence: vec![],
+        });
+    }
     for version in versions {
         if !access.allows_task(&version.scope.task) {
             return Err(Error::Access);
@@ -187,6 +217,7 @@ pub fn query(
             evidence,
         });
     }
+    rows.sort_by(|a, b| (a.memory_seq, &a.id).cmp(&(b.memory_seq, &b.id)));
     Ok(ClaimHistory {
         workspace: access.workspace.clone(),
         claim: claim.clone(),

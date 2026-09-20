@@ -98,6 +98,9 @@ pub struct Record {
 }
 impl Record {
     fn memory_kind(&self) -> Result<Option<&str>> {
+        if let Some(kind) = crate::redaction_contract::kind(self)? {
+            return Ok(Some(kind));
+        }
         let Some(kind) = self.value["document_type"].as_str() else {
             return Ok(None);
         };
@@ -116,6 +119,9 @@ impl Record {
         Ok(Some(kind))
     }
     fn immutable_memory(&self) -> Result<bool> {
+        if crate::redaction_contract::kind(self)?.is_some() {
+            return Ok(true);
+        }
         Ok(matches!(
             self.memory_kind()?,
             Some("vcp_memory_proposal_v1" | "vcp_memory_version_v1" | "vcp_memory_result_v1")
@@ -162,6 +168,9 @@ impl Record {
             }
             Ok(())
         };
+        if crate::redaction_contract::kind(self)?.is_some() {
+            return crate::redaction_contract::shape(self);
+        }
         if let Some(kind) = self.memory_kind()? {
             use vcp_domain::memory::*;
             if self.value["schema_version"].as_u64() != Some(1) {
@@ -353,6 +362,11 @@ impl Record {
         Ok(())
     }
     pub fn required_references(&self) -> Result<BTreeSet<String>> {
+        if crate::redaction_contract::kind(self)?.is_some() {
+            let mut refs = crate::redaction_contract::references(self)?;
+            refs.extend(self.references.clone());
+            return Ok(refs);
+        }
         let mut refs = self.references.clone();
         if self.collection != Collection::Workspace {
             refs.insert(key(Collection::Workspace, self.workspace.as_str()));
@@ -558,7 +572,10 @@ impl Record {
         }
         Ok(refs)
     }
-    fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
+    pub(crate) fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
+        if crate::redaction_contract::kind(self)?.is_some() {
+            return Ok(Some(crate::redaction_contract::scope(self)?));
+        }
         if search_contract::kind(self)?.is_some() {
             return search_contract::scope(self);
         }
@@ -671,12 +688,8 @@ impl State {
         &self,
         id: &ClaimVersionId,
         workspace: &WorkspaceId,
-    ) -> Result<vcp_domain::memory::Version> {
-        let record = self.record(Collection::Claim, id.as_str(), workspace)?;
-        if record.memory_kind()? != Some("vcp_memory_version_v1") {
-            return Err(Error::Corruption("memory version reference type"));
-        }
-        record.decode()
+    ) -> Result<(ClaimId, ProposalId, MemorySeq)> {
+        crate::redaction_contract::version_identity(self, id, workspace)
     }
     fn validate_memory(&self, record: &Record) -> Result<()> {
         use vcp_domain::memory::*;
@@ -697,9 +710,7 @@ impl State {
                 }
                 if let Some(id) = &value.proposal.predecessor {
                     let predecessor = self.memory_version(id, &record.workspace)?;
-                    if predecessor.proposal.claim != value.proposal.claim
-                        || predecessor.memory_seq >= value.memory_seq
-                    {
+                    if predecessor.0 != value.proposal.claim || predecessor.2 >= value.memory_seq {
                         return Err(Error::Corruption("memory predecessor lineage"));
                     }
                 }
@@ -714,7 +725,7 @@ impl State {
                 let value: Head = record.decode()?;
                 for id in value.current.iter().chain(value.disputed.iter()) {
                     let version = self.memory_version(id, &record.workspace)?;
-                    if version.proposal.claim != value.id {
+                    if version.0 != value.id {
                         return Err(Error::Corruption("memory head claim"));
                     }
                 }
@@ -748,7 +759,7 @@ impl State {
                 }
                 if let Some(id) = &value.version {
                     let version = self.memory_version(id, &record.workspace)?;
-                    if version.proposal.id != value.proposal {
+                    if version.1 != value.proposal {
                         return Err(Error::Corruption("memory result version"));
                     }
                 }
@@ -964,6 +975,7 @@ impl State {
         if sequences != self.sequences {
             return Err(Error::Corruption("session watermark"));
         }
+        crate::redaction_contract::validate(self)?;
         crate::accounting_contract::validate(self)?;
         ingestion_contract::validate(self)?;
         search_contract::validate(self)?;
@@ -998,6 +1010,15 @@ impl State {
         for mutation in &transaction.mutations {
             match mutation {
                 Mutation::Put { expected, record } => {
+                    if crate::redaction_contract::kind(record)?.is_some()
+                        || (record.collection == Collection::Task
+                            && record.decode::<Task>()?.redaction.is_some())
+                        || (record.collection == Collection::Artifact
+                            && record.decode::<ArtifactDescriptor>()?.state
+                                == vcp_domain::artifact::CaptureState::Purged)
+                    {
+                        return Err(Error::Conflict("redaction requires sealed rewrite"));
+                    }
                     let key = record.key();
                     if !touched.insert(key.clone()) {
                         return Err(Error::Conflict("duplicate mutation"));
@@ -1108,6 +1129,7 @@ impl State {
                 last = sequence;
             }
             result.events.push(EventEnvelope {
+                redaction: None,
                 version: 1,
                 sequence,
                 watermark,

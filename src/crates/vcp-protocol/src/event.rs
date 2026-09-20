@@ -68,4 +68,6 @@ pub struct EventEnvelope {
     pub sequence: SessionSeq,
     pub watermark: Watermark,
     pub event: EventInput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redaction: Option<vcp_domain::redaction::ContentRedaction>,
 }
