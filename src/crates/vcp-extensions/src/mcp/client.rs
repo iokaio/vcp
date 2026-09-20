@@ -216,10 +216,21 @@ pub struct Client {
 }
 impl Client {
     pub fn new(registration: Registration) -> Result<Self, Error> {
-        registration.validate().map_err(|_| Error::Registration)?;
         if !matches!(registration.transport, Transport::Stdio { .. }) {
             return Err(Error::Registration);
         }
+        Self::new_inner(registration)
+    }
+    /// HTTP admission is exposed only through the session adapter, which also
+    /// enforces response acknowledgements and private session-header state.
+    pub(super) fn new_http(registration: Registration) -> Result<Self, Error> {
+        if !matches!(registration.transport, Transport::StreamableHttp { .. }) {
+            return Err(Error::Registration);
+        }
+        Self::new_inner(registration)
+    }
+    fn new_inner(registration: Registration) -> Result<Self, Error> {
+        registration.validate().map_err(|_| Error::Registration)?;
         Ok(Self {
             registration,
             phase: Phase::New,
@@ -243,6 +254,9 @@ impl Client {
     }
     pub fn connection(&self) -> Option<&ConnectionIdentity> {
         self.connection.as_ref()
+    }
+    pub(super) fn owns_outbound(&self, out: &Outbound) -> bool {
+        self.owner == out.owner
     }
     pub fn pending_kind(&self) -> Option<PendingKind> {
         self.pending.as_ref().map(|p| p.kind)

@@ -8,7 +8,7 @@ use tokio::{
     net::TcpListener,
 };
 
-fn fixture() -> (Lifecycle, OwnerLease, ThreadId) {
+pub(super) fn fixture() -> (Lifecycle, OwnerLease, ThreadId) {
     let (runtime, owner) = Lifecycle::new(Duration::from_secs(2));
     let thread = ThreadId::new();
     {
@@ -29,7 +29,7 @@ fn fixture() -> (Lifecycle, OwnerLease, ThreadId) {
     }
     (runtime, owner, thread)
 }
-fn outbound(address: SocketAddr) -> Outbound {
+pub(super) fn outbound(address: SocketAddr) -> Outbound {
     Outbound {
         address,
         authority: address.to_string(),
@@ -345,17 +345,11 @@ async fn absolute_deadline_and_drop_close_owned_driver() {
     }
 }
 
-fn tls_config() -> (Arc<ClientConfig>, Arc<rustls::ServerConfig>) {
+pub(super) fn tls_config() -> (Arc<trust::TrustSnapshot>, Arc<rustls::ServerConfig>) {
     let rcgen::CertifiedKey { cert, signing_key } =
         rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-    let mut roots = rustls::RootCertStore::empty();
-    roots.add(cert.der().clone()).unwrap();
     let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
-    let client = ClientConfig::builder_with_provider(provider.clone())
-        .with_safe_default_protocol_versions()
-        .unwrap()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let client = trust::TrustSnapshot::fixture_roots(vec![cert.der().to_vec()]).unwrap();
     let server = rustls::ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .unwrap()
@@ -405,7 +399,7 @@ async fn https_requires_exact_trusted_server_identity_before_http_bytes() {
         request.authority = format!("{name}:{}", address.port());
         request.tls = Some(Tls {
             name: ServerName::try_from(name).unwrap(),
-            config: client,
+            trust: client,
         });
         let response = exchange(runtime, thread, 0, request, None).await;
         let observed = tokio::time::timeout(Duration::from_secs(2), peer)
@@ -462,7 +456,7 @@ async fn buffered_tls_plaintext_cannot_flush_read_or_shutdown_after_revocation()
             limit: 64 * 1024,
             deadline: Instant::now() + Duration::from_secs(5),
         };
-        let mut tls = tokio_rustls::TlsConnector::from(client)
+        let mut tls = tokio_rustls::TlsConnector::from(client.config())
             .connect(ServerName::try_from("localhost").unwrap(), socket)
             .await
             .unwrap();

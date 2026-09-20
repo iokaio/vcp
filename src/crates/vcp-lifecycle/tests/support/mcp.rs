@@ -11,19 +11,19 @@ use vcp_domain::{
 use vcp_lifecycle::foundation::mcp::{Registration, Request as McpRequest};
 use vcp_tools::process::{Mode, Profile, Request};
 
-struct Fixture {
-    _temp: tempfile::TempDir,
-    workspace: std::path::PathBuf,
-    host: CanonicalHost,
-    owner: vcp_lifecycle::foundation::CanonicalOwner,
-    test: TestCodex,
+pub(super) struct Fixture {
+    pub(super) _temp: tempfile::TempDir,
+    pub(super) workspace: std::path::PathBuf,
+    pub(super) host: CanonicalHost,
+    pub(super) owner: vcp_lifecycle::foundation::CanonicalOwner,
+    pub(super) test: TestCodex,
     _server: wiremock::MockServer,
-    thread: codex_protocol::ThreadId,
-    config: Config,
-    policy: Policy,
+    pub(super) thread: codex_protocol::ThreadId,
+    pub(super) config: Config,
+    pub(super) policy: Policy,
 }
 impl Fixture {
-    async fn new(backend: BackendKind, scenario: &str) -> Self {
+    pub(super) async fn new(backend: BackendKind, scenario: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let workspace = temp.path().join("workspace ü");
         fs::create_dir(&workspace).unwrap();
@@ -177,7 +177,7 @@ impl Fixture {
             arguments_json: args.to_string(),
         }
     }
-    async fn close(self) {
+    pub(super) async fn close(self) {
         self.host.disconnect_mcp().await.unwrap();
         let Self {
             _temp,
@@ -192,7 +192,7 @@ impl Fixture {
         drop(host);
         drop(_temp);
     }
-    fn resume_approved(&self) {
+    pub(super) fn resume_approved(&self) {
         let state = self.host.snapshot().unwrap();
         let task: Task = state
             .record(

@@ -10,7 +10,9 @@ use vcp_mcp::{
     registration::Limits,
 };
 use vcp_store::contract::Collection;
+pub mod remote;
 pub mod remote_authority;
+pub use remote::RemoteRegistration;
 pub(crate) mod transport;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -79,11 +81,13 @@ impl Provenance {
 }
 #[derive(Default)]
 pub(super) struct Connections {
+    credentials: remote_authority::CredentialResolver,
     slots: Mutex<HashMap<(ThreadId, String), SharedSlot>>,
 }
 type SharedSlot = Arc<tokio::sync::Mutex<Slot>>;
 #[derive(Default)]
 struct Slot {
+    remote: remote::RemoteSlot,
     startup: Option<PendingStartup>,
     connection: Option<Connection>,
     pending: Option<McpProposal>,
@@ -103,18 +107,21 @@ impl Connections {
             .collect::<Vec<_>>();
         for slot in slots {
             let mut slot = slot.lock().await;
+            slot.remote.clear();
             slot.pending.take();
             slot.startup.take();
             if let Some(connection) = slot.connection.take() {
                 stop_connection(connection).await;
             }
         }
+        self.credentials.close().map_err(|e| e.to_string())?;
         Ok(())
     }
     pub(super) fn interrupt(&self) {
         if let Ok(slots) = self.slots.lock() {
             for slot in slots.values() {
                 if let Ok(mut slot) = slot.try_lock() {
+                    slot.remote.clear();
                     slot.connection.take();
                     slot.pending.take();
                     slot.startup.take();
@@ -244,7 +251,9 @@ impl CanonicalHost {
             });
         }
         if proofs.is_empty() {
-            return Err("no idle owned MCP approval to resume".into());
+            return self
+                .worker
+                .run(move |context| context.resume(&binding, expected, fingerprint));
         }
         let runtime = self.runtime.clone();
         // Guards remain held until the worker has consumed these ephemeral
@@ -542,6 +551,15 @@ impl CanonicalHost {
     ) -> Result<ControlOutcome, String> {
         let slot = self.mcp_slot(thread, request.server())?;
         let mut slot = slot.lock().await;
+        let remote_server = request.server().to_owned();
+        if self
+            .worker
+            .run(move |context| Ok(context.is_remote_mcp(&remote_server)))?
+        {
+            return self
+                .remote_control(thread, request, provenance, &mut slot.remote)
+                .await;
+        }
         match request {
             Request::Disconnect { .. } => {
                 slot.pending.take();
@@ -875,6 +893,7 @@ impl CanonicalHost {
             .collect::<Vec<_>>();
         for slot in slots {
             let mut slot = slot.lock().await;
+            slot.remote.clear();
             slot.pending.take();
             slot.startup.take();
             if let Some(connection) = slot.connection.take() {
@@ -886,8 +905,9 @@ impl CanonicalHost {
     pub fn mcp_connections_present(&self) -> bool {
         self.mcp.slots.lock().map_or(true, |slots| {
             slots.values().any(|slot| {
-                slot.try_lock()
-                    .map_or(true, |slot| slot.connection.is_some())
+                slot.try_lock().map_or(true, |slot| {
+                    slot.connection.is_some() || slot.remote.connected()
+                })
             })
         })
     }

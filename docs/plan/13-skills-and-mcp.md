@@ -1,6 +1,6 @@
 # 13 — Bundled development skills and MCP
 
-Status: P7-01 complete with [native qualification](../evaluations/p7-01-skills.md); P7-02 in progress with the [packaged catalog](../development/p7-builtin-skills.md); P7-03 in progress with [governed stdio tools](../development/p7-mcp-stdio.md) on the [duplex broker prerequisite](../development/p7-mcp-duplex.md); [HTTP boundary prerequisites](../development/p7-mcp-http-boundaries.md) add framing, scoped credentials and socket admission; canonical remote transport integration and resources remain open. Owns P7-01, P7-02 and P7-03. Skill discovery follows P2-01/P2-03; bundled skills also need verification, and MCP needs the execution broker. Hooks/configuration import remain in segment 19.
+Status: P7-01 complete with [native qualification](../evaluations/p7-01-skills.md); P7-02 in progress with the [packaged catalog](../development/p7-builtin-skills.md); P7-03 in progress with [governed stdio tools](../development/p7-mcp-stdio.md) on the [duplex broker prerequisite](../development/p7-mcp-duplex.md); [canonical HTTP tools](../development/p7-mcp-http.md) connect bounded streaming, scoped credentials and native trust to remote dispatch; resource and prompt access remain open. Owns P7-01, P7-02 and P7-03. Skill discovery follows P2-01/P2-03; bundled skills also need verification, and MCP needs the execution broker. Hooks/configuration import remain in segment 19.
 
 ## Code organization
 

@@ -148,6 +148,10 @@ already include these changes; normal builds never apply patches.
     dependency edges, including the existing certificate generator for tests.
     No external package version or retained implementation changes.
 
+33. `0033-p7-mcp-http-workspace.patch` records the lifecycle adapter's direct
+    dependency on the already locked Windows API package for read-only system
+    trust-store snapshots. No external package version changes.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

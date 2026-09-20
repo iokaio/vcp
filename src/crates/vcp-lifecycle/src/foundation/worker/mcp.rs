@@ -8,6 +8,7 @@ use vcp_extensions::mcp as vcp_mcp;
 #[derive(Default)]
 pub(super) struct State {
     registrations: BTreeMap<String, Registration>,
+    remotes: BTreeMap<String, crate::foundation::mcp::remote::RemoteRegistration>,
 }
 impl Context {
     pub(in crate::foundation) fn resume_mcp_approval(
@@ -191,13 +192,19 @@ impl Context {
         })
     }
     pub fn mcp_server_names(&self) -> Vec<String> {
-        self.mcp.registrations.keys().cloned().collect()
+        self.mcp
+            .registrations
+            .keys()
+            .chain(self.mcp.remotes.keys())
+            .cloned()
+            .collect()
     }
     pub fn configure_mcp(&mut self, registration: Registration) -> Result<()> {
         if !self.owner_alive || self.authority_pending || !self.coding.is_empty() {
             return Err("MCP registration requires fresh trusted owner setup".into());
         }
-        if self.mcp.registrations.len() >= 16
+        if self.mcp.registrations.len() + self.mcp.remotes.len() >= 16
+            || self.mcp.remotes.contains_key(&registration.name)
             || self.mcp.registrations.contains_key(&registration.name)
         {
             return Err("MCP registration ceiling or duplicate identity".into());
@@ -417,6 +424,123 @@ impl Context {
             "identity":identity,"arguments":serde_json::from_slice::<serde_json::Value>(arguments.canonical_bytes())?,
             "provenance":provenance.evidence()?,
         }))?)?;
+        Ok(vcp_policy::Prepared::new(operation)?)
+    }
+}
+
+impl Context {
+    pub(in crate::foundation) fn is_remote_mcp(&self, server: &str) -> bool {
+        self.mcp.remotes.contains_key(server)
+    }
+    pub(in crate::foundation) fn configure_mcp_remote(
+        &mut self,
+        registration: crate::foundation::mcp::remote::RemoteRegistration,
+    ) -> Result<()> {
+        if !self.owner_alive || self.authority_pending || !self.coding.is_empty() {
+            return Err("MCP registration requires fresh trusted owner setup".into());
+        }
+        let server = registration.profile.config().server.clone();
+        if registration.profile.config().workspace != self.config.workspace
+            || self.mcp.remotes.len() + self.mcp.registrations.len() >= 16
+            || self.mcp.remotes.contains_key(&server)
+            || self.mcp.registrations.contains_key(&server)
+        {
+            return Err("remote MCP registration scope or identity rejected".into());
+        }
+        registration.pure()?;
+        self.mcp.remotes.insert(server, registration);
+        Ok(())
+    }
+    pub(in crate::foundation) fn remote_mcp_setup(
+        &self,
+        server: &str,
+    ) -> Result<(
+        crate::foundation::mcp::remote::RemoteRegistration,
+        crate::foundation::mcp::remote_authority::AuthorityPin,
+    )> {
+        if !self.owner_alive || self.authority_pending {
+            return Err("remote credential owner unavailable".into());
+        }
+        let registration = self
+            .mcp
+            .remotes
+            .get(server)
+            .ok_or("remote MCP server not configured")?
+            .clone();
+        let workspace: Workspace = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Workspace,
+                self.config.workspace.as_str(),
+                &self.config.workspace,
+            )?
+            .decode()?;
+        Ok((
+            registration,
+            crate::foundation::mcp::remote_authority::AuthorityPin {
+                controller: self.engine.controller().clone(),
+                owner: self.engine.owner_epoch(),
+                authority: workspace.authority,
+                binding: workspace.binding.revision,
+            },
+        ))
+    }
+    pub(in crate::foundation) fn remote_mcp_decision(
+        &self,
+        binding: &ThreadBinding,
+        server: &str,
+        registration_digest: &str,
+        authority: &vcp_policy::Prepared,
+        provenance: &Provenance,
+    ) -> Result<vcp_policy::Decision> {
+        self.validate_mcp_provenance(binding, provenance)?;
+        let (configured, _) = self.remote_mcp_setup(server)?;
+        if configured.pure()?.digest()? != registration_digest {
+            return Err("remote MCP registration changed".into());
+        }
+        self.authority_decision(
+            binding,
+            authority,
+            &BTreeSet::from([RootId::parse(self.config.workspace.as_str())?]),
+            true,
+            &BTreeSet::from([Isolation::Timeout, Isolation::OutputLimit]),
+        )
+    }
+    pub(in crate::foundation) fn prepare_remote_mcp_authority(
+        &self,
+        binding: &ThreadBinding,
+        registration: &crate::foundation::mcp::remote::RemoteRegistration,
+        arguments: serde_json::Value,
+        provenance: &Provenance,
+    ) -> Result<vcp_policy::Prepared> {
+        self.validate_mcp_provenance(binding, provenance)?;
+        let current = self.tool_identity(binding, "vcp_mcp")?;
+        let operation = vcp_domain::policy::Operation {
+            scope: current.scope,
+            actor: current.actor,
+            host: current.host,
+            binding: current.binding,
+            authority: current.authority,
+            steering: current.steering,
+            policy: current.policy,
+            tool: "vcp_mcp".into(),
+            schema: vcp_protocol::digest_bytes(b"vcp-mcp-http-operation-v1"),
+            arguments: String::from_utf8(canonical_bytes(&arguments)?)?,
+            invocation: vcp_domain::policy::Invocation::Remote {
+                server_identity: registration.pure()?.digest()?,
+                endpoint: registration.profile.endpoint().into(),
+            },
+            resources: vec![],
+            effects: BTreeSet::from([
+                vcp_domain::policy::EffectClass::Network,
+                vcp_domain::policy::EffectClass::Opaque,
+            ]),
+            required_isolation: BTreeSet::from([Isolation::Timeout, Isolation::OutputLimit]),
+            timeout_ms: Units::new(registration.limits.timeout_ms),
+            output_bytes: ByteCount::new(registration.limits.total_discovery_bytes),
+        };
         Ok(vcp_policy::Prepared::new(operation)?)
     }
 }

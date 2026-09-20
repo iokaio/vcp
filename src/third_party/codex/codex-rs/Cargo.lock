@@ -17628,6 +17628,7 @@ dependencies = [
  "vcp-repository",
  "vcp-store",
  "vcp-tools",
+ "windows-sys 0.61.2",
  "wiremock",
  "zeroize",
 ]

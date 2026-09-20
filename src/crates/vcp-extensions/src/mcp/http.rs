@@ -9,7 +9,8 @@
 //! optional UTF-8 charset, and default/message SSE event types. Other successful
 //! HTTP statuses and MIME parameters are outside this declared profile. Invalid
 //! UTF-8 is rejected rather than decoded with browser replacement characters.
-//! The existing Client still rejects HTTP registrations. Before integration:
+//! `Session` is the HTTP state adapter; the standalone Client remains stdio-only.
+//! The host integrating this adapter must preserve the following boundaries:
 //! - Actual request-write observation must precede Client::confirm_sent; receiving
 //!   HTTP response headers is not proof the entire request was written.
 //! - Initialized/control POSTs require 202 with an empty body; do not permit the
@@ -19,8 +20,10 @@
 //!   can consume subsequent JSON frames from the original response stream.
 //! - A valid reply and a later transport error are separate observations; retain
 //!   the reply's evidence. EOF/202/metadata alone are never a tool-result receipt.
-//! - Host owns session IDs, protocol headers, expiry/reinitialization, current
+//! - Session owns private session IDs and protocol headers. Host owns current
 //!   source/credential authority and durable effects. No frame permits replay.
+mod session;
+pub use session::{ExchangeId, RequestHeaders, Session, SessionError};
 use std::{
     fmt,
     time::{Duration, Instant},

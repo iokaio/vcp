@@ -1,5 +1,9 @@
 # P7-03 HTTP boundary prerequisites
 
+This document records the boundary prerequisite increment. The subsequent
+[canonical HTTP adapter](p7-mcp-http.md) connects these components to remote tool
+configuration and dispatch; the statements below describe the prerequisite scope.
+
 The HTTP implementation extends the governed MCP work in
 [ADR-026](../adr/026-governed-mcp-stdio.md), following the send-boundary decision in
 [ADR-027](../adr/027-owned-http-send-boundary.md). These components establish transport
