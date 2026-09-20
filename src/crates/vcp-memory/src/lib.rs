@@ -13,6 +13,7 @@ pub mod local_resources;
 pub mod preferences;
 pub mod projections;
 pub mod proof;
+pub mod publication;
 pub mod repository;
 pub mod runner;
 pub mod search_record;

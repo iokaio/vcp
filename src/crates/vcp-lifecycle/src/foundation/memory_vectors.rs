@@ -17,7 +17,7 @@ use vcp_memory::{
 use vcp_store::contract::Collection;
 
 static ADMISSION: OnceLock<Result<Admission, String>> = OnceLock::new();
-fn admission() -> Result<&'static Admission, String> {
+pub(super) fn admission() -> Result<&'static Admission, String> {
     ADMISSION
         .get_or_init(|| Admission::new(local_resources::Limits::default()))
         .as_ref()
@@ -113,7 +113,7 @@ fn private_directory(root: &Path) -> Result<PathBuf, String> {
 }
 
 /// Reads only process accounting counters; this is not a CPU allocation quota.
-fn process_cpu_millis() -> Result<u64, String> {
+pub(super) fn process_cpu_millis() -> Result<u64, String> {
     #[repr(C)]
     struct FileTime {
         low: u32,
