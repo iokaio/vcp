@@ -46,12 +46,16 @@ namespace VcpHandoff {
   static extern SafeFileHandle CreateFileW(string path,uint access,uint share,IntPtr security,uint disposition,uint flags,IntPtr template);
   [DllImport("kernel32.dll", SetLastError=true)]
   static extern bool GetFileInformationByHandleEx(SafeFileHandle handle,int info,out TagInfo value,uint size);
+  [DllImport("ntdll.dll")] static extern sbyte RtlSetThreadPlaceholderCompatibilityMode(sbyte mode);
   static SafeFileHandle Open(string path,bool directory,bool cloud) {
    var handle=CreateFileW(path,directory ? 0x80u : 0x80000000u,directory ? 3u : 1u,IntPtr.Zero,3,0x02200000,IntPtr.Zero);
    if(handle.IsInvalid) { handle.Dispose(); throw new IOException("Native path open refused"); }
    try {
     TagInfo info;
-    if(!GetFileInformationByHandleEx(handle,9,out info,8)) throw new IOException("Native tag query refused");
+    var prior=RtlSetThreadPlaceholderCompatibilityMode(2);
+    if(prior<0) throw new IOException("Native placeholder mode refused");
+    try { if(!GetFileInformationByHandleEx(handle,9,out info,8)) throw new IOException("Native tag query refused"); }
+    finally { RtlSetThreadPlaceholderCompatibilityMode(prior); }
     if(((info.Attributes & 0x10)!=0)!=directory) throw new IOException("Unexpected native object kind");
     if((info.Attributes & 0x400)!=0 && (!cloud || (info.Tag & ~0xF000u)!=0x9000001Au))
      throw new IOException("Native reparse tag refused");
