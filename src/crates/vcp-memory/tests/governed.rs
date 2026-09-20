@@ -134,7 +134,8 @@ async fn seed(engine: &mut Engine<Store>, workspace: &str) -> (Scope, EventId, A
             parent: None,
             fork_origin: None,
             objective: Objective {
-                text: "Retain evidence and architecture observations".into(),
+                text: r#"{"memory_preference":{"key":"test-output","value":"retain evidence"}}"#
+                    .into(),
                 constraints: vec![],
                 acceptance: vec!["scope preserved".into()],
                 source: EventId::new(),

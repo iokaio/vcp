@@ -6,13 +6,8 @@ use crate::{
 };
 use serde::Serialize;
 use vcp_domain::{
-    artifact::{ArtifactDescriptor, CaptureState},
-    ids::*,
-    memory::*,
-    revision::*,
-    task::Task,
-    verification::Verification,
-    workspace::Workspace,
+    artifact::ArtifactDescriptor, ids::*, memory::*, revision::*, task::Task,
+    verification::Verification, workspace::Workspace,
 };
 use vcp_protocol::{
     canonical_bytes,
@@ -135,9 +130,7 @@ pub(crate) fn evidence(
                     .is_some_and(|r| r.end > descriptor.length || r.start >= r.end)
             {
                 Availability::DigestMismatch
-            } else if descriptor.state != CaptureState::Complete
-                || !descriptor.spec.omissions.is_empty()
-            {
+            } else if !crate::proof::complete_capture(&descriptor) {
                 Availability::Unavailable
             } else {
                 match vcp_audit::history::History::read_artifact(
@@ -233,6 +226,99 @@ fn verify_evidence(
         _ => false,
     })
 }
+/// Deterministic explicit preference input uses the complete objective JSON:
+/// `{"memory_preference":{"key":"test-output","value":"retain"}}`.
+/// Only the exact key/value in a canonical root task/steering event is evidence;
+/// citing an arbitrary user event cannot establish an invented preference.
+/// Child commands share the host actor; without a direct-user marker their
+/// objectives cannot establish explicit user intent, even after steering.
+pub(crate) fn preference_matches(
+    state: &State,
+    access: &Access,
+    origin: &EventId,
+    key: &str,
+    value: &str,
+) -> Result<bool> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Input {
+        memory_preference: Preference,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Preference {
+        key: String,
+        value: String,
+    }
+    let Some(event) = state.events.iter().find(|e| &e.event.id == origin) else {
+        return Ok(false);
+    };
+    if event.event.workspace != access.workspace
+        || event
+            .event
+            .task
+            .as_ref()
+            .is_some_and(|id| !access.allows_task(id))
+    {
+        return Err(Error::Access);
+    }
+    if event.event.actor != access.actor
+        || !matches!(
+            event.event.kind,
+            EventKind::TaskCreated | EventKind::ObjectiveChanged
+        )
+    {
+        return Ok(false);
+    }
+    for row in state
+        .records
+        .values()
+        .filter(|r| r.workspace == access.workspace && r.collection == Collection::Tombstone)
+    {
+        let mask: vcp_audit::history::RetentionMask = row.decode()?;
+        if mask.session == event.event.session
+            && event.sequence >= mask.first
+            && event.sequence <= mask.last
+        {
+            return Ok(false);
+        }
+    }
+    let Some(facts) = event
+        .event
+        .data
+        .get("facts")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Ok(false);
+    };
+    for fact in facts {
+        if fact["collection"] != "task"
+            || event
+                .event
+                .task
+                .as_ref()
+                .is_none_or(|id| Some(id.as_str()) != fact["id"].as_str())
+        {
+            continue;
+        }
+        let task: Task = serde_json::from_value(fact["value"].clone())?;
+        if task.scope.workspace != access.workspace || task.scope.session != event.event.session {
+            return Err(Error::Access);
+        }
+        if task.parent.is_some() || task.root != task.scope.task {
+            return Ok(false);
+        }
+        let Some(objective) = task.objectives.last() else {
+            continue;
+        };
+        let Ok(input) = serde_json::from_str::<Input>(&objective.text) else {
+            return Ok(false);
+        };
+        return Ok(input.memory_preference.key == key && input.memory_preference.value == value);
+    }
+    Ok(false)
+}
+
 fn validate_origins(
     state: &State,
     access: &Access,
@@ -270,7 +356,9 @@ fn validate_origins(
         }
     }
     if let ClaimValue::UserPreference {
-        explicit_origin, ..
+        explicit_origin,
+        key,
+        value,
     } = &proposal.value
     {
         if !proposal.origins.contains(explicit_origin) {
@@ -279,17 +367,10 @@ fn validate_origins(
                 "explicit user statement must be an origin event",
             )));
         }
-        // Explicit user input is captured as objective creation/steering, not a model assertion.
-        if !state.events.iter().any(|e| {
-            e.event.id == *explicit_origin
-                && matches!(
-                    e.event.kind,
-                    EventKind::TaskCreated | EventKind::ObjectiveChanged
-                )
-        }) {
+        if !preference_matches(state, access, explicit_origin, key, value)? {
             return Ok(Some(rejection(
                 "vcp.preference",
-                "preference lacks explicit user task/steering evidence",
+                "preference differs from exact typed user task/steering evidence",
             )));
         }
     }

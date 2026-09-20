@@ -181,7 +181,22 @@ async fn authority_change_cancels_retained_stream_and_preserves_late_usage_and_p
         );
         let view = host.lifecycle().inspect(id).unwrap();
         assert!(view.owner_attached && view.local_hold && view.interrupt_complete);
-        assert!(host.lifecycle().resume(id, &view.revision).is_err());
+        // The retained lifecycle owns local holds, not canonical workspace
+        // authority. Clearing its hold must still leave the canonical task
+        // paused and unable to submit another turn after trust was revoked.
+        host.lifecycle().resume(id, &view.revision).unwrap();
+        let current: Task = host
+            .snapshot()
+            .unwrap()
+            .record(
+                Collection::Task,
+                config.root_task.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(current.state, TaskState::Paused);
         assert!(matches!(
             test.codex
                 .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {

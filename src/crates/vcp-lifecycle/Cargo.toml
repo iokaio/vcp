@@ -14,6 +14,7 @@ vcp-store = { path = "../vcp-store" }
 vcp-engine = { path = "../vcp-engine" }
 vcp-budget = { path = "../vcp-budget" }
 vcp-audit = { path = "../vcp-audit" }
+vcp-memory = { path = "../vcp-memory" }
 vcp-context = { path = "../vcp-context" }
 vcp-models = { path = "../vcp-models" }
 vcp-repository = { path = "../vcp-repository" }

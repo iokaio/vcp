@@ -235,6 +235,27 @@ impl CanonicalHost {
         self.worker
             .run_cleanup(|context| Ok(context.engine.store().state().clone()))
     }
+    /// Explicit bounded local maintenance, never called by read-only inspection.
+    pub fn maintain_memory(&self) -> Result<vcp_memory::runner::Progress, String> {
+        self.worker.run(|context| context.memory_step())
+    }
+    pub fn memory_status(&self) -> Result<vcp_memory::runner::Status, String> {
+        self.worker.run_cleanup(|context| {
+            Ok(vcp_memory::runner::status(
+                context.engine.store(),
+                &context.memory_access(),
+            )?)
+        })
+    }
+    /// Promote an already captured, accounted Memory-role gateway response.
+    /// Validation and governed writes stay under the canonical owner fence.
+    pub fn promote_memory_response(
+        &self,
+        extraction: vcp_memory::extraction::ExtractionContext,
+    ) -> Result<Vec<vcp_memory::repository::MemoryCommit>, String> {
+        self.worker
+            .run(move |context| context.promote_memory_response(extraction))
+    }
     pub fn observe_usage(&self, observation: UsageObservation) -> Result<Settlement, String> {
         self.worker
             .run_cleanup(move |context| context.observe_usage(observation))
