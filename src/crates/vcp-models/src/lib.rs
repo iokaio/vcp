@@ -4,6 +4,7 @@
 pub mod catalog;
 pub mod decision;
 pub mod escalation;
+pub mod markov;
 pub mod request;
 pub mod retry;
 pub mod routing;
