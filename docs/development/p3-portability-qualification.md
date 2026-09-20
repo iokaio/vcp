@@ -1,8 +1,9 @@
 # P3-06 local portability qualification
 
 The production CLI and storage adapters passed the local checks below. Actual
-U04 qualification remains pending: these runs used one Windows machine and local
-ciphertext copies, not a two-Windows OneDrive transfer. Process termination checks
+U04 qualification remains pending: machine A has published to actual OneDrive,
+but the second Windows machine and return transfer have not run. Local rehearsals
+used ciphertext copies and do not establish cloud delivery. Process termination checks
 do not establish power-loss durability.
 
 ## Completed evidence
@@ -87,6 +88,32 @@ is rejected, cancellation releases its obligations, and a fresh post-purge
 archive excludes the removed source marker. This is local retention evidence;
 it does not prove deletion of independent external copies.
 
+## Operator package and actual machine-A publication
+
+The operator campaign published sequence-2 encrypted snapshots for both backend
+directions into the registered, running OneDrive client's folder. Readback hashes
+matched. Upload completion and remote delivery remain unobserved. Recovery keys
+and public enrollment metadata travel separately in the operator package, outside
+OneDrive; only ciphertext objects enter the synchronized vault.
+
+Real OneDrive inspection exposed Windows Cloud Files reparse points. Public vault
+and ciphertext access now permits only the exact Cloud Files tag family, with
+held no-follow handles and scoped thread placeholder visibility. Private roots
+still reject reparse points; junctions, symlinks and unknown tags remain rejected.
+Three path tests, 13 publication/crypto/restore tests and two doctor tests passed
+(`p306-cloud-paths.log`, `p306-cloud-store.log`, `p306-cloud-doctor.log`).
+
+The ordinary packaged executable built successfully (`p306-u04-build.log`), and
+all eight fast checks passed (`p306-u04-fast/8303ff28-5b86-4899-a40d-d79f355c2fe4/manifest.json`).
+Fresh operator fixtures passed on both backends (`p306-u04-ready-export.log`).
+The packaged machine-B script then passed both directions using isolated local
+copies of the outbound ciphertext: source hashes, stable identities, paused and
+untrusted restore, exact retry, Plan-preserving trust, settled/unresolved accounting
+of 50/67, retained child lineage and governed claims, and sequence-3 publication.
+Completed reruns were idempotent (`p306-enriched-b-summary.json`). These fixtures
+contain no verification records; this run does not qualify nonempty verification
+history. Simulated descendants were not written into the actual OneDrive vault.
+
 ## Remaining qualification
 
 Run the [two-Windows handoff procedure](p3-portability-handoff.md) on actual
@@ -94,6 +121,6 @@ OneDrive in both backend directions, with independent recovery material and
 writer trust established before receiving ciphertext. The bounded collector
 records redacted machine identity, object hashes and lengths, sequence/deletion
 metadata and provider observations. Its local path/checksum/junction checks have
-been exercised, but no actual OneDrive handoff is claimed. Access to the second
-Windows environment is still pending; U04 and P3 completion must remain open
+been exercised, but no actual OneDrive handoff is claimed. The operator package
+is prepared for the second Windows environment; U04 and P3 completion remain open
 until that required evidence exists.
