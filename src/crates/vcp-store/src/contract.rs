@@ -732,6 +732,18 @@ impl State {
             }
             Some("vcp_memory_index_intent_v1") => {
                 let value: IndexIntent = record.decode()?;
+                if let Some(deletion) = value.deletion {
+                    let workspace: Workspace = self
+                        .record(
+                            Collection::Workspace,
+                            record.workspace.as_str(),
+                            &record.workspace,
+                        )?
+                        .decode()?;
+                    if deletion > workspace.deletion {
+                        return Err(Error::Corruption("retention intent exceeds deletion epoch"));
+                    }
+                }
                 for id in value.versions.iter().chain(value.supersedes.iter()) {
                     self.memory_version(id, &record.workspace)?;
                 }
@@ -1011,8 +1023,20 @@ impl State {
             match mutation {
                 Mutation::Put { expected, record } => {
                     if crate::redaction_contract::kind(record)?.is_some()
-                        || (record.collection == Collection::Task
-                            && record.decode::<Task>()?.redaction.is_some())
+                        || (matches!(
+                            record.collection,
+                            Collection::Task
+                                | Collection::Turn
+                                | Collection::Effect
+                                | Collection::Verification
+                                | Collection::Attempt
+                                | Collection::Settlement
+                        ) && record.value.get("redaction").is_some_and(|v| !v.is_null()))
+                        || (record.collection == Collection::Settlement
+                            && record
+                                .value
+                                .get("observation_digest")
+                                .is_some_and(|v| !v.is_null()))
                         || (record.collection == Collection::Artifact
                             && record.decode::<ArtifactDescriptor>()?.state
                                 == vcp_domain::artifact::CaptureState::Purged)

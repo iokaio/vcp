@@ -50,6 +50,16 @@ pub(crate) fn proposal_removed(
     workspace: &WorkspaceId,
     proposal: &vcp_domain::memory::Proposal,
 ) -> Result<bool> {
+    if crate::retention::purged(
+        state,
+        workspace,
+        &crate::retention::Target::Record(vcp_store::contract::key(
+            Collection::Claim,
+            proposal.id.as_str(),
+        )),
+    )? {
+        return Ok(true);
+    }
     let current: vcp_domain::workspace::Workspace = state
         .record(Collection::Workspace, workspace.as_str(), workspace)?
         .decode()?;
@@ -182,12 +192,21 @@ pub fn query(
         {
             return Err(Error::Access);
         }
-        let applicable = version
-            .proposal
-            .applicability
-            .fingerprint
-            .as_ref()
-            .is_none_or(|saved| saved == source)
+        let recall_allowed = crate::retention::recall_allowed(
+            store.state(),
+            &access.workspace,
+            &crate::retention::Target::Record(vcp_store::contract::key(
+                Collection::Claim,
+                version.id.as_str(),
+            )),
+        )?;
+        let applicable = recall_allowed
+            && version
+                .proposal
+                .applicability
+                .fingerprint
+                .as_ref()
+                .is_none_or(|saved| saved == source)
             && observations
                 .iter()
                 .all(|o| o.status == crate::gates::EvidenceAvailability::Available)

@@ -315,6 +315,7 @@ fn sequence_advances_and_index_status_cannot_rewrite_committed_work() {
         sequence: MemorySeq::new(1),
     };
     let mut intent = IndexIntent {
+        deletion: None,
         document_type: DocumentType::IndexIntent,
         schema_version: 1,
         id: IndexIntentId::new(),

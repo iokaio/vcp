@@ -52,6 +52,8 @@ pub enum Barrier {
     BeforeValidation,
     BeforeActivation,
     AfterActivation,
+    BeforeCleanupFile,
+    AfterCleanupFile,
 }
 
 #[cfg(feature = "qualification")]

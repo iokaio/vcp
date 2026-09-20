@@ -15,6 +15,8 @@ pub mod projections;
 pub mod proof;
 pub mod publication;
 pub mod repository;
+pub mod retention;
+pub mod retention_policy;
 pub mod runner;
 pub mod search_record;
 pub mod tokenizer;

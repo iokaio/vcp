@@ -131,6 +131,14 @@ pub fn capture(
             intents.push(intent);
         }
         if row.collection == Collection::Projection
+            && row.value["document_type"] == vcp_domain::redaction::RESULT
+        {
+            memory_seq = memory_seq.max(
+                row.decode::<vcp_domain::redaction::RedactedResult>()?
+                    .memory_seq,
+            );
+        }
+        if row.collection == Collection::Projection
             && row.value["document_type"] == "vcp_memory_result_v1"
         {
             let result: ProposalResult = row.decode()?;
@@ -916,7 +924,9 @@ impl Publisher {
         id: &GenerationId,
         policy: &GarbagePolicy,
     ) -> Result<bool> {
-        access::authorize(store.state(), access, true)?;
+        let workspace = access::authorize(store.state(), access, true)?;
+        let obsolete =
+            generation(store.state(), id, &access.workspace)?.deletion < workspace.deletion;
         if access.tasks.is_some() {
             return Err(Error::Access);
         }
@@ -929,10 +939,12 @@ impl Publisher {
             || policy.retained.contains(id)
             || pins.readers.get(id).copied().unwrap_or(0) > 0
             || active(store.state(), &access.workspace)?
-                .is_some_and(|active| active.generation == *id)
-            || store.state().records.values().any(|row| {
-                row.workspace == access.workspace && row.collection == Collection::SnapshotPin
-            })
+                .is_some_and(|active| active.generation == *id && !obsolete)
+            || store
+                .state()
+                .records
+                .values()
+                .any(|row| row.workspace == access.workspace && vcp_store::snapshot_pin_active(row))
         {
             return Ok(false);
         }
@@ -942,11 +954,20 @@ impl Publisher {
         let Some(_snapshot_guard) = store.try_snapshot_cleanup_guard()? else {
             return Ok(false);
         };
+        match fs::symlink_metadata(self.root.join(id.as_str())) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+            Err(error) => return Err(io(error)),
+            Ok(_) => (),
+        }
         let path = self.directory(id)?;
         // Selection, pin acquisition and retirement cannot interleave in this owner.
         // Failed deletion remains retired and recover() reports an explicit deficit.
         pins.retired.insert(id.clone());
-        fs::remove_dir_all(path).map_err(io)?;
+        match fs::remove_dir_all(path) {
+            Ok(()) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(io(error)),
+        }
         Ok(true)
     }
 }

@@ -430,6 +430,7 @@ mod tests {
         );
         let artifact = ArtifactId::new();
         let effect = Effect {
+            redaction: None,
             id: ToolRunId::new(),
             scope: child.scope.clone(),
             revision: Revision::ZERO,

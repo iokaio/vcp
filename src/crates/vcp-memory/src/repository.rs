@@ -619,6 +619,7 @@ pub async fn propose(
                 next_head.disputed.push(version.id.clone());
             }
             let intent = IndexIntent {
+                deletion: None,
                 document_type: DocumentType::IndexIntent,
                 schema_version: 1,
                 id: IndexIntentId::new(),

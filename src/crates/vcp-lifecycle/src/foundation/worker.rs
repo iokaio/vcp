@@ -10,6 +10,7 @@ mod execution;
 mod memory;
 mod provider;
 pub(super) mod recovery;
+mod retention_policy;
 #[cfg(windows)]
 mod tools;
 #[cfg(windows)]
@@ -329,6 +330,7 @@ impl Context {
         }
         #[cfg(windows)]
         context.stop_coding_turns("owner recovered canonical turn")?;
+        context.apply_startup_retention_policy()?;
         Ok(context)
     }
     fn actor(&self) -> vcp_budget::Actor {

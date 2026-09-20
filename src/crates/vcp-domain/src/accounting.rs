@@ -173,6 +173,8 @@ pub struct Reservation {
 #[serde(deny_unknown_fields)]
 pub struct Attempt {
     pub schema_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redaction: Option<crate::redaction::ContentRedaction>,
     pub id: AttemptId,
     pub scope: Scope,
     pub root: TaskId,
@@ -233,6 +235,11 @@ pub enum AdjustmentDirection {
 #[serde(deny_unknown_fields)]
 pub struct Settlement {
     pub schema_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redaction: Option<crate::redaction::ContentRedaction>,
+    /// Commitment to the complete original observation for exact retry checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_digest: Option<String>,
     pub id: ObservationId,
     pub scope: Scope,
     pub attempt: AttemptId,
@@ -298,6 +305,19 @@ impl Reservation {
 }
 impl Attempt {
     pub fn validate(&self) -> crate::Result<()> {
+        if let Some(redaction) = &self.redaction {
+            redaction.validate()?;
+            if self.uncertain.is_some()
+                || !matches!(
+                    self.phase,
+                    ReservationState::Settled
+                        | ReservationState::Released
+                        | ReservationState::ExplicitlyResolved
+                )
+            {
+                return Err(crate::Error::Invalid("redacted attempt is not terminal"));
+            }
+        }
         if self.schema_version != 1
             || self.quote.normalization_version != 1
             || !valid_hash(&self.request_digest)

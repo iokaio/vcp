@@ -54,6 +54,8 @@ pub enum CostCertainty {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Verification {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redaction: Option<crate::redaction::ContentRedaction>,
     pub id: VerificationId,
     pub scope: workspace::Scope,
     pub steering: SteeringRevision,
@@ -71,13 +73,15 @@ impl Verification {
         steering: SteeringRevision,
         fingerprint: &Fingerprint,
     ) -> bool {
-        self.scope == *scope
+        self.redaction.is_none()
+            && self.scope == *scope
             && self.steering == steering
             && self.fingerprint == *fingerprint
             && self.fingerprint.validate().is_ok()
     }
     pub fn satisfies(&self, required_checks: &[String], editing: bool) -> bool {
-        if self.outputs.is_empty()
+        if self.redaction.is_some()
+            || self.outputs.is_empty()
             || !self.unresolved_effects.is_empty()
             || !self.outstanding_issues.is_empty()
         {

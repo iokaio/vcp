@@ -58,6 +58,16 @@ impl CanonicalHost {
             if binding.scope.task != context.config.root_task {
                 return Err("publication requires root owner".into());
             }
+            let owned = context
+                .engine
+                .store()
+                .canonical_anchor()
+                .join("search-generations");
+            if publisher.storage_root() != owned.canonicalize()? {
+                return Err(
+                    "publication generation root must belong to the canonical owner".into(),
+                );
+            }
             Ok(Arc::new(Manager {
                 publisher,
                 controller: context.engine.controller().clone(),

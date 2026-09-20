@@ -9,7 +9,7 @@ mod replay_base;
 pub mod rewrite;
 mod store;
 pub use backend::{BackendKind, Barrier};
-pub use store::{Snapshot, Store};
+pub use store::{snapshot_pin_active, Snapshot, Store};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

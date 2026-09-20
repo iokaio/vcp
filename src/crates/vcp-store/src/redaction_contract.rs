@@ -138,6 +138,78 @@ pub(crate) fn validate(state: &State) -> Result<()> {
                 }
             }
         }
+        if row.collection == Collection::Settlement {
+            let settlement: Settlement = row.decode()?;
+            if settlement.redaction.is_none() && settlement.observation_digest.is_some() {
+                return Err(Error::Corruption(
+                    "settlement digest requires explicit redaction",
+                ));
+            }
+        }
+        let erased = match row.collection {
+            Collection::Verification => {
+                row.decode::<vcp_domain::verification::Verification>()?
+                    .redaction
+            }
+            Collection::Effect => row.decode::<vcp_domain::effect::Effect>()?.redaction,
+            Collection::Turn => row.decode::<vcp_domain::task::Turn>()?.redaction,
+            Collection::Attempt => row.decode::<Attempt>()?.redaction,
+            Collection::Settlement => row.decode::<Settlement>()?.redaction,
+            _ => None,
+        };
+        if let Some(erased) = erased {
+            erased.validate()?;
+            if erased.deletion > epoch(state, &row.workspace)? {
+                return Err(Error::Corruption("redaction epoch"));
+            }
+            unprotected(
+                state,
+                &row.workspace,
+                row.task_scope()?.as_ref().map(|s| &s.task),
+            )?;
+            if row.collection == Collection::Verification {
+                let value: vcp_domain::verification::Verification = row.decode()?;
+                let retained_check_text = value.checks.iter().any(|check| {
+                    !check.specification.is_empty()
+                        || matches!(
+                            &check.outcome,
+                            vcp_domain::verification::CheckOutcome::Failed { reason }
+                                | vcp_domain::verification::CheckOutcome::NotRun { reason }
+                                if !reason.is_empty()
+                        )
+                });
+                let retained_cost_text = matches!(
+                    &value.cost,
+                    vcp_domain::verification::CostCertainty::Uncertain { reason, .. }
+                        if !reason.is_empty()
+                );
+                if !value.outstanding_issues.is_empty() || retained_check_text || retained_cost_text
+                {
+                    return Err(Error::Corruption("redacted verification payload"));
+                }
+            } else if row.collection == Collection::Attempt {
+                row.decode::<Attempt>()?.validate()?;
+            } else if row.collection == Collection::Settlement {
+                let value: Settlement = row.decode()?;
+                if value
+                    .observation_digest
+                    .as_deref()
+                    .is_none_or(|digest| !valid_hash(digest))
+                    || value
+                        .observation
+                        .correction
+                        .as_ref()
+                        .is_some_and(|correction| {
+                            !correction.reason.is_empty()
+                                || !correction.remaining_uncertainty.is_empty()
+                        })
+                {
+                    return Err(Error::Corruption("redacted settlement narrative"));
+                }
+            } else if row.value["reason"] != "" {
+                return Err(Error::Corruption("redacted lifecycle payload"));
+            }
+        }
         if kind(row)?.is_none() {
             continue;
         }
@@ -223,6 +295,116 @@ pub(crate) fn redact_record(source: &Record, deletion: DeletionEpoch) -> Result<
             value.retained.clear();
             serde_json::to_value(value)?
         }
+        Collection::Attempt => {
+            let mut value: Attempt = source.decode()?;
+            if value.redaction.is_some()
+                || !matches!(
+                    value.phase,
+                    ReservationState::Settled
+                        | ReservationState::Released
+                        | ReservationState::ExplicitlyResolved
+                )
+            {
+                return Err(Error::Conflict("attempt accounting protected"));
+            }
+            value.redaction = Some(redaction::ContentRedaction {
+                deletion,
+                original_digest: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
+                    &value,
+                )?),
+            });
+            value.uncertain = None;
+            serde_json::to_value(value)?
+        }
+        Collection::Settlement => {
+            let mut value: Settlement = source.decode()?;
+            if value.redaction.is_some() || value.observation_digest.is_some() {
+                return Err(Error::Conflict("settlement already redacted"));
+            }
+            value.redaction = Some(redaction::ContentRedaction {
+                deletion,
+                original_digest: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
+                    &value,
+                )?),
+            });
+            value.observation_digest = Some(vcp_protocol::digest_bytes(&serde_json::to_vec(
+                &value.observation,
+            )?));
+            if let Some(correction) = &mut value.observation.correction {
+                correction.reason.clear();
+                correction.remaining_uncertainty.clear();
+            }
+            serde_json::to_value(value)?
+        }
+        Collection::Verification => {
+            let mut value: vcp_domain::verification::Verification = source.decode()?;
+            if value.redaction.is_some() {
+                return Err(Error::Conflict("already redacted verification"));
+            }
+            value.redaction = Some(vcp_domain::redaction::ContentRedaction {
+                deletion,
+                original_digest: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
+                    &value,
+                )?),
+            });
+            for check in &mut value.checks {
+                check.specification.clear();
+                match &mut check.outcome {
+                    vcp_domain::verification::CheckOutcome::Failed { reason }
+                    | vcp_domain::verification::CheckOutcome::NotRun { reason } => reason.clear(),
+                    _ => (),
+                }
+            }
+            value.outstanding_issues.clear();
+            if let vcp_domain::verification::CostCertainty::Uncertain { reason, .. } =
+                &mut value.cost
+            {
+                reason.clear();
+            }
+            serde_json::to_value(value)?
+        }
+        Collection::Effect => {
+            let mut value: vcp_domain::effect::Effect = source.decode()?;
+            if value.redaction.is_some()
+                || !matches!(
+                    value.state,
+                    vcp_domain::effect::EffectState::Succeeded
+                        | vcp_domain::effect::EffectState::Failed
+                        | vcp_domain::effect::EffectState::Cancelled
+                )
+            {
+                return Err(Error::Conflict("effect protected"));
+            }
+            value.redaction = Some(vcp_domain::redaction::ContentRedaction {
+                deletion,
+                original_digest: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
+                    &value,
+                )?),
+            });
+            value.reason.clear();
+            serde_json::to_value(value)?
+        }
+        Collection::Turn => {
+            let mut value: vcp_domain::task::Turn = source.decode()?;
+            if value.redaction.is_some()
+                || !matches!(
+                    value.state,
+                    vcp_domain::task::TurnState::Completed
+                        | vcp_domain::task::TurnState::Failed
+                        | vcp_domain::task::TurnState::Cancelled
+                )
+            {
+                return Err(Error::Conflict("turn protected"));
+            }
+            value.redaction = Some(vcp_domain::redaction::ContentRedaction {
+                deletion,
+                original_digest: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
+                    &value,
+                )?),
+            });
+            value.reason.clear();
+            serde_json::to_value(value)?
+        }
         Collection::Task => serde_json::to_value(
             vcp_protocol::redaction::task(&source.decode()?, deletion)
                 .map_err(|_| Error::Conflict("task content protected"))?,
@@ -249,7 +431,11 @@ pub(crate) fn redact_record(source: &Record, deletion: DeletionEpoch) -> Result<
     };
     Ok(next)
 }
-fn unprotected(state: &State, workspace: &WorkspaceId, task: Option<&TaskId>) -> Result<()> {
+pub(crate) fn unprotected(
+    state: &State,
+    workspace: &WorkspaceId,
+    task: Option<&TaskId>,
+) -> Result<()> {
     let root = task
         .map(|id| {
             state
@@ -284,6 +470,24 @@ fn unprotected(state: &State, workspace: &WorkspaceId, task: Option<&TaskId>) ->
                 {
                     return Err(Error::Conflict(
                         "unsettled accounting protects retention source",
+                    ));
+                }
+            }
+            Collection::Turn => {
+                let turn: vcp_domain::task::Turn = row.decode()?;
+                let owner: Task = state
+                    .record(Collection::Task, turn.scope.task.as_str(), workspace)?
+                    .decode()?;
+                if root.as_ref().is_none_or(|root| root == &owner.root)
+                    && !matches!(
+                        turn.state,
+                        vcp_domain::task::TurnState::Completed
+                            | vcp_domain::task::TurnState::Failed
+                            | vcp_domain::task::TurnState::Cancelled
+                    )
+                {
+                    return Err(Error::Conflict(
+                        "active turn recovery protects retention source",
                     ));
                 }
             }

@@ -421,6 +421,27 @@ pub fn inventory(
         digest: String::new(),
     };
     let mut total = 0;
+    for row in store.state().records.values().filter(|r| {
+        r.workspace == workspace.id
+            && r.collection == Collection::Claim
+            && r.value["document_type"] == vcp_domain::redaction::VERSION
+    }) {
+        let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
+        if crate::access::redacted_scope(store.state(), access, &version.scope, &version.sources)
+            .is_err()
+        {
+            exclude(&mut output, None, "denied");
+            continue;
+        }
+        exclude(
+            &mut output,
+            Some(TextSource::Claim {
+                version: version.id,
+                claim: version.claim,
+            }),
+            "purged",
+        );
+    }
     let versions = crate::repository::versions(store.state(), &workspace.id)?;
     if versions.len() > 16384 {
         return Err(Error::Invalid("claim inventory scan limit".into()));
@@ -554,6 +575,17 @@ pub fn inventory(
             }
             Err(error) => return Err(error),
         };
+        if !crate::retention::recall_allowed(
+            store.state(),
+            &access.workspace,
+            &crate::retention::Target::Record(vcp_store::contract::key(
+                Collection::Artifact,
+                binding.artifact.as_str(),
+            )),
+        )? {
+            exclude(&mut output, Some(source), "recall_excluded");
+            continue;
+        }
         let Ok(text) = std::str::from_utf8(&bytes) else {
             exclude(&mut output, Some(source), "unsupported_encoding");
             continue;

@@ -333,3 +333,59 @@ async fn process_exit_at_activation_boundaries_is_reopenable() {
         }
     }
 }
+
+#[tokio::test]
+async fn durable_snapshot_job_keeps_retired_payloads_until_source_refs_release() {
+    for kind in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::open(temp.path(), kind, &[]).await.unwrap();
+        store.transact(initial()).await.unwrap();
+        let record=Record::typed(Collection::SnapshotPin,"vault-job",workspace().id,Revision::ZERO,&serde_json::json!({"schema_version":1,"document_type":"vcp_snapshot_job_v1","active":true})).unwrap();
+        store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: store.state().watermark,
+                mutations: vec![Mutation::Put {
+                    record,
+                    expected: None,
+                }],
+                events: vec![],
+                command: None,
+            })
+            .await
+            .unwrap();
+        store
+            .rewrite_base(store.state().clone(), &[])
+            .await
+            .unwrap();
+        store.close().await.unwrap();
+        let mut store = Store::open(temp.path(), kind, &[]).await.unwrap();
+        assert_eq!(store.cleanup_rewrites().unwrap().pinned, vec!["anchor"]);
+        assert!(temp.path().join("format.json").exists());
+        let record=Record::typed(Collection::SnapshotPin,"vault-job",workspace().id,Revision::new(1),&serde_json::json!({"schema_version":1,"document_type":"vcp_snapshot_job_v1","active":false})).unwrap();
+        store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: store.state().watermark,
+                mutations: vec![Mutation::Put {
+                    record,
+                    expected: Some(Revision::ZERO),
+                }],
+                events: vec![],
+                command: None,
+            })
+            .await
+            .unwrap();
+        let cleanup = store.cleanup_rewrites().unwrap();
+        assert!(cleanup.pinned.is_empty());
+        assert_eq!(cleanup.completed, vec!["anchor"]);
+        assert!(!temp.path().join("format.json").exists());
+        store.close().await.unwrap();
+        Store::open(temp.path(), kind, &[])
+            .await
+            .unwrap()
+            .close()
+            .await
+            .unwrap();
+    }
+}
