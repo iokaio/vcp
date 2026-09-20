@@ -340,20 +340,37 @@ async fn durable_snapshot_job_keeps_retired_payloads_until_source_refs_release()
         let temp = tempfile::tempdir().unwrap();
         let mut store = Store::open(temp.path(), kind, &[]).await.unwrap();
         store.transact(initial()).await.unwrap();
-        let record=Record::typed(Collection::SnapshotPin,"vault-job",workspace().id,Revision::ZERO,&serde_json::json!({"schema_version":1,"document_type":"vcp_snapshot_job_v1","active":true})).unwrap();
-        store
-            .transact(Transaction {
-                id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
-                mutations: vec![Mutation::Put {
-                    record,
-                    expected: None,
-                }],
-                events: vec![],
-                command: None,
-            })
+        // Exercise the actual durable job contract. The earlier placeholder
+        // predated typed snapshot jobs and omitted their reference closure.
+        let private = tempfile::tempdir().unwrap();
+        let jobs_path = private.path().join("jobs");
+        let recovery_path = private.path().join("recovery");
+        std::fs::create_dir(&jobs_path).unwrap();
+        std::fs::create_dir(&recovery_path).unwrap();
+        let forbidden = vec![temp.path().to_owned()];
+        let jobs = vcp_store::snapshot_jobs::Jobs::open(&jobs_path, &forbidden).unwrap();
+        let recovery =
+            vcp_store::keys::RecoveryDirectory::open(&recovery_path, &forbidden).unwrap();
+        let keys = vcp_store::keys::LocalKeys::generate().unwrap();
+        let copy = keys.export_recovery(&recovery).unwrap();
+        let keys = keys.verify_recovery(&copy).unwrap();
+        let trust = vcp_store::vault_publish::LocalTrust::enroll(
+            &keys,
+            workspace().id,
+            "a".repeat(64),
+            vcp_store::vault_publish::Checkpoint {
+                sequence: 0,
+                deletion: 0,
+                parent: None,
+            },
+        )
+        .unwrap();
+        let operation = vcp_domain::CommandId::new();
+        let capture = jobs
+            .begin(&mut store, operation.clone(), &workspace().id, &trust)
             .await
             .unwrap();
+        drop(capture);
         store
             .rewrite_base(store.state().clone(), &[])
             .await
@@ -362,18 +379,7 @@ async fn durable_snapshot_job_keeps_retired_payloads_until_source_refs_release()
         let mut store = Store::open(temp.path(), kind, &[]).await.unwrap();
         assert_eq!(store.cleanup_rewrites().unwrap().pinned, vec!["anchor"]);
         assert!(temp.path().join("format.json").exists());
-        let record=Record::typed(Collection::SnapshotPin,"vault-job",workspace().id,Revision::new(1),&serde_json::json!({"schema_version":1,"document_type":"vcp_snapshot_job_v1","active":false})).unwrap();
-        store
-            .transact(Transaction {
-                id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
-                mutations: vec![Mutation::Put {
-                    record,
-                    expected: Some(Revision::ZERO),
-                }],
-                events: vec![],
-                command: None,
-            })
+        jobs.release(&mut store, &operation, &workspace().id, true)
             .await
             .unwrap();
         let cleanup = store.cleanup_rewrites().unwrap();
