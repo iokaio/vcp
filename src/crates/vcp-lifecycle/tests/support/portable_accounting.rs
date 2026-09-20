@@ -38,10 +38,66 @@ async fn command(
     };
     let mut facts = HostFacts::inspect(Timestamp::new(1000));
     facts.may_execute = true;
-    engine
-        .handle(envelope, &access(config), &facts)
-        .await
-        .unwrap();
+    if matches!(
+        &envelope.payload,
+        Command::Transition {
+            next: TaskState::Running,
+            ..
+        }
+    ) {
+        let task = engine
+            .store()
+            .state()
+            .record(
+                Collection::Task,
+                envelope.task.as_ref().unwrap().as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode::<Task>()
+            .unwrap();
+        if task.state == TaskState::Paused {
+            // Explicit synthetic fixture resume only, before inserting liabilities.
+            assert!(!engine
+                .store()
+                .state()
+                .records
+                .values()
+                .any(|r| matches!(r.collection, Collection::Attempt | Collection::Effect)));
+            let workspace = engine
+                .store()
+                .state()
+                .record(
+                    Collection::Workspace,
+                    config.workspace.as_str(),
+                    &config.workspace,
+                )
+                .unwrap()
+                .decode::<vcp_domain::workspace::Workspace>()
+                .unwrap();
+            assert_eq!(workspace.binding, config.binding);
+            facts.resume = Some(vcp_domain::task::ResumeEvidence {
+                workspace_current: true,
+                policy_current: true,
+                budget_current: true,
+                effects_reconciled: true,
+                owner_current: true,
+            });
+        }
+    }
+
+    let mut caller = access(config);
+    if let Ok(row) = engine.store().state().record(
+        Collection::Workspace,
+        config.workspace.as_str(),
+        &config.workspace,
+    ) {
+        caller.authority = row
+            .decode::<vcp_domain::workspace::Workspace>()
+            .unwrap()
+            .authority;
+    }
+    engine.handle(envelope, &caller, &facts).await.unwrap();
 }
 async fn create_task(
     engine: &mut Engine<Store>,
@@ -232,6 +288,104 @@ async fn observation(
         raw: raw.spec.id,
         correction: None,
     }
+}
+
+// Shared synthetic U04 seed: real typed accounting, never a provider call.
+pub(super) async fn enrich_native(config: &Config) -> TaskId {
+    let mut engine = Engine::new(
+        Store::open(&config.canonical_root, config.backend, &[])
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let root_task: Task = engine
+        .store()
+        .state()
+        .record(
+            Collection::Task,
+            config.root_task.as_str(),
+            &config.workspace,
+        )
+        .unwrap()
+        .decode()
+        .unwrap();
+    if root_task.state != TaskState::Running {
+        command(
+            &mut engine,
+            config,
+            Command::Transition {
+                next: TaskState::Running,
+                reason: "synthetic U04 accounting admission".into(),
+                verification: None,
+            },
+            Some(config.root_task.clone()),
+            root_task.revision,
+        )
+        .await;
+    }
+    let child_id = TaskId::new();
+    let child = create_task(
+        &mut engine,
+        config,
+        &child_id,
+        Some(config.root_task.clone()),
+    )
+    .await;
+    let mut store = engine.into_store();
+    let root = root_task.scope;
+    let cap = Money {
+        currency: config.cap.currency.clone(),
+        micros: Micros::new(1000),
+    };
+    if vcp_budget::ledger(store.state(), &root).is_err() {
+        vcp_budget::initialize(
+            &mut store,
+            root.clone(),
+            cap.clone(),
+            Micros::new(100),
+            None,
+            &actor(config),
+        )
+        .await
+        .unwrap();
+    }
+    let ledger = vcp_budget::ledger(store.state(), &root).unwrap();
+    vcp_budget::configure(
+        &mut store,
+        &root,
+        ledger.revision,
+        cap,
+        Micros::new(100),
+        BTreeMap::from([(child_id.clone(), Micros::new(200))]),
+        &actor(config),
+        "synthetic child budget",
+    )
+    .await
+    .unwrap();
+    let settled = attempt(&mut store, config, &root, RequestRole::Main, 50).await;
+    let final_usage = observation(&mut store, config, &settled, 37, true).await;
+    vcp_budget::observe(&mut store, final_usage, &actor(config))
+        .await
+        .unwrap();
+    let pending = attempt(&mut store, config, &child, RequestRole::Child, 80).await;
+    let partial = observation(&mut store, config, &pending, 13, false).await;
+    vcp_budget::observe(&mut store, partial, &actor(config))
+        .await
+        .unwrap();
+    vcp_budget::hold_uncertain(
+        &mut store,
+        &pending.id,
+        &child,
+        &actor(config),
+        "synthetic child response outcome remains unknown",
+    )
+    .await
+    .unwrap();
+    let ledger = vcp_budget::ledger(store.state(), &root).unwrap();
+    assert_eq!(ledger.settled, Micros::new(50));
+    assert_eq!(ledger.unresolved, Micros::new(67));
+    store.close().await.unwrap();
+    child_id
 }
 
 #[tokio::test]
