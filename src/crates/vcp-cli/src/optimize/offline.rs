@@ -14,6 +14,13 @@ pub const POLICY_HINT: &str = "Policy preview, apply and rollback require the tr
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
     Status,
+    /// Inspect retained causal task transitions without saving a report or fitting a model.
+    Transitions {
+        #[arg(long)]
+        from: Option<u64>,
+        #[arg(long)]
+        until: Option<u64>,
+    },
     Report {
         /// Inclusive Unix milliseconds; omitted means all retained history.
         #[arg(long)]
@@ -59,6 +66,10 @@ impl Command {
             Self::Report {
                 from: Some(from),
                 until: Some(until),
+            }
+            | Self::Transitions {
+                from: Some(from),
+                until: Some(until),
             } if from >= until => Err("optimization window must have from < until".into()),
             Self::Answer { value, .. }
                 if value.trim().is_empty()
@@ -79,14 +90,21 @@ impl Command {
         self.validate()?;
         Ok(match self {
             Self::Status => Request::Status,
-            Self::Report { from, until } => {
+            Self::Report { from, until } | Self::Transitions { from, until } => {
                 let until = until.map(Timestamp::new).unwrap_or(now);
                 if from.is_some_and(|from| from >= until.get()) {
                     return Err("optimization window must have from < until".into());
                 }
-                Request::Report {
-                    from: from.map(Timestamp::new),
-                    until,
+                if matches!(self, Self::Transitions { .. }) {
+                    Request::Transitions {
+                        from: from.map(Timestamp::new),
+                        until,
+                    }
+                } else {
+                    Request::Report {
+                        from: from.map(Timestamp::new),
+                        until,
+                    }
                 }
             }
             Self::Compare { baseline, current } => Request::Compare {
@@ -232,6 +250,15 @@ mod tests {
     fn local_optimizer_is_parsed_without_objective_budget_or_provider() {
         for words in [
             vec!["vcp", "optimize", "status"],
+            vec![
+                "vcp",
+                "optimize",
+                "transitions",
+                "--from",
+                "10",
+                "--until",
+                "20",
+            ],
             vec!["vcp", "optimize", "report", "--from", "10", "--until", "20"],
             vec!["vcp", "optimize", "answer", "priority", "spend"],
             vec!["vcp", "optimize", "compare", "baseline", "current"],
@@ -246,6 +273,16 @@ mod tests {
     }
     #[test]
     fn answers_bind_observed_revision_and_reject_unbounded_text() {
+        assert!(
+            matches!(Command::Transitions { from: Some(10), until: Some(20) }.request(None, Timestamp::new(50)).unwrap(),
+            Request::Transitions { from: Some(from), until } if from == Timestamp::new(10) && until == Timestamp::new(20))
+        );
+        assert!(Command::Transitions {
+            from: Some(20),
+            until: None
+        }
+        .request(None, Timestamp::new(20))
+        .is_err());
         let mut interview = Interview {
             version: 1,
             revision: Revision::ZERO,

@@ -11,6 +11,8 @@ mod routing_accounting;
 #[cfg(feature = "qualification")]
 #[path = "support/routing_crash.rs"]
 mod routing_crash;
+#[path = "support/transition_evidence.rs"]
+mod transition_evidence;
 
 fn policy() -> Policy {
     Policy {

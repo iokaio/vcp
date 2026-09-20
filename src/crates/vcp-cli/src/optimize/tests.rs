@@ -4,6 +4,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{ActorId, AuthorityRevision, DeletionEpoch, Watermark, WorkspaceId};
 use vcp_lifecycle::foundation::routing_state::{Counts, HistoryWindow};
 
+#[test]
+fn transitions_uses_only_the_read_only_evidence_request() {
+    assert_eq!(parse(&["transitions"]), Ok(Command::Transitions));
+    let mut calls = 0;
+    let text = Session::default().execute(Command::Transitions, Timestamp::new(20), |request| {
+        calls += 1;
+        assert!(matches!(request, Request::Transitions { from: None, until } if until == Timestamp::new(20)));
+        Ok(serde_json::json!({"alphabet":"canonical-task-state/1","transitions":[]}))
+    }).unwrap();
+    assert_eq!(calls, 1);
+    assert!(text.contains("canonical-task-state/1"));
+}
+
 fn policy(profile: Profile, quality: u16) -> Policy {
     Policy {
         schema_version: 1,

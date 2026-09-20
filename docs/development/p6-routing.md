@@ -15,6 +15,19 @@ stops visibly instead of silently using that legacy provider or another alias.
 
 ## Startup configuration
 
+`vcp optimize transitions --from <ms> --until <ms>` inspects retained task-state
+transitions without saving a report, changing policy or submitting a model call.
+Bounds use inclusive `from` and exclusive `until`; omit them for all currently
+retained history before now. `/optimize transitions` provides the same inspection
+inside the active terminal. Both work without an automatic routing configuration.
+The versioned result exposes per-task observations, counts, source event IDs,
+cutoff, current authority/deletion revisions, gaps and censored traces. It omits
+objectives and source prose. Blocked/paused are resumable. Missing facts or
+revisions break chains, and later current state never fills a historical gap.
+Counts are not fitted probabilities or total-cost forecasts. See
+[ADR-029](../adr/029-retained-transition-evidence.md) and
+[verification/remaining scope](../evaluations/p6-transition-evidence.md).
+
 Local analysis also works without a provider profile or a model budget:
 `vcp optimize status`, `vcp optimize report --from <ms> --until <ms>`,
 `vcp optimize answer priority "lower total cost"`, and
