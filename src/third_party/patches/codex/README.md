@@ -120,6 +120,9 @@ already include these changes; normal builds never apply patches.
 24. `0024-p3-terminal-qualification.patch` registers the existing retained PTY
     utility as a CLI test dependency for real ConPTY terminal qualification.
     No external package or runtime behavior changes.
+25. `0025-p5-memory-workspace.patch` registers the original governed-memory
+    package and its local lockfile entry. It reuses existing dependency versions
+    and preserves external source pins; no retained implementation is changed.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

@@ -229,6 +229,11 @@ pub fn records(state: &State, access: &Access, query: &InspectionQuery) -> Resul
             .find(|m| m.artifacts.iter().any(|id| id.as_str() == record.id));
         let mut item = if let Some(mask) = removed {
             json!({"reference":key,"visibility":"pruned","reason":mask.reason,"source":record.value.pointer("/spec/source")})
+        } else if record.collection == Collection::Claim {
+            // Raw claim payloads may derive from currently hidden or pruned
+            // sources. A generic inspector exposes identity, never those bytes.
+            json!({"reference":key,"collection":record.collection,"id":record.id,"revision":record.revision,
+                "visibility":"governed_query_required","reason":"use governed memory history for current source authorization"})
         } else {
             json!({"reference":key,"collection":record.collection,"id":record.id,"revision":record.revision,
                 "visibility":"available","references":record.required_references()?,"record":record.value})
@@ -274,7 +279,7 @@ pub fn records(state: &State, access: &Access, query: &InspectionQuery) -> Resul
             let mut item = if let Some(mask) = removed {
                 json!({"reference":key,"visibility":"pruned","reason":mask.reason})
             } else {
-                json!({"reference":key,"visibility":"available","event":event})
+                json!({"reference":key,"visibility":"available","event":history::public_event(event)})
             };
             let mut size = canonical_bytes(&item)?.len();
             if size > PAGE_BYTES {

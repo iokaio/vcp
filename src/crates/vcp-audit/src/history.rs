@@ -8,6 +8,29 @@ use vcp_store::{contract::*, Snapshot, Store};
 
 const MAX_SNAPSHOTS: usize = 4;
 const MAX_SCAN: usize = 256;
+
+/// Generic history cannot authorize the transitive sources of a memory claim.
+/// Preserve navigation while leaving derived payloads to governed queries.
+pub(crate) fn public_event(event: &EventEnvelope) -> EventEnvelope {
+    let mut result = event.clone();
+    if event.event.kind == EventKind::MemoryResolved {
+        let proposal = event
+            .event
+            .data
+            .get("proposal")
+            .and_then(|v| v.as_str())
+            .and_then(|id| ProposalId::parse(id).ok());
+        let resolution = event
+            .event
+            .data
+            .get("resolution")
+            .cloned()
+            .and_then(|v| serde_json::from_value::<vcp_domain::memory::Outcome>(v).ok());
+        result.event.data = serde_json::json!({"schema_version":1,"proposal":proposal,"resolution":resolution,
+            "visibility":"governed_query_required","reason":"memory payload requires current origin, evidence and retention checks"});
+    }
+    result
+}
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
@@ -318,7 +341,7 @@ impl History {
                 continue;
             }
             if filter.matches(event) {
-                events.push(event.clone());
+                events.push(public_event(event));
                 if events.len() == cursor.limit as usize {
                     break;
                 }

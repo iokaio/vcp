@@ -127,6 +127,10 @@
     {
       "path": "src/third_party/patches/codex/0024-p3-terminal-qualification.patch",
       "sha256": "6fd256d2b49eaf9364dfc2f2288a855b40a21815eb4276dfda89bbf2e23808ce"
+    },
+    {
+      "path": "src/third_party/patches/codex/0025-p5-memory-workspace.patch",
+      "sha256": "de4ec4f0f972e68c7ab0804262f04f12b6712fbf60be8bab2fe067e546ba74b0"
     }
   ],
   "licenses": [

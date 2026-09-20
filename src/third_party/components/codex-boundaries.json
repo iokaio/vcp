@@ -1249,6 +1249,21 @@
         "process",
         "credential"
       ]
+    },
+    {
+      "id": "governed-memory-commit",
+      "group": "governed-memory",
+      "package": "vcp-memory",
+      "path": "../../../crates/vcp-memory/src/repository.rs",
+      "symbol": "pub async fn propose(",
+      "observation": "Current scope and evidence checks precede one canonical transaction for proposal, immutable version, resolution, head, indexing intent and idempotent result. Remembered commands do not grant execution authority.",
+      "effect_class": "effectful",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "filesystem",
+        "history",
+        "policy"
+      ]
     }
   ],
   "groups": [
@@ -2104,6 +2119,23 @@
       "gate": "Native CLI commands enter the canonical retained owner; current-user-only private controls cannot create another writer. Bounded output loss invokes durable owner shutdown. Synthetic executable qualification never enables production endpoint overrides.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "controller"
+    },
+    {
+      "id": "governed-memory",
+      "packages": [
+        "vcp-memory"
+      ],
+      "capabilities": [
+        "data",
+        "filesystem"
+      ],
+      "handling": "retain-with-adapters",
+      "owner_tasks": [
+        "P5-01"
+      ],
+      "gate": "Canonical scoped memory uses deterministic governance and current access/deletion checks; no independent model call, index publication or execution authority.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "local-memory"
     }
   ],
   "classification_scope": "Every selected package inherits an explicit conservative module effect ceiling and primary owner; named entries refine that envelope after source review, including delegates/callbacks. These are trust classifications, not formal purity proof, runtime enforcement or an exhaustive per-function call graph."

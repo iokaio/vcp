@@ -940,6 +940,129 @@ async fn inspection_pages_navigate_canonical_evidence_and_survive_projection_reb
 }
 
 #[tokio::test]
+async fn generic_history_and_inspection_do_not_expose_derived_memory_payloads() {
+    use vcp_audit::inspection::{self, InspectionQuery, View};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut fixture = fixture(temporary.path(), backend).await;
+        let marker = "private-derived-memory-marker";
+        let id = ClaimId::new();
+        let proposal = ProposalId::new();
+        let scope = Scope {
+            workspace: access().workspace,
+            session: engine_access().session,
+            task: fixture.root.clone(),
+        };
+        // An older generic claim and raw-facts memory event are both valid
+        // canonical inputs; neither can rely on the newer producer's summary.
+        let claim = Record::typed(
+            Collection::Claim,
+            id.as_str(),
+            scope.workspace.clone(),
+            Revision::ZERO,
+            &serde_json::json!({"schema_version":1,"scope":scope,"statement":marker}),
+        )
+        .unwrap();
+        let event = EventInput {
+            id: EventId::new(),
+            workspace: scope.workspace.clone(),
+            session: scope.session.clone(),
+            task: Some(scope.task.clone()),
+            actor: engine_access().actor,
+            correlation: CommandId::new(),
+            causation: None,
+            timestamp: Timestamp::new(3000),
+            kind: EventKind::MemoryResolved,
+            artifacts: vec![],
+            data: serde_json::json!({"schema_version":1,"proposal":proposal,"resolution":"accepted","facts":[claim]}),
+            metadata: None,
+        };
+        let transaction = Transaction {
+            id: TransactionId::new(),
+            expected_watermark: fixture.engine.store().state().watermark,
+            mutations: vec![Mutation::Put {
+                expected: None,
+                record: claim,
+            }],
+            events: vec![event],
+            command: None,
+        };
+        fixture
+            .engine
+            .store_mut()
+            .transact(transaction)
+            .await
+            .unwrap();
+        let restricted = Access {
+            tasks: Some([fixture.root.clone()].into()),
+            ..access()
+        };
+        let query = InspectionQuery {
+            id: fixture.root.to_string(),
+            view: View::Memory,
+            limit: 128,
+            cursor: None,
+            range: None,
+        };
+        let memory = inspection::inspect(fixture.engine.store(), &restricted, &query).unwrap();
+        assert!(!serde_json::to_string(&memory).unwrap().contains(marker));
+        assert!(memory.items.iter().any(
+            |item| item["id"] == id.as_str() && item["visibility"] == "governed_query_required"
+        ));
+        let mut chain = InspectionQuery {
+            view: View::Chain,
+            ..query
+        };
+        let mut found = false;
+        loop {
+            let page = inspection::inspect(fixture.engine.store(), &restricted, &chain).unwrap();
+            assert!(!serde_json::to_string(&page).unwrap().contains(marker));
+            found |= page.items.iter().any(|item| {
+                item.pointer("/event/event/data/proposal") == Some(&serde_json::json!(proposal))
+            });
+            chain.cursor = page.next_cursor;
+            if chain.cursor.is_none() {
+                break;
+            }
+        }
+        assert!(found);
+        let mut history = History::default();
+        let filter = Filter {
+            kind: Some(EventKind::MemoryResolved),
+            ..Default::default()
+        };
+        let cursor = history
+            .start(
+                fixture.engine.store(),
+                &restricted,
+                filter.clone(),
+                128,
+                Timestamp::new(3000),
+            )
+            .unwrap();
+        let page = history
+            .page(
+                fixture.engine.store(),
+                &restricted,
+                &filter,
+                &cursor,
+                Timestamp::new(3000),
+            )
+            .unwrap();
+        assert_eq!(page.events.len(), 1);
+        assert_eq!(page.events[0].event.data["proposal"], proposal.as_str());
+        assert!(!serde_json::to_string(&page).unwrap().contains(marker));
+        assert!(fixture
+            .engine
+            .store()
+            .state()
+            .events
+            .iter()
+            .any(|event| event.event.data.to_string().contains(marker)));
+    }
+}
+
+#[tokio::test]
 async fn inspection_ranges_preserve_binary_bytes_and_enforce_current_scope() {
     use vcp_audit::inspection::{self, InspectionQuery, RangeRequest, View, MAX_RANGE};
     let directory = tempfile::tempdir().unwrap();

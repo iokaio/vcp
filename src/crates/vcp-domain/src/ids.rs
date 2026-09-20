@@ -55,6 +55,9 @@ ids!(
     ReservationId,
     ObservationId,
     ClaimId,
+    ProposalId,
+    ClaimVersionId,
+    IndexIntentId,
     GenerationId,
     SnapshotId
 );

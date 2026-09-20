@@ -93,6 +93,30 @@ pub struct Record {
     pub references: BTreeSet<String>,
 }
 impl Record {
+    fn memory_kind(&self) -> Result<Option<&str>> {
+        let Some(kind) = self.value["document_type"].as_str() else {
+            return Ok(None);
+        };
+        let expected = match kind {
+            "vcp_memory_proposal_v1" | "vcp_memory_version_v1" => Collection::Claim,
+            "vcp_memory_head_v1" | "vcp_memory_sequence_v1" | "vcp_memory_result_v1" => {
+                Collection::Projection
+            }
+            "vcp_memory_index_intent_v1" => Collection::IndexIntent,
+            _ if kind.starts_with("vcp_memory_") => return Err(Error::Incompatible),
+            _ => return Ok(None),
+        };
+        if self.collection != expected {
+            return Err(Error::Corruption("memory document collection"));
+        }
+        Ok(Some(kind))
+    }
+    fn immutable_memory(&self) -> Result<bool> {
+        Ok(matches!(
+            self.memory_kind()?,
+            Some("vcp_memory_proposal_v1" | "vcp_memory_version_v1" | "vcp_memory_result_v1")
+        ))
+    }
     pub fn typed<T: Serialize>(
         collection: Collection,
         id: impl Into<String>,
@@ -128,6 +152,66 @@ impl Record {
             }
             Ok(())
         };
+        if let Some(kind) = self.memory_kind()? {
+            use vcp_domain::memory::*;
+            if self.value["schema_version"].as_u64() != Some(1) {
+                return Err(Error::Incompatible);
+            }
+            match kind {
+                "vcp_memory_proposal_v1" => {
+                    let value: ProposalRecord = self.decode()?;
+                    value.validate()?;
+                    scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
+                    if value.proposal.id != value.id || value.proposal.scope != value.scope {
+                        return Err(Error::Corruption("memory proposal identity"));
+                    }
+                }
+                "vcp_memory_version_v1" => {
+                    let value: Version = self.decode()?;
+                    value.validate()?;
+                    scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
+                    if value.proposal.scope != value.scope
+                        || !matches!(
+                            value.resolution.outcome,
+                            Outcome::Accepted | Outcome::Disputed
+                        )
+                    {
+                        return Err(Error::Corruption("memory version resolution or scope"));
+                    }
+                }
+                "vcp_memory_head_v1" => {
+                    let value: Head = self.decode()?;
+                    value.validate()?;
+                    scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
+                    let unique: BTreeSet<_> = value.disputed.iter().collect();
+                    if unique.len() != value.disputed.len()
+                        || value.current.as_ref().is_some_and(|id| unique.contains(id))
+                    {
+                        return Err(Error::Corruption("memory head versions"));
+                    }
+                }
+                "vcp_memory_sequence_v1" => {
+                    let value: MemoryHead = self.decode()?;
+                    value.validate()?;
+                    scope(&value.workspace, value.id.as_str(), value.revision)?;
+                    if value.id != value.workspace {
+                        return Err(Error::Corruption("memory sequence identity"));
+                    }
+                }
+                "vcp_memory_index_intent_v1" => {
+                    let value: IndexIntent = self.decode()?;
+                    value.validate()?;
+                    scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
+                }
+                "vcp_memory_result_v1" => {
+                    let value: ProposalResult = self.decode()?;
+                    value.validate()?;
+                    scope(&value.scope.workspace, value.id.as_str(), value.revision)?;
+                }
+                _ => unreachable!(),
+            }
+            return Ok(());
+        }
         match self.collection {
             Collection::Workspace => {
                 let value: Workspace = self.decode()?;
@@ -263,6 +347,88 @@ impl Record {
         if self.collection != Collection::Workspace {
             refs.insert(key(Collection::Workspace, self.workspace.as_str()));
         }
+        if let Some(kind) = self.memory_kind()? {
+            use vcp_domain::memory::*;
+            if let Some(scope) = self.task_scope()? {
+                refs.insert(key(Collection::Task, scope.task.as_str()));
+            }
+            match kind {
+                "vcp_memory_proposal_v1" => {
+                    let value: ProposalRecord = self.decode()?;
+                    value.validate()?;
+                    // Rejected allegations are history, not canonical references.
+                    // Only evidence actually validated by governance is authoritative.
+                    refs.extend(
+                        value
+                            .resolution
+                            .validated_evidence
+                            .iter()
+                            .map(|id| key(Collection::Artifact, id.as_str())),
+                    );
+                }
+                "vcp_memory_version_v1" => {
+                    let value: Version = self.decode()?;
+                    value.validate()?;
+                    refs.insert(key(Collection::Claim, value.proposal.id.as_str()));
+                    refs.extend(
+                        value
+                            .resolution
+                            .validated_evidence
+                            .iter()
+                            .map(|id| key(Collection::Artifact, id.as_str())),
+                    );
+                    refs.extend(
+                        value
+                            .proposal
+                            .predecessor
+                            .iter()
+                            .chain(value.resolution.conflicts.iter())
+                            .map(|id| key(Collection::Claim, id.as_str())),
+                    );
+                }
+                "vcp_memory_head_v1" => {
+                    let value: Head = self.decode()?;
+                    value.validate()?;
+                    refs.extend(
+                        value
+                            .current
+                            .iter()
+                            .chain(value.disputed.iter())
+                            .map(|id| key(Collection::Claim, id.as_str())),
+                    );
+                }
+                "vcp_memory_index_intent_v1" => {
+                    let value: IndexIntent = self.decode()?;
+                    value.validate()?;
+                    refs.extend(
+                        value
+                            .versions
+                            .iter()
+                            .chain(value.supersedes.iter())
+                            .map(|id| key(Collection::Claim, id.as_str())),
+                    );
+                }
+                "vcp_memory_result_v1" => {
+                    let value: ProposalResult = self.decode()?;
+                    value.validate()?;
+                    refs.insert(key(Collection::Claim, value.proposal.as_str()));
+                    refs.extend(
+                        value
+                            .version
+                            .iter()
+                            .map(|id| key(Collection::Claim, id.as_str())),
+                    );
+                    refs.extend(
+                        value
+                            .intent
+                            .iter()
+                            .map(|id| key(Collection::IndexIntent, id.as_str())),
+                    );
+                }
+                _ => (),
+            }
+            return Ok(refs);
+        }
         match self.collection {
             Collection::Access if self.value["document_type"] == "vcp_authority_v1" => {
                 use vcp_domain::policy::*;
@@ -375,6 +541,17 @@ impl Record {
         Ok(refs)
     }
     fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
+        if let Some(kind) = self.memory_kind()? {
+            use vcp_domain::memory::*;
+            return Ok(match kind {
+                "vcp_memory_proposal_v1" => Some(self.decode::<ProposalRecord>()?.scope),
+                "vcp_memory_version_v1" => Some(self.decode::<Version>()?.scope),
+                "vcp_memory_head_v1" => Some(self.decode::<Head>()?.scope),
+                "vcp_memory_index_intent_v1" => Some(self.decode::<IndexIntent>()?.scope),
+                "vcp_memory_result_v1" => Some(self.decode::<ProposalResult>()?.scope),
+                _ => None,
+            });
+        }
         Ok(match self.collection {
             Collection::Access if self.value["document_type"] == "vcp_authority_v1" => {
                 use vcp_domain::policy::*;
@@ -466,6 +643,103 @@ pub fn command_key(workspace: &WorkspaceId, command: &CommandId) -> String {
     format!("{workspace}:{command}")
 }
 impl State {
+    fn memory_version(
+        &self,
+        id: &ClaimVersionId,
+        workspace: &WorkspaceId,
+    ) -> Result<vcp_domain::memory::Version> {
+        let record = self.record(Collection::Claim, id.as_str(), workspace)?;
+        if record.memory_kind()? != Some("vcp_memory_version_v1") {
+            return Err(Error::Corruption("memory version reference type"));
+        }
+        record.decode()
+    }
+    fn validate_memory(&self, record: &Record) -> Result<()> {
+        use vcp_domain::memory::*;
+        match record.memory_kind()? {
+            Some("vcp_memory_version_v1") => {
+                let value: Version = record.decode()?;
+                let proposal = self.record(
+                    Collection::Claim,
+                    value.proposal.id.as_str(),
+                    &record.workspace,
+                )?;
+                if proposal.memory_kind()? != Some("vcp_memory_proposal_v1") {
+                    return Err(Error::Corruption("memory proposal reference type"));
+                }
+                let proposal: ProposalRecord = proposal.decode()?;
+                if proposal.proposal != value.proposal || proposal.resolution != value.resolution {
+                    return Err(Error::Corruption("memory version differs from proposal"));
+                }
+                if let Some(id) = &value.proposal.predecessor {
+                    let predecessor = self.memory_version(id, &record.workspace)?;
+                    if predecessor.proposal.claim != value.proposal.claim
+                        || predecessor.memory_seq >= value.memory_seq
+                    {
+                        return Err(Error::Corruption("memory predecessor lineage"));
+                    }
+                }
+                for id in &value.resolution.conflicts {
+                    self.memory_version(id, &record.workspace)?;
+                }
+                if value.canonical_watermark > self.watermark {
+                    return Err(Error::Corruption("memory version watermark"));
+                }
+            }
+            Some("vcp_memory_head_v1") => {
+                let value: Head = record.decode()?;
+                for id in value.current.iter().chain(value.disputed.iter()) {
+                    let version = self.memory_version(id, &record.workspace)?;
+                    if version.proposal.claim != value.id {
+                        return Err(Error::Corruption("memory head claim"));
+                    }
+                }
+            }
+            Some("vcp_memory_index_intent_v1") => {
+                let value: IndexIntent = record.decode()?;
+                for id in value.versions.iter().chain(value.supersedes.iter()) {
+                    self.memory_version(id, &record.workspace)?;
+                }
+                if value.canonical_watermark > self.watermark {
+                    return Err(Error::Corruption("memory index watermark"));
+                }
+            }
+            Some("vcp_memory_result_v1") => {
+                let value: ProposalResult = record.decode()?;
+                let proposal = self.record(
+                    Collection::Claim,
+                    value.proposal.as_str(),
+                    &record.workspace,
+                )?;
+                if proposal.memory_kind()? != Some("vcp_memory_proposal_v1") {
+                    return Err(Error::Corruption("memory result proposal type"));
+                }
+                let proposal: ProposalRecord = proposal.decode()?;
+                if proposal.proposal.command != value.id
+                    || proposal.scope != value.scope
+                    || proposal.payload_digest != value.payload_digest
+                    || proposal.resolution != value.resolution
+                {
+                    return Err(Error::Corruption("memory result differs from proposal"));
+                }
+                if let Some(id) = &value.version {
+                    let version = self.memory_version(id, &record.workspace)?;
+                    if version.proposal.id != value.proposal {
+                        return Err(Error::Corruption("memory result version"));
+                    }
+                }
+                if let Some(id) = &value.intent {
+                    let intent =
+                        self.record(Collection::IndexIntent, id.as_str(), &record.workspace)?;
+                    if intent.memory_kind()? != Some("vcp_memory_index_intent_v1") {
+                        return Err(Error::Corruption("memory result index type"));
+                    }
+                }
+            }
+            _ => (),
+        }
+        Ok(())
+    }
     pub fn record(
         &self,
         collection: Collection,
@@ -507,6 +781,7 @@ impl State {
                 return Err(Error::Corruption("canonical key"));
             }
             record.validate_shape()?;
+            self.validate_memory(record)?;
             if record.collection == Collection::Access
                 && record.value["document_type"] == "vcp_authority_v1"
             {
@@ -549,7 +824,8 @@ impl State {
                     // Fork and parent links are explicit task relationships. Data
                     // belonging to another task cannot be reused as this task's
                     // turn input, verification, approval, or effect observation.
-                    if record.collection != Collection::Task
+                    if record.memory_kind()?.is_none()
+                        && record.collection != Collection::Task
                         && record.collection != Collection::Ledger
                         && reference.split(':').next() != Some("ledger")
                         && source != target
@@ -706,6 +982,31 @@ impl State {
                                 && previous.workspace == record.workspace =>
                         {
                             crate::accounting_contract::transition(previous, record)?;
+                            if previous.immutable_memory()? {
+                                return Err(Error::Conflict("immutable memory evidence"));
+                            }
+                            if previous.memory_kind()? != record.memory_kind()? {
+                                return Err(Error::Conflict("memory document type changed"));
+                            }
+                            if previous.memory_kind()? == Some("vcp_memory_sequence_v1") {
+                                let before: vcp_domain::memory::MemoryHead = previous.decode()?;
+                                let after: vcp_domain::memory::MemoryHead = record.decode()?;
+                                if after.sequence <= before.sequence {
+                                    return Err(Error::Conflict("memory sequence must advance"));
+                                }
+                            }
+                            if previous.memory_kind()? == Some("vcp_memory_index_intent_v1") {
+                                let mut before: vcp_domain::memory::IndexIntent =
+                                    previous.decode()?;
+                                let after: vcp_domain::memory::IndexIntent = record.decode()?;
+                                before.revision = after.revision;
+                                before.status = after.status;
+                                if before != after {
+                                    return Err(Error::Conflict(
+                                        "memory index intent identity changed",
+                                    ));
+                                }
+                            }
                             if matches!(
                                 record.collection,
                                 Collection::Verification
@@ -733,6 +1034,15 @@ impl State {
                 }
                 Mutation::DropProjection { id, expected } => {
                     let key = key(Collection::Projection, id);
+                    if self
+                        .records
+                        .get(&key)
+                        .map(Record::immutable_memory)
+                        .transpose()?
+                        .unwrap_or(false)
+                    {
+                        return Err(Error::Conflict("immutable memory evidence"));
+                    }
                     if !touched.insert(key.clone())
                         || self
                             .records

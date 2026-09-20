@@ -1,0 +1,39 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index d4b1565..6155dbd 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17604,6 +17604,23 @@ dependencies = [
+  "wiremock",
+ ]
+ 
++[[package]]
++name = "vcp-memory"
++version = "0.1.0"
++dependencies = [
++ "munarium-core",
++ "serde",
++ "serde_json",
++ "tempfile",
++ "thiserror 2.0.18",
++ "tokio",
++ "vcp-audit",
++ "vcp-domain",
++ "vcp-engine",
++ "vcp-protocol",
++ "vcp-store",
++]
++
+ [[package]]
+ name = "vcp-memory-spike"
+ version = "0.1.0"
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index 4824f23..78907b1 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -1,5 +1,6 @@
+ [workspace]
+ members = [
++    "../../../crates/vcp-memory",
+     # VCP modification: structured and interactive CLI adapters.
+     "../../../crates/vcp-cli",
+     # VCP modification: OpenRouter codec and bounded provider normalization.
