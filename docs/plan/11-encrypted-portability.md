@@ -1,6 +1,6 @@
 # 11 — Developer keys, encrypted backups and machine handoff
 
-Status: planned. Owns P5-09, P5-10 and P3-06. Requires qualified P0 encrypted-storage/key/writer-trust decisions, stable store/generations/pruning and workspace continuation. Architecture sections 12.8–12.11 and ADR-019's confirmed boundaries are binding; its format/library/writer-authentication choices still require P0 qualification.
+Status: implementation and qualification in progress. Owns P5-09, P5-10 and P3-06. The [storage evidence](../development/p5-portability-storage.md), [native checkpoint evidence](../development/p5-portable-capture.md) and [CLI implementation](../development/p3-portability-cli.md) record implemented boundaries and tests. The actual two-Windows OneDrive U04 handoff remains required and unexecuted; local tests do not complete that gate. Architecture sections 12.8–12.11 and ADR-019's confirmed boundaries remain binding.
 
 ## Supporting design and entry gates
 
