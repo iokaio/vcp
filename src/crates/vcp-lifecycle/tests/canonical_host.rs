@@ -30,6 +30,9 @@ mod coding_verification;
 #[cfg(windows)]
 #[path = "support/context_continuity.rs"]
 mod context_continuity;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/duplex.rs"]
+mod duplex;
 #[cfg(windows)]
 #[path = "support/framework_verification.rs"]
 mod framework_verification;

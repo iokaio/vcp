@@ -1425,6 +1425,17 @@
       "effects": ["file-read"]
     },
     {
+      "id": "native-duplex-process",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/process/duplex.rs",
+      "symbol": "pub fn spawn_duplex_process(",
+      "observation": "Owned bounded stdin/stdout framing uses the native process admission, explicit environment and Job Object drain. The canonical adapter separately owns current authority, durable process intent and its lifetime conflict claim; this primitive grants no MCP call authority.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": ["process", "scheduler"]
+    },
+    {
       "id": "host-memory-inspection",
       "group": "lifecycle-host",
       "package": "vcp-lifecycle",
@@ -2067,7 +2078,8 @@
         "P2-03",
         "P2-04",
         "P5-05",
-        "P5-06"
+        "P5-06",
+        "P7-03"
       ],
       "gate": "Retained controller with one canonical storage/accounting worker, private current-authority commands, per-HTTP admission/raw capture and native output observation. Earlier P0 journal is a separate regression fixture; P2/P3 own provider and product CLI policy.",
       "effect_ceiling": "effectful",

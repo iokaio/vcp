@@ -12,6 +12,46 @@ fn main() -> std::io::Result<()> {
             .ok_or_else(|| std::io::Error::other("missing fixture directory"))?,
     );
     match mode.to_str() {
+        Some("duplex-echo") => {
+            use std::io::BufRead;
+            let mut output = std::io::stdout().lock();
+            for line in std::io::stdin().lock().lines() {
+                let line = line?;
+                writeln!(
+                    OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(directory.join("duplex-input"))?,
+                    "{line}"
+                )?;
+                let record = serde_json::json!({"line":line,"public":std::env::var("VCP_DUPLEX_PUBLIC").ok(),"ci":std::env::var("CI").ok(),
+                    "path_inherited":std::env::var_os("PATH").is_some(),"cwd":std::env::current_dir()?});
+                writeln!(output, "{record}")?;
+                output.flush()?;
+                eprintln!("duplex diagnostic");
+            }
+        }
+        Some("duplex-flood") => {
+            std::io::stdout().write_all(&vec![b'x'; 1024 * 1024])?;
+            std::thread::sleep(Duration::from_secs(30));
+        }
+        Some("duplex-queue") => {
+            for _ in 0..100 {
+                println!("queued");
+            }
+            std::thread::sleep(Duration::from_secs(30));
+        }
+        Some("duplex-stderr") => {
+            std::io::stderr().write_all(&vec![b'e'; 1024 * 1024])?;
+            std::thread::sleep(Duration::from_secs(30));
+        }
+        Some("duplex-silent") => {
+            std::fs::write(directory.join("duplex-ready"), b"ready")?;
+            std::thread::sleep(Duration::from_secs(30));
+        }
+        Some("duplex-partial") => {
+            std::io::stdout().write_all(b"unterminated")?;
+        }
         Some("process-count") => {
             let _first = Command::new(std::env::current_exe()?)
                 .arg("locked-child")
