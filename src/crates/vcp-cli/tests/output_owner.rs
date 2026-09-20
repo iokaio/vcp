@@ -187,6 +187,7 @@ async fn failed_current_verification_takes_precedence_over_pause_but_not_new_ste
         host.command(
             Command::RecordVerification {
                 verification: Verification {
+                    redaction: None,
                     id: VerificationId::new(),
                     scope: scope.clone(),
                     steering: task.steering,

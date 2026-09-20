@@ -24,12 +24,14 @@ clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 vcp-audit = { path = "../vcp-audit" }
+vcp-memory = { path = "../vcp-memory" }
 vcp-domain = { path = "../vcp-domain" }
 vcp-protocol = { path = "../vcp-protocol" }
 vcp-lifecycle = { path = "../vcp-lifecycle" }
 vcp-engine = { path = "../vcp-engine" }
 vcp-store = { path = "../vcp-store" }
 vcp-models = { path = "../vcp-models" }
+vcp-memory = { path = "../vcp-memory" }
 vcp-tools = { path = "../vcp-tools" }
 vcp-repository = { path = "../vcp-repository" }
 codex-core = { workspace = true }

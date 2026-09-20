@@ -161,6 +161,7 @@ fn exact_covered_intents_require_same_transaction_acknowledgements() {
     let mut state = initial();
     let mut value = manifest(&state);
     let intent = IndexIntent {
+        deletion: None,
         document_type: vcp_domain::memory::DocumentType::IndexIntent,
         schema_version: 1,
         id: IndexIntentId::new(),

@@ -112,7 +112,9 @@ Inspect views are `chain`, `context`, `prompts`, `outputs`, `routing`, `policy`,
 `tools`, `costs`, `verification`, and `memory`. P3-03 returns an `InspectionPage`
 in result `data`: task/workspace/session `scope`, `source_watermark`, `view`,
 `items`, explicit `gaps`, and `next_cursor`. Session/status commands retain their
-existing `records` shape. Memory search is not ready (P5-06); routing exposes
+existing `records` shape. `vcp memory search <text>` returns bounded, read-only
+memory passages with source identities, component ranks and freshness; see
+[retrieval behavior](p5-retrieval.md). Routing exposes
 existing attempts and captured evidence with an explicit fixed-model limitation.
 Requested model identity is separate from served identity; the latter is not
 normalized in canonical attempts and must be read from captured response evidence

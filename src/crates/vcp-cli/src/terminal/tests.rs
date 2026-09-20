@@ -411,6 +411,7 @@ fn history_cannot_hide_pending_questions_cost_or_current_result_checks() {
         json!({"scope":task.scope,"steering":task.steering,"state":"verifying","reason":"check current result"}),
     );
     let report = Verification {
+        redaction: None,
         id: VerificationId::parse("current-report").unwrap(),
         scope: task.scope.clone(),
         steering: task.steering,
@@ -536,6 +537,7 @@ fn latest_failed_check_and_unresolved_effects_remain_visible_after_history_flood
         ),
     ] {
         let report = Verification {
+            redaction: None,
             id: VerificationId::parse(id).unwrap(),
             scope: task.scope.clone(),
             steering: task.steering,

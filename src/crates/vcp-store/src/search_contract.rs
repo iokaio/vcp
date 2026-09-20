@@ -133,16 +133,26 @@ fn covered_sequence(state: &State, manifest: &Generation) -> Result<MemorySeq> {
     for row in state.records.values().filter(|row| {
         row.workspace == manifest.scope.workspace
             && row.collection == Collection::Projection
-            && row.value["document_type"] == "vcp_memory_result_v1"
+            && matches!(
+                row.value["document_type"].as_str(),
+                Some("vcp_memory_result_v1" | vcp_domain::redaction::RESULT)
+            )
     }) {
-        let value: ProposalResult = row.decode()?;
+        let (transaction, memory_seq) =
+            if row.value["document_type"] == vcp_domain::redaction::RESULT {
+                let value: vcp_domain::redaction::RedactedResult = row.decode()?;
+                (value.transaction, value.memory_seq)
+            } else {
+                let value: ProposalResult = row.decode()?;
+                (value.transaction, value.memory_seq)
+            };
         let watermark = state
             .transactions
-            .get(&value.transaction)
+            .get(&transaction)
             .ok_or(Error::Corruption("memory result receipt missing"))?
             .watermark;
         if watermark <= manifest.canonical_watermark {
-            sequence = sequence.max(value.memory_seq);
+            sequence = sequence.max(memory_seq);
         }
     }
     Ok(sequence)

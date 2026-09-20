@@ -27,6 +27,7 @@ pub enum Input {
     Status,
     Cost,
     History,
+    Maintenance(Vec<String>),
     Next,
     Agents,
     Inspect(String),
@@ -54,6 +55,19 @@ pub fn parse(line: &str) -> Result<Option<Input>, String> {
         ["/status"] => Input::Status,
         ["/cost"] => Input::Cost,
         ["/history"] => Input::History,
+        ["/history" | "/prune" | "/retention", ..] => Input::Maintenance(
+            words
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    if i == 0 {
+                        s.trim_start_matches('/').to_owned()
+                    } else {
+                        (*s).to_owned()
+                    }
+                })
+                .collect(),
+        ),
         ["/next"] => Input::Next,
         ["/agents"] => Input::Agents,
         ["/help"] => Input::Help,

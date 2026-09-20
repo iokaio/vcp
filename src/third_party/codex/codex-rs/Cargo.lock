@@ -17509,6 +17509,7 @@ dependencies = [
  "vcp-domain",
  "vcp-engine",
  "vcp-lifecycle",
+ "vcp-memory",
  "vcp-models",
  "vcp-protocol",
  "vcp-repository",

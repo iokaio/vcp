@@ -1,7 +1,8 @@
 # P3-03 evidence inspectors
 
 P3-03 implements the common navigation/query contract and existing-state views.
-Memory search/evidence remains P5-06; retention selection and deletion UI remains
+Memory search/evidence is documented in [P5-06 retrieval](p5-retrieval.md);
+retention selection and deletion UI remains
 P3-05/P5-07. Grouped routing is not advertised as available.
 
 ## Implemented contract

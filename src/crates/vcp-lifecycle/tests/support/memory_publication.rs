@@ -30,7 +30,7 @@ async fn missing_assets_require_explicit_lexical_only_publication_and_preserve_p
         let (temp, config, host, owner, _test, thread) = vector_fixture(backend).await;
         let private = temp.path().join("private");
         std::fs::create_dir(&private).unwrap();
-        let generations = temp.path().join("generations");
+        let generations = config.canonical_root.join("search-generations");
         let publisher = Arc::new(Publisher::new(&generations).unwrap());
         let manager = host.publication_manager(thread, publisher).unwrap();
         let deferred = host
@@ -117,7 +117,7 @@ async fn admitted_host_publication_adopts_real_vectors_and_atomically_covers_int
         let (temp, config, host, owner, _test, thread) = vector_fixture(backend).await;
         let private = temp.path().join("private");
         std::fs::create_dir(&private).unwrap();
-        let generations = temp.path().join("generations");
+        let generations = config.canonical_root.join("search-generations");
         let manager = host
             .publication_manager(thread, Arc::new(Publisher::new(&generations).unwrap()))
             .unwrap();
@@ -198,7 +198,7 @@ async fn admitted_host_publication_adopts_real_vectors_and_atomically_covers_int
         owner.close().await.unwrap();
     }
 }
-async fn vector_fixture(
+pub(super) async fn vector_fixture(
     backend: BackendKind,
 ) -> (
     tempfile::TempDir,
@@ -310,7 +310,7 @@ async fn vector_fixture_objective(
     (temp, config, host, owner, test, thread)
 }
 
-fn retained_source(
+pub(super) fn retained_source(
     host: &CanonicalHost,
     config: &Config,
     thread: codex_protocol::ThreadId,
@@ -420,7 +420,7 @@ async fn empty_authorized_inventory_publishes_without_opening_model_assets() {
             vector_fixture_objective(backend, "Observe an empty workspace").await;
         let private = temp.path().join("private");
         std::fs::create_dir(&private).unwrap();
-        let generations = temp.path().join("generations");
+        let generations = config.canonical_root.join("search-generations");
         let manager = host
             .publication_manager(thread, Arc::new(Publisher::new(&generations).unwrap()))
             .unwrap();

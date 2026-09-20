@@ -643,6 +643,8 @@ pub enum IndexStatus {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexIntent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deletion: Option<DeletionEpoch>,
     pub document_type: DocumentType,
     pub schema_version: u32,
     pub id: IndexIntentId,
@@ -663,8 +665,9 @@ impl IndexIntent {
         schema(self.schema_version)?;
         unique(&self.versions, 64)?;
         unique(&self.supersedes, 64)?;
-        if self.versions.is_empty()
-            || self.memory_seq == MemorySeq::ZERO
+        if (self.deletion.is_none()
+            && (self.versions.is_empty() || self.memory_seq == MemorySeq::ZERO))
+            || self.deletion == Some(DeletionEpoch::ZERO)
             || self.canonical_watermark == Watermark::ZERO
             || self.versions.iter().any(|id| self.supersedes.contains(id))
         {

@@ -528,6 +528,7 @@ impl<S: CanonicalStore> Engine<S> {
                     return Err(vcp_domain::Error::Stale.into());
                 }
                 let turn = Turn {
+                    redaction: None,
                     id: id.clone(),
                     scope: scope()?,
                     revision: Revision::ZERO,
@@ -589,6 +590,7 @@ impl<S: CanonicalStore> Engine<S> {
                     return Err(Error::Target);
                 }
                 let effect = Effect {
+                    redaction: None,
                     id: id.clone(),
                     scope: scope()?,
                     revision: Revision::ZERO,

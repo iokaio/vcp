@@ -55,6 +55,14 @@ impl Snapshot {
         &self.state
     }
 }
+/// Unknown/legacy durable pins fail closed. A vault job may release source
+/// leases only with its explicit inactive marker and no retained source refs.
+pub fn snapshot_pin_active(record: &Record) -> bool {
+    record.collection == Collection::SnapshotPin
+        && !(record.value["document_type"] == "vcp_snapshot_job_v1"
+            && record.value["active"] == false
+            && record.references.is_empty())
+}
 impl Store {
     /// Finish backend shutdown before releasing the canonical owner lock.
     /// Callers requiring an immediate reopen must await this method: dropping a
@@ -138,6 +146,11 @@ impl Store {
             active.anchor = root;
             active.anchors.push(owner);
             return Ok(active);
+        }
+        if root.join("retired.json").exists() {
+            return Err(Error::Conflict(
+                "retired replay root; open canonical anchor",
+            ));
         }
         let format_path = root.join("format.json");
         if format_path.exists() {
@@ -505,6 +518,104 @@ impl Store {
         }
         Ok(())
     }
+    /// Exact replay-base transform; canonical IDs and commitment digests remain.
+    pub fn retention_candidate(
+        &self,
+        records: &BTreeSet<String>,
+        events: &BTreeSet<EventId>,
+        tasks: &BTreeSet<TaskId>,
+    ) -> Result<State> {
+        let mut next = self.state.clone();
+        for key in records {
+            let row = self
+                .state
+                .records
+                .get(key)
+                .ok_or(Error::Conflict("retention record missing"))?;
+            let workspace: vcp_domain::workspace::Workspace = self
+                .state
+                .record(
+                    Collection::Workspace,
+                    row.workspace.as_str(),
+                    &row.workspace,
+                )?
+                .decode()?;
+            next.records.insert(
+                key.clone(),
+                crate::redaction_contract::redact_record(row, workspace.deletion)?,
+            );
+        }
+        for event in &mut next.events {
+            if events.contains(&event.event.id) {
+                let workspace: vcp_domain::workspace::Workspace = self
+                    .state
+                    .record(
+                        Collection::Workspace,
+                        event.event.workspace.as_str(),
+                        &event.event.workspace,
+                    )?
+                    .decode()?;
+                *event = vcp_protocol::redaction::event(event, workspace.deletion)
+                    .map_err(|_| Error::Conflict("event redaction"))?;
+            }
+        }
+        for receipt in next.commands.values_mut() {
+            if let vcp_protocol::command::CommandResult::Inspection { task: Some(task) } =
+                &receipt.result
+            {
+                if tasks.contains(&task.scope.task) {
+                    let workspace: vcp_domain::workspace::Workspace = self
+                        .state
+                        .record(
+                            Collection::Workspace,
+                            receipt.workspace.as_str(),
+                            &receipt.workspace,
+                        )?
+                        .decode()?;
+                    receipt.result =
+                        vcp_protocol::redaction::inspection(&receipt.result, workspace.deletion)
+                            .map_err(|_| Error::Conflict("inspection redaction"))?;
+                    let transaction = next
+                        .transactions
+                        .get_mut(&receipt.transaction)
+                        .ok_or(Error::Corruption("inspection transaction"))?;
+                    transaction.command = Some(receipt.clone());
+                }
+            }
+        }
+        crate::redaction_contract::validate_rewrite(&self.state, &next)?;
+        Ok(next)
+    }
+    pub fn retention_protection(
+        &self,
+        workspace: &WorkspaceId,
+        task: Option<&TaskId>,
+    ) -> Result<()> {
+        crate::redaction_contract::unprotected(&self.state, workspace, task)
+    }
+    /// Remove only sealed-chain retired payloads under live reader/writer leases.
+    /// The active canonical root and routing/lock records are never deleted.
+    pub fn cleanup_rewrites(&self) -> Result<crate::rewrite::Cleanup> {
+        if self.poisoned {
+            return Err(Error::Unavailable("reopen before cleanup"));
+        }
+        if self.state.records.values().any(snapshot_pin_active) {
+            let latest = crate::rewrite::receipts(&self.anchor)?.pop();
+            return Ok(crate::rewrite::Cleanup {
+                pinned: latest.map(|r| r.pending_roots).unwrap_or_default(),
+                ..Default::default()
+            });
+        }
+        crate::rewrite::cleanup(&self.anchor, &self.root, &|_phase| {
+            #[cfg(feature = "qualification")]
+            if let Some(observer) = &self.observer {
+                observer(_phase);
+            }
+        })
+    }
+    pub fn canonical_anchor(&self) -> &Path {
+        &self.anchor
+    }
     /// Rewrite into a sealed replay base without copying historical commit
     /// payloads. Caller supplies an authorized, validated retention transform.
     /// Existing root content remains pending cleanup; this is not purge completion.
@@ -528,6 +639,12 @@ impl Store {
         let id = TransactionId::new();
         let destination = children.join(id.as_str());
         fs::create_dir(&destination)?;
+        immutable_file(
+            &destination.join("private-rewrite.json"),
+            &canonical_bytes(
+                &serde_json::json!({"version":1,"root":id,"source":digest_bytes(&canonical_bytes(&self.state)?)}),
+            )?,
+        )?;
         crate::replay_base::ReplayBase::write(
             &destination,
             &self.state,

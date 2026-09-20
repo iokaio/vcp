@@ -17,7 +17,7 @@ pub mod trust_store;
 pub mod vault_crypto;
 pub mod vault_publish;
 pub use backend::{BackendKind, Barrier};
-pub use store::{Snapshot, Store};
+pub use store::{snapshot_pin_active, Snapshot, Store};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

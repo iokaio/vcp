@@ -10,8 +10,11 @@ mod control;
 #[cfg(windows)]
 mod execution;
 mod memory;
+#[cfg(windows)]
+mod memory_query;
 mod provider;
 pub(super) mod recovery;
+mod retention_policy;
 #[cfg(windows)]
 mod tools;
 #[cfg(windows)]
@@ -331,6 +334,7 @@ impl Context {
         }
         #[cfg(windows)]
         context.stop_coding_turns("owner recovered canonical turn")?;
+        context.apply_startup_retention_policy()?;
         Ok(context)
     }
     fn actor(&self) -> vcp_budget::Actor {
@@ -781,6 +785,19 @@ impl Context {
             TurnState::RequestingModel,
             "captured request reserved for model admission",
         )?;
+        #[cfg(windows)]
+        if let Err(error) = self.validate_memory_send(binding) {
+            // The source fence won canonical ordering before SendIntent. This
+            // is positive no-send evidence, so release rather than charge an
+            // uncertain provider liability. No transport permit escapes.
+            self.runtime.block_on(vcp_budget::release_before_send(
+                self.engine.store_mut(),
+                &attempt.id,
+                scope,
+                &actor,
+            ))?;
+            return Err(error);
+        }
         if let Err(error) = self.runtime.block_on(vcp_budget::submit(
             self.engine.store_mut(),
             &attempt.id,

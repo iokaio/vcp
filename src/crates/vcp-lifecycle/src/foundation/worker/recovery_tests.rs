@@ -4,6 +4,98 @@ use std::collections::BTreeSet;
 use vcp_domain::policy::*;
 use vcp_store::BackendKind;
 
+#[test]
+fn startup_applies_due_saved_retention_without_resuming_or_model_work() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_memory::{
+        retention::Action,
+        retention_policy::{self, Automatic},
+    };
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut context, binding) = setup(&temp, backend);
+        let config = context.config.clone();
+        let access = context.memory_access();
+        context
+            .runtime
+            .block_on(retention_policy::set(
+                context.engine.store_mut(),
+                &access,
+                None,
+                7,
+                Some(Automatic {
+                    selector: Selector {
+                        schema_version: 1,
+                        tree: Tree::Match(Criterion::Workspace(access.workspace.clone())),
+                    },
+                    action: Action::Exclude,
+                    cadence_days: 7,
+                }),
+                Timestamp::ZERO,
+            ))
+            .unwrap();
+        assert!(
+            retention_policy::latest_run(context.engine.store(), &access)
+                .unwrap()
+                .is_none()
+        );
+        context.close().unwrap();
+        let reopened = Context::open(config.clone()).unwrap();
+        let run = retention_policy::latest_run(reopened.engine.store(), &reopened.memory_access())
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.status, "completed");
+        let task: Task = reopened
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Task,
+                binding.scope.task.as_str(),
+                &access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(task.state, TaskState::Paused);
+        assert!(!reopened
+            .engine
+            .store()
+            .state()
+            .records
+            .values()
+            .any(|r| r.collection == Collection::Attempt));
+        let workspace: Workspace = reopened
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Workspace,
+                access.workspace.as_str(),
+                &access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        reopened.close().unwrap();
+        let again = Context::open(config).unwrap();
+        let current: Workspace = again
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Workspace,
+                access.workspace.as_str(),
+                &access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(current.deletion, workspace.deletion);
+        again.close().unwrap();
+    }
+}
+
 fn setup(temp: &tempfile::TempDir, backend: BackendKind) -> (Context, ThreadBinding) {
     let workspace = temp.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();

@@ -18,6 +18,8 @@ use vcp_lifecycle::{
 mod authority_stream;
 #[path = "support/cli_control.rs"]
 mod cli_control;
+#[path = "support/history_retention.rs"]
+mod history_retention;
 #[cfg(windows)]
 #[path = "support/coding.rs"]
 mod coding;
@@ -38,6 +40,9 @@ mod memory_ingestion;
 #[cfg(windows)]
 #[path = "support/memory_publication.rs"]
 mod memory_publication;
+#[cfg(windows)]
+#[path = "support/memory_query.rs"]
+mod memory_query;
 #[cfg(windows)]
 #[path = "support/memory_vectors.rs"]
 mod memory_vectors;

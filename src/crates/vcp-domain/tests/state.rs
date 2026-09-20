@@ -36,6 +36,7 @@ fn task() -> Task {
 }
 fn evidence(task: &Task) -> Verification {
     Verification {
+        redaction: None,
         id: VerificationId::new(),
         scope: task.scope.clone(),
         steering: task.steering,

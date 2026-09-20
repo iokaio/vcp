@@ -51,18 +51,6 @@ fn rejection(rule: &str, message: &str) -> Resolution {
         validated_evidence: vec![],
     }
 }
-pub(crate) fn versions(state: &State, workspace: &WorkspaceId) -> Result<Vec<Version>> {
-    state
-        .records
-        .values()
-        .filter(|r| {
-            r.workspace == *workspace
-                && r.collection == Collection::Claim
-                && r.value["document_type"] == "vcp_memory_version_v1"
-        })
-        .map(|r| r.decode().map_err(Error::from))
-        .collect()
-}
 fn current(state: &State, access: &Access) -> Result<Vec<Version>> {
     let mut result = Vec::new();
     for record in state.records.values().filter(|r| {
@@ -99,10 +87,20 @@ pub(crate) fn evidence(
     access: &Access,
     proposal: &Proposal,
 ) -> Result<Vec<EvidenceObservation>> {
+    evidence_with_check(store, access, proposal, &|| Ok(()))
+}
+pub(crate) fn evidence_with_check(
+    store: &Store,
+    access: &Access,
+    proposal: &Proposal,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<Vec<EvidenceObservation>> {
+    check()?;
     proposal
         .evidence
         .iter()
         .map(|reference| {
+            check()?;
             let record = store
                 .state()
                 .records
@@ -159,6 +157,7 @@ pub(crate) fn evidence(
                 None => false,
                 Some(id) => verify_evidence(store, access, proposal, reference, id)?,
             };
+            check()?;
             Ok(EvidenceObservation {
                 artifact: reference.artifact.clone(),
                 status,
@@ -619,6 +618,7 @@ pub async fn propose(
                 next_head.disputed.push(version.id.clone());
             }
             let intent = IndexIntent {
+                deletion: None,
                 document_type: DocumentType::IndexIntent,
                 schema_version: 1,
                 id: IndexIntentId::new(),

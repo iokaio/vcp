@@ -15,6 +15,10 @@ use vcp_protocol::command::{Command, CommandEnvelope};
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "operation", deny_unknown_fields)]
 pub enum Request {
+    HistoryRetention {
+        workspace: WorkspaceId,
+        request: vcp_lifecycle::foundation::history_retention::Request,
+    },
     Query {
         workspace: WorkspaceId,
         query: crate::app::Query,
@@ -163,10 +167,17 @@ async fn handle(
     let request: Request =
         serde_json::from_slice(&frame).map_err(|_| "invalid owner request".to_owned())?;
     match request {
+        Request::HistoryRetention {
+            workspace: requested,
+            request,
+        } if requested == *workspace => host.history_retention(request),
         Request::Query {
             workspace: requested,
             query,
         } if requested == *workspace => match query {
+            crate::app::Query::MemorySearch { request } => {
+                serde_json::to_value(host.inspect_memory(request).await?).map_err(|e| e.to_string())
+            }
             crate::app::Query::Inspect { request } => {
                 serde_json::to_value(host.inspect(request)?).map_err(|e| e.to_string())
             }

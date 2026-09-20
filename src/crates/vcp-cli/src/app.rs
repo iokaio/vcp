@@ -31,10 +31,16 @@ pub enum Query {
     Inspect {
         request: vcp_audit::inspection::InspectionQuery,
     },
+    MemorySearch {
+        request: vcp_memory::retrieval::Request,
+    },
 }
 
 pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Value, String> {
     let selected: Vec<Value> = match query {
+        Query::MemorySearch { .. } => {
+            return Err("memory search requires the canonical store query boundary".into())
+        }
         Query::Continuation => {
             return serde_json::to_value(crate::continuation::discover(state, workspace)?)
                 .map_err(|e| e.to_string())
@@ -92,8 +98,26 @@ fn inspection_access(
 pub fn query_store(
     store: &Store,
     workspace: &WorkspaceId,
+    actor: &ActorId,
     request: &Query,
 ) -> Result<Value, String> {
+    if let Query::MemorySearch { request } = request {
+        let access = vcp_memory::access::Access {
+            workspace: workspace.clone(),
+            actor: actor.clone(),
+            authority: inspection_access(store.state(), workspace)?.authority,
+            read: true,
+            write: false,
+            tasks: None,
+        };
+        return serde_json::to_value(vcp_lifecycle::foundation::memory_inspection::inspect_store(
+            store,
+            &access,
+            store.root(),
+            request,
+        )?)
+        .map_err(|e| e.to_string());
+    }
     if let Query::Inspect { request } = request {
         return serde_json::to_value(
             vcp_audit::inspection::inspect(
@@ -127,27 +151,37 @@ fn latest(
 }
 struct DisplayOutput {
     jsonl: bool,
+    frame:Vec<u8>,
 }
 impl Write for DisplayOutput {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if self.jsonl {
             std::io::stdout().write_all(bytes)?;
         } else {
-            let value: Value = serde_json::from_slice(bytes)?;
-            // JSON escaping prevents untrusted terminal control execution.
-            if value["type"] != "event" {
-                writeln!(std::io::stdout(), "{value}")?;
+            // serde_json::to_writer emits fragments, not complete records.
+            // Decode only the newline-terminated frame, preserving JSON escapes.
+            for byte in bytes {
+                if *byte==b'\n' {
+                    let value:Value=serde_json::from_slice(&self.frame)?;
+                    if value["type"]!="event" {writeln!(std::io::stdout(),"{value}")?;}
+                    self.frame.clear();
+                }else{
+                    if self.frame.len()>=1024*1024{return Err(io::Error::new(io::ErrorKind::InvalidData,"display frame exceeds 1 MiB"));}
+                    self.frame.push(*byte);
+                }
             }
         }
         Ok(bytes.len())
     }
     fn flush(&mut self) -> io::Result<()> {
+        if !self.frame.is_empty(){return Err(io::Error::new(io::ErrorKind::UnexpectedEof,"incomplete display frame"));}
         std::io::stdout().flush()
     }
 }
 fn command_result(format: Format, data: Value) -> Result<u8, String> {
     Jsonl::new(DisplayOutput {
         jsonl: format == Format::Jsonl,
+        frame:Vec::new(),
     })
     .emit(
         &CommandId::new(),
@@ -333,12 +367,76 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         ))?;
         crate::binding::verify(&root, identity)?;
     }
+    let history_request = match &cli.command {
+        ValidatedCommand::History(command) => Some(
+            command.request(
+                &entry
+                    .as_ref()
+                    .ok_or("workspace has no durable session")?
+                    .config
+                    .workspace,
+            )?,
+        ),
+        ValidatedCommand::Prune(command) => Some(command.request()?),
+        ValidatedCommand::Retention(command) => Some(command.request()?),
+        _ => None,
+    };
+    if let Some(request) = history_request {
+        let entry = entry.as_ref().ok_or("workspace has no durable session")?;
+        // Notice acknowledgement is a canonical write. Do not invalidate the
+        // exact preview just presented, or change its source before applying it.
+        let notify = !matches!(
+            &request,
+            vcp_lifecycle::foundation::history_retention::Request::Preview { .. }
+                | vcp_lifecycle::foundation::history_retention::Request::PreviewPage { .. }
+                | vcp_lifecycle::foundation::history_retention::Request::Apply { .. }
+                | vcp_lifecycle::foundation::history_retention::Request::Cleanup { .. }
+        );
+        let mut value = history_control(entry, &workspace, &pipe, request).await?;
+        let notice = if notify {
+            history_control(
+                entry,
+                &workspace,
+                &pipe,
+                vcp_lifecycle::foundation::history_retention::Request::Notice,
+            )
+            .await
+            .ok()
+            .filter(|v| v["due"] == true)
+        } else {
+            None
+        };
+        if let Some(notice) = &notice {
+            value["retention_notice"] = notice.clone();
+        }
+        let code = command_result(cli.format, value)?;
+        if notice.is_some() {
+            let _ = history_control(
+                entry,
+                &workspace,
+                &pipe,
+                vcp_lifecycle::foundation::history_retention::Request::NoticeShown,
+            )
+            .await;
+        }
+        return Ok(code);
+    }
     let read = match &cli.command {
         ValidatedCommand::Discover => Some(Query::Continuation),
         ValidatedCommand::Sessions(Sessions::List) => Some(Query::Sessions),
         ValidatedCommand::Tasks(Tasks::Status { task }) => Some(Query::Task { task: task.clone() }),
         ValidatedCommand::Inspect { request } => Some(Query::Inspect {
             request: request.clone(),
+        }),
+        ValidatedCommand::MemorySearch(search) => Some(Query::MemorySearch {
+            request: search.request(
+                entry
+                    .as_ref()
+                    .ok_or("workspace has no durable session")?
+                    .config
+                    .workspace
+                    .clone(),
+            ),
         }),
         _ => None,
     };
@@ -360,7 +458,12 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         .await;
         let value = match store {
             Ok(store) => {
-                let value = query_store(&store, &entry.config.workspace, &query_request);
+                let value = query_store(
+                    &store,
+                    &entry.config.workspace,
+                    &entry.config.actor,
+                    &query_request,
+                );
                 store.close().await.map_err(|e| e.to_string())?;
                 value?
             }
@@ -427,4 +530,77 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         },
     )
     .await
+}
+
+async fn history_control(
+    entry: &WorkspaceEntry,
+    workspace: &Path,
+    pipe: &str,
+    request: vcp_lifecycle::foundation::history_retention::Request,
+) -> Result<Value, String> {
+    match Store::open(
+        &entry.config.canonical_root,
+        entry.config.backend,
+        std::slice::from_ref(&workspace.to_owned()),
+    )
+    .await
+    {
+        Ok(mut store) => {
+            let workspace: vcp_domain::workspace::Workspace = store
+                .state()
+                .record(
+                    Collection::Workspace,
+                    entry.config.workspace.as_str(),
+                    &entry.config.workspace,
+                )
+                .and_then(|r| r.decode())
+                .map_err(|e| e.to_string())?;
+            let access = vcp_memory::access::Access {
+                workspace: workspace.id,
+                actor: entry.config.actor.clone(),
+                authority: workspace.authority,
+                read: true,
+                write: true,
+                tasks: None,
+            };
+            let now = vcp_domain::Timestamp::new(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|e| e.to_string())?
+                    .as_millis()
+                    .min(u64::MAX as u128) as u64,
+            );
+            let value = vcp_lifecycle::foundation::history_retention::execute(
+                &mut store, &access, request, now,
+            )
+            .await;
+            store.close().await.map_err(|e| e.to_string())?;
+            value
+        }
+        Err(vcp_store::Error::Conflict("canonical root already has an owner")) => {
+            control::request(
+                pipe,
+                &control::Request::HistoryRetention {
+                    workspace: entry.config.workspace.clone(),
+                    request,
+                },
+            )
+            .await
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+    #[test]
+    fn text_display_waits_for_complete_json_frames() {
+        let mut output=DisplayOutput{jsonl:false,frame:Vec::new()};
+        output.write_all(b"{\"type\":").unwrap();
+        assert!(output.flush().is_err());
+        output.write_all(b"\"event\",\"text\":\"escaped\\ncontrol\"}\n").unwrap();
+        output.flush().unwrap();
+        assert!(output.frame.is_empty());
+    }
 }

@@ -926,6 +926,7 @@ async fn all_six_classes_accept_scoped_evidence_and_verified_results_expire_with
             "applicability":"current", "outcome":{"status":"passed"}, "exit_code":0
         })).unwrap()).await;
         let verification = Verification {
+            redaction: None,
             id: VerificationId::new(),
             scope: scope.clone(),
             steering: SteeringRevision::ZERO,
@@ -1452,5 +1453,607 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
             "purged"
         );
         store.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn retention_preview_tombstone_restart_and_physical_cleanup_are_distinct() {
+    use vcp_domain::{
+        retention_selector::{Criterion, Selector, Tree},
+        task::{Task, TaskState},
+    };
+    use vcp_memory::retention::{self, Action};
+    use vcp_protocol::canonical_bytes;
+    use vcp_store::contract::{CanonicalStore, Mutation, Record, Transaction};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut f = fixture(temp.path(), backend).await;
+        let marker = "prune-physical-marker-314159";
+        f.proposal.statement = marker.into();
+        f.proposal.value = ClaimValue::Architecture {
+            decision: marker.into(),
+            rationale: marker.into(),
+            inference: true,
+        };
+        propose(
+            &mut f.store,
+            &f.access,
+            f.proposal.clone(),
+            Timestamp::new(200),
+        )
+        .await
+        .unwrap();
+        let selector = Selector {
+            schema_version: 1,
+            tree: Tree::Match(Criterion::Task(f.proposal.scope.task.clone())),
+        };
+        let protected = retention::preview(
+            &f.store,
+            &f.access,
+            selector.clone(),
+            Action::Purge,
+            Timestamp::new(300),
+        )
+        .unwrap();
+        assert!(!protected.protected.is_empty());
+        assert!(
+            retention::apply(&mut f.store, &f.access, &protected, Timestamp::new(301))
+                .await
+                .is_err()
+        );
+        let mut task: Task = f
+            .store
+            .state()
+            .record(
+                Collection::Task,
+                f.proposal.scope.task.as_str(),
+                &f.access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let previous = task.revision;
+        task.revision = task.revision.next().unwrap();
+        task.state = TaskState::Cancelled;
+        f.store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: f.store.state().watermark,
+                mutations: vec![Mutation::Put {
+                    record: Record::typed(
+                        Collection::Task,
+                        task.scope.task.as_str(),
+                        f.access.workspace.clone(),
+                        task.revision,
+                        &task,
+                    )
+                    .unwrap(),
+                    expected: Some(previous),
+                }],
+                events: vec![],
+                command: None,
+            })
+            .await
+            .unwrap();
+        assert!(
+            retention::apply(&mut f.store, &f.access, &protected, Timestamp::new(302))
+                .await
+                .is_err()
+        );
+        let preview = retention::preview(
+            &f.store,
+            &f.access,
+            selector,
+            Action::Purge,
+            Timestamp::new(303),
+        )
+        .unwrap();
+        assert!(preview.protected.is_empty());
+        let held = f.store.snapshot().unwrap();
+        let job = retention::apply(&mut f.store, &f.access, &preview, Timestamp::new(304))
+            .await
+            .unwrap();
+        assert!(job.logical_unavailable);
+        assert!(!job.local_cleanup_complete);
+        let denied = history::query(&f.store, &f.access, &f.proposal.claim, None, None).unwrap();
+        assert!(denied.versions.iter().all(|v| v.version.is_none()));
+        let job = retention::cleanup(&mut f.store, &f.access, &job.id, Timestamp::new(305))
+            .await
+            .unwrap();
+        assert!(job.rewrite_complete);
+        assert!(!job.local_cleanup_complete);
+        assert!(
+            !String::from_utf8(canonical_bytes(f.store.state()).unwrap())
+                .unwrap()
+                .contains(marker)
+        );
+        assert!(String::from_utf8(canonical_bytes(held.state()).unwrap())
+            .unwrap()
+            .contains(marker));
+        drop(held);
+        f.store.close().await.unwrap();
+        let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
+        let complete = retention::cleanup(&mut store, &f.access, &job.id, Timestamp::new(306))
+            .await
+            .unwrap();
+        assert!(complete.local_cleanup_complete, "{:?}", complete);
+        let again = retention::cleanup(&mut store, &f.access, &job.id, Timestamp::new(307))
+            .await
+            .unwrap();
+        assert!(again.local_cleanup_complete);
+        // A rebuilt empty generation acknowledges purged metadata and the exact
+        // retention intent without allocating a new memory sequence or model.
+        let inventory = vcp_memory::search_record::inventory(
+            &store,
+            &f.access,
+            &[],
+            &vcp_memory::search_record::ChunkerSpec::default(),
+            vcp_memory::search_record::Limits::default(),
+        )
+        .unwrap();
+        assert!(inventory.records.is_empty());
+        assert!(inventory.exclusions.iter().any(|e| e.reason == "purged"));
+        let publisher =
+            vcp_memory::publication::Publisher::new(&temp.path().join("search-generations"))
+                .unwrap();
+        let captured =
+            vcp_memory::publication::capture(&store, &f.access, &f.proposal.scope, inventory)
+                .unwrap();
+        let ready = publisher
+            .prepare(
+                captured,
+                None,
+                &std::sync::atomic::AtomicBool::new(false),
+                &|_| {},
+            )
+            .unwrap();
+        publisher
+            .publish(&mut store, &f.access, &ready, Timestamp::new(308), &|_| {})
+            .await
+            .unwrap();
+        assert!(
+            publisher
+                .recover(&store, &f.access)
+                .unwrap()
+                .view
+                .unwrap()
+                .manifest
+                .empty_complete
+        );
+        drop(ready);
+        drop(publisher);
+        store.close().await.unwrap();
+        let mut paths = vec![temp.path().to_path_buf()];
+        while let Some(path) = paths.pop() {
+            for entry in std::fs::read_dir(path).unwrap() {
+                let entry = entry.unwrap();
+                if entry.file_type().unwrap().is_dir() {
+                    paths.push(entry.path());
+                } else if entry.file_type().unwrap().is_file() {
+                    let bytes = std::fs::read(entry.path()).unwrap();
+                    assert!(
+                        !bytes.windows(marker.len()).any(|b| b == marker.as_bytes()),
+                        "{}",
+                        entry.path().display()
+                    );
+                }
+            }
+        }
+        Store::open(temp.path(), backend, &[])
+            .await
+            .unwrap()
+            .close()
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn saved_previews_and_independent_reversible_actions_preserve_raw_history() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_memory::retention::{self, Action, Target};
+    use vcp_store::contract::key;
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut f = fixture(temp.path(), backend).await;
+        f.proposal.value = ClaimValue::Architecture {
+            decision: "retain raw evidence".into(),
+            rationale: "fixture".into(),
+            inference: true,
+        };
+        let accepted = propose(
+            &mut f.store,
+            &f.access,
+            f.proposal.clone(),
+            Timestamp::new(200),
+        )
+        .await
+        .unwrap();
+        let version = accepted.result.version.unwrap();
+        let target = Target::Record(key(Collection::Claim, version.as_str()));
+        let selector = Selector {
+            schema_version: 1,
+            tree: Tree::Match(Criterion::Claim(ClaimKind::Architecture)),
+        };
+        let original = f.store.state().records[&key(Collection::Claim, version.as_str())].clone();
+        for (n, action) in [Action::Exclude, Action::Compact, Action::RestoreRecall]
+            .into_iter()
+            .enumerate()
+        {
+            let preview = retention::preview(
+                &f.store,
+                &f.access,
+                selector.clone(),
+                action,
+                Timestamp::new(300 + n as u64),
+            )
+            .unwrap();
+            retention::save_preview(
+                &mut f.store,
+                &f.access,
+                &preview,
+                Timestamp::new(400 + n as u64),
+            )
+            .await
+            .unwrap();
+            let loaded = retention::load_preview(&f.store, &f.access, &preview.id).unwrap();
+            assert_eq!(loaded, preview);
+            let receipt = retention::apply(
+                &mut f.store,
+                &f.access,
+                &loaded,
+                Timestamp::new(500 + n as u64),
+            )
+            .await
+            .unwrap();
+            assert!(receipt.local_cleanup_complete);
+            assert!(!receipt.logical_unavailable);
+            let decision = retention::decision(f.store.state(), &f.access.workspace, &target)
+                .unwrap()
+                .unwrap();
+            assert_eq!(decision.recall_excluded, action != Action::RestoreRecall);
+            assert_eq!(decision.compacted, n >= 1);
+            assert!(!decision.purged);
+            assert_eq!(
+                f.store.state().records[&key(Collection::Claim, version.as_str())],
+                original
+            );
+            let raw = history::query(&f.store, &f.access, &f.proposal.claim, None, None).unwrap();
+            assert!(raw.versions.iter().all(|v| v.version.is_some()));
+            assert!(raw
+                .versions
+                .iter()
+                .all(|v| v.applicable == (action == Action::RestoreRecall)));
+        }
+    }
+}
+
+#[tokio::test]
+async fn copied_context_lineage_follows_source_ids_and_request_commitments_only() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_memory::retention::{self, Action, Target};
+    use vcp_store::contract::{key, CanonicalStore, Mutation, Record, Transaction};
+    async fn retain(
+        store: &mut Store,
+        scope: &Scope,
+        schema: &str,
+        bytes: &[u8],
+    ) -> ArtifactDescriptor {
+        let mut writer = store
+            .spool()
+            .create(ArtifactSpec {
+                id: ArtifactId::new(),
+                scope: scope.clone(),
+                media_type: "application/json".into(),
+                schema: schema.into(),
+                source: "synthetic".into(),
+                channel: Channel::Evidence,
+                retention: "history".into(),
+                omissions: vec![],
+            })
+            .unwrap();
+        writer.write_chunk(bytes).unwrap();
+        let artifact = writer.finalize().unwrap();
+        store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: store.state().watermark,
+                mutations: vec![Mutation::Put {
+                    record: Record::typed(
+                        Collection::Artifact,
+                        artifact.spec.id.as_str(),
+                        scope.workspace.clone(),
+                        Revision::ZERO,
+                        &artifact,
+                    )
+                    .unwrap(),
+                    expected: None,
+                }],
+                events: vec![],
+                command: None,
+            })
+            .await
+            .unwrap();
+        artifact
+    }
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut f = fixture(temp.path(), backend).await;
+        f.proposal.value = ClaimValue::Architecture {
+            decision: "copied claim".into(),
+            rationale: "fixture".into(),
+            inference: true,
+        };
+        let accepted = propose(
+            &mut f.store,
+            &f.access,
+            f.proposal.clone(),
+            Timestamp::new(200),
+        )
+        .await
+        .unwrap();
+        let version = accepted.result.version.unwrap();
+        let scope = &f.proposal.scope;
+        let captured=retain(&mut f.store,scope,"memory-context/1",&serde_json::to_vec(&serde_json::json!([{"source":{"kind":"claim","version":version,"claim":f.proposal.claim},"evidence":[],"text":"copied claim"}])).unwrap()).await;
+        let unrelated=retain(&mut f.store,scope,"memory-context/1",&serde_json::to_vec(&serde_json::json!([{"source":{"kind":"artifact","id":f.proposal.evidence[0].artifact},"evidence":[],"text":"not a copy of the selected claim"}])).unwrap()).await;
+        let request = retain(
+            &mut f.store,
+            scope,
+            "responses-request/1",
+            b"copied claim provider request",
+        )
+        .await;
+        let manifest=retain(&mut f.store,scope,"context-manifest/1",&serde_json::to_vec(&serde_json::json!({"included":[{"artifact":captured.spec.id}],"request_sha256":request.sha256})).unwrap()).await;
+        let preview = retention::preview(
+            &f.store,
+            &f.access,
+            Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Claim(ClaimKind::Architecture)),
+            },
+            Action::Exclude,
+            Timestamp::new(300),
+        )
+        .unwrap();
+        for artifact in [&captured, &request, &manifest] {
+            assert!(preview.dependent.contains(&Target::Record(key(
+                Collection::Artifact,
+                artifact.spec.id.as_str()
+            ))));
+        }
+        assert!(!preview.dependent.contains(&Target::Record(key(
+            Collection::Artifact,
+            unrelated.spec.id.as_str()
+        ))));
+    }
+}
+
+#[cfg(feature = "qualification")]
+#[tokio::test]
+async fn retention_process_child() {
+    use vcp_domain::{
+        retention_selector::{Criterion, Selector, Tree},
+        task::{Task, TaskState},
+    };
+    use vcp_memory::retention::{self, Action};
+    use vcp_store::{
+        contract::{CanonicalStore, Mutation, Record, Transaction},
+        Barrier,
+    };
+    let Some(path) = std::env::var_os("VCP_PRUNE_CHILD_ROOT") else {
+        return;
+    };
+    let phase = std::env::var("VCP_PRUNE_CHILD_PHASE").unwrap();
+    let backend = std::env::var("VCP_PRUNE_CHILD_BACKEND")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut f = fixture(std::path::Path::new(&path), backend).await;
+    f.proposal.statement = "kill-prune-sensitive-marker-2718".into();
+    propose(
+        &mut f.store,
+        &f.access,
+        f.proposal.clone(),
+        Timestamp::new(200),
+    )
+    .await
+    .unwrap();
+    let mut task: Task = f
+        .store
+        .state()
+        .record(
+            Collection::Task,
+            f.proposal.scope.task.as_str(),
+            &f.access.workspace,
+        )
+        .unwrap()
+        .decode()
+        .unwrap();
+    let previous = task.revision;
+    task.revision = task.revision.next().unwrap();
+    task.state = TaskState::Cancelled;
+    f.store
+        .transact(Transaction {
+            id: TransactionId::new(),
+            expected_watermark: f.store.state().watermark,
+            mutations: vec![Mutation::Put {
+                record: Record::typed(
+                    Collection::Task,
+                    task.scope.task.as_str(),
+                    f.access.workspace.clone(),
+                    task.revision,
+                    &task,
+                )
+                .unwrap(),
+                expected: Some(previous),
+            }],
+            events: vec![],
+            command: None,
+        })
+        .await
+        .unwrap();
+    let preview = retention::preview(
+        &f.store,
+        &f.access,
+        Selector {
+            schema_version: 1,
+            tree: Tree::Match(Criterion::Task(task.scope.task)),
+        },
+        Action::Purge,
+        Timestamp::new(300),
+    )
+    .unwrap();
+    f.store.observe(std::sync::Arc::new(move |actual| {
+        let selected = match phase.as_str() {
+            "tombstone" => Barrier::AfterCommit,
+            "before_activation" => Barrier::BeforeActivation,
+            "activation" => Barrier::AfterActivation,
+            "cleanup" => Barrier::AfterCleanupFile,
+            _ => panic!("unknown phase"),
+        };
+        if actual == selected {
+            std::process::exit(73)
+        }
+    }));
+    let job = retention::apply(&mut f.store, &f.access, &preview, Timestamp::new(400))
+        .await
+        .unwrap();
+    retention::cleanup(&mut f.store, &f.access, &job.id, Timestamp::new(500))
+        .await
+        .unwrap();
+    panic!("kill barrier not reached");
+}
+#[cfg(feature = "qualification")]
+#[tokio::test]
+async fn process_death_after_tombstone_activation_and_partial_cleanup_resumes_exactly() {
+    use vcp_memory::retention::{self, PruneReceipt};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for phase in ["tombstone", "before_activation", "activation", "cleanup"] {
+            let temp = tempfile::tempdir().unwrap();
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "retention_process_child", "--nocapture"])
+                .env("VCP_PRUNE_CHILD_ROOT", temp.path())
+                .env(
+                    "VCP_PRUNE_CHILD_BACKEND",
+                    if backend == BackendKind::Files {
+                        "files"
+                    } else {
+                        "sqlite"
+                    },
+                )
+                .env("VCP_PRUNE_CHILD_PHASE", phase)
+                .status()
+                .unwrap();
+            assert_eq!(result.code(), Some(73));
+            let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
+            let access = Access {
+                workspace: WorkspaceId::parse("workspace").unwrap(),
+                actor: ActorId::parse("owner").unwrap(),
+                authority: AuthorityRevision::ZERO,
+                read: true,
+                write: true,
+                tasks: None,
+            };
+            let job: PruneReceipt = store
+                .state()
+                .records
+                .values()
+                .find(|r| r.value["document_type"] == "vcp_retention_job_v1")
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert!(job.logical_unavailable);
+            let done = retention::cleanup(&mut store, &access, &job.id, Timestamp::new(600))
+                .await
+                .unwrap();
+            assert!(done.local_cleanup_complete, "{phase}: {done:?}");
+            store.close().await.unwrap();
+            let mut paths = vec![temp.path().to_path_buf()];
+            while let Some(path) = paths.pop() {
+                for entry in std::fs::read_dir(path).unwrap() {
+                    let entry = entry.unwrap();
+                    if entry.file_type().unwrap().is_dir() {
+                        paths.push(entry.path());
+                    } else {
+                        let bytes = std::fs::read(entry.path()).unwrap();
+                        assert!(
+                            !bytes
+                                .windows(b"kill-prune-sensitive-marker-2718".len())
+                                .any(|b| b == b"kill-prune-sensitive-marker-2718"),
+                            "{phase}: {}",
+                            entry.path().display()
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn newly_matching_history_cannot_expand_a_saved_preview() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_memory::retention::{self, Action, Target};
+    use vcp_protocol::event::EventInput;
+    use vcp_store::contract::{CanonicalStore, Transaction};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut f = fixture(temp.path(), backend).await;
+        let selector = Selector {
+            schema_version: 1,
+            tree: Tree::Match(Criterion::Task(f.proposal.scope.task.clone())),
+        };
+        let preview = retention::preview(
+            &f.store,
+            &f.access,
+            selector.clone(),
+            Action::Exclude,
+            Timestamp::new(200),
+        )
+        .unwrap();
+        retention::save_preview(&mut f.store, &f.access, &preview, Timestamp::new(201))
+            .await
+            .unwrap();
+        let newer = EventId::new();
+        f.store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: f.store.state().watermark,
+                mutations: vec![],
+                command: None,
+                events: vec![EventInput {
+                    id: newer.clone(),
+                    workspace: f.access.workspace.clone(),
+                    session: f.proposal.scope.session.clone(),
+                    task: Some(f.proposal.scope.task.clone()),
+                    actor: f.access.actor.clone(),
+                    correlation: CommandId::new(),
+                    causation: None,
+                    timestamp: Timestamp::new(202),
+                    kind: EventKind::Commentary,
+                    artifacts: vec![],
+                    data: serde_json::json!({"text":"new matching history"}),
+                    metadata: None,
+                }],
+            })
+            .await
+            .unwrap();
+        let before = f.store.state().clone();
+        assert!(
+            retention::apply(&mut f.store, &f.access, &preview, Timestamp::new(203))
+                .await
+                .is_err()
+        );
+        assert_eq!(f.store.state(), &before);
+        let fresh = retention::preview(
+            &f.store,
+            &f.access,
+            selector,
+            Action::Exclude,
+            Timestamp::new(204),
+        )
+        .unwrap();
+        assert!(!preview.selected.contains(&Target::Event(newer.clone())));
+        assert!(fresh.selected.contains(&Target::Event(newer)));
     }
 }
