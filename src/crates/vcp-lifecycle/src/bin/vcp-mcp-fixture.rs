@@ -12,6 +12,8 @@ const VERSION: &str = "2025-11-25";
 const MAX_FRAME: usize = 256 * 1024;
 #[path = "fixtures/mcp_content.rs"]
 mod content;
+#[path = "fixtures/mcp_numeric.rs"]
+mod numeric;
 
 fn output(value: &Value) -> io::Result<()> {
     let bytes = serde_json::to_vec(value)?;
@@ -90,6 +92,25 @@ fn barrier(directory: &Path, stage: &str) -> io::Result<()> {
 }
 fn call(directory: &Path, scenario: &str, request: &Value) -> io::Result<()> {
     let id = &request["id"];
+    if let Some(mode) = numeric::Mode::parse(scenario) {
+        numeric::assert_received(&request["params"]["arguments"]);
+        record(
+            directory,
+            "numeric-effects.jsonl",
+            &json!({"request_id":id,"effect":"numeric"}),
+        )?;
+        if mode == numeric::Mode::LostResponse {
+            std::process::exit(0);
+        }
+        let mut result = numeric::result();
+        if mode == numeric::Mode::NumericSecret {
+            result["structuredContent"]["secret"] = serde_json::from_str("0.1234567890123456700")?;
+        }
+        if mode == numeric::Mode::InvalidOutput {
+            result["structuredContent"]["amount"] = serde_json::from_str("0.31")?;
+        }
+        return response(id, result);
+    }
     let Some(arguments) = request["params"]["arguments"].as_object() else {
         return error(id, -32602, "object arguments required");
     };
@@ -184,6 +205,7 @@ fn main() -> io::Result<()> {
     if args.next().is_some()
         || !directory.is_dir()
         || (content::Mode::parse(&scenario).is_none()
+            && numeric::Mode::parse(&scenario).is_none()
             && ![
                 "normal",
                 "malformed",
@@ -219,12 +241,35 @@ fn main() -> io::Result<()> {
         if total > 8 * 1024 * 1024 {
             return Err(io::Error::other("fixture input lifetime bound"));
         }
+        if numeric::Mode::parse(&scenario).is_some() {
+            let mut raw = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(directory.join("numeric-wire.jsonl"))?;
+            raw.write_all(&bytes)?;
+            raw.write_all(b"\n")?;
+            raw.sync_all()?;
+        }
         let request: Value = serde_json::from_slice(&bytes)?;
         record(&directory, "requests.jsonl", &request)?;
         if request["jsonrpc"] != "2.0" {
             return Err(io::Error::other("fixture JSON-RPC version"));
         }
         let id = &request["id"];
+        if request.get("method").is_none() && scenario == "numeric-integer-callback" {
+            if id.to_string() != "1" || request["result"] != json!({}) {
+                return Err(io::Error::other("numeric callback reply differs"));
+            }
+            fs::write(directory.join("callback-handled"), b"handled")?;
+            call(
+                &directory,
+                &scenario,
+                &pending
+                    .take()
+                    .ok_or_else(|| io::Error::other("missing numeric pending call"))?,
+            )?;
+            continue;
+        }
         if request.get("method").is_none() && id == "fixture-callback" {
             let valid = if scenario == "ping" {
                 request["result"] == json!({})
@@ -276,7 +321,16 @@ fn main() -> io::Result<()> {
                     )?;
                     continue;
                 }
-                let mut tools = schemas(scenario == "schema-v2");
+                let mut tools = if numeric::Mode::parse(&scenario).is_some() {
+                    let mut tool = numeric::tool();
+                    if directory.join("numeric-changed").exists() {
+                        tool["inputSchema"]["$defs"]["decimal"]["minimum"] =
+                            serde_json::from_str("0.2")?;
+                    }
+                    vec![tool]
+                } else {
+                    schemas(scenario == "schema-v2")
+                };
                 if scenario == "duplicate-tools" {
                     tools.push(tools[0].clone());
                 }
@@ -304,7 +358,19 @@ fn main() -> io::Result<()> {
                 }
             }
             Some("tools/call") if initialized => {
-                if scenario == "callback" || scenario == "ping" {
+                if matches!(
+                    numeric::Mode::parse(&scenario),
+                    Some(numeric::Mode::IntegerCallback | numeric::Mode::FractionalCallback)
+                ) {
+                    pending = Some(request);
+                    let callback_id: Value =
+                        serde_json::from_str(if scenario == "numeric-integer-callback" {
+                            "1.0"
+                        } else {
+                            "1.5"
+                        })?;
+                    output(&json!({"jsonrpc":"2.0","id":callback_id,"method":"ping"}))?;
+                } else if scenario == "callback" || scenario == "ping" {
                     if pending.is_some() {
                         return Err(io::Error::other("overlapping fixture calls"));
                     }

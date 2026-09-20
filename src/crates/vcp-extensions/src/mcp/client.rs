@@ -734,6 +734,8 @@ impl Client {
         {
             return Err(Error::Protocol);
         }
+        // Profile 2 admits mathematical integer callback IDs within the same
+        // i64/u64 bounds after exact normalization. Our own IDs remain strings.
         if let Some(id) = object.get("id") {
             if !(id.is_i64()
                 || id.is_u64()

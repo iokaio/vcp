@@ -327,3 +327,43 @@ fn conventional_answers_are_discrete_closed_and_cannot_claim_native_certainty() 
         Outcome::Abstain { .. }
     ));
 }
+
+#[test]
+fn native_cost_retains_decimal_tail_before_micro_round_up() {
+    let (request, policy) = fixture();
+    let mut value = response();
+    value["usage"]["cost"] = serde_json::from_str("0.0000120000000000000001").unwrap();
+    let Outcome::Advice { usage, answers, .. } = outcome(&request, &policy, value) else {
+        panic!("native decimal response should remain advice")
+    };
+    assert_eq!(usage.observed_cost, Some(Micros::new(13)));
+    assert!(!usage.unknown_liability);
+    assert!(matches!(
+        answers["action"],
+        Answer::Choice {
+            confidence: Some(0.4),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn native_private_number_object_cannot_impersonate_confidence() {
+    let (request, policy) = fixture();
+    let raw = serde_json::to_string(&response()).unwrap().replace(
+        "\"confidence\":0.4",
+        "\"confidence\":{\"$serde_json::private::Number\":\"0.4\"}",
+    );
+    let prepared = prepare(&request, &policy, Timestamp::new(1000))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        decode(
+            &prepared,
+            raw.as_bytes(),
+            &request.binding,
+            Timestamp::new(1001)
+        ),
+        Outcome::Abstain { .. }
+    ));
+}

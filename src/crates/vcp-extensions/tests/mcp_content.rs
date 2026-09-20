@@ -520,15 +520,26 @@ fn registration_compatibility_defaults_and_http_forwarding_keep_ack_gates() {
 }
 
 #[test]
-fn integer_only_wire_profile_and_content_count_limits_remain_enforced() {
+fn exact_numeric_metadata_and_content_count_limits_remain_enforced() {
     let mut client = ready(registration(true, false), json!({"resources":{}}));
     let out = client.list_resources().unwrap();
     client.confirm_sent(&out).unwrap();
     let mut descriptor = resource(URI);
     descriptor["annotations"] = json!({"priority":0.5});
-    assert!(client
+    let Incoming::ResourceDiscoveryComplete {
+        resources,
+        rejected,
+    } = client
         .receive(&reply(&out, json!({"resources":[descriptor]})))
-        .is_err());
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(rejected.is_empty());
+    assert_eq!(resources.len(), 1);
+    assert!(resources[0]
+        .omitted_metadata
+        .contains(&"annotations".to_owned()));
     let mut client = ready(registration(true, false), json!({"resources":{}}));
     let resource = discover_resource(&mut client);
     let out = client.read_resource(&resource.identity).unwrap();

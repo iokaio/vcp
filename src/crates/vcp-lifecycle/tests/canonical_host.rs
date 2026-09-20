@@ -65,6 +65,12 @@ mod mcp_http_faults;
 #[cfg(feature = "qualification")]
 #[path = "support/mcp_http_peer.rs"]
 mod mcp_http_peer;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/mcp_numeric.rs"]
+mod mcp_numeric;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/mcp_numeric_coding.rs"]
+mod mcp_numeric_coding;
 #[path = "support/memory_ingestion.rs"]
 mod memory_ingestion;
 #[cfg(windows)]

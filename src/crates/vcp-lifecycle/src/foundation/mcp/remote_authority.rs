@@ -309,13 +309,13 @@ impl CredentialLease {
         Ok(action())
     }
     pub fn sanitize(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
-        CaptureSecret(self.material.0.as_str()).sanitize(bytes)
+        CaptureSecret::new(self.material.0.as_str())?.sanitize(bytes)
     }
     pub fn sanitize_json(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
-        CaptureSecret(self.material.0.as_str()).sanitize_json(bytes)
+        CaptureSecret::new(self.material.0.as_str())?.sanitize_json(bytes)
     }
     pub fn contains_secret(&self, bytes: &[u8]) -> Result<bool, Error> {
-        CaptureSecret(self.material.0.as_str()).contains_secret(bytes)
+        CaptureSecret::new(self.material.0.as_str())?.contains_secret(bytes)
     }
     /// Only an admitted transport may construct its ephemeral Authorization header.
     pub(crate) fn with_bearer<T>(
@@ -327,31 +327,57 @@ impl CredentialLease {
     }
 }
 /// Borrowed private header value used only while sanitizing complete captures.
-pub(crate) struct CaptureSecret<'a>(&'a str);
+pub(crate) struct CaptureSecret<'a> {
+    literal: &'a str,
+    numeric_alias: Option<Zeroizing<String>>,
+}
 impl<'a> CaptureSecret<'a> {
     pub(crate) fn new(value: &'a str) -> Result<Self, Error> {
         if value.is_empty() || value.len() > MAX_SECRET {
             return Err(Error::InvalidCredential);
         }
-        Ok(Self(value))
+        Ok(Self {
+            literal: value,
+            numeric_alias: vcp_extensions::mcp::schema::numeric_capture_alias(value)
+                .filter(|alias| alias != value)
+                .map(Zeroizing::new),
+        })
+    }
+    fn forms(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.literal).chain(self.numeric_alias.as_ref().map(|alias| alias.as_str()))
     }
     /// Exact-byte removal for headers echoed in permitted content/errors. Parse
     /// untrusted metadata before capture only in private adapter memory; reject
     /// credential-bearing identities rather than changing their schema identity.
-    /// Encoded/transformed secrets are not claimed to be detected by this filter.
+    /// Also screens the exact numeric spelling produced by MCP normalization.
+    /// Other encoded/transformed secrets are not claimed to be detected.
     pub fn sanitize(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
         if bytes.len() > MAX_CAPTURE {
             return Err(Error::CaptureLimit);
         }
-        let text = std::str::from_utf8(bytes).map_err(|_| Error::InvalidContent)?;
-        let marker = if "[credential omitted]".contains(self.0) {
+        std::str::from_utf8(bytes).map_err(|_| Error::InvalidContent)?;
+        let marker = if self
+            .forms()
+            .any(|secret| "[credential omitted]".contains(secret))
+        {
             ""
         } else {
             "[credential omitted]"
         };
+        let mut output = bytes.to_vec();
+        for secret in self.forms() {
+            output = self.replace(&output, secret, marker)?;
+        }
+        if self.contains_secret(&output)? {
+            return Err(Error::InvalidContent);
+        }
+        Ok(output)
+    }
+    fn replace(&self, bytes: &[u8], secret: &str, marker: &str) -> Result<Vec<u8>, Error> {
+        let text = std::str::from_utf8(bytes).map_err(|_| Error::InvalidContent)?;
         let mut output = Vec::with_capacity(bytes.len());
         let mut previous = 0;
-        for (index, matched) in text.match_indices(self.0) {
+        for (index, matched) in text.match_indices(secret) {
             if output
                 .len()
                 .saturating_add(index - previous)
@@ -368,9 +394,6 @@ impl<'a> CaptureSecret<'a> {
             return Err(Error::CaptureLimit);
         }
         output.extend_from_slice(&bytes[previous..]);
-        if self.contains_secret(&output)? {
-            return Err(Error::InvalidContent);
-        }
         Ok(output)
     }
     /// Normalize a complete bounded JSON frame privately before redaction, so
@@ -412,7 +435,21 @@ impl<'a> CaptureSecret<'a> {
                     }
                 }
                 scalar => {
-                    if lease.contains_secret(scalar.to_string().as_bytes())? {
+                    let spelling = scalar.to_string();
+                    // serde may itself adjust exponent spelling before this
+                    // visit. Screen the same exact MCP numeric form as well.
+                    let numeric = scalar
+                        .is_number()
+                        .then(|| {
+                            vcp_extensions::mcp::schema::numeric_capture_alias(&spelling)
+                                .map(Zeroizing::new)
+                        })
+                        .flatten();
+                    if lease.contains_secret(spelling.as_bytes())?
+                        || numeric.as_ref().is_some_and(|number| {
+                            lease.forms().any(|secret| number.contains(secret))
+                        })
+                    {
                         return Err(Error::InvalidContent);
                     }
                 }
@@ -445,7 +482,7 @@ impl<'a> CaptureSecret<'a> {
             return Err(Error::CaptureLimit);
         }
         let text = std::str::from_utf8(bytes).map_err(|_| Error::InvalidContent)?;
-        Ok(text.contains(self.0))
+        Ok(self.forms().any(|secret| text.contains(secret)))
     }
 }
 fn validate(
@@ -728,6 +765,43 @@ mod tests {
         assert_eq!(
             lease.sanitize_json(&vec![b' '; MAX_JSON_FRAME + 1]),
             Err(Error::CaptureLimit)
+        );
+    }
+    #[test]
+    fn numeric_secret_forms_survive_normalization_only_as_omissions() {
+        for (secret, alias) in [
+            ("0.3000", "3e-1"),
+            ("1.00", "1"),
+            ("-0.0", "0"),
+            ("1e2", "100"),
+            ("7.1250", "7125e-3"),
+        ] {
+            let filter = CaptureSecret::new(secret).unwrap();
+            assert!(filter.contains_secret(alias.as_bytes()).unwrap());
+            for number in [secret, alias] {
+                let raw = format!("{{\"value\":{number}}}");
+                assert!(filter.sanitize_json(raw.as_bytes()).is_err());
+                let key = serde_json::json!({number: "data"});
+                assert!(filter
+                    .sanitize_json(&serde_json::to_vec(&key).unwrap())
+                    .is_err());
+            }
+            let text = serde_json::json!({"value":format!("literal {secret}; normalized {alias}")});
+            let safe = filter
+                .sanitize_json(&serde_json::to_vec(&text).unwrap())
+                .unwrap();
+            assert!(!filter.contains_secret(&safe).unwrap());
+        }
+        // An exponent form adjusted by serde still cannot evade scalar checks.
+        assert!(CaptureSecret::new("1e2")
+            .unwrap()
+            .sanitize_json(b"1e+2")
+            .is_err());
+        let filter = CaptureSecret::new("ordinary-bearer").unwrap();
+        assert!(filter.numeric_alias.is_none());
+        assert_eq!(
+            filter.sanitize_json(b"{\"value\":3e-1}").unwrap(),
+            b"{\"value\":3e-1}"
         );
     }
     #[test]

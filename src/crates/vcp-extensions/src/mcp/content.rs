@@ -275,6 +275,7 @@ fn resource(
     if !valid_uri(&uri) {
         return Err(Error::Protocol);
     }
+    // Profile 2 sizes are exact mathematical nonnegative integers bounded by u64.
     if object.get("size").is_some_and(|v| v.as_u64().is_none()) {
         return Err(Error::Protocol);
     }

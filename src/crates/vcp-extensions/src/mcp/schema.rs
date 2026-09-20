@@ -1,14 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Restricted admission profile mcp-schema/1, not general JSON Schema compliance.
-use serde::{
-    de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor},
-    Deserializer,
-};
-use serde_json::{Map, Value};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-};
+//! Closed exact admission profile mcp-schema/2, not general JSON Schema compliance.
+use serde_json::Value;
+use std::fmt;
+
+mod compiled;
+mod exact;
+
+pub const PROFILE: &str = "mcp-schema/2";
+
+/// Additional sensitive-value alias for capture filtering after MCP numeric
+/// normalization. Accepts only a whole JSON number token within this profile's
+/// numeric bounds; strings, whitespace and compound JSON values return None.
+/// This is not authority, admission, or a general secret-matching decision. The
+/// caller must also retain the original sensitive value and protect this alias.
+pub fn numeric_capture_alias(value: &str) -> Option<String> {
+    let mut budget = exact::Budget::new(1024, exact::NUMBER_BYTES);
+    exact::Decimal::parse(value, &mut budget)
+        .ok()
+        .map(|number| number.token())
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
@@ -27,21 +37,29 @@ impl Default for Limits {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    #[error("MCP JSON exceeds configured bounds")]
+    #[error("MCP JSON or validation exceeds configured bounds")]
     Bounds,
-    #[error("MCP JSON is invalid or contains duplicate keys")]
+    #[error("MCP JSON is invalid or contains duplicate or reserved keys")]
     Json,
     #[error("MCP schema uses unsupported or invalid semantics")]
     Schema,
     #[error("MCP arguments do not conform to the admitted schema")]
     Arguments,
 }
+impl From<exact::Error> for Error {
+    fn from(error: exact::Error) -> Self {
+        match error {
+            exact::Error::Bound => Self::Bounds,
+            exact::Error::Syntax | exact::Error::Duplicate | exact::Error::Reserved => Self::Json,
+            exact::Error::InvalidDivisor | exact::Error::Schema => Self::Schema,
+            exact::Error::Arguments => Self::Arguments,
+        }
+    }
+}
 #[derive(Clone)]
 pub struct Schema {
-    root: Node,
+    compiled: compiled::Schema,
     digest: String,
-    limits: Limits,
-    canonical: Vec<u8>,
 }
 impl fmt::Debug for Schema {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -75,63 +93,28 @@ impl CheckedArguments {
         &self.schema_digest
     }
 }
-#[derive(Clone)]
-struct Node {
-    kind: Kind,
-    choices: Option<Vec<Value>>,
-    constant: Option<Value>,
-}
-#[derive(Clone)]
-enum Kind {
-    Object {
-        properties: BTreeMap<String, Node>,
-        required: BTreeSet<String>,
-        additional: bool,
-    },
-    Array {
-        items: Box<Node>,
-        min: u64,
-        max: u64,
-    },
-    String {
-        min: u64,
-        max: u64,
-    },
-    Integer,
-    Number,
-    Boolean,
-    Null,
-}
 impl Schema {
     pub fn compile(bytes: &[u8], limits: Limits) -> Result<Self, Error> {
-        let value = bounded_json(bytes, limits)?;
-        let root = compile(&value)?;
-        if !matches!(root.kind, Kind::Object { .. }) {
-            return Err(Error::Schema);
-        }
-        let canonical = vcp_protocol::canonical_bytes(&value).map_err(|_| Error::Schema)?;
+        let compiled = compiled::Schema::compile(bytes, exact_limits(limits, false)?)?;
+        // Bind interpretation as well as data. Protocol canonical v1 is unchanged;
+        // this domain separation prevents reuse of an integer-profile schema ID.
+        let mut identity = Vec::with_capacity(PROFILE.len() + 1 + compiled.canonical_bytes().len());
+        identity.extend_from_slice(PROFILE.as_bytes());
+        identity.push(0);
+        identity.extend_from_slice(compiled.canonical_bytes());
         Ok(Self {
-            root,
-            digest: vcp_protocol::digest_bytes(&canonical),
-            limits,
-            canonical,
+            compiled,
+            digest: vcp_protocol::digest_bytes(&identity),
         })
     }
     pub fn digest(&self) -> &str {
         &self.digest
     }
     pub fn canonical_bytes(&self) -> &[u8] {
-        &self.canonical
+        self.compiled.canonical_bytes()
     }
     pub fn arguments(&self, bytes: &[u8]) -> Result<CheckedArguments, Error> {
-        let value = bounded_json(bytes, self.limits)?;
-        if !self.root.accepts(&value) {
-            return Err(Error::Arguments);
-        }
-        let canonical = vcp_protocol::canonical_bytes(&value).map_err(|_| Error::Arguments)?;
-        if canonical.len() > self.limits.bytes {
-            return Err(Error::Bounds);
-        }
+        let canonical = self.compiled.arguments(bytes)?;
         Ok(CheckedArguments {
             digest: vcp_protocol::digest_bytes(&canonical),
             canonical,
@@ -139,334 +122,108 @@ impl Schema {
         })
     }
 }
-fn compile(value: &Value) -> Result<Node, Error> {
-    let object = value.as_object().ok_or(Error::Schema)?;
-    let ty = object
-        .get("type")
-        .and_then(Value::as_str)
-        .ok_or(Error::Schema)?;
-    let specific: &[&str] = match ty {
-        "object" => &["properties", "required", "additionalProperties"],
-        "array" => &["items", "minItems", "maxItems"],
-        "string" => &["minLength", "maxLength"],
-        "integer" | "number" | "boolean" | "null" => &[],
-        _ => return Err(Error::Schema),
-    };
-    for (key, value) in object {
-        if key == "$schema" {
-            if value.as_str() != Some("https://json-schema.org/draft/2020-12/schema") {
-                return Err(Error::Schema);
-            }
-        } else if matches!(key.as_str(), "title" | "description") {
-            if !value.is_string() {
-                return Err(Error::Schema);
-            }
-        } else if !matches!(key.as_str(), "type" | "enum" | "const")
-            && !specific.contains(&key.as_str())
-        {
-            return Err(Error::Schema);
-        }
-    }
-    let choices = object
-        .get("enum")
-        .map(|value| {
-            let values = value.as_array().ok_or(Error::Schema)?;
-            if values.is_empty() || values.len() > 128 || values.iter().any(|v| !scalar_literal(v))
-            {
-                return Err(Error::Schema);
-            }
-            for (i, value) in values.iter().enumerate() {
-                if values[..i].contains(value) {
-                    return Err(Error::Schema);
-                }
-            }
-            Ok(values.clone())
-        })
-        .transpose()?;
-    let constant = object
-        .get("const")
-        .map(|value| {
-            if scalar_literal(value) {
-                Ok(value.clone())
-            } else {
-                Err(Error::Schema)
-            }
-        })
-        .transpose()?;
-    let kind = match ty {
-        "object" => {
-            let mut properties = BTreeMap::new();
-            if let Some(values) = object.get("properties") {
-                for (key, value) in values.as_object().ok_or(Error::Schema)? {
-                    properties.insert(key.clone(), compile(value)?);
-                }
-            }
-            let mut required = BTreeSet::new();
-            if let Some(values) = object.get("required") {
-                for value in values.as_array().ok_or(Error::Schema)? {
-                    let name = value.as_str().ok_or(Error::Schema)?;
-                    if !required.insert(name.to_owned()) {
-                        return Err(Error::Schema);
-                    }
-                }
-            }
-            let additional = object
-                .get("additionalProperties")
-                .map(|v| v.as_bool().ok_or(Error::Schema))
-                .transpose()?
-                .unwrap_or(true);
-            Kind::Object {
-                properties,
-                required,
-                additional,
-            }
-        }
-        "array" => {
-            let (min, max) = bounds(object, "minItems", "maxItems")?;
-            Kind::Array {
-                items: Box::new(compile(object.get("items").ok_or(Error::Schema)?)?),
-                min,
-                max,
-            }
-        }
-        "string" => {
-            let (min, max) = bounds(object, "minLength", "maxLength")?;
-            Kind::String { min, max }
-        }
-        "integer" => Kind::Integer,
-        "number" => Kind::Number,
-        "boolean" => Kind::Boolean,
-        "null" => Kind::Null,
-        _ => return Err(Error::Schema),
-    };
-    Ok(Node {
-        kind,
-        choices,
-        constant,
-    })
-}
-fn scalar_literal(v: &Value) -> bool {
-    matches!(v, Value::Null | Value::Bool(_) | Value::String(_))
-}
-fn bounds(object: &Map<String, Value>, min: &str, max: &str) -> Result<(u64, u64), Error> {
-    let min = object
-        .get(min)
-        .map(|v| v.as_u64().ok_or(Error::Schema))
-        .transpose()?
-        .unwrap_or(0);
-    let max = object
-        .get(max)
-        .map(|v| v.as_u64().ok_or(Error::Schema))
-        .transpose()?
-        .unwrap_or(u64::MAX);
-    if min > max {
-        Err(Error::Schema)
-    } else {
-        Ok((min, max))
-    }
-}
-impl Node {
-    fn accepts(&self, value: &Value) -> bool {
-        if self
-            .choices
-            .as_ref()
-            .is_some_and(|choices| !choices.contains(value))
-            || self
-                .constant
-                .as_ref()
-                .is_some_and(|constant| constant != value)
-        {
-            return false;
-        }
-        match &self.kind {
-            Kind::Object {
-                properties,
-                required,
-                additional,
-            } => value.as_object().is_some_and(|values| {
-                required.iter().all(|name| values.contains_key(name))
-                    && values.iter().all(|(name, value)| {
-                        properties
-                            .get(name)
-                            .map_or(*additional, |node| node.accepts(value))
-                    })
-            }),
-            Kind::Array { items, min, max } => value.as_array().is_some_and(|values| {
-                let len = values.len() as u64;
-                len >= *min && len <= *max && values.iter().all(|value| items.accepts(value))
-            }),
-            Kind::String { min, max } => value.as_str().is_some_and(|value| {
-                let len = value.chars().count() as u64;
-                len >= *min && len <= *max
-            }),
-            Kind::Integer => value.is_i64() || value.is_u64(),
-            Kind::Number => value.is_number(),
-            Kind::Boolean => value.is_boolean(),
-            Kind::Null => value.is_null(),
-        }
-    }
-}
-// Reject duplicate keys before Value can silently select the last occurrence.
-struct Budget {
-    remaining: usize,
-    exceeded: bool,
-}
-struct Json<'a> {
-    budget: &'a mut Budget,
-    depth: usize,
-    limits: Limits,
-}
-impl<'de> DeserializeSeed<'de> for Json<'_> {
-    type Value = Value;
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Value, D::Error> {
-        if self.depth > self.limits.depth || self.budget.remaining == 0 {
-            self.budget.exceeded = true;
-            return Err(de::Error::custom("JSON admission bound"));
-        }
-        self.budget.remaining -= 1;
-        deserializer.deserialize_any(self)
-    }
-}
-impl<'de> Visitor<'de> for Json<'_> {
-    type Value = Value;
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("bounded unique-key JSON")
-    }
-    fn visit_bool<E: de::Error>(self, v: bool) -> Result<Value, E> {
-        Ok(Value::Bool(v))
-    }
-    fn visit_i64<E: de::Error>(self, v: i64) -> Result<Value, E> {
-        Ok(v.into())
-    }
-    fn visit_u64<E: de::Error>(self, v: u64) -> Result<Value, E> {
-        Ok(v.into())
-    }
-    // Do not round decimal/exponent or out-of-range integer text into
-    // canonical dispatch bytes. The profile admits exact i64/u64 only.
-    fn visit_f64<E: de::Error>(self, _v: f64) -> Result<Value, E> {
-        Err(E::custom("numeric representation outside profile"))
-    }
-    fn visit_str<E: de::Error>(self, v: &str) -> Result<Value, E> {
-        Ok(Value::String(v.to_owned()))
-    }
-    fn visit_string<E: de::Error>(self, v: String) -> Result<Value, E> {
-        Ok(Value::String(v))
-    }
-    fn visit_unit<E: de::Error>(self) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
-    fn visit_seq<A: SeqAccess<'de>>(self, mut input: A) -> Result<Value, A::Error> {
-        let mut values = Vec::new();
-        while let Some(value) = input.next_element_seed(Json {
-            budget: &mut *self.budget,
-            depth: self.depth + 1,
-            limits: self.limits,
-        })? {
-            values.push(value);
-        }
-        Ok(Value::Array(values))
-    }
-    fn visit_map<A: MapAccess<'de>>(self, mut input: A) -> Result<Value, A::Error> {
-        let mut values = Map::new();
-        while let Some(key) = input.next_key::<String>()? {
-            // Feature unification may enable serde_json's arbitrary_precision:
-            // non-i64/u64 number tokens then arrive as synthetic maps instead of
-            // visit_f64. Reject those maps and literal reserved-key lookalikes
-            // before a later Value parse can reinterpret an object as a number
-            // or raw JSON. The current profile remains integer-only in any graph.
-            if matches!(
-                key.as_str(),
-                "$serde_json::private::Number" | "$serde_json::private::RawValue"
-            ) {
-                return Err(de::Error::custom("reserved JSON representation"));
-            }
-            if values.contains_key(&key) {
-                return Err(de::Error::custom("duplicate key"));
-            }
-            let value = input.next_value_seed(Json {
-                budget: &mut *self.budget,
-                depth: self.depth + 1,
-                limits: self.limits,
-            })?;
-            values.insert(key, value);
-        }
-        Ok(Value::Object(values))
-    }
-}
-pub(crate) fn bounded_json(bytes: &[u8], limits: Limits) -> Result<Value, Error> {
+fn exact_limits(limits: Limits, wire: bool) -> Result<exact::Limits, Error> {
     if limits.bytes == 0
         || limits.bytes > 1024 * 1024
         || limits.depth == 0
         || limits.depth > 32
         || limits.nodes == 0
         || limits.nodes > 65536
-        || bytes.len() > limits.bytes
     {
         return Err(Error::Bounds);
     }
-    // Bounds apply before each child value is deserialized or retained; the byte
-    // cap also bounds any one key/string allocation. Serde's recursion guard stays on.
-    let mut budget = Budget {
-        remaining: limits.nodes,
-        exceeded: false,
-    };
-    let mut parser = serde_json::Deserializer::from_slice(bytes);
-    let value = Json {
-        budget: &mut budget,
-        depth: 0,
-        limits,
-    }
-    .deserialize(&mut parser)
-    .map_err(|_| {
-        if budget.exceeded {
-            Error::Bounds
-        } else {
-            Error::Json
-        }
-    })?;
-    parser.end().map_err(|_| Error::Json)?;
+    Ok(exact::Limits {
+        bytes: limits.bytes,
+        depth: limits.depth,
+        nodes: limits.nodes,
+        numeric_digits: if wire { 65536 } else { 16 * 1024 },
+        work: if wire { 10_000_000 } else { 1_000_000 },
+    })
+}
+/// Parse an untrusted complete frame into exact Values before any generic Value
+/// decoder can reinterpret private serde keys. Numeric metadata remains data.
+pub(crate) fn bounded_json(bytes: &[u8], limits: Limits) -> Result<Value, Error> {
+    let (value, _, _) = exact::parse(bytes, exact_limits(limits, true)?)?.into_parts();
     Ok(value)
 }
 
 #[cfg(test)]
-mod parser_tests {
+mod tests {
     use super::*;
     #[test]
-    fn budgets_stop_before_deserializing_excess_values() {
-        // Malformed excess payload proves the child parser was never entered:
-        // otherwise these would return Json instead of Bounds.
+    fn numeric_capture_alias_is_exact_bounded_and_whole_token_only() {
+        for (input, expected) in [
+            ("0.3000", "3e-1"),
+            ("-0", "0"),
+            ("-0.000e+128", "0"),
+            ("1.0", "1"),
+            ("1e128", "1e+128"),
+            ("1e-128", "1e-128"),
+            ("9007199254740993.123", "9007199254740993123e-3"),
+        ] {
+            assert_eq!(numeric_capture_alias(input).as_deref(), Some(expected));
+        }
+        for input in [
+            "",
+            " 0.3",
+            "0.3 ",
+            "\"0.3000\"",
+            "{\"n\":0.3}",
+            "[0.3]",
+            "true",
+            "null",
+            "01",
+            "+1",
+            "1.",
+            "1e",
+            "1e129",
+            "1e-129",
+            "NaN",
+            "Infinity",
+            "0.3 0.4",
+        ] {
+            assert!(numeric_capture_alias(input).is_none());
+        }
+        assert!(numeric_capture_alias(&"9".repeat(129)).is_none());
+        assert!(numeric_capture_alias(&format!("0.{}", "0".repeat(255))).is_none());
+    }
+    #[test]
+    fn schema_profile_is_domain_separated_from_original_integer_schema_hash() {
+        let schema = Schema::compile(br#"{"type":"object"}"#, Limits::default()).unwrap();
+        assert_ne!(
+            schema.digest(),
+            vcp_protocol::digest_bytes(schema.canonical_bytes())
+        );
+        let mut framed = PROFILE.as_bytes().to_vec();
+        framed.push(0);
+        framed.extend_from_slice(schema.canonical_bytes());
+        assert_eq!(schema.digest(), vcp_protocol::digest_bytes(&framed));
+    }
+    #[test]
+    fn schema_api_retains_bounds_and_exact_checked_identity() {
         assert_eq!(
-            bounded_json(
-                br#"[0,{malformed"#,
+            Schema::compile(
+                br#"{"type":"object"}"#,
                 Limits {
-                    nodes: 2,
+                    depth: 0,
                     ..Limits::default()
                 }
-            ),
-            Err(Error::Bounds)
+            )
+            .unwrap_err(),
+            Error::Bounds
+        );
+        let schema = Schema::compile(br#"{"type":"object"}"#, Limits::default()).unwrap();
+        let args = schema
+            .arguments(br#"{"n":0.10000000000000000000001}"#)
+            .unwrap();
+        assert_eq!(args.schema_digest(), schema.digest());
+        assert_eq!(
+            args.canonical_bytes(),
+            br#"{"n":10000000000000000000001e-23}"#
         );
         assert_eq!(
-            bounded_json(
-                br#"[[{malformed"#,
-                Limits {
-                    depth: 1,
-                    ..Limits::default()
-                }
-            ),
-            Err(Error::Bounds)
-        );
-        assert!(bounded_json(
-            br#"[0]"#,
-            Limits {
-                nodes: 2,
-                depth: 1,
-                ..Limits::default()
-            }
-        )
-        .is_ok());
-        assert_eq!(
-            bounded_json(br#"{}{}"#, Limits::default()),
-            Err(Error::Json)
+            args.digest(),
+            vcp_protocol::digest_bytes(args.canonical_bytes())
         );
     }
 }

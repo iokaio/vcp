@@ -374,14 +374,18 @@ fn explicit_schema_dialect_is_checked_and_numeric_rounding_never_changes_argumen
         schema::Limits::default(),
     )
     .unwrap();
-    for bytes in [
-        br#"{"n":1.0}"#.as_slice(),
-        br#"{"n":1e0}"#,
-        br#"{"n":1e-400}"#,
-        br#"{"n":18446744073709551616}"#,
+    for (bytes, expected) in [
+        (br#"{"n":1.0}"#.as_slice(), br#"{"n":1}"#.as_slice()),
+        (br#"{"n":1e0}"#, br#"{"n":1}"#),
+        (br#"{"n":0.1}"#, br#"{"n":1e-1}"#),
+        (
+            br#"{"n":18446744073709551616}"#,
+            br#"{"n":18446744073709551616}"#,
+        ),
     ] {
-        assert!(exact.arguments(bytes).is_err());
+        assert_eq!(exact.arguments(bytes).unwrap().canonical_bytes(), expected);
     }
+    assert!(exact.arguments(br#"{"n":1e-400}"#).is_err());
     let args = exact.arguments(br#"{"n":18446744073709551615}"#).unwrap();
     assert_eq!(args.canonical_bytes(), br#"{"n":18446744073709551615}"#);
     assert!(Schema::compile(
@@ -389,4 +393,74 @@ fn explicit_schema_dialect_is_checked_and_numeric_rounding_never_changes_argumen
         schema::Limits::default()
     )
     .is_err());
+}
+
+#[test]
+fn exact_numeric_schema_arguments_and_structured_reply_survive_value_bridges() {
+    let mut client = ready();
+    let mut descriptor = tool("echo");
+    let exact_schema: Value = serde_json::from_str(r#"{"type":"object","properties":{"n":{"type":"number","minimum":0.1}},"required":["n"],"additionalProperties":false}"#).unwrap();
+    descriptor["inputSchema"] = exact_schema.clone();
+    descriptor["outputSchema"] = exact_schema;
+    let out = client.list_tools().unwrap();
+    client.confirm_sent(&out).unwrap();
+    let Incoming::DiscoveryComplete { tools, rejected } = client
+        .receive(&reply(&out, json!({"tools":[descriptor]})))
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(rejected.is_empty());
+    let selected = &tools[0];
+    let checked = selected
+        .check_arguments(br#"{"n":9007199254740993.123}"#)
+        .unwrap();
+    assert_eq!(
+        checked.canonical_bytes(),
+        br#"{"n":9007199254740993123e-3}"#
+    );
+    let out = client.call(&selected.identity, &checked).unwrap();
+    let wire: Value = serde_json::from_slice(out.bytes()).unwrap();
+    assert_eq!(
+        wire["params"]["arguments"]["n"].to_string(),
+        "9007199254740993123e-3"
+    );
+    client.confirm_sent(&out).unwrap();
+    let structured: Value = serde_json::from_str(r#"{"n":9007199254740993.123}"#).unwrap();
+    let Incoming::CallReply(CallReply::ToolResult(result)) = client
+        .receive(&reply(
+            &out,
+            json!({"content":[],"structuredContent":structured}),
+        ))
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(
+        result.structured_content.unwrap()["n"].to_string(),
+        "9007199254740993123e-3"
+    );
+}
+
+#[test]
+fn numeric_callback_ids_use_bounded_mathematical_integers_and_own_ids_stay_strings() {
+    let mut client = ready();
+    let Incoming::ControlReply(out) = client
+        .receive(br#"{"jsonrpc":"2.0","id":1.0,"method":"ping"}"#)
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(
+        serde_json::from_slice::<Value>(out.bytes()).unwrap()["id"].to_string(),
+        "1"
+    );
+    for invalid in [
+        br#"{"jsonrpc":"2.0","id":1.5,"method":"ping"}"#.as_slice(),
+        br#"{"jsonrpc":"2.0","id":18446744073709551616,"method":"ping"}"#,
+    ] {
+        assert!(ready().receive(invalid).is_err());
+    }
+    let mut client = ready();
+    assert!(client.list_tools().unwrap().request_id().is_some());
 }

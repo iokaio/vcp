@@ -454,6 +454,7 @@ impl Harness {
             ContentMode::UpdatedDuringRead => "content-updated-during-read",
             ContentMode::ListChangedDuringRead => "content-list-changed-during-read",
             ContentMode::ExitAfterRead => "content-exit-after-read",
+            ContentMode::NumericOpaque => "content-numeric-opaque",
         };
         let f = Fixture::new(backend, if remote { "normal" } else { scenario }).await;
         let secret = matches!(
