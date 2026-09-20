@@ -61,6 +61,9 @@ contract and search targets passed nine tests. Four host query tests passed,
 including actual MiniLM inference on both stores, eight source/dispatch fence
 cases, paused inspection and missing assets. Inspector cancellation and checked
 publication recovery each passed their focused test.
+The complete canonical-host regression also passed 33 tests in 714 seconds,
+with four opt-in model tests excluded. The new query model gate was run explicitly
+above; publication/vector gates retain their P5-04/05 qualification evidence.
 
 The final query inference runs retained four resource samples each, including
 samples while model allocations were resident. Files/SQLite process CPU deltas
@@ -71,6 +74,7 @@ samples do not establish instantaneous allocation peaks or isolated model cost.
 cargo +stable test --locked --offline -j4 -p vcp-domain -p vcp-protocol -p vcp-store -p vcp-context -p vcp-memory --tests
 cargo +stable test --locked --offline -j4 -p vcp-cli --test contracts --test memory_search
 cargo +stable test --locked --offline -j4 -p vcp-lifecycle --test canonical_host memory_query:: -- --include-ignored --test-threads=1
+cargo +stable test --locked --offline -j4 -p vcp-lifecycle --test canonical_host -- --test-threads=1
 cargo +stable test --locked --offline -j4 -p vcp-lifecycle --lib memory_inspection::
 cargo +stable test --locked --offline -j4 -p vcp-memory --test publication recovery_cancellation
 ```
