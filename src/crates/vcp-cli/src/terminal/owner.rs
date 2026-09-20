@@ -179,7 +179,9 @@ pub async fn run(
     let mut page_text = String::new();
     let mut pending: Option<tokio::task::JoinHandle<Result<(), String>>> = None;
     let mut mcp_pending: Option<crate::mcp::Running> = None;
+    let mut shadow = crate::decision::Driver::default();
     let mut active = true;
+    let result = async {
     submit(host, session, scope).await?;
     let mut tick = tokio::time::interval(Duration::from_millis(200));
     let deadline = tokio::time::sleep(Duration::from_secs(u64::from(seconds)));
@@ -202,7 +204,7 @@ pub async fn run(
                     Input::Cancel => {stop(host,scope,TaskState::Cancelled)?; return Ok("Task cancelled.".into());}
                     Input::Exit => {stop(host,scope,TaskState::Paused)?; return Ok("exit".into());}
                     Input::Resume => {
-                        if pending.is_some() || mcp_pending.is_some() || active {return Err("wait for the current turn, steering and MCP control to drain before /resume".into());}
+                        if pending.is_some() || mcp_pending.is_some() || shadow.active() || active {return Err("wait for the current turn, steering, shadow evaluation and MCP control to drain before /resume".into());}
                         if expired {return Err("execution deadline reached; reopen explicitly to renew the execution window".into());}
                         resume(host,session,scope).await?; active=true; "Resumed after revalidation.".into()
                     }
@@ -287,6 +289,7 @@ pub async fn run(
                     commentary=format!("Agent task={} turn={}: {}",scope.task,event.id,super::sanitize(&message.message,2048));
                 }
                 if matches!(event.msg,EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_)) {
+                    shadow.cancel().await;
                     active=false;
                     let outcome=Outcome::read(host,scope)?;
                     if outcome.task.state==TaskState::Running && !outcome.conditions.required_input && !outcome.conditions.budget_exhausted {
@@ -298,6 +301,11 @@ pub async fn run(
                 }
             }
             _ = tick.tick() => {
+                if active && current(host,scope)?.state == TaskState::Running {
+                    if let Some(message) = shadow.poll(host,session.id).await { notice=message.into(); }
+                } else {
+                    shadow.cancel().await;
+                }
                 if mcp_pending.as_ref().is_some_and(|p|p.is_finished()) {
                     let mut command=mcp_pending.take().ok_or("MCP observer missing")?;
                     notice=match command.result().await {
@@ -347,4 +355,7 @@ pub async fn run(
             return Ok(());
         }
     }
+    }.await;
+    shadow.cancel().await;
+    result
 }

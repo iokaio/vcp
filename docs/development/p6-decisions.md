@@ -1,4 +1,4 @@
-# P6 bounded decision codecs
+# P6 bounded decision codecs and routing shadow
 
 `vcp-models::decision` is a pure codec boundary for optional advice. It does not
 send requests, select credentials, create reservations, retry, grant authority or
@@ -58,8 +58,9 @@ question abstention.
 Usage retains optional token counts and observed cost rounded upward with the
 existing USD codec. Missing or invalid cost remains unknown liability, even when
 token counts exist. Stale or invalid answers retain separately decoded usage;
-unparseable/oversized responses remain wholly uncertain. The host keeps original
-raw evidence for reconciliation. No decoder result releases a reservation.
+unparseable/oversized responses remain wholly uncertain. Host capture must protect
+credentials; filtered response evidence must not be presented as unchanged wire
+bytes. No decoder result releases a reservation.
 
 ## Primary protocol evidence, observed September 20, 2026
 
@@ -103,6 +104,77 @@ abstention. It carries the same provider restrictions. Its mode/identity/purpose
 must be separately qualified; it cannot inherit native probability capability
 or Jev evidence. Endpoint/schema support, refusals, data-control enforcement and
 accounting remain host qualification obligations.
+
+## Canonical routing shadow
+
+`CanonicalHost::evaluate_pending_routing_shadow(thread)` observes an actual
+admitted coding attempt. The caller cannot supply a replacement request, route,
+quote, evidence list or destination. The worker retains the admitted baseline and
+its verified context, then rechecks the original captures, source versions,
+authority and destination permissions before reserving a separate helper attempt.
+The evaluator must appear in the current routing policy's finite model/provider
+allowsets and preserve its data controls. This increment also conservatively
+requires autonomous Network/Opaque permission, observes matching host/policy
+denials and respects policy time/output ceilings. Missing permission produces a
+local baseline outcome, never an implicit grant.
+
+The evaluator is closed model work, following ADR-020 and the decision design's
+gateway admission contract. It cannot execute tools. MCP's `Invocation::Remote`
+is a remote-tool contract whose opaque-effect approval cannot be used as a model
+admission substitute. No tool grant is created or weakened for evaluation; any
+downstream tool operation still requires its own ordinary effect admission.
+Advice never changes the coding selection. The helper reservation follows the
+main reservation and uses the same root ledger and protected verification balance.
+
+The closed transport uses the native Decisions or conventional Chat endpoint.
+It has no redirect, implicit retry, fallback, connection pool or tool execution.
+Each request has a deadline of at most 120 seconds and bounded request/response
+bytes. Owner, task and credential fences govern physical socket I/O. Credentials
+are memory-only, independently scoped and filtered from captured responses.
+Known charges are recorded even when advice is stale or invalid. Submitted
+requests without a trustworthy observed charge conservatively retain unknown
+liability, including failures where no complete HTTP body was written; reopening
+does not replay them.
+
+The CLI's optional trusted user-profile field is reference-only:
+
+```json
+"decisions": {
+  "evaluator": {
+    "mode": "shadow",
+    "qualification": {"artifact": "<installed-artifact-id>", "digest": "<sha256>"}
+  },
+  "credential_environment": "VCP_DECISION_API_KEY"
+}
+```
+
+Omission defaults to disabled. `disabled` and `deterministic` perform no evaluator
+requests. `advisory` is rejected. A qualification reference names an existing
+owner-installed record with scoped catalog and conformance evidence; a catalog
+entry or caller-provided hash does not establish qualification. Credentials are
+read only from the explicitly named variable during setup, never from profile
+tokens, model output or environment enumeration. No production qualification or
+paid trial is installed automatically. The owner installation API is separate
+from this startup reference; fixture installations cannot enable production I/O.
+`ConformanceEvidence::from_record` supplies the typed evidence format only;
+constructing that document is not a conformance measurement.
+The trusted `install_decision_qualification` host API explicitly installs evidence
+and credentials **and enables shadow mode**; it is not a read-only evidence import.
+
+Terminal and headless event loops drive one caller-owned shadow task while
+remaining responsive to control commands. Completion, interruption and shutdown
+cancel and join it before closing authority. A coding turn can finish before its
+shadow comparison; that comparison then supplies no advice, and any uncertain
+charge remains visible in canonical history. Library callers must explicitly
+drive the asynchronous observer to obtain a comparison.
+
+Production native Decisions remains unavailable with
+`native_charge_bound_unqualified`: the retained public protocol evidence does
+not establish a finite bound for every billable category. Conventional Chat also
+requires independently installed operation/control/price qualification. Synthetic
+TLS fixtures prove host mechanics, not service conformance, calibration, utility
+or authorization for paid evaluation. P6-04 live qualification and additional
+advisory consumers remain separate acceptance gates.
 
 `tests/decision.rs` contains public synthetic fixtures covering disabled/rules
 behavior, native wire controls, invalid batches, probability/score consistency,

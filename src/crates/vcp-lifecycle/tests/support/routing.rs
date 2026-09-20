@@ -23,7 +23,7 @@ fn clock() -> Timestamp {
     )
 }
 
-fn routing_configuration(profile: Profile, forbidden: bool) -> Configuration {
+pub(super) fn routing_configuration(profile: Profile, forbidden: bool) -> Configuration {
     let observed = clock();
     let valid_until = Timestamp::new(observed.get() + 600_000);
     let provenance = vec![Provenance {

@@ -154,7 +154,7 @@ impl Exchange {
         thread: ThreadId,
         generation: u64,
         out: Outbound,
-        credential: Option<CredentialLease>,
+        credential: Option<CredentialFence>,
     ) -> Result<Self, Failure> {
         Self::start_control(
             runtime,
@@ -171,7 +171,7 @@ impl Exchange {
         thread: ThreadId,
         generation: u64,
         out: Outbound,
-        credential: Option<CredentialLease>,
+        credential: Option<CredentialFence>,
         control: Arc<SocketControl>,
     ) -> Result<Self, Failure> {
         // All supported MCP POST payloads are nonempty JSON. Empty bodies need

@@ -264,6 +264,14 @@ pub struct VerifiedContext {
     sealed: Sealed,
 }
 impl VerifiedContext {
+    /// Recheck the same captured bytes and selected ranges without duplicating
+    /// or reconstructing a context proof shared by concurrent host observers.
+    pub fn reverify_captures(
+        &self,
+        resolve: impl FnMut(&Scope, &ArtifactId, u64) -> Result<(ArtifactDescriptor, Vec<u8>)>,
+    ) -> Result<()> {
+        self.sealed.check_captures(resolve)
+    }
     pub fn sealed(&self) -> &Sealed {
         &self.sealed
     }
@@ -290,8 +298,15 @@ impl Sealed {
     /// length bound. Aggregate source verification is limited to 64 MiB.
     pub fn verify_captures(
         self,
-        mut resolve: impl FnMut(&Scope, &ArtifactId, u64) -> Result<(ArtifactDescriptor, Vec<u8>)>,
+        resolve: impl FnMut(&Scope, &ArtifactId, u64) -> Result<(ArtifactDescriptor, Vec<u8>)>,
     ) -> Result<VerifiedContext> {
+        self.check_captures(resolve)?;
+        Ok(VerifiedContext { sealed: self })
+    }
+    fn check_captures(
+        &self,
+        mut resolve: impl FnMut(&Scope, &ArtifactId, u64) -> Result<(ArtifactDescriptor, Vec<u8>)>,
+    ) -> Result<()> {
         if vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&self.manifest)?)
             != self.digest
             || vcp_protocol::digest_bytes(&self.body) != self.manifest.request_sha256
@@ -346,7 +361,7 @@ impl Sealed {
                 }
             }
         }
-        Ok(VerifiedContext { sealed: self })
+        Ok(())
     }
     /// The controller orders this check with canonical authority/admission.
     /// It cannot retract a request whose prior send admission already committed.

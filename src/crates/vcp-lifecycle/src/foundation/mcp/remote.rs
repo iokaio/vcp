@@ -827,7 +827,7 @@ impl CanonicalHost {
             ticket.thread,
             ticket.generation,
             request,
-            ticket.credential.clone(),
+            ticket.credential.clone().map(Into::into),
         )
         .await
         .map_err(|_| "remote HTTP connection failed")?;

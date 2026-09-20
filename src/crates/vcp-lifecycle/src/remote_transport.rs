@@ -1,7 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Private one-shot HTTP/1 transport prerequisite. No MCP service, retries,
 //! redirects, DNS, ambient proxies, cookies, or credential acquisition.
-use crate::{foundation::mcp::remote_authority::CredentialLease, Lifecycle};
+use crate::Lifecycle;
+
+#[derive(Clone)]
+pub(crate) enum CredentialFence {
+    Mcp(crate::foundation::mcp::remote_authority::CredentialLease),
+    Decision(crate::foundation::decision::credentials::CredentialLease),
+}
+impl CredentialFence {
+    fn with_current<T>(
+        &self,
+        now: vcp_domain::revision::Timestamp,
+        action: impl FnOnce() -> T,
+    ) -> Result<T, ()> {
+        match self {
+            Self::Mcp(lease) => lease.with_current(now, action).map_err(|_| ()),
+            Self::Decision(lease) => lease.with_current(now, action).map_err(|_| ()),
+        }
+    }
+}
+impl From<crate::foundation::mcp::remote_authority::CredentialLease> for CredentialFence {
+    fn from(lease: crate::foundation::mcp::remote_authority::CredentialLease) -> Self {
+        Self::Mcp(lease)
+    }
+}
+impl From<crate::foundation::decision::credentials::CredentialLease> for CredentialFence {
+    fn from(lease: crate::foundation::decision::credentials::CredentialLease) -> Self {
+        Self::Decision(lease)
+    }
+}
 use bytes::Bytes;
 use codex_protocol::ThreadId;
 use http::{header, HeaderMap, Method, Request, StatusCode};
@@ -163,7 +191,7 @@ struct FencedSocket {
     runtime: Lifecycle,
     thread: ThreadId,
     generation: u64,
-    credential: Option<CredentialLease>,
+    credential: Option<CredentialFence>,
     limit: u64,
     deadline: Instant,
 }
@@ -387,7 +415,7 @@ pub(crate) async fn exchange(
     thread: ThreadId,
     generation: u64,
     out: Outbound,
-    credential: Option<CredentialLease>,
+    credential: Option<CredentialFence>,
 ) -> Result<Response, Failure> {
     exchange_control(
         runtime,
@@ -404,7 +432,7 @@ async fn exchange_control(
     thread: ThreadId,
     generation: u64,
     out: Outbound,
-    credential: Option<CredentialLease>,
+    credential: Option<CredentialFence>,
     control: Arc<SocketControl>,
 ) -> Result<Response, Failure> {
     let mut exchange =

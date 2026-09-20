@@ -17,6 +17,8 @@ use scheduler::{EffectLease, Scheduler};
 #[cfg(windows)]
 pub mod coding;
 #[cfg(windows)]
+pub mod decision;
+#[cfg(windows)]
 mod execution;
 #[cfg(windows)]
 pub mod mcp;

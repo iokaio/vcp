@@ -696,6 +696,32 @@ async fn exact_context_views_resolve_to_captured_bytes_on_both_backends_after_re
             })
             .unwrap();
         assert_eq!(verified.sealed().body(), expected);
+        let shared = std::sync::Arc::new(verified);
+        for mutation in 0..3 {
+            let result = shared.reverify_captures(|_, id, _| {
+                let mut descriptor = descriptors[id].clone();
+                let mut bytes = Vec::new();
+                reopened.spool().read(&descriptor, &mut bytes).unwrap();
+                match mutation {
+                    1 => {
+                        if let Some(first) = bytes.first_mut() {
+                            *first ^= 1;
+                        } else {
+                            bytes.push(0);
+                        }
+                    }
+                    2 => descriptor.length = descriptor.length.next().unwrap(),
+                    _ => (),
+                }
+                Ok((descriptor, bytes))
+            });
+            assert_eq!(result.is_ok(), mutation == 0);
+        }
+        assert!(shared
+            .reverify_captures(|_, _, _| Err(vcp_context::manifest::Error::Stale))
+            .is_err());
+        // A failed recheck does not mutate or replace the shared original proof.
+        assert_eq!(shared.sealed().body(), expected);
         // Forging a partial view can retain a valid full-source hash; the source
         // resolver must still reject the differing view before transport.
         parts[0].start = ByteCount::new(1);

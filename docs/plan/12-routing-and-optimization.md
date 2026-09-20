@@ -8,6 +8,10 @@ Use `vcp-models/catalog` for gateway metadata. The logical `vcp-routing` registr
 
 P6-02 also owns the logical `vcp-decision` contract, deterministic evaluator and
 optional thin Rust OpenRouter adapter; P6-03/P6-05 consume its bounded advice.
+The [canonical routing shadow increment](../evaluations/p6-decision-shadow.md)
+connects actual admitted routes to separately budgeted native/comparator
+observations. It preserves the baseline and leaves live qualification, advisory
+consumers and qualified fallback transitions incomplete.
 Qualify three implementations: deterministic rules as the baseline, actual Jev
 through OpenRouter as the preferred specialized candidate, and a conventional
 OpenRouter LLM as a comparator and explicitly permitted fallback. Map proposed

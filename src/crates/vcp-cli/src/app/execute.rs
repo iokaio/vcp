@@ -380,6 +380,7 @@ pub(super) async fn execute(
     }));
     // From here onward, errors must finish this durable task, never append an
     // unrelated configuration result after acceptance.
+    let mut shadow = crate::decision::Driver::default();
     let execution=async{
         output.emit(&correlation,Some(&scope),Payload::Accepted{receipt:&accepted}).await?;
         if let Ok(notice) = host.history_retention(vcp_lifecycle::foundation::history_retention::Request::Notice) {
@@ -394,6 +395,7 @@ pub(super) async fn execute(
         crate::mcp::configure_http(&host, &config.workspace, &prepared.profile.mcp_http, prepared.profile.deadline_seconds)?;
         host.configure_provider(prepared.profile.provider.clone(),prepared.raw_catalog)?;
         if let Some(routing) = prepared.profile.routing.clone() { host.configure_routing(routing)?; }
+        if let Some(decisions) = &prepared.profile.decisions { decisions.install(&host)?; }
         host.configure_skills(crate::skills::prepare(&prepared.profile,&config)?)?;
         active_session=Some(crate::session::Session::start(&host,retained,ThreadBinding{scope:scope.clone(),agent:AgentId::new(),role:RequestRole::Main}).await?);
         let session=active_session.as_ref().ok_or("retained session unavailable")?;
@@ -417,6 +419,7 @@ pub(super) async fn execute(
             event=session.thread.next_event()=>{
                 let event=event.map_err(|e|e.to_string())?;
                 if matches!(event.msg,codex_protocol::protocol::EventMsg::TurnComplete(_)){
+                    shadow.cancel().await;
                     let outcome=crate::outcome::Outcome::read(&host,&scope)?;
                     if outcome.task.state==TaskState::Running&&!outcome.conditions.required_input&&!outcome.conditions.budget_exhausted { if let Err(error)=host.complete_coding_turn(session.id){
                         eprintln!("vcp: completion evidence rejected: {error}");
@@ -425,10 +428,11 @@ pub(super) async fn execute(
                     }}break;
                 }
             }
-            _=tick.tick()=>{let outcome=crate::outcome::Outcome::read(&host,&scope)?;if outcome.task.state!=TaskState::Running||outcome.conditions.required_input{break;}after=output.drain_events(&host,&correlation,after).await?;}
+            _=tick.tick()=>{let outcome=crate::outcome::Outcome::read(&host,&scope)?;if outcome.task.state!=TaskState::Running||outcome.conditions.required_input{break;}if let Some(notice)=shadow.poll(&host,session.id).await{eprintln!("vcp: {notice}");}after=output.drain_events(&host,&correlation,after).await?;}
             _=&mut deadline=>{stop(&host,&config,TaskState::Paused)?;break;}
         }}Ok(())
     }.await;
+    shadow.cancel().await;
     if execution.is_err() {
         eprintln!("vcp: execution stopped; inspect the durable task for recovery");
     }

@@ -23,7 +23,7 @@ struct Ready {
     escalation: Option<super::escalation::Pending>,
     snapshot: Snapshot,
     routing: Option<vcp_models::routing::RoutingDecision>,
-    context: VerifiedContext,
+    context: Arc<VerifiedContext>,
     schemas: serde_json::Value,
     roots: Vec<Root>,
     #[cfg(windows)]
@@ -39,6 +39,27 @@ pub(super) struct Prepared {
 }
 
 impl Context {
+    #[cfg(windows)]
+    pub(super) fn decision_source(
+        &self,
+        binding: &ThreadBinding,
+    ) -> Result<super::decision::Source> {
+        let ready = self
+            .provider
+            .as_ref()
+            .and_then(|provider| provider.active.get(&binding.scope.task))
+            .ok_or("actual admitted context missing")?;
+        self.reverify_context(&ready.context)?;
+        Ok(super::decision::Source {
+            context: ready.context.clone(),
+            roots: ready.roots.clone(),
+            memory: ready.memory.clone(),
+            baseline: ready
+                .routing
+                .clone()
+                .ok_or("deterministic routing decision missing")?,
+        })
+    }
     pub fn configure_provider(
         &mut self,
         snapshot: Snapshot,
@@ -142,29 +163,39 @@ impl Context {
         })
     }
     pub(in crate::foundation) fn verify_context(&self, sealed: Sealed) -> Result<VerifiedContext> {
-        let verified = sealed.verify_captures(|scope, id, limit| {
-            let read = || -> Result<(ArtifactDescriptor, Vec<u8>)> {
-                let descriptor: ArtifactDescriptor = self
-                    .engine
-                    .store()
-                    .state()
-                    .record(Collection::Artifact, id.as_str(), &scope.workspace)?
-                    .decode()?;
-                if descriptor.length.get() != limit || &descriptor.spec.scope != scope {
-                    return Err("captured source scope/size differs".into());
-                }
-                let mut bytes = Vec::new();
-                vcp_audit::history::History::read_artifact(
-                    self.engine.store(),
-                    &self.history_access(),
-                    id,
-                    &mut bytes,
-                )?;
-                Ok((descriptor, bytes))
-            };
-            read().map_err(|_| vcp_context::manifest::Error::Stale)
-        })?;
-        Ok(verified)
+        Ok(sealed
+            .verify_captures(|scope, id, limit| self.resolve_context_capture(scope, id, limit))?)
+    }
+    pub(in crate::foundation) fn reverify_context(&self, context: &VerifiedContext) -> Result<()> {
+        Ok(context
+            .reverify_captures(|scope, id, limit| self.resolve_context_capture(scope, id, limit))?)
+    }
+    fn resolve_context_capture(
+        &self,
+        scope: &Scope,
+        id: &ArtifactId,
+        limit: u64,
+    ) -> vcp_context::manifest::Result<(ArtifactDescriptor, Vec<u8>)> {
+        let read = || -> Result<(ArtifactDescriptor, Vec<u8>)> {
+            let descriptor: ArtifactDescriptor = self
+                .engine
+                .store()
+                .state()
+                .record(Collection::Artifact, id.as_str(), &scope.workspace)?
+                .decode()?;
+            if descriptor.length.get() != limit || &descriptor.spec.scope != scope {
+                return Err("captured source scope/size differs".into());
+            }
+            let mut bytes = Vec::new();
+            vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                id,
+                &mut bytes,
+            )?;
+            Ok((descriptor, bytes))
+        };
+        read().map_err(|_| vcp_context::manifest::Error::Stale)
     }
     fn validate_ready(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
         #[cfg(windows)]
@@ -376,7 +407,7 @@ impl Context {
                 .routing
                 .as_mut()
                 .and_then(|runtime| runtime.prepared.remove(&binding.scope.task)),
-            context: self.verify_context(sealed)?,
+            context: Arc::new(self.verify_context(sealed)?),
             schemas,
             roots,
             #[cfg(windows)]
@@ -451,7 +482,10 @@ impl Context {
             escalation: ready.escalation,
             snapshot: ready.snapshot,
             routing: ready.routing,
-            context: self.verify_context(ready.context.into_sealed())?,
+            context: {
+                self.reverify_context(&ready.context)?;
+                ready.context
+            },
             schemas: ready.schemas,
             roots: ready.roots,
             #[cfg(windows)]
