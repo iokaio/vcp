@@ -17,6 +17,7 @@ pub mod publication;
 pub mod repository;
 pub mod retention;
 pub mod retention_policy;
+pub mod retrieval;
 pub mod runner;
 pub mod search_record;
 pub mod tokenizer;

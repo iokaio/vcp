@@ -322,7 +322,10 @@ impl Context {
         )?;
         Ok(bytes)
     }
-    fn verification_observe(&self, binding: &ThreadBinding) -> Result<(Root, Observation)> {
+    pub(super) fn verification_observe(
+        &self,
+        binding: &ThreadBinding,
+    ) -> Result<(Root, Observation)> {
         // Match every native coding read ceiling before opening the root.
         self.tool_identity(binding, "vcp_exec")?;
         let root_id = RootId::parse(binding.scope.workspace.as_str())?;

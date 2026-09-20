@@ -1,6 +1,6 @@
 # 09 — Tantivy, local embeddings, DiskANN and retrieval generations
 
-Status: P5-03 through P5-05 complete; P5-06 planned. Owns P5-03 through P5-06. Requires P5-02 and local-runtime qualification; P5-06 additionally needs P3-03 inspectors. Architecture section 13 supplies the retrieval contract.
+Status: P5-03 through P5-06 complete. Owns P5-03 through P5-06. Requires P5-02 and local-runtime qualification; P5-06 additionally needs P3-03 inspectors. Architecture section 13 supplies the retrieval contract.
 
 ## Design references and prerequisite records
 
@@ -157,6 +157,13 @@ watermarks and an unsatisfied freshness reason. Overlay overflow cannot become
 unbounded synchronous scanning or a false up-to-date semantic result.
 
 ## P5-06 — Hybrid query and inspection
+
+Implemented and qualified in [retrieval and inspection evidence](../development/p5-retrieval.md):
+canonical passage reconstruction, scoped native collection, deterministic fusion,
+local query admission, return/dispatch fences and read-only CLI inspection.
+The unchanged native truth set passed on both backends; the report distinguishes
+network-denied embedding from trusted canonical publication/query and records
+historical rebuild requirements, resource/timing limits and failed attempts.
 
 1. Resolve current workspace/scope and requested historical view, capture a compatible generation, then produce lexical/vector candidates from the same declared visibility contract.
 2. Recheck current canonical authorization, source applicability and deletion status. Filter revoked or purged content even while indexes lag.

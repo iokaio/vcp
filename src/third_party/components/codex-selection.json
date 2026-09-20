@@ -143,6 +143,10 @@
     {
       "path": "src/third_party/patches/codex/0028-p5-vectors-workspace.patch",
       "sha256": "85cc29c995ada89ddb98dd856d49a7fa310b3298d8cf0ac05bf7ed5a0b423930"
+    },
+    {
+      "path": "src/third_party/patches/codex/0029-p5-hybrid-workspace.patch",
+      "sha256": "b6fd7042dca7e26460e06aaaa96e5991fd9322fe7acd870a851763906cb4e418"
     }
   ],
   "licenses": [

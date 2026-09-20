@@ -22,6 +22,8 @@ struct Ready {
     context: VerifiedContext,
     schemas: serde_json::Value,
     roots: Vec<Root>,
+    #[cfg(windows)]
+    memory: Option<crate::foundation::memory_query::SendFence>,
 }
 pub(super) struct Prepared {
     pub body: serde_json::Value,
@@ -174,6 +176,10 @@ impl Context {
     fn validate_ready_context(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
         #[cfg(windows)]
         self.instruction_parents(binding)?;
+        #[cfg(windows)]
+        if let Some(memory) = &ready.memory {
+            self.validate_memory_context(binding, memory, ready.context.sealed())?;
+        }
         let provider = self
             .provider
             .as_ref()
@@ -220,6 +226,52 @@ impl Context {
         schemas: serde_json::Value,
         roots: Vec<Root>,
     ) -> Result<()> {
+        self.prepare_context_checked(
+            binding,
+            sealed,
+            schemas,
+            roots,
+            #[cfg(windows)]
+            None,
+        )
+    }
+    #[cfg(windows)]
+    pub fn prepare_context_with_memory(
+        &mut self,
+        binding: &ThreadBinding,
+        sealed: Sealed,
+        schemas: serde_json::Value,
+        roots: Vec<Root>,
+        memory: Option<crate::foundation::memory_query::SendFence>,
+    ) -> Result<()> {
+        self.prepare_context_checked(binding, sealed, schemas, roots, memory)
+    }
+    fn prepare_context_checked(
+        &mut self,
+        binding: &ThreadBinding,
+        sealed: Sealed,
+        schemas: serde_json::Value,
+        roots: Vec<Root>,
+        #[cfg(windows)] memory: Option<crate::foundation::memory_query::SendFence>,
+    ) -> Result<()> {
+        #[cfg(windows)]
+        for part in &sealed.manifest.included {
+            let descriptor: ArtifactDescriptor = self
+                .engine
+                .store()
+                .state()
+                .record(
+                    Collection::Artifact,
+                    part.artifact.as_str(),
+                    &binding.scope.workspace,
+                )?
+                .decode()?;
+            if descriptor.spec.schema == "memory-context/1"
+                && memory.as_ref().is_none_or(|f| &f.part != part)
+            {
+                return Err("memory context requires its opaque source capability".into());
+            }
+        }
         if roots.len() > 33 {
             return Err("too many registered source roots".into());
         }
@@ -252,6 +304,8 @@ impl Context {
             context: self.verify_context(sealed)?,
             schemas,
             roots,
+            #[cfg(windows)]
+            memory,
         };
         self.validate_ready(binding, &ready)?;
         let provider = self
@@ -308,6 +362,8 @@ impl Context {
             context: self.verify_context(ready.context.into_sealed())?,
             schemas: ready.schemas,
             roots: ready.roots,
+            #[cfg(windows)]
+            memory: ready.memory,
         };
         if retained["model"].as_str() != Some(&ready.context.sealed().manifest.envelope.model) {
             return Err("retained request model differs from seal".into());
@@ -329,6 +385,19 @@ impl Context {
             .active
             .insert(binding.scope.task.clone(), ready);
         Ok(Prepared { body, stream })
+    }
+    #[cfg(windows)]
+    pub(super) fn validate_memory_send(&self, binding: &ThreadBinding) -> Result<()> {
+        if let Some(ready) = self
+            .provider
+            .as_ref()
+            .and_then(|p| p.active.get(&binding.scope.task))
+        {
+            if let Some(memory) = &ready.memory {
+                self.validate_memory_context(binding, memory, ready.context.sealed())?;
+            }
+        }
+        Ok(())
     }
     pub fn schedule_retry(
         &mut self,

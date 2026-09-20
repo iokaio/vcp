@@ -198,7 +198,7 @@ async fn admitted_host_publication_adopts_real_vectors_and_atomically_covers_int
         owner.close().await.unwrap();
     }
 }
-async fn vector_fixture(
+pub(super) async fn vector_fixture(
     backend: BackendKind,
 ) -> (
     tempfile::TempDir,
@@ -310,7 +310,7 @@ async fn vector_fixture_objective(
     (temp, config, host, owner, test, thread)
 }
 
-fn retained_source(
+pub(super) fn retained_source(
     host: &CanonicalHost,
     config: &Config,
     thread: codex_protocol::ThreadId,

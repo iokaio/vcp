@@ -276,7 +276,7 @@ fn path_valid(path: &str) -> bool {
         && !path.contains(['\\', ':', '\0'])
         && !path.split('/').any(|part| matches!(part, "" | "." | ".."))
 }
-fn source_current(
+pub(crate) fn source_current(
     store: &Store,
     workspace: &Workspace,
     source: &SourceBinding,
@@ -362,9 +362,11 @@ fn chunk(
     text: &str,
     spec: &ChunkerSpec,
     chunker: &str,
+    check: &dyn Fn() -> Result<()>,
 ) -> Result<Vec<SearchRecord>> {
     let mut records = Vec::new();
     for span in spans(text, spec)? {
+        check()?;
         record.span = span;
         record.text = text[record.span.start.get() as usize..record.span.end.get() as usize].into();
         record.id = record.calculate_id(chunker)?;
@@ -404,6 +406,19 @@ pub fn inventory(
     spec: &ChunkerSpec,
     limits: Limits,
 ) -> Result<Inventory> {
+    inventory_with_check(store, access, sources, spec, limits, &|| Ok(()))
+}
+/// Cooperative bounded scan; callback failures abort the whole inventory rather
+/// than producing a successful digest or a partial source-authorization fence.
+pub fn inventory_with_check(
+    store: &Store,
+    access: &Access,
+    sources: &[SourceBinding],
+    spec: &ChunkerSpec,
+    limits: Limits,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<Inventory> {
+    check()?;
     limits.validate()?;
     spec.validate()?;
     if sources.len() > limits.records {
@@ -426,6 +441,7 @@ pub fn inventory(
             && r.collection == Collection::Claim
             && r.value["document_type"] == vcp_domain::redaction::VERSION
     }) {
+        check()?;
         let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
         if crate::access::redacted_scope(store.state(), access, &version.scope, &version.sources)
             .is_err()
@@ -442,12 +458,29 @@ pub fn inventory(
             "purged",
         );
     }
-    let versions = crate::repository::versions(store.state(), &workspace.id)?;
-    if versions.len() > 16384 {
-        return Err(Error::Invalid("claim inventory scan limit".into()));
+    let mut versions: Vec<vcp_domain::memory::Version> = Vec::new();
+    let mut grouped: BTreeMap<ClaimId, Vec<vcp_domain::memory::Version>> = BTreeMap::new();
+    for row in store.state().records.values() {
+        check()?;
+        if row.workspace != workspace.id
+            || row.collection != Collection::Claim
+            || row.value["document_type"] != "vcp_memory_version_v1"
+        {
+            continue;
+        }
+        if versions.len() == 16384 {
+            return Err(Error::Invalid("claim inventory scan limit".into()));
+        }
+        let version: vcp_domain::memory::Version = row.decode()?;
+        grouped
+            .entry(version.proposal.claim.clone())
+            .or_default()
+            .push(version.clone());
+        versions.push(version);
     }
     let mut histories = BTreeMap::new();
     for version in versions {
+        check()?;
         let source = TextSource::Claim {
             version: version.id.clone(),
             claim: version.proposal.claim.clone(),
@@ -458,7 +491,18 @@ pub fn inventory(
         }
         let claim = version.proposal.claim.clone();
         if !histories.contains_key(&claim) {
-            match crate::history::query(store, access, &claim, None, None) {
+            let claim_versions = grouped
+                .remove(&claim)
+                .ok_or(Error::Conflict("claim inventory grouping"))?;
+            match crate::history::from_versions_with_check(
+                store,
+                access,
+                &claim,
+                None,
+                None,
+                claim_versions,
+                check,
+            ) {
                 Ok(history) => {
                     histories.insert(claim.clone(), Some(history));
                 }
@@ -507,6 +551,7 @@ pub fn inventory(
             version.proposal.applicability.roots.clone()
         };
         for root in roots {
+            check()?;
             let record = SearchRecord {
                 id: String::new(),
                 scope: version.scope.clone(),
@@ -528,11 +573,12 @@ pub fn inventory(
                 watermark: version.canonical_watermark,
                 text: String::new(),
             };
-            let records = chunk(record, text, spec, &output.chunker_digest)?;
+            let records = chunk(record, text, spec, &output.chunker_digest, check)?;
             append(&mut output, records, limits, &mut total);
         }
     }
     for binding in sources {
+        check()?;
         let source = TextSource::Artifact {
             id: binding.artifact.clone(),
         };
@@ -542,11 +588,13 @@ pub fn inventory(
             else {
                 return Ok(None);
             };
+            check()?;
             let Some((manifest, manifest_bytes)) =
                 read(store, access, &binding.manifest, limits.source_bytes)?
             else {
                 return Ok(None);
             };
+            check()?;
             if !source_current(
                 store,
                 &workspace,
@@ -638,12 +686,14 @@ pub fn inventory(
             watermark: store.state().watermark,
             text: String::new(),
         };
-        let records = chunk(record, text, spec, &output.chunker_digest)?;
+        let records = chunk(record, text, spec, &output.chunker_digest, check)?;
         append(&mut output, records, limits, &mut total);
     }
     output.records.sort_by(|a, b| a.id.cmp(&b.id));
     output.records.dedup_by(|a, b| a.id == b.id);
+    check()?;
     output.digest = output.calculate_digest()?;
+    check()?;
     Ok(output)
 }
 

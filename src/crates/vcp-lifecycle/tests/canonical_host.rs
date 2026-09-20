@@ -41,6 +41,9 @@ mod memory_ingestion;
 #[path = "support/memory_publication.rs"]
 mod memory_publication;
 #[cfg(windows)]
+#[path = "support/memory_query.rs"]
+mod memory_query;
+#[cfg(windows)]
 #[path = "support/memory_vectors.rs"]
 mod memory_vectors;
 #[cfg(windows)]

@@ -31,6 +31,7 @@ vcp-lifecycle = { path = "../vcp-lifecycle" }
 vcp-engine = { path = "../vcp-engine" }
 vcp-store = { path = "../vcp-store" }
 vcp-models = { path = "../vcp-models" }
+vcp-memory = { path = "../vcp-memory" }
 vcp-tools = { path = "../vcp-tools" }
 vcp-repository = { path = "../vcp-repository" }
 codex-core = { workspace = true }

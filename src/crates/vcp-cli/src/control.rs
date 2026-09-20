@@ -175,6 +175,9 @@ async fn handle(
             workspace: requested,
             query,
         } if requested == *workspace => match query {
+            crate::app::Query::MemorySearch { request } => {
+                serde_json::to_value(host.inspect_memory(request).await?).map_err(|e| e.to_string())
+            }
             crate::app::Query::Inspect { request } => {
                 serde_json::to_value(host.inspect(request)?).map_err(|e| e.to_string())
             }

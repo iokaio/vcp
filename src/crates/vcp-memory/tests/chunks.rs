@@ -648,3 +648,82 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
             .all(|entry| entry.source.is_none() && entry.reason == "denied"));
     }
 }
+
+#[tokio::test]
+async fn cooperative_inventory_cancellation_never_returns_a_partial_digest() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let directory = tempfile::tempdir().unwrap();
+        let (engine, binding) =
+            fixture(directory.path(), backend, b"fn budgeted_source() {}\n").await;
+        let calls = std::cell::Cell::new(0usize);
+        let check = || {
+            calls.set(calls.get() + 1);
+            if calls.get() >= 8 {
+                Err(vcp_memory::Error::Conflict("fixture scan interrupted"))
+            } else {
+                Ok(())
+            }
+        };
+        let before = engine.store().state().watermark;
+        let result = inventory_with_check(
+            engine.store(),
+            &access(),
+            &[binding.clone()],
+            &ChunkerSpec::default(),
+            Limits::default(),
+            &check,
+        );
+        assert!(matches!(
+            result,
+            Err(vcp_memory::Error::Conflict("fixture scan interrupted"))
+        ));
+        assert_eq!(calls.get(), 8, "stop at the first failed checkpoint");
+        assert_eq!(engine.store().state().watermark, before);
+        let complete = inventory(
+            engine.store(),
+            &access(),
+            &[binding],
+            &ChunkerSpec::default(),
+            Limits::default(),
+        )
+        .unwrap();
+        assert!(!complete.records.is_empty());
+        assert_eq!(complete.digest, complete.calculate_digest().unwrap());
+        engine.into_store().close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn canonical_native_source_discovery_preserves_scope_and_cancellation() {
+    use vcp_memory::retrieval::{source_bindings, source_bindings_with_check};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let directory = tempfile::tempdir().unwrap();
+        let (engine, binding) =
+            fixture(directory.path(), backend, b"fn retained_source() {}\n").await;
+        let discovered = source_bindings(engine.store(), &access()).unwrap();
+        assert!(discovered.complete, "{:?}", discovered.degraded);
+        assert_eq!(discovered.bindings, vec![binding]);
+        let mut denied = access();
+        denied.tasks = Some(BTreeSet::new());
+        let hidden = source_bindings(engine.store(), &denied).unwrap();
+        assert!(hidden.complete && hidden.bindings.is_empty());
+        assert!(!serde_json::to_string(&hidden)
+            .unwrap()
+            .contains("src/server.rs"));
+        let calls = std::cell::Cell::new(0usize);
+        let check = || {
+            calls.set(calls.get() + 1);
+            if calls.get() >= 5 {
+                Err(vcp_memory::Error::Conflict("discovery interrupted"))
+            } else {
+                Ok(())
+            }
+        };
+        assert!(matches!(
+            source_bindings_with_check(engine.store(), &access(), &check),
+            Err(vcp_memory::Error::Conflict("discovery interrupted"))
+        ));
+        assert_eq!(calls.get(), 5);
+        engine.into_store().close().await.unwrap();
+    }
+}
