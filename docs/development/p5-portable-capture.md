@@ -47,6 +47,35 @@ The task remains paused, no provider attempt exists, and an already cancelled
 checkpoint does not advance the canonical watermark. The test uses explicit
 local trust and authorization; the untrusted fixture was correctly rejected.
 
-This evidence covers capture and admission. Encryption, interrupted publication,
+## Explicit workspace materialization
+
+An authenticated imported checkpoint can populate an explicitly selected new
+workspace. Existing destinations, including empty directories, are refused unless
+their native directory identity matches this operation's recorded publication.
+Matching bytes alone cannot establish ownership. Source paths, Windows collisions,
+file/directory collisions and bounded source sizes are checked before preparation.
+Git status/index/diff artifacts remain evidence; this operation does not fabricate
+a Git object database or install restored hooks and executable configuration.
+
+Preparation uses a fresh generated sibling directory. The local import journal
+records its allocation before creation and its native identity before writing
+source bytes. A native directory-handle rename publishes the complete tree with
+replacement disabled. Retries preserve interrupted staging trees and report them
+as cleanup obligations. Four preparation attempts are allowed per operation before
+explicit reconciliation is required. No recursive deletion or overwrite is used.
+The returned opaque proof holds directory/file pins and binds the imported state,
+source manifest and actual destination identity. Final revalidation checks exact
+contents, including unexpected new files or empty directories. Canonical selection
+and rebind remain separate, revision-checked operations; materialization grants no
+execution authority.
+
+Six native materialization tests passed, including six actual process kills at
+allocation, creation, recorded identity, source write, prepublication and
+postpublication. They verify retry, output pinning, changed-source refusal,
+existing-target preservation and rejection of newly added instructions/directories.
+The narrower repository directory-publication tests passed three native cases,
+including substituted paths and empty/nonempty/file destination collisions.
+
+This evidence covers capture, admission and workspace materialization. Encryption, interrupted publication,
 restore activation and the actual two-Windows OneDrive handoff have separate
 acceptance gates; this test does not substitute for them.
