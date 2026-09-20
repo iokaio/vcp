@@ -113,7 +113,7 @@ impl Context {
                 .get(&proof.server)
                 .ok_or("MCP registration unavailable")?;
             if self.resolve_mcp_registration(registration)?.digest()?
-                != proof.identity.connection().registration_digest()
+                != proof.registration_digest.as_str()
             {
                 return Err("MCP registration changed before resume".into());
             }
@@ -250,6 +250,8 @@ impl Context {
             },
             auth_refs: BTreeSet::new(),
             allowed_tools: registration.allowed_tools.clone(),
+            allowed_resources: registration.allowed_resources.clone(),
+            allowed_prompts: registration.allowed_prompts.clone(),
             trusted_effects: BTreeMap::new(),
             limits: registration.limits.clone(),
             capabilities: Default::default(),
@@ -397,12 +399,11 @@ impl Context {
             ]),
         )
     }
-    pub fn prepare_mcp_authority(
+    pub(in crate::foundation) fn prepare_mcp_authority(
         &self,
         binding: &ThreadBinding,
         process: &vcp_tools::process::Prepared,
-        identity: &vcp_mcp::identity::ToolIdentity,
-        arguments: &vcp_mcp::schema::CheckedArguments,
+        operation_kind: &crate::foundation::mcp::content::PreparedOperation,
         provenance: &Provenance,
     ) -> Result<vcp_policy::Prepared> {
         self.validate_mcp_provenance(binding, provenance)?;
@@ -416,12 +417,13 @@ impl Context {
         operation.steering = current.steering;
         operation.policy = current.policy;
         operation.tool = "vcp_mcp".into();
-        operation.schema = identity.schema_digest().into();
+        operation.schema =
+            vcp_protocol::digest_bytes(&canonical_bytes(&operation_kind.evidence())?);
         // The unisolated daemon retains the startup process's conservative
         // effect set and write-capable resources. Server readOnlyHint cannot
         // narrow this authority classification.
         operation.arguments = String::from_utf8(canonical_bytes(&serde_json::json!({
-            "identity":identity,"arguments":serde_json::from_slice::<serde_json::Value>(arguments.canonical_bytes())?,
+            "identity":operation_kind.evidence(),"arguments":operation_kind.arguments().map(|args|serde_json::from_slice::<serde_json::Value>(args.canonical_bytes())).transpose()?,
             "provenance":provenance.evidence()?,
         }))?)?;
         Ok(vcp_policy::Prepared::new(operation)?)
@@ -542,5 +544,58 @@ impl Context {
             output_bytes: ByteCount::new(registration.limits.total_discovery_bytes),
         };
         Ok(vcp_policy::Prepared::new(operation)?)
+    }
+}
+
+impl Context {
+    pub(in crate::foundation) fn read_mcp_cache(
+        &self,
+        binding: &ThreadBinding,
+        artifact: &ArtifactId,
+    ) -> Result<crate::foundation::mcp::ControlOutcome> {
+        self.can_start(binding)?;
+        self.tool_read_access(&RootId::parse(self.config.workspace.as_str())?, "vcp_mcp")?;
+        let descriptor: ArtifactDescriptor = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Artifact,
+                artifact.as_str(),
+                &binding.scope.workspace,
+            )?
+            .decode()?;
+        if descriptor.spec.scope != binding.scope {
+            return Err("MCP cached resource scope rejected".into());
+        }
+        const CACHE_BYTES: usize = 16 * 1024 * 1024;
+        if descriptor.length.get() > CACHE_BYTES as u64 {
+            return Err("MCP cached resource byte ceiling".into());
+        }
+        struct BoundedBytes(Vec<u8>);
+        impl std::io::Write for BoundedBytes {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if bytes.len() > CACHE_BYTES.saturating_sub(self.0.len()) {
+                    return Err(std::io::Error::other("MCP cached resource byte ceiling"));
+                }
+                self.0.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut bytes = BoundedBytes(Vec::new());
+        vcp_audit::history::History::read_artifact(
+            self.engine.store(),
+            &self.history_access(),
+            artifact,
+            &mut bytes,
+        )?;
+        let receipt: serde_json::Value = serde_json::from_slice(&bytes.0)?;
+        Ok(crate::foundation::mcp::ControlOutcome {
+            value: serde_json::json!({"artifact":artifact,"prior_observation":true,"external_content":true,"grants_authority":false,"receipt":receipt,"result":receipt["result"]}),
+            artifacts: vec![artifact.clone()],
+        })
     }
 }

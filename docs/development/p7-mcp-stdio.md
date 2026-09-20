@@ -3,7 +3,8 @@
 This document describes the implemented stdio slice of P7-03. It does not record
 qualification results or claim complete MCP support. See
 [ADR-026](../adr/026-governed-mcp-stdio.md) and the
-[duplex prerequisite](p7-mcp-duplex.md).
+[duplex prerequisite](p7-mcp-duplex.md). Resource and prompt configuration,
+controls and cache rules are in the [content extension](p7-mcp-content.md).
 
 ## Registration and use
 

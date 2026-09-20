@@ -1,5 +1,7 @@
 # Development design and implementation guides
 
+- [MCP resources and prompts](p7-mcp-content.md): exact discovered selections, external content and current-authority scoped cache over stdio and HTTPS.
+
 - [Completed P2 integration](p2-completion.md): controller retries, resource scheduling, canonical recovery, native console close and attributed handoff; supersedes earlier P2 increment status notes.
 
 - [Context continuity](p2-context-continuity.md): bounded historical previews, original-source dependencies and revision-aware reuse.

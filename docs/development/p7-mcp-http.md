@@ -2,8 +2,9 @@
 
 This increment connects the [HTTP boundary prerequisites](p7-mcp-http-boundaries.md)
 to canonical tool discovery and execution. It follows
-[ADR-027](../adr/027-owned-http-send-boundary.md). Resources and prompts remain
-separate P7-03 work. The [qualification report](../evaluations/p7-03-http.md)
+[ADR-027](../adr/027-owned-http-send-boundary.md). Resource and prompt controls
+are documented in the [content extension](p7-mcp-content.md).
+The [qualification report](../evaluations/p7-03-http.md)
 records the campaign scope and final evidence status.
 
 ## Configuration and authority

@@ -2,7 +2,11 @@
 //! Sequential data-only client. Host commits intent and current source/authority
 //! fences before each write; no method here performs IO or implicitly retries.
 use super::{
-    identity::{ConnectionIdentity, ToolIdentity, PROTOCOL},
+    content::{
+        self, Catalog, Descriptor, DiscoveredPrompt, DiscoveredResource, PromptResult,
+        RejectedContent, ResourceResult,
+    },
+    identity::{ConnectionIdentity, ContentIdentity, ContentKind, ToolIdentity, PROTOCOL},
     registration::{self, Registration, Transport},
     schema::{self, CheckedArguments, Schema},
 };
@@ -19,6 +23,10 @@ pub enum PendingKind {
     Initialize,
     ListTools,
     CallTool,
+    ListResources,
+    ReadResource,
+    ListPrompts,
+    GetPrompt,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -151,12 +159,27 @@ pub enum CallReply {
     ToolResult(ToolResult),
     RpcError(RpcError),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Notification {
     ToolListChanged,
+    ResourceListChanged,
+    ResourceUpdated { uri: String },
+    PromptListChanged,
     Progress,
     Logging,
+}
+impl fmt::Debug for Notification {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::ToolListChanged => "ToolListChanged",
+            Self::ResourceListChanged => "ResourceListChanged",
+            Self::ResourceUpdated { .. } => "ResourceUpdated([omitted])",
+            Self::PromptListChanged => "PromptListChanged",
+            Self::Progress => "Progress",
+            Self::Logging => "Logging",
+        })
+    }
 }
 #[derive(Debug)]
 pub enum Incoming {
@@ -172,6 +195,22 @@ pub enum Incoming {
         rejected: Vec<RejectedTool>,
     },
     CallReply(CallReply),
+    ResourceDiscoveryPage {
+        next: bool,
+    },
+    ResourceDiscoveryComplete {
+        resources: Vec<DiscoveredResource>,
+        rejected: Vec<RejectedContent>,
+    },
+    PromptDiscoveryPage {
+        next: bool,
+    },
+    PromptDiscoveryComplete {
+        prompts: Vec<DiscoveredPrompt>,
+        rejected: Vec<RejectedContent>,
+    },
+    ResourceReply(ResourceResult),
+    PromptReply(PromptResult),
     RpcError {
         request: PendingKind,
         error: RpcError,
@@ -193,6 +232,7 @@ struct Pending {
     digest: String,
     sent: bool,
     tool: Option<DiscoveredTool>,
+    content: Option<ContentIdentity>,
 }
 pub struct Client {
     registration: Registration,
@@ -213,6 +253,11 @@ pub struct Client {
     pages: u64,
     discovery_bytes: u64,
     owner: String,
+    resources: Catalog,
+    prompts: Catalog,
+    server_tools: bool,
+    server_resources: bool,
+    server_prompts: bool,
 }
 impl Client {
     pub fn new(registration: Registration) -> Result<Self, Error> {
@@ -250,6 +295,11 @@ impl Client {
             pages: 0,
             discovery_bytes: 0,
             owner: vcp_domain::ExecutionId::new().to_string(),
+            resources: Catalog::new(ContentKind::Resource),
+            prompts: Catalog::new(ContentKind::Prompt),
+            server_tools: false,
+            server_resources: false,
+            server_prompts: false,
         })
     }
     pub fn connection(&self) -> Option<&ConnectionIdentity> {
@@ -270,6 +320,91 @@ impl Client {
             .filter(|t| &t.identity == identity)
             .ok_or(Error::Stale)
     }
+    pub fn resources(&self) -> impl Iterator<Item = &DiscoveredResource> {
+        self.resources
+            .entries
+            .values()
+            .filter_map(|entry| match entry {
+                Descriptor::Resource(resource) => Some(resource),
+                _ => None,
+            })
+    }
+    pub fn prompts(&self) -> impl Iterator<Item = &DiscoveredPrompt> {
+        self.prompts
+            .entries
+            .values()
+            .filter_map(|entry| match entry {
+                Descriptor::Prompt(prompt) => Some(prompt),
+                _ => None,
+            })
+    }
+    pub fn resource(&self, identity: &ContentIdentity) -> Result<&DiscoveredResource, Error> {
+        self.resources()
+            .find(|resource| &resource.identity == identity)
+            .ok_or(Error::Stale)
+    }
+    pub fn prompt(&self, identity: &ContentIdentity) -> Result<&DiscoveredPrompt, Error> {
+        self.prompts()
+            .find(|prompt| &prompt.identity == identity)
+            .ok_or(Error::Stale)
+    }
+    pub fn list_resources(&mut self) -> Result<Outbound, Error> {
+        self.ready()?;
+        if !self.registration.resources_enabled()
+            || !self.server_resources
+            || self.listing
+            || self.prompts.listing
+        {
+            return Err(Error::State);
+        }
+        let params = self.resources.request(self.registration.limits.pages)?;
+        self.request(PendingKind::ListResources, "resources/list", params, None)
+    }
+    pub fn read_resource(&mut self, identity: &ContentIdentity) -> Result<Outbound, Error> {
+        self.ready()?;
+        if self.listing || self.resources.listing || self.prompts.listing {
+            return Err(Error::State);
+        }
+        let uri = self.resource(identity)?.uri.clone();
+        let out = self.request(
+            PendingKind::ReadResource,
+            "resources/read",
+            json!({"uri":uri}),
+            None,
+        )?;
+        self.pending.as_mut().ok_or(Error::State)?.content = Some(identity.clone());
+        Ok(out)
+    }
+    pub fn list_prompts(&mut self) -> Result<Outbound, Error> {
+        self.ready()?;
+        if !self.registration.prompts_enabled()
+            || !self.server_prompts
+            || self.listing
+            || self.resources.listing
+        {
+            return Err(Error::State);
+        }
+        let params = self.prompts.request(self.registration.limits.pages)?;
+        self.request(PendingKind::ListPrompts, "prompts/list", params, None)
+    }
+    pub fn get_prompt(
+        &mut self,
+        identity: &ContentIdentity,
+        arguments: &CheckedArguments,
+    ) -> Result<Outbound, Error> {
+        self.ready()?;
+        if self.listing || self.resources.listing || self.prompts.listing {
+            return Err(Error::State);
+        }
+        let prompt = self.prompt(identity)?;
+        if arguments.schema_digest() != prompt.schema_digest() {
+            return Err(Error::Arguments);
+        }
+        let params = json!({"name":prompt.name,"arguments":serde_json::from_slice::<Value>(arguments.canonical_bytes()).map_err(|_|Error::Arguments)?});
+        let out = self.request(PendingKind::GetPrompt, "prompts/get", params, None)?;
+        self.pending.as_mut().ok_or(Error::State)?.content = Some(identity.clone());
+        Ok(out)
+    }
     pub fn initialize(&mut self) -> Result<Outbound, Error> {
         if self.phase != Phase::New {
             return Err(Error::State);
@@ -280,6 +415,9 @@ impl Client {
     }
     pub fn list_tools(&mut self) -> Result<Outbound, Error> {
         self.ready()?;
+        if !self.server_tools || self.resources.listing || self.prompts.listing {
+            return Err(Error::State);
+        }
         if !self.listing {
             self.catalog_revision = self.catalog_revision.checked_add(1).ok_or(Error::Bounds)?;
             self.tools.clear();
@@ -307,7 +445,7 @@ impl Client {
         arguments: &CheckedArguments,
     ) -> Result<Outbound, Error> {
         self.ready()?;
-        if self.listing {
+        if self.listing || self.resources.listing || self.prompts.listing {
             return Err(Error::State);
         }
         let tool = self.tool(identity)?.clone();
@@ -338,6 +476,16 @@ impl Client {
                     || out.request_id.as_ref() != Some(&pending.id)
                 {
                     return Err(Error::State);
+                }
+                if let Some(identity) = &pending.content {
+                    match identity.kind() {
+                        ContentKind::Resource => {
+                            self.resource(identity)?;
+                        }
+                        ContentKind::Prompt => {
+                            self.prompt(identity)?;
+                        }
+                    }
                 }
             }
             OutboundKind::Initialized | OutboundKind::Control => {
@@ -383,6 +531,8 @@ impl Client {
         self.controls.clear();
         self.tools.clear();
         self.building.clear();
+        self.resources.clear();
+        self.prompts.clear();
         pending
     }
     /// Any malformed/unmatched frame poisons this connection. The host retains
@@ -424,6 +574,7 @@ impl Client {
             digest: out.digest.clone(),
             sent: false,
             tool,
+            content: None,
         });
         Ok(out)
     }
@@ -504,7 +655,20 @@ impl Client {
             if pending.kind == PendingKind::CallTool {
                 return Ok(Incoming::CallReply(CallReply::RpcError(error)));
             }
-            self.phase = Phase::Closed;
+            if matches!(
+                pending.kind,
+                PendingKind::ListResources | PendingKind::ListPrompts
+            ) {
+                match pending.kind {
+                    PendingKind::ListResources => self.resources.clear(),
+                    _ => self.prompts.clear(),
+                };
+            } else if !matches!(
+                pending.kind,
+                PendingKind::ReadResource | PendingKind::GetPrompt
+            ) {
+                self.phase = Phase::Closed;
+            }
             return Ok(Incoming::RpcError {
                 request: pending.kind,
                 error,
@@ -521,6 +685,42 @@ impl Client {
                 result,
                 pending.tool.as_ref().ok_or(Error::State)?,
             )?))),
+            PendingKind::ListResources => {
+                let page = self.resources.page(
+                    result,
+                    self.connection.as_ref().ok_or(Error::State)?,
+                    &self.registration,
+                    bytes.len(),
+                )?;
+                if page.complete {
+                    Ok(Incoming::ResourceDiscoveryComplete {
+                        resources: self.resources().cloned().collect(),
+                        rejected: page.rejected,
+                    })
+                } else {
+                    Ok(Incoming::ResourceDiscoveryPage { next: true })
+                }
+            }
+            PendingKind::ListPrompts => {
+                let page = self.prompts.page(
+                    result,
+                    self.connection.as_ref().ok_or(Error::State)?,
+                    &self.registration,
+                    bytes.len(),
+                )?;
+                if page.complete {
+                    Ok(Incoming::PromptDiscoveryComplete {
+                        prompts: self.prompts().cloned().collect(),
+                        rejected: page.rejected,
+                    })
+                } else {
+                    Ok(Incoming::PromptDiscoveryPage { next: true })
+                }
+            }
+            PendingKind::ReadResource => {
+                Ok(Incoming::ResourceReply(content::resource_result(result)?))
+            }
+            PendingKind::GetPrompt => Ok(Incoming::PromptReply(content::prompt_result(result)?)),
         }
     }
     fn inbound_method(
@@ -558,6 +758,61 @@ impl Client {
             ));
         }
         match method {
+            "notifications/resources/list_changed"
+                if self.phase == Phase::Ready
+                    && self.registration.resources_enabled()
+                    && self.server_resources =>
+            {
+                self.resources.clear();
+                if self
+                    .pending
+                    .as_ref()
+                    .is_some_and(|p| p.kind == PendingKind::ListResources)
+                {
+                    return Err(Error::Stale);
+                }
+                Ok(Incoming::Notification(Notification::ResourceListChanged))
+            }
+            "notifications/resources/updated"
+                if self.phase == Phase::Ready
+                    && self.registration.resources_enabled()
+                    && self.server_resources =>
+            {
+                let uri = content::string(
+                    object
+                        .get("params")
+                        .and_then(Value::as_object)
+                        .and_then(|params| params.get("uri")),
+                    4096,
+                )?
+                .to_owned();
+                if !content::valid_uri(&uri) {
+                    return Err(Error::Protocol);
+                }
+                self.resources.entries.remove(&uri);
+                if self.resources.listing {
+                    self.resources.clear();
+                    return Err(Error::Stale);
+                }
+                Ok(Incoming::Notification(Notification::ResourceUpdated {
+                    uri,
+                }))
+            }
+            "notifications/prompts/list_changed"
+                if self.phase == Phase::Ready
+                    && self.registration.prompts_enabled()
+                    && self.server_prompts =>
+            {
+                self.prompts.clear();
+                if self
+                    .pending
+                    .as_ref()
+                    .is_some_and(|p| p.kind == PendingKind::ListPrompts)
+                {
+                    return Err(Error::Stale);
+                }
+                Ok(Incoming::Notification(Notification::PromptListChanged))
+            }
             "notifications/tools/list_changed" if self.phase == Phase::Ready => {
                 self.tools.clear();
                 self.building.clear();
@@ -588,7 +843,28 @@ impl Client {
             .get("capabilities")
             .and_then(Value::as_object)
             .ok_or(Error::Protocol)?;
-        if !capabilities.get("tools").is_some_and(Value::is_object) {
+        for name in ["tools", "resources", "prompts"] {
+            if capabilities.get(name).is_some_and(|v| !v.is_object()) {
+                return Err(Error::Protocol);
+            }
+            if let Some(value) = capabilities.get(name).and_then(Value::as_object) {
+                if value.get("listChanged").is_some_and(|v| !v.is_boolean())
+                    || (name == "resources"
+                        && value.get("subscribe").is_some_and(|v| !v.is_boolean()))
+                {
+                    return Err(Error::Protocol);
+                }
+            }
+        }
+        self.server_tools = capabilities.contains_key("tools");
+        self.server_resources = capabilities.contains_key("resources");
+        self.server_prompts = capabilities.contains_key("prompts");
+        let requires_tools = !self.registration.allowed_tools.is_empty()
+            || (!self.registration.resources_enabled() && !self.registration.prompts_enabled());
+        if (requires_tools && !self.server_tools)
+            || (self.registration.resources_enabled() && !self.server_resources)
+            || (self.registration.prompts_enabled() && !self.server_prompts)
+        {
             return Err(Error::Protocol);
         }
         let info = result

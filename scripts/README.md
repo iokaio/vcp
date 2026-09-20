@@ -35,6 +35,7 @@ This directory owns repository automation. `test.ps1` and `test-runner.cjs` impl
 | `evals/builtin-skill-qualification.ps1` (implemented qualification) | Exercise the frozen project catalog and lazy activation contracts without model or ecosystem toolchain calls | P7-02 |
 | `evals/duplex-qualification.ps1` (implemented qualification) | Exercise bounded native duplex IO and canonical process authority/recovery with stable source and log identities; see [duplex prerequisite](../docs/development/p7-mcp-duplex.md) | P7-03 |
 | `evals/mcp-http-qualification.ps1` (implemented qualification) | Exercise remote MCP sessions, native trust, transport fences and canonical calls alongside stdio, CLI and process regressions; see [HTTP adapter](../docs/development/p7-mcp-http.md) | P7-03 |
+| `evals/mcp-content-qualification.ps1` (implemented qualification) | Exercise resources, prompts and scoped cache on both transports alongside existing MCP and process regressions; see [content contract](../docs/development/p7-mcp-content.md) | P7-03 |
 | `evals/` | Orchestrate explicitly configured evaluations and collect results | P5-08/P8-05 |
 | `upstream/` (implemented baseline tooling) | `inventory.cjs` records immutable Git bytes; `reconstruct.cjs` reconstructs/verifies selected source; `build-baseline.ps1` runs native builds/tests | P0-07/P0-08, rehearsed in P8-06 |
 

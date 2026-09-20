@@ -125,11 +125,30 @@ impl Fixture {
                 output_bytes: 1024 * 1024,
                 input: None,
             },
-            allowed_tools: BTreeSet::from([
-                "echo".into(),
-                "read_marker".into(),
-                "write_marker".into(),
-            ]),
+            allowed_resources: if scenario.starts_with("content-")
+                && scenario != "content-prompts-only"
+            {
+                BTreeSet::from([
+                    "fixture://public/document".into(),
+                    "file:///C:/vcp-untrusted.txt".into(),
+                    "https://127.0.0.1:1/untrusted".into(),
+                ])
+            } else {
+                Default::default()
+            },
+            allowed_prompts: if scenario.starts_with("content-")
+                && scenario != "content-resources-only"
+            {
+                BTreeSet::from(["review".into(), "explain".into()])
+            } else {
+                Default::default()
+            },
+            allowed_tools: if matches!(scenario, "content-resources-only" | "content-prompts-only")
+            {
+                BTreeSet::new()
+            } else {
+                BTreeSet::from(["echo".into(), "read_marker".into(), "write_marker".into()])
+            },
             limits: vcp_extensions::mcp::registration::Limits {
                 frame_bytes: 64 * 1024,
                 total_discovery_bytes: 1024 * 1024,
@@ -812,6 +831,8 @@ async fn canonical_mcp_second_server_conflict_cancels_unsent_startup_without_wai
                     output_bytes: 1024 * 1024,
                     input: None,
                 },
+                allowed_resources: Default::default(),
+                allowed_prompts: Default::default(),
                 allowed_tools: BTreeSet::from(["echo".into()]),
                 limits: vcp_extensions::mcp::registration::Limits {
                     frame_bytes: 64 * 1024,
