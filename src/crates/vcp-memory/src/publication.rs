@@ -34,6 +34,9 @@ use vcp_store::{
 };
 
 const MAX_INVENTORY_BYTES: u64 = 64 * 1024 * 1024;
+#[path = "publication_snapshot.rs"]
+mod snapshot;
+pub use snapshot::SnapshotFiles;
 fn io(error: impl std::fmt::Display) -> Error {
     Error::Invalid(error.to_string())
 }

@@ -5,6 +5,94 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use vcp_store::snapshot_inputs::{Checkpoint, GitArtifacts};
 
 impl Context {
+    pub fn accept_backup_generation(
+        &mut self,
+        cut: Cut,
+        files: vcp_memory::publication::SnapshotFiles,
+        cancelled: &AtomicBool,
+    ) -> Result<vcp_store::snapshot_inputs::GenerationInput> {
+        let current = self.backup_cut()?;
+        let manifest = files.manifest();
+        let canonical: vcp_domain::search::Generation = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Generation,
+                manifest.id.as_str(),
+                &current.workspace.id,
+            )?
+            .decode()?;
+        if current.workspace != cut.workspace
+            || current.controller != cut.controller
+            || current.epoch != cut.epoch
+            || canonical != *manifest
+            || manifest.scope != current.scope
+            || manifest.deletion != current.workspace.deletion
+            || manifest.authority != current.workspace.authority
+            || cancelled.load(Ordering::Acquire)
+        {
+            return Err("backup generation authority or source changed".into());
+        }
+        let mut records = Vec::new();
+        let mut captured = std::collections::BTreeMap::new();
+        for (name, bytes) in files.files() {
+            if cancelled.load(Ordering::Acquire) {
+                return Err("backup generation capture cancelled".into());
+            }
+            let id = self.backup_artifact_for_generation(
+                &current.scope,
+                bytes,
+                "vcp-backup-generation-component/1",
+                Some(&manifest.id),
+                &mut records,
+            )?;
+            let row = records
+                .last_mut()
+                .ok_or("backup component record missing")?;
+            row.references = files.source_references().clone();
+            row.references
+                .insert(key(Collection::Generation, manifest.id.as_str()));
+            captured.insert(name.clone(), id);
+        }
+        let inventory = captured
+            .remove("inventory.json")
+            .ok_or("backup inventory absent")?;
+        let lexical_manifest = captured
+            .remove("lexical/vcp-lexical.json")
+            .ok_or("backup lexical manifest absent")?;
+        let vectors = captured.remove("vectors.json");
+        let lexical_files = captured
+            .into_iter()
+            .map(|(name, id)| {
+                name.strip_prefix("lexical/")
+                    .map(|name| (name.to_owned(), id))
+                    .ok_or("unexpected backup generation component")
+            })
+            .collect::<std::result::Result<_, _>>()?;
+        let transaction = Transaction {
+            id: TransactionId::new(),
+            expected_watermark: self.engine.store().state().watermark,
+            mutations: records
+                .into_iter()
+                .map(|record| Mutation::Put {
+                    expected: None,
+                    record,
+                })
+                .collect(),
+            events: vec![],
+            command: None,
+        };
+        self.runtime
+            .block_on(self.engine.store_mut().transact(transaction))?;
+        Ok(vcp_store::snapshot_inputs::GenerationInput {
+            id: manifest.id.clone(),
+            inventory,
+            lexical_manifest,
+            lexical_files,
+            vectors,
+        })
+    }
     pub fn backup_cut(&self) -> Result<Cut> {
         if !self.owner_alive || self.authority_pending || self.interrupted_capture {
             return Err("backup capture is fenced by canonical recovery".into());
@@ -178,14 +266,24 @@ impl Context {
         schema: &str,
         records: &mut Vec<Record>,
     ) -> Result<ArtifactId> {
+        self.backup_artifact_for_generation(scope, bytes, schema, None, records)
+    }
+    fn backup_artifact_for_generation(
+        &mut self,
+        scope: &Scope,
+        bytes: &[u8],
+        schema: &str,
+        generation: Option<&GenerationId>,
+        records: &mut Vec<Record>,
+    ) -> Result<ArtifactId> {
         if bytes.len() > 4 * 1024 * 1024 {
             return Err("backup artifact exceeds qualified bound".into());
         }
-        let mut writer =
-            self.engine
-                .store()
-                .spool()
-                .create(self.spec(scope, Channel::Evidence, schema))?;
+        let mut spec = self.spec(scope, Channel::Evidence, schema);
+        if let Some(id) = generation {
+            spec.source = format!("generation:{id}");
+        }
+        let mut writer = self.engine.store().spool().create(spec)?;
         for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
             writer.write_chunk(chunk)?;
         }

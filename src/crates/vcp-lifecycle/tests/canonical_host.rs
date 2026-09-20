@@ -16,10 +16,11 @@ use vcp_lifecycle::{
 };
 #[path = "support/authority_stream.rs"]
 mod authority_stream;
+#[cfg(windows)]
+#[path = "support/backup_checkpoint.rs"]
+mod backup_checkpoint;
 #[path = "support/cli_control.rs"]
 mod cli_control;
-#[path = "support/history_retention.rs"]
-mod history_retention;
 #[cfg(windows)]
 #[path = "support/coding.rs"]
 mod coding;
@@ -32,6 +33,8 @@ mod context_continuity;
 #[cfg(windows)]
 #[path = "support/framework_verification.rs"]
 mod framework_verification;
+#[path = "support/history_retention.rs"]
+mod history_retention;
 #[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;

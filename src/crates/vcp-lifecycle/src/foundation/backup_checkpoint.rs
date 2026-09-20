@@ -17,6 +17,21 @@ pub(super) struct Prepared {
     pub(super) observed: Observation,
 }
 impl CanonicalHost {
+    pub async fn capture_backup_generation(
+        &self,
+        publisher: Arc<vcp_memory::publication::Publisher>,
+        view: vcp_memory::publication::View,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<vcp_store::snapshot_inputs::GenerationInput, String> {
+        let cut = self.worker.run(|context| context.backup_cut())?;
+        let stopped = cancelled.clone();
+        let files = tokio::task::spawn_blocking(move || publisher.snapshot_files(view, &stopped))
+            .await
+            .map_err(|_| "backup generation worker failed")?
+            .map_err(|e| e.to_string())?;
+        self.worker
+            .run(move |context| context.accept_backup_generation(cut, files, &cancelled))
+    }
     /// Explicit user maintenance works while paused and never starts model work.
     /// Git is an independently configured, bounded native read capability.
     pub async fn capture_backup_checkpoint(
