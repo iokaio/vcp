@@ -8,7 +8,7 @@ const { parseArgs } = require('../../src/tests/support/local-memory.cjs');
 const { blocked, validateTraffic } = require('../../src/tests/support/offline-embeddings.cjs');
 
 // Independent parent checks: the child cannot self-attest its token or traffic.
-function validate(mode, nonce, attempt, result, outcome, modelHash, stderr) {
+function validateExecution(mode, attempt, outcome) {
   const control = mode.startsWith('control-'), fault = ['missing', 'corrupt'].includes(mode);
   const expectedExit = fault ? 1 : 0;
   if (!attempt || attempt.exit_code !== expectedExit || attempt.capture_complete !== true ||
@@ -19,6 +19,10 @@ function validate(mode, nonce, attempt, result, outcome, modelHash, stderr) {
       !Number.isSafeInteger(outcome.result.PeakJobCommittedBytes) || outcome.result.PeakJobCommittedBytes <= 0 ||
       !Number.isSafeInteger(outcome.result.WallMilliseconds) || outcome.result.WallMilliseconds < 0)
     throw Error('Incomplete process, capture, resource or cleanup evidence');
+}
+function validate(mode, nonce, attempt, result, outcome, modelHash, stderr) {
+  validateExecution(mode, attempt, outcome);
+  const control = mode.startsWith('control-'), fault = ['missing', 'corrupt'].includes(mode);
   if (control) {
     if (result?.status !== 'pass' || result.phase !== 'network-control' ||
         result.observation?.outcome !== 'connected' || result.observation.nonce !== nonce)
@@ -65,14 +69,16 @@ function validate(mode, nonce, attempt, result, outcome, modelHash, stderr) {
   }
 }
 
-async function main(args) {
+async function main(args, qualification = {}) {
+  const validateResult = qualification.validate || validate;
+  const taskId = qualification.taskId || 'P5-04';
   const options = parseArgs(args), repository = path.resolve(__dirname, '../..');
   const binary = path.resolve(options['--binary']), assets = outside(options['--assets'], [repository]);
   const directory = path.join(outside(options['--output-root'], [path.join(repository, 'src'), assets]), crypto.randomUUID());
   fs.mkdirSync(directory, { recursive: true });
   const file = path.join(directory, 'manifest.json');
-  const record = { schema_version: 1, task_id: 'P5-04', status: 'prepared', started_at: new Date().toISOString(), stages: [],
-    limitations: ['Actual CPU embedding and DiskANN fixture under OS denial; no P5-05 activation or production resource envelope.',
+  const record = { schema_version: 1, task_id: taskId, status: 'prepared', started_at: new Date().toISOString(), stages: [],
+    limitations: [qualification.limitation || 'Actual CPU embedding and DiskANN fixture under OS denial; no P5-05 activation or production resource envelope.',
       'Forced termination of the broker can leave its journaled disposable profile; pending cleanup fails qualification.'] };
   const save = () => writeManifest(file, record), controller = new AbortController(), interrupt = () => controller.abort();
   process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt);
@@ -92,7 +98,7 @@ async function main(args) {
       'src/tests/support/windows/offline-embedding.ps1', 'src/tests/support/windows/AppContainerFixture.cs',
       'src/tests/support/harness.cjs', 'src/tests/support/model-assets.cjs', 'src/tests/support/local-memory.cjs',
       'src/crates/vcp-memory/examples/vector_quality.rs', 'src/crates/vcp-memory/src/embedding.rs', 'src/crates/vcp-memory/src/vector.rs', 'src/crates/vcp-embedding/src/bin/qualify/network.rs',
-      'src/crates/vcp-embedding/src/lib.rs', 'src/tests/fixtures/local-memory/corpus.json']
+      'src/crates/vcp-embedding/src/lib.rs', 'src/tests/fixtures/local-memory/corpus.json', ...(qualification.inputs || [])]
       .map(relative => ({ path: relative, sha256: digest(fs.readFileSync(path.join(repository, relative))) }));
     const privateRoot = path.join(directory, 'private'); fs.mkdirSync(privateRoot);
     const home = path.join(privateRoot, 'home'); fs.mkdirSync(home);
@@ -122,8 +128,8 @@ async function main(args) {
         worker: path.join(repository, 'src/tests/support/windows/offline-embedding.ps1'),
         userProfile: process.env.USERPROFILE, localAppData: process.env.LOCALAPPDATA });
       const registry = { schema_version: 1, suites: { offline: [mode] }, cases: { [mode]: {
-        args: ['src/tests/support/offline-embeddings.cjs', config], task_ids: ['P5-04'], backends: ['none'], requires: [],
-        timeout_ms: 90000, max_output_bytes: 1024 * 1024
+        args: ['src/tests/support/offline-embeddings.cjs', config], task_ids: [taskId], backends: ['none'], requires: [],
+        timeout_ms: qualification.timeoutMs || 90000, max_output_bytes: 1024 * 1024
       } } };
       const run = await runSuite({ root: repository, registry, selection: parseSelection(['--suite', 'offline'], registry),
         outputRoot: path.join(directory, 'stages'), source: record.source, signal: controller.signal, isolation: { homeRoot: home },
@@ -137,8 +143,9 @@ async function main(args) {
       const outcome = fs.existsSync(outcomeFile) ? JSON.parse(fs.readFileSync(outcomeFile, 'utf8').replace(/^\uFEFF/, '')) : null;
       stage.cleanup = outcome?.cleanup || 'unconfirmed'; save();
       const result = JSON.parse(readLog('stdout'));
-      validate(mode, nonce, attempt, result, outcome, model.sha256, readLog('stderr'));
-      stage.process = outcome.result; stage.result = result;
+      // Failed runs retain their actual observations before acceptance checks.
+      stage.process = outcome?.result || null; stage.result = result; save();
+      validateResult(mode, nonce, attempt, result, outcome, model.sha256, readLog('stderr'));
       if (['missing', 'corrupt'].includes(mode)) stage.expected_rejection = true;
       save();
     }
@@ -148,6 +155,10 @@ async function main(args) {
     if (trafficError || sockets.size) throw Error(trafficError || 'Unclosed canary sockets');
     validateTraffic(received, controls);
     record.traffic = { expected_controls: 2, observed_connections: received.length, restricted_connections: 0 };
+    if (qualification.afterNetwork) {
+      await qualification.afterNetwork({ repository, directory, binary, modelHash: model.sha256,
+        record, save, signal: controller.signal, home });
+    }
     record.status = 'pass'; record.exit_code = 0; return 0;
   } catch (error) {
     record.status = error.notRun ? 'not_run' : 'fail'; record.reason = error.message;
@@ -160,4 +171,5 @@ async function main(args) {
     console.log(JSON.stringify({ status: record.status, manifest: file }));
   }
 }
-main(process.argv.slice(2)).then(code => { process.exitCode = code; }).catch(error => { console.error(error.message); process.exitCode = 2; });
+module.exports = { run: main, validateExecution };
+if (require.main === module) main(process.argv.slice(2)).then(code => { process.exitCode = code; }).catch(error => { console.error(error.message); process.exitCode = 2; });

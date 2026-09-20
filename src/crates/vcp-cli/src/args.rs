@@ -53,6 +53,10 @@ pub enum Command {
         #[command(subcommand)]
         command: Tasks,
     },
+    Memory {
+        #[command(subcommand)]
+        command: Memory,
+    },
     Inspect {
         #[arg(value_parser = scoped_id)]
         id: String,
@@ -69,6 +73,51 @@ pub enum Command {
         #[arg(long, requires = "offset", conflicts_with = "cursor", value_parser = clap::value_parser!(u32).range(1..=65536))]
         length: Option<u32>,
     },
+}
+#[derive(Debug, Subcommand)]
+pub enum Memory {
+    /// Inspect retained search results, evidence and coverage without starting inference.
+    Search(Search),
+}
+#[derive(Clone, Debug, Args)]
+pub struct Search {
+    pub text: String,
+    #[arg(long, value_parser = task_id)]
+    pub task: Option<TaskId>,
+    #[arg(long, value_parser = root_id)]
+    pub root: Option<RootId>,
+    #[arg(long)]
+    pub path: Vec<String>,
+    #[arg(long)]
+    pub symbol: Vec<String>,
+    #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u32).range(1..=64))]
+    pub limit: u32,
+    #[arg(long, default_value_t = 4096, value_parser = clap::value_parser!(u32).range(2..=16384))]
+    pub tokens: u32,
+    #[arg(long)]
+    pub minimum_sequence: Option<u64>,
+    #[arg(long)]
+    pub historical: Option<u64>,
+}
+impl Search {
+    pub fn request(&self, workspace: WorkspaceId) -> vcp_memory::retrieval::Request {
+        vcp_memory::retrieval::Request {
+            workspace,
+            tasks: self.task.clone().map(|value| vec![value]),
+            roots: self.root.clone().map(|value| vec![value]),
+            paths: (!self.path.is_empty()).then(|| self.path.clone()),
+            symbols: (!self.symbol.is_empty()).then(|| self.symbol.clone()),
+            text: self.text.clone(),
+            historical: self.historical.map(vcp_domain::revision::MemorySeq::new),
+            minimum_sequence: self
+                .minimum_sequence
+                .map(vcp_domain::revision::MemorySeq::new),
+            timeout_ms: 5000,
+            results: self.limit as usize,
+            tokens: self.tokens as usize,
+            bytes: 65536,
+        }
+    }
 }
 #[derive(Debug, Args)]
 pub struct Run {
@@ -174,6 +223,7 @@ pub enum ValidatedCommand {
     Resume(Resume),
     Sessions(Sessions),
     Tasks(Tasks),
+    MemorySearch(Search),
     Inspect {
         request: vcp_audit::inspection::InspectionQuery,
     },
@@ -196,6 +246,15 @@ impl Cli {
                 Command::Resume(resume) => ValidatedCommand::Resume(resume),
                 Command::Sessions { command } => ValidatedCommand::Sessions(command),
                 Command::Tasks { command } => ValidatedCommand::Tasks(command),
+                Command::Memory {
+                    command: Memory::Search(search),
+                } => {
+                    search
+                        .request(WorkspaceId::parse("preflight").map_err(|e| e.to_string())?)
+                        .validate()
+                        .map_err(|e| e.to_string())?;
+                    ValidatedCommand::MemorySearch(search)
+                }
                 Command::Inspect {
                     id,
                     view,
@@ -310,6 +369,9 @@ pub fn parse_usd(value: &str) -> Result<Micros, String> {
 }
 fn task_id(value: &str) -> Result<TaskId, String> {
     TaskId::parse(value).map_err(|_| "invalid task ID".into())
+}
+fn root_id(value: &str) -> Result<RootId, String> {
+    RootId::parse(value).map_err(|_| "invalid root ID".into())
 }
 fn workspace_id(value: &str) -> Result<WorkspaceId, String> {
     WorkspaceId::parse(value).map_err(|_| "invalid workspace ID".into())

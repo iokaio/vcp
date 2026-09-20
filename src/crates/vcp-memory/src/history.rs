@@ -50,14 +50,23 @@ pub(crate) fn proposal_removed(
     workspace: &WorkspaceId,
     proposal: &vcp_domain::memory::Proposal,
 ) -> Result<bool> {
+    proposal_removed_with_check(state, workspace, proposal, &|| Ok(()))
+}
+fn proposal_removed_with_check(
+    state: &State,
+    workspace: &WorkspaceId,
+    proposal: &vcp_domain::memory::Proposal,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<bool> {
+    check()?;
     let current: vcp_domain::workspace::Workspace = state
         .record(Collection::Workspace, workspace.as_str(), workspace)?
         .decode()?;
-    for record in state
-        .records
-        .values()
-        .filter(|r| r.collection == Collection::Tombstone && r.workspace == *workspace)
-    {
+    for record in state.records.values() {
+        check()?;
+        if record.collection != Collection::Tombstone || record.workspace != *workspace {
+            continue;
+        }
         let mask: vcp_audit::history::RetentionMask = record.decode()?;
         if mask.schema_version != 1
             || mask.workspace != *workspace
@@ -73,16 +82,18 @@ pub(crate) fn proposal_removed(
         {
             return Ok(true);
         }
-        if state.events.iter().any(|e| {
-            e.event.workspace == *workspace
+        for e in &state.events {
+            check()?;
+            if e.event.workspace == *workspace
                 && e.event.session == mask.session
                 && e.sequence >= mask.first
                 && e.sequence <= mask.last
                 && (proposal.origins.contains(&e.event.id)
                     || (e.event.correlation == proposal.command
                         && e.event.kind == vcp_protocol::event::EventKind::MemoryResolved))
-        }) {
-            return Ok(true);
+            {
+                return Ok(true);
+            }
         }
     }
     Ok(false)
@@ -97,11 +108,54 @@ pub fn query(
     at: Option<MemorySeq>,
     fingerprint: Option<&Fingerprint>,
 ) -> Result<ClaimHistory> {
+    query_with_check(store, access, claim, at, fingerprint, &|| Ok(()))
+}
+/// Cooperative history scan. The caller's callback may enforce a shared
+/// deadline/cancellation budget; interruption never returns a partial history.
+pub fn query_with_check(
+    store: &Store,
+    access: &Access,
+    claim: &ClaimId,
+    at: Option<MemorySeq>,
+    fingerprint: Option<&Fingerprint>,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<ClaimHistory> {
+    check()?;
     access::authorize(store.state(), access, false)?;
-    let mut versions: Vec<_> = repository::versions(store.state(), &access.workspace)?
-        .into_iter()
-        .filter(|v| v.proposal.claim == *claim && at.is_none_or(|seq| v.memory_seq <= seq))
-        .collect();
+    let mut versions = Vec::new();
+    for row in store.state().records.values() {
+        check()?;
+        if row.workspace == access.workspace
+            && row.collection == Collection::Claim
+            && row.value["document_type"] == "vcp_memory_version_v1"
+            && row.value["proposal"]["claim"].as_str() == Some(claim.as_str())
+        {
+            let version: Version = row.decode()?;
+            if at.is_none_or(|seq| version.memory_seq <= seq) {
+                versions.push(version);
+            }
+            if versions.len() > 256 {
+                return Err(Error::Invalid(
+                    "claim history exceeds bounded query limit".into(),
+                ));
+            }
+        }
+    }
+    from_versions_with_check(store, access, claim, at, fingerprint, versions, check)
+}
+/// Inventory already grouped canonical versions; do not rescan/decode the whole
+/// workspace for each claim. This is internal, never a supplied history source.
+pub(crate) fn from_versions_with_check(
+    store: &Store,
+    access: &Access,
+    claim: &ClaimId,
+    at: Option<MemorySeq>,
+    fingerprint: Option<&Fingerprint>,
+    mut versions: Vec<Version>,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<ClaimHistory> {
+    check()?;
+    access::authorize(store.state(), access, false)?;
     versions.sort_by_key(|v| v.memory_seq);
     if versions.len() > 256 {
         return Err(Error::Invalid(
@@ -115,6 +169,7 @@ pub fn query(
         .map(|v| v.id.clone());
     let mut rows = Vec::new();
     for version in versions {
+        check()?;
         if !access.allows_task(&version.scope.task) {
             return Err(Error::Access);
         }
@@ -124,7 +179,8 @@ pub fn query(
         // Retention may hide content, but cannot make an unauthorized origin's
         // version/claim identities observable through a pruned placeholder.
         access::version_scope(store.state(), access, &version)?;
-        if removed(store.state(), &access.workspace, &version)? {
+        if proposal_removed_with_check(store.state(), &access.workspace, &version.proposal, check)?
+        {
             rows.push(VersionView {
                 id,
                 memory_seq,
@@ -145,7 +201,9 @@ pub fn query(
             )?
             .decode()?;
         let source = fingerprint.unwrap_or(&task.fingerprint);
-        let observations = repository::evidence(store, access, &version.proposal)?;
+        let observations =
+            repository::evidence_with_check(store, access, &version.proposal, check)?;
+        check()?;
         if observations
             .iter()
             .any(|o| o.status == crate::gates::EvidenceAvailability::InvalidScope)
@@ -187,6 +245,7 @@ pub fn query(
             evidence,
         });
     }
+    check()?;
     Ok(ClaimHistory {
         workspace: access.workspace.clone(),
         claim: claim.clone(),

@@ -1388,6 +1388,32 @@
         "scheduler",
         "history"
       ]
+    },
+    {
+      "id": "memory-current-query-handoff",
+      "group": "governed-memory",
+      "package": "vcp-memory",
+      "path": "../../../crates/vcp-memory/src/retrieval.rs",
+      "symbol": "pub fn finish(",
+      "observation": "Native candidates carry stable IDs only. Current canonical authorization, deletion state, source identities and bounded labeled passages are revalidated after search before a result fence is issued.",
+      "effect_class": "read-only",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "file-read"
+      ]
+    },
+    {
+      "id": "host-memory-inspection",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation/memory_inspection.rs",
+      "symbol": "pub async fn inspect_memory(",
+      "observation": "Authenticated paused owners can inspect bounded retained search without inference, index creation or canonical writes. Native component work occurs outside the owner thread.",
+      "effect_class": "read-only",
+      "vcp_boundary": "controller",
+      "effects": [
+        "file-read"
+      ]
     }
   ],
   "groups": [
@@ -2007,7 +2033,9 @@
         "P2-01",
         "P2-02",
         "P2-03",
-        "P2-04"
+        "P2-04",
+        "P5-05",
+        "P5-06"
       ],
       "gate": "Retained controller with one canonical storage/accounting worker, private current-authority commands, per-HTTP admission/raw capture and native output observation. Earlier P0 journal is a separate regression fixture; P2/P3 own provider and product CLI policy.",
       "effect_ceiling": "effectful",
@@ -2238,7 +2266,8 @@
       ],
       "handling": "retain-with-adapters",
       "owner_tasks": [
-        "P3-01"
+        "P3-01",
+        "P5-06"
       ],
       "gate": "Native CLI commands enter the canonical retained owner; current-user-only private controls cannot create another writer. Bounded output loss invokes durable owner shutdown. Synthetic executable qualification never enables production endpoint overrides.",
       "effect_ceiling": "effectful",
@@ -2260,7 +2289,9 @@
         "P5-01",
         "P5-02",
         "P5-03",
-        "P5-04"
+        "P5-04",
+        "P5-05",
+        "P5-06"
       ],
       "gate": "Canonical governed memory and bounded durable extraction run only through the existing host. Optional model candidates require captured accounted gateway results; remembered commands and queued jobs grant no execution authority.",
       "effect_ceiling": "effectful",

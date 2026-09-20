@@ -1,0 +1,12 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index bb28fa1..4ba9899 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17509,6 +17509,7 @@ dependencies = [
+  "vcp-domain",
+  "vcp-engine",
+  "vcp-lifecycle",
++ "vcp-memory",
+  "vcp-models",
+  "vcp-protocol",
+  "vcp-repository",

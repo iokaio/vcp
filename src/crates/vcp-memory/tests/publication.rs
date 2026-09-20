@@ -1012,3 +1012,49 @@ async fn cancelled_private_build_and_bounded_overlay_do_not_claim_fresh_semantic
         assert_eq!(store.state(), &before);
     }
 }
+
+#[tokio::test]
+async fn recovery_cancellation_before_and_after_native_open_never_returns_a_view() {
+    use std::cell::Cell;
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (engine, scope, access, _) = fixture(&temp.path().join("canonical"), backend).await;
+        let mut store = engine.into_store();
+        let publisher = Publisher::new(&temp.path().join("components")).unwrap();
+        let prepared = publisher
+            .prepare(
+                publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+                None,
+                &AtomicBool::new(false),
+                &|_| {},
+            )
+            .unwrap();
+        publisher
+            .publish(
+                &mut store,
+                &access,
+                &prepared,
+                Timestamp::new(2000),
+                &|_| {},
+            )
+            .await
+            .unwrap();
+        let before = store.state().clone();
+        for stop_at in [1, 3] {
+            let checks = Cell::new(0usize);
+            let snapshot = store.snapshot().unwrap();
+            let result = publisher.recover_snapshot_with_check(&snapshot, &access, &|| {
+                checks.set(checks.get() + 1);
+                if checks.get() >= stop_at {
+                    Err(vcp_memory::Error::Conflict("test cancellation"))
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(result.is_err());
+            assert_eq!(checks.get(), stop_at);
+        }
+        assert_eq!(store.state(), &before);
+        assert!(publisher.recover(&store, &access).unwrap().view.is_some());
+    }
+}
