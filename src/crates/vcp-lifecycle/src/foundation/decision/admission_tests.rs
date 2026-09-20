@@ -142,6 +142,82 @@ fn finite_comparator_uses_real_quote_and_single_body_cap() {
         Err(Rejection::Stale)
     ));
 }
+
+#[test]
+fn finite_advisory_capability_binds_escalation_purpose_and_questions() {
+    let (mut record, _) = fixture();
+    record.evaluator.mode = Mode::Advisory;
+    record.evaluator.purpose = decision::Purpose::Escalation;
+    record.question_revision = vcp_models::escalation::advisory_question_revision();
+    let current = current(&record);
+    let binding = request(&record).binding;
+    let evidence_revision = "9".repeat(64);
+    let input = vcp_models::escalation::AdvisoryInput {
+        binding: decision::Binding {
+            evidence: BTreeMap::from([("failed-check".into(), evidence_revision.clone())]),
+            ..binding
+        },
+        trigger: vcp_models::escalation::Trigger {
+            kind: vcp_models::escalation::TriggerKind::FailedVerification,
+            evidence: vec![ArtifactId::parse("failed-check").unwrap()],
+            observations: 2,
+        },
+        counters: vcp_models::escalation::Counters {
+            total_attempts: 1,
+            ..Default::default()
+        },
+        observations: vec![vcp_models::escalation::AdvisoryObservation {
+            evidence: "failed-check".into(),
+            source_revision: evidence_revision,
+            kind: vcp_models::escalation::ObservationKind::Check,
+            summary: "Required verification failed twice without observed progress.".into(),
+        }],
+        permitted_actions: std::collections::BTreeSet::from([
+            vcp_models::escalation::AdvisoryAction::Retry,
+            vcp_models::escalation::AdvisoryAction::Escalate,
+            vcp_models::escalation::AdvisoryAction::Stop,
+        ]),
+        required_review: true,
+        hard_failure: true,
+        checks_complete: false,
+        deadline: Timestamp::new(2000),
+    };
+    let request = vcp_models::escalation::advisory_request(&input).unwrap();
+    let cap = Capability::install(record, &current).unwrap();
+    let prepared = cap.prepare(&request, 0, &current).unwrap();
+    assert_eq!(
+        prepared.prepared.request().purpose,
+        decision::Purpose::Escalation
+    );
+    assert_eq!(
+        prepared.prepared.request().question_revision,
+        vcp_models::escalation::advisory_question_revision()
+    );
+    assert_eq!(
+        prepared.prepared.body()["response_format"]["json_schema"]["schema"]["required"],
+        serde_json::json!(["additional_review", "next_action", "repeated_strategy"])
+    );
+
+    let mut wrong = request;
+    wrong.purpose = decision::Purpose::Routing;
+    assert_eq!(
+        cap.prepare(&wrong, 0, &current).err(),
+        Some(Rejection::Unqualified)
+    );
+}
+
+#[test]
+fn inactive_decision_modes_never_create_a_finite_capability() {
+    for mode in [Mode::Disabled, Mode::Deterministic] {
+        let (mut record, _) = fixture();
+        record.evaluator.mode = mode;
+        let current = current(&record);
+        assert!(matches!(
+            Capability::install(record, &current),
+            Err(Rejection::Unqualified)
+        ));
+    }
+}
 #[test]
 fn native_claimed_finite_numbers_do_not_establish_production_qualification() {
     let (mut record, _) = fixture();

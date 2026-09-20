@@ -25,6 +25,19 @@ shadow-mode outcome. All model-boundary suites remain synthetic and offline.
 Canonical admission, transport, persistence and live qualification are outside
 this increment.
 
+The follow-on finite-capability prerequisite proves that an exact advisory
+qualification can prepare this request with the existing conventional-operation
+body and complete charge ceiling. Mode or purpose mismatch fails before admission;
+disabled/deterministic records cannot create a capability, and native production
+qualification remains unavailable without finite charge-bound evidence. The host
+configuration gate remains closed until canonical scheduling and persistence are
+wired.
+
+The capability qualification passed all 164 context, decision, lifecycle, routing,
+MCP and CLI tests across eight stages. Its source identity remained unchanged. The
+manifest is
+`artifacts/p6-advisory-capability-qualification/111cbacf-511b-4307-80fe-c9d6cb37155d/manifest.json`.
+
 The final offline routing qualification passed 35 decision, escalation and routing
 contract tests plus all 54 frozen comparison assertions with zero harness model
 calls and zero spend. Its source identity remained unchanged. The manifest is

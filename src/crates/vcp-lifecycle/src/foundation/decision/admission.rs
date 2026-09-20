@@ -122,7 +122,7 @@ impl Capability {
         capability.current(current)?;
         let r = &capability.record;
         if r.version != 1
-            || r.evaluator.mode != Mode::Shadow
+            || !matches!(r.evaluator.mode, Mode::Shadow | Mode::Advisory)
             || r.input_ceiling == Units::ZERO
             || r.output_ceiling == Units::ZERO
             || !vcp_domain::accounting::valid_hash(&r.question_revision)
@@ -209,7 +209,8 @@ impl Capability {
         };
         vcp_budget::arithmetic::quote(r.price.clone(), bounds, now).map_err(|_| Rejection::Quote)
     }
-    /// The worker supplies Request from its actual shadow seed, never caller JSON.
+    /// The worker supplies Request from its actual routing/escalation seed, never
+    /// caller JSON. Enabling a mode remains a separate host configuration gate.
     /// Count comes from durable attempts for that run, including failed/unknown.
     pub(crate) fn prepare(
         &self,
@@ -231,7 +232,7 @@ impl Capability {
         let prepared = decision::prepare(
             request,
             &decision::Policy {
-                mode: Mode::Shadow,
+                mode: r.evaluator.mode,
                 evaluator: Some(r.evaluator.clone()),
                 attempt_limit: 1,
                 attempts_used,
