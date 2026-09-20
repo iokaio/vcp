@@ -1347,6 +1347,47 @@
       "effects": [
         "file-read"
       ]
+    },
+    {
+      "id": "memory-local-embedding",
+      "group": "governed-memory",
+      "package": "vcp-memory",
+      "path": "../../../crates/vcp-memory/src/embedding.rs",
+      "symbol": "pub fn load(",
+      "observation": "Digest-verified pinned local CPU assets and complete specification govern bounded embeddings and scoped cache identities. This adapter has no remote model endpoint.",
+      "effect_class": "read-only",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "file-read"
+      ]
+    },
+    {
+      "id": "memory-vector-persistence",
+      "group": "governed-memory",
+      "package": "vcp-memory",
+      "path": "../../../crates/vcp-memory/src/vector.rs",
+      "symbol": "pub fn save_private_bounded(",
+      "observation": "New private vector components enforce prewrite bounds and exact native graph-to-row validation before reopening. Source authorization remains required for candidate use.",
+      "effect_class": "effectful",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "filesystem"
+      ]
+    },
+    {
+      "id": "host-local-vector-admission",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation/memory_vectors.rs",
+      "symbol": "pub async fn build_memory_vectors(",
+      "observation": "One process-shared admission holds local-model resources outside the owner thread; pause, cancellation, interactive work and current source fences precede private result handoff and resource accounting.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "filesystem",
+        "scheduler",
+        "history"
+      ]
     }
   ],
   "groups": [
@@ -2218,7 +2259,8 @@
       "owner_tasks": [
         "P5-01",
         "P5-02",
-        "P5-03"
+        "P5-03",
+        "P5-04"
       ],
       "gate": "Canonical governed memory and bounded durable extraction run only through the existing host. Optional model candidates require captured accounted gateway results; remembered commands and queued jobs grant no execution authority.",
       "effect_ceiling": "effectful",

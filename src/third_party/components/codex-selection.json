@@ -139,6 +139,10 @@
     {
       "path": "src/third_party/patches/codex/0027-p5-lexical-workspace.patch",
       "sha256": "e66ac42b1d48c533ff4fd04dc4c48360178571ec0891b88b3176a8e85ad67485"
+    },
+    {
+      "path": "src/third_party/patches/codex/0028-p5-vectors-workspace.patch",
+      "sha256": "85cc29c995ada89ddb98dd856d49a7fa310b3298d8cf0ac05bf7ed5a0b423930"
     }
   ],
   "licenses": [

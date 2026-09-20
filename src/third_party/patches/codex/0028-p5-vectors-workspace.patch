@@ -1,0 +1,20 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index c1668e7..bb28fa1 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17610,6 +17610,7 @@ name = "vcp-memory"
+ version = "0.1.0"
+ dependencies = [
+  "munarium-core",
++ "munarium-datastore",
+  "serde",
+  "serde_json",
+  "tantivy",
+@@ -17619,6 +17620,7 @@ dependencies = [
+  "vcp-audit",
+  "vcp-budget",
+  "vcp-domain",
++ "vcp-embedding",
+  "vcp-engine",
+  "vcp-models",
+  "vcp-protocol",
