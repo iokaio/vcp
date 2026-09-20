@@ -131,6 +131,14 @@ Explicit pause without closing is a required separate variant. Keep the owning C
 
 ## U07 — Routing and optimization
 
+Extend this campaign with [M1–M4/M7 acceptance](21-markov-integration.md):
+hand-solvable transition/reward fixtures, causal history and unknown-cost cases,
+local zero-call shadow tests, and rules/local-statistical/Jev/conventional-LLM
+comparisons for supported purposes. Test sparse/invalid fits, retention and stale
+consumer inputs, qualified cost rounding and unchanged atomic reservations.
+Declare held-out calibration/outcome criteria before enabling a signal; a
+synthetic pass does not qualify a live forecast or policy default.
+
 Fixture: simple and difficult tasks plus complete, sparse, biased and pruned history windows. Pin candidate metadata and recorded quality evidence; include denied providers, unknown prices and strict model pins.
 
 Verify group/profile distinction, exclusions, total-cost reservation, bounded escalation and compatible handoff. Run `/optimize`, answer/decline its questions, inspect/apply selected policy differences and roll back. Assert no silent pruning, authority change, cap increase or paid trial.
@@ -222,6 +230,14 @@ Exercise model provisioning, digest mismatch/missing assets, batching limits, in
 Assert no remote embedding request, truthful setup/degraded states and usable local recall from qualified assets. Do not infer minimum hardware or large-corpus performance from a tiny fixture.
 
 ## Fault points and independent assertions
+
+[M9 synthetic lifecycle campaigns](21-markov-integration.md#m8m10--reuse-and-qualification-campaigns)
+start with M1 using invented matrices, fixed seeds and bounded/shrinkable traces.
+Generate legal and deliberately illegal transitions, retries, provider bursts,
+forks, late effects and prune/reopen cases. Exercise real boundaries with separate
+invariant oracles; never use the generator to judge its own correctness or commit
+private project counts. Reuse these cases in P8's both-store and native Windows
+campaign alongside hand-authored adversarial fixtures.
 
 Minimum barriers: artifact finalize; canonical commit before/after acknowledgement; reservation before/after send; authorized intent before/after dispatch; effect before outcome commit; each index component/manifest/pointer; prune tombstone/payload cleanup; encryption finalize/vault copy; restore validate/activate; child integration/result commit.
 

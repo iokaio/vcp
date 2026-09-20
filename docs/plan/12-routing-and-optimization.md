@@ -4,6 +4,12 @@ Status: in progress. The [routing foundation](../evaluations/p6-routing-foundati
 
 ## Code organization
 
+The [Markov supplement](21-markov-integration.md) adds planned increments within
+these owners. Start M1's shared evidence/analysis foundation under P6-02, then
+M2 under P6-03, then M3 reporting under P6-05 and M4 qualification. M7's offline
+threshold proposals/provider-burst experiment follow that evidence. These are
+unimplemented extensions, not new task dependencies or enabled defaults.
+
 Use `vcp-models/catalog` for gateway metadata. The logical `vcp-routing` registry, eligibility, policy, selector, explanation, escalation and handoff boundaries map into `vcp-models::{routing,escalation}`; canonical optimizer/publication services map into `vcp-lifecycle::foundation::routing_state`. This retains existing dependency boundaries without another gateway or database. CLI interview/policy-diff presentation belongs in `vcp-cli/optimize`; policy revisions and outcome observations use the canonical store.
 
 P6-02 also owns the logical `vcp-decision` contract, deterministic evaluator and
@@ -12,9 +18,11 @@ The [canonical routing shadow increment](../evaluations/p6-decision-shadow.md)
 connects actual admitted routes to separately budgeted native/comparator
 observations. It preserves the baseline and leaves live qualification, advisory
 consumers and qualified fallback transitions incomplete.
-Qualify three implementations: deterministic rules as the baseline, actual Jev
+Qualify deterministic rules as the baseline, actual Jev
 through OpenRouter as the preferred specialized candidate, and a conventional
-OpenRouter LLM as a comparator and explicitly permitted fallback. Map proposed
+OpenRouter LLM as a comparator and explicitly permitted fallback. Add M4's local
+statistical comparison for supported purposes, with separate provenance and
+qualification from native Jev probabilities. Map proposed
 `question`, `answer`, `validation`, `evaluation` and adapter modules into the
 existing workspace only when implementing useful behavior. This is not a second
 gateway, policy authority, scheduler or store. Follow
@@ -76,6 +84,14 @@ does not inherit prior qualification. Do not freeze today's price or treat an
 OpenRouter catalog entry as proof that VCP's request/response contract works.
 
 ## P6-02 — Deterministic profile policy
+
+**Planned Markov increments:** implement [M1](21-markov-integration.md#m1--retained-evidence-and-analysis-foundation)
+before the next P6-03 advisory integration: bounded causal history projection,
+closed state/action alphabet, cost attribution, numerical routines and derived
+artifact retention/rebuild. After [M4 qualification](21-markov-integration.md#m4--qualification-and-routing-estimates),
+refactor configured `CostEstimate` components to accept qualified evidence with
+explicit fallback, provenance and checked upward rounding. Expected path cost
+must remain separate from actual request bounds and atomic reservations.
 
 Implement an explainable selection pipeline: required capability/scope/provider filtering, measured quality floor, total estimated task cost and profile-dependent latency/capability preference. Low emphasizes fast inexpensive work with bounded escalation; high prioritizes capable successful completion under the same hard spending policy. Profiles need not map to one group.
 
@@ -206,6 +222,13 @@ judgment cannot override their results.
 
 ## P6-03 — Escalation and model handoff
 
+**Planned Markov increment:** [M2](21-markov-integration.md#m2--escalation-integration-and-local-stall-comparison)
+first completes canonical advisory persistence/scheduling/revalidation, then adds
+exact-cycle evidence and a local statistical shadow producer. Reuse M1's symbols
+and revisions; do not add another event log or remote-only contract. Qualify
+transition influence in P6-04. The [M7 provider-burst experiment](21-markov-integration.md#m7--offline-proposals-and-provider-bursts)
+comes later and preserves transport/quality counter separation and strict pins.
+
 Define bounded triggers from invalid tool output, repeated failed verification, unsupported capability or declared task complexity. Record trigger/evidence and remaining budget. Reassemble for the new capability envelope and preserve objective, current changes, applicable instructions, unknown effects and tool/result pairing.
 
 No escalation widens autonomy or provider-data permissions. An ambiguous request remains accounted for while a later attempt uses its own reservation. Repeated failure reaches a visible blocked/failed/input state rather than cycling indefinitely.
@@ -257,6 +280,14 @@ scripted child events are preliminary evidence only. Continuous background
 observer agents remain P10-03 deferred scope.
 
 ## P6-05 — `/optimize` workflow
+
+**Planned Markov increments:** after the P6-03 implementation prerequisite,
+[M3](21-markov-integration.md#m3--read-only-forecasts-in-the-optimizer) adds read-only
+transition/reward forecasts and drift reports using M1's shared foundation.
+Refactor existing current-state counts without pretending they reconstruct past
+transitions. [M7](21-markov-integration.md#m7--offline-proposals-and-provider-bursts)
+then adds offline threshold hypotheses through preview, selected apply and rollback
+after M4 evidence; it does not infer unobserved actions or authorize paid trials.
 
 1. Read a scoped history window and calculate task classes, languages, failures/abandonment, retries, intervention, token/effort, cost certainty, latency, child overhead and retrieval contribution. Mark missing/pruned/small samples.
 2. Build a baseline report with evidence links and uncertainty. Avoid presenting correlations from unlike tasks/providers as causal improvement.
@@ -315,6 +346,12 @@ comparisons rather than silently inheriting an earlier recommendation.
 
 ## P6-04 — Profile qualification
 
+**Planned Markov increment:** [M4](21-markov-integration.md#m4--qualification-and-routing-estimates)
+adds local statistical advice as a fourth comparison arm, forecast/interval
+validation and per-purpose activation/rollback gates. Freeze selected context and
+verification refactors before final comparison; later changes invalidate affected
+evidence. No probability bypasses deterministic quality or completion gates.
+
 After P5-08 memory evidence is available, compare fixed economical, fixed stronger and routed strategies on the same versioned analysis/review/generation pool. Record all attempts and supporting costs, held-out task outcomes, wall-time distributions, interventions and quality failures. Pin catalog/provider/configuration versions for each run.
 
 Select thresholds and defaults from declared evidence and product priorities, not the research workbook's ranking or an illustrative dollar amount. Initial subsystem tests can script child events/accounting; P8 must recheck total costs and quality with the actual delegation implementation before release.
@@ -347,10 +384,11 @@ subsystem qualification must identify that pending release evidence explicitly.
 
 **Decision-layer qualification.** Follow
 [qualification and rollout](../architecture/decision-evaluation-design.md#qualification-and-rollout)
-within the same coherent P6 milestone. Compare three implementations on the same
-inputs: deterministic rules, actual Jev through OpenRouter, and a conventional
-OpenRouter LLM comparator/permitted fallback. A stronger conventional LLM is an
-optional fourth comparison, not a substitute for testing actual Jev. Complete the
+within the same coherent P6 milestone. Compare four implementations on the same
+supported purposes: deterministic rules, local statistical signals, actual Jev
+through OpenRouter, and a conventional OpenRouter LLM comparator/permitted
+fallback. A stronger conventional LLM is an optional additional comparison, not
+a substitute for testing actual Jev. Complete the
 Jev protocol/capability/usage qualification first; unavailable actual-model access
 is a not-run comparison, not evidence from an emulation. Control the downstream
 coding strategy and inputs. First run shadow mode, then evaluate declared

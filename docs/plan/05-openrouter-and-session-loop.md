@@ -140,6 +140,12 @@ Tests in `src/tests/end-to-end/coding_loop/` drive a deterministic read/change/t
 
 ## P2-06 — Verification and honest completion
 
+**Planned follow-up to completed acceptance:** [M6 verification ordering](21-markov-integration.md#m6--verification-order)
+separates required check discovery/dependencies from execution order. Collect
+check-specific cost/failure evidence and evaluate fail-fast ordering only among
+ready checks; preserve the full applicable set, current fingerprints, not-run
+visibility and completion gates. Missing evidence retains baseline order.
+
 Current [retained integration](../development/p2-loop-verification.md) connects
 owner-configured checks to `vcp_verify` and final-cost completion evidence. The
 remaining contracts below continue to define task completion.

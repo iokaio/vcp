@@ -91,6 +91,13 @@ Exit: each claimed source/version subset has fixtures and documentation; partial
 
 ## P10-03 — Optional observers
 
+The [M10 regime-filter observer](21-markov-integration.md#m8m10--reuse-and-qualification-campaigns)
+is a planned candidate here after P8-05/P7-06, with no first-release dependency.
+Reuse qualified local stall filtering, durable cursors and revision-bound proposals;
+measure benefit against disabled observers and display inferred regimes as
+estimates. Keep scheduling bounded and stopped by parent pause, including when
+evaluation uses local arithmetic rather than a provider.
+
 Code organization: `vcp-engine/observers/{subscription,debounce,dedup,proposal,budget}` plus small recall/goal/verification observers. Reuse durable event cursors and root task ownership; avoid an independent always-on loop.
 
 Key observer work by relevant task/manifest/diff revision. Bound event queues, frequency, concurrency, step/deadline and billable reservations. Observers propose state changes to the controller and expose activity/cost. Parent pause stops new observer scheduling, and duplicate delivery cannot repeatedly review unchanged work.

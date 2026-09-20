@@ -19,6 +19,12 @@ check or skipped native job does not satisfy native acceptance.
 
 ## P5-08 — Integrated memory acceptance
 
+**Planned follow-up:** [M5](21-markov-integration.md#m5--context-co-change-retrieval-and-compaction)
+adds map/PageRank/co-change and optional memory-graph comparison arms to the frozen
+context/retrieval task set. Re-run affected recall, scope, retention and resource
+cases before P6-04 uses changed context defaults. Existing completed evidence
+qualifies the original pipeline, not these candidate extensions.
+
 After P5-01–07/P5-09/P5-10, exercise canonical memory, search, pruning and encrypted restore together. Compare no semantic memory, versioned Markdown recall and governed memory on the same held-out source/question/task fixtures, model configuration and total budget where applicable.
 
 Measure useful sourced recall, stale/unsupported passages, scope violations, task outcome, local resource cost, prompt overhead and model-assisted maintenance spend. Include failed/abandoned runs and index lag. A better recall score cannot excuse restricted-content retrieval or lost acknowledged records.
@@ -34,6 +40,12 @@ Run the three strategies with matched model/provider, tool access and task cap w
 The report must include all attempted queries/tasks, sourced recall and stale/forbidden passages, costs including unsuccessful work, hardware/corpus identity and failure cases. A scope violation or lost canonical record fails the gate regardless of aggregate recall. P6-04 consumes this dated result and reruns affected cases after relevant memory changes.
 
 ## P8-01 — Native Windows support matrix
+
+Include [M9's enabled statistical consumers](21-markov-integration.md#m8m10--reuse-and-qualification-campaigns)
+in packaged Windows and actual-delegation qualification, with both-store
+prune/restore/replay coverage in P8-02 and the final enabled/rejected/deferred
+inventory at P8-05. Seeded synthetic tests supplement existing fault fixtures;
+they do not establish live cost savings or replace owner acceptance.
 
 Requires portable CLI, qualified routing and bundled skill/MCP/delegation paths. Declare supported Windows versions, architecture, filesystem/shell/terminal, CPU/RAM, local inference provisioning and compiler dependencies based on tests.
 

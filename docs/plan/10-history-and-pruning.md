@@ -21,6 +21,14 @@ Use `vcp-audit/history_query` and `history_filter` for browsing; `vcp-memory/ret
 
 ## P5-07 — Retention engine
 
+**Planned supporting refactor for [M1](21-markov-integration.md#m1--retained-evidence-and-analysis-foundation):**
+register source dependencies for transition counts, fitted models, forecasts and
+consumed statistical receipts. Prune/revoke must invalidate derived serving state
+and inaccessible reports; rebuilding uses only currently retained authorized
+history. Test caches, saved reports and replay tombstones on both stores before
+any persistent statistical artifact is enabled. No surviving private aggregate
+is implicitly authorized by this extension.
+
 1. Implement explicit actions: exclude from recall, compact presentation and purge retained content. Exclusion is reversible; compaction preserves raw history; purge coordinates source/claim/chunk/vector/cache removal according to policy.
 2. Implement filters for date, workspace/root/path, task/agent/model/provider, event/claim type, status and supersession. Use inclusive/exclusive cutoff semantics documented in CLI help and tests; all date comparisons use explicit timestamps/timezone.
 3. Build a dependency graph before purge. Protect active-task recovery and unsettled accounting; report exclusions or require affected tasks to pause/reconcile. Redactable content and minimal unresolved liability facts have separate lifetimes.
