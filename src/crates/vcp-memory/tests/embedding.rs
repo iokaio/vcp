@@ -36,6 +36,50 @@ fn vectors(scope: &Scope) -> Vec<Encoded> {
 }
 
 #[test]
+fn owned_writer_enforces_bound_before_writing_and_propagates_partial_write_failure() {
+    use std::io::{self, Write};
+    let scope = scope();
+    let component = Component::build(
+        scope.workspace.clone(),
+        Specification::qualified(),
+        vectors(&scope),
+        &|| false,
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    assert!(component.write_bounded(&mut bytes, 1, &|| false).is_err());
+    assert!(bytes.is_empty());
+    assert!(component
+        .write_bounded(&mut bytes, u64::MAX, &|| true)
+        .is_err());
+    assert!(bytes.is_empty());
+    struct Partial {
+        bytes: usize,
+    }
+    impl Write for Partial {
+        fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+            if self.bytes != 0 {
+                return Err(io::Error::other("injected write failure"));
+            }
+            self.bytes = input.len().min(7);
+            Ok(self.bytes)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut partial = Partial { bytes: 0 };
+    assert!(component
+        .write_bounded(&mut partial, u64::MAX, &|| false)
+        .is_err());
+    assert_eq!(partial.bytes, 7);
+    let digest = component
+        .write_bounded(&mut bytes, u64::MAX, &|| false)
+        .unwrap();
+    assert_eq!(digest, vcp_protocol::digest_bytes(&bytes));
+}
+
+#[test]
 fn chunk_offsets_scope_and_full_specification_define_cache_identity() {
     let scope = scope();
     let spec = Specification::qualified();

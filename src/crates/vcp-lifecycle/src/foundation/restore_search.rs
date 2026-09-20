@@ -2,6 +2,8 @@
 //! Explicit model-free rebuild after restore/rebind. Does not trust the workspace,
 //! refresh source fingerprints, resume tasks, or interpret archived instructions.
 use super::{memory_vectors, Config};
+#[path = "restore_search_vectors.rs"]
+mod retained_vectors;
 use std::result::Result;
 use std::{
     cell::RefCell,
@@ -189,14 +191,14 @@ async fn rebuild(
     if workspace.trust == Trust::Untrusted {
         degraded.push("workspace_remains_untrusted".into());
     }
-    let describe = |view: &publication::View, rebuilt| Readiness {
+    let describe = |view: &publication::View, rebuilt, extra: &[String]| Readiness {
         lexical_ready: true,
         generation: view.manifest.id.clone(),
         indexed_records: view.inventory.records.len(),
         excluded_records: view.inventory.exclusions.len(),
         source_reauthorization_required: stale_sources || !sources.complete,
         semantic_pending: !view.inventory.records.is_empty() && view.vector.is_none(),
-        degraded: degraded.clone(),
+        degraded: degraded.iter().chain(extra).cloned().collect(),
         rebuilt,
     };
     let directory = store.canonical_anchor().join("search-generations");
@@ -207,13 +209,20 @@ async fn rebuild(
             .map_err(|e| e.to_string())?;
         if let Some(view) = recovered.view {
             if same_inventory(&view.inventory, &inventory) {
-                return Ok(describe(&view, false));
+                return Ok(describe(&view, false, &[]));
             }
         }
     }
     check().map_err(|e| e.to_string())?;
+    let retained =
+        retained_vectors::capture(store, &workspace, &|| check().map_err(|e| e.to_string()))?;
+    let has_retained_vectors = retained.available();
     let permit = memory_vectors::admission()?.acquire(Workload {
-        rows: inventory.records.len().max(1),
+        rows: if has_retained_vectors {
+            1024
+        } else {
+            inventory.records.len().max(1)
+        },
         source_bytes: inventory.records.iter().map(|r| r.text.len()).sum(),
         batch: 1,
         load_model: false,
@@ -223,7 +232,8 @@ async fn rebuild(
         .map_err(|e| e.to_string())?;
     let build = publisher.clone();
     let flag = cancelled.clone();
-    let (validated, measured, cpu, cpu_source) =
+    let vector_inventory = inventory.clone();
+    let (validated, measured, cpu, cpu_source, vector_notes, vector_artifacts) =
         tokio::task::spawn_blocking(move || -> Result<_, String> {
             let before = memory_vectors::process_cpu_millis()?;
             let baseline: BTreeSet<_> = std::fs::read_dir(build.storage_root())
@@ -257,11 +267,47 @@ async fn rebuild(
                     flag.store(true, Ordering::Release);
                 }
             };
+            let mut vector_notes = Vec::new();
+            let mut vector_artifacts = Vec::new();
             let mut result = (|| {
                 sample()?;
-                let prepared = build
-                    .prepare(snapshot, None, &flag, &barrier)
-                    .map_err(|e| e.to_string())?;
+                let remaining = || -> Result<u64, String> {
+                    sample()?;
+                    permit
+                        .estimate()
+                        .temporary_disk_bytes
+                        .checked_sub(measured.borrow().sampled_build_peak_temporary_disk_bytes)
+                        .ok_or_else(|| "restore vector disk budget exhausted".into())
+                };
+                let reused = retained_vectors::rebuild(
+                    retained,
+                    &vector_inventory,
+                    build.storage_root(),
+                    &remaining,
+                    &|| flag.load(Ordering::Acquire),
+                );
+                // Ownership/cleanup failures remain visible; never report a
+                // successful fallback while an owned staging obligation remains.
+                let reused = reused?;
+                if has_retained_vectors && reused.is_none() {
+                    vector_notes.push("retained_vectors_do_not_cover_current_inventory".into());
+                }
+                let prepared = match reused {
+                    Some(reused) => {
+                        vector_artifacts = reused.artifacts.clone();
+                        let prepared = build.prepare_with_vectors(
+                            snapshot,
+                            &reused.path,
+                            &reused.checksum,
+                            &flag,
+                            &barrier,
+                        );
+                        reused.finish()?;
+                        prepared
+                    }
+                    None => build.prepare(snapshot, None, &flag, &barrier),
+                }
+                .map_err(|e| e.to_string())?;
                 build
                     .validate_prepared(prepared, &flag)
                     .map_err(|e| e.to_string())
@@ -280,23 +326,32 @@ async fn rebuild(
                     (0, "cpu-delta-unavailable;zero-is-unmeasured")
                 }
             };
-            Ok((result, measured.into_inner(), cpu, cpu_source))
+            Ok((
+                result,
+                measured.into_inner(),
+                cpu,
+                cpu_source,
+                vector_notes,
+                vector_artifacts,
+            ))
         })
         .await
         .map_err(|_| "restore lexical worker stopped")??;
-    let observation = LocalResources {
-        schema_version: 1,
-        id: ObservationId::new(),
-        scope: task.scope,
-        agent: AgentId::parse("restore-lexical").map_err(|e| e.to_string())?,
-        cpu_millis: Units::new(cpu),
-        peak_ram: ByteCount::new(measured.sampled_build_peak_resident_bytes),
-        disk: ByteCount::new(measured.sampled_build_peak_temporary_disk_bytes),
-        source: format!(
-            "{};restore-lexical;{cpu_source};sampled-process-resident",
-            local_resources::ESTIMATE_VERSION
+    let observation =
+        LocalResources {
+            schema_version: 1,
+            id: ObservationId::new(),
+            scope: task.scope,
+            agent: AgentId::parse("restore-lexical").map_err(|e| e.to_string())?,
+            cpu_millis: Units::new(cpu),
+            peak_ram: ByteCount::new(measured.sampled_build_peak_resident_bytes),
+            disk: ByteCount::new(measured.sampled_build_peak_temporary_disk_bytes),
+            source: format!(
+            "{};restore-lexical;{cpu_source};sampled-process-resident;retained-vector-artifacts={}",
+            local_resources::ESTIMATE_VERSION,
+            vector_artifacts.iter().map(|id|id.as_str()).collect::<Vec<_>>().join(",")
         ),
-    };
+        };
     vcp_budget::record_local_resources(
         store,
         observation,
@@ -322,5 +377,5 @@ async fn rebuild(
     if view.manifest.id != validated.manifest().id || !same_inventory(&view.inventory, &inventory) {
         return Err("published lexical inventory differs".into());
     }
-    Ok(describe(&view, true))
+    Ok(describe(&view, true, &vector_notes))
 }

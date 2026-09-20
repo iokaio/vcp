@@ -18,6 +18,8 @@ After explicit restore and ordinary rebind, `restore_search::rebuild_after_resto
 
 Workspace installation uses a newly created native staging directory and create-only whole-directory rename. It preserves existing empty directories, nonempty directories and files. Parent handles remain pinned, and the stage native identity is checked when acquiring the rename handle and again at the destination. Failed or ambiguous operations preserve their files for explicit reconciliation.
 
+The destination also reuses qualified retained vectors without opening a model. It considers at most four provenance-linked generation artifacts totaling 8 MiB, validates their checksums and specification, intersects exact chunk identities with the current authorized inventory, and rebuilds a bounded graph only when all eligible chunks are covered. Stale native source rows remain excluded. Missing coverage keeps semantic readiness pending. Private input/output files remain owned by native delete-on-close handles until adoption finishes; directory cleanup occurs by its held handle after the children close. Unknown children are preserved and reported as a cleanup obligation.
+
 ## Reproducible native checks
 
 Commands ran with stable Rust, existing offline dependencies, no explicit target triple, and `CARGO_TARGET_DIR=artifacts/p5-vault-target`, from `src/third_party/codex/codex-rs` after loading `artifacts/p5-native-env.ps1`.
@@ -31,6 +33,11 @@ Commands ran with stable Rust, existing offline dependencies, no explicit target
 | `test --offline --locked -j4 -p vcp-memory --test portable_retention -- --nocapture` | 2 passed on both backends: unadmitted stale proof rejected; preadmitted copy completes while retaining its backup obligation |
 | `test --offline --locked -j4 -p vcp-store --test snapshot_jobs -- --nocapture` | 6 passed after preparation split, including cancelled input validation and stale input-cut rejection |
 | `test --offline --locked -j4 -p vcp-lifecycle --test canonical_host restore_search:: -- --test-threads=1 --nocapture` | 1 passed across both backends: actual retained-preference lexical query, stale-source exclusion, unchanged Untrusted/Paused state, successful token reuse and generation retry without writes |
+| `test --offline --locked -j4 -p vcp-lifecycle --test canonical_host portable_accounting:: -- --test-threads=1 --nocapture` | 1 passed in both cross-backend directions: actual typed settlements, unresolved child liability, root/child graph, historical receipts and idempotent usage replay retained exactly |
+| `test --offline --locked -j4 -p vcp-lifecycle --test canonical_host portable_vectors:: -- --include-ignored --test-threads=1 --nocapture` | 1 passed in both cross-backend directions with pinned MiniLM assets for source preparation: encrypted retained vectors reused exactly without destination inference, stale source vectors excluded, temporary adoption files removed, ready generation retry without writes |
+| `test --offline --locked -j4 -p vcp-lifecycle --lib native_owned_staging -- --nocapture` | 1 passed: native cleanup after success and abandonment, unknown child preserved with explicit cleanup-pending error |
+| `test --offline --locked -j4 -p vcp-memory --test embedding -- --nocapture` | 6 passed; 1 explicit real-model test ignored in this run. Bounded writer rejects before writing and propagates partial write failure; existing graph integrity, scope, cancellation and junction checks pass |
+| `test --offline --locked -j4 -p vcp-lifecycle --test canonical_host backup_checkpoint:: -- --test-threads=1 --nocapture` | 1 passed on both backends after integration: native checkpoint, retained generation, configured backup and authenticated handoff |
 
 The snapshot process-kill fixture covers captured, archive prepared, encrypted, admitted, copy identity retained, partial copy, copied and completed barriers on Files and SQLite. Restore kills cover acquired, validated, import intent, partial spool, sanitized and imported barriers in both cross-backend directions. These are fresh-process recovery tests, not only in-memory stage simulations.
 

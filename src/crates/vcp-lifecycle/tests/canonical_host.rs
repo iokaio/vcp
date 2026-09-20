@@ -22,6 +22,11 @@ mod backup_checkpoint;
 #[cfg(windows)]
 #[path = "support/restore_search.rs"]
 mod restore_search;
+#[cfg(windows)]
+#[path = "support/portable_vectors.rs"]
+mod portable_vectors;
+#[path = "support/portable_accounting.rs"]
+mod portable_accounting;
 #[path = "support/cli_control.rs"]
 mod cli_control;
 #[cfg(windows)]
