@@ -81,6 +81,11 @@ Each linked task supplies code organization, implementation increments and testi
 
 ## First-release dependency closure
 
+The [Markov follow-up ledger](#markov-follow-up-readiness) adds pending increments
+inside existing owners. The architecture dependency graph and historical
+completion evidence below remain unchanged; new consumer behavior needs its own
+implementation and qualification evidence.
+
 The transitive dependency closure of [P8-05](15-integration-and-release.md#p8-05--owner-acceptance-and-release-evaluation) includes all 56 first-release tasks and none of the deferred 12. Maintain this property when changing dependencies.
 
 Special staging relationships:
@@ -91,6 +96,30 @@ Special staging relationships:
 - [P3-05](10-history-and-pruning.md#p3-05--browsing-and-cli-controls) and [P3-06](11-encrypted-portability.md#p3-06--user-commands-and-diagnostics) follow the relevant P5 implementations, while basic CLI work starts earlier.
 - [P5-08](15-integration-and-release.md#p5-08--integrated-memory-acceptance) is the early stage of segment 15 and precedes [P6-04](12-routing-and-optimization.md#p6-04--profile-qualification); it does not require final P8 completion.
 - [P7-04](14-visible-delegation.md#p7-04--graph-and-workspace-ownership) can begin after [P6-03](12-routing-and-optimization.md#p6-03--escalation-and-model-handoff) and [P2-07](06-windows-tools-and-recovery.md#p2-07--pause-and-unknown-effect-reconciliation); final routing qualification and delegation integration are jointly rechecked for release.
+
+## Markov follow-up readiness
+
+Plan revision 13 adds the [Markov execution supplement](21-markov-integration.md).
+This separate ledger prevents earlier completed P2/P5 rows from hiding unfinished
+refactoring. All entries are planned; no product implementation or qualified
+default is delivered by the documentation change. Labels M1–M10 are supplement
+increments, not the architecture's M01–M08 memory tests or new task IDs. When
+implementation lands, update these rows with evidence and refresh affected task
+acceptance. Optional candidates may exit as explicitly rejected/deferred after
+evaluation; they must not silently disappear from release review.
+
+| Increment | Existing owners / prerequisites | Remaining acceptance | State |
+|---|---|---|---|
+| M1 evidence/analysis foundation | P6-02; supporting P1-06/P5-07/P5-10 refactors | Causal retained projection, bounded numeric kernels, costs/unknowns, schema migration, source retention and both-store rebuild/replay | planned |
+| M2 escalation integration | P6-03 after M1 | Canonical advisory lifecycle, exact-cycle rules, separate local statistical shadow provenance, bounded/stale/pause tests | planned |
+| M3 optimizer forecasts | P6-05 after P6-03 implementation and M1 | Read-only expected-cost/outcome/loop reports, censored history, uncertainty and drift; no policy mutation | planned |
+| M4 qualification/consumption | P6-04 and P6-02/03; M2/M3 and P5-08 | Four-arm purpose-specific evidence, qualified estimates, safe activation/fallback, explicit not-run/rejected results | planned |
+| M5 context/retrieval refactors | P2-01/08, P5-06/08; current baseline, M1 for compaction diagnostics | Bounded graph/co-change candidates, refreshed scope/recall/outcome evidence; optional graph fusion justified or rejected | planned |
+| M6 verification refactor | P2-06; current baseline and M1 observations | Required-check set preserved, dependency-aware order, current-revision completion and measured time to useful failure | planned |
+| M7 proposals/bursts | P6-05/03/04 after M3/M4 | Offline supported-action policy tables, selected diffs/rollback and authorized trials; endpoint burst evidence or recorded abstention | planned |
+| M8 child reuse | P7-04/05/06 under existing dependencies | Forecast attribution without double counting, atomic root limits, integrated-parent checks and visible uncertainty | planned |
+| M9 synthetic/release campaign | Segment 16 from M1; final P8-01/02/05 after enabled consumers/P7 | Invented seeded traces and independent oracles; both-store/native packaged behavior and final feature disposition | planned |
+| M10 regime observer | P10-03 after P8-05/P7-06 | Qualified local producer reused with bounded cursors, pause/recovery and matched usefulness evidence | planned |
 
 ## Owner-answer coverage
 

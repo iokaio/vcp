@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Plan revision 12 — September 19, 2026. Delivery uses larger behavioral milestones
+Plan revision 13 — September 20, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded
 qualification already completed from remaining product implementation. Explicit
 pause while the CLI stays open is required alongside close-to-pause.
@@ -14,7 +14,13 @@ deterministic baseline and a conventional OpenRouter LLM comparator/permitted
 fallback. Thin Rust adapters preserve VCP's gateway and lifecycle; LangChain is not
 a runtime dependency. [Transport qualification](../architecture/decision-evaluation-design.md#jev-through-openrouter-qualification)
 and held-out quality evidence precede enabled defaults. Direct TypeSafe access
-outside OpenRouter, remote retrieval and new local models remain unselected.
+outside OpenRouter, remote retrieval and downloaded local semantic models remain
+unselected. The local count-table work below is a separate statistical proposal.
+The [Markov integration sequence](21-markov-integration.md) now adds local
+transition analytics, qualified cost/stall signals, context and verification
+refactors, and later offline policy proposals to the remaining work. It records
+the migration, retention, testing and rollout gates for already implemented
+boundaries; none of these additions is implemented by this plan revision.
 The 68 task IDs and dependencies are unchanged. The P0 milestones below record
 bounded source, lifecycle, storage and retained-integration qualification;
 the final handoff consolidates their evidence for P1.
@@ -82,6 +88,7 @@ the completed feasibility decision and the remaining production work.
 | [18 Deferred VS Code](18-deferred-vscode.md) | Editor context, changes, inspection and packaging | P4-01 through P4-05 |
 | [19 Deferred extensions and platforms](19-deferred-extensions-and-platforms.md) | Hooks, configuration import, observers and later execution hosts | P10-01 through P10-04 |
 | [20 Traceability](20-traceability.md) | All 68 items, exact dependencies, requirements and test ownership | Navigation and coverage ledger |
+| [21 Markov integration](21-markov-integration.md) | Sequenced local analytics, existing-feature refactors, qualification and later reuse | Supporting increments within P2/P5/P6/P7/P8 and deferred P10-03; no new task IDs |
 
 ## Execution order
 
@@ -99,6 +106,16 @@ Segment numbers organize reading; individual task dependencies determine executi
 | Later | P9 then P4; P10 as separately prioritized | The 12 deferred items do not block the Windows CLI |
 
 The first usable release includes coding, automatic selection across groups, persistent local memory, MCP, skills, visible delegation, optimization, full history/pruning, pause/resume and encrypted portable handoff. A fixed-model loop alone is an internal milestone.
+
+For remaining P6 work, use [M1–M4](21-markov-integration.md#scope-and-dependency-order):
+shared retained-evidence foundation first, then canonical escalation integration
+and local shadow signals, read-only optimizer forecasts, and held-out qualification
+before estimate/advice activation. This preserves P6-05's P6-03 prerequisite.
+The M5 context/retrieval and M6 verification follow-ups can proceed independently;
+freeze their selected revisions before final P6 comparison. M7 policy proposals
+follow trustworthy evidence, M8/M9 reuse it in delegation/release, and M10 observers
+stay deferred. The [follow-up ledger](20-traceability.md#markov-follow-up-readiness)
+tracks new scope separately from earlier completed acceptance.
 
 ## How to use one segment
 
@@ -162,6 +179,7 @@ Use a task's existing heading as its implementation entry point. Its expanded in
 | Snapshots, keys and transfer | [Storage and portability](../architecture/storage-portability-design.md) | ADR-003, 015, 019 |
 | Routing, skills, MCP and children | [Routing and extensions](../architecture/routing-extensions-design.md) | ADR-006, 007, 010, 011, 017 |
 | Bounded advisory decisions in P6 | [Decision evaluation](../architecture/decision-evaluation-design.md) and [research adoption map](../architecture/decision-evaluation-design.md#adoption-map) | ADR-006, 007, 020 |
+| Local statistical analysis and existing-feature refactors | [Markov integration and acceptance](21-markov-integration.md), informed by [research](../research/markov.md) | ADR-007, 009, 017, 020; detailed artifact/consumer ADR at M1/M2 implementation |
 | Harness, evaluations and distribution | [Qualification and release](../architecture/qualification-release-design.md) | ADR-012, 018 |
 | Later API, SDK, editor and hosts | [Deferred clients](../architecture/deferred-clients-design.md) | ADR-002, 012, 014 |
 

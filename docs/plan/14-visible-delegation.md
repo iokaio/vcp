@@ -24,6 +24,12 @@ root accounting; retain these cases for P8 release qualification.
 
 ## P7-04 — Graph and workspace ownership
 
+**Planned reuse:** [M8](21-markov-integration.md#m8m10--reuse-and-qualification-campaigns)
+adds qualified child/support/integration forecasts to allocation explanations when
+evidence exists. Atomic root admission and protected verification remain decisive;
+missing child-specific evidence preserves baseline allocation. Do not count child
+charges again in parent forecast totals or require an optional fit for delegation.
+
 1. Implement node states and dependency edges with bounded depth/concurrency, cancellation propagation and resource-conflict scheduling. Parent budget remains authoritative; child allocations subdivide it and every request still reserves atomically.
 2. Select delegation only for a concrete useful subtask; simple tasks may stay single-agent. Support read-only helpers and isolated write children for release.
 3. Materialize a child's base from the intended commit plus relevant staged/unstaged/untracked parent snapshot. A worktree created from HEAD alone is not equivalent to the user's dirty workspace.
@@ -69,6 +75,11 @@ and [root reservations](../architecture/vcp-what.md#81-root-ledger-and-reservati
 
 ## P7-05 — Integration and review
 
+Apply [M6 verification ordering](21-markov-integration.md#m6--verification-order)
+only among ready checks against the integrated parent fingerprint. M8 forecasts
+must include integration and final verification; they cannot accept a child patch
+or substitute child-state passes for parent acceptance.
+
 1. Validate the child packet's scope, base fingerprint and reported changes against actual artifacts/worktree state. Reject edits outside its declared authority and preserve useful read-only findings.
 2. Check the parent has not changed since the selected integration base. Apply a conflict-aware patch/merge through prepared edit policy; conflicting or partially applied results are explicit.
 3. Run appropriate checks against the integrated result. Prior child tests remain evidence about the child state, not proof of the current parent state. Failed integration cannot produce task completion.
@@ -107,6 +118,11 @@ Missing permission to remove a disposable worktree is a cleanup diagnostic, not
 permission to delete its parent directory.
 
 ## P7-06 — Commentary, controls and recovery
+
+For [M8](21-markov-integration.md#m8m10--reuse-and-qualification-campaigns),
+display forecast versus observed cost and any inferred regime with provenance,
+uncertainty and abstention. Pause/recovery applies to local statistical work too;
+no probability or quiet child status can resume scheduling.
 
 Emit durable start, meaningful progress, waiting/blocked, verification, completion/failure and cancellation events. Include child identity, parent, objective, model/group, workspace, current tool/stage and cost. A heartbeat may report unchanged status, but must not invent work or inaccessible private reasoning.
 

@@ -20,6 +20,12 @@ Define `ContextPart` with source ID/type, trust class, scope, source revision/ha
 
 ## P2-01 — Discovery and initial assembly
 
+**Planned follow-up to completed acceptance:** [M5 graph/co-change context](21-markov-integration.md#m5--context-co-change-retrieval-and-compaction)
+refactors optional candidate ranking with bounded personalized PageRank and Git
+co-change evidence, recorded source revisions and lexical/path fallback. Preserve
+mandatory context and all scope/send fences. Qualify useful files per token and
+task outcomes before selecting a default; this addition is not yet implemented.
+
 1. Register stable workspace/root identities independently of absolute paths. Observe Git staged/unstaged/untracked state without resetting it. Additional roots are explicit; a repository name alone cannot unify histories.
 2. Reuse qualified ignore/file-discovery behavior with bounded directory traversal and file sizes. Resolve links/junctions against permitted roots, label binary/generated files and capture content only within policy. Expose skipped inputs and limits.
 3. Load default AGENTS.md from applicable parent/nested scopes. Record exact content/revision and path applicability. Explicit user requirements retain precedence; instructions and skills cannot widen trusted execution policy. Foreign configuration imports stay deferred.
@@ -69,6 +75,12 @@ evidence per token using the same fixture tasks and include failures in the map
 comparison.
 
 ## P2-08 — Refresh and compaction
+
+**Planned follow-up:** [M5](21-markov-integration.md#m5--context-co-change-retrieval-and-compaction)
+adds graph-source invalidation/provenance and matched pre/post-compaction transition
+diagnostics using M1. Preserve pinned correctness fields and distinguish drift
+from proof of a causal defect. Existing compaction acceptance does not qualify
+these new measurements or candidate sources.
 
 1. Refresh affected source/instruction/tool/policy versions before dispatch and after edits. Invalidate prepared work whose steering or relevant preconditions changed.
 2. Pin objective, latest user constraints, current diff/base, unresolved effects/costs, decisions and acceptance work. Selectively compact conversation projection while retaining full original artifacts.

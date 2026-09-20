@@ -158,6 +158,13 @@ unbounded synchronous scanning or a false up-to-date semantic result.
 
 ## P5-06 — Hybrid query and inspection
 
+**Planned follow-up:** [M5's optional memory-graph comparison](21-markov-integration.md#m5--context-co-change-retrieval-and-compaction)
+evaluates a third candidate stream after context graph extraction proves useful.
+Refactor generation/fusion metadata only as needed, filter both vertices and
+edges before traversal, and retain return/dispatch eligibility fences. A shipping
+weight requires refreshed P5-08 held-out evidence; current lexical/vector
+acceptance remains the baseline and proves no graph benefit.
+
 Implemented and qualified in [retrieval and inspection evidence](../development/p5-retrieval.md):
 canonical passage reconstruction, scoped native collection, deterministic fusion,
 local query admission, return/dispatch fences and read-only CLI inspection.

@@ -94,6 +94,13 @@ recorded for deliberate continuation rather than creating a hidden worker daemon
 
 ## P5-10 — Restore and sequential handoff
 
+**Planned supporting refactor for [M1](21-markov-integration.md#m1--retained-evidence-and-analysis-foundation):**
+treat fitted transition/graph models as derived rebuildable state. Restore retained
+canonical evidence and lawful consumed-decision receipts under existing encryption
+and retention rules; invalidate stale fits and rebuild locally. Test missing model
+caches, older schemas and pruned source history without inventing evidence or
+requiring a new portable model asset.
+
 1. Hydrate/download encrypted objects into local staging. Supply the developer's independent recovery identity; authenticate/decrypt the full stream including final-chunk detection before activation.
 2. Verify writer trust, inner inventory, bounds, archive paths/link behavior, hashes, schema versions, source references, generation compatibility, deletion epoch and ancestry. Reject encrypted-but-untrusted new-writer content and valid older replay according to the chosen trust/lineage contract.
 3. Extract into an isolated plaintext local root. Apply resource/expansion limits and ensure no archive entry escapes it. Wrong/missing keys or any failed validation preserve the active environment unchanged.
