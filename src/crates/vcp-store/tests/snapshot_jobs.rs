@@ -69,6 +69,27 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
             .begin(&mut store, id.clone(), &workspace, &trust)
             .await
             .unwrap();
+        let wrong_path = temp.path().join("changed-jobs");
+        std::fs::create_dir(&wrong_path).unwrap();
+        let wrong = Jobs::open(&wrong_path, &forbidden).unwrap();
+        let captured_job = Jobs::inspect(&store, &id, &workspace).unwrap();
+        let before_wrong = store.state().clone();
+        assert!(wrong.resume_capture(&store, &captured_job).is_err());
+        assert!(wrong
+            .release(&mut store, &id, &workspace, true)
+            .await
+            .is_err());
+        assert_eq!(store.state(), &before_wrong);
+        let mut legacy = serde_json::to_value(&captured_job).unwrap();
+        legacy.as_object_mut().unwrap().remove("staging_root");
+        let old: vcp_store::snapshot_jobs::Job = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(old.staging_root.is_none());
+        assert!(jobs.resume_capture(&store, &old).is_err());
+        legacy["active"] = false.into();
+        legacy["stage"] = "cancelled".into();
+        legacy["pins"] = serde_json::json!([]);
+        let historical: vcp_store::snapshot_jobs::Job = serde_json::from_value(legacy).unwrap();
+        assert!(!historical.active && historical.staging_root.is_none());
         assert!(store.try_snapshot_cleanup_guard().unwrap().is_none());
         drop(capture);
         store.close().await.unwrap();
@@ -78,6 +99,15 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
             .await
             .unwrap();
         let prepared = jobs.prepare(&store, capture, &|| false).unwrap();
+        let archive_path = paths[0].join(format!("{id}.archive"));
+        let retained_archive = std::fs::read(&archive_path).unwrap();
+        let before_wrong = store.state().clone();
+        assert!(wrong
+            .release(&mut store, &id, &workspace, true)
+            .await
+            .is_err());
+        assert_eq!(store.state(), &before_wrong);
+        assert_eq!(std::fs::read(&archive_path).unwrap(), retained_archive);
         let job = jobs
             .accept_prepared(&mut store, &workspace, prepared)
             .await
@@ -167,12 +197,34 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
                 Limits::default(),
             )
             .unwrap();
+        let before_release = store.state().clone();
+        let encrypted_path = paths[0].join(format!("{id}.encrypted")).join("object.age");
+        let retained_ciphertext = std::fs::read(&encrypted_path).unwrap();
+        assert!(wrong
+            .reopen_ciphertext(&Jobs::inspect(&store, &id, &workspace).unwrap())
+            .is_err());
+        assert!(wrong
+            .release(&mut store, &id, &workspace, false)
+            .await
+            .is_err());
+        assert_eq!(store.state(), &before_release);
+        assert_eq!(std::fs::read(&encrypted_path).unwrap(), retained_ciphertext);
         let released = jobs
             .release(&mut store, &id, &workspace, false)
             .await
             .unwrap();
         assert!(!released.active);
         assert!(released.pins.is_empty());
+        assert!(!archive_path.exists() && !encrypted_path.exists());
+        let completed = store.state().clone();
+        assert!(
+            !wrong
+                .release(&mut store, &id, &workspace, false)
+                .await
+                .unwrap()
+                .active
+        );
+        assert_eq!(store.state(), &completed);
         let row = store
             .state()
             .record(Collection::Artifact, spec.id.as_str(), &workspace)

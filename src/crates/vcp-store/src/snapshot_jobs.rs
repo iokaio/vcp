@@ -51,6 +51,10 @@ pub struct Job {
     pub deletion: u64,
     pub authority: u64,
     pub source_root: String,
+    /// Historical records may predate this fence. They remain readable, but an
+    /// active legacy job requires explicit reconciliation before local mutation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staging_root: Option<String>,
     pub key_ref: String,
     pub trust_revision: u64,
     pub stage: Stage,
@@ -115,6 +119,14 @@ pub struct PublicationReconciliation {
     job: Job,
 }
 impl Jobs {
+    fn owns(&self, job: &Job) -> Result<()> {
+        match job.staging_root.as_deref() {
+            Some(root) if Path::new(root) == self.directory.path => Ok(()),
+            _ => Err(Error::Conflict(
+                "snapshot staging root differs or is unrecorded; reconciliation required",
+            )),
+        }
+    }
     /// Capture the canonical completed job on its owner. Hashing retained and
     /// vault ciphertext is deferred to `reconcile_publication` off the owner.
     pub fn publication_reconciliation(
@@ -382,6 +394,7 @@ impl Jobs {
             deletion: ws.deletion.get(),
             authority: ws.authority.get(),
             source_root: store.root().to_string_lossy().into_owned(),
+            staging_root: Some(self.directory.path.to_string_lossy().into_owned()),
             key_ref: trust.configuration().selected.key_ref.clone(),
             trust_revision: trust.configuration().revision,
             stage: Stage::Captured,
@@ -401,6 +414,7 @@ impl Jobs {
         })
     }
     pub fn resume_capture(&self, store: &Store, job: &Job) -> Result<Capture> {
+        self.owns(job)?;
         if job.stage != Stage::Captured {
             return Err(Error::Conflict("snapshot already prepared; inspect stage"));
         }
@@ -436,6 +450,7 @@ impl Jobs {
         capture: Capture,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Prepared> {
+        self.owns(&capture.job)?;
         let archive = Archive::capture_with_spool(
             &capture.spool,
             &capture.snapshot,
@@ -465,6 +480,7 @@ impl Jobs {
         prepared: Prepared,
     ) -> Result<Job> {
         let mut job = Self::inspect(store, &prepared.job, workspace)?;
+        self.owns(&job)?;
         if job.revision != prepared.revision || job.stage != Stage::Captured {
             return Err(Error::Conflict("snapshot preparation stale"));
         }
@@ -481,6 +497,7 @@ impl Jobs {
         advance(store, job).await
     }
     fn archive(&self, job: &Job) -> Result<Archive> {
+        self.owns(job)?;
         let bytes =
             crate::artifact::read_bounded(&self.path(&job.id, "archive")?, 16 * 1024 * 1024)?;
         if Some(digest_bytes(&bytes)).as_ref() != job.archive_digest.as_ref() {
@@ -619,6 +636,7 @@ impl Jobs {
         encrypted: Encrypted,
     ) -> Result<Job> {
         let mut job = Self::inspect(store, &encrypted.job, workspace)?;
+        self.owns(&job)?;
         if job.revision != encrypted.revision || job.stage != Stage::ArchiveReady {
             return Err(Error::Conflict("snapshot encryption stale"));
         }
@@ -627,6 +645,7 @@ impl Jobs {
         advance(store, job).await
     }
     pub fn reopen_ciphertext(&self, job: &Job) -> Result<FinalizedCiphertext> {
+        self.owns(job)?;
         FinalizedCiphertext::reopen(
             &self.path(&job.id, "encrypted")?.join("object.age"),
             job.finalization
@@ -671,6 +690,7 @@ impl Jobs {
         prepared: PreparedAdmission,
     ) -> Result<(Job, FinalizedCiphertext, PublicationPermit)> {
         let mut job = Self::inspect(store, &prepared.job.id, workspace)?;
+        self.owns(&job)?;
         if canonical_bytes(&job)? != canonical_bytes(&prepared.job)?
             || prepared.trust_digest != digest_bytes(&canonical_bytes(&trust.configuration())?)
         {
@@ -697,6 +717,7 @@ impl Jobs {
         identity: crate::vault_publish::CopyIdentity,
     ) -> Result<Job> {
         let mut job = Self::inspect(store, id, workspace)?;
+        self.owns(&job)?;
         if job.stage != Stage::Admitted
             || !identity.matches(
                 id,
@@ -720,6 +741,7 @@ impl Jobs {
         receipt: &Published,
     ) -> Result<Job> {
         let mut job = Self::inspect(store, &receipt.operation, workspace)?;
+        self.owns(&job)?;
         let finalization = job
             .finalization
             .as_ref()
@@ -749,6 +771,7 @@ impl Jobs {
         if !job.active {
             return Ok(job);
         }
+        self.owns(&job)?;
         if job.stage == Stage::Admitted && cancel {
             return Err(Error::Conflict(
                 "reconcile admitted vault copy before cancellation",
@@ -856,6 +879,10 @@ pub(crate) fn shape(record: &Record) -> Result<()> {
         || job.pins.len() > 4096
         || job.source_root.len() > 32768
         || !Path::new(&job.source_root).is_absolute()
+        || job
+            .staging_root
+            .as_ref()
+            .is_some_and(|root| root.len() > 32768 || !Path::new(root).is_absolute())
         || (!job.active && !job.pins.is_empty())
         || (!job.active && !matches!(job.stage, Stage::Published | Stage::Cancelled))
         || job.inventory.as_ref().is_some_and(|v| !hash(v))
@@ -978,6 +1005,7 @@ pub(crate) fn transition(before: &Record, after: &Record) -> Result<()> {
         || old.watermark != new.watermark
         || old.state_digest != new.state_digest
         || old.source_root != new.source_root
+        || old.staging_root != new.staging_root
         || old.key_ref != new.key_ref
         || old.trust_revision != new.trust_revision
         || old.deletion != new.deletion
