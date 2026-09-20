@@ -10,6 +10,7 @@ use vcp_domain::{
 use vcp_models::escalation;
 use vcp_models::{
     catalog::{Compatibility, Snapshot},
+    decision,
     routing::*,
 };
 
@@ -272,6 +273,264 @@ impl Fixture {
             escalation::Outcome::Blocked { reason }
         );
     }
+}
+
+fn advisory_input(fixture: &Fixture) -> escalation::AdvisoryInput {
+    let evidence_revision = "f".repeat(64);
+    escalation::AdvisoryInput {
+        binding: decision::Binding {
+            scope: fixture.barrier.current.scope.clone(),
+            root: TaskId::parse("root").unwrap(),
+            step: fixture.barrier.current.task_state,
+            steering: fixture.barrier.current.steering,
+            authority: fixture.barrier.current.authority,
+            deletion: fixture.barrier.current.deletion,
+            policy: fixture.routing.id.clone(),
+            catalog: fixture.catalog.id.clone(),
+            input: "0".repeat(64),
+            evidence: BTreeMap::from([("failed-check".into(), evidence_revision.clone())]),
+        },
+        trigger: fixture.trigger.clone(),
+        counters: fixture.counters.clone(),
+        observations: vec![escalation::AdvisoryObservation {
+            evidence: "failed-check".into(),
+            source_revision: evidence_revision,
+            kind: escalation::ObservationKind::Check,
+            summary: "The same required verification failed twice at the same source revision."
+                .into(),
+        }],
+        permitted_actions: BTreeSet::from([
+            escalation::AdvisoryAction::Retry,
+            escalation::AdvisoryAction::Escalate,
+            escalation::AdvisoryAction::Stop,
+        ]),
+        required_review: true,
+        hard_failure: true,
+        checks_complete: false,
+        deadline: Timestamp::new(100),
+    }
+}
+
+fn decoded_advice(
+    input: &escalation::AdvisoryInput,
+    action: &str,
+    mode: decision::Mode,
+) -> decision::Outcome {
+    let request = escalation::advisory_request(input).unwrap();
+    let evaluator = decision::QualifiedEvaluator {
+        model: "fixture/decision".into(),
+        provider: "fixture".into(),
+        served_model: "fixture/decision-v1".into(),
+        served_provider: "Fixture".into(),
+        operation: decision::Operation::JevDecisions,
+        purpose: decision::Purpose::Escalation,
+        mode,
+        evidence_digest: "a".repeat(64),
+        configuration_digest: "b".repeat(64),
+        valid_until: Timestamp::new(200),
+        require_distributions: true,
+        require_confidence: true,
+        deny_data_collection: true,
+        require_zdr: true,
+        prompt_price_per_million: "0.01".into(),
+        output_price_per_million: "0.01".into(),
+        request_price: "0".into(),
+    };
+    let prepared = decision::prepare(
+        &request,
+        &decision::Policy {
+            mode,
+            evaluator: Some(evaluator),
+            attempt_limit: 1,
+            attempts_used: 0,
+        },
+        Timestamp::new(30),
+    )
+    .unwrap()
+    .unwrap();
+    let (retry, escalate, stop) = match action {
+        "retry" => (0.8, 0.1, 0.1),
+        "escalate" => (0.1, 0.8, 0.1),
+        "stop" => (0.1, 0.1, 0.8),
+        _ => panic!("unsupported fixture action"),
+    };
+    let response = serde_json::json!({
+        "id":"synthetic-advice",
+        "model":"fixture/decision-v1",
+        "provider":"Fixture",
+        "usage":{"input_tokens":20,"output_tokens":10,"cost":0.000001},
+        "answers":{
+            "repeated_strategy":{"type":"noul","noul":0.9},
+            "next_action":{"type":"choice","choice":action,"probabilities":{"retry":retry,"escalate":escalate,"stop":stop},"confidence":0.75},
+            "additional_review":{"type":"noul","noul":0.1}
+        }
+    });
+    decision::decode(
+        &prepared,
+        &serde_json::to_vec(&response).unwrap(),
+        &request.binding,
+        Timestamp::new(31),
+    )
+}
+
+fn advisory_policy() -> escalation::AdvisoryPolicy {
+    escalation::AdvisoryPolicy {
+        minimum_probability_millionths: 700_000,
+        minimum_action_probability_millionths: 700_000,
+        minimum_action_confidence_millionths: 700_000,
+        allow_conventional_discrete: true,
+    }
+}
+
+#[test]
+fn escalation_advice_is_revision_bound_and_review_is_monotonic() {
+    let fixture = Fixture::new();
+    let input = advisory_input(&fixture);
+    let request = escalation::advisory_request(&input).unwrap();
+    assert_eq!(request.purpose, decision::Purpose::Escalation);
+    assert_eq!(
+        request.question_revision,
+        escalation::advisory_question_revision()
+    );
+    assert_eq!(request.binding.evidence, input.binding.evidence);
+    assert_eq!(request.questions.len(), 3);
+
+    let outcome = decoded_advice(&input, "escalate", decision::Mode::Advisory);
+    let escalation::AdvisoryOutcome::Signal { signal } =
+        escalation::consume_advisory(&input, &outcome, advisory_policy()).unwrap()
+    else {
+        panic!("valid advisory signal")
+    };
+    assert_eq!(
+        signal.suggested_action,
+        Some(escalation::AdvisoryAction::Escalate)
+    );
+    assert_eq!(signal.binding, request.binding);
+    assert_eq!(signal.question_revision, request.question_revision);
+    assert!(signal.repeated_strategy_suspected);
+    assert!(!signal.additional_review);
+    assert!(
+        signal.review_required,
+        "advice cannot suppress required review"
+    );
+    assert!(signal.hard_failure);
+    assert!(!signal.checks_complete);
+
+    let mut changed = input.clone();
+    changed.binding.authority = changed.binding.authority.next().unwrap();
+    assert!(escalation::consume_advisory(&changed, &outcome, advisory_policy()).is_err());
+}
+
+#[test]
+fn misleading_advice_cannot_continue_a_capped_loop_or_claim_completion() {
+    let mut fixture = Fixture::new();
+    let input = advisory_input(&fixture);
+    let outcome = decoded_advice(&input, "retry", decision::Mode::Advisory);
+    let escalation::AdvisoryOutcome::Signal { signal } =
+        escalation::consume_advisory(&input, &outcome, advisory_policy()).unwrap()
+    else {
+        panic!("valid advisory signal")
+    };
+    assert!(!signal.checks_complete);
+    assert!(signal.hard_failure);
+
+    fixture.counters.total_attempts = fixture.policy.max_total_attempts;
+    let hard_gate = fixture.evaluate().unwrap();
+    assert_eq!(
+        escalation::constrain_with_advice(hard_gate, Some(signal.as_ref())),
+        escalation::Outcome::Blocked {
+            reason: escalation::Blocked::Limit
+        }
+    );
+}
+
+#[test]
+fn advisory_stop_only_constrains_and_shadow_output_is_not_consumed() {
+    let fixture = Fixture::new();
+    let input = advisory_input(&fixture);
+    let stop = decoded_advice(&input, "stop", decision::Mode::Advisory);
+    let escalation::AdvisoryOutcome::Signal { signal } =
+        escalation::consume_advisory(&input, &stop, advisory_policy()).unwrap()
+    else {
+        panic!("valid advisory signal")
+    };
+    assert_eq!(
+        escalation::constrain_with_advice(fixture.evaluate().unwrap(), Some(signal.as_ref())),
+        escalation::Outcome::Blocked {
+            reason: escalation::Blocked::AdvisoryStop
+        }
+    );
+
+    let shadow = decoded_advice(&input, "escalate", decision::Mode::Shadow);
+    assert!(escalation::consume_advisory(&input, &shadow, advisory_policy()).is_err());
+}
+
+#[test]
+fn conventional_discrete_advice_requires_explicit_consumer_permission() {
+    let fixture = Fixture::new();
+    let input = advisory_input(&fixture);
+    let request = escalation::advisory_request(&input).unwrap();
+    let evaluator = decision::QualifiedEvaluator {
+        model: "fixture/comparator".into(),
+        provider: "fixture".into(),
+        served_model: "fixture/comparator-v1".into(),
+        served_provider: "Fixture".into(),
+        operation: decision::Operation::ConventionalChat,
+        purpose: decision::Purpose::Escalation,
+        mode: decision::Mode::Advisory,
+        evidence_digest: "a".repeat(64),
+        configuration_digest: "b".repeat(64),
+        valid_until: Timestamp::new(200),
+        require_distributions: false,
+        require_confidence: false,
+        deny_data_collection: true,
+        require_zdr: true,
+        prompt_price_per_million: "0.01".into(),
+        output_price_per_million: "0.01".into(),
+        request_price: "0".into(),
+    };
+    let outcome = decision::Outcome::Advice {
+        binding: request.binding,
+        purpose: decision::Purpose::Escalation,
+        question_revision: request.question_revision,
+        request_digest: "c".repeat(64),
+        evaluator,
+        mode: decision::Mode::Advisory,
+        answers: BTreeMap::from([
+            (
+                "repeated_strategy".into(),
+                decision::Answer::DiscreteBoolean { value: true },
+            ),
+            (
+                "next_action".into(),
+                decision::Answer::Choice {
+                    choice: "retry".into(),
+                    probabilities: None,
+                    confidence: None,
+                },
+            ),
+            (
+                "additional_review".into(),
+                decision::Answer::DiscreteBoolean { value: true },
+            ),
+        ]),
+        usage: decision::Usage::default(),
+    };
+    let mut denied = advisory_policy();
+    denied.allow_conventional_discrete = false;
+    assert!(escalation::consume_advisory(&input, &outcome, denied).is_err());
+
+    let escalation::AdvisoryOutcome::Signal { signal } =
+        escalation::consume_advisory(&input, &outcome, advisory_policy()).unwrap()
+    else {
+        panic!("permitted conventional advice")
+    };
+    assert_eq!(
+        signal.suggested_action,
+        Some(escalation::AdvisoryAction::Retry)
+    );
+    assert!(signal.review_required);
+    assert!(signal.additional_review);
 }
 
 #[test]

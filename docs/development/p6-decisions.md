@@ -176,6 +176,30 @@ TLS fixtures prove host mechanics, not service conformance, calibration, utility
 or authorization for paid evaluation. P6-04 live qualification and additional
 advisory consumers remain separate acceptance gates.
 
+## Escalation advisory consumer
+
+P6-03 now defines the typed consumer contract for escalation advice. Its request
+contains at most 64 revision-bound observations classified as actions, errors,
+diffs or checks. The closed questions cover repeated-strategy suspicion, one of
+the explicitly permitted `retry`, `replan`, `escalate` or `stop` actions, and
+whether an additional independent review could add evidence. The question schema
+has its own digest and decoded outcomes retain that digest so a response from a
+different purpose or question revision cannot be consumed.
+
+Trusted integer thresholds accept native probabilities and confidence. Discrete
+answers are usable only for the separately qualified conventional operation when
+the local policy permits them. Advice does not mutate durable counters, add a
+candidate, relax a pin, admit spend, clear a hard failure or mark checks complete.
+`stop` may only constrain an otherwise ready deterministic transition; every other
+suggestion leaves the existing Rust escalation result unchanged. Required review
+is monotonic: advice can add an optional review signal but cannot remove a required
+review or test.
+
+The canonical host still rejects `advisory` configuration. Wiring this consumer
+to separately admitted evaluator attempts, persisting the consumed signal and
+qualifying the purpose remain P6-03/P6-04 acceptance work. Shadow observations
+cannot be reinterpreted as advisory input.
+
 `tests/decision.rs` contains public synthetic fixtures covering disabled/rules
 behavior, native wire controls, invalid batches, probability/score consistency,
 missing fields, unknown costs, stale responses, duplicate/nonfinite JSON,

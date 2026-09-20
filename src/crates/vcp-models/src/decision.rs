@@ -180,6 +180,7 @@ pub enum Outcome {
     Advice {
         binding: Binding,
         purpose: Purpose,
+        question_revision: String,
         request_digest: String,
         evaluator: QualifiedEvaluator,
         mode: Mode,
@@ -698,6 +699,7 @@ pub fn decode(prepared: &Prepared, raw: &[u8], current: &Binding, now: Timestamp
     Outcome::Advice {
         binding: current.clone(),
         purpose: prepared.request.purpose,
+        question_revision: prepared.request.question_revision.clone(),
         request_digest: prepared.digest.clone(),
         evaluator: prepared.evaluator.clone(),
         mode: prepared.mode,
