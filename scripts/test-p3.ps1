@@ -11,7 +11,7 @@ $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $output = Join-Path $repository ('artifacts/p3/' + [guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $manifest = Join-Path $output 'manifest.json'
-$record = [ordered]@{schema_version=1;task_id='P3-01/P3-02';status='running';started_at=[DateTime]::UtcNow.ToString('o');stages=@()}
+$record = [ordered]@{schema_version=1;task_id='P3-01/P3-02/P3-03/P3-04';status='running';started_at=[DateTime]::UtcNow.ToString('o');stages=@()}
 function Save-Record { $record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifest -Encoding utf8 }
 function Stage([string]$Name, [string]$Program, [string[]]$Arguments) {
     $log = Join-Path $output ($Name + '.log')
@@ -41,7 +41,7 @@ try {
     $record.commit = & git -C $repository rev-parse HEAD
     $record.dirty = @(& git -C $repository status --porcelain).Count -ne 0
     $record.platform = [Runtime.InteropServices.RuntimeInformation]::OSDescription
-    $inputs = @('vcp-cli','vcp-domain','vcp-protocol','vcp-store','vcp-engine','vcp-budget','vcp-lifecycle','vcp-models','vcp-tools') | ForEach-Object {
+    $inputs = @('vcp-cli','vcp-domain','vcp-protocol','vcp-store','vcp-engine','vcp-budget','vcp-lifecycle','vcp-models','vcp-tools','vcp-audit','vcp-context','vcp-repository') | ForEach-Object {
         Get-ChildItem -LiteralPath (Join-Path $repository "src/crates/$_") -Recurse -File |
             Where-Object { $_.Extension -in @('.rs','.cjs') -or $_.Name -eq 'Cargo.toml' } |
             ForEach-Object FullName
@@ -60,6 +60,12 @@ try {
             if ($executableLog -notmatch ('test ' + [regex]::Escape($required) + ' \.\.\. ok')) { throw "Required executable qualification did not run: $required" }
         }
         Stage 'native-terminal' 'cargo' ($base + @('-p','vcp-cli','--features','qualification','--test','terminal_console'))
+        foreach ($required in @('executable_startup_chooser_waits_for_explicit_selection_and_allows_blank_exit','executable_startup_discovers_paused_roots_and_rejects_stale_selection_without_send','executable_resume_last_skips_a_newer_completed_root','executable_missing_or_replaced_root_requires_reconciliation_without_dispatch')) {
+            if ($executableLog -notmatch ('test ' + [regex]::Escape($required) + ' \.\.\. ok')) { throw "Required continuation qualification did not run: $required" }
+        }
+        Stage 'inspection-context' 'cargo' ($base + @('-p','vcp-audit','-p','vcp-context','--features','vcp-audit/qualification','--tests'))
+        Stage 'selected-reopen' 'cargo' ($base + @('-p','vcp-lifecycle','--test','canonical_host','selected_reopen'))
+        Stage 'fresh-process-recovery' 'cargo' ($base + @('-p','vcp-lifecycle','--test','canonical_host','fresh_process_history_preserves_actual_unknown_process_paused_child_and_late_charge'))
         if ((Get-Content -LiteralPath (Join-Path $output 'native-terminal.log') -Raw) -notmatch 'test native_keyboard_unicode_resize_explicit_answer_and_close \.\.\. ok') { throw 'Native terminal qualification did not run' }
         Stage 'retained-control' 'cargo' ($base + @('-p','vcp-lifecycle','--test','canonical_host','cli_control_authenticates_before_stopping_and_retries_without_another_effect'))
         if ((Get-Content -LiteralPath (Join-Path $output 'retained-control.log') -Raw) -notmatch 'test cli_control::cli_control_authenticates_before_stopping_and_retries_without_another_effect \.\.\. ok') {

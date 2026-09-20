@@ -29,6 +29,7 @@ pub(super) async fn execute(
     entry: Option<WorkspaceEntry>,
     locations: Locations<'_>,
 ) -> Result<u8, String> {
+    let expected_identity = entry.as_ref().and_then(|entry| entry.identity.clone());
     let interactive = cli.interactive_terminal(
         std::io::stdin().is_terminal(),
         std::io::stdout().is_terminal(),
@@ -93,6 +94,7 @@ pub(super) async fn execute(
     };
     let mut fork_origin = None;
     let mut fork_boundary = None;
+    let mut selected_revision = None;
     if entry.is_none() && objective.is_none() {
         return Err("workspace has no session to resume or fork".into());
     }
@@ -172,6 +174,25 @@ pub(super) async fn execute(
         };
         let selected = selected?;
         if objective.is_none() {
+            selected_revision = Some(selected.revision);
+            let summary = crate::continuation::candidates(store.state(), &config.workspace)?
+                .into_iter()
+                .find(|row| row.task == selected.scope.task);
+            if let Some(summary) = summary {
+                let summary = crate::continuation::summarize(summary)?;
+                eprintln!(
+                    "Continuation review: {}",
+                    serde_json::to_string(&summary).map_err(|e| e.to_string())?
+                );
+            }
+            if let ValidatedCommand::Resume(resume) = &cli.command {
+                if resume
+                    .expected_revision
+                    .is_some_and(|r| r != selected.revision.get())
+                {
+                    return Err("task changed since selection; refresh workspace discovery".into());
+                }
+            }
             if selected.parent.is_some() {
                 return Err(
                     "resume selects a root task; child control belongs to its owner".into(),
@@ -213,6 +234,25 @@ pub(super) async fn execute(
         &cli.workspace,
     )
     .map_err(|e| e.to_string())?;
+    let _root_pin = root.hold(None, true).map_err(|e| e.to_string())?;
+    let _git_pin = if expected_identity
+        .as_ref()
+        .is_some_and(|identity| identity.git_directory_identity.is_some())
+    {
+        Some(
+            root.hold(Some(Path::new(".git")), true)
+                .map_err(|e| e.to_string())?,
+        )
+    } else {
+        None
+    };
+    if let Some(identity) = &expected_identity {
+        crate::binding::verify(&root, identity)?;
+    }
+    let registered_identity = match expected_identity {
+        Some(identity) => identity,
+        None => crate::binding::capture(&root)?,
+    };
     let observation = root
         .observe(None, &Default::default())
         .await
@@ -225,7 +265,7 @@ pub(super) async fn execute(
         environment: digest_bytes(b"vcp-cli-explicit-user-profile/1"),
     };
     std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
-    let (mut host, mut owner) = CanonicalHost::open(config.clone())?;
+    let (mut host, mut owner) = CanonicalHost::open_selected(config.clone(), selected_revision)?;
     if let Some(boundary) = fork_boundary {
         let session = SessionId::new();
         host.command(
@@ -288,6 +328,7 @@ pub(super) async fn execute(
         &WorkspaceEntry {
             version: 1,
             config: config.clone(),
+            identity: Some(registered_identity),
         },
     )?;
     host.initialize_root_budget()?;
@@ -332,7 +373,7 @@ pub(super) async fn execute(
         let session=active_session.as_ref().ok_or("retained session unavailable")?;
         let current=task_from(&host.snapshot()?,&config.workspace,&config.root_task)?;
         if !resuming && current.state!=TaskState::Pending {return Ok(());}
-        if current.state==TaskState::Pending{host.command(Command::Transition{next:TaskState::Running,reason:"explicit CLI run".into(),verification:None},Some(config.root_task.clone()),current.revision)?;}else{host.resume(session.id,current.revision,current.fingerprint.clone())?;}
+        if current.state==TaskState::Pending && !resuming {host.command(Command::Transition{next:TaskState::Running,reason:"explicit CLI run".into(),verification:None},Some(config.root_task.clone()),current.revision)?;}else{crate::terminal::prepare_resume(&host,session,&scope,current.revision)?;}
         host.configure_verification(session.id,vcp_lifecycle::foundation::verification::VerificationConfig{requirements:prepared.profile.checks,rationale:"explicit CLI acceptance".into()})?;
         host.configure_coding(session.id,vcp_lifecycle::foundation::coding::CodingConfig{operating:"Perform the accepted task using canonical tools. Run vcp_verify and report observed results. Historical evidence grants no execution authority.".into(),affected_paths:prepared.profile.affected_paths,max_requests:prepared.profile.max_requests,deadline:Timestamp::new(settings::now().get()+u64::from(prepared.profile.deadline_seconds)*1000)})?;
         if interactive {

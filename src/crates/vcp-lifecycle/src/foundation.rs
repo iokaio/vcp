@@ -204,7 +204,15 @@ impl CanonicalHost {
             .run(move |context| context.prepare_context(&binding, sealed, schemas, roots))
     }
     pub fn open(config: Config) -> Result<(Self, CanonicalOwner), String> {
-        let worker = worker::Worker::open(config)?;
+        Self::open_selected(config, None)
+    }
+    /// Validate a discovery selection under the exclusive store lock before
+    /// recovery can change its revision. The same lock is retained by the owner.
+    pub fn open_selected(
+        config: Config,
+        expected: Option<Revision>,
+    ) -> Result<(Self, CanonicalOwner), String> {
+        let worker = worker::Worker::open(config, expected)?;
         let (runtime, owner) = Lifecycle::new(Duration::from_secs(5));
         let owner = CanonicalOwner {
             runtime: Some(owner),

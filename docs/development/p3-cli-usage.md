@@ -1,7 +1,21 @@
 # Structured native CLI
 
 P3-01 supplies the Windows `vcp` executable, P3-02 supplies its interactive
-terminal and P3-03 supplies paged evidence inspection.
+terminal, P3-03 supplies paged evidence inspection, and P3-04 supplies workspace
+continuation and explicit local rebinding.
+
+Starting `vcp` without a command discovers unfinished tasks. A console offers a
+numbered chooser; Enter leaves all tasks paused. `--format jsonl` or
+`--non-interactive` returns candidates without prompting or provider access.
+Each candidate includes its expected revision and recovery/accounting summary.
+Use `vcp resume TASK --expected-revision N` to reject a stale selection, or
+`vcp resume --last` to explicitly select the most recently active unfinished root.
+
+If a root moved or a legacy binding is unverified, use
+`vcp --workspace DESTINATION rebind WORKSPACE_ID`. Rebinding preserves history in
+the existing data root and invalidates old execution authority. It does not
+resume work; update the destination's user-owned profile and explicitly resume
+after inspection. See [continuation qualification](p3-continuation.md).
 
 Build from `src/third_party/codex/codex-rs` in a native Visual C++ x64 environment:
 

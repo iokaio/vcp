@@ -1,6 +1,6 @@
 # 07 — Interactive CLI, structured output and inspectors
 
-Status: P3-01, P3-02 terminal workflow and P3-03 common inspectors complete; P3-04 planned. Owns P3-01 through P3-04. Begin after P2 verification/recovery/continuity. Memory/history/pruning and vault UI extensions are owned by segments 09–11, not duplicate work here.
+Status: P3-01 through P3-04 complete for their current CLI, inspector and local continuation scope. Owns P3-01 through P3-04. Begin after P2 verification/recovery/continuity. Memory/history/pruning and vault UI extensions are owned by segments 09–11, not duplicate work here.
 
 ## Implementation references
 
@@ -131,6 +131,8 @@ these same pagination/access contracts rather than maintaining another transcrip
 database.
 
 ## P3-04 — Workspace continuation
+
+Implemented: [native continuation, selection and rebinding evidence](../development/p3-continuation.md).
 
 Starting `vcp` resolves durable workspace identity, then summarizes unfinished tasks. A single resumable task offers one-step continuation; multiple tasks use a chooser. `vcp resume --last` is explicit automation selection, not an automatic replay on startup.
 

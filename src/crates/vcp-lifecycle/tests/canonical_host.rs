@@ -43,6 +43,8 @@ mod process_broker;
 mod provider_retries;
 #[path = "support/response_boundary.rs"]
 mod response_boundary;
+#[path = "support/selected_reopen.rs"]
+mod selected_reopen;
 #[cfg(windows)]
 #[path = "support/verification.rs"]
 mod verification;

@@ -5,7 +5,7 @@ use crate::{outcome::Outcome, session::Session};
 use codex_protocol::protocol::EventMsg;
 use std::time::Duration;
 use vcp_audit::inspection::{InspectionQuery, RangeRequest, View};
-use vcp_domain::{ids::*, task::TaskState};
+use vcp_domain::{ids::*, revision::Revision, task::TaskState};
 use vcp_lifecycle::foundation::CanonicalHost;
 use vcp_protocol::command::{Approval, ApprovalState, Command};
 
@@ -77,16 +77,26 @@ async fn submit(host: &CanonicalHost, session: &Session, scope: &Scope) -> Resul
     Ok(())
 }
 
-/// The same continuation entry point can serve workspace reopening. Canonical
-/// pause still fences dispatch while the retained hold is being released.
-pub async fn resume(host: &CanonicalHost, session: &Session, scope: &Scope) -> Result<(), String> {
+/// Shared admission for an open terminal and an explicitly selected reopened
+/// task. The caller must configure current coding/provider bindings first.
+/// This never submits a turn; canonical pause fences dispatch while the retained
+/// hold is released, and host resume checks current files, policy and budget.
+pub fn prepare_resume(
+    host: &CanonicalHost,
+    session: &Session,
+    scope: &Scope,
+    expected: Revision,
+) -> Result<(), String> {
     let task = current(host, scope)?;
+    if task.scope != *scope || task.revision != expected {
+        return Err("resume selection changed; inspect and select the task again".into());
+    }
     if task.state.terminal() || task.state == TaskState::Running {
         return Err("resume requires a suspended task".into());
     }
     let outcome = Outcome::read(host, scope)?;
     if !outcome.approvals.is_empty() {
-        return Err("answer pending questions before /resume".into());
+        return Err("answer pending questions before resume".into());
     }
     host.reconcile_effects()?;
     let retained = host
@@ -98,7 +108,13 @@ pub async fn resume(host: &CanonicalHost, session: &Session, scope: &Scope) -> R
             .resume(session.id, &retained.revision)
             .map_err(|e| format!("resume waits for interruption: {e:?}"))?;
     }
-    host.resume(session.id, task.revision, task.fingerprint)?;
+    host.resume(session.id, expected, task.fingerprint)?;
+    Ok(())
+}
+
+pub async fn resume(host: &CanonicalHost, session: &Session, scope: &Scope) -> Result<(), String> {
+    let expected = current(host, scope)?.revision;
+    prepare_resume(host, session, scope, expected)?;
     if let Err(error) = submit(host, session, scope).await {
         stop(host, scope, TaskState::Paused)?;
         return Err(error);

@@ -38,6 +38,11 @@ pub struct Cli {
 }
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Reconcile retained history with the explicitly selected local root.
+    Rebind {
+        #[arg(value_parser = workspace_id)]
+        workspace_id: WorkspaceId,
+    },
     Run(Run),
     Resume(Resume),
     Sessions {
@@ -82,6 +87,9 @@ pub struct Resume {
     pub task: Option<TaskId>,
     #[arg(long)]
     pub last: bool,
+    /// Reject a stale workspace chooser selection.
+    #[arg(long, requires = "task")]
+    pub expected_revision: Option<u64>,
 }
 #[derive(Debug, Subcommand)]
 pub enum Sessions {
@@ -160,6 +168,8 @@ impl ValidatedCli {
 }
 
 pub enum ValidatedCommand {
+    Discover,
+    Rebind(WorkspaceId),
     Run(ValidatedRun),
     Resume(Resume),
     Sessions(Sessions),
@@ -178,39 +188,45 @@ impl Cli {
         if !workspace.is_dir() || workspace.to_str().is_none() {
             return Err("workspace must be a Unicode directory".into());
         }
-        let command = match self.command.ok_or("a command is required")? {
-            Command::Run(run) => ValidatedCommand::Run(run.validate(persisted_cap)?),
-            Command::Resume(resume) => ValidatedCommand::Resume(resume),
-            Command::Sessions { command } => ValidatedCommand::Sessions(command),
-            Command::Tasks { command } => ValidatedCommand::Tasks(command),
-            Command::Inspect {
-                id,
-                view,
-                limit,
-                cursor,
-                offset,
-                length,
-            } => {
-                let view =
-                    serde_json::from_value(serde_json::to_value(view).map_err(|e| e.to_string())?)
-                        .map_err(|e| e.to_string())?;
-                let cursor = cursor
-                    .map(|s| {
-                        serde_json::from_str(&s).map_err(|_| "invalid inspection cursor".to_owned())
-                    })
-                    .transpose()?;
-                ValidatedCommand::Inspect {
-                    request: vcp_audit::inspection::InspectionQuery {
-                        id,
-                        view,
-                        limit,
-                        cursor,
-                        range: offset.zip(length).map(|(offset, length)| {
-                            vcp_audit::inspection::RangeRequest { offset, length }
-                        }),
-                    },
+        let command = match self.command {
+            None => ValidatedCommand::Discover,
+            Some(command) => match command {
+                Command::Rebind { workspace_id } => ValidatedCommand::Rebind(workspace_id),
+                Command::Run(run) => ValidatedCommand::Run(run.validate(persisted_cap)?),
+                Command::Resume(resume) => ValidatedCommand::Resume(resume),
+                Command::Sessions { command } => ValidatedCommand::Sessions(command),
+                Command::Tasks { command } => ValidatedCommand::Tasks(command),
+                Command::Inspect {
+                    id,
+                    view,
+                    limit,
+                    cursor,
+                    offset,
+                    length,
+                } => {
+                    let view = serde_json::from_value(
+                        serde_json::to_value(view).map_err(|e| e.to_string())?,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    let cursor = cursor
+                        .map(|s| {
+                            serde_json::from_str(&s)
+                                .map_err(|_| "invalid inspection cursor".to_owned())
+                        })
+                        .transpose()?;
+                    ValidatedCommand::Inspect {
+                        request: vcp_audit::inspection::InspectionQuery {
+                            id,
+                            view,
+                            limit,
+                            cursor,
+                            range: offset.zip(length).map(|(offset, length)| {
+                                vcp_audit::inspection::RangeRequest { offset, length }
+                            }),
+                        },
+                    }
                 }
-            }
+            },
         };
         Ok(ValidatedCli {
             workspace,
@@ -294,6 +310,9 @@ pub fn parse_usd(value: &str) -> Result<Micros, String> {
 }
 fn task_id(value: &str) -> Result<TaskId, String> {
     TaskId::parse(value).map_err(|_| "invalid task ID".into())
+}
+fn workspace_id(value: &str) -> Result<WorkspaceId, String> {
+    WorkspaceId::parse(value).map_err(|_| "invalid workspace ID".into())
 }
 fn scoped_id(value: &str) -> Result<String, String> {
     TaskId::parse(value)
