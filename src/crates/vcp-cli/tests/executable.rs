@@ -77,6 +77,10 @@ impl Fixture {
         }
     }
     async fn terminal(&self, objective: &str) -> codex_utils_pty::SpawnedProcess {
+        self.terminal_args(&["run", objective, "--autonomy", "autonomous"])
+            .await
+    }
+    async fn terminal_args(&self, command: &[&str]) -> codex_utils_pty::SpawnedProcess {
         use codex_utils_pty::{spawn_pty_process, TerminalSize};
         use std::collections::HashMap;
         let mut environment: HashMap<String, String> = std::env::vars().collect();
@@ -84,18 +88,15 @@ impl Fixture {
             "OPENROUTER_API_KEY".into(),
             "synthetic-cli-qualification".into(),
         );
-        let args: Vec<String> = vec![
+        let mut args: Vec<String> = vec![
             "--workspace".into(),
             self.workspace.to_string_lossy().into_owned(),
             "--data-dir".into(),
             self.data.to_string_lossy().into_owned(),
             "--config".into(),
             self.profile.to_string_lossy().into_owned(),
-            "run".into(),
-            objective.into(),
-            "--autonomy".into(),
-            "autonomous".into(),
         ];
+        args.extend(command.iter().map(|argument| (*argument).to_owned()));
         spawn_pty_process(
             env!("CARGO_BIN_EXE_vcp"),
             &args,
@@ -159,6 +160,28 @@ impl Fixture {
         .await
         .expect("CLI subprocess deadline")
         .unwrap()
+    }
+
+    async fn paused_before_send(&self, objective: &str) -> String {
+        let mut child = self
+            .command(&["run", objective, "--autonomy", "autonomous"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        drop(child.stdout.take());
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(90),
+            tokio::task::spawn_blocking(move || child.wait_with_output().unwrap()),
+        )
+        .await
+        .expect("closed consumer pause deadline")
+        .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        let task = self.task_id();
+        let status = self.run(&["tasks", "status", &task]).await;
+        assert_eq!(records(&status)[0]["data"]["records"][0]["state"], "paused");
+        task
     }
 }
 fn records(output: &Output) -> Vec<Value> {
@@ -461,6 +484,12 @@ async fn executable_terminal_pauses_steers_resizes_and_resumes_in_same_console()
             "paused input dispatched work"
         );
         eprintln!("terminal qualification: guidance applied, resuming");
+        fs::write(fixture.workspace.join("value.txt"), "43\n").unwrap();
+        fs::write(
+            fixture.workspace.join("AGENTS.md"),
+            "Preserve the continuation-instruction-marker-43 input change.\n",
+        )
+        .unwrap();
         child
             .session
             .resize(TerminalSize {
@@ -476,6 +505,14 @@ async fn executable_terminal_pauses_steers_resizes_and_resumes_in_same_console()
             }
         }
         eprintln!("terminal qualification: resumed, cancelling");
+        let requests = server.received_requests().await.unwrap();
+        assert!(
+            requests.iter().skip(request_count).any(|request| {
+                String::from_utf8_lossy(&request.body)
+                    .contains("continuation-instruction-marker-43")
+            }),
+            "resumed provider request must use externally changed instructions"
+        );
         writer.send(b"/cancel\r".to_vec()).await.unwrap();
         let exit = (&mut child.exit_rx).await.unwrap();
         assert!(
@@ -522,7 +559,7 @@ async fn executable_terminal_pauses_steers_resizes_and_resumes_in_same_console()
     assert!(!text.contains("synthetic-cli-qualification"));
     assert_eq!(
         fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
-        "41\n"
+        "43\n"
     );
 }
 
@@ -660,6 +697,283 @@ async fn executable_terminal_question_requires_explicit_answer_and_resume() {
         "explicit answer receipt was not rendered: {text}"
     );
     assert!(!text.contains("synthetic-cli-qualification"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_startup_chooser_waits_for_explicit_selection_and_allows_blank_exit() {
+    use std::time::Duration;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(response(0, "complete"))
+                .set_delay(Duration::from_secs(30)),
+        )
+        .mount(&server)
+        .await;
+    let fixture = Fixture::new(&server.uri(), "complete");
+    let first = fixture.paused_before_send("Older chooser objective").await;
+    let second = fixture.paused_before_send("Newest chooser objective").await;
+    for choose in [false, true] {
+        let mut child = fixture.terminal_args(&[]).await;
+        let writer = child.session.writer_sender();
+        let (display, mut observed) = tokio::sync::watch::channel(String::new());
+        let output = tokio::spawn(async move {
+            let mut bytes = Vec::new();
+            while let Some(chunk) = child.stdout_rx.recv().await {
+                assert!(bytes.len() + chunk.len() <= 2 * 1024 * 1024);
+                bytes.extend(chunk);
+                display.send_replace(String::from_utf8_lossy(&bytes).into_owned());
+            }
+            bytes
+        });
+        let exercise = async {
+            loop {
+                if observed
+                    .borrow()
+                    .contains("press Enter to leave it paused:")
+                {
+                    break;
+                }
+                observed
+                    .changed()
+                    .await
+                    .expect("chooser exited before prompt");
+            }
+            let prompt = observed.borrow().clone();
+            assert!(prompt.contains(&first) && prompt.contains(&second));
+            assert!(server.received_requests().await.unwrap().is_empty());
+            writer
+                .send(if choose {
+                    b"1\r".to_vec()
+                } else {
+                    b"\r".to_vec()
+                })
+                .await
+                .unwrap();
+            if choose {
+                while server.received_requests().await.unwrap().is_empty() {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                let status = fixture.run(&["tasks", "status", &second]).await;
+                assert_eq!(
+                    records(&status)[0]["data"]["records"][0]["state"],
+                    "running"
+                );
+                let status = fixture.run(&["tasks", "status", &first]).await;
+                assert_eq!(records(&status)[0]["data"]["records"][0]["state"], "paused");
+                writer.send(b"/exit\r".to_vec()).await.unwrap();
+            }
+            let exit = (&mut child.exit_rx).await.unwrap();
+            if !choose {
+                assert_eq!(exit, 0);
+                assert!(server.received_requests().await.unwrap().is_empty());
+            }
+        };
+        let result = tokio::time::timeout(Duration::from_secs(30), exercise).await;
+        child.session.terminate();
+        let captured = tokio::time::timeout(Duration::from_secs(5), output)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            result.is_ok(),
+            "chooser exercise timed out: {}",
+            String::from_utf8_lossy(&captured)
+        );
+        for task in [&first, &second] {
+            let status = fixture.run(&["tasks", "status", task]).await;
+            assert_eq!(records(&status)[0]["data"]["records"][0]["state"], "paused");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_startup_discovers_paused_roots_and_rejects_stale_selection_without_send() {
+    let server = MockServer::start().await;
+    let fixture = Fixture::new(&server.uri(), "complete");
+    let first = fixture
+        .paused_before_send("First unfinished objective")
+        .await;
+    let second = fixture
+        .paused_before_send("Second unfinished objective")
+        .await;
+    assert_ne!(first, second);
+    let mut command = fixture.command(&[]);
+    command.env_remove("OPENROUTER_API_KEY");
+    let startup = tokio::task::spawn_blocking(move || command.output().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        startup.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&startup.stderr)
+    );
+    let values = records(&startup);
+    let candidates = values[0]["data"]["candidates"].as_array().unwrap();
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(candidates[0]["task"], second);
+    assert_eq!(candidates[1]["task"], first);
+    for candidate in candidates {
+        assert_eq!(candidate["state"], "paused");
+        assert!(
+            candidate["expected_revision"]
+                .as_str()
+                .unwrap()
+                .parse::<u64>()
+                .unwrap()
+                > 0
+        );
+    }
+    let stale = fixture
+        .run(&["resume", &second, "--expected-revision", "0"])
+        .await;
+    assert_eq!(stale.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&stale.stderr).contains("revision")
+            || String::from_utf8_lossy(&stale.stderr).contains("selection")
+    );
+    assert!(server.received_requests().await.unwrap().is_empty());
+    for task in [&first, &second] {
+        let status = fixture.run(&["tasks", "status", task]).await;
+        assert_eq!(records(&status)[0]["data"]["records"][0]["state"], "paused");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_missing_or_replaced_root_requires_reconciliation_without_dispatch() {
+    let server = MockServer::start().await;
+    let mut fixture = Fixture::new(&server.uri(), "complete");
+    let task = fixture
+        .paused_before_send("Preserve this moved workspace")
+        .await;
+    let original = records(&fixture.run(&[]).await);
+    let workspace_id = original[0]["data"]["workspace"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let moved = fixture._temp.path().join("moved-workspace");
+    fs::rename(&fixture.workspace, &moved).unwrap();
+    let missing = fixture.run(&[]).await;
+    assert_eq!(missing.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("rebind"));
+    fs::create_dir(&fixture.workspace).unwrap();
+    let replacement = fixture.run(&[]).await;
+    assert_eq!(replacement.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&replacement.stderr).contains("rebind"));
+    assert_eq!(fs::read_to_string(moved.join("value.txt")).unwrap(), "41\n");
+    assert_eq!(
+        fixture.task_id(),
+        task,
+        "history descriptor must be preserved"
+    );
+    assert!(server.received_requests().await.unwrap().is_empty());
+    fixture.workspace = moved;
+    let rebound = fixture.run(&["rebind", &workspace_id]).await;
+    assert_eq!(
+        rebound.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&rebound.stderr)
+    );
+    let rebound_values = records(&rebound);
+    let result = &rebound_values[0]["data"];
+    assert_eq!(result["workspace"], workspace_id);
+    assert_eq!(result["rebound"], true);
+    assert_eq!(result["trust"], "untrusted");
+    assert_eq!(result["history_preserved"], true);
+    assert_eq!(result["tasks_resumed"], false);
+    let startup = fixture.run(&[]).await;
+    assert_eq!(
+        startup.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&startup.stderr)
+    );
+    let startup_values = records(&startup);
+    assert_eq!(startup_values[0]["data"]["workspace"], workspace_id);
+    let candidates = startup_values[0]["data"]["candidates"].as_array().unwrap();
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0]["task"], task);
+    assert_eq!(candidates[0]["state"], "paused");
+    let repeated = fixture.run(&["rebind", &workspace_id]).await;
+    assert_eq!(
+        repeated.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&repeated.stderr)
+    );
+    let repeated_values = records(&repeated);
+    assert_eq!(repeated_values[0]["data"]["rebound"], false);
+    assert_eq!(repeated_values[0]["data"]["authority"], result["authority"]);
+    assert_eq!(
+        repeated_values[0]["data"]["binding_revision"],
+        result["binding_revision"]
+    );
+    assert_eq!(repeated_values[0]["data"]["trust"], "untrusted");
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_resume_last_skips_a_newer_completed_root() {
+    let server = MockServer::start().await;
+    let count = Arc::new(AtomicUsize::new(0));
+    let calls = count.clone();
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(move |_: &wiremock::Request| {
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(response(
+                    calls.fetch_add(1, Ordering::SeqCst) % 3,
+                    "complete",
+                ))
+        })
+        .mount(&server)
+        .await;
+    let fixture = Fixture::new(&server.uri(), "complete");
+    let paused = fixture
+        .paused_before_send("Change value to 42 and verify the older objective")
+        .await;
+    let completed = fixture
+        .run(&[
+            "run",
+            "Change value to 42 and verify",
+            "--autonomy",
+            "autonomous",
+        ])
+        .await;
+    assert_eq!(
+        completed.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&completed.stderr)
+    );
+    let completed_values = records(&completed);
+    assert_ne!(completed_values.last().unwrap()["scope"]["task"], paused);
+    let before = count.load(Ordering::SeqCst);
+    let startup = fixture.run(&[]).await;
+    assert_eq!(startup.status.code(), Some(0));
+    let startup_values = records(&startup);
+    let candidates = startup_values[0]["data"]["candidates"].as_array().unwrap();
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0]["task"], paused);
+    assert_eq!(count.load(Ordering::SeqCst), before);
+    fs::write(fixture.workspace.join("value.txt"), "41\n").unwrap();
+    let resumed = fixture.run(&["resume", "--last"]).await;
+    let resumed_values = records(&resumed);
+    assert_eq!(
+        resumed.status.code(),
+        Some(0),
+        "{} {}",
+        String::from_utf8_lossy(&resumed.stderr),
+        resumed_values.last().unwrap()
+    );
+    assert_eq!(resumed_values.last().unwrap()["scope"]["task"], paused);
+    assert!(count.load(Ordering::SeqCst) > before);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

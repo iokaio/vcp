@@ -23,6 +23,7 @@ use vcp_store::{
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub enum Query {
+    Continuation,
     Sessions,
     Task {
         task: TaskId,
@@ -34,6 +35,10 @@ pub enum Query {
 
 pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Value, String> {
     let selected: Vec<Value> = match query {
+        Query::Continuation => {
+            return serde_json::to_value(crate::continuation::discover(state, workspace)?)
+                .map_err(|e| e.to_string())
+        }
         Query::Sessions => state
             .records
             .values()
@@ -113,19 +118,12 @@ fn latest(
     workspace: &WorkspaceId,
     session: Option<&SessionId>,
 ) -> Result<Task, String> {
-    for event in state.events.iter().rev() {
-        if event.event.workspace != *workspace || session.is_some_and(|s| s != &event.event.session)
-        {
-            continue;
-        }
-        if let Some(id) = &event.event.task {
-            let task = task_from(state, workspace, id)?;
-            if task.parent.is_none() {
-                return Ok(task);
-            }
-        }
-    }
-    Err("no task is available to resume".into())
+    let candidates = crate::continuation::candidates(state, workspace)?;
+    let selected = candidates
+        .iter()
+        .find(|task| session.is_none_or(|s| s == &task.session))
+        .ok_or("no unfinished task is available to resume")?;
+    task_from(state, workspace, &selected.task)
 }
 struct DisplayOutput {
     jsonl: bool,
@@ -163,11 +161,77 @@ fn command_result(format: Format, data: Value) -> Result<u8, String> {
     Ok(0)
 }
 
+async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, String> {
+    use std::io::{BufRead, IsTerminal};
+    if !cli.interactive_terminal(
+        std::io::stdin().is_terminal(),
+        std::io::stdout().is_terminal(),
+        std::io::stderr().is_terminal(),
+    ) {
+        return command_result(cli.format, value);
+    }
+    let rows = value["candidates"]
+        .as_array()
+        .ok_or("invalid continuation response")?;
+    if rows.is_empty() {
+        return command_result(cli.format, value);
+    }
+    for (index, row) in rows.iter().enumerate() {
+        // Escape all stored text, including objective and filenames.
+        writeln!(std::io::stderr(), "{}: {}", index + 1, row).map_err(|e| e.to_string())?;
+    }
+    if value["truncated"] == true {
+        eprintln!("More tasks exist; use an explicit task ID to resume an unlisted task.");
+    }
+    eprintln!("Resume a task by number, or press Enter to leave it paused:");
+    let choice = tokio::task::spawn_blocking(|| {
+        let mut bytes = Vec::new();
+        let mut input = std::io::stdin().lock();
+        std::io::Read::take(&mut input, 65)
+            .read_until(b'\n', &mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() > 64 {
+            return Err("selection exceeds 64 bytes".to_owned());
+        }
+        String::from_utf8(bytes).map_err(|_| "selection must be UTF-8".to_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if choice.trim().is_empty() {
+        return Ok(0);
+    }
+    let index = choice
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .ok_or("select a displayed task number")?;
+    let row = rows.get(index).ok_or("select a displayed task number")?;
+    let task = serde_json::from_value(row["task"].clone()).map_err(|_| "invalid task selection")?;
+    let expected_revision: vcp_domain::revision::Revision =
+        serde_json::from_value(row["expected_revision"].clone())
+            .map_err(|_| "invalid task revision")?;
+    Box::pin(run(Cli {
+        workspace: cli.workspace,
+        data_dir: cli.data_dir,
+        config: cli.config,
+        format: cli.format,
+        non_interactive: cli.non_interactive,
+        control_stdin: cli.control_stdin,
+        command: Some(crate::args::Command::Resume(Resume {
+            task: Some(task),
+            last: false,
+            expected_revision: Some(expected_revision.get()),
+        })),
+    }))
+    .await
+}
+
 pub async fn run(cli: Cli) -> Result<u8, String> {
     let workspace = cli
         .workspace
         .canonicalize()
-        .map_err(|_| "workspace is unavailable")?;
+        .map_err(|_| "workspace is unavailable; restore its root or explicitly rebind/reconcile its durable history before continuing")?;
     let data = settings::local_path(
         &cli.data_dir
             .clone()
@@ -175,8 +239,21 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             .unwrap_or_else(settings::default_data)?,
         &workspace,
     )?;
-    let key = digest_bytes(workspace.to_string_lossy().to_lowercase().as_bytes());
-    let directory = settings::local_path(&data.join("workspaces").join(&key), &workspace)?;
+    let path_key = digest_bytes(workspace.to_string_lossy().to_lowercase().as_bytes());
+    let existing_directory = if matches!(cli.command, Some(crate::args::Command::Rebind { .. })) {
+        None
+    } else {
+        settings::workspace_directory(&data, &workspace)?
+    };
+    let directory = existing_directory.unwrap_or(settings::local_path(
+        &data.join("workspaces").join(&path_key),
+        &workspace,
+    )?);
+    let key = directory
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or("invalid workspace directory")?
+        .to_owned();
     let entry_path = directory.join("workspace.json");
     let pipe = control::pipe(&digest_bytes(
         format!("{}:{key}", data.display())
@@ -219,9 +296,15 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         .map(parse_usd)
         .transpose()?;
     let cli = cli.validate(cap)?;
+    if let ValidatedCommand::Rebind(id) = &cli.command {
+        return command_result(
+            cli.format,
+            crate::rebind::rebind(&data, &workspace, id).await?,
+        );
+    }
     let entry: Option<WorkspaceEntry> = if entry_path.exists() {
         Some(
-            serde_json::from_slice(&settings::read_bounded(&entry_path, 256 * 1024)?)
+            serde_json::from_slice(&settings::read_workspace_descriptor(&data, &entry_path)?)
                 .map_err(|_| "invalid workspace descriptor")?,
         )
     } else {
@@ -234,8 +317,24 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         {
             return Err("workspace descriptor binding mismatch".into());
         }
+        let root = vcp_repository::Root::open(
+            vcp_repository::RootIdentity {
+                workspace: entry.config.workspace.clone(),
+                root: RootId::parse(entry.config.workspace.as_str()).map_err(|e| e.to_string())?,
+                repository: entry.config.binding.repository.clone(),
+                worktree: entry.config.binding.worktree.clone(),
+                binding: entry.config.binding.revision,
+            },
+            &workspace,
+        )
+        .map_err(|e| format!("workspace requires rebind/reconcile: {e}"))?;
+        let identity = entry.identity.as_ref().ok_or_else(|| format!(
+            "legacy workspace binding is unverified; run vcp rebind {} to reconcile the current root", entry.config.workspace
+        ))?;
+        crate::binding::verify(&root, identity)?;
     }
     let read = match &cli.command {
+        ValidatedCommand::Discover => Some(Query::Continuation),
         ValidatedCommand::Sessions(Sessions::List) => Some(Query::Sessions),
         ValidatedCommand::Tasks(Tasks::Status { task }) => Some(Query::Task { task: task.clone() }),
         ValidatedCommand::Inspect { request } => Some(Query::Inspect {
@@ -244,7 +343,15 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         _ => None,
     };
     if let Some(query_request) = read {
-        let entry = entry.as_ref().ok_or("workspace has no durable session")?;
+        let Some(entry) = entry.as_ref() else {
+            if matches!(query_request, Query::Continuation) {
+                return command_result(
+                    cli.format,
+                    json!({"candidates":[],"truncated":false,"message":"No unfinished tasks. Use vcp run to start a task."}),
+                );
+            }
+            return Err("workspace has no durable session".into());
+        };
         let store = Store::open(
             &entry.config.canonical_root,
             entry.config.backend,
@@ -269,6 +376,9 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             }
             Err(error) => return Err(error.to_string()),
         };
+        if matches!(cli.command, ValidatedCommand::Discover) {
+            return discover_selection(cli, value).await;
+        }
         return command_result(cli.format, value);
     }
     if let ValidatedCommand::Tasks(stop) = &cli.command {

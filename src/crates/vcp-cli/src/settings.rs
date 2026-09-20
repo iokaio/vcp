@@ -281,6 +281,149 @@ impl Profile {
 pub struct WorkspaceEntry {
     pub version: u32,
     pub config: vcp_lifecycle::foundation::Config,
+    #[serde(default)]
+    pub identity: Option<crate::binding::WorkspaceIdentity>,
+}
+
+/// Descriptors are local hints. The caller still validates canonical identity
+/// and obtains the store lock before any operation that can change state.
+pub fn workspace_directory(data: &Path, workspace: &Path) -> Result<Option<PathBuf>, String> {
+    if !data.exists() {
+        return Ok(None);
+    }
+    let root = registry_root(data)?;
+    let base = data.join("workspaces");
+    let _base_pin = match root.hold(Some(Path::new("workspaces")), true) {
+        Ok(pin) => pin,
+        Err(vcp_repository::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(None)
+        }
+        Err(_) => return Err("workspace registry is unavailable or redirected".into()),
+    };
+    let workspace_root = registry_root(workspace)?;
+    let workspace_pin = workspace_root
+        .hold(None, true)
+        .map_err(|_| "workspace root changed during discovery")?;
+    let mut found = None;
+    let mut moved = None;
+    for (index, item) in fs::read_dir(&base).map_err(|e| e.to_string())?.enumerate() {
+        if index >= 4096 {
+            return Err("workspace registry exceeds discovery limit".into());
+        }
+        let item = item.map_err(|e| e.to_string())?;
+        let kind = item.file_type().map_err(|e| e.to_string())?;
+        if kind.is_symlink() {
+            return Err("workspace registry directory is redirected".into());
+        }
+        if !kind.is_dir() {
+            continue;
+        }
+        let relative = Path::new("workspaces").join(item.file_name());
+        let _directory_pin = root
+            .hold(Some(&relative), true)
+            .map_err(|_| "workspace registry directory is unavailable or redirected")?;
+        let source = match root.read(&relative.join("workspace.json"), 256 * 1024) {
+            Ok(source) => source,
+            Err(vcp_repository::Error::Io(error))
+                if error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                continue
+            }
+            Err(_) => return Err("workspace descriptor is unavailable or redirected".into()),
+        };
+        let entry: WorkspaceEntry = serde_json::from_slice(&source.bytes)
+            .map_err(|_| "invalid workspace registry descriptor")?;
+        if Path::new(&entry.config.binding.root) == workspace {
+            if found.is_some() {
+                return Err("ambiguous workspace binding; reconcile the registry".into());
+            }
+            found = Some(data.join(relative));
+        } else if entry
+            .identity
+            .as_ref()
+            .is_some_and(|identity| identity.directory_identity == workspace_pin.native_identity)
+        {
+            moved = Some(entry.config.workspace);
+        }
+    }
+    if found.is_none() {
+        if let Some(id) = moved {
+            return Err(format!("workspace root moved; run vcp rebind {id} at this root to reconcile its retained history"));
+        }
+    }
+    Ok(found)
+}
+
+fn registry_root(data: &Path) -> Result<vcp_repository::Root, String> {
+    vcp_repository::Root::open(
+        vcp_repository::RootIdentity {
+            workspace: vcp_domain::WorkspaceId::new(),
+            root: vcp_domain::RootId::new(),
+            repository: "local-workspace-registry".into(),
+            worktree: "local-workspace-registry".into(),
+            binding: Revision::ZERO,
+        },
+        data,
+    )
+    .map_err(|_| "local workspace registry root is unavailable or redirected".into())
+}
+
+/// Recheck no-follow containment when consuming a descriptor after discovery.
+/// The directory chosen by an earlier scan does not authorize redirected reads.
+pub fn read_workspace_descriptor(data: &Path, path: &Path) -> Result<Vec<u8>, String> {
+    let relative = path
+        .strip_prefix(data)
+        .map_err(|_| "workspace descriptor is outside the local data root")?;
+    let root = registry_root(data)?;
+    root.read(relative, 256 * 1024)
+        .map(|source| source.bytes)
+        .map_err(|_| "workspace descriptor is unavailable or redirected".into())
+}
+
+#[cfg(all(test, windows))]
+mod registry_tests {
+    use super::*;
+
+    #[test]
+    fn discovery_and_second_read_reject_junctions_without_touching_target() {
+        let temporary = tempfile::tempdir().unwrap();
+        let base = temporary.path().canonicalize().unwrap();
+        let data = base.join("data");
+        let row = data.join("workspaces/row");
+        let outside = base.join("outside");
+        let workspace = base.join("workspace");
+        fs::create_dir_all(&row).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::create_dir(&workspace).unwrap();
+        let descriptor = row.join("workspace.json");
+        fs::write(&descriptor, b"retained descriptor bytes").unwrap();
+        assert_eq!(
+            read_workspace_descriptor(&data, &descriptor).unwrap(),
+            b"retained descriptor bytes"
+        );
+        fs::write(outside.join("workspace.json"), b"outside marker").unwrap();
+        assert!(read_workspace_descriptor(&data, &outside.join("workspace.json")).is_err());
+        fs::rename(&row, data.join("preserved")).unwrap();
+        let status = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&row)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(
+            status.status.success(),
+            "junction fixture prerequisite failed"
+        );
+        // The path was valid at first read. Both discovery and subsequent
+        // consumption must now reject the newly redirected registry row.
+        assert!(read_workspace_descriptor(&data, &descriptor).is_err());
+        assert!(workspace_directory(&data, &workspace).is_err());
+        assert_eq!(
+            fs::read(outside.join("workspace.json")).unwrap(),
+            b"outside marker"
+        );
+        fs::remove_dir(&row).unwrap();
+    }
 }
 
 pub fn save(path: &Path, entry: &WorkspaceEntry) -> Result<(), String> {

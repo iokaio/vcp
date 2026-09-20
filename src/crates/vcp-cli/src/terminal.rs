@@ -13,7 +13,7 @@ mod tests;
 #[cfg(windows)]
 mod owner;
 #[cfg(windows)]
-pub use owner::run;
+pub use owner::{prepare_resume, run};
 
 pub const INPUT_LIMIT: usize = 65_536;
 pub const DISPLAY_LIMIT: usize = 16_384;

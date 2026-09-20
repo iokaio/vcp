@@ -56,12 +56,12 @@ impl Drop for Inner {
 #[derive(Clone)]
 pub struct Worker(Arc<Inner>);
 impl Worker {
-    pub fn open(config: Config) -> std::result::Result<Self, String> {
+    pub fn open(config: Config, expected: Option<Revision>) -> std::result::Result<Self, String> {
         let (tx, rx) = mpsc::sync_channel::<Job>(32);
         let (ready, ready_rx) = mpsc::sync_channel(1);
         let thread = std::thread::Builder::new()
             .name("vcp-canonical-store".into())
-            .spawn(move || match Context::open(config) {
+            .spawn(move || match Context::open_selected(config, expected) {
                 Ok(mut context) => {
                     let _ = ready.send(Ok(()));
                     while let Ok(job) = rx.recv() {
@@ -192,7 +192,11 @@ impl Context {
         Ok(())
     }
 
+    #[cfg(test)]
     fn open(config: Config) -> Result<Self> {
+        Self::open_selected(config, None)
+    }
+    fn open_selected(config: Config, expected: Option<Revision>) -> Result<Self> {
         vcp_policy::validate_host_denials(&config.host_tool_denials)?;
         if config.input_ceiling.get() == 0 || config.output_ceiling.get() == 0 {
             return Err("provider ceilings required".into());
@@ -206,6 +210,22 @@ impl Context {
             &[],
             config.artifact_limit.get(),
         ))?;
+        if let Some(expected) = expected {
+            let task: Task = store
+                .state()
+                .record(
+                    Collection::Task,
+                    config.root_task.as_str(),
+                    &config.workspace,
+                )?
+                .decode()?;
+            if task.revision != expected
+                || task.scope.session != config.session
+                || task.parent.is_some()
+            {
+                return Err("task changed since selection; refresh workspace discovery".into());
+            }
+        }
         let engine = Engine::new(store)?;
         let access = Access {
             actor: config.actor.clone(),
