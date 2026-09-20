@@ -129,6 +129,9 @@ already include these changes; normal builds never apply patches.
 27. `0027-p5-lexical-workspace.patch` records the governed-memory adapter's direct
     dependency on the already locked Tantivy 0.22.1. No dependency version or
     imported implementation changes.
+28. `0028-p5-vectors-workspace.patch` connects governed memory to the existing
+    pinned CPU embedding and Munarium DiskANN packages. It changes only local
+    workspace lockfile dependency edges, not upstream versions or source.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

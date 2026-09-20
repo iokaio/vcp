@@ -1,6 +1,6 @@
 # 09 — Tantivy, local embeddings, DiskANN and retrieval generations
 
-Status: P5-03 complete; P5-04 through P5-06 planned. Owns P5-03 through P5-06. Requires P5-02 and local-runtime qualification; P5-06 additionally needs P3-03 inspectors. Architecture section 13 supplies the retrieval contract.
+Status: P5-03 and P5-04 complete; P5-05 through P5-06 planned. Owns P5-03 through P5-06. Requires P5-02 and local-runtime qualification; P5-06 additionally needs P3-03 inspectors. Architecture section 13 supplies the retrieval contract.
 
 ## Design references and prerequisite records
 
@@ -67,6 +67,13 @@ Adapter tests must cover deletes/merges and reader reuse while a newer generatio
 publishes; internal ordinal changes may not alter stable source references.
 
 ## P5-04 — Local vectors and DiskANN
+
+Implemented by `vcp-memory::{embedding,vector,local_resources}` and the canonical
+host's bounded `build_memory_vectors` operation. The [native qualification
+record](../development/p5-vectors.md) documents real CPU inference under an
+independently observed network boundary, exhaustive-neighbor comparison,
+reopen/corruption checks, cancellation on both stores and resource measurement
+semantics. P5-05 owns coherent publication of these private components.
 
 1. Provision the pinned embedding artifact with digest, dimensions, normalization, token/chunk limits, license and runtime version. Explain downloads/setup; missing assets are not-ready, never a remote endpoint.
 2. Implement bounded CPU batching/cancellation and vector caching keyed by source/chunk and embedding specification. Track resident memory, mapped pages, temporary disk and build peaks independently.

@@ -36,6 +36,9 @@ mod host_tool_authority;
 #[path = "support/memory_ingestion.rs"]
 mod memory_ingestion;
 #[cfg(windows)]
+#[path = "support/memory_vectors.rs"]
+mod memory_vectors;
+#[cfg(windows)]
 #[path = "support/parent_instructions.rs"]
 mod parent_instructions;
 #[cfg(windows)]
