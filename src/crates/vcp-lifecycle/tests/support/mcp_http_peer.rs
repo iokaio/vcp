@@ -55,6 +55,7 @@ struct State {
     marker: std::path::PathBuf,
     redirect: String,
     callbacks: AtomicUsize,
+    unauthorized_responses: AtomicUsize,
     callback: Notify,
     release: Notify,
     effect: Notify,
@@ -122,6 +123,7 @@ impl Peer {
             marker: directory.path().join("effects.txt"),
             redirect: format!("https://localhost:{}/redirect-target", address.port()),
             callbacks: AtomicUsize::new(0),
+            unauthorized_responses: AtomicUsize::new(0),
             callback: Notify::new(),
             release: Notify::new(),
             effect: Notify::new(),
@@ -176,6 +178,9 @@ impl Peer {
     }
     pub fn numeric_wire(&self) -> Vec<Vec<u8>> {
         self.state.numeric_wire.lock().unwrap().clone()
+    }
+    pub fn unauthorized_responses(&self) -> usize {
+        self.state.unauthorized_responses.load(Ordering::SeqCst)
     }
     pub fn response_sizes(&self) -> Vec<usize> {
         self.state.response_sizes.lock().unwrap().clone()
@@ -275,7 +280,17 @@ async fn serve(
         body_digest: vcp_protocol::digest_bytes(&body),
     });
     if !authorization_matches {
-        respond(io, 401, "Unauthorized", None, b"").await;
+        // Count only a complete TLS response flushed to the physical socket.
+        if io
+            .write_all(
+                b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .is_ok()
+            && io.flush().await.is_ok()
+        {
+            state.unauthorized_responses.fetch_add(1, Ordering::SeqCst);
+        }
         return;
     }
     if matches!(state.scenario, Scenario::Redirect) {

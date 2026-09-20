@@ -53,6 +53,9 @@ mod mcp_content;
 #[cfg(all(windows, feature = "qualification"))]
 #[path = "support/mcp_content_coding.rs"]
 mod mcp_content_coding;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/mcp_final_faults.rs"]
+mod mcp_final_faults;
 #[cfg(feature = "qualification")]
 #[path = "support/mcp_http.rs"]
 mod mcp_http;
