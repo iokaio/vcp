@@ -3,8 +3,13 @@ mod accounting_contract;
 pub mod artifact;
 mod backend;
 pub mod contract;
+pub mod keys;
 pub mod migration;
+mod private_paths;
 mod store;
+pub mod trust_store;
+pub mod vault_crypto;
+pub mod vault_publish;
 pub use backend::{BackendKind, Barrier};
 pub use store::{Snapshot, Store};
 

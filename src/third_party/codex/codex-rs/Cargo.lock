@@ -17710,6 +17710,9 @@ dependencies = [
 name = "vcp-store"
 version = "0.1.0"
 dependencies = [
+ "age",
+ "ed25519-dalek",
+ "rand 0.9.3",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -17720,6 +17723,8 @@ dependencies = [
  "vcp-domain",
  "vcp-policy",
  "vcp-protocol",
+ "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
