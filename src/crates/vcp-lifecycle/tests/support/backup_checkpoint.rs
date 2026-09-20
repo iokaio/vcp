@@ -171,7 +171,7 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
             TaskState::Paused
         );
         assert!(host
-            .capture_backup_checkpoint(git, Arc::new(AtomicBool::new(true)))
+            .capture_backup_checkpoint(git.clone(), Arc::new(AtomicBool::new(true)))
             .await
             .is_err());
         assert_eq!(host.snapshot().unwrap().watermark, state.watermark);
@@ -427,9 +427,104 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
             .any(|row| row.collection == Collection::Attempt));
         restored.close().await.unwrap();
         drop(materialized);
+        let manager_keys = vcp_store::keys::LocalKeys::import(&copy)
+            .unwrap()
+            .verify_recovery(&copy)
+            .unwrap();
+        let manager_trust =
+            vcp_store::trust_store::TrustStore::open(&trust_path, &forbidden).unwrap();
+        let manager_caps = Arc::new(
+            vcp_lifecycle::foundation::backup_run::Capabilities::open(
+                manager_trust,
+                manager_keys,
+                &setup,
+                workspace,
+                &config.canonical_root,
+            )
+            .unwrap(),
+        );
+        host.load_backup(manager_caps, git, true).unwrap();
+        let cancelled_operation = CommandId::new();
+        assert!(host
+            .start_backup(cancelled_operation.clone(), false)
+            .unwrap()
+            .running());
+        host.cancel_backup(&cancelled_operation).unwrap();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            // These commands remain available throughout detached preparation.
+            host.backup_status().unwrap();
+            let progress = host.backup_progress().unwrap().unwrap();
+            if progress.done() {
+                assert_eq!(
+                    progress.phase,
+                    vcp_lifecycle::foundation::backup_manager::Phase::Failed
+                );
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "cancelled backup manager did not stop"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(!host
+            .snapshot()
+            .unwrap()
+            .records
+            .values()
+            .any(|row| row.collection == Collection::Attempt));
+        assert_eq!(
+            host.cancel_backup(&cancelled_operation).unwrap().phase,
+            vcp_lifecycle::foundation::backup_manager::Phase::Cancelled
+        );
+        host.unload_backup().unwrap();
         owner.close().await.unwrap();
         test.codex.shutdown_and_wait().await.unwrap();
         drop(test);
         drop(host);
+        // An interrupted pre-admission job remains durable after its owner and
+        // signing capability disappear. Cancellation needs no recovery key.
+        let cleanup_trust =
+            vcp_store::trust_store::TrustStore::open(&trust_path, &forbidden).unwrap();
+        let jobs = vcp_store::snapshot_jobs::Jobs::open(&setup.staging, &forbidden).unwrap();
+        let interrupted = CommandId::new();
+        let mut store =
+            vcp_store::Store::open(&config.canonical_root, backend, &[workspace.to_owned()])
+                .await
+                .unwrap();
+        let capture = jobs
+            .begin(
+                &mut store,
+                interrupted.clone(),
+                &config.workspace,
+                cleanup_trust.trust(),
+            )
+            .await
+            .unwrap();
+        assert!(capture.job().active && !capture.job().pins.is_empty());
+        drop(capture);
+        store.close().await.unwrap();
+        let (reopened, reopened_owner) = CanonicalHost::open(config.clone()).unwrap();
+        assert!(reopened.backup_progress().unwrap().is_none());
+        let released = reopened
+            .release_reopened_backup(cleanup_trust, jobs, interrupted.clone())
+            .unwrap();
+        assert_eq!(released.stage, vcp_store::snapshot_jobs::Stage::Cancelled);
+        assert!(!released.active && released.pins.is_empty());
+        let cleanup_trust =
+            vcp_store::trust_store::TrustStore::open(&trust_path, &forbidden).unwrap();
+        let jobs = vcp_store::snapshot_jobs::Jobs::open(&setup.staging, &forbidden).unwrap();
+        let retry = reopened
+            .release_reopened_backup(cleanup_trust, jobs, interrupted)
+            .unwrap();
+        assert_eq!(retry.revision, released.revision);
+        assert!(!reopened
+            .snapshot()
+            .unwrap()
+            .records
+            .values()
+            .any(|row| row.collection == Collection::Attempt));
+        reopened_owner.close().await.unwrap();
     }
 }

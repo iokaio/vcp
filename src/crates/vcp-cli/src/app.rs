@@ -522,17 +522,27 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             }
             crate::backup::Backup::Cancel { operation } => {
                 let id = CommandId::parse(operation).map_err(|_| "invalid backup operation")?;
-                return command_result(
-                    cli.format,
-                    control::request(
-                        &pipe,
-                        &control::Request::BackupCancel {
-                            workspace: entry.config.workspace.clone(),
-                            id,
-                        },
-                    )
-                    .await?,
-                );
+                let result =
+                    match vcp_lifecycle::foundation::CanonicalHost::open(entry.config.clone()) {
+                        Ok((host, owner)) => {
+                            let result = crate::backup::cancel_on_host(&host, &data, id).await;
+                            owner.close().await?;
+                            result?
+                        }
+                        Err(error) if error.contains("canonical root already has an owner") => {
+                            control::request(
+                                &pipe,
+                                &control::Request::BackupCancel {
+                                    workspace: entry.config.workspace.clone(),
+                                    data: data.clone(),
+                                    id,
+                                },
+                            )
+                            .await?
+                        }
+                        Err(error) => return Err(error),
+                    };
+                return command_result(cli.format, result);
             }
             crate::backup::Backup::Configure { .. } => {
                 return command_result(

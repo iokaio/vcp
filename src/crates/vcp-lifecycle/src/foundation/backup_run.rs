@@ -78,6 +78,41 @@ fn check(cancelled: &AtomicBool) -> Result<()> {
 }
 
 impl CanonicalHost {
+    /// Reopened maintenance requires public enrollment, never signing keys.
+    /// The canonical owner serializes release with new admission and retention.
+    pub fn release_reopened_backup(
+        &self,
+        trust: TrustStore,
+        jobs: Jobs,
+        operation: CommandId,
+    ) -> Result<Job> {
+        self.worker.run_cleanup(move |context| {
+            if trust.trust().configuration().workspace != context.config.workspace {
+                return Err("backup enrollment workspace mismatch".into());
+            }
+            let store = context.engine.store_mut();
+            let job = Jobs::inspect(store, &operation, &context.config.workspace)?;
+            if job.stage == Stage::Published
+                && job.active
+                && !Jobs::checkpoint_matches(
+                    store,
+                    &operation,
+                    &context.config.workspace,
+                    trust.trust(),
+                )?
+            {
+                return Err(
+                    "published backup requires independent checkpoint reconciliation".into(),
+                );
+            }
+            Ok(context.runtime.block_on(jobs.release(
+                store,
+                &operation,
+                &context.config.workspace,
+                true,
+            ))?)
+        })
+    }
     pub(super) fn release_cancelled_backup(
         &self,
         capabilities: Arc<Capabilities>,
@@ -93,7 +128,7 @@ impl CanonicalHost {
                 return Ok(());
             }
             let job = Jobs::inspect(store, &operation, &context.config.workspace)?;
-            if job.stage == Stage::Published {
+            if job.stage == Stage::Published && job.active {
                 let trust = capabilities
                     .trust
                     .lock()
@@ -243,9 +278,11 @@ impl CanonicalHost {
             check(&cancelled)?;
             let caps = capabilities.clone();
             let id = operation.clone();
-            let stop=cancelled.clone();
+            let stop = cancelled.clone();
             self.worker.run(move |context| {
-                if stop.load(Ordering::Acquire){return Err("backup cancelled before durable input admission".into());}
+                if stop.load(Ordering::Acquire) {
+                    return Err("backup cancelled before durable input admission".into());
+                }
                 #[cfg(windows)]
                 context.backup_cut()?;
                 let trust = caps.trust.lock().map_err(|_| "backup trust unavailable")?;

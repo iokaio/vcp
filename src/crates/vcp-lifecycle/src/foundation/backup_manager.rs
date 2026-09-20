@@ -17,6 +17,7 @@ pub enum Phase {
     Publishing,
     Finished,
     Failed,
+    Cancelled,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Progress {
@@ -102,7 +103,7 @@ impl CanonicalHost {
             .and_then(|loaded| loaded.progress.clone()))
     }
     pub fn cancel_backup(&self, operation: &CommandId) -> Result<Progress> {
-        let slot = self
+        let mut slot = self
             .backup
             .lock()
             .map_err(|_| "backup manager unavailable")?;
@@ -114,8 +115,26 @@ impl CanonicalHost {
             .ok_or("backup operation is not owned by this controller")?;
         if let Some(cancel) = &loaded.cancel {
             cancel.store(true, Ordering::Release);
+            return Ok(progress.clone());
         }
-        Ok(progress.clone())
+        let capabilities = loaded.capabilities.clone();
+        // Keep manager admission excluded until durable source release finishes.
+        self.release_cancelled_backup(capabilities, operation.clone())?;
+        let progress = Progress {
+            operation: operation.clone(),
+            phase: Phase::Cancelled,
+            error: None,
+        };
+        if let Some(loaded) = slot.as_mut() {
+            if loaded
+                .progress
+                .as_ref()
+                .is_some_and(|value| value.operation == *operation && !value.running())
+            {
+                loaded.progress = Some(progress.clone());
+            }
+        }
+        Ok(progress)
     }
     #[cfg(windows)]
     pub fn start_backup(&self, operation: CommandId, retry: bool) -> Result<Progress> {

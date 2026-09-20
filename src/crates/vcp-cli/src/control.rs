@@ -22,6 +22,7 @@ pub enum Request {
     },
     BackupCancel {
         workspace: WorkspaceId,
+        data: std::path::PathBuf,
         id: CommandId,
     },
     BackupStatus {
@@ -186,10 +187,9 @@ async fn handle(
         } if requested == *workspace => crate::backup::create_on_host(host, &data, request).await,
         Request::BackupCancel {
             workspace: requested,
+            data,
             id,
-        } if requested == *workspace => {
-            serde_json::to_value(host.cancel_backup(&id)?).map_err(|e| e.to_string())
-        }
+        } if requested == *workspace => crate::backup::cancel_on_host(host, &data, id).await,
         Request::BackupStatus {
             workspace: requested,
         } if requested == *workspace => {

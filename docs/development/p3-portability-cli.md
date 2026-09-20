@@ -33,7 +33,15 @@ verified signing capability and starts a native snapshot without a model call.
 Use `--operation UUID --retry` to continue the same durable cut. A live owner
 returns preparation progress immediately; standalone maintenance waits for local
 publication. `backup cancel --operation UUID` requests cancellation of the live
-owner's matching operation. Inspect status for retained cleanup or copy obligations.
+owner's matching operation. Failed or reopened pre-admission jobs can also be
+cancelled using independent public enrollment and configured staging, without
+loading a signing key. This releases local source pins after copying has stopped;
+it does not delete vault copies. Admitted copies remain reconciliation-required,
+and a published job requires the independently accepted checkpoint before its
+remaining pins can be released. Inspect status for retained cleanup or copy obligations.
+If configured staging has changed, select the job's original staging directory
+or reconcile the retained obligation; a missing file in a different directory
+does not prove cleanup of the original job.
 
 `vcp storage configure --backend files --preview` reports the future-workspace
 preference. Apply omits `--preview` and uses the displayed expected revision for
@@ -64,9 +72,10 @@ blocks normal startup. Exact retries reconcile the recorded operation without
 reimporting a root that has subsequently received legitimate writes. The old
 canonical root remains retained. Source files are materialized; Git index and
 diffs remain historical evidence, and executable Git metadata is not recreated.
-The lexical rebuild reports retained-canonical readiness, stale source exclusions
-and pending semantic work separately. It does not make old source fingerprints
-current by relabeling them.
+Local search rebuild reports canonical, lexical and semantic readiness separately.
+It can rebuild semantic search from compatible retained vectors when they cover
+the freshly authorized source inventory, without running a model. Missing
+coverage stays pending; stale source fingerprints require reauthorization.
 
 `vcp workspace rebind WORKSPACE_ID` is the structured alias for existing rebind.
 It also holds the selection lease and does not silently grant execution rights.

@@ -66,6 +66,44 @@ pub struct CreateRequest {
 }
 
 #[cfg(windows)]
+pub async fn cancel_on_host(
+    host: &vcp_lifecycle::foundation::CanonicalHost,
+    data: &Path,
+    operation: vcp_domain::CommandId,
+) -> Result<serde_json::Value> {
+    if !crate::selection::operation_id(operation.as_str()) {
+        return Err("opaque backup operation UUID required".into());
+    }
+    if host
+        .backup_progress()?
+        .is_some_and(|progress| progress.operation == operation)
+    {
+        return serde_json::to_value(host.cancel_backup(&operation)?).map_err(|e| e.to_string());
+    }
+    let config = host.backup_configuration()?;
+    let data = data.to_owned();
+    let (trust, jobs) = tokio::task::spawn_blocking(move || -> Result<_> {
+        let workspace = Path::new(&config.binding.root);
+        let roots = forbidden(workspace, &config.canonical_root, &[])?;
+        let path = crate::settings::local_path(&trust_path(&data, &config.workspace), workspace)?;
+        let trust = TrustStore::open(&path, &roots).map_err(|e| e.to_string())?;
+        let setup =
+            vcp_lifecycle::foundation::backup::setup(&trust)?.ok_or("backup is not configured")?;
+        let mut exclusions = forbidden(workspace, &config.canonical_root, &setup.sync_roots)?;
+        exclusions.extend([path, setup.vault]);
+        let jobs = vcp_store::snapshot_jobs::Jobs::open(&setup.staging, &exclusions)
+            .map_err(|e| e.to_string())?;
+        Ok((trust, jobs))
+    })
+    .await
+    .map_err(|_| "backup cancellation setup worker stopped")??;
+    let job = host.release_reopened_backup(trust, jobs, operation)?;
+    Ok(
+        serde_json::json!({"operation":job.id,"stage":job.stage,"active":job.active,"source_pins_released":!job.active,"vault_copy_deleted":false}),
+    )
+}
+
+#[cfg(windows)]
 pub async fn create_on_host(
     host: &vcp_lifecycle::foundation::CanonicalHost,
     data: &Path,
