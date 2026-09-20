@@ -26,27 +26,66 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-if (-not $IsWindows) { throw 'This qualification collector requires Windows and PowerShell 7.' }
+if (-not $IsWindows -or $PSVersionTable.PSVersion -lt [version]'7.4') { throw 'This qualification collector requires Windows and PowerShell 7.4 or later.' }
 function Hash-Text([string]$Text) {
     [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Text))).ToLowerInvariant()
 }
-function Ordinary-Directory([string]$Path) {
-    $item = Get-Item -LiteralPath $Path -Force
-    if (-not $item.PSIsContainer) { throw 'Select an existing directory.' }
-    $ancestor = $item
-    while ($null -ne $ancestor) {
-        if ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            throw 'Redirected directory ancestors are not qualified.'
-        }
-        $ancestor = $ancestor.Parent
-    }
-    # Resolve only after every declared ancestor passed. This is a read-only
-    # collector, not an atomic production publication or filesystem capability.
-    return [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $item.FullName).ProviderPath).TrimEnd('\','/')
+# Pin ancestors before opening children; only the documented Cloud Files tag
+# family is acceptable in the vault. Private evidence ancestors remain strict.
+if (-not ('VcpHandoff.Native' -as [type])) {
+Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+namespace VcpHandoff {
+ public static class Native {
+  [StructLayout(LayoutKind.Sequential)] struct TagInfo { public uint Attributes; public uint Tag; }
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  static extern SafeFileHandle CreateFileW(string path,uint access,uint share,IntPtr security,uint disposition,uint flags,IntPtr template);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  static extern bool GetFileInformationByHandleEx(SafeFileHandle handle,int info,out TagInfo value,uint size);
+  static SafeFileHandle Open(string path,bool directory,bool cloud) {
+   var handle=CreateFileW(path,directory ? 0x80u : 0x80000000u,directory ? 3u : 1u,IntPtr.Zero,3,0x02200000,IntPtr.Zero);
+   if(handle.IsInvalid) { handle.Dispose(); throw new IOException("Native path open refused"); }
+   try {
+    TagInfo info;
+    if(!GetFileInformationByHandleEx(handle,9,out info,8)) throw new IOException("Native tag query refused");
+    if(((info.Attributes & 0x10)!=0)!=directory) throw new IOException("Unexpected native object kind");
+    if((info.Attributes & 0x400)!=0 && (!cloud || (info.Tag & ~0xF000u)!=0x9000001Au))
+     throw new IOException("Native reparse tag refused");
+    return handle;
+   } catch { handle.Dispose(); throw; }
+  }
+  public static List<SafeFileHandle> Pin(string path,bool cloud) {
+   var chain=new Stack<string>();
+   var item=new DirectoryInfo(Path.GetFullPath(path));
+   while(item!=null) { chain.Push(item.FullName); item=item.Parent; }
+   var handles=new List<SafeFileHandle>();
+   try { while(chain.Count>0) handles.Add(Open(chain.Pop(),true,cloud)); return handles; }
+   catch { foreach(var handle in handles) handle.Dispose(); throw; }
+  }
+  public static FileStream Read(string path) {
+   var handle=Open(path,false,true);
+   try { return new FileStream(handle,FileAccess.Read); }
+   catch { handle.Dispose(); throw; }
+  }
+ }
 }
-$vaultPath = Ordinary-Directory $Vault
+"@
+}
+$pins = [Collections.Generic.List[IDisposable]]::new()
+function Pinned-Directory([string]$Path,[bool]$Cloud) {
+    $full = [IO.Path]::GetFullPath($Path)
+    foreach ($handle in [VcpHandoff.Native]::Pin($full,$Cloud)) { $pins.Add($handle) }
+    return $full.TrimEnd('\','/')
+}
+$stream = $null
+try {
+$vaultPath = Pinned-Directory $Vault $true
 $evidencePath = [IO.Path]::GetFullPath($Evidence)
-$evidenceParent = Ordinary-Directory ([IO.Path]::GetDirectoryName($evidencePath))
+$evidenceParent = Pinned-Directory ([IO.Path]::GetDirectoryName($evidencePath)) $false
 $evidenceName = [IO.Path]::GetFileName($evidencePath)
 if ($evidenceName.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) { throw 'Invalid evidence filename.' }
 $evidencePath = Join-Path $evidenceParent $evidenceName
@@ -66,15 +105,9 @@ $stream = $null
 while ($true) {
     $attempts++
     try {
-        $item = Get-Item -LiteralPath $objectPath -Force
-        if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-            throw 'object-boundary'
-        }
-        if ($item.Length -gt 68157440 -or $item.Length -lt 1) { throw 'object-byte-limit' }
-        # ShareRead refuses a concurrently writing publisher and pins this exact
-        # ordinary file during hashing. Opening a cloud placeholder may hydrate it.
-        $stream = [IO.File]::Open($objectPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
-        if ($stream.Length -gt 68157440) { throw 'object-byte-limit' }
+        # Read and hash the exact checked handle; sharing denies writes/deletion.
+        $stream = [VcpHandoff.Native]::Read($objectPath)
+        if ($stream.Length -gt 68157440 -or $stream.Length -lt 1) { throw 'object-byte-limit' }
         $length = $stream.Length
         $sha = [Security.Cryptography.SHA256]::Create()
         try { $hash = [Convert]::ToHexString($sha.ComputeHash($stream)).ToLowerInvariant() }
@@ -122,5 +155,9 @@ try { $out.Write($encoded,0,$encoded.Length); $out.Flush($true) } finally { $out
 # The output contains only allowlisted redacted evidence; no recovery material,
 # machine name, workspace contents, absolute directory, or decrypted manifest.
 $result | ConvertTo-Json -Depth 4
+} finally {
+    if ($stream) { $stream.Dispose() }
+    foreach ($handle in $pins) { $handle.Dispose() }
+}
 if ($observation -ne 'readable-ciphertext') { exit 2 }
 exit 0

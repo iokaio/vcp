@@ -43,7 +43,7 @@ or two processes in one installation.
 - Close workspace owners before migration and restore. Use a new absent restore
   destination with an existing parent; existing roots are not overwritten. Keep
   original A and the prior selected canonical root until all checks complete.
-- Use PowerShell 7, an absolute trusted `vcp.exe` and absolute trusted `git.exe`.
+- Use PowerShell 7.4 or later, an absolute trusted `vcp.exe` and absolute trusted `git.exe`.
   Pass key **paths**, never literal secret contents. Do not enable shell transcript
   capture around secret enrollment. Keep raw inspection output private; publish
   only allowlisted summaries, counts and comparison results.
@@ -129,7 +129,10 @@ for B's independent prepublication trust floor.
 Wait for OneDrive to deliver the exact object. Request full local hydration and
 run the collector with A's independent expected hash/length. Matching ciphertext
 proves the observed bytes agree, not that archive authentication or restoration
-has succeeded. A cloud placeholder/reparse boundary rejection is an explicit
+has succeeded. The collector pins vault ancestors and the read handle, allowing only ordinary
+objects or the Windows Cloud Files reparse-tag family. Junctions, symbolic links
+and unknown reparse tags remain rejected; evidence directories permit no reparse
+ancestors. An unsupported provider boundary rejection is an explicit
 qualification failure to investigate; do not replace real provider behavior with
 a simulated copy to pass the campaign.
 
