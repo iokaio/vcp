@@ -200,6 +200,13 @@ to separately admitted evaluator attempts, persisting the consumed signal and
 qualifying the purpose remain P6-03/P6-04 acceptance work. Shadow observations
 cannot be reinterpreted as advisory input.
 
+The opaque finite-operation capability now accepts an exact owner-installed
+`Purpose::Escalation`/`Mode::Advisory` qualification and prepares the typed request
+under the same question revision, byte ceilings, six charge categories and
+single-attempt rule as shadow comparisons. Disabled and deterministic evaluator
+records still cannot create a capability. This prerequisite grants no transport
+or public configuration by itself.
+
 `tests/decision.rs` contains public synthetic fixtures covering disabled/rules
 behavior, native wire controls, invalid batches, probability/score consistency,
 missing fields, unknown costs, stale responses, duplicate/nonfinite JSON,

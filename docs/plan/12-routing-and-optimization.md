@@ -240,7 +240,8 @@ escalate/stop preference and independent-review triage using the
 [consumer boundaries](../architecture/decision-evaluation-design.md#consumer-boundaries).
 The [typed escalation advisory contract](../evaluations/p6-escalation-advisory.md)
 now binds these closed questions to source revisions and preserves every existing
-deterministic gate; canonical advisory admission and qualification remain open.
+deterministic gate. Its finite qualification capability is implemented; canonical
+advisory scheduling, persistence and live qualification remain open.
 Supply bounded observed actions, errors, diffs and checks with source revisions;
 do not invent access to full provider reasoning. Rust evaluates fixed trigger,
 attempt, budget and authority constraints before and after advice. A low risk
