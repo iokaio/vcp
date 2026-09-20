@@ -147,6 +147,10 @@
     {
       "path": "src/third_party/patches/codex/0029-p5-hybrid-workspace.patch",
       "sha256": "b6fd7042dca7e26460e06aaaa96e5991fd9322fe7acd870a851763906cb4e418"
+    },
+    {
+      "path": "src/third_party/patches/codex/0030-p5-portability-workspace.patch",
+      "sha256": "06016a4b215360874524bda92adfd9c119016fe993155d159f52ebbbe68d996d"
     }
   ],
   "licenses": [
