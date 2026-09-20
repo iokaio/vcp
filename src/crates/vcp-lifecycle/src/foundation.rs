@@ -4,8 +4,12 @@
 mod authority;
 #[cfg(windows)]
 pub mod backup_checkpoint;
+#[cfg(windows)]
+pub mod restore_workspace;
 pub mod history_retention;
 pub mod backup;
+pub mod backup_run;
+pub mod backup_manager;
 mod scheduler;
 use scheduler::{EffectLease, Scheduler};
 #[cfg(windows)]
@@ -85,6 +89,7 @@ pub struct CanonicalHost {
     worker: worker::Worker,
     bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
     scheduler: Arc<Scheduler>,
+    backup:Arc<Mutex<Option<backup_manager::Loaded>>>,
 }
 pub struct CanonicalOwner {
     runtime: Option<OwnerLease>,
@@ -238,6 +243,7 @@ impl CanonicalHost {
                 worker,
                 bindings: Arc::new(Mutex::new(HashMap::new())),
                 scheduler: Arc::new(Scheduler::default()),
+                backup:Arc::new(Mutex::new(None)),
             },
             owner,
         ))

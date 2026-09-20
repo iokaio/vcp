@@ -16,10 +16,12 @@ pub(super) struct Prepared {
     pub(super) cut: Cut,
     pub(super) observed: Observation,
 }
-struct CancelOnDrop(Arc<AtomicBool>);
+struct CancelOnDrop(Option<Arc<AtomicBool>>);
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
-        self.0.store(true, Ordering::Release);
+        if let Some(cancelled) = &self.0 {
+            cancelled.store(true, Ordering::Release);
+        }
     }
 }
 impl CanonicalHost {
@@ -29,15 +31,18 @@ impl CanonicalHost {
         view: vcp_memory::publication::View,
         cancelled: Arc<AtomicBool>,
     ) -> Result<vcp_store::snapshot_inputs::GenerationInput, String> {
-        let _guard = CancelOnDrop(cancelled.clone());
+        let mut guard = CancelOnDrop(Some(cancelled.clone()));
         let cut = self.worker.run(|context| context.backup_cut())?;
         let stopped = cancelled.clone();
         let files = tokio::task::spawn_blocking(move || publisher.snapshot_files(view, &stopped))
             .await
             .map_err(|_| "backup generation worker failed")?
             .map_err(|e| e.to_string())?;
-        self.worker
-            .run(move |context| context.accept_backup_generation(cut, files, &cancelled))
+        let value = self
+            .worker
+            .run(move |context| context.accept_backup_generation(cut, files, &cancelled))?;
+        guard.0 = None;
+        Ok(value)
     }
     /// Explicit user maintenance works while paused and never starts model work.
     /// Git is an independently configured, bounded native read capability.
@@ -46,7 +51,7 @@ impl CanonicalHost {
         git: Arc<Git>,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Checkpoint, String> {
-        let _guard = CancelOnDrop(cancelled.clone());
+        let mut guard = CancelOnDrop(Some(cancelled.clone()));
         if cancelled.load(Ordering::Acquire) || self.scheduler.busy() {
             return Err("backup checkpoint requires quiescent local effects".into());
         }
@@ -72,8 +77,10 @@ impl CanonicalHost {
         if cancelled.load(Ordering::Acquire) || self.scheduler.busy() {
             return Err("backup checkpoint cancelled or local effects changed".into());
         }
-        self.worker.run(move |context| {
+        let value = self.worker.run(move |context| {
             context.accept_backup_checkpoint(Prepared { cut, observed }, &cancelled)
-        })
+        })?;
+        guard.0 = None;
+        Ok(value)
     }
 }
