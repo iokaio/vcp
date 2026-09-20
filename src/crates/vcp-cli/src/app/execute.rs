@@ -390,6 +390,7 @@ pub(super) async fn execute(
         }
         if task_from(&host.snapshot()?,&config.workspace,&config.root_task)?.state.terminal(){return Ok::<(),String>(());}
         for process in prepared.processes{host.configure_process_profile(process)?;}
+        for server in &prepared.profile.mcp { host.configure_mcp(server.registration())?; }
         host.configure_provider(prepared.profile.provider.clone(),prepared.raw_catalog)?;
         if let Some(routing) = prepared.profile.routing.clone() { host.configure_routing(routing)?; }
         host.configure_skills(crate::skills::prepare(&prepared.profile,&config)?)?;

@@ -92,8 +92,33 @@ fn limits() -> DuplexLimits {
         frame_bytes: 1024,
         queued_frames: 4,
         input_bytes: 4096,
+        stderr_bytes: None,
     }
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn independent_stderr_quota_stops_process_before_global_output_ceiling() {
+    let fixture = Fixture::new().await;
+    for quota in [0, 64] {
+        let mut bound = limits();
+        bound.process.output_bytes = 8 * 1024 * 1024;
+        bound.stderr_bytes = Some(quota);
+        let connection = fixture.spawn("duplex-stderr", bound, None);
+        let outcome = tokio::time::timeout(Duration::from_secs(5), connection.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            outcome.stop_reason.as_deref(),
+            Some("stderr output limit exceeded")
+        );
+        assert!(outcome.stderr.total > quota);
+        // One bounded native read is captured before the quota terminates the job.
+        assert!(outcome.stderr.total <= 8192);
+        assert!(outcome.stderr.total < bound.process.output_bytes);
+    }
+    fixture.close().await;
+}
+
 struct Resource(Arc<AtomicBool>);
 impl Drop for Resource {
     fn drop(&mut self) {

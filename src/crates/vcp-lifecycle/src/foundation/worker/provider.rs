@@ -141,7 +141,7 @@ impl Context {
             task_state: task.revision,
         })
     }
-    fn verify_context(&self, sealed: Sealed) -> Result<VerifiedContext> {
+    pub(in crate::foundation) fn verify_context(&self, sealed: Sealed) -> Result<VerifiedContext> {
         let verified = sealed.verify_captures(|scope, id, limit| {
             let read = || -> Result<(ArtifactDescriptor, Vec<u8>)> {
                 let descriptor: ArtifactDescriptor = self
@@ -703,9 +703,20 @@ impl Context {
         attempt: &AttemptId,
         response_id: &str,
     ) -> Result<()> {
-        if let Some(provider) = self.provider.as_mut() {
-            provider.active.remove(&binding.scope.task);
-        }
+        let ready = self
+            .provider
+            .as_mut()
+            .and_then(|provider| provider.active.remove(&binding.scope.task));
+        #[cfg(windows)]
+        let mcp_provenance = ready.map(|ready| {
+            crate::foundation::mcp::Provenance::from_context(
+                ready.context,
+                ready.roots,
+                ready.memory,
+            )
+        });
+        #[cfg(not(windows))]
+        let _ = ready;
         let parser = self
             .provider
             .as_mut()
@@ -780,6 +791,7 @@ impl Context {
                 attempt,
                 normalized,
                 vec![descriptor.spec.id, normalized_capture.spec.id],
+                mcp_provenance,
             )?;
         }
         Ok(())

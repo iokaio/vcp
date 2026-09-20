@@ -29,6 +29,8 @@ pub struct Profile {
     pub routing: Option<vcp_lifecycle::foundation::routing::Configuration>,
     #[serde(default)]
     pub skills: Option<crate::skills::Configuration>,
+    #[serde(default)]
+    pub mcp: Vec<crate::mcp::Server>,
     pub catalog: PathBuf,
     pub affected_paths: Vec<PathBuf>,
     pub max_requests: u32,
@@ -278,6 +280,7 @@ impl Profile {
         {
             return Err("verification requires an explicit executable profile".into());
         }
+        crate::mcp::validate(&self.mcp, &names)?;
         Ok(PreparedProfile {
             profile: self,
             raw_catalog,

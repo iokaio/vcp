@@ -168,6 +168,7 @@ fn limits() -> DuplexIoLimits {
         queued_frames: 8,
         input_bytes: 4096,
         max_messages: 2,
+        stderr_bytes: None,
     }
 }
 
@@ -418,5 +419,31 @@ async fn canonical_duplex_drop_retains_unknown_process_intent_after_reopen() {
         );
         store.close().await.unwrap();
         drop(_temp);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn canonical_duplex_invalid_scheduled_limits_cancel_unsent_ticket() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let f = Fixture::new(backend).await;
+        let ticket = f.host.prepare_process(f.thread, f.request()).unwrap();
+        let effect = ticket.effect().clone();
+        let mut invalid = limits();
+        invalid.frame_bytes = 0;
+        assert!(f
+            .host
+            .schedule_duplex_process(ticket, invalid)
+            .await
+            .is_err());
+        let state = f.host.snapshot().unwrap();
+        let effect: Effect = state
+            .record(Collection::Effect, effect.as_str(), &f.config.workspace)
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(effect.state, EffectState::Cancelled);
+        assert!(effect.execution.is_none());
+        assert!(!f.workspace.join("duplex-input").exists());
+        f.close().await;
     }
 }

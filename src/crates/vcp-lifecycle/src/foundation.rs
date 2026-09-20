@@ -19,6 +19,8 @@ pub mod coding;
 #[cfg(windows)]
 mod execution;
 #[cfg(windows)]
+pub mod mcp;
+#[cfg(windows)]
 pub mod memory_inspection;
 #[cfg(windows)]
 pub mod memory_publication;
@@ -97,10 +99,14 @@ pub struct CanonicalHost {
     bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
     scheduler: Arc<Scheduler>,
     backup: Arc<Mutex<Option<backup_manager::Loaded>>>,
+    #[cfg(windows)]
+    mcp: Arc<mcp::Connections>,
 }
 pub struct CanonicalOwner {
     runtime: Option<OwnerLease>,
     worker: worker::Worker,
+    #[cfg(windows)]
+    mcp: Arc<mcp::Connections>,
 }
 impl CanonicalOwner {
     pub async fn close(mut self) -> Result<(), String> {
@@ -109,12 +115,16 @@ impl CanonicalOwner {
         if let Some(owner) = self.runtime.take() {
             owner.close().await.map_err(|error| format!("{error:?}"))?;
         }
+        #[cfg(windows)]
+        self.mcp.shutdown().await?;
         Ok(())
     }
 }
 impl Drop for CanonicalOwner {
     fn drop(&mut self) {
         self.runtime.take();
+        #[cfg(windows)]
+        self.mcp.interrupt();
         if self
             .worker
             .run_cleanup(|context| context.pause_all("owning host dropped"))
@@ -240,9 +250,13 @@ impl CanonicalHost {
     ) -> Result<(Self, CanonicalOwner), String> {
         let worker = worker::Worker::open(config, expected)?;
         let (runtime, owner) = Lifecycle::new(Duration::from_secs(5));
+        #[cfg(windows)]
+        let mcp = Arc::new(mcp::Connections::default());
         let owner = CanonicalOwner {
             runtime: Some(owner),
             worker: worker.clone(),
+            #[cfg(windows)]
+            mcp: mcp.clone(),
         };
         Ok((
             Self {
@@ -250,6 +264,8 @@ impl CanonicalHost {
                 worker,
                 bindings: Arc::new(Mutex::new(HashMap::new())),
                 scheduler: Arc::new(Scheduler::default()),
+                #[cfg(windows)]
+                mcp,
                 backup: Arc::new(Mutex::new(None)),
             },
             owner,
@@ -390,6 +406,10 @@ impl CanonicalHost {
             .map_err(|error| format!("{error:?}"))?;
         if !view.owner_attached || view.local_hold || view.inherited_hold {
             return Err("retained owner is not ready for canonical resume".into());
+        }
+        #[cfg(windows)]
+        if self.mcp_connections_present() {
+            return self.resume_mcp_approval(id, binding, expected, fingerprint);
         }
         self.worker
             .run(move |context| context.resume(&binding, expected, fingerprint))

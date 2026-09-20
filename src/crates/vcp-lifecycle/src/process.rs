@@ -142,6 +142,7 @@ async fn capture(
     job: Arc<JobObject>,
     control: Arc<Mutex<Control>>,
     ceiling: Option<u64>,
+    stderr_ceiling: Option<u64>,
 ) -> io::Result<Capture> {
     let mut result = Capture {
         bytes: Vec::new(),
@@ -149,16 +150,17 @@ async fn capture(
     };
     let mut buffer = [0; 8192];
     loop {
-        // Once the global output limit fires, stop reading. At most one bounded
+        // Once an output limit fires, stop reading. At most one bounded
         // read per stream can already be in flight; every observed byte is still
         // captured before the limit result is returned.
-        if control
-            .lock()
-            .map_err(|_| io::Error::other("poisoned process limits"))?
-            .reason
-            .as_deref()
-            == Some("output limit exceeded")
-        {
+        if matches!(
+            control
+                .lock()
+                .map_err(|_| io::Error::other("poisoned process limits"))?
+                .reason
+                .as_deref(),
+            Some("output limit exceeded" | "stderr output limit exceeded")
+        ) {
             return Ok(result);
         }
         let count = input.read(&mut buffer).await?;
@@ -179,7 +181,12 @@ async fn capture(
                 .lock()
                 .map_err(|_| io::Error::other("poisoned process limits"))?;
             state.total = state.total.saturating_add(count as u64);
-            if ceiling.is_some_and(|max| state.total > max) {
+            if stderr_ceiling.is_some_and(|max| result.total > max) {
+                state
+                    .reason
+                    .get_or_insert_with(|| "stderr output limit exceeded".into());
+                true
+            } else if ceiling.is_some_and(|max| state.total > max) {
                 state
                     .reason
                     .get_or_insert_with(|| "output limit exceeded".into());
@@ -391,6 +398,7 @@ impl Lifecycle {
             job.clone(),
             control.clone(),
             limits.map(|l| l.output_bytes),
+            None,
         )));
         let stderr = Some(tokio::spawn(capture(
             child.stderr.take().unwrap(),
@@ -399,6 +407,7 @@ impl Lifecycle {
             job.clone(),
             control.clone(),
             limits.map(|l| l.output_bytes),
+            None,
         )));
         let pid = child.id();
         let process = Process {

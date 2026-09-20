@@ -11,6 +11,7 @@ pub struct DuplexIoLimits {
     pub queued_frames: usize,
     pub input_bytes: u64,
     pub max_messages: u32,
+    pub stderr_bytes: Option<u64>,
 }
 impl DuplexIoLimits {
     fn validate(self) -> Result<(), String> {
@@ -22,6 +23,9 @@ impl DuplexIoLimits {
             || self.input_bytes > 8 * 1024 * 1024
             || self.max_messages == 0
             || self.max_messages > 256
+            || self
+                .stderr_bytes
+                .is_some_and(|limit| limit > 8 * 1024 * 1024)
         {
             return Err("duplex IO bounds rejected".into());
         }
@@ -41,6 +45,8 @@ pub struct DuplexProcess {
     messages: u32,
     input_bytes: u64,
     inputs: Vec<ArtifactId>,
+    #[cfg(feature = "qualification")]
+    before_write: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
 }
 
 impl CanonicalHost {
@@ -49,33 +55,29 @@ impl CanonicalHost {
         ticket: ProcessProposal,
         limits: DuplexIoLimits,
     ) -> Result<DuplexProcess, String> {
+        let mut queued = scheduler::QueuedEffect::new(self, &ticket.binding, &ticket.effect);
         limits.validate()?;
         let conflict = self
             .scheduler
             .try_acquire(ticket.prepared.authority().operation())?;
-        self.dispatch_duplex_leased(ticket, limits, conflict)
+        let process = self.dispatch_duplex_leased(ticket, limits, conflict)?;
+        queued.dispatched();
+        Ok(process)
     }
     pub async fn schedule_duplex_process(
         &self,
         ticket: ProcessProposal,
         limits: DuplexIoLimits,
     ) -> Result<DuplexProcess, String> {
-        limits.validate()?;
         let mut queued = scheduler::QueuedEffect::new(self, &ticket.binding, &ticket.effect);
-        let conflict = match self
+        limits.validate()?;
+        let conflict = self
             .schedule(
                 ticket.prepared.authority().operation(),
                 ticket.thread,
                 ticket.generation,
             )
-            .await
-        {
-            Ok(claim) => claim,
-            Err(error) => {
-                self.cancel_queued_effect(ticket.binding, ticket.effect, error.clone())?;
-                return Err(error);
-            }
-        };
+            .await?;
         let result = self.dispatch_duplex_leased(ticket, limits, conflict);
         if result.is_ok() {
             queued.dispatched();
@@ -131,7 +133,7 @@ impl CanonicalHost {
                 let process = runtime.spawn_duplex_process_generation(thread, &prepared.executable(), &arguments, &prepared.directory(), &environment, 64 * 1024,
                     Some(Arc::new(move |bytes| out.write(bytes).map_err(std::io::Error::other))),
                     Some(Arc::new(move |bytes| err.write(bytes).map_err(std::io::Error::other))),
-                    DuplexLimits { process: crate::process::Limits { timeout: Duration::from_millis(op.timeout_ms.get()), output_bytes: op.output_bytes.get(), process_count: prepared.profile().process_count() }, frame_bytes: io.frame_bytes, queued_frames: io.queued_frames, input_bytes: io.input_bytes }, Some(pins.clone()), Some(generation))?;
+                    DuplexLimits { process: crate::process::Limits { timeout: Duration::from_millis(op.timeout_ms.get()), output_bytes: op.output_bytes.get(), process_count: prepared.profile().process_count() }, frame_bytes: io.frame_bytes, queued_frames: io.queued_frames, input_bytes: io.input_bytes, stderr_bytes: io.stderr_bytes }, Some(pins.clone()), Some(generation))?;
                 let identity = context.capture(&binding.scope, Channel::Evidence,
                     &vcp_protocol::canonical_bytes(&serde_json::json!({"execution":run,"process_id":process.id(),"process_identity":super::super::worker::recovery::process_identity(process.id()),"identity_authority":"owned duplex process/job handles; PID is diagnostic only","job_processes":process.active_process_count()?}))?, "vcp-process-start-v1")?;
                 let mut evidence = evidence; evidence.push(identity.spec.id);
@@ -151,7 +153,6 @@ impl CanonicalHost {
                 if self.worker.run_cleanup(move |context| {
                     let current: Effect = context.engine.store().state().record(Collection::Effect, effect.as_str(), &binding.scope.workspace)?.decode()?;
                     let next = match current.state {
-                        EffectState::Proposed | EffectState::Validated | EffectState::Authorized => Some(EffectState::Cancelled),
                         EffectState::DispatchRecorded | EffectState::Running => Some(EffectState::OutcomeUnknown), _ => None,
                     };
                     if let Some(next) = next {
@@ -178,8 +179,10 @@ impl CanonicalHost {
             messages: 0,
             input_bytes: 0,
             inputs: vec![configuration],
+            #[cfg(feature = "qualification")]
+            before_write: None,
             lifetime: PreparedProcess {
-                host: self.clone(),
+                host: ProcessHost::from(self),
                 binding: ticket.binding,
                 effect: ticket.effect,
                 execution,
@@ -197,6 +200,21 @@ impl CanonicalHost {
 }
 
 impl DuplexProcess {
+    pub(in crate::foundation) fn resume_identity(
+        &self,
+    ) -> Result<(ToolRunId, ExecutionId, Arc<codex_utils_pty::JobObject>), String> {
+        scheduler::check_generation(&self.lifetime.host.runtime, self.thread, self.generation)?;
+        let process = self.process.as_ref().ok_or("duplex consumed")?;
+        let job = process.owned_job().map_err(|e| e.to_string())?;
+        if job.active_process_count().map_err(|e| e.to_string())? == 0 {
+            return Err("MCP process is no longer live".into());
+        }
+        Ok((
+            self.lifetime.effect.clone(),
+            self.lifetime.execution.clone(),
+            job,
+        ))
+    }
     pub fn id(&self) -> Option<u32> {
         self.process.as_ref().and_then(Duplex::id)
     }
@@ -244,8 +262,16 @@ impl DuplexProcess {
     /// Authentication-bearing messages must use a separately sanitized boundary,
     /// never this raw protocol-input capture. Recovery must not infer delivery
     /// from an input artifact: a cancelled write can leave absent/partial bytes.
-    #[allow(dead_code)] // Production caller belongs to the following MCP increment.
     pub(crate) async fn write_line(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.write_line_checked(bytes, |_| Ok(())).await
+    }
+    pub(crate) async fn write_line_checked(
+        &mut self,
+        bytes: &[u8],
+        fence: impl FnOnce(&mut worker::Context) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+            + Send
+            + 'static,
+    ) -> Result<(), String> {
         if bytes.is_empty()
             || bytes.len() > self.limits.frame_bytes
             || bytes.contains(&b'\n')
@@ -277,6 +303,7 @@ impl DuplexProcess {
                 || !matches!(context.process_decision(&binding, &prepared)?, vcp_policy::Decision::Allow { .. }) { return Err("current duplex input process authority rejected".into()); }
             let current: Effect = context.engine.store().state().record(Collection::Effect, effect.as_str(), &binding.scope.workspace)?.decode()?;
             if current.state != EffectState::Running || current.execution.as_ref() != Some(&execution) { return Err("duplex process is not the current running execution".into()); }
+            fence(context)?;
             let body = context.capture(&binding.scope, Channel::Evidence, &capture, "vcp-duplex-input-bytes-v1")?;
             let intent = context.capture(&binding.scope, Channel::Evidence,
                 &vcp_protocol::canonical_bytes(&serde_json::json!({"schema_version":1,"effect":effect,"execution":execution,"sequence":sequence,"body":body.spec.id,"sha256":vcp_protocol::digest_bytes(&capture),"bytes":capture.len(),"framing":"LF appended","observation":"captured before write; partial/absent delivery remains possible"}))?, "vcp-duplex-input-v1")?;
@@ -285,6 +312,11 @@ impl DuplexProcess {
         self.inputs.extend(artifacts);
         self.messages = sequence;
         self.input_bytes = next_bytes;
+        #[cfg(feature = "qualification")]
+        if let Some((arrived, release)) = self.before_write.take() {
+            arrived.notify_one();
+            release.notified().await;
+        }
         self.process
             .as_mut()
             .ok_or("duplex consumed")?
@@ -296,6 +328,14 @@ impl DuplexProcess {
     #[cfg(feature = "qualification")]
     pub async fn qualification_write_line(&mut self, bytes: &[u8]) -> Result<(), String> {
         self.write_line(bytes).await
+    }
+    #[cfg(feature = "qualification")]
+    pub(crate) fn block_next_write(
+        &mut self,
+        arrived: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    ) {
+        self.before_write = Some((arrived, release));
     }
     pub fn close_stdin(&mut self) {
         if let Some(process) = &mut self.process {

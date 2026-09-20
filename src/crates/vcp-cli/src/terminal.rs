@@ -30,6 +30,7 @@ pub enum Input {
     Maintenance(Vec<String>),
     Optimize(crate::optimize::Command),
     Skills(crate::skills::Command),
+    Mcp(crate::mcp::Command),
     Next,
     Agents,
     Inspect(String),
@@ -47,6 +48,12 @@ pub fn parse(line: &str) -> Result<Option<Input>, String> {
     }
     if line.len() > INPUT_LIMIT {
         return Err("input exceeds 64 KiB".into());
+    }
+    if let Some(arguments) = line
+        .strip_prefix("/mcp")
+        .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+    {
+        return crate::mcp::parse(arguments).map(|command| Some(Input::Mcp(command)));
     }
     let words: Vec<_> = line.split_whitespace().collect();
     Ok(Some(match words.as_slice() {

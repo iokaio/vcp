@@ -1436,6 +1436,17 @@
       "effects": ["process", "scheduler"]
     },
     {
+      "id": "canonical-mcp-dispatch",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation/mcp.rs",
+      "symbol": "pub async fn dispatch_mcp_call(",
+      "observation": "Explicit stdio registrations bind each call to a connection generation, schema, arguments and verified source context. Canonical intent precedes a current-authority duplex write; lost receipts remain unknown and are never replayed as status probes.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": ["process", "scheduler"]
+    },
+    {
       "id": "host-memory-inspection",
       "group": "lifecycle-host",
       "package": "vcp-lifecycle",
@@ -1455,8 +1466,8 @@
       "packages": ["vcp-extensions"],
       "capabilities": ["data", "instruction", "filesystem", "clock"],
       "handling": "retain-with-adapters",
-      "owner_tasks": ["P7-01", "P7-02"],
-      "gate": "Production discovery and activation perform bounded no-follow reads only after host source-policy checks. Skill content grants no effect authority. Qualification examples create temporary fixture files and reports; these are not product executors.",
+      "owner_tasks": ["P7-01", "P7-02", "P7-03"],
+      "gate": "Production skill discovery and activation perform bounded no-follow reads only after host source-policy checks. Skill content grants no effect authority. MCP modules are pure bounded protocol, identity and schema data code; canonical lifecycle adapters alone own transport and dispatch. Qualification examples create temporary fixture files and reports; these are not product executors.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "controller"
     },
