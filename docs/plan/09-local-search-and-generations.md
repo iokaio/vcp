@@ -1,6 +1,6 @@
 # 09 — Tantivy, local embeddings, DiskANN and retrieval generations
 
-Status: planned. Owns P5-03 through P5-06. Requires P5-02 and local-runtime qualification; P5-06 additionally needs P3-03 inspectors. Architecture section 13 supplies the retrieval contract.
+Status: P5-03 complete; P5-04 through P5-06 planned. Owns P5-03 through P5-06. Requires P5-02 and local-runtime qualification; P5-06 additionally needs P3-03 inspectors. Architecture section 13 supplies the retrieval contract.
 
 ## Design references and prerequisite records
 
@@ -30,6 +30,11 @@ contract. Local embeddings themselves do not incur an OpenRouter request.
 Keep the local inference runtime behind an interface so model upgrades need no engine rewrite. Qualified real libraries are required for release; fake vectors test control paths only.
 
 ## P5-03 — Lexical retrieval
+
+Implemented in `vcp-memory` with the already qualified Tantivy 0.22.1.
+[Native qualification](../development/p5-lexical.md) records canonical inventory,
+exact scope/tokenization, cancellation/reopen/replacement tests and separate
+lexical fixture quality/timings. Canonical activation remains P5-05 work.
 
 Define stable document/chunk IDs and fields for workspace/root scope, record/source version, paths/symbols, claim type/status, sequence and text. Avoid using internal index document ordinals as canonical identity.
 

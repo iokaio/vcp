@@ -1308,6 +1308,45 @@
         "scheduler",
         "policy"
       ]
+    },
+    {
+      "id": "memory-search-inventory",
+      "group": "governed-memory",
+      "package": "vcp-memory",
+      "path": "../../../crates/vcp-memory/src/search_record.rs",
+      "symbol": "pub fn inventory(",
+      "observation": "Current scope, retention, binding and canonical source versions determine exact-byte chunks and explicit exclusions before lexical indexing.",
+      "effect_class": "read-only",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "file-read"
+      ]
+    },
+    {
+      "id": "memory-lexical-build",
+      "group": "governed-memory",
+      "package": "vcp-memory",
+      "path": "../../../crates/vcp-memory/src/lexical.rs",
+      "symbol": "pub fn build(",
+      "observation": "Bounded cancellable Tantivy writers finalize private immutable components with inventory, schema, tokenizer and file validation; publication is a separate canonical transaction.",
+      "effect_class": "effectful",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "filesystem"
+      ]
+    },
+    {
+      "id": "memory-lexical-query",
+      "group": "governed-memory",
+      "package": "vcp-memory",
+      "path": "../../../crates/vcp-memory/src/lexical.rs",
+      "symbol": "pub fn search(",
+      "observation": "Exact workspace/task/root/path filters precede bounded ranking; only stable IDs and scores leave the adapter, requiring canonical authorization before payload use.",
+      "effect_class": "read-only",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "file-read"
+      ]
     }
   ],
   "groups": [
@@ -2178,7 +2217,8 @@
       "handling": "retain-with-adapters",
       "owner_tasks": [
         "P5-01",
-        "P5-02"
+        "P5-02",
+        "P5-03"
       ],
       "gate": "Canonical governed memory and bounded durable extraction run only through the existing host. Optional model candidates require captured accounted gateway results; remembered commands and queued jobs grant no execution authority.",
       "effect_ceiling": "effectful",

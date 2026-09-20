@@ -1,0 +1,12 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index e630563..c1668e7 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17612,6 +17612,7 @@ dependencies = [
+  "munarium-core",
+  "serde",
+  "serde_json",
++ "tantivy",
+  "tempfile",
+  "thiserror 2.0.18",
+  "tokio",
