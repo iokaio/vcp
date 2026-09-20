@@ -19,6 +19,9 @@ mod authority_stream;
 #[cfg(windows)]
 #[path = "support/backup_checkpoint.rs"]
 mod backup_checkpoint;
+#[cfg(windows)]
+#[path = "support/restore_search.rs"]
+mod restore_search;
 #[path = "support/cli_control.rs"]
 mod cli_control;
 #[cfg(windows)]

@@ -14,6 +14,8 @@ Durable `Admitted` is the final publication admission boundary. A copy admitted 
 
 Restore authenticates against independent trust before importing a neutral canonical archive. It preserves historical audit and receipt facts, then appends one authority reset: workspace authority and binding advance, trust becomes untrusted, grants are revoked, policies lose automatic execution authority and unfinished tasks become paused. An opaque imported result requires a fresh exact-state and artifact verification before activation. Existing-root selection is a host responsibility; a plain canonical directory is never passed to the unrelated migration initializer.
 
+After explicit restore and ordinary rebind, `restore_search::rebuild_after_restore` rebuilds and reopens a lexical generation from the currently authorized canonical inventory without loading a model. It uses the shared local CPU admission pool and retains a CPU/RAM/disk observation. Matching current generations reopen on retry without a new receipt or generation. Readiness separates usable lexical coverage from semantic lag and stale retained-source manifests: rebind does not make old native observations current. Source coverage requires deliberate trusted recapture, while the rebuilt index can already serve eligible retained claims. This operation does not grant trust, resume tasks or read arbitrary workspace files.
+
 Workspace installation uses a newly created native staging directory and create-only whole-directory rename. It preserves existing empty directories, nonempty directories and files. Parent handles remain pinned, and the stage native identity is checked when acquiring the rename handle and again at the destination. Failed or ambiguous operations preserve their files for explicit reconciliation.
 
 ## Reproducible native checks
@@ -28,10 +30,13 @@ Commands ran with stable Rust, existing offline dependencies, no explicit target
 | `test --offline --locked -j4 -p vcp-repository --test restore -- --nocapture` | 3 passed: whole-directory publication, all destination collision kinds, replacement and junction rejection |
 | `test --offline --locked -j4 -p vcp-memory --test portable_retention -- --nocapture` | 2 passed on both backends: unadmitted stale proof rejected; preadmitted copy completes while retaining its backup obligation |
 | `test --offline --locked -j4 -p vcp-store --test snapshot_jobs -- --nocapture` | 6 passed after preparation split, including cancelled input validation and stale input-cut rejection |
+| `test --offline --locked -j4 -p vcp-lifecycle --test canonical_host restore_search:: -- --test-threads=1 --nocapture` | 1 passed across both backends: actual retained-preference lexical query, stale-source exclusion, unchanged Untrusted/Paused state, successful token reuse and generation retry without writes |
 
 The snapshot process-kill fixture covers captured, archive prepared, encrypted, admitted, copy identity retained, partial copy, copied and completed barriers on Files and SQLite. Restore kills cover acquired, validated, import intent, partial spool, sanitized and imported barriers in both cross-backend directions. These are fresh-process recovery tests, not only in-memory stage simulations.
 
 Strict repository Clippy passed for the native staging module and test. Store Clippy passed for the library and snapshot/restore tests with only the two existing unrelated lint allowances (`manual_is_multiple_of`, `cmp_owned`). Logs are retained locally under `artifacts/p5-09-*` and `artifacts/p5-10-*`; they contain test results rather than recovery secrets. Host capture/materialization and CLI delivery evidence are tracked separately in [portable capture qualification](p5-portable-capture.md).
+
+The focused post-restore lifecycle library Clippy run (`clippy --offline --locked -j4 -p vcp-lifecycle --lib --no-deps -- -D warnings`) reported no diagnostic in the new helper, but failed on six existing `too_many_arguments` process-boundary functions. No lint allowance or unrelated process refactor was added for this increment; the integrated final gate remains outstanding. Its log is `artifacts/p5-10-restore-lexical-clippy.log`.
 
 ## Explicit limits and remaining integration
 
