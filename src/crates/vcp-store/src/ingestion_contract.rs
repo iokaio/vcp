@@ -273,21 +273,34 @@ pub(super) fn validate(state: &State) -> Result<()> {
             return Err(Error::Corruption("ingestion job origin scope or stream"));
         }
         for id in &job.results {
-            let result: vcp_domain::memory::ProposalResult = state
-                .record(Collection::Projection, id.as_str(), &job.scope.workspace)?
-                .decode()?;
-            result.validate()?;
-            let proposal: vcp_domain::memory::ProposalRecord = state
-                .record(
-                    Collection::Claim,
-                    result.proposal.as_str(),
-                    &job.scope.workspace,
-                )?
-                .decode()?;
-            if result.scope != job.scope
-                || !proposal.proposal.origins.contains(&job.origin)
-                || proposal.proposal.extractor != job.extractor.identity()
-            {
+            let row = state.record(Collection::Projection, id.as_str(), &job.scope.workspace)?;
+            let (scope, proposal_id) =
+                if row.value["document_type"] == vcp_domain::redaction::RESULT {
+                    let result: vcp_domain::redaction::RedactedResult = row.decode()?;
+                    result.validate()?;
+                    (result.scope, result.proposal)
+                } else {
+                    let result: vcp_domain::memory::ProposalResult = row.decode()?;
+                    result.validate()?;
+                    (result.scope, result.proposal)
+                };
+            let row = state.record(
+                Collection::Claim,
+                proposal_id.as_str(),
+                &job.scope.workspace,
+            )?;
+            let associated = if row.value["document_type"] == vcp_domain::redaction::PROPOSAL {
+                let proposal: vcp_domain::redaction::RedactedProposal = row.decode()?;
+                proposal.validate()?;
+                proposal.sources.origins.contains(&job.origin)
+                    && proposal.extractor_digest
+                        == vcp_protocol::digest_bytes(job.extractor.identity().as_bytes())
+            } else {
+                let proposal: vcp_domain::memory::ProposalRecord = row.decode()?;
+                proposal.proposal.origins.contains(&job.origin)
+                    && proposal.proposal.extractor == job.extractor.identity()
+            };
+            if scope != job.scope || !associated {
                 return Err(Error::Corruption("ingestion completion provenance"));
             }
         }

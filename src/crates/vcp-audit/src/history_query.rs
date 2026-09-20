@@ -225,7 +225,7 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
         let facts = Facts {
             workspace: &e.workspace,
             timestamp: Some(e.timestamp),
-            root: None,
+            roots: None,
             paths: metadata.map(|m| m.paths.as_slice()),
             task: e.task.as_ref(),
             actor: Some(&e.actor),
@@ -259,12 +259,6 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
                 serde_json::json!({"visibility":"bounded_history_summary","full_event_id":e.id});
             shown.event.metadata = None;
         }
-        let size = serde_json::to_vec(&shown)?.len();
-        if bytes + size > 256 * 1024 && !rows.is_empty() {
-            cursor.after -= 1;
-            break;
-        }
-        bytes += size;
         let visibility = if shown.redaction.is_some() {
             "purged"
         } else if compacted && !query.expand_compacted {
@@ -315,7 +309,7 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
             }
         }
         shown.event.artifacts = artifact_links.iter().map(|link| link.id.clone()).collect();
-        rows.push(Row {
+        let row = Row {
             artifacts: shown.event.artifacts.clone(),
             event: shown,
             content_truncated: truncated,
@@ -323,7 +317,17 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
             recall_excluded,
             compacted,
             artifact_links,
-        });
+        };
+        let size = serde_json::to_vec(&row)?.len();
+        if bytes + size > 256 * 1024 {
+            if rows.is_empty() {
+                return Err(Error::Limit);
+            }
+            cursor.after -= 1;
+            break;
+        }
+        bytes += size;
+        rows.push(row);
         if rows.len() == query.limit as usize {
             break;
         }

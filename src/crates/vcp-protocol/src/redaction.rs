@@ -114,6 +114,7 @@ pub fn proposal(
         predecessor: source.proposal.predecessor.clone(),
         outcome: source.resolution.outcome,
         recorded_at: source.recorded_at,
+        extractor_digest: crate::digest_bytes(source.proposal.extractor.as_bytes()),
         origin_output_keys: source
             .proposal
             .origins

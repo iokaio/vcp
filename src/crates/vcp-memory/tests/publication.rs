@@ -11,7 +11,7 @@ use vcp_protocol::{
     command::{Command, CommandEnvelope},
     event::EventKind,
 };
-use vcp_store::{BackendKind, Store};
+use vcp_store::{contract::CanonicalStore, BackendKind, Store};
 
 async fn issue(engine: &mut Engine<Store>, scope: &Scope, payload: Command) {
     let access = vcp_engine::Access {
@@ -674,6 +674,177 @@ async fn publication_cas_retry_corrupt_fallback_and_pins_preserve_canonical_evid
             "derived cleanup never removes canonical facts"
         );
         assert!(publisher.recover(&store, &access).unwrap().view.is_none());
+    }
+}
+
+#[tokio::test]
+async fn publication_records_owned_cleanup_namespace_and_retry_is_exact() {
+    use vcp_store::contract::{key, Collection};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for owned in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let canonical = temp.path().join("canonical");
+            let (engine, scope, access, _) = fixture(&canonical, backend).await;
+            let mut store = engine.into_store();
+            let path = if owned {
+                canonical.join("search-generations")
+            } else {
+                temp.path().join("external")
+            };
+            let publisher = Publisher::new(&path).unwrap();
+            let prepared = publisher
+                .prepare(
+                    publication::capture(&store, &access, &scope, inventory(&store, &access))
+                        .unwrap(),
+                    None,
+                    &AtomicBool::new(false),
+                    &|_| {},
+                )
+                .unwrap();
+            let receipt = publisher
+                .publish(
+                    &mut store,
+                    &access,
+                    &prepared,
+                    Timestamp::new(2000),
+                    &|_| {},
+                )
+                .await
+                .unwrap();
+            let location = store
+                .state()
+                .record(
+                    Collection::Projection,
+                    &format!("generation-location-{}", prepared.manifest().id),
+                    &scope.workspace,
+                )
+                .unwrap();
+            assert_eq!(
+                location.value["owned_relative_root"].as_str(),
+                owned.then_some("search-generations")
+            );
+            assert!(location.references.contains(&key(
+                Collection::Generation,
+                prepared.manifest().id.as_str()
+            )));
+            let before = store.state().clone();
+            assert_eq!(
+                publisher
+                    .publish(
+                        &mut store,
+                        &access,
+                        &prepared,
+                        Timestamp::new(3000),
+                        &|_| {}
+                    )
+                    .await
+                    .unwrap(),
+                receipt
+            );
+            assert_eq!(store.state(), &before);
+        }
+    }
+}
+
+#[tokio::test]
+async fn retention_removes_owned_generation_and_reports_external_copy_pending() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_memory::retention::{self, Action};
+    use vcp_store::contract::{Collection, Mutation, Record, Transaction};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for owned in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let canonical = temp.path().join("canonical");
+            let (engine, scope, access, _) = fixture(&canonical, backend).await;
+            let mut store = engine.into_store();
+            for tick in 0..8 {
+                if runner::step(&mut store, &access, &scope, Timestamp::new(1000 + tick))
+                    .await
+                    .unwrap()
+                    .caught_up
+                {
+                    break;
+                }
+            }
+            let path = if owned {
+                canonical.join("search-generations")
+            } else {
+                temp.path().join("external")
+            };
+            let publisher = Publisher::new(&path).unwrap();
+            let prepared = publisher
+                .prepare(
+                    publication::capture(&store, &access, &scope, inventory(&store, &access))
+                        .unwrap(),
+                    None,
+                    &AtomicBool::new(false),
+                    &|_| {},
+                )
+                .unwrap();
+            assert!(!prepared.manifest().empty_complete);
+            publisher
+                .publish(
+                    &mut store,
+                    &access,
+                    &prepared,
+                    Timestamp::new(2000),
+                    &|_| {},
+                )
+                .await
+                .unwrap();
+            let id = prepared.manifest().id.clone();
+            let mut task: vcp_domain::task::Task = store
+                .state()
+                .record(Collection::Task, scope.task.as_str(), &scope.workspace)
+                .unwrap()
+                .decode()
+                .unwrap();
+            let before = task.revision;
+            task.revision = before.next().unwrap();
+            task.state = TaskState::Cancelled;
+            store
+                .transact(Transaction {
+                    id: TransactionId::new(),
+                    expected_watermark: store.state().watermark,
+                    mutations: vec![Mutation::Put {
+                        expected: Some(before),
+                        record: Record::typed(
+                            Collection::Task,
+                            scope.task.as_str(),
+                            scope.workspace.clone(),
+                            task.revision,
+                            &task,
+                        )
+                        .unwrap(),
+                    }],
+                    events: vec![],
+                    command: None,
+                })
+                .await
+                .unwrap();
+            let preview = retention::preview(
+                &store,
+                &access,
+                Selector {
+                    schema_version: 1,
+                    tree: Tree::Match(Criterion::Task(scope.task.clone())),
+                },
+                Action::Purge,
+                Timestamp::new(3000),
+            )
+            .unwrap();
+            assert!(preview.protected.is_empty());
+            let receipt = retention::apply(&mut store, &access, &preview, Timestamp::new(3001))
+                .await
+                .unwrap();
+            let receipt =
+                retention::cleanup(&mut store, &access, &receipt.id, Timestamp::new(3002))
+                    .await
+                    .unwrap();
+            assert_eq!(path.join(id.as_str()).exists(), !owned);
+            assert_eq!(receipt.pending_generations.is_empty(), owned);
+            assert_eq!(receipt.local_cleanup_complete, owned);
+        }
     }
 }
 

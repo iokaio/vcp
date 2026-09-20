@@ -156,7 +156,7 @@ async fn browser_compaction_is_presentation_and_exclusion_keeps_raw_history() {
             "recall-{}",
             vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&target).unwrap())
         );
-        let record=Record::typed(Collection::Projection,id.clone(),access().workspace,Revision::ZERO,&serde_json::json!({"document_type":"vcp_retention_decision_v1","target":target,"recall_excluded":true,"compacted":true,"purged":false})).unwrap();
+        let record=Record::typed(Collection::Projection,id.clone(),access().workspace,Revision::ZERO,&serde_json::json!({"schema_version":1,"workspace":access().workspace,"revision":Revision::ZERO,"action":"compact","deletion":DeletionEpoch::ZERO,"document_type":"vcp_retention_decision_v1","target":target,"recall_excluded":true,"compacted":true,"purged":false})).unwrap();
         let key = key(Collection::Projection, &id);
         state.records.insert(key.clone(), record);
         let mut request = Query {

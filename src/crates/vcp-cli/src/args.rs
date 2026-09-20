@@ -90,6 +90,10 @@ pub enum Command {
 pub enum Memory {
     /// Inspect retained search results, evidence and coverage without starting inference.
     Search(Search),
+    /// Browse authorized immutable claim versions and their retained evidence.
+    Inspect(crate::history::MemoryInspect),
+    /// Preview an exact claim-only retention selection.
+    Prune(crate::history::Preview),
 }
 #[derive(Clone, Debug, Args)]
 pub struct Search {
@@ -239,6 +243,8 @@ pub enum ValidatedCommand {
     Sessions(Sessions),
     Tasks(Tasks),
     MemorySearch(Search),
+    MemoryInspect(crate::history::MemoryInspect),
+    MemoryPrune(crate::history::Preview),
     Inspect {
         request: vcp_audit::inspection::InspectionQuery,
     },
@@ -264,6 +270,15 @@ impl Cli {
                 Command::Resume(resume) => ValidatedCommand::Resume(resume),
                 Command::Sessions { command } => ValidatedCommand::Sessions(command),
                 Command::Tasks { command } => ValidatedCommand::Tasks(command),
+                Command::Memory {
+                    command: Memory::Inspect(inspect),
+                } => {
+                    inspect.request()?;
+                    ValidatedCommand::MemoryInspect(inspect)
+                }
+                Command::Memory {
+                    command: Memory::Prune(preview),
+                } => ValidatedCommand::MemoryPrune(preview),
                 Command::Memory {
                     command: Memory::Search(search),
                 } => {

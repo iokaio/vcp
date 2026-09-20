@@ -162,11 +162,8 @@ pub(crate) fn validate(state: &State) -> Result<()> {
             if erased.deletion > epoch(state, &row.workspace)? {
                 return Err(Error::Corruption("redaction epoch"));
             }
-            unprotected(
-                state,
-                &row.workspace,
-                row.task_scope()?.as_ref().map(|s| &s.task),
-            )?;
+            // Protection is checked against the exact source at rewrite admission.
+            // Later newly captured liability may coexist with erased old evidence.
             if row.collection == Collection::Verification {
                 let value: vcp_domain::verification::Verification = row.decode()?;
                 let retained_check_text = value.checks.iter().any(|check| {
@@ -297,7 +294,9 @@ pub(crate) fn redact_record(source: &Record, deletion: DeletionEpoch) -> Result<
         }
         Collection::Attempt => {
             let mut value: Attempt = source.decode()?;
-            if value.redaction.is_some()
+            if value
+                .redacted_at_revision
+                .is_some_and(|revision| revision >= value.revision)
                 || !matches!(
                     value.phase,
                     ReservationState::Settled
@@ -314,6 +313,7 @@ pub(crate) fn redact_record(source: &Record, deletion: DeletionEpoch) -> Result<
                 )?),
             });
             value.uncertain = None;
+            value.redacted_at_revision = Some(value.revision);
             serde_json::to_value(value)?
         }
         Collection::Settlement => {

@@ -66,9 +66,7 @@ pub(crate) fn validate(state: &State) -> Result<()> {
                 &attempt.scope.workspace,
             )?
             .decode()?;
-        if raw.state != CaptureState::Complete
-            && !(raw.state == CaptureState::Purged && settled_for_retention(state, attempt)?)
-        {
+        if raw.state != CaptureState::Complete && raw.state != CaptureState::Purged {
             return Err(Error::Corruption("usage evidence is incomplete"));
         }
         let entry = charged.entry(attempt.id.clone()).or_default();
@@ -164,8 +162,7 @@ pub(crate) fn validate(state: &State) -> Result<()> {
                 &attempt.scope.workspace,
             )?
             .decode()?;
-        if (request.state != CaptureState::Complete
-            && !(request.state == CaptureState::Purged && settled_for_retention(state, attempt)?))
+        if (request.state != CaptureState::Complete && request.state != CaptureState::Purged)
             || request.sha256 != attempt.request_digest
         {
             return Err(Error::Corruption(
@@ -250,7 +247,9 @@ pub(crate) fn transition(previous: &Record, next: &Record) -> Result<()> {
     if previous.collection == Collection::Attempt {
         let before: Attempt = previous.decode()?;
         let after: Attempt = next.decode()?;
-        if before.scope != after.scope
+        if before.redaction != after.redaction
+            || before.redacted_at_revision != after.redacted_at_revision
+            || before.scope != after.scope
             || before.root != after.root
             || before.reservation != after.reservation
             || before.role != after.role
@@ -508,27 +507,89 @@ pub(crate) fn admission(before: &State, after: &State, transaction: &Transaction
     Ok(())
 }
 
-fn settled_for_retention(state: &State, attempt: &Attempt) -> Result<bool> {
-    let reservation: Reservation = state
-        .record(
-            Collection::Reservation,
-            attempt.reservation.as_str(),
-            &attempt.scope.workspace,
-        )?
+/// A historical erasure marker cannot be minted or removed by an ordinary Put.
+/// A later observation may update its retained accounting facts only when that
+/// transaction also admits exactly one fresh immutable usage observation.
+pub(crate) fn redacted_attempt_update(
+    before: &State,
+    transaction: &Transaction,
+    record: &Record,
+) -> Result<bool> {
+    if record.collection != Collection::Attempt {
+        return Ok(false);
+    }
+    let next: Attempt = record.decode()?;
+    if next.redaction.is_none() {
+        return Ok(false);
+    }
+    let previous: Attempt = before
+        .record(Collection::Attempt, &record.id, &record.workspace)?
         .decode()?;
-    let task: Task = state
-        .record(
-            Collection::Task,
-            attempt.scope.task.as_str(),
-            &attempt.scope.workspace,
-        )?
-        .decode()?;
-    Ok(task.state.terminal()
-        && reservation.liability == vcp_domain::Micros::ZERO
-        && matches!(
-            reservation.phase,
+    if previous.redaction.is_none()
+        || previous.redaction != next.redaction
+        || previous.redacted_at_revision != next.redacted_at_revision
+    {
+        return Err(Error::Conflict("accounting erasure marker changed"));
+    }
+    let mut observations = Vec::new();
+    for mutation in &transaction.mutations {
+        if let Mutation::Put {
+            expected: None,
+            record: candidate,
+        } = mutation
+        {
+            if candidate.collection == Collection::Settlement {
+                let settlement: Settlement = candidate.decode()?;
+                if settlement.attempt == next.id {
+                    if settlement.scope != next.scope
+                        || settlement.redaction.is_some()
+                        || settlement.observation_digest.is_some()
+                        || before.records.contains_key(&candidate.key())
+                    {
+                        return Err(Error::Conflict("late accounting evidence identity"));
+                    }
+                    observations.push(settlement);
+                }
+            }
+        }
+    }
+    if observations.len() != 1 {
+        return Err(Error::Conflict(
+            "redacted accounting requires fresh observation",
+        ));
+    }
+    let settlement = &observations[0];
+    let mut uncertainty = previous.uncertain.clone();
+    let mut phase = previous.phase;
+    if settlement.applied && settlement.observation.final_usage {
+        uncertainty = settlement
+            .observation
+            .correction
+            .as_ref()
+            .map(|value| value.remaining_uncertainty.clone())
+            .filter(|value| !value.trim().is_empty());
+        phase = if uncertainty.is_some() {
+            ReservationState::ExplicitlyResolved
+        } else {
             ReservationState::Settled
-                | ReservationState::Released
-                | ReservationState::ExplicitlyResolved
-        ))
+        };
+    } else if settlement.applied
+        && matches!(
+            previous.phase,
+            ReservationState::Settled | ReservationState::ExplicitlyResolved
+        )
+    {
+        uncertainty = Some("new usage observation is not final".into());
+        phase = ReservationState::ReconciliationPending;
+    }
+    if next.phase != phase
+        || next.uncertain != uncertainty
+        || next.provider_request.as_deref()
+            != Some(settlement.observation.provider_request.as_str())
+    {
+        return Err(Error::Conflict(
+            "late accounting narrative lacks fresh provenance",
+        ));
+    }
+    Ok(true)
 }

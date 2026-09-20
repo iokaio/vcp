@@ -53,7 +53,7 @@ pub struct MemoryCursor {
     pub access_digest: String,
     pub claim: ClaimId,
     pub at: MemorySeq,
-    pub after: u32,
+    pub after: MemorySeq,
     pub authority: AuthorityRevision,
     pub deletion: DeletionEpoch,
 }
@@ -78,8 +78,8 @@ pub async fn execute(
     now: Timestamp,
 ) -> Result<serde_json::Value, String> {
     let result = match request {
-        Request::History { query } => serde_json::to_value(
-            vcp_audit::history_query::query(
+        Request::History { query } => {
+            let page = vcp_audit::history_query::query(
                 store.state(),
                 &vcp_audit::history::Access {
                     workspace: access.workspace.clone(),
@@ -89,8 +89,19 @@ pub async fn execute(
                 },
                 &query,
             )
-            .map_err(|e| e.to_string())?,
-        ),
+            .map_err(|e| e.to_string())?;
+            let origins = page
+                .rows
+                .iter()
+                .map(|row| row.event.event.id.clone())
+                .collect();
+            let (links, truncated) = vcp_memory::history::origin_links(store, access, &origins)
+                .map_err(|e| e.to_string())?;
+            let mut value = serde_json::to_value(page).map_err(|e| e.to_string())?;
+            value["claim_links"] = serde_json::to_value(links).map_err(|e| e.to_string())?;
+            value["claim_links_truncated"] = serde_json::json!(truncated);
+            Ok(value)
+        }
         Request::Memory {
             claim,
             limit,
@@ -147,7 +158,15 @@ pub async fn execute(
             Ok(value)
         }
         Request::Policy => {
-            serde_json::to_value(retention_policy::show(store, access).map_err(|e| e.to_string())?)
+            let mut value = serde_json::to_value(
+                retention_policy::show(store, access).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+            value["latest_run"] = serde_json::to_value(
+                retention_policy::latest_run(store, access).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(value)
         }
         Request::SetPolicy {
             expected,
@@ -211,25 +230,32 @@ fn memory_page(
         }) {
             return Err("memory cursor requires refresh after scope/retention change".into());
         }
-        let history =
-            vcp_memory::history::query(store, access, &claim, cursor.as_ref().map(|c| c.at), None)
-                .map_err(|e| e.to_string())?;
-        let at = cursor.as_ref().map(|c| c.at).unwrap_or_else(|| {
-            history
-                .versions
-                .iter()
-                .map(|v| v.memory_seq)
-                .max()
-                .unwrap_or(MemorySeq::ZERO)
-        });
-        let after = cursor.as_ref().map_or(0, |c| c.after) as usize;
-        if after > history.versions.len() {
-            return Err("memory cursor exceeds history".into());
-        }
+        let (history, at, more) = vcp_memory::history::window(
+            store,
+            access,
+            &claim,
+            cursor.as_ref().map(|c| c.at),
+            cursor.as_ref().map_or(MemorySeq::ZERO, |c| c.after),
+            limit as usize,
+        )
+        .map_err(|e| e.to_string())?;
         let mut rows = Vec::new();
         let mut bytes = 0;
-        for version in history.versions.iter().skip(after).take(limit as usize) {
+        for version in &history.versions {
             let mut value = serde_json::to_value(version).map_err(|e| e.to_string())?;
+            let decision = retention::decision(
+                store.state(),
+                &access.workspace,
+                &retention::Target::Record(vcp_store::contract::key(
+                    vcp_store::contract::Collection::Claim,
+                    version.id.as_str(),
+                )),
+            )
+            .map_err(|e| e.to_string())?;
+            value["presentation_compacted"] =
+                serde_json::json!(decision.as_ref().is_some_and(|d| d.compacted));
+            value["recall_excluded"] =
+                serde_json::json!(decision.as_ref().is_some_and(|d| d.recall_excluded));
             let size = serde_json::to_vec(&value).map_err(|e| e.to_string())?.len();
             if size > 512 * 1024 {
                 value["version"] = serde_json::Value::Null;
@@ -242,9 +268,13 @@ fn memory_page(
             bytes += size;
             rows.push(value);
         }
-        let next = after + rows.len();
+        let next = history
+            .versions
+            .get(rows.len().saturating_sub(1))
+            .map_or(MemorySeq::ZERO, |v| v.memory_seq);
+        let more = more || rows.len() < history.versions.len();
         Ok(
-            serde_json::json!({"workspace":access.workspace,"claim":claim,"watermark":history.watermark,"at":at,"kind":"governed_memory","versions":rows,"next_cursor":(next<history.versions.len()).then_some(MemoryCursor{workspace:access.workspace.clone(),access_digest,claim,at,after:next as u32,authority:workspace.authority,deletion:workspace.deletion})}),
+            serde_json::json!({"workspace":access.workspace,"claim":claim,"watermark":history.watermark,"at":at,"kind":"governed_memory","versions":rows,"next_cursor":more.then_some(MemoryCursor{workspace:access.workspace.clone(),access_digest,claim,at,after:next,authority:workspace.authority,deletion:workspace.deletion})}),
         )
     }
     page(store, access, claim, limit, cursor).map_err(serde::ser::Error::custom)

@@ -459,6 +459,7 @@ pub fn prepare_admission(
     let attempt = Attempt {
         schema_version: 1,
         redaction: None,
+        redacted_at_revision: None,
         id: input.attempt.clone(),
         scope: input.scope.clone(),
         root: task.root,
@@ -871,9 +872,6 @@ pub async fn observe<S: CanonicalStore>(
         &observation.attempt,
         &observation.scope.workspace,
     )?;
-    if old.redaction.is_some() {
-        return Err(Error::Conflict("new usage for purged terminal attempt"));
-    }
     if old.scope != observation.scope
         || matches!(
             old.phase,

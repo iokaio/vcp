@@ -70,6 +70,8 @@ pub struct RedactedProposal {
     pub recorded_at: Timestamp,
     /// Hashes of extractor/output-key/origin tuples prevent post-purge identity reuse.
     pub origin_output_keys: Vec<String>,
+    /// Stable ingestion ownership remains provable without retaining extractor text.
+    pub extractor_digest: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -138,6 +140,7 @@ impl RedactedProposal {
         )?;
         self.sources.validate()?;
         if !crate::accounting::valid_hash(&self.payload_digest)
+            || !crate::accounting::valid_hash(&self.extractor_digest)
             || self.origin_output_keys.len() > 128
             || self
                 .origin_output_keys

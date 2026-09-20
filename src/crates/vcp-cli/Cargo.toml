@@ -24,7 +24,6 @@ clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 vcp-audit = { path = "../vcp-audit" }
-vcp-memory = { path = "../vcp-memory" }
 vcp-domain = { path = "../vcp-domain" }
 vcp-protocol = { path = "../vcp-protocol" }
 vcp-lifecycle = { path = "../vcp-lifecycle" }
