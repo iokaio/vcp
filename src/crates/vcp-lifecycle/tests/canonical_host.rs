@@ -47,6 +47,18 @@ mod mcp;
 #[cfg(all(windows, feature = "qualification"))]
 #[path = "support/mcp_coding.rs"]
 mod mcp_coding;
+#[cfg(feature = "qualification")]
+#[path = "support/mcp_http.rs"]
+mod mcp_http;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/mcp_http_coding.rs"]
+mod mcp_http_coding;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/mcp_http_faults.rs"]
+mod mcp_http_faults;
+#[cfg(feature = "qualification")]
+#[path = "support/mcp_http_peer.rs"]
+mod mcp_http_peer;
 #[path = "support/memory_ingestion.rs"]
 mod memory_ingestion;
 #[cfg(windows)]

@@ -1450,12 +1450,34 @@
       "id": "owned-http-socket",
       "group": "lifecycle-host",
       "package": "vcp-lifecycle",
-      "path": "../../../crates/vcp-lifecycle/src/remote_transport.rs",
-      "symbol": "pub(crate) async fn exchange(",
-      "observation": "Private one-attempt HTTP/1 transport gates connecting and physical socket writes below TLS against owner generation and scoped credential revocation. Explicit recipient and trust, bounded reads, synchronous owner socket closure and no retries do not themselves grant canonical tool authority.",
+      "path": "../../../crates/vcp-lifecycle/src/remote_transport/streaming.rs",
+      "symbol": "pub(crate) async fn start(",
+      "observation": "Private one-attempt HTTP/1 exchanges gate connecting and physical socket writes below TLS against owner generation and scoped credential revocation. The owned driver emits request-bound flush observations and bounded response events, with synchronous owner socket closure and no retries. Explicit recipient and trust do not themselves grant canonical tool authority.",
       "effect_class": "effectful",
       "vcp_boundary": "controller",
       "effects": ["network", "credential", "scheduler"]
+    },
+    {
+      "id": "canonical-mcp-http-dispatch",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation/mcp/remote.rs",
+      "symbol": "pub async fn dispatch_remote_mcp_call(",
+      "observation": "Remote MCP operations bind profile, trust, connection, schema and source provenance to durable canonical intent. Streaming callback POSTs reuse the admitted claim with separate wire intents; missing receipts remain unknown without replay.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": ["network", "credential", "scheduler"]
+    },
+    {
+      "id": "mcp-windows-trust-snapshot",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/remote_transport/trust.rs",
+      "symbol": "pub(crate) fn native()",
+      "observation": "Explicit read-only bounded Windows Root and Disallowed snapshots configure normal TLS verification with additive distrust. Ambient CA environment overrides, OS trust mutation and automatic root fetching are excluded.",
+      "effect_class": "read-only",
+      "vcp_boundary": "controller",
+      "effects": ["file-read"]
     },
     {
       "id": "host-memory-inspection",

@@ -46,6 +46,9 @@ url = { workspace = true }
 zeroize = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util", "fs", "net"] }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+
 [dev-dependencies]
 rcgen = { workspace = true }
 wiremock = { workspace = true }

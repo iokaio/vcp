@@ -5,10 +5,9 @@ use crate::{foundation::mcp::remote_authority::CredentialLease, Lifecycle};
 use bytes::Bytes;
 use codex_protocol::ThreadId;
 use http::{header, HeaderMap, Method, Request, StatusCode};
-use http_body_util::{BodyExt, Full};
 use hyper::body::Body;
 use hyper_util::rt::TokioIo;
-use rustls::{pki_types::ServerName, ClientConfig};
+use rustls::pki_types::ServerName;
 use std::{
     future::poll_fn,
     io,
@@ -24,11 +23,14 @@ use tokio::{
     time::Instant,
 };
 use vcp_domain::revision::Timestamp;
+mod streaming;
+pub(crate) mod trust;
+pub(crate) use streaming::{Event, Exchange};
 
 pub(crate) struct Tls {
     pub name: ServerName<'static>,
     /// Trusted host construction only. Never accept caller-configured verifiers.
-    pub config: Arc<ClientConfig>,
+    pub trust: Arc<trust::TrustSnapshot>,
 }
 pub(crate) struct Outbound {
     pub address: SocketAddr,
@@ -378,8 +380,8 @@ fn valid(out: &Outbound) -> bool {
 
 /// Host supplies already-authorized pinned address, exact generation, scoped
 /// credential lease and explicit TLS roots. This primitive never grants them.
-/// Complete bounded responses only: this prerequisite is not an incremental SSE
-/// transport. It cannot yet service callbacks while a response remains open.
+/// Convenience collector for bounded complete responses. Streaming consumers
+/// use Exchange directly to handle callback POSTs while an SSE body stays open.
 pub(crate) async fn exchange(
     runtime: Lifecycle,
     thread: ThreadId,
@@ -405,182 +407,30 @@ async fn exchange_control(
     credential: Option<CredentialLease>,
     control: Arc<SocketControl>,
 ) -> Result<Response, Failure> {
-    if !valid(&out) {
-        return Err(control.failure(FailureKind::Invalid, false));
-    }
-    {
-        let state = runtime
-            .0
-            .state
-            .lock()
-            .map_err(|_| control.failure(FailureKind::Revoked, false))?;
-        if !state.attached || state.held(thread) || !state.admission_current(thread, generation) {
-            return Err(control.failure(FailureKind::Revoked, false));
-        }
-        let mut active = runtime
-            .0
-            .remote_sockets
-            .lock()
-            .map_err(|_| control.failure(FailureKind::Revoked, false))?;
-        let slots = active.entry(thread).or_default();
-        slots.retain(|slot| slot.strong_count() > 0);
-        if slots.len() >= 16 {
-            return Err(control.failure(FailureKind::Limit, false));
-        }
-        slots.push(Arc::downgrade(&control));
-    }
-    let deadline = out.limits.deadline;
-    let mut submitted = false;
-    let action = async {
-        let fenced = FencedSocket {
-            control: control.clone(),
-            runtime,
-            thread,
-            generation,
-            credential,
-            limit: out.limits.wire_bytes,
-            deadline,
-        };
-        // Register the connecting socket before yielding. Owner loss can close
-        // it even if this caller never polls its future again. No DNS/fallback.
-        poll_fn(|cx| {
-            fenced.gate(cx, |state, _| {
-                let create = || -> io::Result<TcpStream> {
-                    let socket = socket2::Socket::new(
-                        socket2::Domain::for_address(out.address),
-                        socket2::Type::STREAM,
-                        Some(socket2::Protocol::TCP),
-                    )?;
-                    socket.set_nonblocking(true)?;
-                    match socket.connect(&out.address.into()) {
-                        Ok(()) => (),
-                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => (),
-                        Err(error) => return Err(error),
-                    }
-                    TcpStream::from_std(socket.into())
-                };
-                match create() {
-                    Ok(socket) => {
-                        state.socket = Some(socket);
-                        Poll::Ready(Ok(()))
-                    }
-                    Err(error) => Poll::Ready(Err(error)),
-                }
-            })
-        })
-        .await
-        .map_err(|_| FailureKind::Transport)?;
-        poll_fn(|cx| {
-            fenced.gate(cx, |state, cx| {
-                let Some(socket) = state.socket.as_ref() else {
-                    return Poll::Ready(Err(io::Error::other("remote socket absent")));
-                };
-                match socket.poll_write_ready(cx) {
-                    Poll::Ready(Ok(())) => Poll::Ready(
-                        socket
-                            .take_error()
-                            .and_then(|error| error.map_or(Ok(()), Err)),
-                    ),
-                    other => other,
-                }
-            })
-        })
-        .await
-        .map_err(|_| FailureKind::Transport)?;
-        let io: Box<dyn Io> = if let Some(tls) = out.tls {
-            let mut config = (*tls.config).clone();
-            config.enable_early_data = false;
-            config.alpn_protocols = vec![b"http/1.1".to_vec()];
-            let stream = tokio_rustls::TlsConnector::from(Arc::new(config))
-                .connect_with(tls.name, fenced, |connection| {
-                    connection.set_buffer_limit(Some(64 * 1024))
-                })
-                .await
-                .map_err(|_| FailureKind::Transport)?;
-            Box::new(stream)
-        } else {
-            Box::new(fenced)
-        };
-        let mut builder = hyper::client::conn::http1::Builder::new();
-        builder
-            .max_headers(out.limits.header_count)
-            .max_buf_size(out.limits.header_bytes)
-            .writev(false);
-        let (mut sender, connection) = builder
-            .handshake(TokioIo::new(io))
-            .await
-            .map_err(|_| FailureKind::Protocol)?;
-        let mut request = Request::builder()
-            .method(Method::POST)
-            .uri(out.path)
-            .header(header::HOST, out.authority)
-            .header(header::CONNECTION, "close")
-            .body(Full::new(Bytes::from(out.body)))
-            .map_err(|_| FailureKind::Invalid)?;
-        request.headers_mut().extend(out.headers);
-        submitted = true;
-        let response = async {
-            let response = sender
-                .send_request(request)
-                .await
-                .map_err(|_| FailureKind::Protocol)?;
-            let (parts, mut body) = response.into_parts();
-            if parts
-                .headers
-                .iter()
-                .map(|(name, value)| name.as_str().len() + value.len())
-                .sum::<usize>()
-                > out.limits.header_bytes
-                || parts
-                    .headers
-                    .get(header::CONTENT_ENCODING)
-                    .is_some_and(|value| value.as_bytes() != b"identity")
-            {
-                return Err(FailureKind::Protocol);
+    let mut exchange =
+        Exchange::start_control(runtime, thread, generation, out, credential, control).await?;
+    let mut head = None;
+    let mut body = Vec::new();
+    loop {
+        match exchange.next().await? {
+            Event::Written(_) => (),
+            Event::Head { status, headers } => head = Some((status, headers)),
+            Event::Chunk(bytes) => body.extend_from_slice(&bytes),
+            Event::End {
+                sent_bytes,
+                received_bytes,
+            } => {
+                let (status, headers) =
+                    head.ok_or_else(|| exchange.failure(FailureKind::Protocol))?;
+                return Ok(Response {
+                    status,
+                    headers,
+                    body,
+                    sent_bytes,
+                    received_bytes,
+                });
             }
-            if body.size_hint().lower() > out.limits.response_bytes as u64 {
-                return Err(FailureKind::Limit);
-            }
-            let mut bytes = Vec::new();
-            while let Some(frame) = body.frame().await {
-                let frame = frame.map_err(|_| FailureKind::Protocol)?;
-                if let Some(data) = frame.data_ref() {
-                    if data.len() > out.limits.response_bytes.saturating_sub(bytes.len()) {
-                        return Err(FailureKind::Limit);
-                    }
-                    bytes.extend_from_slice(data);
-                } else {
-                    return Err(FailureKind::Protocol);
-                }
-            }
-            Ok((parts.status, parts.headers, bytes))
-        };
-        tokio::pin!(response);
-        tokio::pin!(connection);
-        // Both futures are owned here. No task or client pool survives Drop.
-        tokio::select! {
-            result=&mut response=>result,
-            result=&mut connection=>{result.map_err(|_|FailureKind::Protocol)?;response.await},
         }
-    };
-    let result = tokio::time::timeout_at(deadline, action).await;
-    match result {
-        Ok(Ok((status, headers, body))) => {
-            let state = control.0.lock().map_err(|_| Failure {
-                kind: FailureKind::Revoked,
-                sent_bytes: 0,
-                request_submitted: submitted,
-            })?;
-            Ok(Response {
-                status,
-                headers,
-                body,
-                sent_bytes: state.sent,
-                received_bytes: state.received,
-            })
-        }
-        Ok(Err(kind)) => Err(control.failure(kind, submitted)),
-        Err(_) => Err(control.failure(FailureKind::Deadline, submitted)),
     }
 }
 

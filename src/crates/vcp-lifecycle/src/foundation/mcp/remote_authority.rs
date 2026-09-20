@@ -211,6 +211,23 @@ impl CredentialResolver {
             material: entry.material.clone().ok_or(Error::Revoked)?,
         })
     }
+    pub(crate) fn resolve_current(
+        &self,
+        profile: &RemoteProfile,
+        authority: &AuthorityPin,
+        now: Timestamp,
+    ) -> Result<CredentialLease, Error> {
+        let key = Key::of(profile)?;
+        let revision = {
+            let state = self.state.lock().map_err(|_| Error::Unavailable)?;
+            state
+                .entries
+                .get(&key)
+                .ok_or(Error::MissingCredential)?
+                .revision
+        };
+        self.resolve(profile, authority, revision, now)
+    }
     pub fn revoke(&self, profile: &RemoteProfile, expected: Revision) -> Result<Revision, Error> {
         let mut state = self.state.lock().map_err(|_| Error::Unavailable)?;
         let entry = state
@@ -291,6 +308,33 @@ impl CredentialLease {
         validate(entry, &self.profile, &self.authority, self.revision, now)?;
         Ok(action())
     }
+    pub fn sanitize(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
+        CaptureSecret(self.material.0.as_str()).sanitize(bytes)
+    }
+    pub fn sanitize_json(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
+        CaptureSecret(self.material.0.as_str()).sanitize_json(bytes)
+    }
+    pub fn contains_secret(&self, bytes: &[u8]) -> Result<bool, Error> {
+        CaptureSecret(self.material.0.as_str()).contains_secret(bytes)
+    }
+    /// Only an admitted transport may construct its ephemeral Authorization header.
+    pub(crate) fn with_bearer<T>(
+        &self,
+        now: Timestamp,
+        action: impl FnOnce(&str) -> T,
+    ) -> Result<T, Error> {
+        self.with_current(now, || action(self.material.0.as_str()))
+    }
+}
+/// Borrowed private header value used only while sanitizing complete captures.
+pub(crate) struct CaptureSecret<'a>(&'a str);
+impl<'a> CaptureSecret<'a> {
+    pub(crate) fn new(value: &'a str) -> Result<Self, Error> {
+        if value.is_empty() || value.len() > MAX_SECRET {
+            return Err(Error::InvalidCredential);
+        }
+        Ok(Self(value))
+    }
     /// Exact-byte removal for headers echoed in permitted content/errors. Parse
     /// untrusted metadata before capture only in private adapter memory; reject
     /// credential-bearing identities rather than changing their schema identity.
@@ -300,14 +344,14 @@ impl CredentialLease {
             return Err(Error::CaptureLimit);
         }
         let text = std::str::from_utf8(bytes).map_err(|_| Error::InvalidContent)?;
-        let marker = if "[credential omitted]".contains(self.material.0.as_str()) {
+        let marker = if "[credential omitted]".contains(self.0) {
             ""
         } else {
             "[credential omitted]"
         };
         let mut output = Vec::with_capacity(bytes.len());
         let mut previous = 0;
-        for (index, matched) in text.match_indices(self.material.0.as_str()) {
+        for (index, matched) in text.match_indices(self.0) {
             if output
                 .len()
                 .saturating_add(index - previous)
@@ -342,7 +386,7 @@ impl CredentialLease {
         let mut value: serde_json::Value =
             serde_json::from_slice(bytes).map_err(|_| Error::InvalidContent)?;
         fn visit(
-            lease: &CredentialLease,
+            lease: &CaptureSecret,
             value: &mut serde_json::Value,
             depth: usize,
         ) -> Result<(), Error> {
@@ -401,15 +445,7 @@ impl CredentialLease {
             return Err(Error::CaptureLimit);
         }
         let text = std::str::from_utf8(bytes).map_err(|_| Error::InvalidContent)?;
-        Ok(text.contains(self.material.0.as_str()))
-    }
-    /// Only an admitted transport may construct its ephemeral Authorization header.
-    pub(crate) fn with_bearer<T>(
-        &self,
-        now: Timestamp,
-        action: impl FnOnce(&str) -> T,
-    ) -> Result<T, Error> {
-        self.with_current(now, || action(self.material.0.as_str()))
+        Ok(text.contains(self.0))
     }
 }
 fn validate(
