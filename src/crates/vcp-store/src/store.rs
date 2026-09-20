@@ -248,7 +248,9 @@ impl Store {
     pub fn state(&self) -> &State {
         &self.state
     }
-    pub(crate) fn prefix_digest(&self, watermark: Watermark) -> Result<String> {
+    /// Verify retained canonical history at an exact cut. This read-only digest
+    /// cannot authorize an import or restore history before the retained base.
+    pub fn prefix_digest(&self, watermark: Watermark) -> Result<String> {
         if watermark > self.state.watermark {
             return Err(Error::Corruption("snapshot beyond canonical watermark"));
         }

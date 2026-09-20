@@ -4,7 +4,7 @@
 //! claims a derivative is ready before the destination engine reopens it.
 use crate::{
     contract::{Collection, State},
-    Error, Result, Store,
+    Error, Result,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -105,19 +105,6 @@ pub(crate) fn relative(path: &str) -> bool {
     })
 }
 impl Inputs {
-    pub(crate) fn validate(
-        &self,
-        store: &Store,
-        state: &State,
-        workspace: &WorkspaceId,
-    ) -> Result<Coverage> {
-        self.validate_with(state, workspace, &|id| {
-            let descriptor = descriptor(state, workspace, id)?;
-            let mut bytes = Vec::new();
-            store.spool().read(&descriptor, &mut bytes)?;
-            Ok(bytes)
-        })
-    }
     pub(crate) fn validate_with(
         &self,
         state: &State,

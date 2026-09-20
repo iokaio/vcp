@@ -710,10 +710,28 @@ async fn native_dirty_and_untracked_checkpoint_is_complete_or_backup_is_refused(
         .unwrap();
         assert_eq!(roundtrip.inputs(), &inputs);
         let id = CommandId::new();
+        let cancelled = Jobs::capture_inputs(&store, &ws.id, inputs.clone()).unwrap();
+        assert!(Jobs::prepare_inputs(cancelled, &|| true).is_err());
+        let stale = Jobs::prepare_inputs(
+            Jobs::capture_inputs(&store, &ws.id, inputs.clone()).unwrap(),
+            &|| false,
+        )
+        .unwrap();
+        let valid = Jobs::prepare_inputs(
+            Jobs::capture_inputs(&store, &ws.id, inputs.clone()).unwrap(),
+            &|| false,
+        )
+        .unwrap();
         let prepared_capture = jobs
-            .begin_with_inputs(&mut store, id, &ws.id, &trust, inputs)
+            .begin_prepared(&mut store, id, &ws.id, &trust, valid)
             .await
             .unwrap();
+        let watermark = store.state().watermark;
+        assert!(jobs
+            .begin_prepared(&mut store, CommandId::new(), &ws.id, &trust, stale)
+            .await
+            .is_err());
+        assert_eq!(store.state().watermark, watermark);
         jobs.prepare(&store, prepared_capture, &|| false).unwrap();
         drop(snap);
         store.close().await.unwrap();

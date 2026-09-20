@@ -20,12 +20,21 @@ use vcp_store::{
     portable_snapshot::Archive,
     snapshot_jobs::{Jobs, Stage},
     vault_crypto::PrivateStaging,
-    vault_publish::{Checkpoint, LocalTrust},
+    vault_publish::{Checkpoint, LocalTrust, Vault},
     BackendKind, Store,
 };
 
 #[tokio::test]
 async fn snapshot_obligations_block_physical_cleanup_and_stale_publication_after_purge() {
+    retention_case(false).await;
+}
+
+#[tokio::test]
+async fn admitted_copy_finishes_after_purge_and_remains_a_retained_backup_obligation() {
+    retention_case(true).await;
+}
+
+async fn retention_case(admitted: bool) {
     const MARKER: &[u8] = b"portable-retention-private-source-93f8d";
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temp = tempfile::tempdir().unwrap();
@@ -42,7 +51,7 @@ async fn snapshot_obligations_block_physical_cleanup_and_stale_publication_after
         let exported = keys.export_recovery(&recovery).unwrap();
         let keys = keys.verify_recovery(&exported).unwrap();
         let ws = workspace();
-        let trust = LocalTrust::enroll(
+        let mut trust = LocalTrust::enroll(
             &keys,
             ws.id.clone(),
             "a".repeat(64),
@@ -106,6 +115,24 @@ async fn snapshot_obligations_block_physical_cleanup_and_stale_publication_after
         jobs.accept_encrypted(&mut store, &ws.id, encrypted)
             .await
             .unwrap();
+        let ready = Jobs::inspect(&store, &operation, &ws.id).unwrap();
+        let admitted_copy = if admitted {
+            let evidence = jobs.prepare_admission(&ready, &trust).unwrap();
+            Some(
+                jobs.admit_prepared(&mut store, &ws.id, &trust, evidence)
+                    .await
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
+        // Keep independently prepared evidence to prove stale policy is checked
+        // again at canonical admission, rather than trusted from preparation.
+        let stale_evidence = if admitted {
+            None
+        } else {
+            Some(jobs.prepare_admission(&ready, &trust).unwrap())
+        };
         // All in-memory snapshot handles are gone. The durable job alone pins
         // the old payload across owner restart and a physical replay-base rewrite.
         store.close().await.unwrap();
@@ -156,19 +183,70 @@ async fn snapshot_obligations_block_physical_cleanup_and_stale_publication_after
         assert_eq!(store.state().watermark, before);
         assert_eq!(
             Jobs::inspect(&store, &operation, &ws.id).unwrap().stage,
-            Stage::CiphertextReady
+            if admitted {
+                Stage::Admitted
+            } else {
+                Stage::CiphertextReady
+            }
         );
         assert_eq!(std::fs::read_dir(&paths[2]).unwrap().count(), 0);
+        if let Some(proof) = stale_evidence {
+            assert!(jobs
+                .admit_prepared(&mut store, &ws.id, &trust, proof)
+                .await
+                .is_err());
+            assert_eq!(store.state().watermark, before);
+        }
+        if let Some((job, mut ciphertext, permit)) = admitted_copy {
+            let vault = Vault::open(
+                &paths[2],
+                &[paths[0].clone(), paths[1].clone(), paths[3].clone()],
+            )
+            .unwrap();
+            let store_ref = &mut store;
+            let receipt = vault
+                .publish_recorded(
+                    &mut ciphertext,
+                    &permit,
+                    job.copy_identity(),
+                    |identity| async {
+                        jobs.record_copy(store_ref, &operation, &ws.id, identity)
+                            .await?;
+                        Ok(())
+                    },
+                    &|| false,
+                    &|_| {},
+                )
+                .await
+                .unwrap();
+            // Trust advances only from proof of the exact existing ciphertext.
+            let verified = vault.reconcile(&ciphertext, &permit).unwrap();
+            assert_eq!(verified.operation, receipt.operation);
+            jobs.complete(&mut store, &ws.id, &verified).await.unwrap();
+            let revision = trust.configuration().revision;
+            trust
+                .advance_after_publication(&verified, revision)
+                .unwrap();
+            assert!(Jobs::checkpoint_matches(&store, &operation, &ws.id, &trust).unwrap());
+            drop(ciphertext);
+        }
 
         let released = jobs
             .release(&mut store, &operation, &ws.id, true)
             .await
             .unwrap();
         assert!(!released.active);
+        if admitted {
+            assert_eq!(released.stage, Stage::Published);
+            assert!(released.publication.is_some());
+            assert!(released.copy_identity().is_some());
+            assert!(released.pins.is_empty());
+        }
         let cleaned = retention::cleanup(&mut store, &access, &applied.id, Timestamp::new(1003))
             .await
             .unwrap();
         assert!(cleaned.local_cleanup_complete, "{cleaned:?}");
+        assert!(cleaned.backup_copies.contains(&operation.to_string()));
         store.close().await.unwrap();
         let mut store = Store::open(&root, backend, &forbidden).await.unwrap();
         let snapshot = store.snapshot().unwrap();

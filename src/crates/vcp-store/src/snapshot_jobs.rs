@@ -80,6 +80,24 @@ impl Capture {
         &self.job
     }
 }
+/// Retains the exact canonical cut while input bytes are checked off-owner.
+pub struct InputCapture {
+    snapshot: Snapshot,
+    spool: crate::artifact::Spool,
+    inputs: crate::snapshot_inputs::Inputs,
+    workspace: WorkspaceId,
+    source_root: PathBuf,
+}
+pub struct PreparedInputs {
+    capture: InputCapture,
+    state_digest: String,
+}
+pub struct PreparedAdmission {
+    job: Job,
+    trust_digest: String,
+    ciphertext: FinalizedCiphertext,
+    permit: PublicationPermit,
+}
 pub struct Prepared {
     job: CommandId,
     revision: Revision,
@@ -242,9 +260,96 @@ impl Jobs {
             }
             return self.resume_capture(store, &job);
         }
-        let snapshot = store.snapshot()?;
+        let captured = Self::capture_inputs_inner(store, workspace, inputs)?;
+        let prepared = Self::prepare_inputs(captured, &|| false)?;
+        self.begin_prepared(store, id, workspace, trust, prepared)
+            .await
+    }
+    pub fn capture_inputs(
+        store: &Store,
+        workspace: &WorkspaceId,
+        inputs: crate::snapshot_inputs::Inputs,
+    ) -> Result<InputCapture> {
+        if inputs.checkpoint.is_none() {
+            return Err(Error::Unavailable("complete workspace checkpoint required"));
+        }
+        Self::capture_inputs_inner(store, workspace, inputs)
+    }
+    fn capture_inputs_inner(
+        store: &Store,
+        workspace: &WorkspaceId,
+        inputs: crate::snapshot_inputs::Inputs,
+    ) -> Result<InputCapture> {
+        Ok(InputCapture {
+            snapshot: store.snapshot()?,
+            spool: store.spool().clone(),
+            inputs,
+            workspace: workspace.clone(),
+            source_root: store.root().to_path_buf(),
+        })
+    }
+    pub fn prepare_inputs(
+        capture: InputCapture,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<PreparedInputs> {
+        let check = || {
+            if cancelled() {
+                Err(Error::Unavailable("snapshot input validation cancelled"))
+            } else {
+                Ok(())
+            }
+        };
+        check()?;
+        let state = capture.snapshot.state();
+        capture
+            .inputs
+            .validate_with(state, &capture.workspace, &|id| {
+                check()?;
+                let descriptor: vcp_domain::artifact::ArtifactDescriptor = state
+                    .record(Collection::Artifact, id.as_str(), &capture.workspace)?
+                    .decode()?;
+                if descriptor.length.get() > 4 * 1024 * 1024 {
+                    return Err(Error::Limit("snapshot input bytes"));
+                }
+                let mut bytes = Vec::new();
+                capture.spool.read(&descriptor, &mut bytes)?;
+                check()?;
+                Ok(bytes)
+            })?;
+        let state_digest = digest_bytes(&canonical_bytes(state)?);
+        check()?;
+        Ok(PreparedInputs {
+            capture,
+            state_digest,
+        })
+    }
+    /// Consume only validated opaque input evidence; no artifact bytes are read
+    /// on the canonical owner. Any intervening transaction requires recapture.
+    pub async fn begin_prepared(
+        &self,
+        store: &mut Store,
+        id: CommandId,
+        workspace: &WorkspaceId,
+        trust: &LocalTrust,
+        prepared: PreparedInputs,
+    ) -> Result<Capture> {
+        self.path(&id, "archive")?;
+        let InputCapture {
+            snapshot,
+            spool,
+            inputs,
+            workspace: captured_workspace,
+            source_root,
+        } = prepared.capture;
         let state = snapshot.state();
-        inputs.validate(store, state, workspace)?;
+        if captured_workspace != *workspace
+            || source_root != store.root()
+            || state.watermark != store.state().watermark
+        {
+            return Err(Error::Conflict(
+                "snapshot input cut changed; recapture required",
+            ));
+        }
         let ws: Workspace = state
             .record(Collection::Workspace, workspace.as_str(), workspace)?
             .decode()?;
@@ -273,7 +378,7 @@ impl Jobs {
             workspace: workspace.clone(),
             revision: Revision::ZERO,
             watermark: state.watermark,
-            state_digest: digest_bytes(&canonical_bytes(state)?),
+            state_digest: prepared.state_digest,
             deletion: ws.deletion.get(),
             authority: ws.authority.get(),
             source_root: store.root().to_string_lossy().into_owned(),
@@ -292,7 +397,7 @@ impl Jobs {
         Ok(Capture {
             job,
             snapshot,
-            spool: store.spool().clone(),
+            spool,
         })
     }
     pub fn resume_capture(&self, store: &Store, job: &Job) -> Result<Capture> {
@@ -539,9 +644,37 @@ impl Jobs {
         workspace: &WorkspaceId,
         trust: &LocalTrust,
     ) -> Result<(Job, FinalizedCiphertext, PublicationPermit)> {
-        let mut job = Self::inspect(store, id, workspace)?;
+        let job = Self::inspect(store, id, workspace)?;
+        let prepared = self.prepare_admission(&job, trust)?;
+        self.admit_prepared(store, workspace, trust, prepared).await
+    }
+    /// Reopen and hash retained ciphertext on a blocking worker. The returned
+    /// capability owns the unchanged native file through admission and copy.
+    pub fn prepare_admission(&self, job: &Job, trust: &LocalTrust) -> Result<PreparedAdmission> {
         if !matches!(job.stage, Stage::CiphertextReady | Stage::Admitted) {
             return Err(Error::Conflict("snapshot publication not ready"));
+        }
+        let ciphertext = self.reopen_ciphertext(job)?;
+        let permit = trust.admit(&ciphertext, job.id.clone(), job.trust_revision)?;
+        Ok(PreparedAdmission {
+            job: job.clone(),
+            trust_digest: digest_bytes(&canonical_bytes(&trust.configuration())?),
+            ciphertext,
+            permit,
+        })
+    }
+    pub async fn admit_prepared(
+        &self,
+        store: &mut Store,
+        workspace: &WorkspaceId,
+        trust: &LocalTrust,
+        prepared: PreparedAdmission,
+    ) -> Result<(Job, FinalizedCiphertext, PublicationPermit)> {
+        let mut job = Self::inspect(store, &prepared.job.id, workspace)?;
+        if canonical_bytes(&job)? != canonical_bytes(&prepared.job)?
+            || prepared.trust_digest != digest_bytes(&canonical_bytes(&trust.configuration())?)
+        {
+            return Err(Error::Conflict("snapshot admission evidence changed"));
         }
         let ws: Workspace = store
             .state()
@@ -550,13 +683,11 @@ impl Jobs {
         if ws.deletion.get() != job.deletion || ws.authority.get() != job.authority {
             return Err(Error::Conflict("snapshot policy changed; rebuild required"));
         }
-        let ciphertext = self.reopen_ciphertext(&job)?;
-        let permit = trust.admit(&ciphertext, job.id.clone(), job.trust_revision)?;
         if job.stage != Stage::Admitted {
             job.stage = Stage::Admitted;
             job = advance(store, job).await?;
         }
-        Ok((job, ciphertext, permit))
+        Ok((job, prepared.ciphertext, prepared.permit))
     }
     pub async fn record_copy(
         &self,
