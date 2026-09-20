@@ -33,6 +33,7 @@ pub mod openrouter;
 mod process;
 pub mod routing;
 pub mod routing_state;
+pub mod skills;
 #[cfg(windows)]
 mod tools;
 #[cfg(windows)]

@@ -20,6 +20,7 @@ required-features = ["qualification"]
 qualification = []
 
 [dependencies]
+vcp-extensions = { path = "../vcp-extensions" }
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

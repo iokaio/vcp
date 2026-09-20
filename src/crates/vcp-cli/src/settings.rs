@@ -27,6 +27,8 @@ pub struct Profile {
     pub provider: Snapshot,
     #[serde(default)]
     pub routing: Option<vcp_lifecycle::foundation::routing::Configuration>,
+    #[serde(default)]
+    pub skills: Option<crate::skills::Configuration>,
     pub catalog: PathBuf,
     pub affected_paths: Vec<PathBuf>,
     pub max_requests: u32,
@@ -246,6 +248,9 @@ impl Profile {
         }
         if let Some(routing) = &self.routing {
             routing.validate()?;
+        }
+        if let Some(skills) = &self.skills {
+            skills.validate()?;
         }
         let mut names = BTreeSet::new();
         let mut processes = Vec::new();

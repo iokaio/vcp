@@ -1,0 +1,52 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index c958039..fd70aee 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17508,6 +17508,7 @@ dependencies = [
+  "vcp-audit",
+  "vcp-domain",
+  "vcp-engine",
++ "vcp-extensions",
+  "vcp-lifecycle",
+  "vcp-memory",
+  "vcp-models",
+@@ -17573,6 +17574,19 @@ dependencies = [
+  "vcp-store",
+ ]
+ 
++[[package]]
++name = "vcp-extensions"
++version = "0.1.0"
++dependencies = [
++ "serde",
++ "serde_json",
++ "tempfile",
++ "thiserror 2.0.18",
++ "vcp-domain",
++ "vcp-protocol",
++ "vcp-repository",
++]
++
+ [[package]]
+ name = "vcp-lifecycle"
+ version = "0.1.0"
+@@ -17596,6 +17610,7 @@ dependencies = [
+  "vcp-context",
+  "vcp-domain",
+  "vcp-engine",
++ "vcp-extensions",
+  "vcp-memory",
+  "vcp-models",
+  "vcp-policy",
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index 78907b1..69afc37 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -1,5 +1,7 @@
+ [workspace]
+ members = [
++    # VCP modification: bounded native skill discovery and activation.
++    "../../../crates/vcp-extensions",
+     "../../../crates/vcp-memory",
+     # VCP modification: structured and interactive CLI adapters.
+     "../../../crates/vcp-cli",

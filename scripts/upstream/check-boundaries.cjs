@@ -15,7 +15,7 @@ try {
     path.join(repository, 'src/crates/vcp-memory-spike'), path.join(repository, 'src/crates/vcp-lifecycle'),
     path.join(repository, 'src/crates/vcp-storage-spike'),
     ...['vcp-cli', 'vcp-domain', 'vcp-protocol', 'vcp-store', 'vcp-engine', 'vcp-budget', 'vcp-audit', 'vcp-memory',
-      'vcp-repository', 'vcp-context', 'vcp-models', 'vcp-policy', 'vcp-tools'].map(name => path.join(repository, 'src/crates', name))];
+      'vcp-repository', 'vcp-context', 'vcp-models', 'vcp-policy', 'vcp-tools', 'vcp-extensions'].map(name => path.join(repository, 'src/crates', name))];
   validatePath(component.boundary_inventory);
   const catalog = JSON.parse(fs.readFileSync(path.join(repository, 'src/third_party', component.boundary_inventory), 'utf8'));
   const ledger = fs.readFileSync(path.join(repository, 'docs/plan/20-traceability.md'), 'utf8');

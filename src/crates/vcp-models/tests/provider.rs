@@ -235,8 +235,10 @@ fn provider_conversion_pins_endpoint_disables_hidden_routes_and_keeps_evidence_a
         "fixture".into(),
     )
     .unwrap();
-    let body: Value =
-        serde_json::from_slice(&encode(&[part], &env, &tools(), &snapshot).unwrap()).unwrap();
+    let body: Value = serde_json::from_slice(
+        &encode(std::slice::from_ref(&part), &env, &tools(), &snapshot).unwrap(),
+    )
+    .unwrap();
     assert_eq!(body["input"][0]["role"], "user");
     let quoted: Value =
         serde_json::from_str(body["input"][0]["content"][0]["text"].as_str().unwrap()).unwrap();
@@ -251,6 +253,37 @@ fn provider_conversion_pins_endpoint_disables_hidden_routes_and_keeps_evidence_a
     assert_eq!(body["store"], false);
     assert!(body.get("plugins").is_none());
     assert!(body.get("previous_response_id").is_none());
+
+    // The same hostile bytes cannot acquire project/developer authority merely
+    // by arriving through an explicitly activated skill package.
+    let mut project = part.clone();
+    project.id = "agents".into();
+    project.kind = Kind::ProjectInstruction;
+    project.trust = Trust::Project;
+    let mut objective = part.clone();
+    objective.id = "objective".into();
+    objective.kind = Kind::Objective;
+    objective.trust = Trust::User;
+    let mut skill = part;
+    skill.id = "activated-skill".into();
+    skill.kind = Kind::Skill;
+    skill.trust = Trust::ActiveSkill;
+    let input: Value = serde_json::from_slice(
+        &encode(&[project, objective, skill], &env, &tools(), &snapshot).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(input["input"][0]["role"], "developer");
+    assert_eq!(input["input"][1]["role"], "user");
+    assert_eq!(input["input"][2]["role"], "user");
+    let quoted_skill: Value =
+        serde_json::from_str(input["input"][2]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(quoted_skill["kind"], "skill");
+    assert_eq!(quoted_skill["trust"], "active_skill");
+    assert_eq!(quoted_skill["source_sha256"], descriptor.sha256);
+    assert_eq!(
+        quoted_skill["text"].as_str(),
+        std::str::from_utf8(text).ok()
+    );
 }
 #[test]
 fn complete_schema_validated_calls_only_appear_after_terminal_and_clean_end() {

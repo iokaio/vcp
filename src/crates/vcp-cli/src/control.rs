@@ -36,6 +36,11 @@ pub enum Request {
         workspace: WorkspaceId,
         command: crate::optimize::offline::Command,
     },
+    Skills {
+        workspace: WorkspaceId,
+        registry: vcp_extensions::skill_manifest::SourceRegistry,
+        offset: usize,
+    },
     Query {
         workspace: WorkspaceId,
         query: crate::app::Query,
@@ -210,6 +215,11 @@ async fn handle(
             workspace: requested,
             command,
         } if requested == *workspace => crate::optimize::offline::on_host(host, &command),
+        Request::Skills {
+            workspace: requested,
+            registry,
+            offset,
+        } if requested == *workspace => crate::skills::offline::on_host(host, registry, offset),
         Request::Query {
             workspace: requested,
             query,
