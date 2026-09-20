@@ -10,6 +10,6 @@ workspace = "../../third_party/codex/codex-rs"
 [dependencies]
 vcp-domain = { path = "../vcp-domain" }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 sha2 = { workspace = true }
 thiserror = { workspace = true }

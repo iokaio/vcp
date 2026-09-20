@@ -36,6 +36,7 @@ These guides describe how to implement and qualify the planned system. The [deli
 - [P1 retained canonical host](p1-retained-host.md): actual retained request admission, full native output capture, close/reopen reconciliation and complete phase qualification.
 - [P1 accounting and history](p1-accounting-history.md): shared root ledger, immutable adjustments, deterministic projections and current-authority history reads.
 - [P1 durable foundation](p1-foundation.md): typed commands, complete capture, canonical backends and native crash/activation tests; remaining P1 integration is explicit.
+- [P1 literal JSON preservation](p1-persisted-json.md): preserve arbitrary record/event objects through canonical replay without changing stored bytes or hashes.
 - [Experiment fixtures](experiment-fixtures.md): deterministic P0 helpers, synthetic workloads, independent graders and proposed measurement sizes.
 - [Upstream qualification](upstream-qualification.md): immutable source selection, native baseline experiments, effect inventory and reconstruction.
 - [Current upstream candidates](upstream-candidates.md): pinned investigation inputs, original-byte inventory and native baseline commands.

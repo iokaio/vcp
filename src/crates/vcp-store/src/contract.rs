@@ -92,6 +92,7 @@ pub struct Record {
     pub id: String,
     pub workspace: WorkspaceId,
     pub revision: Revision,
+    #[serde(deserialize_with = "vcp_protocol::persisted_json::deserialize")]
     pub value: serde_json::Value,
     /// Explicit references supplement the mandatory relationships derived from typed data.
     pub references: BTreeSet<String>,
@@ -148,6 +149,9 @@ impl Record {
     pub fn key(&self) -> String {
         key(self.collection, &self.id)
     }
+    /// Convert a stored row to its typed contract using that type's Serde rules.
+    /// For the retained arbitrary JSON tree, use `value` directly (or clone it):
+    /// choosing `serde_json::Value` as `T` invokes its private-key interpretation.
     pub fn decode<T: serde::de::DeserializeOwned>(&self) -> Result<T> {
         Ok(serde_json::from_value(self.value.clone())?)
     }
@@ -629,7 +633,7 @@ impl Record {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Mutation {
     Put {
@@ -638,6 +642,58 @@ pub enum Mutation {
     },
     /// Only disposable projections may be physically removed through this path.
     DropProjection { id: String, expected: Revision },
+}
+
+impl<'de> Deserialize<'de> for Mutation {
+    fn deserialize<D: serde::Deserializer<'de>>(decoder: D) -> std::result::Result<Self, D::Error> {
+        // Serde's internally tagged enum buffering cannot carry RawValue into
+        // Record.value. Dispatch from raw JSON while retaining the same wire
+        // shape, required fields, and rejection of unknown fields/variants.
+        let raw: Box<serde_json::value::RawValue> = Deserialize::deserialize(decoder)?;
+        if raw.get().len() > MAX_TRANSACTION_BYTES {
+            return Err(serde::de::Error::custom("mutation byte limit"));
+        }
+        #[derive(Deserialize)]
+        struct Tag {
+            operation: String,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Put {
+            #[serde(rename = "operation")]
+            _operation: String,
+            expected: Option<Revision>,
+            record: Record,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Drop {
+            #[serde(rename = "operation")]
+            _operation: String,
+            id: String,
+            expected: Revision,
+        }
+        let tag: Tag = serde_json::from_str(raw.get()).map_err(serde::de::Error::custom)?;
+        match tag.operation.as_str() {
+            "put" => {
+                let value: Put =
+                    serde_json::from_str(raw.get()).map_err(serde::de::Error::custom)?;
+                Ok(Self::Put {
+                    expected: value.expected,
+                    record: value.record,
+                })
+            }
+            "drop_projection" => {
+                let value: Drop =
+                    serde_json::from_str(raw.get()).map_err(serde::de::Error::custom)?;
+                Ok(Self::DropProjection {
+                    id: value.id,
+                    expected: value.expected,
+                })
+            }
+            _ => Err(serde::de::Error::custom("unknown mutation operation")),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
