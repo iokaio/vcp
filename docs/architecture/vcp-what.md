@@ -2078,8 +2078,9 @@ Retain the original ADR IDs and extend them for owner decisions. A confirmed pro
 | [ADR-023](../adr/023-canonical-selection-activation.md) | Canonical selection activation | Leased descriptors and revision-checked activation | P3-06/P5-10 |
 | [ADR-024](../adr/024-native-skill-packages.md) | Native skill packages | Descriptor discovery and explicit body activation under current authority | P7-01 |
 | [ADR-025](../adr/025-builtin-skill-assets.md) | Built-in skill asset identity | Lazy packaged bodies bound to an embedded metadata inventory | P7-02 |
-| [ADR-026](../adr/026-governed-mcp-stdio.md) | Governed sequential MCP stdio | Original bounded codec; host owns authority, source fences and durable dispatch; broader transports remain pending | P7-03 |
-| [ADR-027](../adr/027-owned-http-send-boundary.md) | Owned HTTP send boundary | Physical socket admission below TLS, scoped credential leases and bounded framing; canonical remote integration remains pending | P7-03 |
+| [ADR-026](../adr/026-governed-mcp-stdio.md) | Governed sequential MCP stdio | Original bounded codec; host owns authority, source fences and durable dispatch; ADR-028 supersedes the initial numeric restriction | P7-03 |
+| [ADR-027](../adr/027-owned-http-send-boundary.md) | Owned HTTP send boundary | Physical socket admission below TLS, scoped credential leases and bounded framing; canonical remote integration qualified | P7-03 |
+| [ADR-028](../adr/028-exact-mcp-schema-profile.md) | Exact MCP schema profile | Bounded decimal arithmetic and schema graph; profile identity pins interpretation across dispatch and capture | P7-03 |
 
 Each accepted engineering ADR includes alternatives, evidence, consequences, operational burden, compatibility, tests and conditions for reconsideration. Product answers do not certify unbuilt integrations.
 

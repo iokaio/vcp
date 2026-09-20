@@ -42,6 +42,14 @@ fn reconnect_and_reopened_registration_never_restore_generation() {
     let reopened: Registration =
         serde_json::from_slice(&serde_json::to_vec(&registration).unwrap()).unwrap();
     let after = ConnectionIdentity::new(&reopened, PROTOCOL, None).unwrap();
+    assert_eq!(
+        before.admission_profile(),
+        vcp_extensions::mcp::schema::PROFILE
+    );
+    assert_eq!(
+        serde_json::to_value(&before).unwrap()["admission_profile"],
+        "mcp-schema/2"
+    );
     assert_eq!(before.registration_digest(), after.registration_digest());
     assert_ne!(before.generation(), after.generation());
     assert_eq!(before.generation().len(), 36);

@@ -14,6 +14,8 @@ use tokio::{
 #[path = "../../src/bin/fixtures/mcp_content.rs"]
 mod content;
 pub(super) use content::{Mode as ContentMode, URIS as CONTENT_URIS};
+#[path = "../../src/bin/fixtures/mcp_numeric.rs"]
+pub(super) mod numeric;
 
 #[derive(Clone, Copy)]
 pub(super) enum Scenario {
@@ -32,6 +34,7 @@ pub(super) enum Scenario {
     CallbackSecret,
     CallbackSecretEscaped,
     Content(ContentMode),
+    Numeric(numeric::Mode),
 }
 #[derive(Clone, Debug)]
 pub(super) struct Observation {
@@ -45,6 +48,7 @@ struct State {
     expected_authorization: Option<String>,
     observations: Mutex<Vec<Observation>>,
     response_sizes: Mutex<Vec<usize>>,
+    numeric_wire: Mutex<Vec<Vec<u8>>>,
     content_changed: AtomicBool,
     session: String,
     effects: AtomicUsize,
@@ -111,6 +115,7 @@ impl Peer {
             expected_authorization,
             observations: Mutex::new(Vec::new()),
             response_sizes: Mutex::new(Vec::new()),
+            numeric_wire: Mutex::new(Vec::new()),
             content_changed: AtomicBool::new(false),
             session,
             effects: AtomicUsize::new(0),
@@ -168,6 +173,9 @@ impl Peer {
     }
     pub fn observations(&self) -> Vec<Observation> {
         self.state.observations.lock().unwrap().clone()
+    }
+    pub fn numeric_wire(&self) -> Vec<Vec<u8>> {
+        self.state.numeric_wire.lock().unwrap().clone()
     }
     pub fn response_sizes(&self) -> Vec<usize> {
         self.state.response_sizes.lock().unwrap().clone()
@@ -249,6 +257,13 @@ async fn serve(
     if io.read_exact(&mut body).await.is_err() {
         return;
     }
+    if matches!(state.scenario, Scenario::Numeric(_)) {
+        let mut frames = state.numeric_wire.lock().unwrap();
+        if body.len() > 128 * 1024 || frames.len() >= 16 {
+            return;
+        }
+        frames.push(body.clone());
+    }
     let Ok(request) = serde_json::from_slice::<Value>(&body) else {
         return;
     };
@@ -276,6 +291,14 @@ async fn serve(
         let current = state.callbacks.load(Ordering::SeqCst);
         let valid = request["jsonrpc"] == "2.0"
             && if matches!(
+                state.scenario,
+                Scenario::Numeric(numeric::Mode::IntegerCallback)
+            ) {
+                current == 0
+                    && request["id"].to_string() == "1"
+                    && request["result"] == json!({})
+                    && request.get("error").is_none()
+            } else if matches!(
                 state.scenario,
                 Scenario::CallbackSecret
                     | Scenario::CallbackSecretEscaped
@@ -320,11 +343,52 @@ async fn serve(
         "initialize" => {
             json!({"protocolVersion":"2025-11-25","capabilities":match state.scenario {Scenario::Content(mode)=>mode.capabilities(),_=>json!({"tools":{}})},"serverInfo":{"name":"vcp-public-http-fixture","version":"1.0"}})
         }
+        "tools/list" if matches!(state.scenario, Scenario::Numeric(_)) => {
+            let mut tool = numeric::tool();
+            if state.content_changed.load(Ordering::SeqCst) {
+                tool["inputSchema"]["$defs"]["decimal"]["minimum"] =
+                    serde_json::from_str("0.2").unwrap();
+            }
+            json!({"tools":[tool]})
+        }
         "tools/list" => json!({"tools":[
             {"name":"echo","description":"Return public text","inputSchema":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":false}},
             {"name":"write_marker","description":"Increment independent fixture marker","annotations":{"readOnlyHint":true},"inputSchema":{"type":"object","properties":{},"additionalProperties":false}},
             {"name":"read_marker","description":"Read fixture marker count","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}
         ]}),
+        "tools/call" if matches!(state.scenario, Scenario::Numeric(_)) => {
+            let Scenario::Numeric(mode) = state.scenario else {
+                unreachable!()
+            };
+            numeric::assert_received(&request["params"]["arguments"]);
+            use std::io::Write;
+            let mut marker = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&state.marker)
+                .unwrap();
+            marker.write_all(b"numeric\n").unwrap();
+            marker.sync_all().unwrap();
+            state.effects.fetch_add(1, Ordering::SeqCst);
+            state.effect.notify_one();
+            if mode == numeric::Mode::LostResponse {
+                return;
+            }
+            let mut result = numeric::result();
+            if mode == numeric::Mode::NumericSecret {
+                result["structuredContent"]["secret"] =
+                    serde_json::from_str("0.1234567890123456700").unwrap();
+            }
+            if mode == numeric::Mode::InvalidOutput {
+                result["structuredContent"]["amount"] = serde_json::from_str("0.31").unwrap();
+            }
+            if mode == numeric::Mode::Secret {
+                result["structuredContent"]["note"] =
+                    json!("synthetic-http-bearer fixture-session");
+                result["content"][0]["text"] = json!("synthetic-http-bearer fixture-session");
+            }
+            result
+        }
         "tools/call" => {
             let name = request["params"]["name"].as_str().unwrap_or("");
             if name == "write_marker" {
@@ -408,6 +472,9 @@ async fn serve(
         && matches!(
             state.scenario,
             Scenario::Callbacks
+                | Scenario::Numeric(
+                    numeric::Mode::IntegerCallback | numeric::Mode::FractionalCallback
+                )
                 | Scenario::ReplyThenBadSuffix
                 | Scenario::ReplyThenInvalidJson
                 | Scenario::ReplyThenControl
@@ -423,7 +490,11 @@ async fn serve(
     {
         let _=io.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nMcp-Session-Id: fixture-session\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n").await;
         let callback_base = state.callbacks.load(Ordering::SeqCst);
-        let controls = if matches!(state.scenario, Scenario::Callbacks) {
+        let controls = if let Scenario::Numeric(mode) = state.scenario {
+            vec![
+                json!({"jsonrpc":"2.0","id":serde_json::from_str::<Value>(if mode==numeric::Mode::IntegerCallback {"1.0"}else{"1.5"}).unwrap(),"method":"ping"}),
+            ]
+        } else if matches!(state.scenario, Scenario::Callbacks) {
             vec![
                 json!({"jsonrpc":"2.0","id":"peer-ping","method":"ping"}),
                 json!({"jsonrpc":"2.0","id":"peer-sampling","method":"sampling/createMessage","params":{}}),
@@ -507,7 +578,9 @@ async fn serve(
     if (method == "tools/call" || content::is_read(method))
         && matches!(
             state.scenario,
-            Scenario::SecretEchoEscaped | Scenario::Content(ContentMode::SecretEchoEscaped)
+            Scenario::SecretEchoEscaped
+                | Scenario::Content(ContentMode::SecretEchoEscaped)
+                | Scenario::Numeric(numeric::Mode::Secret)
         )
     {
         bytes = String::from_utf8(bytes)

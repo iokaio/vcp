@@ -59,9 +59,10 @@ Resource text and prompt text/embedded text resources are normalized as external
 data with source identity. Prompt message roles remain data and cannot become
 system instructions or user authorization. Binary resources, image/audio blocks
 and resource-link content are represented as explicit unsupported omissions.
-The inherited exact-integer JSON profile remains in force, including metadata:
-fractional annotation values are unsupported. Unsupported or malformed content
-cannot silently become a successful complete text result.
+The [exact numeric profile](p7-mcp-schema.md) also applies to metadata, including
+fractional annotations; annotations remain inert. Text is never reparsed as
+numeric JSON. Unsupported or malformed content cannot silently become a
+successful complete text result.
 Reserved serde_json internal object keys are rejected, including escaped
 spellings, so dependency feature unification cannot reinterpret a decimal as an
 admitted object or change a validated argument's type.

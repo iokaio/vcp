@@ -112,29 +112,13 @@ JSON-RPC errors remain distinct from successful results and transport uncertaint
 
 ## Schema and numeric profile
 
-Schemas must be objects with an explicit `type`; tool input/output roots must have
-type `object`. The only accepted `$schema` value is
-`https://json-schema.org/draft/2020-12/schema`. Omitting it is supported.
-
-| Schema feature | Accepted behavior |
-|---|---|
-| Object | `properties`, unique string `required`, boolean `additionalProperties`; omission means true |
-| Array | Uniform `items`, nonnegative integer `minItems` and `maxItems` |
-| String | `minLength` and `maxLength` count Unicode scalar values |
-| Primitive types | `string`, `integer`, `number`, `boolean`, `null`; no type unions |
-| Scalar equality | Nonempty bounded `enum` or `const` containing string, boolean or null values |
-| Inert schema annotations | String `title` and `description` |
-
-Unknown keywords are rejected recursively. This includes references/definitions,
-composition, conditionals, patterns, formats, numeric range/multiple constraints,
-schema-valued additional properties and unsupported object/array applicators.
-Numeric enum/const values are rejected rather than compared after float rounding.
-
-All JSON numeric values in this initial wire/argument profile must deserialize
-exactly as `i64` or `u64`. Decimal/exponent forms, including `1.0` and `1e0`, and
-out-of-range integers are rejected, even inside otherwise permitted unknown
-properties. This is an explicit interoperability restriction: JSON Schema itself
-considers `1.0` an integer. Canonical argument bytes never silently round values.
+The current [mcp-schema/2 contract](p7-mcp-schema.md), selected in
+[ADR-028](../adr/028-exact-mcp-schema-profile.md), supports bounded exact decimal
+and exponent values, numeric predicates, nullable fields, dictionaries, local
+acyclic definitions and composition. Input/output roots still explicitly declare
+`type: object`. Unknown keywords and duplicate/private keys fail closed; no value
+is silently rounded. Connection and schema identities pin this interpretation
+separately from the initial integer-only profile.
 
 The schema/argument default cap is 128 KiB, depth 16 and 4096 value nodes. The
 bounded parser charges nodes and depth before parsing child values; a hard byte
@@ -147,7 +131,7 @@ the crossing read can exceed the configured threshold before the job is stopped.
 
 ## Canonical provenance and outcomes
 
-Tool identity includes registration digest, fresh connection UUID, remote name,
+Tool identity includes registration digest, fresh connection UUID, admission profile, remote name,
 input schema digest and catalog revision. The checked argument object binds
 canonical bytes to the schema digest. Model-produced requests also carry the
 verified accounted context, artifact/file dependencies, memory send fence and

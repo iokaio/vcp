@@ -1,6 +1,6 @@
 # Architecture decision records
 
-The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) retains the original 20 decision subjects and subsequent engineering decisions, now 27 records. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
+The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) retains the original 20 decision subjects and subsequent engineering decisions, now 28 records. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
 
 ADR-013 records the committed-source repository convention and maintenance evidence. Other records distinguish confirmed scope, qualified P0 mechanisms and unresolved production gates. The [P0 handoff](../evaluations/p0-06-handoff.md) consolidates the bounded engineering evidence; it does not claim human sign-off or release qualification.
 
@@ -33,6 +33,7 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-025 — Built-in skill asset identity](025-builtin-skill-assets.md) | P7-02 lazy packaged assets, integrity and coverage evidence |
 | [ADR-026 — Governed sequential MCP stdio](026-governed-mcp-stdio.md) | P7-03 bounded protocol, current source fences and durable call outcomes |
 | [ADR-027 — Owned HTTP send boundary](027-owned-http-send-boundary.md) | P7-03 socket admission, scoped credentials and bounded HTTP prerequisites |
+| [ADR-028 — Exact MCP schema profile](028-exact-mcp-schema-profile.md) | P7-03 exact numeric values, bounded schema semantics and profile identity |
 
 ## Maintaining a decision
 

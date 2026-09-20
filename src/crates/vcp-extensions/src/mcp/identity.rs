@@ -11,6 +11,7 @@ pub struct ConnectionIdentity {
     registration_digest: String,
     generation: String,
     protocol: String,
+    admission_profile: String,
     peer_identity_digest: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -113,8 +114,12 @@ impl ConnectionIdentity {
             registration_digest: registration.digest().map_err(|_| Error::Invalid)?,
             generation: vcp_domain::ExecutionId::new().to_string(),
             protocol: PROTOCOL.to_owned(),
+            admission_profile: super::schema::PROFILE.to_owned(),
             peer_identity_digest: peer,
         })
+    }
+    pub fn admission_profile(&self) -> &str {
+        &self.admission_profile
     }
     pub fn registration_digest(&self) -> &str {
         &self.registration_digest

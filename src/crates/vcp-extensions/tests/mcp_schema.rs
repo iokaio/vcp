@@ -3,22 +3,33 @@
 use vcp_extensions::mcp::schema::{Error, Limits, Schema};
 
 #[test]
-fn open_objects_cannot_admit_non_profile_numbers_as_synthetic_maps() {
+fn open_objects_admit_exact_numbers_without_synthetic_maps_or_rounding() {
     let schema = Schema::compile(br#"{"type":"object"}"#, Limits::default()).unwrap();
-    // Also run with serde_json/arbitrary_precision enabled: serde then presents
-    // these tokens to custom visitors as synthetic maps, not visit_f64 calls.
-    for number in [
-        "1.5",
-        "1.0",
-        "1e0",
-        "1e9999",
-        "18446744073709551616",
-        "-9223372036854775809",
+    for (number, expected) in [
+        ("1.5", "15e-1"),
+        ("1.0", "1"),
+        ("1e0", "1"),
+        ("18446744073709551616", "18446744073709551616"),
+        ("-9223372036854775809", "-9223372036854775809"),
     ] {
-        for input in [number.to_owned(), format!("{{\"unknown\":[{number}]}}")] {
-            assert_eq!(schema.arguments(input.as_bytes()).unwrap_err(), Error::Json);
-        }
+        assert_eq!(
+            schema.arguments(number.as_bytes()).unwrap_err(),
+            Error::Arguments
+        );
+        let input = format!("{{\"unknown\":[{number}]}}");
+        let expected = format!("{{\"unknown\":[{expected}]}}");
+        assert_eq!(
+            schema
+                .arguments(input.as_bytes())
+                .unwrap()
+                .canonical_bytes(),
+            expected.as_bytes()
+        );
     }
+    assert_eq!(
+        schema.arguments(br#"{"n":1e9999}"#).unwrap_err(),
+        Error::Bounds
+    );
     let exact = br#"{"a":-9223372036854775808,"b":18446744073709551615,"c":9007199254740993}"#;
     assert_eq!(schema.arguments(exact).unwrap().canonical_bytes(), exact);
 }
@@ -52,8 +63,8 @@ fn default_additional_properties_and_nested_predicates() {
         r#"{}"#,
         r#"{"label":"ab"}"#,
         r#"{"label":"x","rows":[1,2,3]}"#,
-        r#"{"label":"x","rows":[1.0]}"#,
-        r#"{"label":"x","rows":[18446744073709551616]}"#,
+        r#"{"label":"x","rows":[1.1]}"#,
+        r#"{"label":"x","rows":[1e129]}"#,
     ] {
         assert!(schema.arguments(invalid.as_bytes()).is_err());
     }
@@ -61,9 +72,9 @@ fn default_additional_properties_and_nested_predicates() {
 #[test]
 fn unsupported_schema_and_duplicate_keys_fail_admission() {
     for unsupported in [
-        r#"{"type":"object","additionalProperties":{"type":"string"}}"#,
+        r#"{"type":"object","additionalProperties":{"format":"email"}}"#,
         r#"{"type":"object","properties":{"v":{"type":"string","pattern":".*"}}}"#,
-        r#"{"type":"object","properties":{"v":{"type":"number","enum":[0.1]}}}"#,
+        r#"{"type":"object","properties":{"v":{"type":"number","multipleOf":0}}}"#,
         r#"{"type":"object","type":"string"}"#,
         r#"{"type":"object","$ref":"https://example.invalid/schema"}"#,
     ] {
