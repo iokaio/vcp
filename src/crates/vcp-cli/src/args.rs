@@ -38,6 +38,18 @@ pub struct Cli {
 }
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    History {
+        #[command(subcommand)]
+        command: crate::history::History,
+    },
+    Prune {
+        #[command(subcommand)]
+        command: crate::history::Prune,
+    },
+    Retention {
+        #[command(subcommand)]
+        command: crate::history::Retention,
+    },
     /// Reconcile retained history with the explicitly selected local root.
     Rebind {
         #[arg(value_parser = workspace_id)]
@@ -78,6 +90,10 @@ pub enum Command {
 pub enum Memory {
     /// Inspect retained search results, evidence and coverage without starting inference.
     Search(Search),
+    /// Browse authorized immutable claim versions and their retained evidence.
+    Inspect(crate::history::MemoryInspect),
+    /// Preview an exact claim-only retention selection.
+    Prune(crate::history::Preview),
 }
 #[derive(Clone, Debug, Args)]
 pub struct Search {
@@ -217,6 +233,9 @@ impl ValidatedCli {
 }
 
 pub enum ValidatedCommand {
+    History(crate::history::History),
+    Prune(crate::history::Prune),
+    Retention(crate::history::Retention),
     Discover,
     Rebind(WorkspaceId),
     Run(ValidatedRun),
@@ -224,6 +243,8 @@ pub enum ValidatedCommand {
     Sessions(Sessions),
     Tasks(Tasks),
     MemorySearch(Search),
+    MemoryInspect(crate::history::MemoryInspect),
+    MemoryPrune(crate::history::Preview),
     Inspect {
         request: vcp_audit::inspection::InspectionQuery,
     },
@@ -241,11 +262,23 @@ impl Cli {
         let command = match self.command {
             None => ValidatedCommand::Discover,
             Some(command) => match command {
+                Command::History { command } => ValidatedCommand::History(command),
+                Command::Prune { command } => ValidatedCommand::Prune(command),
+                Command::Retention { command } => ValidatedCommand::Retention(command),
                 Command::Rebind { workspace_id } => ValidatedCommand::Rebind(workspace_id),
                 Command::Run(run) => ValidatedCommand::Run(run.validate(persisted_cap)?),
                 Command::Resume(resume) => ValidatedCommand::Resume(resume),
                 Command::Sessions { command } => ValidatedCommand::Sessions(command),
                 Command::Tasks { command } => ValidatedCommand::Tasks(command),
+                Command::Memory {
+                    command: Memory::Inspect(inspect),
+                } => {
+                    inspect.request()?;
+                    ValidatedCommand::MemoryInspect(inspect)
+                }
+                Command::Memory {
+                    command: Memory::Prune(preview),
+                } => ValidatedCommand::MemoryPrune(preview),
                 Command::Memory {
                     command: Memory::Search(search),
                 } => {

@@ -30,6 +30,8 @@ mod context_continuity;
 #[cfg(windows)]
 #[path = "support/framework_verification.rs"]
 mod framework_verification;
+#[path = "support/history_retention.rs"]
+mod history_retention;
 #[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;

@@ -752,6 +752,7 @@ impl Context {
             environment: run.environment,
         };
         let verification = Verification {
+            redaction: None,
             id: VerificationId::new(),
             scope: binding.scope.clone(),
             steering: run.revisions.steering,

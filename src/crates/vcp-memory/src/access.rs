@@ -128,6 +128,9 @@ pub(crate) fn proposal_scope(
                 if !access.allows_task(&prior.scope.task) {
                     return Err(Error::Access);
                 }
+            } else if row.value["document_type"] == vcp_domain::redaction::VERSION {
+                let prior: vcp_domain::redaction::RedactedVersion = row.decode()?;
+                redacted_scope(state, access, &prior.scope, &prior.sources)?;
             }
         }
     }
@@ -140,6 +143,12 @@ pub(crate) fn resolution_scope(
     resolution: &vcp_domain::memory::Resolution,
 ) -> Result<()> {
     for id in &resolution.conflicts {
+        let row = state.record(Collection::Claim, id.as_str(), &access.workspace)?;
+        if row.value["document_type"] == vcp_domain::redaction::VERSION {
+            let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
+            redacted_scope(state, access, &version.scope, &version.sources)?;
+            continue;
+        }
         let version: vcp_domain::memory::Version = state
             .record(Collection::Claim, id.as_str(), &access.workspace)?
             .decode()?;
@@ -155,4 +164,78 @@ pub(crate) fn version_scope(
 ) -> Result<()> {
     proposal_scope(state, access, &version.proposal)?;
     resolution_scope(state, access, &version.resolution)
+}
+
+/// Redaction preserves provenance identities, never authority. Resolve today's
+/// source scopes before exposing even a purged version identifier.
+pub(crate) fn redacted_scope(
+    state: &State,
+    access: &Access,
+    scope: &vcp_domain::workspace::Scope,
+    sources: &vcp_domain::redaction::Sources,
+) -> Result<()> {
+    fn check(
+        state: &State,
+        access: &Access,
+        scope: &vcp_domain::workspace::Scope,
+        sources: &vcp_domain::redaction::Sources,
+        visited: &mut BTreeSet<ClaimVersionId>,
+    ) -> Result<()> {
+        if scope.workspace != access.workspace || !access.allows_task(&scope.task) {
+            return Err(Error::Access);
+        }
+        for id in &sources.origins {
+            let event = state
+                .events
+                .iter()
+                .find(|e| &e.event.id == id)
+                .ok_or(Error::Access)?;
+            if event.event.workspace != access.workspace
+                || event
+                    .event
+                    .task
+                    .as_ref()
+                    .is_some_and(|t| !access.allows_task(t))
+            {
+                return Err(Error::Access);
+            }
+        }
+        for id in &sources.artifacts {
+            let artifact: vcp_domain::artifact::ArtifactDescriptor = state
+                .record(Collection::Artifact, id.as_str(), &access.workspace)?
+                .decode()?;
+            if !access.allows_task(&artifact.spec.scope.task) {
+                return Err(Error::Access);
+            }
+        }
+        for id in &sources.verifications {
+            let verification: vcp_domain::verification::Verification = state
+                .record(Collection::Verification, id.as_str(), &access.workspace)?
+                .decode()?;
+            if !access.allows_task(&verification.scope.task) {
+                return Err(Error::Access);
+            }
+        }
+        for id in &sources.versions {
+            if !visited.insert(id.clone()) {
+                continue;
+            }
+            if visited.len() > 256 {
+                return Err(Error::Access);
+            }
+            let row = state.record(Collection::Claim, id.as_str(), &access.workspace)?;
+            if row.value["document_type"] == vcp_domain::redaction::VERSION {
+                let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
+                check(state, access, &version.scope, &version.sources, visited)?;
+            } else {
+                let version: vcp_domain::memory::Version = row.decode()?;
+                // Convert only metadata to share the same bounded traversal.
+                let redacted = vcp_protocol::redaction::version(&version, DeletionEpoch::new(1))
+                    .map_err(Error::Invalid)?;
+                check(state, access, &redacted.scope, &redacted.sources, visited)?;
+            }
+        }
+        Ok(())
+    }
+    check(state, access, scope, sources, &mut BTreeSet::new())
 }

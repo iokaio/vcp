@@ -104,18 +104,16 @@ impl ActiveRoot {
             if !root.is_dir() {
                 return Err(Error::Corruption("active root missing"));
             }
-            let store = Store::open(&root, activation.backend, forbidden).await?;
+            let mut store = Store::open(&root, activation.backend, forbidden).await?;
             if store.state().watermark < activation.watermark {
                 return Err(Error::Corruption("active root regressed"));
             }
-            if store.prefix_digest(activation.watermark)? != activation.logical_sha256 {
-                return Err(Error::Corruption("activated snapshot differs"));
-            }
+            store.remember_prefix(activation.watermark, &activation.logical_sha256)?;
             (store, activation)
         } else {
             let kind = preference.unwrap_or(BackendKind::Sqlite);
             let id = TransactionId::new();
-            let store = Store::open(&roots.join(id.as_str()), kind, forbidden).await?;
+            let mut store = Store::open(&roots.join(id.as_str()), kind, forbidden).await?;
             let activation = Activation {
                 version: 1,
                 generation: 0,
@@ -129,6 +127,7 @@ impl ActiveRoot {
                 &directory.join("activation-00000000000000000000.json"),
                 &canonical_bytes(&activation)?,
             )?;
+            store.remember_prefix(activation.watermark, &activation.logical_sha256)?;
             (store, activation)
         };
         Ok(Self {
@@ -180,7 +179,7 @@ impl ActiveRoot {
         self.barrier(Barrier::BeforeValidation);
         drop(replacement);
         // A fresh open, not the converter's success flag, validates the candidate.
-        let replacement = Store::open(&destination, kind, &self.forbidden).await?;
+        let mut replacement = Store::open(&destination, kind, &self.forbidden).await?;
         if replacement.state() != self.store.state() {
             return Err(Error::Corruption("replacement differs from pinned source"));
         }
@@ -197,6 +196,7 @@ impl ActiveRoot {
             logical_sha256: digest_bytes(&canonical_bytes(replacement.state())?),
             previous: digest_bytes(&canonical_bytes(&self.activation)?),
         };
+        replacement.remember_prefix(activation.watermark, &activation.logical_sha256)?;
         self.barrier(Barrier::BeforeActivation);
         self.poisoned = true;
         immutable_file(

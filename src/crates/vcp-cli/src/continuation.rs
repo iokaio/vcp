@@ -325,6 +325,7 @@ mod tests {
             required_checks: vec![],
             cause: EventId::new(),
             reason: format!("own reason for {id}"),
+            redaction: None,
         };
         let record = Record::typed(
             Collection::Task,
@@ -383,6 +384,7 @@ mod tests {
             TaskState::Cancelled,
         );
         state.events.push(EventEnvelope {
+            redaction: None,
             version: 1,
             sequence: SessionSeq::new(1),
             watermark: Watermark::new(1),
@@ -428,6 +430,7 @@ mod tests {
         );
         let artifact = ArtifactId::new();
         let effect = Effect {
+            redaction: None,
             id: ToolRunId::new(),
             scope: child.scope.clone(),
             revision: Revision::ZERO,

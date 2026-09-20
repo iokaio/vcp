@@ -458,6 +458,8 @@ pub fn prepare_admission(
     };
     let attempt = Attempt {
         schema_version: 1,
+        redaction: None,
+        redacted_at_revision: None,
         id: input.attempt.clone(),
         scope: input.scope.clone(),
         root: task.root,
@@ -852,7 +854,15 @@ pub async fn observe<S: CanonicalStore>(
         .get(&key(Collection::Settlement, observation.id.as_str()))
     {
         let existing: Settlement = record.decode()?;
-        if existing.observation != observation {
+        let matches = if existing.redaction.is_some() {
+            existing.observation_digest.as_ref()
+                == Some(&vcp_protocol::digest_bytes(&serde_json::to_vec(
+                    &observation,
+                )?))
+        } else {
+            existing.observation == observation
+        };
+        if !matches {
             return Err(Error::Conflict("usage observation ID reused"));
         }
         return Ok(existing);
@@ -942,6 +952,8 @@ pub async fn observe<S: CanonicalStore>(
     };
     let settlement = Settlement {
         schema_version: 1,
+        redaction: None,
+        observation_digest: None,
         id: observation.id.clone(),
         scope: old.scope.clone(),
         attempt: old.id.clone(),

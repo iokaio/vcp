@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 pub mod history;
+pub mod history_query;
 pub mod inspection;
 pub mod projection;
 #[derive(Debug, thiserror::Error)]
@@ -12,6 +13,8 @@ pub enum Error {
     Restart(&'static str),
     #[error("unsupported projection or history format")]
     Version,
+    #[error("raw history cannot filter {0}; source and claim selectors are available for pruning")]
+    UnsupportedFilter(&'static str),
     #[error("projection input differs: {0}")]
     Integrity(&'static str),
     #[error("bounded history capacity exceeded")]

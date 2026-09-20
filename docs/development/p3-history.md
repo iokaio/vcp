@@ -1,0 +1,90 @@
+# History and retention controls
+
+`history list` browses raw canonical events. `history search TEXT` searches
+retained event facts, not governed knowledge or implicit artifact contents.
+Rows label purged content, compacted presentation, and recall exclusion
+independently. `--expand-compacted` expands presentation without reversing
+retention. Memory values and evidence require the governed memory inspector.
+
+`--since` is inclusive; `--before` is exclusive. Timestamps require `Z` or an
+explicit numeric offset. Date-only inputs require `--utc-offset-minutes` and
+mean midnight at that fixed offset. The parser never assumes the machine's
+timezone or resolves ambiguous daylight-saving times. The same typed selector
+is used for listing, search, preview, and saved automatic policies.
+
+All filters are ANDed with the selected workspace. Raw browsing supports task,
+path, actor, agent, provider, model, event kind, date, and task-status predicates.
+Root, claim-kind, claim-status, and supersession predicates are rejected with an
+explicit capability error anywhere in a raw browsing selector, including nested
+negation and OR branches. Those facets remain available for pruning; use the
+memory inspector for governed claim history. `--selector` accepts the bounded
+versioned selector tree. Missing supported event metadata does not match a
+predicate, including its negation.
+
+Pages contain at most 128 rows, bounded content summaries, and an optional JSON
+cursor. Pass that cursor back with identical filters and limits. Its upper
+event boundary remains fixed across appends; newer events are counted
+separately. Current authority or deletion changes require a fresh cursor.
+Artifact IDs link to `inspect ID --view outputs --offset 0 --length 65536`;
+successive ranges expose retained output beyond terminal tails. Use
+`history list --artifact ID` for source-event backlinks. Truncating a view never
+removes retained source content.
+
+`history prune --preview [FILTERS] --action purge` persists the exact normalized
+selection, protected references, byte estimate, and backup limitations.
+`exclude`, `restore-recall`, and `compact` are distinct actions. Review the
+returned preview, then use `prune apply PREVIEW_ID`. Large previews show counts
+and bounded examples; `prune show
+PREVIEW_ID --offset N --limit 64` pages through every selected, dependent, and
+protected reference. Apply loads the persisted selection and checks current
+source/authority revisions; it never reruns a
+broad filter and silently adds newly matching data. `prune cleanup RECEIPT_ID`
+retries pending physical work. Logical unavailability, local cleanup, pending
+generations, and retained backups remain separate receipt facts.
+
+`memory inspect CLAIM_ID --limit 16` pages immutable governed versions, outcome
+and evidence labels, source origins, and applicability under current access.
+Its cursor freezes the memory sequence while later versions remain outside the
+page set. Raw history includes bounded authorized origin-to-claim links;
+`memory prune --preview [FILTERS]` restricts the selection to the six claim
+classes before dependency expansion. Raw activity remains under `history`.
+
+`retention show` displays notification cadence, explicit automatic policy, and
+the latest owner-start evaluation result.
+`retention set --notification-only` disables automatic actions. An automatic
+policy requires `--automatic` with the typed selector, action, and cadence;
+updating a saved policy also requires `--expected-revision`.
+Automatic policy cadence is evaluated when the canonical owner next starts,
+after recovery and before normal execution. Setting a policy does not execute
+it immediately. Read-only inspection does not evaluate automatic work; there
+is no hidden daemon or promised wall-clock execution while the owner is closed.
+Weekly notices are nonblocking and do not delete content. Normal session startup
+and history controls include a notice when history is strictly older than 30 days;
+acknowledgement is persisted only
+after output is presented.
+
+The same structured facts are emitted in JSONL mode. Commands use typed local
+controller operations. A live owner serializes prune with dispatch and permits
+inspection while paused; no history operation resumes children or invokes a
+model. Offline operations retain the exclusive canonical store lock and use
+the same service, never editing index files directly.
+
+The open terminal accepts `/history list`, `/history search TEXT`,
+`/history prune --preview`, `/memory inspect CLAIM_ID`, `/memory prune --preview`,
+`/prune show|apply ID`, and `/retention show|set`.
+`/next` first advances through the displayed page and then its canonical
+cursor. These controls remain available while paused. Arguments are separated
+by whitespace; use the finite CLI for quoted multiword values and selector JSON
+containing spaces. Terminal controls always use the active workspace.
+
+## Qualification
+
+Native audit, CLI and domain all-target tests passed 62 tests with no failures
+or ignored tests, including stable browsing across appends, current access and
+retention checks, unsupported nested facets, selector parsing and output framing.
+The full canonical host suite passed 34 tests with four explicitly ignored
+asset-dependent qualifications. Paused history/prune controls and the actual
+provider dispatch race passed for both backend preferences. The CLI build,
+Clippy, changed-source formatting and deterministic delivery checks passed.
+The [retention engine evidence](p5-retention.md#qualification) records physical
+cleanup, replay and native process-kill results.

@@ -170,8 +170,17 @@ pub struct CommandReceipt {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandResult {
-    Accepted { revision: Revision },
-    Inspection { task: Option<Task> },
+    Accepted {
+        revision: Revision,
+    },
+    Inspection {
+        task: Option<Task>,
+    },
+    InspectionRedacted {
+        task: Option<TaskId>,
+        deletion: DeletionEpoch,
+        original_payload_digest: String,
+    },
 }
 impl CommandReceipt {
     pub fn jsonl(&self) -> Result<Vec<u8>, serde_json::Error> {

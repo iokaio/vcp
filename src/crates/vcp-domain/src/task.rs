@@ -46,6 +46,8 @@ pub struct Task {
     pub required_checks: Vec<String>,
     pub cause: EventId,
     pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redaction: Option<crate::redaction::ContentRedaction>,
 }
 
 /// Produced by trusted host revalidation, not deserialized from a user command.
@@ -68,6 +70,19 @@ impl ResumeEvidence {
 impl Task {
     pub fn validate(&self) -> Result<()> {
         self.fingerprint.validate()?;
+        if let Some(redaction) = &self.redaction {
+            redaction.validate()?;
+            if !self.state.terminal()
+                || !self.objectives.is_empty()
+                || !self.required_checks.is_empty()
+                || !self.reason.is_empty()
+                || (self.parent.is_none() && self.root != self.scope.task)
+                || self.parent.as_ref() == Some(&self.scope.task)
+            {
+                return Err(Error::Invalid("purged terminal task"));
+            }
+            return Ok(());
+        }
         if self.objectives.is_empty()
             || self.reason.trim().is_empty()
             || self
@@ -111,6 +126,9 @@ impl Task {
         if &self.scope != scope {
             return Err(Error::Scope);
         }
+        if self.redaction.is_some() {
+            return Err(Error::Transition);
+        }
         if self.revision != expected {
             return Err(Error::Stale);
         }
@@ -147,6 +165,9 @@ impl Task {
         Ok(result)
     }
     pub fn steer(&self, expected: Revision, mut objective: Objective) -> Result<Self> {
+        if self.redaction.is_some() {
+            return Err(Error::Transition);
+        }
         if self.revision != expected {
             return Err(Error::Stale);
         }
@@ -168,6 +189,9 @@ impl Task {
         fingerprint: Fingerprint,
         cause: EventId,
     ) -> Result<Self> {
+        if self.redaction.is_some() {
+            return Err(Error::Transition);
+        }
         if self.revision != expected {
             return Err(Error::Stale);
         }
@@ -203,6 +227,8 @@ pub enum TurnState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Turn {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redaction: Option<crate::redaction::ContentRedaction>,
     pub id: TurnId,
     pub scope: Scope,
     pub revision: Revision,
@@ -223,6 +249,9 @@ impl Turn {
         resume: Option<&ResumeEvidence>,
     ) -> Result<Self> {
         use TurnState::*;
+        if self.redaction.is_some() {
+            return Err(Error::Transition);
+        }
         if self.revision != expected {
             return Err(Error::Stale);
         }

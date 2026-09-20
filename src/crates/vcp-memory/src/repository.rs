@@ -60,6 +60,12 @@ fn current(state: &State, access: &Access) -> Result<Vec<Version>> {
     }) {
         let head: Head = record.decode()?;
         if let Some(id) = head.current {
+            let row = state.record(Collection::Claim, id.as_str(), &access.workspace)?;
+            if row.value["document_type"] == vcp_domain::redaction::VERSION {
+                let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
+                access::redacted_scope(state, access, &version.scope, &version.sources)?;
+                continue;
+            }
             let version: Version = state
                 .record(Collection::Claim, id.as_str(), &access.workspace)?
                 .decode()?;
@@ -430,8 +436,38 @@ pub async fn propose(
                 &access.workspace,
             )?
             .decode()?;
-        if task.scope != proposal.scope {
+        if task.scope != proposal.scope || task.redaction.is_some() {
             return Err(Error::Access);
+        }
+        for row in store.state().records.values().filter(|r| {
+            r.workspace == access.workspace
+                && r.collection == Collection::Claim
+                && r.value["document_type"] == vcp_domain::redaction::PROPOSAL
+        }) {
+            let prior: vcp_domain::redaction::RedactedProposal = row.decode()?;
+            let keys = proposal
+                .origins
+                .iter()
+                .map(|origin| {
+                    vcp_protocol::redaction::origin_output_key(
+                        &proposal.extractor,
+                        &proposal.output_key,
+                        origin,
+                    )
+                    .map_err(Error::Invalid)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if prior.id == proposal.id
+                || prior.command == proposal.command
+                || keys
+                    .iter()
+                    .any(|key| prior.origin_output_keys.contains(key))
+            {
+                access::redacted_scope(store.state(), access, &prior.scope, &prior.sources)?;
+                return Err(Error::Conflict(
+                    "proposal identity belongs to purged content",
+                ));
+            }
         }
         if crate::history::proposal_removed(store.state(), &access.workspace, &proposal)? {
             return Err(Error::Access);
@@ -582,6 +618,7 @@ pub async fn propose(
                 next_head.disputed.push(version.id.clone());
             }
             let intent = IndexIntent {
+                deletion: None,
                 document_type: DocumentType::IndexIntent,
                 schema_version: 1,
                 id: IndexIntentId::new(),

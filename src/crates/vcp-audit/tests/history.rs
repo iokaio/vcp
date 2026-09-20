@@ -18,6 +18,187 @@ fn engine_access() -> vcp_engine::Access {
         bootstrap: true,
     }
 }
+
+#[tokio::test]
+async fn browser_pages_survive_append_but_recheck_current_access_and_retention() {
+    use vcp_audit::history_query::{self, Query};
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut fixture = fixture(temporary.path(), backend).await;
+        let initial: std::collections::BTreeSet<_> = fixture
+            .engine
+            .store()
+            .state()
+            .events
+            .iter()
+            .map(|e| e.event.id.clone())
+            .collect();
+        let mut query = Query {
+            selector: Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Workspace(access().workspace)),
+            },
+            text: None,
+            limit: 2,
+            cursor: None,
+            artifact: None,
+            expand_compacted: false,
+        };
+        let first =
+            history_query::query(fixture.engine.store().state(), &access(), &query).unwrap();
+        query.cursor = first.next_cursor.clone();
+        let mut selected: std::collections::BTreeSet<_> = first
+            .rows
+            .iter()
+            .map(|r| r.event.event.id.clone())
+            .collect();
+        let id = TaskId::new();
+        issue(&mut fixture.engine, create(&id, None, None), Some(id), 0).await;
+        while query.cursor.is_some() {
+            let page =
+                history_query::query(fixture.engine.store().state(), &access(), &query).unwrap();
+            assert!(page.newer_events > 0);
+            for row in page.rows {
+                assert!(selected.insert(row.event.event.id));
+            }
+            query.cursor = page.next_cursor;
+        }
+        assert_eq!(selected, initial);
+        query.cursor = first.next_cursor;
+        let mut restricted = access();
+        restricted.tasks = Some([fixture.root.clone()].into_iter().collect());
+        assert!(matches!(
+            history_query::query(fixture.engine.store().state(), &restricted, &query),
+            Err(Error::Restart(_))
+        ));
+        query.cursor = None;
+        query.artifact = Some(fixture.request.spec.id.clone());
+        let linked =
+            history_query::query(fixture.engine.store().state(), &access(), &query).unwrap();
+        assert!(!linked.rows.is_empty());
+        assert!(linked
+            .rows
+            .iter()
+            .all(|r| r.artifacts.contains(&fixture.request.spec.id)));
+        let cursor = history_query::query(
+            fixture.engine.store().state(),
+            &access(),
+            &Query {
+                artifact: None,
+                limit: 1,
+                ..query.clone()
+            },
+        )
+        .unwrap()
+        .next_cursor
+        .unwrap();
+        let state = fixture.engine.store().state();
+        let mut workspace: Workspace = state
+            .record(
+                Collection::Workspace,
+                access().workspace.as_str(),
+                &access().workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let prior = workspace.revision;
+        workspace.revision = prior.next().unwrap();
+        workspace.deletion = workspace.deletion.next().unwrap();
+        let tx = Transaction {
+            id: TransactionId::new(),
+            expected_watermark: state.watermark,
+            mutations: vec![Mutation::Put {
+                expected: Some(prior),
+                record: Record::typed(
+                    Collection::Workspace,
+                    workspace.id.to_string(),
+                    workspace.id.clone(),
+                    workspace.revision,
+                    &workspace,
+                )
+                .unwrap(),
+            }],
+            events: vec![],
+            command: None,
+        };
+        fixture.engine.store_mut().transact(tx).await.unwrap();
+        query.artifact = None;
+        query.limit = 1;
+        query.cursor = Some(cursor);
+        assert!(matches!(
+            history_query::query(fixture.engine.store().state(), &access(), &query),
+            Err(Error::Restart(_))
+        ));
+    }
+}
+
+#[tokio::test]
+async fn browser_compaction_is_presentation_and_exclusion_keeps_raw_history() {
+    use vcp_audit::history_query::{self, Query};
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temporary = tempfile::tempdir().unwrap();
+        let fixture = fixture(temporary.path(), backend).await;
+        let mut state = fixture.engine.store().state().clone();
+        let event = state
+            .events
+            .iter()
+            .find(|e| {
+                e.event.kind == EventKind::TaskCreated
+                    && e.event.task.as_ref() == Some(&fixture.root)
+            })
+            .unwrap()
+            .clone();
+        let target = serde_json::json!({"kind":"event","id":event.event.id});
+        let id = format!(
+            "recall-{}",
+            vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&target).unwrap())
+        );
+        let record=Record::typed(Collection::Projection,id.clone(),access().workspace,Revision::ZERO,&serde_json::json!({"schema_version":1,"workspace":access().workspace,"revision":Revision::ZERO,"action":"compact","deletion":DeletionEpoch::ZERO,"document_type":"vcp_retention_decision_v1","target":target,"recall_excluded":true,"compacted":true,"purged":false})).unwrap();
+        let key = key(Collection::Projection, &id);
+        state.records.insert(key.clone(), record);
+        let mut request = Query {
+            selector: Selector {
+                schema_version: 1,
+                tree: Tree::All(vec![
+                    Tree::Match(Criterion::Task(fixture.root.clone())),
+                    Tree::Match(Criterion::Event("task_created".into())),
+                ]),
+            },
+            text: None,
+            limit: 4,
+            cursor: None,
+            artifact: None,
+            expand_compacted: false,
+        };
+        let page = history_query::query(&state, &access(), &request).unwrap();
+        assert_eq!(page.rows.len(), 1);
+        assert!(
+            page.rows[0].compacted
+                && page.rows[0].recall_excluded
+                && page.rows[0].content_truncated
+        );
+        request.expand_compacted = true;
+        let page = history_query::query(&state, &access(), &request).unwrap();
+        assert_eq!(page.rows[0].event.event.data, event.event.data);
+        assert!(!page.rows[0].content_truncated);
+        request.text = Some("Preserve observed synthetic work".into());
+        assert_eq!(
+            history_query::query(&state, &access(), &request)
+                .unwrap()
+                .rows
+                .len(),
+            1
+        );
+        state.records.get_mut(&key).unwrap().value["purged"] = serde_json::json!(true);
+        assert!(history_query::query(&state, &access(), &request)
+            .unwrap()
+            .rows
+            .is_empty());
+    }
+}
 fn access() -> Access {
     Access {
         workspace: engine_access().workspace,
@@ -1188,4 +1369,68 @@ async fn inspection_marks_missing_and_incomplete_content_without_reconstruction(
     assert!(missing.items.is_empty());
     assert_eq!(missing.gaps[0]["visibility"], "missing");
     assert_eq!(missing.gaps[0]["source"], artifact.spec.source);
+}
+
+#[tokio::test]
+async fn browser_rejects_unavailable_facets_even_in_nested_or_and_negation() {
+    use vcp_audit::history_query::{self, Query};
+    use vcp_domain::{
+        memory::{ClaimKind, Outcome},
+        retention_selector::{Criterion, Selector, Status, Tree},
+    };
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let fixture = fixture(temp.path(), backend).await;
+        let state = fixture.engine.store().state();
+        let mut query = Query {
+            selector: Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Task(fixture.root.clone())),
+            },
+            text: None,
+            limit: 32,
+            cursor: None,
+            artifact: None,
+            expand_compacted: false,
+        };
+        assert!(!history_query::query(state, &access(), &query)
+            .unwrap()
+            .rows
+            .is_empty());
+        let task: Task = state
+            .record(Collection::Task, fixture.root.as_str(), &access().workspace)
+            .unwrap()
+            .decode()
+            .unwrap();
+        query.selector.tree = Tree::Match(Criterion::Status(Status::Task(task.state)));
+        assert!(!history_query::query(state, &access(), &query)
+            .unwrap()
+            .rows
+            .is_empty());
+        for predicate in [
+            Criterion::Root(RootId::parse("source-root").unwrap()),
+            Criterion::Claim(ClaimKind::Architecture),
+            Criterion::Status(Status::Claim(Outcome::Accepted)),
+            Criterion::Superseded(true),
+        ] {
+            let leaf = Tree::Match(predicate);
+            for tree in [
+                leaf.clone(),
+                Tree::Not(Box::new(Tree::All(vec![leaf.clone()]))),
+                Tree::Any(vec![
+                    Tree::Match(Criterion::Workspace(access().workspace)),
+                    Tree::Not(Box::new(leaf.clone())),
+                ]),
+            ] {
+                query.selector.tree = tree;
+                // The shared selector remains valid for pruning. Only this
+                // event-only browsing adapter lacks these metadata capabilities.
+                assert!(query.selector.clone().normalized().is_ok());
+                assert!(matches!(
+                    history_query::query(state, &access(), &query),
+                    Err(Error::UnsupportedFilter(_))
+                ));
+            }
+        }
+    }
 }

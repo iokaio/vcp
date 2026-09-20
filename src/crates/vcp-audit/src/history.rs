@@ -13,7 +13,7 @@ const MAX_SCAN: usize = 256;
 /// Preserve navigation while leaving derived payloads to governed queries.
 pub(crate) fn public_event(event: &EventEnvelope) -> EventEnvelope {
     let mut result = event.clone();
-    if event.event.kind == EventKind::MemoryResolved {
+    if event.redaction.is_none() && event.event.kind == EventKind::MemoryResolved {
         let proposal = event
             .event
             .data

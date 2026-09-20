@@ -466,6 +466,7 @@ async fn native_verification_extracts_the_actual_command_configuration_and_outco
         let (mut engine, scope, _, configuration, _) = fixture(temp.path(), backend).await;
         let (check,_)=capture(&mut engine,&scope,"verification-check/1",&serde_json::to_vec(&serde_json::json!({"plan":{"runner":"cargo","origin":{"sha256":configuration.sha256},"directory":"","request":{"arguments":["test"],"directory":""},"not_run":null},"applicability":"current","outcome":{"status":"passed"},"exit_code":0})).unwrap()).await;
         let verification = Verification {
+            redaction: None,
             id: VerificationId::new(),
             scope: scope.clone(),
             steering: SteeringRevision::ZERO,

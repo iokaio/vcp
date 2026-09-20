@@ -2,6 +2,7 @@
 //! Canonical persistence adapter for the retained controller. The worker only
 //! serializes storage operations; scheduling and interruption remain in Codex.
 mod authority;
+pub mod history_retention;
 mod scheduler;
 use scheduler::{EffectLease, Scheduler};
 #[cfg(windows)]

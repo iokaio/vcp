@@ -1,6 +1,6 @@
 # 10 — History exploration, aging notices and precise pruning
 
-Status: planned. Owns P5-07 and P3-05. Requires P5-05/P5-06, capture/store and common inspectors. Read architecture sections 11.8, 12 and 14.
+Status: P5-07 and P3-05 complete with [retention qualification](../development/p5-retention.md#qualification) and [CLI evidence](../development/p3-history.md#qualification). Encrypted snapshot/handoff integration remains P5-09/P5-10. Requires P5-05/P5-06, capture/store and common inspectors. Read architecture sections 11.8, 12 and 14.
 
 ## Design references and integration prerequisites
 

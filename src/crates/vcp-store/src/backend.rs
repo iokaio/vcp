@@ -52,6 +52,8 @@ pub enum Barrier {
     BeforeValidation,
     BeforeActivation,
     AfterActivation,
+    BeforeCleanupFile,
+    AfterCleanupFile,
 }
 
 #[cfg(feature = "qualification")]
@@ -61,6 +63,8 @@ pub(crate) struct Journal {
     file: File,
     root: PathBuf,
     chain: String,
+    base: State,
+    initial_chain: String,
 }
 fn sql_error(error: sqlx::Error) -> Error {
     if let sqlx::Error::Database(database) = &error {
@@ -84,6 +88,13 @@ impl Backend {
     }
 
     pub(crate) async fn open(root: &Path, kind: BackendKind) -> Result<(Self, State, Vec<Commit>)> {
+        let base = crate::replay_base::ReplayBase::load(root)?;
+        let seed = base.as_ref().map(|b| b.state.clone()).unwrap_or_default();
+        let initial_chain = base
+            .as_ref()
+            .map(|b| b.chain())
+            .transpose()?
+            .unwrap_or_else(|| "0".repeat(64));
         match kind {
             BackendKind::Sqlite => {
                 let options = SqliteConnectOptions::new()
@@ -99,7 +110,12 @@ impl Backend {
                 let version: i64 = sqlx::query_scalar("PRAGMA user_version")
                     .fetch_one(&mut db)
                     .await?;
-                if version != 0 && version != FORMAT_VERSION as i64 {
+                let schema_version = if base.is_some() {
+                    2
+                } else {
+                    FORMAT_VERSION as i64
+                };
+                if version != 0 && version != schema_version {
                     return Err(Error::Incompatible);
                 }
                 if version == 0 {
@@ -118,7 +134,15 @@ impl Backend {
                         "CREATE TABLE events (id TEXT PRIMARY KEY, session TEXT NOT NULL, seq TEXT NOT NULL, workspace TEXT NOT NULL, watermark INTEGER NOT NULL REFERENCES commits(watermark), payload BLOB NOT NULL, UNIQUE(session,seq))",
                         "CREATE TABLE commands (workspace TEXT NOT NULL, id TEXT NOT NULL, digest TEXT NOT NULL, watermark INTEGER NOT NULL REFERENCES commits(watermark), payload BLOB NOT NULL, PRIMARY KEY(workspace,id))",
                         "PRAGMA user_version=1",
-                    ] { sqlx::query(statement).execute(&mut *tx).await?; }
+                    ] {
+                        let statement = if base.is_some() && statement.starts_with("CREATE TABLE events") {
+                            "CREATE TABLE events (id TEXT PRIMARY KEY, session TEXT NOT NULL, seq TEXT NOT NULL, workspace TEXT NOT NULL, watermark INTEGER NOT NULL, payload BLOB NOT NULL, UNIQUE(session,seq))"
+                        } else if base.is_some() && statement.starts_with("CREATE TABLE commands") {
+                            "CREATE TABLE commands (workspace TEXT NOT NULL, id TEXT NOT NULL, digest TEXT NOT NULL, watermark INTEGER NOT NULL, payload BLOB NOT NULL, PRIMARY KEY(workspace,id))"
+                        } else if base.is_some() && statement == "PRAGMA user_version=1" { "PRAGMA user_version=2" } else {statement};
+                        sqlx::query(statement).execute(&mut *tx).await?;
+                    }
+                    materialize_base(&mut tx, &seed).await?;
                     tx.commit().await.map_err(sql_error)?;
                 }
                 let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
@@ -127,7 +151,7 @@ impl Backend {
                 if integrity != "ok" {
                     return Err(Error::Corruption("SQLite integrity check"));
                 }
-                let mut state = State::default();
+                let mut state = seed;
                 let mut commits = Vec::new();
                 // Bound each load and keyset-page the log instead of fetching the history as one SQL result.
                 loop {
@@ -163,7 +187,9 @@ impl Backend {
                         .truncate(false)
                         .open(root.join("canonical.frames"))?,
                     root: root.to_owned(),
-                    chain: "0".repeat(64),
+                    chain: initial_chain.clone(),
+                    initial_chain,
+                    base: seed,
                 };
                 let (state, commits) = journal.replay()?;
                 journal.verify_checkpoint(&state, &commits)?;
@@ -399,7 +425,7 @@ impl Journal {
                 return Err(Error::Corruption("acknowledged journal was truncated"));
             }
         }
-        let mut state = State::default();
+        let mut state = self.base.clone();
         let mut commits = Vec::new();
         loop {
             let start = self.file.stream_position()?;
@@ -532,9 +558,15 @@ impl Journal {
                 return Err(Error::Corruption("checkpoint seal"));
             }
             let checkpoint: State = serde_json::from_slice(&bytes)?;
-            let mut expected = State::default();
-            let mut chain = "0".repeat(64);
-            for commit in commits.iter().take(watermark.get() as usize) {
+            let mut expected = self.base.clone();
+            if watermark < expected.watermark {
+                return Err(Error::Corruption("checkpoint before replay base"));
+            }
+            let mut chain = self.initial_chain.clone();
+            for commit in commits
+                .iter()
+                .take_while(|c| c.receipt.watermark <= watermark)
+            {
                 expected.replay(commit)?;
                 let payload = canonical_bytes(commit)?;
                 let mut header = Vec::new();
@@ -558,4 +590,56 @@ impl Journal {
         // unpublished/torn checkpoint has no active marker. No history is deleted.
         Ok(())
     }
+}
+
+async fn materialize_base(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    state: &State,
+) -> Result<()> {
+    for record in state.records.values() {
+        let bytes = canonical_bytes(record)?;
+        sqlx::query("INSERT INTO records(key,workspace,revision,collection,payload,digest) VALUES(?,?,?,?,?,?)")
+            .bind(record.key()).bind(record.workspace.as_str()).bind(record.revision.get().to_string()).bind(record.collection.name()).bind(&bytes).bind(digest_bytes(&bytes)).execute(&mut **tx).await?;
+    }
+    for record in state.records.values() {
+        for reference in record.required_references()? {
+            sqlx::query("INSERT INTO edges(source,target) VALUES(?,?)")
+                .bind(record.key())
+                .bind(reference)
+                .execute(&mut **tx)
+                .await?;
+        }
+    }
+    for event in &state.events {
+        sqlx::query(
+            "INSERT INTO events(id,session,seq,workspace,watermark,payload) VALUES(?,?,?,?,?,?)",
+        )
+        .bind(event.event.id.as_str())
+        .bind(event.event.session.as_str())
+        .bind(event.sequence.get().to_string())
+        .bind(event.event.workspace.as_str())
+        .bind(
+            i64::try_from(event.watermark.get())
+                .map_err(|_| Error::Limit("SQLite base watermark"))?,
+        )
+        .bind(canonical_bytes(event)?)
+        .execute(&mut **tx)
+        .await?;
+    }
+    for command in state.commands.values() {
+        sqlx::query(
+            "INSERT INTO commands(workspace,id,digest,watermark,payload) VALUES(?,?,?,?,?)",
+        )
+        .bind(command.workspace.as_str())
+        .bind(command.command.as_str())
+        .bind(&command.digest)
+        .bind(
+            i64::try_from(command.watermark.get())
+                .map_err(|_| Error::Limit("SQLite base watermark"))?,
+        )
+        .bind(canonical_bytes(command)?)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
 }

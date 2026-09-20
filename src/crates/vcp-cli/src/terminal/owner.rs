@@ -166,6 +166,7 @@ pub async fn run(
     let renderer = Renderer::new(std::io::stderr()).map_err(|e| e.to_string())?;
     let mut notice = String::from("/pause /resume /status /cost /history /agents /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task");
     let mut page: Option<InspectionQuery> = None;
+    let mut maintenance_page: Option<vcp_lifecycle::foundation::history_retention::Request> = None;
     let mut page_text = String::new();
     let mut pending: Option<tokio::task::JoinHandle<Result<(), String>>> = None;
     let mut active = true;
@@ -208,7 +209,22 @@ pub async fn run(
                         "Guidance queued; admission is fenced while existing effects stop. Task stays paused for /resume.".into()
                     }
                     Input::Next if !page_text.is_empty() => display_page(&mut page_text),
+                    Input::Next if maintenance_page.is_some()=>{
+                        let request=maintenance_page.take().ok_or("no next history page")?;
+                        let result=host.history_retention(request.clone())?;
+                        maintenance_page=crate::history::next_request(request,&result)?;
+                        page_text=super::sanitize(&serde_json::to_string(&result).map_err(|e|e.to_string())?,1024*1024);
+                        display_page(&mut page_text)
+                    }
+                    Input::Maintenance(words)=>{
+                        let request=crate::history::terminal_request(words,&scope.workspace)?;
+                        let result=host.history_retention(request.clone())?;
+                        maintenance_page=crate::history::next_request(request,&result)?;page=None;
+                        page_text=super::sanitize(&serde_json::to_string(&result).map_err(|e|e.to_string())?,1024*1024);
+                        display_page(&mut page_text)
+                    }
                     Input::History | Input::Cost | Input::Inspect(_) | Input::Read {..} | Input::Next => {
+                        maintenance_page=None;
                         let query=match command {
                             Input::History=>InspectionQuery{id:scope.task.to_string(),view:View::Chain,limit:8,cursor:None,range:None},
                             Input::Cost=>InspectionQuery{id:scope.task.to_string(),view:View::Costs,limit:8,cursor:None,range:None},
@@ -225,7 +241,7 @@ pub async fn run(
                     }
                     Input::Unavailable(service)=>format!("{service}: service not ready in this stage; no work scheduled"),
                     Input::Status | Input::Agents => serde_json::to_string(&view(&host.snapshot()?,scope,model)?).map_err(|e|e.to_string())?,
-                    Input::Help => "/pause /resume /status /cost /history /agents /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory /optimize /cancel /exit; plain text queues durable guidance".into(),
+                    Input::Help => "/pause /resume /status /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /agents /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /optimize /cancel /exit; plain text queues durable guidance".into(),
                 }) }.await;
                 match result { Ok(message) if message=="exit"=>return Ok(()), Ok(message)=>notice=message, Err(error)=>notice=format!("Command rejected: {error}") }
             }

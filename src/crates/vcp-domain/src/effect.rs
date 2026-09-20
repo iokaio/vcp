@@ -19,6 +19,8 @@ pub enum EffectState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Effect {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redaction: Option<crate::redaction::ContentRedaction>,
     pub id: ToolRunId,
     pub scope: Scope,
     pub revision: Revision,
@@ -41,6 +43,9 @@ impl Effect {
         reason: String,
     ) -> Result<Self> {
         use EffectState::*;
+        if self.redaction.is_some() {
+            return Err(Error::Transition);
+        }
         if self.revision != expected {
             return Err(Error::Stale);
         }

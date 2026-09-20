@@ -31,10 +31,12 @@ fn task() -> Task {
         required_checks: vec!["fixture".into()],
         cause: EventId::new(),
         reason: "created".into(),
+        redaction: None,
     }
 }
 fn evidence(task: &Task) -> Verification {
     Verification {
+        redaction: None,
         id: VerificationId::new(),
         scope: task.scope.clone(),
         steering: task.steering,

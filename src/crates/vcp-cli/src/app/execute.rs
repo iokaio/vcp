@@ -341,6 +341,7 @@ pub(super) async fn execute(
     let mut output = OwnedJsonl::new(
         DisplayOutput {
             jsonl: cli.format == Format::Jsonl,
+            frame: Vec::new(),
         },
         owner,
     )
@@ -366,6 +367,12 @@ pub(super) async fn execute(
     // unrelated configuration result after acceptance.
     let execution=async{
         output.emit(&correlation,Some(&scope),Payload::Accepted{receipt:&accepted}).await?;
+        if let Ok(notice) = host.history_retention(vcp_lifecycle::foundation::history_retention::Request::Notice) {
+            if notice["due"] == true {
+                output.emit(&correlation,Some(&scope),Payload::RetentionNotice{data:&notice}).await?;
+                let _ = host.history_retention(vcp_lifecycle::foundation::history_retention::Request::NoticeShown);
+            }
+        }
         if task_from(&host.snapshot()?,&config.workspace,&config.root_task)?.state.terminal(){return Ok::<(),String>(());}
         for process in prepared.processes{host.configure_process_profile(process)?;}
         host.configure_provider(prepared.profile.provider.clone(),prepared.raw_catalog)?;

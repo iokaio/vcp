@@ -241,6 +241,7 @@ async fn output_failure_is_reported_to_owner() {
 fn fixture_task(id: &str) -> Task {
     let task = TaskId::parse(id).unwrap();
     Task {
+        redaction: None,
         scope: Scope {
             workspace: WorkspaceId::parse("workspace").unwrap(),
             session: SessionId::parse("session").unwrap(),
@@ -410,6 +411,7 @@ fn history_cannot_hide_pending_questions_cost_or_current_result_checks() {
         json!({"scope":task.scope,"steering":task.steering,"state":"verifying","reason":"check current result"}),
     );
     let report = Verification {
+        redaction: None,
         id: VerificationId::parse("current-report").unwrap(),
         scope: task.scope.clone(),
         steering: task.steering,
@@ -459,6 +461,7 @@ fn add_event(state: &mut State, task: &Task, id: &str, collection: Collection, r
     use vcp_protocol::event::{EventEnvelope, EventInput, EventKind};
     let watermark = state.watermark.next().unwrap();
     state.events.push(EventEnvelope {
+        redaction: None,
         version: 1,
         sequence: SessionSeq::new(watermark.get()),
         watermark,
@@ -534,6 +537,7 @@ fn latest_failed_check_and_unresolved_effects_remain_visible_after_history_flood
         ),
     ] {
         let report = Verification {
+            redaction: None,
             id: VerificationId::parse(id).unwrap(),
             scope: task.scope.clone(),
             steering: task.steering,

@@ -4,9 +4,12 @@ pub mod artifact;
 mod backend;
 pub mod contract;
 pub mod migration;
+mod redaction_contract;
+mod replay_base;
+pub mod rewrite;
 mod store;
 pub use backend::{BackendKind, Barrier};
-pub use store::{Snapshot, Store};
+pub use store::{snapshot_pin_active, Snapshot, Store};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -26,6 +26,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-018 — Complete usable-release acceptance](018-release-acceptance.md) | P8-05 |
 | [ADR-019 — Cloud encryption and developer-controlled keys](019-cloud-encryption-and-keys.md) | P0-04/06, P3-06, P5-09/10, P8-03 |
 | [ADR-020 — Bounded semantic decisions](020-bounded-semantic-decisions.md) | Proposed P6-02/03/04/05; P7/P8 integration checks under existing dependencies |
+| [ADR-021 — Retention replay bases](021-retention-replay-bases.md) | P5-07 sealed replay and physical cleanup |
+| [ADR-022 — Retention selection and cleanup](022-retention-selection-and-cleanup.md) | P5-07 exact selection, protection and automatic policy |
 
 ## Maintaining a decision
 

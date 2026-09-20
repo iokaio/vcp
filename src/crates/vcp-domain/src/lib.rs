@@ -7,6 +7,8 @@ pub mod ids;
 pub mod ingestion;
 pub mod memory;
 pub mod policy;
+pub mod redaction;
+pub mod retention_selector;
 pub mod revision;
 pub mod search;
 pub mod task;

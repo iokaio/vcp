@@ -9,6 +9,22 @@ use vcp_domain::{ids::*, memory::*, revision::*};
 use vcp_protocol::event::{EventInput, EventKind};
 use vcp_store::{contract::*, Store};
 
+struct RebuildVersion {
+    id: ClaimVersionId,
+    proposal: ProposalId,
+    claim: ClaimId,
+    scope: vcp_domain::workspace::Scope,
+    memory_seq: MemorySeq,
+    outcome: Outcome,
+}
+struct RebuildResult {
+    id: CommandId,
+    proposal: ProposalId,
+    version: Option<ClaimVersionId>,
+    scope: vcp_domain::workspace::Scope,
+    memory_seq: MemorySeq,
+}
+
 /// Rebuild under the existing exclusive owner. This allocates neither a memory
 /// sequence nor a proposal result and never replays an external effect.
 pub async fn rebuild(
@@ -18,14 +34,45 @@ pub async fn rebuild(
 ) -> Result<Option<Receipt>> {
     access::authorize(store.state(), access, true)?;
     let state = store.state();
-    let mut versions = Vec::<Version>::new();
-    let mut results = Vec::<ProposalResult>::new();
+    let mut versions = Vec::<RebuildVersion>::new();
+    let mut results = Vec::<RebuildResult>::new();
     for record in state
         .records
         .values()
         .filter(|r| r.workspace == access.workspace)
     {
         match record.value.get("document_type").and_then(|v| v.as_str()) {
+            Some(vcp_domain::redaction::PROPOSAL) => {
+                let value: vcp_domain::redaction::RedactedProposal = record.decode()?;
+                if !access.allows_task(&value.scope.task) {
+                    return Err(Error::Access);
+                }
+            }
+            Some(vcp_domain::redaction::VERSION) => {
+                let value: vcp_domain::redaction::RedactedVersion = record.decode()?;
+                access::redacted_scope(state, access, &value.scope, &value.sources)?;
+                versions.push(RebuildVersion {
+                    id: value.id,
+                    proposal: value.proposal,
+                    claim: value.claim,
+                    scope: value.scope,
+                    memory_seq: value.memory_seq,
+                    outcome: value.outcome,
+                });
+            }
+            Some(vcp_domain::redaction::RESULT) => {
+                let value: vcp_domain::redaction::RedactedResult = record.decode()?;
+                if !access.allows_task(&value.scope.task) {
+                    return Err(Error::Access);
+                }
+                results.push(RebuildResult {
+                    id: value.id,
+                    proposal: value.proposal,
+                    version: value.version,
+                    scope: value.scope,
+                    memory_seq: value.memory_seq,
+                });
+            }
             Some("vcp_memory_proposal_v1") if record.collection == Collection::Claim => {
                 let proposal: ProposalRecord = record.decode()?;
                 if !access.allows_task(&proposal.scope.task) {
@@ -54,14 +101,28 @@ pub async fn rebuild(
                 if !access.allows_task(&version.scope.task) {
                     return Err(Error::Access);
                 }
-                versions.push(version);
+                access::version_scope(state, access, &version)?;
+                versions.push(RebuildVersion {
+                    id: version.id,
+                    proposal: version.proposal.id,
+                    claim: version.proposal.claim,
+                    scope: version.scope,
+                    memory_seq: version.memory_seq,
+                    outcome: version.resolution.outcome,
+                });
             }
             Some("vcp_memory_result_v1") if record.collection == Collection::Projection => {
                 let result: ProposalResult = record.decode()?;
                 if !access.allows_task(&result.scope.task) {
                     return Err(Error::Access);
                 }
-                results.push(result);
+                results.push(RebuildResult {
+                    id: result.id,
+                    proposal: result.proposal,
+                    version: result.version,
+                    scope: result.scope,
+                    memory_seq: result.memory_seq,
+                });
             }
             _ => (),
         }
@@ -76,24 +137,22 @@ pub async fn rebuild(
         if !results.iter().any(|result| {
             result.version.as_ref() == Some(&version.id)
                 && result.memory_seq == version.memory_seq
-                && result.proposal == version.proposal.id
+                && result.proposal == version.proposal
         }) {
             return Err(Error::Conflict(
                 "memory version has no authoritative retry result",
             ));
         }
-        let head = heads
-            .entry(version.proposal.claim.clone())
-            .or_insert_with(|| Head {
-                document_type: DocumentType::Head,
-                schema_version: 1,
-                id: version.proposal.claim.clone(),
-                scope: version.scope.clone(),
-                revision: Revision::ZERO,
-                current: None,
-                disputed: vec![],
-            });
-        match version.resolution.outcome {
+        let head = heads.entry(version.claim.clone()).or_insert_with(|| Head {
+            document_type: DocumentType::Head,
+            schema_version: 1,
+            id: version.claim.clone(),
+            scope: version.scope.clone(),
+            revision: Revision::ZERO,
+            current: None,
+            disputed: vec![],
+        });
+        match version.outcome {
             Outcome::Accepted => head.current = Some(version.id.clone()),
             Outcome::Disputed => head.disputed.push(version.id.clone()),
             _ => return Err(Error::Conflict("immutable version has no claim outcome")),
