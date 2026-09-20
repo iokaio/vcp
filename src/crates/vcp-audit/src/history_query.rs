@@ -225,7 +225,7 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
         let facts = Facts {
             workspace: &e.workspace,
             timestamp: Some(e.timestamp),
-            root: None,
+            roots: None,
             paths: metadata.map(|m| m.paths.as_slice()),
             task: e.task.as_ref(),
             actor: Some(&e.actor),

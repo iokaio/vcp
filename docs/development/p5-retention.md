@@ -12,7 +12,9 @@ values require an explicit fixed offset and mean midnight at that offset;
 timestamps require Z or a numeric offset. UTC bounds retain explicit inclusivity.
 Missing metadata remains unknown under negation. Named timezone ambiguity is
 rejected. [ADR-022](../adr/022-retention-selection-and-cleanup.md) records these
-choices and their limits.
+choices and their limits. Source selectors follow retained native capture metadata
+by exact scope, hash and byte count even after the workspace binding changes.
+Missing metadata stays unknown; multiple declared claim roots remain selectable.
 
 Recall exclusion, presentation compaction and purge have separate effects.
 Exclusion can be reversed; compaction retains the raw evidence and permits an
@@ -38,7 +40,12 @@ while replacing selected payloads with explicit typed redactions. Historical
 transaction bodies are not reconstructed or falsely rehashed. Redacted events,
 inspection results, tasks, turns, effects, verification details and immutable
 memory records keep required provenance/outcome facts without retaining removed
-text. Ordinary writes cannot mint these redactions.
+text. Ordinary writes cannot mint these redactions. Settled accounting narratives
+are erased separately from numeric adjustments and admission commitments. An
+original observation digest preserves exact retry. A later new bill admits fresh
+immutable evidence and can update accounting facts while retaining the historical
+erasure marker; it cannot replace the erased narrative. Newly admitted narrative
+can itself be purged after the resulting liability is reconciled.
 
 Both backend preferences rewrite into a fresh private root, validate and reopen
 it, then activate it. Older roots remain owned cleanup obligations. Snapshot and
@@ -92,5 +99,11 @@ regressions also verify a durable snapshot job survives owner restart and blocks
 cleanup until its source references are explicitly released. Post-purge empty
 generation rebuild acknowledges retained intent IDs without adding memory.
 
-Final host integration and delivery gate results will be recorded here before this
-work item is marked complete.
+The integrated domain, protocol, store, accounting and memory all-target regression
+run passed 149 tests with no failures. Two existing real-model qualifications were
+explicitly ignored because that invocation did not provision model assets. The
+run includes nonempty native lexical generation cleanup at its recorded owned
+root and explicit pending status for external generation copies, late accounting
+observations and subsequent narrative purge, historical source selectors, durable
+policy execution and both-backend replay/pin recovery. Final host integration and
+delivery gate results will be recorded before this work item is marked complete.

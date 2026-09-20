@@ -343,7 +343,7 @@ impl Truth {
 pub struct Facts<'a> {
     pub workspace: &'a WorkspaceId,
     pub timestamp: Option<Timestamp>,
-    pub root: Option<&'a RootId>,
+    pub roots: Option<&'a [RootId]>,
     pub paths: Option<&'a [String]>,
     pub task: Option<&'a TaskId>,
     pub actor: Option<&'a ActorId>,
@@ -388,7 +388,7 @@ fn evaluate(tree: &Tree, facts: &Facts<'_>) -> Truth {
         Tree::Match(criterion) => known(match criterion {
             Criterion::Date(window) => facts.timestamp.map(|v| window.matches(v)),
             Criterion::Workspace(id) => Some(id == facts.workspace),
-            Criterion::Root(id) => facts.root.map(|v| v == id),
+            Criterion::Root(id) => facts.roots.map(|roots| roots.contains(id)),
             Criterion::Path(path) => facts.paths.map(|paths| paths.contains(path)),
             Criterion::Task(id) => facts.task.map(|v| v == id),
             Criterion::Actor(id) => facts.actor.map(|v| v == id),
@@ -401,5 +401,45 @@ fn evaluate(tree: &Tree, facts: &Facts<'_>) -> Truth {
             Criterion::Status(Status::Claim(status)) => facts.claim_status.map(|v| v == *status),
             Criterion::Superseded(value) => facts.superseded.map(|v| v == *value),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn any_declared_root_matches_and_absent_roots_stay_unknown_under_negation() {
+        let workspace = WorkspaceId::parse("workspace").unwrap();
+        let roots = [
+            RootId::parse("first").unwrap(),
+            RootId::parse("second").unwrap(),
+        ];
+        let mut facts = Facts {
+            workspace: &workspace,
+            timestamp: None,
+            roots: Some(&roots),
+            paths: None,
+            task: None,
+            actor: None,
+            agent: None,
+            model: None,
+            provider: None,
+            event: None,
+            claim: None,
+            task_status: None,
+            claim_status: None,
+            superseded: None,
+        };
+        let selector = Selector {
+            schema_version: 1,
+            tree: Tree::Match(Criterion::Root(roots[1].clone())),
+        };
+        assert_eq!(selector.evaluate(&facts).unwrap(), Truth::Match);
+        facts.roots = None;
+        let negated = Selector {
+            schema_version: 1,
+            tree: Tree::Not(Box::new(selector.tree)),
+        };
+        assert_eq!(negated.evaluate(&facts).unwrap(), Truth::Unknown);
     }
 }

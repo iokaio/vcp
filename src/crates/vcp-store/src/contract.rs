@@ -1022,6 +1022,11 @@ impl State {
         for mutation in &transaction.mutations {
             match mutation {
                 Mutation::Put { expected, record } => {
+                    let late_accounting = crate::accounting_contract::redacted_attempt_update(
+                        self,
+                        transaction,
+                        record,
+                    )?;
                     if crate::redaction_contract::kind(record)?.is_some()
                         || (matches!(
                             record.collection,
@@ -1031,7 +1036,14 @@ impl State {
                                 | Collection::Verification
                                 | Collection::Attempt
                                 | Collection::Settlement
-                        ) && record.value.get("redaction").is_some_and(|v| !v.is_null()))
+                        ) && record.value.get("redaction").is_some_and(|v| !v.is_null())
+                            && !late_accounting)
+                        || (record.collection == Collection::Attempt
+                            && !late_accounting
+                            && record
+                                .value
+                                .get("redacted_at_revision")
+                                .is_some_and(|value| !value.is_null()))
                         || (record.collection == Collection::Settlement
                             && record
                                 .value
@@ -1068,6 +1080,7 @@ impl State {
                                 .value
                                 .get("redaction")
                                 .is_some_and(|value| !value.is_null())
+                                && !late_accounting
                             {
                                 return Err(Error::Conflict(
                                     "redacted evidence cannot be replaced",

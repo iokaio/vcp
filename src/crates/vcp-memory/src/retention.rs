@@ -24,6 +24,8 @@ use vcp_store::{
     contract::{key, CanonicalStore, Collection, Mutation, Record, State, Transaction},
     Store,
 };
+#[path = "retention_sources.rs"]
+mod sources;
 const PREVIEW: &str = "vcp_retention_preview_v1";
 const JOB: &str = "vcp_retention_job_v1";
 const DECISION: &str = "vcp_retention_decision_v1";
@@ -108,7 +110,7 @@ pub struct Decision {
 }
 
 /// Preview persistence itself is not a new selected history fact. Every other
-/// record/event mutation remains part of the revision-bound source commitment.
+/// record/event/command-copy mutation remains part of the source commitment.
 fn source_digest(state: &State) -> Result<String> {
     let records: Vec<_> = state
         .records
@@ -120,7 +122,7 @@ fn source_digest(state: &State) -> Result<String> {
         .iter()
         .filter(|e| e.event.data["document_type"] != PREVIEW)
         .collect();
-    digest(&(records, events))
+    digest(&(records, events, &state.commands))
 }
 pub async fn save_preview(
     store: &mut Store,
@@ -214,7 +216,7 @@ fn empty_facts(workspace: &WorkspaceId) -> Facts<'_> {
     Facts {
         workspace,
         timestamp: None,
-        root: None,
+        roots: None,
         paths: None,
         task: None,
         actor: None,
@@ -274,6 +276,14 @@ fn valid_record(row: &Record) -> bool {
     )
 }
 fn already_redacted(row: &Record) -> bool {
+    if row.collection == Collection::Attempt {
+        return row
+            .decode::<vcp_domain::accounting::Attempt>()
+            .is_ok_and(|attempt| {
+                attempt.redaction.is_some()
+                    && attempt.redacted_at_revision == Some(attempt.revision)
+            });
+    }
     row.value.get("redaction").is_some_and(|v| !v.is_null())
         || row.value["state"] == "purged"
         || row.value["document_type"]
@@ -427,6 +437,7 @@ pub fn preview(
     }
     let selector = selector.normalized()?;
     let state = store.state();
+    let source_metadata = sources::metadata(store, access, &selector.tree)?;
     let mut selected = BTreeSet::new();
     let superseded: BTreeSet<_> = state
         .records
@@ -518,12 +529,18 @@ pub fn preview(
                     }),
             })
             .map(|event| event.event.timestamp);
+        if row.collection == Collection::Artifact {
+            if let Some(metadata) = source_metadata.get(row.id.as_str()) {
+                facts.roots = Some(&metadata.roots);
+                facts.paths = Some(&metadata.paths);
+            }
+        }
         let proposal = record_proposal(row)?;
         if let Some(p) = &proposal {
             facts.actor = Some(&p.actor);
             facts.claim = Some(p.value.kind());
             facts.paths = Some(&p.applicability.paths);
-            facts.root = p.applicability.roots.first();
+            facts.roots = (!p.applicability.roots.is_empty()).then_some(&p.applicability.roots);
             if row.value["document_type"] == "vcp_memory_version_v1" {
                 let v: Version = row.decode()?;
                 facts.timestamp = Some(v.recorded_at);
@@ -1023,7 +1040,11 @@ pub async fn apply(
         pending_generations: state
             .records
             .values()
-            .filter(|r| r.workspace == access.workspace && r.collection == Collection::Generation)
+            .filter(|r| {
+                r.workspace == access.workspace
+                    && r.collection == Collection::Generation
+                    && r.value["document_type"] == vcp_domain::search::GENERATION
+            })
             .map(|r| GenerationId::parse(r.id.clone()))
             .collect::<std::result::Result<_, _>>()?,
         backup_copies: preview.backup_copies.clone(),
@@ -1160,10 +1181,12 @@ pub async fn cleanup(
         .cleanup
         .as_ref()
         .is_some_and(|r| !r.pinned.is_empty() || !r.failed.is_empty());
-    if roots_pinned {
-        // Older canonical snapshots may still open the old generation.
-    } else if directory.exists() {
-        let publisher = crate::publication::Publisher::new(&directory)?;
+    if !roots_pinned {
+        let publisher = match std::fs::symlink_metadata(&directory) {
+            Ok(_) => Some(crate::publication::Publisher::new(&directory)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(vcp_store::Error::Io(error).into()),
+        };
         let policy = crate::publication::GarbagePolicy {
             retention_idle: true,
             historical_deletion_allowed: true,
@@ -1171,14 +1194,35 @@ pub async fn cleanup(
         };
         let mut pending = Vec::new();
         for generation in &job.pending_generations {
-            if !publisher.collect(store, access, generation, &policy)? {
+            let location = store.state().records.get(&key(
+                Collection::Projection,
+                &format!("generation-location-{generation}"),
+            ));
+            let owned = location.is_some_and(|row| {
+                row.workspace == access.workspace
+                    && row.revision == Revision::ZERO
+                    && row.value["schema_version"] == 1
+                    && row.value["document_type"] == "vcp_local_generation_location_v1"
+                    && row.value["workspace"] == serde_json::json!(access.workspace)
+                    && row.value["generation"] == serde_json::json!(generation)
+                    && row.value["revision"] == serde_json::json!(Revision::ZERO)
+                    && row.value["owned_relative_root"] == "search-generations"
+                    && row
+                        .references
+                        .contains(&key(Collection::Generation, generation.as_str()))
+            });
+            // Absence is evidence only at the root attested by the canonical
+            // publication receipt. Legacy/external locations remain explicit.
+            if !owned {
                 pending.push(generation.clone());
+            } else if let Some(publisher) = &publisher {
+                if !publisher.collect(store, access, generation, &policy)? {
+                    pending.push(generation.clone());
+                }
             }
         }
         job.pending_generations = pending;
     }
-    // An absent default directory does not prove an admitted generation was
-    // removed: older low-level callers may have used another private location.
     let result = job
         .cleanup
         .as_ref()

@@ -801,6 +801,30 @@ impl Publisher {
                 record: active_record,
             },
         ];
+        // A missing directory is proof of cleanup only for a generation whose
+        // publication recorded ownership of this canonical local namespace.
+        // Caller-owned external indexes remain explicit cleanup obligations.
+        let owned = self.root.parent() == Some(store.canonical_anchor())
+            && self
+                .root
+                .file_name()
+                .is_some_and(|name| name == "search-generations");
+        let mut location = Record::typed(
+            Collection::Projection,
+            format!("generation-location-{}", manifest.id),
+            access.workspace.clone(),
+            Revision::ZERO,
+            &serde_json::json!({"schema_version":1,"document_type":"vcp_local_generation_location_v1",
+                "workspace":access.workspace,"generation":manifest.id,"revision":Revision::ZERO,
+                "owned_relative_root":if owned { Some("search-generations") } else { None }}),
+        )?;
+        location
+            .references
+            .insert(key(Collection::Generation, manifest.id.as_str()));
+        mutations.push(Mutation::Put {
+            expected: None,
+            record: location,
+        });
         for captured in prepared
             .intents
             .iter()

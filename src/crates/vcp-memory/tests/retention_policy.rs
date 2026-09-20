@@ -28,6 +28,53 @@ fn automatic() -> Automatic {
     }
 }
 #[tokio::test]
+async fn startup_driver_records_protection_and_reads_do_not_apply_policy() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path(), backend, &[]).await.unwrap();
+        store.transact(common::initial()).await.unwrap();
+        let access = access();
+        let now = Timestamp::new(40 * DAY_MS);
+        let mut mode = automatic();
+        mode.action = Action::Purge;
+        set(&mut store, &access, None, 7, Some(mode), now)
+            .await
+            .unwrap();
+        let before = store.state().watermark;
+        assert!(latest_run(&store, &access).unwrap().is_none());
+        assert!(show(&store, &access).unwrap().automatic.is_some());
+        assert!(aging(&store, &access, now).unwrap().due);
+        assert_eq!(store.state().watermark, before);
+        let run = run_due(&mut store, &access, now).await.unwrap().unwrap();
+        assert_eq!(run.status, "blocked");
+        assert_eq!(
+            run.reason.as_deref(),
+            Some("protected_dependencies_require_reconciliation")
+        );
+        assert!(run.receipt.is_none());
+        let workspace: vcp_domain::workspace::Workspace = store
+            .state()
+            .record(
+                vcp_store::contract::Collection::Workspace,
+                access.workspace.as_str(),
+                &access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(workspace.deletion, DeletionEpoch::ZERO);
+        store.close().await.unwrap();
+        let mut store = Store::open(dir.path(), backend, &[]).await.unwrap();
+        let watermark = store.state().watermark;
+        assert!(run_due(&mut store, &access, now).await.unwrap().is_none());
+        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(
+            latest_run(&store, &access).unwrap().unwrap().status,
+            "blocked"
+        );
+    }
+}
+#[tokio::test]
 async fn aging_boundary_repeat_and_notification_only_preserve_retained_history() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let dir = tempfile::tempdir().unwrap();

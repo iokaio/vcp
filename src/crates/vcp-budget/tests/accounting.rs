@@ -10,6 +10,189 @@ fn currency() -> Currency {
 }
 
 #[tokio::test]
+async fn purged_accounting_preserves_exact_retry_and_new_late_usage() {
+    use std::collections::BTreeSet;
+    const MARKER: &str = "retained-accounting-narrative-to-purge";
+    for kind in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = setup(temp.path(), kind, 1000, 0).await;
+        let scope = common::task().scope;
+        let request = capture(&mut store, &scope, b"synthetic request").await;
+        let started = start(&mut store, &scope, &request, 50).await;
+        let mut original = usage(&mut store, &started, 40, 1, true).await;
+        original.correction = Some(Resolution {
+            actor: actor().id,
+            policy: PolicyRevision::ZERO,
+            reason: MARKER.into(),
+            remaining_uncertainty: MARKER.into(),
+        });
+        let prior = observe(&mut store, original.clone(), &actor())
+            .await
+            .unwrap();
+        let accounting = ledger(store.state(), &scope).unwrap();
+        let mut task: Task = store
+            .state()
+            .record(Collection::Task, scope.task.as_str(), &scope.workspace)
+            .unwrap()
+            .decode()
+            .unwrap();
+        let task_revision = task.revision;
+        task.revision = task.revision.next().unwrap();
+        task.state = TaskState::Cancelled;
+        let mut workspace: Workspace = store
+            .state()
+            .record(
+                Collection::Workspace,
+                scope.workspace.as_str(),
+                &scope.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let workspace_revision = workspace.revision;
+        workspace.revision = workspace.revision.next().unwrap();
+        workspace.deletion = workspace.deletion.next().unwrap();
+        store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: store.state().watermark,
+                mutations: vec![
+                    Mutation::Put {
+                        expected: Some(task_revision),
+                        record: Record::typed(
+                            Collection::Task,
+                            scope.task.as_str(),
+                            scope.workspace.clone(),
+                            task.revision,
+                            &task,
+                        )
+                        .unwrap(),
+                    },
+                    Mutation::Put {
+                        expected: Some(workspace_revision),
+                        record: Record::typed(
+                            Collection::Workspace,
+                            scope.workspace.as_str(),
+                            scope.workspace.clone(),
+                            workspace.revision,
+                            &workspace,
+                        )
+                        .unwrap(),
+                    },
+                ],
+                events: vec![],
+                command: None,
+            })
+            .await
+            .unwrap();
+        let records = BTreeSet::from([
+            key(Collection::Attempt, started.id.as_str()),
+            key(Collection::Settlement, original.id.as_str()),
+        ]);
+        let events = store
+            .state()
+            .events
+            .iter()
+            .map(|event| event.event.id.clone())
+            .collect();
+        let candidate = store
+            .retention_candidate(&records, &events, &BTreeSet::from([scope.task.clone()]))
+            .unwrap();
+        store.rewrite_base(candidate, &[]).await.unwrap();
+        assert!(
+            !String::from_utf8(serde_json::to_vec(store.state()).unwrap())
+                .unwrap()
+                .contains(MARKER)
+        );
+        assert_eq!(ledger(store.state(), &scope).unwrap(), accounting);
+        let watermark = store.state().watermark;
+        let retry = observe(&mut store, original.clone(), &actor())
+            .await
+            .unwrap();
+        assert!(retry.redaction.is_some());
+        assert_eq!(
+            (retry.total, retry.adjustment),
+            (prior.total, prior.adjustment)
+        );
+        assert_eq!(store.state().watermark, watermark);
+        let mut changed = original.clone();
+        changed.correction.as_mut().unwrap().reason.push('!');
+        assert!(observe(&mut store, changed, &actor()).await.is_err());
+        assert_eq!(store.state().watermark, watermark);
+        // A later bill is new evidence. Purging historical narrative must not
+        // erase a newly discovered liability or prevent actual cost settlement.
+        let partial = usage(&mut store, &started, 60, 2, false).await;
+        observe(&mut store, partial, &actor()).await.unwrap();
+        assert_eq!(
+            attempt(store.state(), &started.id, &scope.workspace)
+                .unwrap()
+                .phase,
+            ReservationState::ReconciliationPending
+        );
+        store.close().await.unwrap();
+        let mut store = Store::open(temp.path(), kind, &[]).await.unwrap();
+        let mut final_bill = usage(&mut store, &started, 70, 3, true).await;
+        final_bill.correction = Some(Resolution {
+            actor: actor().id,
+            policy: PolicyRevision::ZERO,
+            reason: "fresh late accounting explanation".into(),
+            remaining_uncertainty: "fresh reconciled uncertainty".into(),
+        });
+        observe(&mut store, final_bill.clone(), &actor())
+            .await
+            .unwrap();
+        assert_eq!(
+            ledger(store.state(), &scope).unwrap().settled,
+            Micros::new(70)
+        );
+        assert!(attempt(store.state(), &started.id, &scope.workspace)
+            .unwrap()
+            .redaction
+            .is_some());
+        assert_eq!(
+            observe(&mut store, original, &actor()).await.unwrap(),
+            retry
+        );
+        assert!(
+            !String::from_utf8(serde_json::to_vec(store.state()).unwrap())
+                .unwrap()
+                .contains(MARKER)
+        );
+        let second_records = BTreeSet::from([
+            key(Collection::Attempt, started.id.as_str()),
+            key(Collection::Settlement, final_bill.id.as_str()),
+        ]);
+        let events = store
+            .state()
+            .events
+            .iter()
+            .filter(|event| event.redaction.is_none())
+            .map(|event| event.event.id.clone())
+            .collect();
+        let candidate = store
+            .retention_candidate(
+                &second_records,
+                &events,
+                &BTreeSet::from([scope.task.clone()]),
+            )
+            .unwrap();
+        store.rewrite_base(candidate, &[]).await.unwrap();
+        let bytes = String::from_utf8(serde_json::to_vec(store.state()).unwrap()).unwrap();
+        assert!(!bytes.contains("fresh late accounting explanation"));
+        assert!(!bytes.contains("fresh reconciled uncertainty"));
+        assert_eq!(
+            ledger(store.state(), &scope).unwrap().settled,
+            Micros::new(70)
+        );
+        assert!(observe(&mut store, final_bill, &actor())
+            .await
+            .unwrap()
+            .redaction
+            .is_some());
+    }
+}
+
+#[tokio::test]
 async fn direct_transactions_cannot_spend_protected_funds_or_skip_child_allocations() {
     for kind in [BackendKind::Sqlite, BackendKind::Files] {
         let temporary = tempfile::tempdir().unwrap();

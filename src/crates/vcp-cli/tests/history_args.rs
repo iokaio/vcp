@@ -25,7 +25,7 @@ fn explicit_dates_share_the_same_selector_and_never_guess_local_time() {
     let facts = Facts {
         workspace: &workspace,
         timestamp: Some(timestamp),
-        root: None,
+        roots: None,
         paths: None,
         task: None,
         actor: None,

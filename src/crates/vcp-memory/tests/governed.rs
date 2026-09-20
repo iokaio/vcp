@@ -191,6 +191,91 @@ async fn seed(engine: &mut Engine<Store>, workspace: &str) -> (Scope, EventId, A
     engine.handle(attach, &access, &facts).await.unwrap();
     (scope, origin, artifact)
 }
+#[tokio::test]
+async fn date_selector_uses_record_provenance_not_its_old_task_creation() {
+    use vcp_domain::{
+        retention_selector::*,
+        task::{Turn, TurnState},
+    };
+    use vcp_memory::retention::{self, Action, Target};
+    use vcp_protocol::event::EventInput;
+    use vcp_store::contract::{key, CanonicalStore, Mutation, Record, Transaction};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut f = fixture(temp.path(), backend).await;
+        let turn = Turn {
+            redaction: None,
+            id: TurnId::new(),
+            scope: f.proposal.scope.clone(),
+            revision: Revision::ZERO,
+            steering: SteeringRevision::ZERO,
+            state: TurnState::Queued,
+            trigger: f.proposal.evidence[0].artifact.clone(),
+            cause: f.proposal.origins[0].clone(),
+            reason: "fresh turn on an old task".into(),
+        };
+        let record = Record::typed(
+            Collection::Turn,
+            turn.id.to_string(),
+            f.access.workspace.clone(),
+            Revision::ZERO,
+            &turn,
+        )
+        .unwrap();
+        f.store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: f.store.state().watermark,
+                mutations: vec![Mutation::Put {
+                    record: record.clone(),
+                    expected: None,
+                }],
+                command: None,
+                events: vec![EventInput {
+                    id: EventId::new(),
+                    workspace: f.access.workspace.clone(),
+                    session: turn.scope.session.clone(),
+                    task: Some(turn.scope.task.clone()),
+                    actor: f.access.actor.clone(),
+                    correlation: CommandId::new(),
+                    causation: None,
+                    timestamp: Timestamp::new(2000),
+                    kind: EventKind::Commentary,
+                    artifacts: vec![],
+                    metadata: None,
+                    data: serde_json::json!({"facts":[record]}),
+                }],
+            })
+            .await
+            .unwrap();
+        let preview = retention::preview(
+            &f.store,
+            &f.access,
+            Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Date(TimeWindow {
+                    lower: None,
+                    upper: Some(Bound {
+                        instant: InstantSpec::parse("1970-01-01T00:00:01Z", None).unwrap(),
+                        inclusive: false,
+                    }),
+                })),
+            },
+            Action::Exclude,
+            Timestamp::new(3000),
+        )
+        .unwrap();
+        assert!(preview.selected.contains(&Target::Record(key(
+            Collection::Task,
+            turn.scope.task.as_str()
+        ))));
+        assert!(!preview
+            .selected
+            .contains(&Target::Record(key(Collection::Turn, turn.id.as_str()))));
+        f.store.close().await.unwrap();
+    }
+}
+
 struct Fixture {
     store: Store,
     access: Access,
@@ -2055,5 +2140,97 @@ async fn newly_matching_history_cannot_expand_a_saved_preview() {
         .unwrap();
         assert!(!preview.selected.contains(&Target::Event(newer.clone())));
         assert!(fresh.selected.contains(&Target::Event(newer)));
+    }
+}
+
+#[tokio::test]
+async fn retention_selects_historical_source_roots_and_paths_without_current_binding_inference() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_memory::retention::{self, Action, Target};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let dir = tempfile::tempdir().unwrap();
+        let f = fixture(dir.path(), backend).await;
+        let descriptor: ArtifactDescriptor = f
+            .store
+            .state()
+            .record(
+                Collection::Artifact,
+                f.proposal.evidence[0].artifact.as_str(),
+                &f.access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let root = RootId::parse("historical-source-root").unwrap();
+        let manifest = serde_json::json!({
+            "manifest": {
+                "identity": {"workspace":f.access.workspace,"root":root,
+                    "repository":"old-repository","worktree":"old-worktree","binding":"93"},
+                "files":[{"root":root,"path":"old/module.rs","sha256":descriptor.sha256,"bytes":descriptor.length}]
+            },
+            "sources":[descriptor.spec.id]
+        });
+        let mut engine = Engine::new(f.store).unwrap();
+        capture(
+            &mut engine,
+            &f.proposal.scope,
+            "verification-baseline/1",
+            &serde_json::to_vec(&manifest).unwrap(),
+        )
+        .await;
+        // A foreign capture cannot supply additional metadata about this artifact.
+        let mut forged = manifest.clone();
+        forged["manifest"]["files"][0]["path"] = serde_json::json!("foreign.rs");
+        capture(
+            &mut engine,
+            &f.foreign.spec.scope,
+            "verification-baseline/1",
+            &serde_json::to_vec(&forged).unwrap(),
+        )
+        .await;
+        let store = engine.into_store();
+        let target = Target::Record(vcp_store::contract::key(
+            Collection::Artifact,
+            descriptor.spec.id.as_str(),
+        ));
+        let preview = retention::preview(
+            &store,
+            &f.access,
+            Selector {
+                schema_version: 1,
+                tree: Tree::All(vec![
+                    Tree::Match(Criterion::Root(root.clone())),
+                    Tree::Match(Criterion::Path("old/module.rs".into())),
+                ]),
+            },
+            Action::Exclude,
+            Timestamp::new(500),
+        )
+        .unwrap();
+        assert!(preview.selected.contains(&target));
+        let foreign = retention::preview(
+            &store,
+            &f.access,
+            Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Path("foreign.rs".into())),
+            },
+            Action::Exclude,
+            Timestamp::new(500),
+        )
+        .unwrap();
+        assert!(!foreign.selected.contains(&target));
+        let wrong = retention::preview(
+            &store,
+            &f.access,
+            Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Root(RootId::parse("unrelated-root").unwrap())),
+            },
+            Action::Exclude,
+            Timestamp::new(500),
+        )
+        .unwrap();
+        assert!(!wrong.selected.contains(&target));
     }
 }

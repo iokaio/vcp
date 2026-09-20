@@ -172,6 +172,10 @@ pub struct Reservation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Attempt {
+    /// Revision whose prior narrative was erased. Later observations retain this
+    /// marker while adding their own independently captured accounting evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redacted_at_revision: Option<Revision>,
     pub schema_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub redaction: Option<crate::redaction::ContentRedaction>,
@@ -305,18 +309,26 @@ impl Reservation {
 }
 impl Attempt {
     pub fn validate(&self) -> crate::Result<()> {
-        if let Some(redaction) = &self.redaction {
-            redaction.validate()?;
-            if self.uncertain.is_some()
-                || !matches!(
-                    self.phase,
-                    ReservationState::Settled
-                        | ReservationState::Released
-                        | ReservationState::ExplicitlyResolved
-                )
-            {
-                return Err(crate::Error::Invalid("redacted attempt is not terminal"));
+        match (&self.redaction, self.redacted_at_revision) {
+            (Some(redaction), Some(at)) => {
+                redaction.validate()?;
+                if at > self.revision
+                    || (at == self.revision
+                        && (self.uncertain.is_some()
+                            || !matches!(
+                                self.phase,
+                                ReservationState::Settled
+                                    | ReservationState::Released
+                                    | ReservationState::ExplicitlyResolved
+                            )))
+                {
+                    return Err(crate::Error::Invalid(
+                        "invalid accounting redaction revision",
+                    ));
+                }
             }
+            (None, None) => (),
+            _ => return Err(crate::Error::Invalid("accounting redaction marker pairing")),
         }
         if self.schema_version != 1
             || self.quote.normalization_version != 1
