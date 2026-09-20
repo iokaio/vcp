@@ -2,6 +2,8 @@
 //! Canonical persistence adapter for the retained controller. The worker only
 //! serializes storage operations; scheduling and interruption remain in Codex.
 mod authority;
+#[cfg(windows)]
+pub mod backup_checkpoint;
 mod scheduler;
 use scheduler::{EffectLease, Scheduler};
 #[cfg(windows)]
