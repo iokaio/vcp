@@ -38,6 +38,18 @@ pub struct Cli {
 }
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    History {
+        #[command(subcommand)]
+        command: crate::history::History,
+    },
+    Prune {
+        #[command(subcommand)]
+        command: crate::history::Prune,
+    },
+    Retention {
+        #[command(subcommand)]
+        command: crate::history::Retention,
+    },
     /// Reconcile retained history with the explicitly selected local root.
     Rebind {
         #[arg(value_parser = workspace_id)]
@@ -168,6 +180,9 @@ impl ValidatedCli {
 }
 
 pub enum ValidatedCommand {
+    History(crate::history::History),
+    Prune(crate::history::Prune),
+    Retention(crate::history::Retention),
     Discover,
     Rebind(WorkspaceId),
     Run(ValidatedRun),
@@ -191,6 +206,9 @@ impl Cli {
         let command = match self.command {
             None => ValidatedCommand::Discover,
             Some(command) => match command {
+                Command::History { command } => ValidatedCommand::History(command),
+                Command::Prune { command } => ValidatedCommand::Prune(command),
+                Command::Retention { command } => ValidatedCommand::Retention(command),
                 Command::Rebind { workspace_id } => ValidatedCommand::Rebind(workspace_id),
                 Command::Run(run) => ValidatedCommand::Run(run.validate(persisted_cap)?),
                 Command::Resume(resume) => ValidatedCommand::Resume(resume),

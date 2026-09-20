@@ -18,6 +18,8 @@ use vcp_lifecycle::{
 mod authority_stream;
 #[path = "support/cli_control.rs"]
 mod cli_control;
+#[path = "support/history_retention.rs"]
+mod history_retention;
 #[cfg(windows)]
 #[path = "support/coding.rs"]
 mod coding;

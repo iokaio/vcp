@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 pub mod history;
+pub mod history_query;
 pub mod inspection;
 pub mod projection;
 #[derive(Debug, thiserror::Error)]
