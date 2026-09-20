@@ -72,6 +72,9 @@ impl CanonicalHost {
     /// Consumes one owner-bound ticket. Every file gets a fresh native version
     /// check and current authority check, then a durable intent before mutation.
     pub fn dispatch_tool(&self, ticket: ToolProposal) -> Result<ToolOutcome, String> {
+        if self.mcp_connections_present() {
+            return Err("disconnect MCP processes before dispatching native tools".into());
+        }
         let lease = self
             .scheduler
             .try_acquire(ticket.prepared.authority().operation())?;
@@ -80,6 +83,9 @@ impl CanonicalHost {
     /// Wait without blocking the retained reactor. Queued work is fenced by
     /// owner generation; native identity and authority are rechecked at dispatch.
     pub async fn schedule_tool(&self, ticket: ToolProposal) -> Result<ToolOutcome, String> {
+        if self.mcp_connections_present() {
+            return Err("disconnect MCP processes before scheduling native tools".into());
+        }
         let mut queued = scheduler::QueuedEffect::new(self, &ticket.binding, &ticket.effect);
         let scheduled = self
             .schedule(

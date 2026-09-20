@@ -41,6 +41,12 @@ mod history_retention;
 #[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/mcp.rs"]
+mod mcp;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/mcp_coding.rs"]
+mod mcp_coding;
 #[path = "support/memory_ingestion.rs"]
 mod memory_ingestion;
 #[cfg(windows)]

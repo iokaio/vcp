@@ -36,6 +36,9 @@ impl CanonicalHost {
         thread: ThreadId,
         citations: Vec<ArtifactId>,
     ) -> Result<Verification, String> {
+        if self.mcp_connections_present() {
+            return Err("disconnect MCP processes before verification".into());
+        }
         let binding = self.binding(thread)?;
         let scoped = binding.clone();
         let run = self
@@ -150,6 +153,9 @@ impl CanonicalHost {
         thread: ThreadId,
         verification: Option<VerificationId>,
     ) -> Result<CommandReceipt, String> {
+        if self.mcp_connections_present() {
+            return Err("disconnect MCP processes before completion".into());
+        }
         let binding = self.binding(thread)?;
         let runtime = self.runtime.clone();
         let scheduler = self.scheduler.clone();

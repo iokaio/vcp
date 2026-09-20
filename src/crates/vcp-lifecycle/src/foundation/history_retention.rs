@@ -2,6 +2,8 @@
 //! Typed local history controls. Execution stays on the canonical owner and
 //! never invokes a model, resumes a task, or schedules child work.
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
+use vcp_domain::task::{Task, TaskState};
 use vcp_domain::{retention_selector::Selector, *};
 use vcp_memory::{
     access::Access,
@@ -298,7 +300,23 @@ fn preview_value(
 impl super::CanonicalHost {
     pub fn history_retention(&self, request: Request) -> Result<serde_json::Value, String> {
         let mutates = request.mutates();
+        #[cfg(windows)]
+        let mcp_host = self.clone();
         let operation = move |context: &mut super::worker::Context| {
+            #[cfg(windows)]
+            let interrupted_mcp =
+                matches!(request, Request::Apply { .. } | Request::Cleanup { .. })
+                    && mcp_host.mcp_connections_present();
+            #[cfg(windows)]
+            if interrupted_mcp {
+                // Serialize deletion with the same lifecycle generation lock
+                // checked during every physical duplex write poll. A source
+                // check before capture alone leaves a prune-to-write race.
+                let _drain = mcp_host
+                    .runtime
+                    .hold_owner()
+                    .map_err(|error| format!("retention waits for MCP interruption: {error:?}"))?;
+            }
             let access = context.memory_access();
             let now = Timestamp::new(
                 std::time::SystemTime::now()
@@ -306,10 +324,40 @@ impl super::CanonicalHost {
                     .as_millis()
                     .min(u64::MAX as u128) as u64,
             );
-            context
+            let result = context
                 .runtime
                 .block_on(execute(context.engine.store_mut(), &access, request, now))
-                .map_err(Into::into)
+                .map_err(Into::into);
+            // Pausing first changes the preview source digest. Commit only the
+            // explicitly selected preview, then record the already-held tasks.
+            #[cfg(windows)]
+            if interrupted_mcp {
+                let tasks = context
+                    .engine
+                    .store()
+                    .state()
+                    .records
+                    .values()
+                    .filter(|record| record.collection == vcp_store::contract::Collection::Task)
+                    .map(|record| record.decode::<Task>())
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                for task in tasks {
+                    if !task.state.terminal() && task.state != TaskState::Paused {
+                        context.command(
+                            vcp_protocol::command::Command::Transition {
+                                next: TaskState::Paused,
+                                reason:
+                                    "history deletion interrupted MCP; deliberate resume required"
+                                        .into(),
+                                verification: None,
+                            },
+                            Some(task.scope.task),
+                            task.revision,
+                        )?;
+                    }
+                }
+            }
+            result
         };
         if mutates {
             self.worker.run(operation)

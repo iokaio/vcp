@@ -6,7 +6,7 @@ VCP is in early implementation. These documents distinguish requirements from ex
 - [Implementation plan](plan/README.md): work segments, execution order, and acceptance.
 - [Plan work assessment](plan-assessment.md): rough, unreviewed effort sizing per plan level; not a schedule.
 - [Code layout](plan/code-layout.md): directory responsibilities and planned source locations.
-- [Architecture decision records](adr/README.md): all 20 decision subjects, confirmed directions, proposed mechanisms and outstanding qualification.
+- [Architecture decision records](adr/README.md): 26 records covering the original decision subjects, subsequent engineering decisions and outstanding qualification.
 - [Development guides](development/README.md): task implementation workflow and upstream selection/qualification procedures.
 - [Evaluation summaries](evaluations/README.md): scoped results with source identity, actual checks and limitations.
 - [Contribution guide](../CONTRIBUTING.md): change workflow, validation, and attribution.

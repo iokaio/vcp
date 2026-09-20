@@ -70,7 +70,7 @@ impl ProcessProposal {
     }
 }
 pub struct PreparedProcess {
-    host: CanonicalHost,
+    host: ProcessHost,
     binding: ThreadBinding,
     effect: ToolRunId,
     execution: ExecutionId,
@@ -82,6 +82,20 @@ pub struct PreparedProcess {
     _pins: Arc<Pins>,
     _conflict: EffectLease,
     finished: bool,
+}
+// Keep process guards independent of managed connection maps owned by the host.
+// A full host clone here would form a cycle once a map owns its duplex process.
+struct ProcessHost {
+    runtime: Lifecycle,
+    worker: worker::Worker,
+}
+impl From<&CanonicalHost> for ProcessHost {
+    fn from(host: &CanonicalHost) -> Self {
+        Self {
+            runtime: host.runtime.clone(),
+            worker: host.worker.clone(),
+        }
+    }
 }
 pub struct PreparedProcessOutcome {
     pub effect: ToolRunId,
@@ -149,6 +163,9 @@ impl CanonicalHost {
         })
     }
     pub fn dispatch_process(&self, ticket: ProcessProposal) -> Result<PreparedProcess, String> {
+        if self.mcp_connections_present() {
+            return Err("disconnect MCP processes before dispatching native processes".into());
+        }
         let conflict = self
             .scheduler
             .try_acquire(ticket.prepared.authority().operation())?;
@@ -158,6 +175,9 @@ impl CanonicalHost {
         &self,
         ticket: ProcessProposal,
     ) -> Result<PreparedProcess, String> {
+        if self.mcp_connections_present() {
+            return Err("disconnect MCP processes before scheduling native processes".into());
+        }
         let mut queued = scheduler::QueuedEffect::new(self, &ticket.binding, &ticket.effect);
         let scheduled = self
             .schedule(
@@ -231,7 +251,7 @@ impl CanonicalHost {
         });
         match started {
             Ok((process, pins)) => Ok(PreparedProcess {
-                host: self.clone(),
+                host: ProcessHost::from(self),
                 binding: ticket.binding,
                 effect: ticket.effect,
                 execution,

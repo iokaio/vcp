@@ -11,6 +11,8 @@ mod control;
 mod escalation;
 #[cfg(windows)]
 mod execution;
+#[cfg(windows)]
+mod mcp;
 mod memory;
 #[cfg(windows)]
 mod memory_query;
@@ -167,6 +169,8 @@ pub struct Context {
     #[cfg(windows)]
     process_profiles: HashMap<String, vcp_tools::process::Profile>,
     #[cfg(windows)]
+    mcp: mcp::State,
+    #[cfg(windows)]
     verification: HashMap<TaskId, verification::Setup>,
 }
 fn now() -> Timestamp {
@@ -278,6 +282,8 @@ impl Context {
             coding: HashMap::new(),
             #[cfg(windows)]
             process_profiles: HashMap::new(),
+            #[cfg(windows)]
+            mcp: mcp::State::default(),
             #[cfg(windows)]
             verification: HashMap::new(),
         };
@@ -480,6 +486,16 @@ impl Context {
         expected: Revision,
         fingerprint: vcp_domain::verification::Fingerprint,
     ) -> Result<CommandReceipt> {
+        self.resume_checked(binding, expected, fingerprint, &[], || Ok(()))
+    }
+    fn resume_checked<T>(
+        &mut self,
+        binding: &ThreadBinding,
+        expected: Revision,
+        fingerprint: vcp_domain::verification::Fingerprint,
+        idle_owned: &[(ToolRunId, ExecutionId)],
+        final_check: impl FnOnce() -> Result<T>,
+    ) -> Result<CommandReceipt> {
         if self.authority_pending {
             return Err("authority change is stopping work".into());
         }
@@ -523,6 +539,13 @@ impl Context {
             .collect::<std::result::Result<Vec<_>, _>>()?
             .iter()
             .any(|effect| {
+                if effect.state == vcp_domain::effect::EffectState::Running
+                    && idle_owned.iter().any(|(id, execution)| {
+                        id == &effect.id && effect.execution.as_ref() == Some(execution)
+                    })
+                {
+                    return false;
+                }
                 matches!(
                     effect.state,
                     vcp_domain::effect::EffectState::DispatchRecorded
@@ -530,6 +553,7 @@ impl Context {
                         | vcp_domain::effect::EffectState::OutcomeUnknown
                 )
             });
+        let _resume_guard = final_check()?;
         self.command_with_resume(
             Command::Transition {
                 next: TaskState::Running,

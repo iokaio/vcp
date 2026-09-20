@@ -162,6 +162,7 @@ impl Lifecycle {
                 job.clone(),
                 control.clone(),
                 Some(limits.output_bytes),
+                None,
             ));
             let written = tokio::spawn(async move {
                 let mut writer = tokio::fs::File::from_std(pty.input);

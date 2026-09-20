@@ -223,36 +223,7 @@ impl CanonicalHost {
         effect: ToolRunId,
         reason: String,
     ) -> Result<(), String> {
-        self.worker
-            .run_cleanup(move |context| {
-                use vcp_domain::effect::{Effect, EffectState};
-                use vcp_store::contract::Collection;
-                let current: Effect = context
-                    .engine
-                    .store()
-                    .state()
-                    .record(
-                        Collection::Effect,
-                        effect.as_str(),
-                        &binding.scope.workspace,
-                    )?
-                    .decode()?;
-                if matches!(
-                    current.state,
-                    EffectState::Proposed | EffectState::Validated | EffectState::Authorized
-                ) {
-                    context.tool_advance(
-                        &binding,
-                        &effect,
-                        EffectState::Cancelled,
-                        None,
-                        current.observed_changes,
-                        &reason,
-                    )?;
-                }
-                Ok(())
-            })
-            .inspect_err(|_| self.worker.fence())
+        cancel_queued(&self.worker, binding, effect, reason)
     }
     pub(super) async fn schedule(
         &self,
@@ -265,12 +236,50 @@ impl CanonicalHost {
             .await
     }
 }
+#[cfg(windows)]
+fn cancel_queued(
+    worker: &worker::Worker,
+    binding: ThreadBinding,
+    effect: ToolRunId,
+    reason: String,
+) -> Result<(), String> {
+    worker
+        .run_cleanup(move |context| {
+            use vcp_domain::effect::{Effect, EffectState};
+            use vcp_store::contract::Collection;
+            let current: Effect = context
+                .engine
+                .store()
+                .state()
+                .record(
+                    Collection::Effect,
+                    effect.as_str(),
+                    &binding.scope.workspace,
+                )?
+                .decode()?;
+            if matches!(
+                current.state,
+                EffectState::Proposed | EffectState::Validated | EffectState::Authorized
+            ) {
+                context.tool_advance(
+                    &binding,
+                    &effect,
+                    EffectState::Cancelled,
+                    None,
+                    current.observed_changes,
+                    &reason,
+                )?;
+            }
+            Ok(())
+        })
+        .inspect_err(|_| worker.fence())
+}
 
 /// A cancelled retained future still leaves a durable non-dispatch outcome.
 /// Once a native lease is acquired, its execution path owns terminal reporting.
 #[cfg(windows)]
 pub(super) struct QueuedEffect {
-    host: CanonicalHost,
+    worker: worker::Worker,
     binding: ThreadBinding,
     effect: Option<ToolRunId>,
 }
@@ -278,7 +287,7 @@ pub(super) struct QueuedEffect {
 impl QueuedEffect {
     pub(super) fn new(host: &CanonicalHost, binding: &ThreadBinding, effect: &ToolRunId) -> Self {
         Self {
-            host: host.clone(),
+            worker: host.worker.clone(),
             binding: binding.clone(),
             effect: Some(effect.clone()),
         }
@@ -291,7 +300,8 @@ impl QueuedEffect {
 impl Drop for QueuedEffect {
     fn drop(&mut self) {
         if let Some(effect) = self.effect.take() {
-            let _ = self.host.cancel_queued_effect(
+            let _ = cancel_queued(
+                &self.worker,
                 self.binding.clone(),
                 effect,
                 "queued callback cancelled before dispatch".into(),

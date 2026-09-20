@@ -15,6 +15,8 @@ pub struct DuplexLimits {
     pub frame_bytes: usize,
     pub queued_frames: usize,
     pub input_bytes: u64,
+    /// Optional independent stderr quota; zero permits no stderr bytes.
+    pub stderr_bytes: Option<u64>,
 }
 pub struct Duplex {
     process: Option<Process>,
@@ -35,6 +37,12 @@ fn stopped(job: &JobObject, control: &Mutex<Control>, reason: &str) -> io::Resul
     job.terminate()
 }
 impl Duplex {
+    pub(crate) fn owned_job(&self) -> io::Result<Arc<JobObject>> {
+        self.process
+            .as_ref()
+            .map(|process| process.job.clone())
+            .ok_or_else(|| io::Error::other("duplex consumed"))
+    }
     pub fn id(&self) -> Option<u32> {
         self.process.as_ref().and_then(Process::id)
     }
@@ -146,29 +154,35 @@ impl Duplex {
         Ok(())
     }
     pub async fn read_line(&mut self) -> io::Result<Option<Vec<u8>>> {
-        let process = self
+        let control = self
             .process
             .as_ref()
-            .ok_or_else(|| io::Error::other("duplex consumed"))?;
+            .ok_or_else(|| io::Error::other("duplex consumed"))?
+            .control
+            .clone();
+        // Retain only the shared control, not a shared Process reference: its
+        // owned scheduler permit is Send but intentionally does not require Sync.
+        let lifecycle = &self.lifecycle;
+        let frames = &mut self.frames;
+        let thread = self.thread;
+        let generation = self.generation;
         poll_fn(|cx| {
-            let state = match self.lifecycle.0.state.lock() {
+            let state = match lifecycle.0.state.lock() {
                 Ok(state) => state,
                 Err(_) => return Poll::Ready(Err(io::Error::other("poisoned lifecycle"))),
             };
-            if !state.attached
-                || state.held(self.thread)
-                || !state.admission_current(self.thread, self.generation)
+            if !state.attached || state.held(thread) || !state.admission_current(thread, generation)
             {
                 return Poll::Ready(Err(io::Error::other("duplex output admission sealed")));
             }
-            let control = match process.control.lock() {
+            let control = match control.lock() {
                 Ok(control) => control,
                 Err(_) => return Poll::Ready(Err(io::Error::other("poisoned duplex limits"))),
             };
             if let Some(reason) = &control.reason {
                 return Poll::Ready(Err(io::Error::other(reason.clone())));
             }
-            self.frames.poll_recv(cx).map(Ok)
+            frames.poll_recv(cx).map(Ok)
         })
         .await
     }
@@ -299,6 +313,9 @@ impl Lifecycle {
             || !(1..=1024 * 1024).contains(&limits.frame_bytes)
             || !(1..=64).contains(&limits.queued_frames)
             || !(1..=8 * 1024 * 1024).contains(&limits.input_bytes)
+            || limits
+                .stderr_bytes
+                .is_some_and(|bytes| bytes > 8 * 1024 * 1024)
         {
             return Err(io::Error::other("duplex process bounds or absolute paths"));
         }
@@ -391,6 +408,7 @@ impl Lifecycle {
             job.clone(),
             control.clone(),
             Some(limits.process.output_bytes),
+            limits.stderr_bytes,
         ));
         let process = Process {
             _resources: resources,

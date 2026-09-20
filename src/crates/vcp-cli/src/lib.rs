@@ -16,6 +16,7 @@ pub mod exit_status;
 pub mod history;
 pub mod input;
 pub mod jsonl;
+pub mod mcp;
 pub mod optimize;
 pub mod outcome;
 pub mod output;
