@@ -196,7 +196,7 @@ async fn export_operator_handoff_fixture_with_child_claim_and_real_accounting() 
         )
         .unwrap();
         std::fs::write(output.join("fixture.json"),serde_json::to_vec_pretty(&serde_json::json!({
-            "workspace":config.workspace,"session":config.session,"root_task":config.root_task,"child_task":child,"claims":claims,
+            "workspace":config.workspace,"session":config.session,"root_task":config.root_task,"child_task":child,"claim_records":claims,
             "settled":"50","unresolved":"67","attempts":attempts,"provider_requests":0,
             "lineage":"f".repeat(64),"checkpoint":{"sequence":0,"deletion":0,"parent":null},
             "source":ciphertext,"recovery_directory":recovery,"ciphertext_sha256":receipt["ciphertext_sha256"],"bytes":receipt["bytes"],
