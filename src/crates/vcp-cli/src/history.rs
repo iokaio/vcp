@@ -9,7 +9,7 @@ pub fn terminal_request(words: Vec<String>, workspace: &WorkspaceId) -> Result<R
     use clap::Parser;
     let parsed = crate::args::Cli::try_parse_from(std::iter::once("vcp".to_owned()).chain(words))
         .map_err(|e| e.to_string())?;
-    if parsed.workspace != std::path::PathBuf::from(".")
+    if parsed.workspace != std::path::Path::new(".")
         || parsed.data_dir.is_some()
         || parsed.config.is_some()
         || parsed.control_stdin
@@ -92,6 +92,7 @@ pub fn next_request(request: Request, result: &serde_json::Value) -> Result<Opti
 #[derive(Clone, Debug, Default, Args)]
 pub struct Filter {
     /// Versioned selector JSON; combines with the explicit fields using AND.
+    /// Raw browsing rejects root, claim kind/status, and supersession predicates.
     #[arg(long)]
     pub selector: Option<String>,
     /// Inclusive timestamp; date-only input requires --utc-offset-minutes.
@@ -105,6 +106,7 @@ pub struct Filter {
     pub utc_offset_minutes: Option<i16>,
     #[arg(long)]
     pub task: Option<String>,
+    /// Source root for pruning; unavailable in raw history list/search.
     #[arg(long)]
     pub root: Option<String>,
     #[arg(long)]
@@ -119,7 +121,7 @@ pub struct Filter {
     pub provider: Option<String>,
     #[arg(long)]
     pub event: Option<String>,
-    /// Typed claim kind (snake_case).
+    /// Typed claim kind for pruning (snake_case); unavailable in raw browsing.
     #[arg(long)]
     pub claim: Option<String>,
 }
@@ -312,7 +314,7 @@ impl Browse {
                 artifact: self
                     .artifact
                     .as_ref()
-                    .map(|s| ArtifactId::parse(s))
+                    .map(ArtifactId::parse)
                     .transpose()
                     .map_err(|e| e.to_string())?,
             },

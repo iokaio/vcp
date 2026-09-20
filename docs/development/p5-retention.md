@@ -105,5 +105,20 @@ explicitly ignored because that invocation did not provision model assets. The
 run includes nonempty native lexical generation cleanup at its recorded owned
 root and explicit pending status for external generation copies, late accounting
 observations and subsequent narrative purge, historical source selectors, durable
-policy execution and both-backend replay/pin recovery. Final host integration and
-delivery gate results will be recorded before this work item is marked complete.
+policy execution and both-backend replay/pin recovery.
+
+The complete canonical host regression passed 34 tests with no failures in
+715.00 seconds; four existing asset-dependent cases were explicitly ignored.
+The separate native publication gate provisioned the pinned MiniLM assets and
+passed all sixteen actual process-kill boundaries across Files and SQLite in
+39.07 seconds. The actual retained HTTP dispatch race rejects stale memory
+context after retention without admitting a provider attempt. Startup-policy
+and paused-owner controls passed on both backends.
+
+Final audit, CLI and domain all-target tests passed 62 tests with no failures or
+ignored tests. The CLI build, affected-package Clippy, changed-source formatting,
+diff checks and eight deterministic delivery cases passed. Existing upstream and
+pre-existing Clippy warnings remain visible; none were suppressed for this work.
+These are native process-crash results, not power-loss or remote-copy erasure
+claims. Portable encrypted snapshot/handoff integration is qualified separately
+by P5-09/P5-10.

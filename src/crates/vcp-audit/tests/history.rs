@@ -1370,3 +1370,67 @@ async fn inspection_marks_missing_and_incomplete_content_without_reconstruction(
     assert_eq!(missing.gaps[0]["visibility"], "missing");
     assert_eq!(missing.gaps[0]["source"], artifact.spec.source);
 }
+
+#[tokio::test]
+async fn browser_rejects_unavailable_facets_even_in_nested_or_and_negation() {
+    use vcp_audit::history_query::{self, Query};
+    use vcp_domain::{
+        memory::{ClaimKind, Outcome},
+        retention_selector::{Criterion, Selector, Status, Tree},
+    };
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let fixture = fixture(temp.path(), backend).await;
+        let state = fixture.engine.store().state();
+        let mut query = Query {
+            selector: Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Task(fixture.root.clone())),
+            },
+            text: None,
+            limit: 32,
+            cursor: None,
+            artifact: None,
+            expand_compacted: false,
+        };
+        assert!(!history_query::query(state, &access(), &query)
+            .unwrap()
+            .rows
+            .is_empty());
+        let task: Task = state
+            .record(Collection::Task, fixture.root.as_str(), &access().workspace)
+            .unwrap()
+            .decode()
+            .unwrap();
+        query.selector.tree = Tree::Match(Criterion::Status(Status::Task(task.state)));
+        assert!(!history_query::query(state, &access(), &query)
+            .unwrap()
+            .rows
+            .is_empty());
+        for predicate in [
+            Criterion::Root(RootId::parse("source-root").unwrap()),
+            Criterion::Claim(ClaimKind::Architecture),
+            Criterion::Status(Status::Claim(Outcome::Accepted)),
+            Criterion::Superseded(true),
+        ] {
+            let leaf = Tree::Match(predicate);
+            for tree in [
+                leaf.clone(),
+                Tree::Not(Box::new(Tree::All(vec![leaf.clone()]))),
+                Tree::Any(vec![
+                    Tree::Match(Criterion::Workspace(access().workspace)),
+                    Tree::Not(Box::new(leaf.clone())),
+                ]),
+            ] {
+                query.selector.tree = tree;
+                // The shared selector remains valid for pruning. Only this
+                // event-only browsing adapter lacks these metadata capabilities.
+                assert!(query.selector.clone().normalized().is_ok());
+                assert!(matches!(
+                    history_query::query(state, &access(), &query),
+                    Err(Error::UnsupportedFilter(_))
+                ));
+            }
+        }
+    }
+}

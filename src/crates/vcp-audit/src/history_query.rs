@@ -72,6 +72,22 @@ pub struct Page {
 pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
     let workspace = history::authorize(state, access)?;
     let selector = query.selector.clone().normalized()?;
+    // Reject unsupported capabilities across the whole tree, including a branch
+    // an OR could otherwise short-circuit. Missing facts are not invented.
+    fn unsupported(tree: &Tree) -> Option<&'static str> {
+        match tree {
+            Tree::Match(Criterion::Root(_)) => Some("source roots"),
+            Tree::Match(Criterion::Claim(_)) => Some("claim kinds"),
+            Tree::Match(Criterion::Status(Status::Claim(_))) => Some("claim status"),
+            Tree::Match(Criterion::Superseded(_)) => Some("supersession"),
+            Tree::All(items) | Tree::Any(items) => items.iter().find_map(unsupported),
+            Tree::Not(item) => unsupported(item),
+            _ => None,
+        }
+    }
+    if let Some(capability) = unsupported(&selector.tree) {
+        return Err(Error::UnsupportedFilter(capability));
+    }
     if !(1..=128).contains(&query.limit)
         || query
             .text
