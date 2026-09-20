@@ -1,6 +1,7 @@
 # ADR-024 — Native skill packages and activation authority
 
-Status: implementation selected for P7-01; integrated qualification in progress.
+Status: selected and qualified for P7-01; see the
+[native qualification record](../evaluations/p7-01-skills.md).
 
 ## Decision
 

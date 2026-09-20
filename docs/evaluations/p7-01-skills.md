@@ -1,6 +1,6 @@
 # P7-01 native skill discovery and activation
 
-Qualification is in progress. This increment adds original VCP skill packages,
+P7-01 is complete within the native scope below. This increment adds original VCP skill packages,
 explicit source registration, bounded descriptor discovery and lazy activation.
 It integrates activated content with canonical history, context manifests and
 the existing model/tool admission boundaries. Package selection and instruction
@@ -46,6 +46,11 @@ its 30-second bound and was stopped. The initial partial results remain in
 `artifacts/p7-host-sandbox-stalled-tests.log`, and the successful isolated result
 is in `artifacts/p7-host-spawn-isolated.log`. Native qualification therefore uses
 the repository-owner environment; the sandbox run is not reported as green.
+The complete final owner-mode run passed all 40 tests in 740.49 seconds, with
+zero failures and the same six explicit real-asset/private-export gates ignored
+(`artifacts/p7-host-serial-final-tests.log`). Those gates retain their prior P5
+qualification and are not counted as newly executed here. This run includes the
+final reopen regression and the previously stalled invalid-executable fixture.
 
 The selected upstream workspace patch round-tripped byte-for-byte, and source
 verification passed for all 7,939 selected files. No third-party skill loader or
@@ -74,11 +79,7 @@ Source content identity is
 the report SHA-256 is
 `96152c33cd977b95845c241e528659b68ee0821fc05d90c408cdc8b5d263d969`.
 
-## Remaining qualification
-
-The final full retained-host regression in the repository-owner environment is
-pending.
-This record does not yet declare P7-01 complete.
+## Scope limits
 
 Bundled language coverage and live model task usefulness belong to P7-02. MCP
 belongs to P7-03. This increment makes no claim about either, performs no paid
