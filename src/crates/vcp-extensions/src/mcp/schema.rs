@@ -369,6 +369,17 @@ impl<'de> Visitor<'de> for Json<'_> {
     fn visit_map<A: MapAccess<'de>>(self, mut input: A) -> Result<Value, A::Error> {
         let mut values = Map::new();
         while let Some(key) = input.next_key::<String>()? {
+            // Feature unification may enable serde_json's arbitrary_precision:
+            // non-i64/u64 number tokens then arrive as synthetic maps instead of
+            // visit_f64. Reject those maps and literal reserved-key lookalikes
+            // before a later Value parse can reinterpret an object as a number
+            // or raw JSON. The current profile remains integer-only in any graph.
+            if matches!(
+                key.as_str(),
+                "$serde_json::private::Number" | "$serde_json::private::RawValue"
+            ) {
+                return Err(de::Error::custom("reserved JSON representation"));
+            }
             if values.contains_key(&key) {
                 return Err(de::Error::custom("duplicate key"));
             }

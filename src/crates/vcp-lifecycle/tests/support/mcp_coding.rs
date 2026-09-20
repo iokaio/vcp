@@ -104,6 +104,8 @@ async fn coding_mcp_discovery_call_disconnect_retains_accounted_source_provenanc
                 output_bytes: 1024 * 1024,
                 input: None,
             },
+            allowed_resources: Default::default(),
+            allowed_prompts: Default::default(),
             allowed_tools: BTreeSet::from(["write_marker".into()]),
             limits: vcp_extensions::mcp::registration::Limits {
                 frame_bytes: 64 * 1024,

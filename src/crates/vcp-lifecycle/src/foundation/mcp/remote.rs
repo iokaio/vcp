@@ -5,7 +5,7 @@ use super::*;
 use crate::remote_transport::{self as wire, trust::TrustSnapshot};
 use std::collections::BTreeSet;
 use vcp_mcp::{
-    client::{CallReply, Outbound},
+    client::Outbound,
     http::{Decoder, Session},
 };
 
@@ -13,6 +13,8 @@ use vcp_mcp::{
 pub struct RemoteRegistration {
     pub(in crate::foundation) profile: RemoteProfile,
     pub(in crate::foundation) allowed_tools: BTreeSet<String>,
+    allowed_resources: BTreeSet<String>,
+    allowed_prompts: BTreeSet<String>,
     pub(in crate::foundation) limits: vcp_mcp::registration::Limits,
     pub(in crate::foundation) trust: Arc<TrustSnapshot>,
 }
@@ -25,6 +27,8 @@ impl RemoteRegistration {
         Ok(Self {
             profile,
             allowed_tools,
+            allowed_resources: Default::default(),
+            allowed_prompts: Default::default(),
             limits,
             trust: Arc::new(TrustSnapshot::native()?),
         })
@@ -39,9 +43,21 @@ impl RemoteRegistration {
         Ok(Self {
             profile,
             allowed_tools,
+            allowed_resources: Default::default(),
+            allowed_prompts: Default::default(),
             limits,
             trust: Arc::new(TrustSnapshot::fixture_roots(roots)?),
         })
+    }
+    pub fn with_content(
+        mut self,
+        resources: BTreeSet<String>,
+        prompts: BTreeSet<String>,
+    ) -> Result<Self, String> {
+        self.allowed_resources = resources;
+        self.allowed_prompts = prompts;
+        self.pure()?;
+        Ok(self)
     }
     pub fn profile(&self) -> &RemoteProfile {
         &self.profile
@@ -76,6 +92,8 @@ impl RemoteRegistration {
                 .cloned()
                 .collect(),
             allowed_tools: self.allowed_tools.clone(),
+            allowed_resources: self.allowed_resources.clone(),
+            allowed_prompts: self.allowed_prompts.clone(),
             trusted_effects: Default::default(),
             limits: self.limits.clone(),
             capabilities: Default::default(),
@@ -103,6 +121,7 @@ struct RemoteConnection {
     registration: RemoteRegistration,
     evidence: ArtifactId,
     credential_revision: Option<Revision>,
+    cache: std::collections::BTreeMap<ArtifactId, content::CachedResource>,
 }
 pub struct RemoteProposal {
     #[cfg(feature = "qualification")]
@@ -118,8 +137,7 @@ pub struct RemoteProposal {
     provenance: Provenance,
     credential: Option<CredentialLease>,
     pin: AuthorityPin,
-    identity: Option<vcp_mcp::identity::ToolIdentity>,
-    arguments: Option<vcp_mcp::schema::CheckedArguments>,
+    operation: PreparedOperation,
     effect: ToolRunId,
     plan: ArtifactId,
     request_key: String,
@@ -206,7 +224,10 @@ impl CanonicalHost {
         thread: ThreadId,
         request: Request,
     ) -> Result<RemoteProposal, String> {
-        if !matches!(request, Request::Call { .. }) {
+        if matches!(
+            request,
+            Request::Disconnect { .. } | Request::ReadCached { .. }
+        ) {
             return Err("remote MCP call required".into());
         }
         let provenance = Provenance {
@@ -242,6 +263,9 @@ impl CanonicalHost {
         provenance: Provenance,
         slot: &mut RemoteSlot,
     ) -> Result<ControlOutcome, String> {
+        if let Request::ReadCached { artifact, .. } = &request {
+            return self.remote_cached(thread, slot, artifact, provenance);
+        }
         if matches!(request, Request::Disconnect { .. }) {
             slot.clear();
             return Ok(ControlOutcome::plain(
@@ -283,47 +307,17 @@ impl CanonicalHost {
         mut provenance: Provenance,
         slot: &RemoteSlot,
     ) -> Result<RemoteProposal, String> {
-        let (identity, arguments) = match request {
-            Request::Call {
-                tool,
-                identity_digest,
-                arguments_json,
-                ..
-            } => {
-                if arguments_json.len() > 128 * 1024 {
-                    return Err("remote MCP argument ceiling".into());
-                }
-                let connection = slot
-                    .connection
-                    .as_ref()
-                    .ok_or("remote MCP server must be listed first")?;
-                let discovered = connection
-                    .session
-                    .tools()
-                    .find(|entry| entry.name == *tool)
-                    .ok_or("remote MCP tool not discovered")?;
-                if discovered.identity.digest().map_err(|e| e.to_string())? != *identity_digest {
-                    return Err("remote MCP tool identity changed".into());
-                }
-                (
-                    Some(discovered.identity.clone()),
-                    Some(
-                        discovered
-                            .check_arguments(arguments_json.as_bytes())
-                            .map_err(|e| e.to_string())?,
-                    ),
-                )
-            }
-            Request::List { .. } => (None, None),
-            _ => return Err("remote MCP operation required".into()),
-        };
+        let operation = PreparedOperation::select_session(
+            request,
+            slot.connection.as_ref().map(|v| &v.session),
+        )?;
         let binding = self.binding(thread)?;
         let scoped = binding.clone();
         let server = request.server().to_owned();
         let remote = server.clone();
         let request_value = serde_json::to_value(request).map_err(|e| e.to_string())?;
-        let ids = identity.clone();
-        let checked = arguments.clone();
+        let checked = operation.arguments().cloned();
+        let previous_credential = slot.connection.as_ref().map(|c| c.credential_revision);
         let connections = self.mcp.clone();
         let mut session_secrets = Vec::new();
         if let Some(connection) = &slot.connection {
@@ -331,38 +325,40 @@ impl CanonicalHost {
                 session_secrets.push(zeroize::Zeroizing::new(value.to_owned()))
             });
         }
-        let (registration,registration_digest,credential,pin,provenance,authority,effect,plan,decision,question)=self.worker.run(move|context|{
+        let (registration,registration_digest,credential,pin,provenance,operation,authority,effect,plan,decision,question)=self.worker.run(move|context|{
             if provenance.revisions.is_none(){provenance.revisions=Some(context.context_revisions(&scoped)?);}
             context.validate_mcp_provenance(&scoped,&provenance)?;
             let (registration,pin)=context.remote_mcp_setup(&remote)?;
             let credential=if registration.profile.config().credential_ref.is_some(){Some(connections.credentials.resolve_current(&registration.profile,&pin,timestamp())?)}else{None};
+            let mut operation=operation;
+            if operation.discovery() && previous_credential.is_some_and(|prior|prior!=credential.as_ref().map(CredentialLease::revision)) {operation.reset_discovery_connection();}
+            let ids=operation.evidence();
             let registration_digest=registration.pure()?.digest()?;
             let args=serde_json::json!({"request":request_value,"identity":ids,"checked_arguments":checked.as_ref().map(|a|a.digest()),"registration":registration_digest,"trust":registration.trust.digest(),"credential_revision":credential.as_ref().map(CredentialLease::revision),"source":provenance.evidence()?});
             if let Some(lease)=&credential {if lease.contains_secret(&vcp_protocol::canonical_bytes(&args)?)? {return Err("credential-bearing operation arguments rejected".into());}}
             for secret in &session_secrets {
                 let filter=super::remote_authority::CaptureSecret::new(secret)?;
-                if filter.contains_secret(&vcp_protocol::canonical_bytes(&args)?)? || checked.as_ref().is_some_and(|value|filter.contains_secret(value.canonical_bytes()).unwrap_or(true)) { return Err("session-bearing operation arguments rejected".into()); }
+                screen_session_json(&filter,&vcp_protocol::canonical_bytes(&args)?)?;
+                if let Some(value)=&checked {screen_session_json(&filter,value.canonical_bytes())?;}
             }
             if let (Some(lease),Some(checked))=(&credential,&checked) {if lease.contains_secret(checked.canonical_bytes())? {return Err("credential-bearing checked arguments rejected".into());}}
             let authority=context.prepare_remote_mcp_authority(&scoped,&registration,args,&provenance)?;
             // The completed operation adds the endpoint and canonical host identity.
             // Screen those fields before policy evaluation or durable proposal capture.
-            let operation=vcp_protocol::canonical_bytes(authority.operation())?;
+            let operation_bytes=vcp_protocol::canonical_bytes(authority.operation())?;
             if let Some(lease)=&credential {
-                if lease.contains_secret(&operation)? {return Err("sensitive remote MCP operation rejected".into());}
+                if lease.contains_secret(&operation_bytes)? {return Err("sensitive remote MCP operation rejected".into());}
             }
             for secret in &session_secrets {
-                if super::remote_authority::CaptureSecret::new(secret)?.contains_secret(&operation)? {
-                    return Err("sensitive remote MCP operation rejected".into());
-                }
+                screen_session_json(&super::remote_authority::CaptureSecret::new(secret)?,&operation_bytes)?;
             }
             let decision=context.remote_mcp_decision(&scoped,&remote,&registration_digest,&authority,&provenance)?;
             let evidence=vcp_protocol::canonical_bytes(&serde_json::json!({"operation":authority.operation(),"source":provenance.evidence()?}))?;
             let (effect,plan,decision,question)=context.propose_authority(&scoped,&authority,&evidence,decision)?;
-            Ok((registration,registration_digest,credential,pin,provenance,Arc::new(authority),effect,plan,decision,question))
+            Ok((registration,registration_digest,credential,pin,provenance,operation,Arc::new(authority),effect,plan,decision,question))
         })?;
         let unsent = scheduler::QueuedEffect::new(self, &binding, &effect);
-        if identity.is_some()
+        if !operation.discovery()
             && slot.connection.as_ref().is_some_and(|connection| {
                 connection.credential_revision != credential.as_ref().map(CredentialLease::revision)
             })
@@ -385,8 +381,7 @@ impl CanonicalHost {
             provenance,
             credential,
             pin,
-            identity,
-            arguments,
+            operation,
             effect,
             plan,
             request_key: vcp_protocol::digest_bytes(
@@ -441,6 +436,15 @@ impl CanonicalHost {
             vcp_policy::Decision::Allow { .. }
         ) {
             return Err("remote MCP authority is not allowed".into());
+        }
+        if !ticket.operation.discovery() {
+            ticket.operation.validate_session(
+                &slot
+                    .connection
+                    .as_ref()
+                    .ok_or("remote MCP connection disappeared")?
+                    .session,
+            )?;
         }
         let _claim = self.scheduler.try_acquire(ticket.authority.operation())?;
         let mut permit = codex_extension_api::HostWorkAdmission::admit(
@@ -504,7 +508,7 @@ impl CanonicalHost {
             deadline: tokio::time::Instant::now()
                 + Duration::from_millis(ticket.registration.limits.timeout_ms),
         };
-        if ticket.identity.is_none()
+        if ticket.operation.discovery()
             && slot.connection.as_ref().is_some_and(|connection| {
                 connection.credential_revision
                     != ticket.credential.as_ref().map(CredentialLease::revision)
@@ -526,7 +530,7 @@ impl CanonicalHost {
                 connection
             }
             None => {
-                if ticket.identity.is_some() {
+                if !ticket.operation.discovery() {
                     return Err("remote MCP connection disappeared".into());
                 }
                 RemoteConnection {
@@ -535,42 +539,66 @@ impl CanonicalHost {
                     registration: ticket.registration.clone(),
                     evidence: ticket.plan.clone(),
                     credential_revision: ticket.credential.as_ref().map(CredentialLease::revision),
+                    cache: Default::default(),
                 }
             }
         };
-        let result:Result<(serde_json::Value,bool),String>=async {
-            if ticket.identity.is_none(){
-                if connection.session.connection().is_none(){
-                    let initialize=connection.session.initialize().map_err(|e|e.to_string())?;
-                    match self.remote_exchange(&ticket,&mut connection.session,initialize,&mut wire_run).await? {
-                        Some(Incoming::Initialized{notification,..})=>{self.remote_exchange(&ticket,&mut connection.session,notification,&mut wire_run).await?;},
-                        _=>return Err("remote MCP initialization response rejected".into()),
+        let result: Result<(serde_json::Value, bool), String> = async {
+            if connection.session.connection().is_none() {
+                let initialize = connection.session.initialize().map_err(|e| e.to_string())?;
+                match self
+                    .remote_exchange(&ticket, &mut connection.session, initialize, &mut wire_run)
+                    .await?
+                {
+                    Some(Incoming::Initialized { notification, .. }) => {
+                        self.remote_exchange(
+                            &ticket,
+                            &mut connection.session,
+                            notification,
+                            &mut wire_run,
+                        )
+                        .await?;
                     }
+                    _ => return Err("remote MCP initialization response rejected".into()),
                 }
-                for _ in 0..ticket.registration.limits.pages {
-                    let outbound=connection.session.list_tools().map_err(|e|e.to_string())?;
-                    match self.remote_exchange(&ticket,&mut connection.session,outbound,&mut wire_run).await? {
-                        Some(Incoming::DiscoveryPage{next:true})=>continue,
-                        Some(Incoming::DiscoveryComplete{tools,rejected})=>{
-                            let metadata=tools.iter().map(|tool|Ok(serde_json::json!({"server":ticket.server,"tool":tool.name,"qualified_name":format!("{}::{}",ticket.server,tool.name),"identity":tool.identity,"identity_digest":tool.identity.digest().map_err(|e|e.to_string())?,"input_schema":tool.input_schema,"description":tool.description,"annotations_are_hints":true}))).collect::<Result<Vec<_>,String>>()?;
-                            let catalog=serde_json::json!({"schema_version":1,"server":ticket.server,"connection":connection.session.connection(),"tools":metadata,"rejected":rejected,"registration_artifact":connection.evidence,"external_content":true});
-                            let safe_catalog:serde_json::Value=serde_json::from_slice(&sanitized_json(&ticket,&wire_run,&vcp_protocol::canonical_bytes(&catalog).map_err(|e|e.to_string())?)?).map_err(|_|"remote catalog sanitization rejected")?;
-                            if safe_catalog!=catalog{return Err("sensitive discovery identity rejected".into());}
-                            return Ok((serde_json::json!({"connected":true,"catalog":catalog}),true));
-                        },
-                        _=>return Err("remote MCP discovery response rejected".into()),
-                    }
-                }
-                Err("remote MCP discovery page ceiling".into())
-            }else{
-                let outbound=connection.session.call(ticket.identity.as_ref().ok_or("remote identity absent")?,ticket.arguments.as_ref().ok_or("remote arguments absent")?).map_err(|e|e.to_string())?;
-                let reply=match self.remote_exchange(&ticket,&mut connection.session,outbound,&mut wire_run).await? {Some(Incoming::CallReply(reply))=>reply,_=>return Err("remote MCP call reply rejected".into())};
-                let success=matches!(&reply,CallReply::ToolResult(value) if !value.is_error);
-                let value=serde_json::to_value(reply).map_err(|_|"remote MCP result normalization rejected")?;
-                let safe=match sanitized_json(&ticket,&wire_run,&vcp_protocol::canonical_bytes(&value).map_err(|e|e.to_string())?){Ok(bytes)=>serde_json::from_slice(&bytes).map_err(|_|"remote result sanitization rejected")?,Err(_)=>serde_json::json!({"omitted":"sensitive result","observed_reply":true})};
-                Ok((serde_json::json!({"result":safe,"external_content":true,"grants_authority":false}),success))
             }
-        }.await;
+            for _ in 0..ticket.registration.limits.pages {
+                let outbound = ticket.operation.begin_session(&mut connection.session)?;
+                let incoming = self
+                    .remote_exchange(&ticket, &mut connection.session, outbound, &mut wire_run)
+                    .await?
+                    .ok_or("remote MCP response absent")?;
+                if let Some(observed) = content::observe(incoming, &ticket.server)? {
+                    let mut value = observed.value;
+                    if ticket.operation.discovery() {
+                        value["catalog"]["schema_version"] = 1.into();
+                        value["catalog"]["server"] = ticket.server.clone().into();
+                        value["catalog"]["connection"] =
+                            serde_json::json!(connection.session.connection());
+                        value["catalog"]["registration_artifact"] =
+                            serde_json::json!(connection.evidence);
+                    }
+                    let safe = match sanitized_json(
+                        &ticket,
+                        &wire_run,
+                        &vcp_protocol::canonical_bytes(&value).map_err(|e| e.to_string())?,
+                    ) {
+                        Ok(bytes) => serde_json::from_slice(&bytes)
+                            .map_err(|_| "remote result sanitization rejected")?,
+                        Err(_) if !ticket.operation.discovery() => {
+                            serde_json::json!({"omitted":"sensitive result","observed_reply":true})
+                        }
+                        Err(_) => return Err("sensitive discovery identity rejected".into()),
+                    };
+                    if ticket.operation.discovery() && safe != value {
+                        return Err("sensitive discovery identity rejected".into());
+                    }
+                    return Ok((safe, observed.success));
+                }
+            }
+            Err("remote MCP discovery page ceiling".into())
+        }
+        .await;
         let (value, success) = match result {
             Ok(value) => value,
             Err(_) => {
@@ -583,7 +611,7 @@ impl CanonicalHost {
                 });
             }
         };
-        let document = serde_json::json!({"schema_version":1,"effect":ticket.effect,"execution":execution,"identity":ticket.identity,"result":value,"source":ticket.provenance.evidence()?,"wire_artifacts":wire_run.artifacts});
+        let document = serde_json::json!({"schema_version":1,"effect":ticket.effect,"execution":execution,"identity":ticket.operation.receipt_identity(),"result":value,"source":ticket.provenance.evidence()?,"wire_artifacts":wire_run.artifacts});
         let binding = ticket.binding.clone();
         let effect = ticket.effect.clone();
         let captured = document.clone();
@@ -623,14 +651,42 @@ impl CanonicalHost {
         })?;
         guard.finished = true;
         permit.complete()?;
+        let cacheable = success
+            && wire_run.usable
+            && ticket
+                .operation
+                .resource()
+                .is_some_and(|identity| connection.session.resource(identity).is_ok());
         if wire_run.usable {
+            if cacheable {
+                if let Some(identity) = ticket.operation.resource() {
+                    while connection.cache.len() >= ticket.registration.limits.tools as usize {
+                        if let Some(key) = connection.cache.keys().next().cloned() {
+                            connection.cache.remove(&key);
+                        } else {
+                            break;
+                        }
+                    }
+                    connection.cache.insert(
+                        artifact.spec.id.clone(),
+                        content::CachedResource {
+                            identity: identity.clone(),
+                            scope: ticket.binding.scope.clone(),
+                            artifact: artifact.spec.id.clone(),
+                        },
+                    );
+                }
+            }
             slot.connection = Some(connection);
         }
         let mut value = value;
+        value["external_content"] = true.into();
+        value["grants_authority"] = false.into();
+        value["cache_available"] = serde_json::json!(cacheable);
         value["effect"] = serde_json::json!(ticket.effect);
         value["outcome"] = serde_json::json!(if success { "succeeded" } else { "failed" });
         value["artifact"] = serde_json::json!(artifact.spec.id);
-        if ticket.identity.is_some() {
+        if !ticket.operation.discovery() {
             value["receipt"] = document;
         }
         wire_run.artifacts.push(artifact.spec.id);
@@ -1123,4 +1179,81 @@ impl CanonicalHost {
         run.artifacts.push(artifact.spec.id);
         Ok(())
     }
+}
+
+impl CanonicalHost {
+    fn remote_cached(
+        &self,
+        thread: ThreadId,
+        slot: &RemoteSlot,
+        artifact: &ArtifactId,
+        mut provenance: Provenance,
+    ) -> Result<ControlOutcome, String> {
+        let connection = slot
+            .connection
+            .as_ref()
+            .ok_or("remote MCP cache requires a current connection")?;
+        let entry = connection
+            .cache
+            .get(artifact)
+            .ok_or("remote MCP cached resource unavailable")?
+            .clone();
+        connection
+            .session
+            .resource(&entry.identity)
+            .map_err(|e| e.to_string())?;
+        let binding = self.binding(thread)?;
+        if entry.scope != binding.scope {
+            return Err("remote MCP cached resource scope rejected".into());
+        }
+        let registration = connection.registration.clone();
+        let expected = registration.pure()?.digest().map_err(|e| e.to_string())?;
+        let server = registration.profile.config().server.clone();
+        let credential_revision = connection.credential_revision;
+        let resolver = self.mcp.clone();
+        self.worker.run(move |context| {
+            if provenance.revisions.is_none() {
+                provenance.revisions = Some(context.context_revisions(&binding)?);
+            }
+            context.validate_mcp_provenance(&binding, &provenance)?;
+            let (current, pin) = context.remote_mcp_setup(&server)?;
+            if current.pure()?.digest()? != expected
+                || !current.allowed_resources.contains(entry.identity.key())
+            {
+                return Err("remote MCP cached resource registration changed".into());
+            }
+            let lease = if current.profile.config().credential_ref.is_some() {
+                Some(
+                    resolver
+                        .credentials
+                        .resolve_current(&current.profile, &pin, timestamp())?,
+                )
+            } else {
+                None
+            };
+            if lease.as_ref().map(CredentialLease::revision) != credential_revision {
+                return Err("remote MCP cached resource credential changed".into());
+            }
+            context.read_mcp_cache(&binding, &entry.artifact)
+        })
+    }
+}
+
+// Admission examines complete trusted JSON and the checked argument tree separately.
+// The outer operation contains JSON strings; it cannot replace argument validation.
+fn screen_session_json(
+    filter: &super::remote_authority::CaptureSecret<'_>,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let rejected = || "sensitive remote MCP operation rejected".to_owned();
+    if filter.contains_secret(bytes).map_err(|_| rejected())? {
+        return Err(rejected());
+    }
+    let safe = filter.sanitize_json(bytes).map_err(|_| rejected())?;
+    let original: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| rejected())?;
+    let sanitized: serde_json::Value = serde_json::from_slice(&safe).map_err(|_| rejected())?;
+    if original != sanitized {
+        return Err(rejected());
+    }
+    Ok(())
 }

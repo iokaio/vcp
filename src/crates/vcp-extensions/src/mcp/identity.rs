@@ -20,6 +20,74 @@ pub struct ToolIdentity {
     schema_digest: String,
     catalog_revision: u64,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentKind {
+    Resource,
+    Prompt,
+}
+/// Checked external content identity; URI/name is data, never local authority.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct ContentIdentity {
+    connection: ConnectionIdentity,
+    kind: ContentKind,
+    key: String,
+    descriptor_digest: String,
+    catalog_revision: u64,
+}
+impl std::fmt::Debug for ContentIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContentIdentity")
+            .field("kind", &self.kind)
+            .field("catalog_revision", &self.catalog_revision)
+            .finish_non_exhaustive()
+    }
+}
+impl ContentIdentity {
+    pub(crate) fn new(
+        connection: ConnectionIdentity,
+        kind: ContentKind,
+        key: String,
+        descriptor_digest: String,
+        catalog_revision: u64,
+    ) -> Result<Self, Error> {
+        if !registration::sha256(&descriptor_digest)
+            || match kind {
+                ContentKind::Resource => !super::content::valid_uri(&key),
+                ContentKind::Prompt => !registration::remote_name(&key),
+            }
+        {
+            return Err(Error::Invalid);
+        }
+        Ok(Self {
+            connection,
+            kind,
+            key,
+            descriptor_digest,
+            catalog_revision,
+        })
+    }
+    pub fn connection(&self) -> &ConnectionIdentity {
+        &self.connection
+    }
+    pub fn kind(&self) -> ContentKind {
+        self.kind
+    }
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+    pub fn descriptor_digest(&self) -> &str {
+        &self.descriptor_digest
+    }
+    pub fn catalog_revision(&self) -> u64 {
+        self.catalog_revision
+    }
+    pub fn digest(&self) -> Result<String, Error> {
+        vcp_protocol::canonical_bytes(self)
+            .map(|bytes| vcp_protocol::digest_bytes(&bytes))
+            .map_err(|_| Error::Invalid)
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     #[error("invalid MCP connection identity")]

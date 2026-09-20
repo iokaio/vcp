@@ -3,6 +3,46 @@
 use vcp_extensions::mcp::schema::{Error, Limits, Schema};
 
 #[test]
+fn open_objects_cannot_admit_non_profile_numbers_as_synthetic_maps() {
+    let schema = Schema::compile(br#"{"type":"object"}"#, Limits::default()).unwrap();
+    // Also run with serde_json/arbitrary_precision enabled: serde then presents
+    // these tokens to custom visitors as synthetic maps, not visit_f64 calls.
+    for number in [
+        "1.5",
+        "1.0",
+        "1e0",
+        "1e9999",
+        "18446744073709551616",
+        "-9223372036854775809",
+    ] {
+        for input in [number.to_owned(), format!("{{\"unknown\":[{number}]}}")] {
+            assert_eq!(schema.arguments(input.as_bytes()).unwrap_err(), Error::Json);
+        }
+    }
+    let exact = br#"{"a":-9223372036854775808,"b":18446744073709551615,"c":9007199254740993}"#;
+    assert_eq!(schema.arguments(exact).unwrap().canonical_bytes(), exact);
+}
+
+#[test]
+fn serde_private_keys_are_rejected_at_every_depth_before_value_conversion() {
+    let schema = Schema::compile(br#"{"type":"object"}"#, Limits::default()).unwrap();
+    for input in [
+        r#"{"$serde_json::private::Number":"1.5"}"#,
+        r#"{"v":{"$serde_json::private::Number":"1.5"}}"#,
+        r#"{"v":[{"\u0024serde_json::private::Number":"1.5"}]}"#,
+        r#"{"$serde_json::private::RawValue":"null"}"#,
+        r#"{"v":{"\u0024serde_json::private::RawValue":"1.5"}}"#,
+    ] {
+        assert_eq!(schema.arguments(input.as_bytes()).unwrap_err(), Error::Json);
+    }
+    assert!(Schema::compile(
+        br#"{"type":"object","properties":{"$serde_json::private::Number":{"type":"string"}}}"#,
+        Limits::default(),
+    )
+    .is_err());
+}
+
+#[test]
 fn default_additional_properties_and_nested_predicates() {
     let schema = Schema::compile(br#"{"type":"object","properties":{"label":{"type":"string","minLength":1,"maxLength":1},"rows":{"type":"array","items":{"type":"integer"},"maxItems":2}},"required":["label"]}"#, Limits::default()).unwrap();
     assert!(schema

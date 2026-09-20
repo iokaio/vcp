@@ -10,7 +10,8 @@
 use super::ResponseTo;
 use crate::mcp::{
     client::{Client, DiscoveredTool, Incoming, Outbound, OutboundKind, PendingKind},
-    identity::{ConnectionIdentity, ToolIdentity, PROTOCOL},
+    content::{DiscoveredPrompt, DiscoveredResource},
+    identity::{ConnectionIdentity, ContentIdentity, ToolIdentity, PROTOCOL},
     registration::Registration,
     schema::CheckedArguments,
 };
@@ -123,6 +124,41 @@ impl Session {
     }
     pub fn tool(&self, identity: &ToolIdentity) -> Result<&DiscoveredTool, SessionError> {
         Ok(self.client.tool(identity)?)
+    }
+    pub fn resources(&self) -> impl Iterator<Item = &DiscoveredResource> {
+        self.client.resources()
+    }
+    pub fn prompts(&self) -> impl Iterator<Item = &DiscoveredPrompt> {
+        self.client.prompts()
+    }
+    pub fn resource(
+        &self,
+        identity: &ContentIdentity,
+    ) -> Result<&DiscoveredResource, SessionError> {
+        Ok(self.client.resource(identity)?)
+    }
+    pub fn prompt(&self, identity: &ContentIdentity) -> Result<&DiscoveredPrompt, SessionError> {
+        Ok(self.client.prompt(identity)?)
+    }
+    pub fn list_resources(&mut self) -> Result<Outbound, SessionError> {
+        self.idle()?;
+        Ok(self.client.list_resources()?)
+    }
+    pub fn read_resource(&mut self, identity: &ContentIdentity) -> Result<Outbound, SessionError> {
+        self.idle()?;
+        Ok(self.client.read_resource(identity)?)
+    }
+    pub fn list_prompts(&mut self) -> Result<Outbound, SessionError> {
+        self.idle()?;
+        Ok(self.client.list_prompts()?)
+    }
+    pub fn get_prompt(
+        &mut self,
+        identity: &ContentIdentity,
+        arguments: &CheckedArguments,
+    ) -> Result<Outbound, SessionError> {
+        self.idle()?;
+        Ok(self.client.get_prompt(identity, arguments)?)
     }
     pub fn session_digest(&self) -> Option<String> {
         self.session
@@ -298,6 +334,12 @@ impl Session {
                 | Incoming::DiscoveryPage { .. }
                 | Incoming::DiscoveryComplete { .. }
                 | Incoming::CallReply(_)
+                | Incoming::ResourceDiscoveryPage { .. }
+                | Incoming::ResourceDiscoveryComplete { .. }
+                | Incoming::PromptDiscoveryPage { .. }
+                | Incoming::PromptDiscoveryComplete { .. }
+                | Incoming::ResourceReply(_)
+                | Incoming::PromptReply(_)
                 | Incoming::RpcError { .. }
         );
         if matches!(incoming, Incoming::Initialized { .. }) {

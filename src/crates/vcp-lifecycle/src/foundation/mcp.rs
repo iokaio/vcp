@@ -10,6 +10,8 @@ use vcp_mcp::{
     registration::Limits,
 };
 use vcp_store::contract::Collection;
+pub(in crate::foundation) mod content;
+use content::PreparedOperation;
 pub mod remote;
 pub mod remote_authority;
 pub use remote::RemoteRegistration;
@@ -21,6 +23,10 @@ pub struct Registration {
     pub name: String,
     pub process: vcp_tools::process::Request,
     pub allowed_tools: BTreeSet<String>,
+    #[serde(default)]
+    pub allowed_resources: BTreeSet<String>,
+    #[serde(default)]
+    pub allowed_prompts: BTreeSet<String>,
     pub limits: Limits,
 }
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -35,6 +41,27 @@ pub enum Request {
         identity_digest: String,
         arguments_json: String,
     },
+    Resources {
+        server: String,
+    },
+    ReadResource {
+        server: String,
+        uri: String,
+        identity_digest: String,
+    },
+    Prompts {
+        server: String,
+    },
+    GetPrompt {
+        server: String,
+        prompt: String,
+        identity_digest: String,
+        arguments_json: String,
+    },
+    ReadCached {
+        server: String,
+        artifact: ArtifactId,
+    },
     Disconnect {
         server: String,
     },
@@ -42,9 +69,14 @@ pub enum Request {
 impl Request {
     fn server(&self) -> &str {
         match self {
-            Self::List { server } | Self::Call { server, .. } | Self::Disconnect { server } => {
-                server
-            }
+            Self::List { server }
+            | Self::Call { server, .. }
+            | Self::Resources { server }
+            | Self::ReadResource { server, .. }
+            | Self::Prompts { server }
+            | Self::GetPrompt { server, .. }
+            | Self::ReadCached { server, .. }
+            | Self::Disconnect { server } => server,
         }
     }
 }
@@ -136,6 +168,7 @@ struct Connection {
     registration: vcp_mcp::registration::Registration,
     prepared: Arc<vcp_tools::process::Prepared>,
     evidence: ArtifactId,
+    cache: std::collections::BTreeMap<ArtifactId, content::CachedResource>,
 }
 pub(super) struct ResumeProof {
     pub effect: ToolRunId,
@@ -146,7 +179,7 @@ pub(super) struct ResumeProof {
     pub authority: Arc<vcp_policy::Prepared>,
     pub approval: ApprovalId,
     pub provenance: Provenance,
-    pub identity: vcp_mcp::identity::ToolIdentity,
+    pub registration_digest: String,
     pub server: String,
     pub controller: ControllerId,
     pub owner: OwnerEpoch,
@@ -160,8 +193,7 @@ pub struct McpProposal {
     controller: ControllerId,
     owner: OwnerEpoch,
     server: String,
-    identity: vcp_mcp::identity::ToolIdentity,
-    arguments: vcp_mcp::schema::CheckedArguments,
+    operation: PreparedOperation,
     authority: Arc<vcp_policy::Prepared>,
     process: Arc<vcp_tools::process::Prepared>,
     provenance: Provenance,
@@ -226,10 +258,7 @@ impl CanonicalHost {
                 .pending
                 .as_ref()
                 .ok_or("MCP resume requires a pending exact call approval")?;
-            connection
-                .client
-                .tool(&call.identity)
-                .map_err(|e| e.to_string())?;
+            call.operation.validate_client(&connection.client)?;
             let (effect, execution, job) = connection.process.resume_identity()?;
             proofs.push(ResumeProof {
                 effect,
@@ -243,7 +272,12 @@ impl CanonicalHost {
                     .clone()
                     .ok_or("MCP pending call lacks approval")?,
                 provenance: call.provenance.clone(),
-                identity: call.identity.clone(),
+                registration_digest: call
+                    .operation
+                    .connection()
+                    .ok_or("MCP connection absent")?
+                    .registration_digest()
+                    .to_owned(),
                 server: call.server.clone(),
                 controller: call.controller.clone(),
                 owner: call.owner,
@@ -340,14 +374,7 @@ impl CanonicalHost {
             }
         })?;
         let mut connection = slot.connection.take().ok_or("MCP connection disappeared")?;
-        connection
-            .client
-            .tool(&ticket.identity)
-            .map_err(|e| e.to_string())?;
-        let outbound = connection
-            .client
-            .call(&ticket.identity, &ticket.arguments)
-            .map_err(|e| e.to_string())?;
+        let mut outbound = ticket.operation.begin_client(&mut connection.client)?;
         let execution = ExecutionId::new();
         let binding = ticket.binding.clone();
         let effect = ticket.effect.clone();
@@ -355,7 +382,7 @@ impl CanonicalHost {
         let plan = ticket.plan.clone();
         let request_digest = outbound.digest().to_owned();
         let request_id = outbound.request_id().map(str::to_owned);
-        let identity = ticket.identity.clone();
+        let identity = ticket.operation.receipt_identity();
         self.worker.run(move|context| {
             let current:Effect=context.engine.store().state().record(Collection::Effect,effect.as_str(),&binding.scope.workspace)?.decode()?;
             if current.state!=EffectState::Validated || current.execution.is_some(){return Err("MCP call has already been admitted".into());}
@@ -377,66 +404,87 @@ impl CanonicalHost {
         let provenance = ticket.provenance.clone();
         let server = ticket.server.clone();
         let registration = ticket
-            .identity
+            .operation
             .connection()
+            .ok_or("MCP connection absent")?
             .registration_digest()
             .to_owned();
         let effect = ticket.effect.clone();
         let exec = execution.clone();
         let deadline = tokio::time::Instant::now()
             + Duration::from_millis(connection.registration.limits.timeout_ms);
-        let response: Result<vcp_mcp::client::CallReply, String> = async {
-            transport::send_checked(
-                &mut connection.process,
-                &mut connection.client,
-                &outbound,
-                deadline,
-                move |context| {
-                    if !matches!(
-                        context.mcp_decision(
+        let response: Result<content::Observed, String> = async {
+            for _ in 0..connection.registration.limits.pages {
+                let binding = binding.clone();
+                let server = server.clone();
+                let registration = registration.clone();
+                let process = process.clone();
+                let authority = authority.clone();
+                let provenance = provenance.clone();
+                let effect = effect.clone();
+                let exec = exec.clone();
+                transport::send_checked(
+                    &mut connection.process,
+                    &mut connection.client,
+                    &outbound,
+                    deadline,
+                    move |context| {
+                        if !matches!(
+                            context.mcp_decision(
+                                &binding,
+                                &server,
+                                &registration,
+                                &process,
+                                &authority,
+                                &provenance
+                            )?,
+                            vcp_policy::Decision::Allow { .. }
+                        ) {
+                            return Err(
+                                "MCP current source/call authority rejected before write".into()
+                            );
+                        }
+                        let current: Effect = context
+                            .engine
+                            .store()
+                            .state()
+                            .record(
+                                Collection::Effect,
+                                effect.as_str(),
+                                &binding.scope.workspace,
+                            )?
+                            .decode()?;
+                        if current.execution.as_ref() != Some(&exec)
+                            || !matches!(
+                                current.state,
+                                EffectState::DispatchRecorded | EffectState::Running
+                            )
+                        {
+                            return Err("MCP dispatch intent is no longer current".into());
+                        }
+                        if current.state == EffectState::Running {
+                            return Ok(());
+                        }
+                        context.tool_advance(
                             &binding,
-                            &server,
-                            &registration,
-                            &process,
-                            &authority,
-                            &provenance
-                        )?,
-                        vcp_policy::Decision::Allow { .. }
-                    ) {
-                        return Err(
-                            "MCP current source/call authority rejected before write".into()
-                        );
-                    }
-                    let current: Effect = context
-                        .engine
-                        .store()
-                        .state()
-                        .record(
-                            Collection::Effect,
-                            effect.as_str(),
-                            &binding.scope.workspace,
-                        )?
-                        .decode()?;
-                    if current.execution.as_ref() != Some(&exec)
-                        || current.state != EffectState::DispatchRecorded
-                    {
-                        return Err("MCP dispatch intent is no longer current".into());
-                    }
-                    context.tool_advance(
-                        &binding,
-                        &effect,
-                        EffectState::Running,
-                        Some(exec),
-                        current.observed_changes,
-                        "MCP protocol write admitted; receipt not observed",
-                    )
-                },
-            )
-            .await?;
-            match next_response(&mut connection, deadline).await? {
-                Incoming::CallReply(reply) => Ok(reply),
-                _ => Err("MCP call reply type rejected".into()),
+                            &effect,
+                            EffectState::Running,
+                            Some(exec),
+                            current.observed_changes,
+                            "MCP protocol write admitted; receipt not observed",
+                        )
+                    },
+                )
+                .await?;
+                if let Some(observed) = content::observe(
+                    next_response(&mut connection, deadline).await?,
+                    &ticket.server,
+                )? {
+                    return Ok(observed);
+                }
+                outbound = ticket.operation.begin_client(&mut connection.client)?;
             }
+            Err("MCP discovery page ceiling".into())
         }
         .await;
         let reply = match response {
@@ -449,10 +497,14 @@ impl CanonicalHost {
                 ));
             }
         };
-        let success =
-            matches!(&reply,vcp_mcp::client::CallReply::ToolResult(result) if !result.is_error);
-        let result = serde_json::to_value(reply).map_err(|e| e.to_string())?;
-        let document = serde_json::json!({"schema_version":1,"effect":ticket.effect,"execution":execution,"identity":ticket.identity,"result":result,"external_content":true,"grants_authority":false,"source":ticket.provenance.evidence()?});
+        let success = reply.success;
+        let result = reply.value;
+        let captured_result = if matches!(ticket.operation, PreparedOperation::Tool { .. }) {
+            result["result"].clone()
+        } else {
+            result.clone()
+        };
+        let document = serde_json::json!({"schema_version":1,"effect":ticket.effect,"execution":execution,"identity":ticket.operation.receipt_identity(),"result":captured_result,"external_content":true,"grants_authority":false,"source":ticket.provenance.evidence()?});
         let binding = ticket.binding.clone();
         let effect = ticket.effect.clone();
         let captured = document.clone();
@@ -492,9 +544,41 @@ impl CanonicalHost {
             Ok(artifact)
         })?;
         guard.finished = true;
+        let cacheable = success
+            && ticket
+                .operation
+                .resource()
+                .is_some_and(|identity| connection.client.resource(identity).is_ok());
+        if cacheable {
+            if let Some(identity) = ticket.operation.resource() {
+                while connection.cache.len() >= connection.registration.limits.tools as usize {
+                    if let Some(key) = connection.cache.keys().next().cloned() {
+                        connection.cache.remove(&key);
+                    } else {
+                        break;
+                    }
+                }
+                connection.cache.insert(
+                    artifact.spec.id.clone(),
+                    content::CachedResource {
+                        identity: identity.clone(),
+                        scope: ticket.binding.scope.clone(),
+                        artifact: artifact.spec.id.clone(),
+                    },
+                );
+            }
+        }
         slot.connection = Some(connection);
+        let mut value = result.clone();
+        value["effect"] = serde_json::json!(ticket.effect);
+        value["outcome"] = serde_json::json!(if success { "succeeded" } else { "failed" });
+        value["receipt"] = document;
+        value["artifact"] = serde_json::json!(artifact.spec.id);
+        value["external_content"] = true.into();
+        value["grants_authority"] = false.into();
+        value["cache_available"] = serde_json::json!(cacheable);
         Ok(ControlOutcome {
-            value: serde_json::json!({"effect":ticket.effect,"outcome":if success{"succeeded"}else{"failed"},"receipt":document,"artifact":artifact.spec.id}),
+            value,
             artifacts: vec![artifact.spec.id],
         })
     }
@@ -560,7 +644,28 @@ impl CanonicalHost {
                 .remote_control(thread, request, provenance, &mut slot.remote)
                 .await;
         }
+        if matches!(
+            &request,
+            Request::Resources { .. } | Request::Prompts { .. }
+        ) && slot.connection.is_none()
+        {
+            let setup = self
+                .mcp_list(
+                    thread,
+                    request.server(),
+                    &mut slot,
+                    provenance.clone(),
+                    true,
+                )
+                .await?;
+            if slot.connection.is_none() {
+                return Ok(setup);
+            }
+        }
         match request {
+            Request::ReadCached { artifact, .. } => {
+                self.mcp_cached(thread, &slot, &artifact, provenance)
+            }
             Request::Disconnect { .. } => {
                 slot.pending.take();
                 slot.startup.take();
@@ -577,8 +682,15 @@ impl CanonicalHost {
                     ))
                 }
             }
-            Request::List { server } => self.mcp_list(thread, &server, &mut slot, provenance).await,
-            request @ Request::Call { .. } => {
+            Request::List { server } => {
+                self.mcp_list(thread, &server, &mut slot, provenance, false)
+                    .await
+            }
+            request @ (Request::Call { .. }
+            | Request::Resources { .. }
+            | Request::ReadResource { .. }
+            | Request::Prompts { .. }
+            | Request::GetPrompt { .. }) => {
                 let request_key = vcp_protocol::digest_bytes(
                     &vcp_protocol::canonical_bytes(&request).map_err(|e| e.to_string())?,
                 );
@@ -625,6 +737,7 @@ impl CanonicalHost {
         server: &str,
         slot: &mut Slot,
         mut provenance: Provenance,
+        initialize_only: bool,
     ) -> Result<ControlOutcome, String> {
         if slot.pending.is_some() {
             return Err("resolve pending MCP call before rediscovery".into());
@@ -704,6 +817,7 @@ impl CanonicalHost {
                 registration: registration.clone(),
                 prepared,
                 evidence: artifact.spec.id,
+                cache: Default::default(),
             };
             let deadline =
                 tokio::time::Instant::now() + Duration::from_millis(registration.limits.timeout_ms);
@@ -738,6 +852,9 @@ impl CanonicalHost {
                 return Err(error);
             }
             slot.connection = Some(connection);
+        }
+        if initialize_only {
+            return Ok(ControlOutcome::plain(serde_json::json!({"connected":true})));
         }
         let mut connection = slot.connection.take().ok_or("MCP connection absent")?;
         if connection
@@ -788,46 +905,23 @@ impl CanonicalHost {
         mut provenance: Provenance,
         slot: &Slot,
     ) -> Result<McpProposal, String> {
-        let Request::Call {
-            server,
-            tool,
-            identity_digest,
-            arguments_json,
-        } = request
-        else {
-            return Err("MCP call required".into());
-        };
-        if arguments_json.len() > 128 * 1024 {
-            return Err("MCP argument ceiling".into());
-        }
+        let server = request.server();
         let connection = slot
             .connection
             .as_ref()
-            .ok_or("MCP server must be explicitly listed and connected first")?;
-        let discovered = connection
-            .client
-            .tools()
-            .find(|candidate| candidate.name == *tool)
-            .ok_or("MCP tool not in current allowed discovery")?;
-        if discovered.identity.digest().map_err(|e| e.to_string())? != *identity_digest {
-            return Err("MCP tool identity is stale".into());
-        }
-        let arguments = discovered
-            .check_arguments(arguments_json.as_bytes())
-            .map_err(|e| e.to_string())?;
-        let identity = discovered.identity.clone();
+            .ok_or("MCP server must be explicitly connected first")?;
+        let operation = PreparedOperation::select_client(request, Some(&connection.client))?;
         let binding = self.binding(thread)?;
         let scoped = binding.clone();
         let process = connection.prepared.clone();
         let process_copy = process.clone();
-        let identity_copy = identity.clone();
-        let arguments_copy = arguments.clone();
-        let server_copy = server.clone();
+        let operation_copy = operation.clone();
+        let server_copy = server.to_owned();
         let (authority,provenance,controller,owner,effect,plan,decision,question)=self.worker.run(move|context| {
             if provenance.revisions.is_none(){provenance.revisions=Some(context.context_revisions(&scoped)?);}
             context.validate_mcp_provenance(&scoped,&provenance)?;
-            let authority=context.prepare_mcp_authority(&scoped,&process_copy,&identity_copy,&arguments_copy,&provenance)?;
-            let decision=context.mcp_decision(&scoped,&server_copy,identity_copy.connection().registration_digest(),&process_copy,&authority,&provenance)?;
+            let authority=context.prepare_mcp_authority(&scoped,&process_copy,&operation_copy,&provenance)?;
+            let decision=context.mcp_decision(&scoped,&server_copy,operation_copy.connection().ok_or("MCP connection absent")?.registration_digest(),&process_copy,&authority,&provenance)?;
             let evidence=vcp_protocol::canonical_bytes(&serde_json::json!({"operation":authority.operation(),"source":provenance.evidence()?}))?;
             let (effect,plan,decision,question)=context.propose_authority(&scoped,&authority,&evidence,decision)?;
             Ok((Arc::new(authority),provenance,context.engine.controller().clone(),context.engine.owner_epoch(),effect,plan,decision,question))
@@ -839,9 +933,8 @@ impl CanonicalHost {
             generation: scheduler::generation(&self.runtime, thread)?,
             controller,
             owner,
-            server: server.clone(),
-            identity,
-            arguments,
+            server: server.to_owned(),
+            operation,
             authority,
             process,
             provenance,
@@ -862,8 +955,9 @@ impl CanonicalHost {
         let provenance = ticket.provenance.clone();
         let server = ticket.server.clone();
         let registration = ticket
-            .identity
+            .operation
             .connection()
+            .ok_or("MCP connection absent")?
             .registration_digest()
             .to_owned();
         let controller = ticket.controller.clone();

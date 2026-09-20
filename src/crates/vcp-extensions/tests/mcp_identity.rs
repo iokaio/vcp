@@ -17,6 +17,8 @@ fn registration() -> Registration {
             process_profile: "trusted-profile".into(),
             resolved_digest: "0".repeat(64),
         },
+        allowed_resources: BTreeSet::new(),
+        allowed_prompts: BTreeSet::new(),
         auth_refs: BTreeSet::new(),
         allowed_tools: BTreeSet::from(["echo".into()]),
         trusted_effects: BTreeMap::new(),

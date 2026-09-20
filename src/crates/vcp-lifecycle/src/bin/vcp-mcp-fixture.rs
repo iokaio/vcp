@@ -10,6 +10,8 @@ use std::{
 
 const VERSION: &str = "2025-11-25";
 const MAX_FRAME: usize = 256 * 1024;
+#[path = "fixtures/mcp_content.rs"]
+mod content;
 
 fn output(value: &Value) -> io::Result<()> {
     let bytes = serde_json::to_vec(value)?;
@@ -181,24 +183,25 @@ fn main() -> io::Result<()> {
         .ok_or_else(|| io::Error::other("fixture scenario required"))?;
     if args.next().is_some()
         || !directory.is_dir()
-        || ![
-            "normal",
-            "malformed",
-            "oversized",
-            "callback",
-            "ping",
-            "wrong-id",
-            "version-mismatch",
-            "duplicate-tools",
-            "schema-v2",
-            "delay-before-effect",
-            "write-then-exit",
-            "write-then-block",
-            "list-changed",
-            "pagination",
-            "repeated-cursor",
-        ]
-        .contains(&scenario.as_str())
+        || (content::Mode::parse(&scenario).is_none()
+            && ![
+                "normal",
+                "malformed",
+                "oversized",
+                "callback",
+                "ping",
+                "wrong-id",
+                "version-mismatch",
+                "duplicate-tools",
+                "schema-v2",
+                "delay-before-effect",
+                "write-then-exit",
+                "write-then-block",
+                "list-changed",
+                "pagination",
+                "repeated-cursor",
+            ]
+            .contains(&scenario.as_str()))
     {
         return Err(io::Error::other("unknown fixture scenario or arguments"));
     }
@@ -251,7 +254,7 @@ fn main() -> io::Result<()> {
                 response(
                     id,
                     json!({"protocolVersion":if scenario == "version-mismatch" {"1900-01-01"} else {VERSION},
-                    "capabilities":{"tools":{}},"serverInfo":{"name":"vcp-controlled-mcp-fixture","version":"1.0.0"}}),
+                    "capabilities":content::Mode::parse(&scenario).map_or_else(||json!({"tools":{}}),content::Mode::capabilities),"serverInfo":{"name":"vcp-controlled-mcp-fixture","version":"1.0.0"}}),
                 )?;
             }
             Some("notifications/initialized") if negotiated && id.is_null() => {
@@ -314,6 +317,53 @@ fn main() -> io::Result<()> {
                     output(&callback)?;
                 } else {
                     call(&directory, &scenario, &request)?;
+                }
+            }
+            Some(
+                method @ ("resources/list" | "resources/read" | "prompts/list" | "prompts/get"),
+            ) if initialized => {
+                let result = content::Mode::parse(&scenario)
+                    .map(|mode| {
+                        if directory.join("content-changed").exists() {
+                            content::Mode::Changed
+                        } else {
+                            mode
+                        }
+                    })
+                    .and_then(|mode| content::result(mode, method, &request["params"]));
+                if let Some(result) = result {
+                    if content::is_read(method) {
+                        record(
+                            &directory,
+                            "content-effects.jsonl",
+                            &json!({"method":method,"request_id":id}),
+                        )?;
+                        if scenario == "content-lost" {
+                            return Ok(());
+                        }
+                        if scenario == "content-block" {
+                            barrier(&directory, "after-content-effect")?;
+                        }
+                    }
+                    if method == "resources/read" {
+                        if scenario == "content-updated-during-read" {
+                            output(
+                                &json!({"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"uri":request["params"]["uri"]}}),
+                            )?;
+                        }
+                        if scenario == "content-list-changed-during-read" {
+                            output(
+                                &json!({"jsonrpc":"2.0","method":"notifications/resources/list_changed"}),
+                            )?;
+                        }
+                    }
+                    response(id, result)?;
+                    if method == "resources/read" && scenario == "content-exit-after-read" {
+                        barrier(&directory, "after-content-read")?;
+                        return Ok(());
+                    }
+                } else {
+                    error(id, -32602, "unsupported fixture content request")?;
                 }
             }
             _ => {

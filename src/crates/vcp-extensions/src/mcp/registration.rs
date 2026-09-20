@@ -16,6 +16,10 @@ pub struct Registration {
     pub transport: Transport,
     pub auth_refs: BTreeSet<String>,
     pub allowed_tools: BTreeSet<String>,
+    #[serde(default)]
+    pub allowed_resources: BTreeSet<String>,
+    #[serde(default)]
+    pub allowed_prompts: BTreeSet<String>,
     pub trusted_effects: BTreeMap<String, BTreeSet<EffectClass>>,
     pub limits: Limits,
     pub capabilities: Capabilities,
@@ -80,6 +84,13 @@ impl Registration {
             || self.auth_refs.iter().any(|id| !identifier(id))
             || self.allowed_tools.len() > 256
             || self.allowed_tools.iter().any(|name| !remote_name(name))
+            || self.allowed_resources.len() > 256
+            || self
+                .allowed_resources
+                .iter()
+                .any(|uri| !super::content::valid_uri(uri))
+            || self.allowed_prompts.len() > 256
+            || self.allowed_prompts.iter().any(|name| !remote_name(name))
             || self
                 .trusted_effects
                 .keys()
@@ -99,9 +110,7 @@ impl Registration {
         {
             return Err(Error::Invalid);
         }
-        if self.capabilities.resources
-            || self.capabilities.prompts
-            || self.capabilities.sampling
+        if self.capabilities.sampling
             || self.capabilities.roots
             || self.capabilities.elicitation
             || self.capabilities.tasks
@@ -109,6 +118,12 @@ impl Registration {
             return Err(Error::UnsupportedCapability);
         }
         Ok(())
+    }
+    pub fn resources_enabled(&self) -> bool {
+        self.capabilities.resources || !self.allowed_resources.is_empty()
+    }
+    pub fn prompts_enabled(&self) -> bool {
+        self.capabilities.prompts || !self.allowed_prompts.is_empty()
     }
     pub fn digest(&self) -> Result<String, Error> {
         self.validate()?;
