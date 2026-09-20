@@ -431,3 +431,59 @@ pub fn decrypt(
         writer: envelope.writer,
     })
 }
+
+/// Durable receipt of an already finalized encoder, retained only in canonical
+/// job metadata. This is not a public plaintext-to-publisher constructor.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Finalization {
+    pub manifest: Manifest,
+    pub writer: [u8; 32],
+    pub recipient: String,
+    pub sha256: String,
+    pub bytes: u64,
+}
+impl FinalizedCiphertext {
+    pub(crate) fn finalization(&self) -> Finalization {
+        Finalization {
+            manifest: self.manifest.clone(),
+            writer: self.writer,
+            recipient: self.recipient.clone(),
+            sha256: self.sha256.clone(),
+            bytes: self.bytes,
+        }
+    }
+    pub(crate) fn reopen(
+        path: &Path,
+        receipt: &Finalization,
+        directory: Arc<Directory>,
+    ) -> Result<Self> {
+        regular(path)?;
+        if receipt.bytes > 65 * 1024 * 1024 || !hash(&receipt.sha256) {
+            return Err(Error::Limit("persisted ciphertext"));
+        }
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.share_mode(1).custom_flags(0x0020_0000);
+        }
+        let file = options.open(path)?;
+        if redirected(&file.metadata()?) || file.metadata()?.len() != receipt.bytes {
+            return Err(Error::Corruption("persisted ciphertext identity"));
+        }
+        let mut value = Self {
+            path: path.to_owned(),
+            file,
+            sha256: receipt.sha256.clone(),
+            bytes: receipt.bytes,
+            manifest: receipt.manifest.clone(),
+            writer: receipt.writer,
+            recipient: receipt.recipient.clone(),
+            _staging: directory,
+        };
+        value.copy_ciphertext(std::io::sink())?;
+        Ok(value)
+    }
+}

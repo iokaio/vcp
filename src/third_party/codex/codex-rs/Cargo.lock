@@ -17723,6 +17723,7 @@ dependencies = [
  "vcp-domain",
  "vcp-policy",
  "vcp-protocol",
+ "vcp-repository",
  "windows-sys 0.61.2",
  "zeroize",
 ]

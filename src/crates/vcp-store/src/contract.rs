@@ -156,6 +156,9 @@ impl Record {
         if canonical_bytes(self)?.len() > MAX_RECORD_BYTES {
             return Err(Error::Limit("canonical record"));
         }
+        if crate::snapshot_jobs::kind(self) {
+            return crate::snapshot_jobs::shape(self);
+        }
         if ingestion_contract::kind(self)?.is_some() {
             return ingestion_contract::shape(self);
         }
@@ -1026,6 +1029,7 @@ impl State {
                     match (self.records.get(&key), expected) {
                         (None, None) if record.revision == Revision::ZERO => {
                             ingestion_contract::insert(record)?;
+                            crate::snapshot_jobs::insert(self, record)?;
                         }
                         (Some(previous), Some(expected))
                             if previous.revision == *expected
@@ -1035,6 +1039,7 @@ impl State {
                             crate::accounting_contract::transition(previous, record)?;
                             ingestion_contract::transition(previous, record)?;
                             search_contract::transition(previous, record)?;
+                            crate::snapshot_jobs::transition(previous, record)?;
                             if previous.immutable_memory()? {
                                 return Err(Error::Conflict("immutable memory evidence"));
                             }

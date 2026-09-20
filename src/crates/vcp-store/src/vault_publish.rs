@@ -62,6 +62,16 @@ pub struct PublicConfiguration {
 pub struct LocalTrust {
     public: PublicConfiguration,
 }
+/// Exact trusted head verification cannot be used to advance or activate a
+/// descendant. In particular it never lowers the normal replay floor.
+pub struct VerifiedHead {
+    manifest_digest: String,
+}
+impl VerifiedHead {
+    pub fn manifest_digest(&self) -> &str {
+        &self.manifest_digest
+    }
+}
 pub struct VerifiedRestore {
     restored: Restored,
     revision: u64,
@@ -106,6 +116,46 @@ impl LocalTrust {
             }
         }
         Ok(Self { public })
+    }
+    pub fn verify_known_head(
+        &self,
+        path: &Path,
+        recovery: &RecoveryCopy,
+        manifest: &Manifest,
+        limits: Limits,
+    ) -> Result<VerifiedHead> {
+        let digest = digest_bytes(&canonical_bytes(manifest)?);
+        if self.public.checkpoint.parent.as_ref() != Some(&digest)
+            || manifest.sequence != self.public.checkpoint.sequence
+            || manifest.deletion != self.public.checkpoint.deletion
+            || manifest.workspace != self.public.workspace
+            || manifest.lineage != self.public.lineage
+            || manifest.sequence == 0
+        {
+            return Err(Error::Conflict(
+                "snapshot is not the independently trusted head",
+            ));
+        }
+        let keys = LocalKeys::import(recovery)?;
+        let restored = vault_crypto::decrypt(
+            path,
+            keys.identity(),
+            &Trust {
+                workspace: self.public.workspace.clone(),
+                lineage: self.public.lineage.clone(),
+                writers: self.public.writers.clone(),
+                minimum_sequence: manifest.sequence - 1,
+                minimum_deletion: self.public.checkpoint.deletion,
+                parent: manifest.parent.clone(),
+            },
+            limits,
+        )?;
+        if &restored.manifest != manifest {
+            return Err(Error::Corruption("verified head differs"));
+        }
+        Ok(VerifiedHead {
+            manifest_digest: digest,
+        })
     }
     pub fn advance_after_publication(&mut self, receipt: &Published, expected: u64) -> Result<()> {
         self.check_revision(expected)?;
@@ -306,6 +356,9 @@ impl LocalTrust {
         self.matches(&object.manifest, &object.writer, &object.recipient)?;
         Ok(PublicationPermit {
             proof: PublicationProof {
+                operation: operation.clone(),
+                ciphertext: object.sha256().into(),
+                bytes: object.bytes(),
                 manifest: object.manifest.clone(),
                 writer: object.writer,
                 recipient: object.recipient.clone(),
@@ -335,6 +388,9 @@ pub struct PublicationPermit {
 }
 #[derive(Clone, Debug)]
 struct PublicationProof {
+    operation: CommandId,
+    ciphertext: String,
+    bytes: u64,
     manifest: Manifest,
     writer: [u8; 32],
     recipient: String,
@@ -356,6 +412,25 @@ pub struct Published {
     pub transfer_observed: bool,
     pub restore_verified: bool,
     pub cancellation_after_publication: bool,
+}
+impl Published {
+    pub(crate) fn matches_job(
+        &self,
+        operation: &CommandId,
+        receipt: &crate::vault_crypto::Finalization,
+        revision: u64,
+    ) -> bool {
+        self.proof.operation == *operation
+            && self.proof.ciphertext == receipt.sha256
+            && self.proof.bytes == receipt.bytes
+            && self.proof.manifest == receipt.manifest
+            && self.proof.writer == receipt.writer
+            && self.proof.recipient == receipt.recipient
+            && self.proof.revision == revision
+            && self.operation == *operation
+            && self.ciphertext_sha256 == receipt.sha256
+            && self.bytes == receipt.bytes
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {

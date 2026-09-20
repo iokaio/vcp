@@ -278,13 +278,39 @@ impl Store {
         self.backend.configuration().await
     }
     pub fn snapshot(&self) -> Result<Snapshot> {
+        self.snapshot_at(self.state.watermark)
+    }
+    /// A durable job may reconstruct an exact retained cut after restarting.
+    /// A cut predating a rewrite base is explicitly unavailable, never replaced
+    /// with a newer state under the old job identity.
+    pub(crate) fn snapshot_at(&self, watermark: Watermark) -> Result<Snapshot> {
         if self.poisoned {
             return Err(Error::Unavailable("reopen after indeterminate commit"));
         }
+        if watermark < self.base.watermark || watermark > self.state.watermark {
+            return Err(Error::Unavailable(
+                "snapshot cut outside retained replay history",
+            ));
+        }
+        let state = if watermark == self.state.watermark {
+            self.state.clone()
+        } else {
+            let mut state = self.base.clone();
+            for commit in self
+                .commits
+                .iter()
+                .take_while(|c| c.receipt.watermark <= watermark)
+            {
+                state.replay(commit)?;
+            }
+            state
+        };
+        if state.watermark != watermark {
+            return Err(Error::Corruption("snapshot cut missing"));
+        }
         let root_pin = snapshot_pin::acquire(&self.root)?;
         let mut pins = Vec::new();
-        for record in self
-            .state
+        for record in state
             .records
             .values()
             .filter(|r| r.collection == Collection::Artifact)
@@ -295,7 +321,7 @@ impl Store {
             }
         }
         Ok(Snapshot {
-            state: self.state.clone(),
+            state,
             _pins: pins,
             _root_pin: root_pin,
         })
