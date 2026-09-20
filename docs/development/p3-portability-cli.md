@@ -91,6 +91,13 @@ exist so the report describes actual paths. Undeclared synchronizers are not
 inferred. Capacity figures are point-in-time lower bounds excluding backend
 overhead; they neither reserve free space nor guarantee materialization fits.
 
+Public vault paths and ciphertext reads admit the Windows Cloud Files tag family
+used by OneDrive. The native check pins ancestors and the object, exposes the
+actual placeholder tag for that thread, and rejects junctions, symbolic links and
+unknown tags. Private staging and recovery paths still reject cloud placeholders.
+Hydration failures remain explicit failures; recognizing a cloud path does not
+establish that an upload or download completed.
+
 Automatic hooks use only the verified signing capability explicitly loaded into
 the current owner by backup controls. They do not reopen a recovery file or use a
 secret cache. Configured owners without loaded material report backup pending;

@@ -40,18 +40,32 @@ pub fn execute(
         }
     }
     let mut roots = Vec::new();
+    let mut private_guards = Vec::new();
+    let mut cloud_guards = Vec::new();
     let mut observations = Vec::new();
     let mut issues = Vec::new();
     for (kind, path) in paths {
-        match crate::settings::registry_root(&path).and_then(|root| {
-            let pin = root.hold(None, true).map_err(|e| e.to_string())?;
-            Ok((root, pin))
-        }) {
-            Ok((root, pin)) => {
-                observations.push(
-                    serde_json::json!({"kind":kind,"path":root.path(),"native_path_verified":true}),
-                );
-                roots.push((kind, root, pin));
+        let checked = if matches!(kind, "vault" | "sync_root") {
+            vcp_store::vault_publish::Vault::open(&path, &[workspace.to_owned(), data.to_owned()])
+                .map(|vault| {
+                    let path = vault.directory().to_owned();
+                    cloud_guards.push(vault);
+                    path
+                })
+                .map_err(|error| error.to_string())
+        } else {
+            crate::settings::registry_root(&path).and_then(|root| {
+                let pin = root.hold(None, true).map_err(|e| e.to_string())?;
+                let path = root.path().to_owned();
+                private_guards.push((root, pin));
+                Ok(path)
+            })
+        };
+        match checked {
+            Ok(path) => {
+                observations
+                    .push(serde_json::json!({"kind":kind,"path":path,"native_path_verified":true}));
+                roots.push((kind, path));
             }
             Err(_) => {
                 observations.push(
@@ -61,8 +75,8 @@ pub fn execute(
             }
         }
     }
-    for (index, (left_kind, left, _)) in roots.iter().enumerate() {
-        for (right_kind, right, _) in roots.iter().skip(index + 1) {
+    for (index, (left_kind, left)) in roots.iter().enumerate() {
+        for (right_kind, right) in roots.iter().skip(index + 1) {
             // A vault inside its declared synchronization root is expected.
             // Private state and the workspace must remain outside those roots.
             if (*left_kind == "sync_root" && *right_kind == "sync_root")
@@ -71,7 +85,7 @@ pub fn execute(
             {
                 continue;
             }
-            if left.path().starts_with(right.path()) || right.path().starts_with(left.path()) {
+            if left.starts_with(right) || right.starts_with(left) {
                 issues.push(serde_json::json!({"category":"path_overlap","left":left_kind,"right":right_kind,"next_action":"select separate private, workspace, and vault directories"}));
             }
         }
@@ -93,6 +107,26 @@ pub fn execute(
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires explicit VCP_TEST_ONEDRIVE_ROOT; read-only native cloud-path qualification"]
+    fn actual_cloud_directory_uses_public_vault_policy() {
+        let sync = PathBuf::from(std::env::var_os("VCP_TEST_ONEDRIVE_ROOT").unwrap());
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let data = temp.path().join("data");
+        let staging = temp.path().join("staging");
+        for path in [&workspace, &data, &staging] {
+            std::fs::create_dir(path).unwrap();
+        }
+        let request = Doctor {
+            vault: Some(sync.clone()),
+            staging: Some(staging),
+            sync_root: vec![sync],
+        };
+        let result = execute(&request, &data, &workspace).unwrap();
+        assert_eq!(result["path_checks_passed"], true, "{result}");
+        assert_eq!(result["cloud_transfer_verified"], false);
+    }
     #[test]
     fn detects_private_overlap_and_preserves_files() {
         let temp = tempfile::tempdir().unwrap();

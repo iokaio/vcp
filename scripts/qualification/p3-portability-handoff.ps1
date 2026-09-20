@@ -55,7 +55,7 @@ namespace VcpHandoff {
     var prior=RtlSetThreadPlaceholderCompatibilityMode(2);
     if(prior<0) throw new IOException("Native placeholder mode refused");
     try { if(!GetFileInformationByHandleEx(handle,9,out info,8)) throw new IOException("Native tag query refused"); }
-    finally { RtlSetThreadPlaceholderCompatibilityMode(prior); }
+    finally { if(RtlSetThreadPlaceholderCompatibilityMode(prior)<0) throw new IOException("Native placeholder mode restore refused"); }
     if(((info.Attributes & 0x10)!=0)!=directory) throw new IOException("Unexpected native object kind");
     if((info.Attributes & 0x400)!=0 && (!cloud || (info.Tag & ~0xF000u)!=0x9000001Au))
      throw new IOException("Native reparse tag refused");
