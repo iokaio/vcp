@@ -95,11 +95,25 @@ async fn export_operator_handoff_fixture_with_child_claim_and_real_accounting() 
         let ledger = vcp_budget::ledger(&state, &root_scope).unwrap();
         assert_eq!(ledger.settled, Micros::new(50));
         assert_eq!(ledger.unresolved, Micros::new(67));
-        let claims: Vec<_> = state
+        let claim_records: Vec<_> = state
             .records
             .values()
             .filter(|r| r.collection == Collection::Claim)
             .map(|r| r.id.clone())
+            .collect();
+        let claims: std::collections::BTreeSet<_> = state
+            .records
+            .values()
+            .filter(|row| {
+                row.collection == Collection::Claim
+                    && row.value["document_type"] == "vcp_memory_version_v1"
+            })
+            .map(|row| {
+                row.decode::<vcp_domain::memory::Version>()
+                    .unwrap()
+                    .proposal
+                    .claim
+            })
             .collect();
         assert!(!claims.is_empty());
         let attempts = state
@@ -196,7 +210,7 @@ async fn export_operator_handoff_fixture_with_child_claim_and_real_accounting() 
         )
         .unwrap();
         std::fs::write(output.join("fixture.json"),serde_json::to_vec_pretty(&serde_json::json!({
-            "workspace":config.workspace,"session":config.session,"root_task":config.root_task,"child_task":child,"claim_records":claims,
+            "workspace":config.workspace,"session":config.session,"root_task":config.root_task,"child_task":child,"claim_records":claim_records,"claims":claims,
             "settled":"50","unresolved":"67","attempts":attempts,"provider_requests":0,
             "lineage":"f".repeat(64),"checkpoint":{"sequence":0,"deletion":0,"parent":null},
             "source":ciphertext,"recovery_directory":recovery,"ciphertext_sha256":receipt["ciphertext_sha256"],"bytes":receipt["bytes"],
