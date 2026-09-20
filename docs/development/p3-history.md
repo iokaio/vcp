@@ -12,12 +12,14 @@ mean midnight at that fixed offset. The parser never assumes the machine's
 timezone or resolves ambiguous daylight-saving times. The same typed selector
 is used for listing, search, preview, and saved automatic policies.
 
-All filters are ANDed with the selected workspace. Additional filters include
-task, root, path, actor, agent, provider, model, event kind, and claim kind.
-`--selector` accepts the bounded versioned selector tree for combinations and
-status/supersession predicates. Unknown source metadata does not match a
-predicate, including its negation; a root or claim filter cannot invent
-metadata on a raw event.
+All filters are ANDed with the selected workspace. Raw browsing supports task,
+path, actor, agent, provider, model, event kind, date, and task-status predicates.
+Root, claim-kind, claim-status, and supersession predicates are rejected with an
+explicit capability error anywhere in a raw browsing selector, including nested
+negation and OR branches. Those facets remain available for pruning; use the
+memory inspector for governed claim history. `--selector` accepts the bounded
+versioned selector tree. Missing supported event metadata does not match a
+predicate, including its negation.
 
 Pages contain at most 128 rows, bounded content summaries, and an optional JSON
 cursor. Pass that cursor back with identical filters and limits. Its upper
