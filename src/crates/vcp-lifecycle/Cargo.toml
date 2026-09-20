@@ -34,9 +34,20 @@ codex-utils-pty = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util", "fs"] }
+bytes = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+rustls = { workspace = true }
+socket2 = { workspace = true }
+tokio-rustls = { workspace = true }
+url = { workspace = true }
+zeroize = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util", "fs", "net"] }
 
 [dev-dependencies]
+rcgen = { workspace = true }
 wiremock = { workspace = true }
 codex-login = { workspace = true }
 core_test_support = { path = "../../third_party/codex/codex-rs/core/tests/common" }

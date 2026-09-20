@@ -143,6 +143,10 @@ already include these changes; normal builds never apply patches.
     package and the CLI/lifecycle dependency edges for bounded native skill
     discovery and activation. It reuses existing locked dependencies without
     importing another runtime or changing dependency versions.
+32. `0032-p7-http-boundaries-workspace.patch` exposes the already locked HTTP/1
+    and TLS libraries to the original lifecycle adapter and records its local
+    dependency edges, including the existing certificate generator for tests.
+    No external package version or retained implementation changes.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

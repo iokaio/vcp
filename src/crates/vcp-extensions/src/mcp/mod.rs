@@ -3,6 +3,7 @@
 //! owns transport, current authority, source fences, deadlines and durable intent.
 //! No automatic replay, reconnect, callback execution or SDK service runtime.
 pub mod client;
+pub mod http;
 pub mod identity;
 pub mod registration;
 pub mod schema;

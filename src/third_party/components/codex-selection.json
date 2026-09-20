@@ -155,6 +155,10 @@
     {
       "path": "src/third_party/patches/codex/0031-p7-skills-workspace.patch",
       "sha256": "c3dcfabd775600a9140131a1575565173f2d7ecd96e9dbff33da63c9c672cf91"
+    },
+    {
+      "path": "src/third_party/patches/codex/0032-p7-http-boundaries-workspace.patch",
+      "sha256": "2104b3d28bc9a70a2857e9244d5a961d4b5eeafe67c792b611399780b905e224"
     }
   ],
   "licenses": [
