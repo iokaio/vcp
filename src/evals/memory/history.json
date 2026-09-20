@@ -1,0 +1,10 @@
+{
+  "revision": "p5-08-preferences-history-v1",
+  "observations": [
+    {"id":"deploy-old","key":"deployment","value":"Deploy through the amber cluster.","supersedes":null},
+    {"id":"format","key":"formatting","value":"Format Rust with cargo fmt before review.","supersedes":null},
+    {"id":"secret","key":"restricted","value":"Restricted recovery contact is violet@example.invalid.","supersedes":null},
+    {"id":"deploy-current","key":"deployment","value":"Deploy through the cobalt cluster.","supersedes":"deploy-old"},
+    {"id":"late","key":"handoff","value":"Handoff notes belong in the cedar notebook.","supersedes":null}
+  ]
+}

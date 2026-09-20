@@ -6,12 +6,21 @@ returned passage from current canonical bytes. Persisted index text is never
 returned as evidence. Current authority, deletion epoch, source identities and
 workspace binding are checked again before return.
 
-Fusion is `rrf-equal-k60-id-ascending/1`: equal reciprocal rank contributions,
+Fusion is `rrf-equal-k60-id-ascending-overlay-terms/2`: equal reciprocal rank contributions,
 constant 60, and stable record ID ties. Native component scores and ranks remain
 visible. Repeated vector subchunks contribute once per source record; overlapping
 source spans and repeated claim versions are deduplicated. Exact authorized IDs
 filter Tantivy before its top-candidate limit, so stronger out-of-scope matches
 cannot crowd out an eligible result.
+
+P5-08 connects the bounded recent canonical overlay to production retrieval.
+Up to 128 recent records and 256 KiB are eligible for lexical token matching;
+capture and matching each have a 50 ms ceiling within the query deadline.
+Overlay ranks/scores are distinct from persisted lexical and vector ranks. An
+overflow reports `recent_overlay_bounded`; available recent records report
+`recent_overlay_lexical_only`. Indexed minimum-sequence freshness is not claimed
+from lexical-only overlay coverage. Current scope and return fences apply to
+overlay passages exactly as they do to published candidates.
 
 Passages retain claim/source version identities, byte spans, evidence references,
 and accepted/inferred/disputed labels. Trimming preserves those fields and UTF-8

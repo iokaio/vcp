@@ -4,7 +4,7 @@
 use crate::{
     access::{self, Access},
     lexical,
-    publication::View,
+    publication::{self, View},
     search_record::{self, ChunkerSpec, SearchRecord, SourceBinding, TextSource},
     vector, Error, Result,
 };
@@ -21,7 +21,7 @@ use vcp_domain::{
 };
 use vcp_store::{contract::Collection, Store};
 
-pub const FUSION_VERSION: &str = "rrf-equal-k60-id-ascending/1";
+pub const FUSION_VERSION: &str = "rrf-equal-k60-id-ascending-overlay-terms/2";
 pub const TOKEN_ACCOUNTING: &str = "serialized-passage-array-utf8-byte-upper-bound/1";
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -96,6 +96,8 @@ pub struct Ranked {
     pub vector_rank: Option<usize>,
     pub lexical_score: Option<f32>,
     pub vector_distance: Option<f32>,
+    pub overlay_rank: Option<usize>,
+    pub overlay_score: Option<f32>,
     pub fused_score: f64,
 }
 /// One contribution per source record per component, even if many embedding
@@ -125,6 +127,8 @@ pub fn fuse(lexical: &[lexical::Candidate], vectors: &[vector::Candidate]) -> Re
             vector_rank: None,
             lexical_score: None,
             vector_distance: None,
+            overlay_rank: None,
+            overlay_score: None,
             fused_score: 0.0,
         });
         if from_lexical && row.lexical_rank.is_none() {
@@ -444,10 +448,32 @@ pub fn search(
         .iter()
         .map(|r| r.id.as_str())
         .collect();
+    let overlay = publication::overlay(
+        &view.manifest,
+        current,
+        128,
+        256 * 1024,
+        Duration::from_millis(50),
+    )?;
+    if overlay.through < current.watermark {
+        response.degraded.push("recent_overlay_bounded");
+    }
+    let recent: Vec<_> = overlay
+        .records
+        .iter()
+        .filter(|r| request.contains(r) && !published.contains(r.id.as_str()))
+        .collect();
+    if !recent.is_empty() {
+        response.degraded.push("recent_overlay_lexical_only");
+    }
+    let recent_ids: BTreeSet<_> = recent.iter().map(|r| r.id.as_str()).collect();
     let eligible: BTreeMap<_, _> = current
         .records
         .iter()
-        .filter(|r| request.contains(r) && published.contains(r.id.as_str()))
+        .filter(|r| {
+            request.contains(r)
+                && (published.contains(r.id.as_str()) || recent_ids.contains(r.id.as_str()))
+        })
         .map(|r| (r.id.clone(), source_fence(r)))
         .collect();
     let lexical = view.lexical.search_authorized(
@@ -503,7 +529,67 @@ pub fn search(
         response.degraded.push("lexical_only");
         vec![]
     };
-    let ranked = fuse(&lexical, &vectors)?;
+    let mut ranked = fuse(&lexical, &vectors)?;
+    // Overlay scores are deterministic token-presence counts, not persisted
+    // Tantivy BM25 scores. Keep their rank/provenance separate in the response.
+    let prose = crate::tokenizer::prose_terms(&request.text);
+    let code = crate::tokenizer::code_terms(&request.text);
+    let mut overlay_matches = Vec::new();
+    let overlay_started = Instant::now();
+    for record in recent {
+        checkpoint(start, request, cancelled)?;
+        if overlay_started.elapsed() >= Duration::from_millis(50) {
+            if !response.degraded.contains(&"recent_overlay_bounded") {
+                response.degraded.push("recent_overlay_bounded");
+            }
+            break;
+        }
+        let prose_terms: BTreeSet<_> = crate::tokenizer::prose_terms(&record.text)
+            .into_iter()
+            .collect();
+        let code_terms: BTreeSet<_> = std::iter::once(record.text.as_str())
+            .chain(record.paths.iter().map(String::as_str))
+            .chain(record.symbols.iter().map(String::as_str))
+            .flat_map(crate::tokenizer::code_terms)
+            .collect();
+        let score = prose
+            .iter()
+            .filter(|term| prose_terms.contains(*term))
+            .count() as f32
+            + lexical::CODE_BOOST
+                * code
+                    .iter()
+                    .filter(|term| code_terms.contains(*term))
+                    .count() as f32
+            + lexical::EXACT_BOOST
+                * (usize::from(record.paths.contains(&request.text))
+                    + usize::from(record.symbols.contains(&request.text))) as f32;
+        if score > 0.0 || request.text.trim().is_empty() {
+            overlay_matches.push((record.id.clone(), score));
+        }
+    }
+    overlay_matches.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+    if overlay_matches.len() > 100 {
+        response.degraded.push("recent_overlay_candidate_bound");
+    }
+    for (position, (id, score)) in overlay_matches.into_iter().take(100).enumerate() {
+        let rank = position + 1;
+        ranked.push(Ranked {
+            id,
+            lexical_rank: None,
+            vector_rank: None,
+            lexical_score: None,
+            vector_distance: None,
+            overlay_rank: Some(rank),
+            overlay_score: Some(score),
+            fused_score: 1.0 / (60 + rank) as f64,
+        });
+    }
+    ranked.sort_by(|a, b| {
+        b.fused_score
+            .total_cmp(&a.fused_score)
+            .then(a.id.cmp(&b.id))
+    });
     checkpoint(start, request, cancelled)?;
     Ok(Selection {
         capture,
