@@ -83,6 +83,9 @@ impl Context {
             events: vec![],
             command: None,
         };
+        if cancelled.load(Ordering::Acquire) {
+            return Err("backup generation capture cancelled before admission".into());
+        }
         self.runtime
             .block_on(self.engine.store_mut().transact(transaction))?;
         Ok(vcp_store::snapshot_inputs::GenerationInput {
@@ -250,6 +253,9 @@ impl Context {
             }],
             command: None,
         };
+        if cancelled.load(Ordering::Acquire) {
+            return Err("backup checkpoint cancelled before admission".into());
+        }
         self.runtime
             .block_on(self.engine.store_mut().transact(transaction))?;
         Ok(Checkpoint {

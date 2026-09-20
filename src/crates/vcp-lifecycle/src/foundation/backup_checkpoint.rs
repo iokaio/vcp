@@ -16,6 +16,12 @@ pub(super) struct Prepared {
     pub(super) cut: Cut,
     pub(super) observed: Observation,
 }
+struct CancelOnDrop(Arc<AtomicBool>);
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
 impl CanonicalHost {
     pub async fn capture_backup_generation(
         &self,
@@ -23,6 +29,7 @@ impl CanonicalHost {
         view: vcp_memory::publication::View,
         cancelled: Arc<AtomicBool>,
     ) -> Result<vcp_store::snapshot_inputs::GenerationInput, String> {
+        let _guard = CancelOnDrop(cancelled.clone());
         let cut = self.worker.run(|context| context.backup_cut())?;
         let stopped = cancelled.clone();
         let files = tokio::task::spawn_blocking(move || publisher.snapshot_files(view, &stopped))
@@ -39,6 +46,7 @@ impl CanonicalHost {
         git: Arc<Git>,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Checkpoint, String> {
+        let _guard = CancelOnDrop(cancelled.clone());
         if cancelled.load(Ordering::Acquire) || self.scheduler.busy() {
             return Err("backup checkpoint requires quiescent local effects".into());
         }

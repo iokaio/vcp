@@ -42,6 +42,7 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
         );
         let private = temp.path().join("private");
         std::fs::create_dir(&private).unwrap();
+        let source = super::memory_publication::retained_source(&host, &config, thread);
         let publisher = Arc::new(
             vcp_memory::publication::Publisher::new(
                 &config.canonical_root.join("search-generations"),
@@ -56,7 +57,7 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
                 vectors: memory_vectors::Request {
                     assets: temp.path().join("absent-assets"),
                     private_root: private,
-                    sources: vec![],
+                    sources: vec![source],
                     chunker: Default::default(),
                     cancelled: Arc::new(AtomicBool::new(false)),
                 },
@@ -83,6 +84,7 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
                 }
             })
             .collect();
+        assert!(!source_refs.is_empty());
         let task: Task = host
             .snapshot()
             .unwrap()
