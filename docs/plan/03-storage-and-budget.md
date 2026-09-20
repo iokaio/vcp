@@ -23,6 +23,12 @@ Implement logical modules under `vcp-store`: `contract`, `transaction`, `snapsho
 
 ## P1-04 — Storage increments
 
+The P7-03 numeric audit reproduced an existing literal-JSON replay failure under
+the current serde feature graph. The [decode maintenance increment](../development/p1-persisted-json.md)
+and [qualification](../evaluations/p1-persisted-json.md) own its correction before
+broader MCP numeric integration; stored bytes and receipt hashes must remain
+unchanged.
+
 1. Define logical collections for workspaces, sessions/tasks, events, operation/idempotency receipts, artifacts/evidence, grants, reservations/settlements, claims, indexing intents, generations and tombstones. Specify unique keys, foreign-reference rules, scoped sequences and migration version.
 2. Implement SQLite transactions and constraints first as the default candidate. Measure and record connection/journal/synchronization settings on supported Windows filesystems. Stage external artifacts before committing references; failed transactions may leave reclaimable orphans, never dangling acknowledged references.
 3. Implement the files preference against the same contract: versioned transaction frames, lengths/checksums, durable commit marker, replayable journal, sealed checkpoints and tested pointer publication. Distinguish a recoverable torn tail from corruption inside committed history; do not skip the latter silently.

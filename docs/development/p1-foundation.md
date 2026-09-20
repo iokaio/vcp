@@ -87,6 +87,10 @@ limit error; it never prunes work history. Capacity expansion requires an explic
 format/implementation change. Logical records, references, scoped event sequences,
 receipts and optimistic revisions share one validator across both backends.
 
+The [literal JSON preservation follow-up](p1-persisted-json.md) qualifies decoding
+of arbitrary record/event objects under the actual dependency feature graph.
+It preserves canonical format 1 and original receipt hashes.
+
 SQLite uses normalized records/edges/events/commands plus checksummed immutable
 commit payloads, schema version 1, WAL, `synchronous=FULL`, foreign keys and a
 100 ms busy timeout. Compare-and-set mutations and receipts commit atomically.

@@ -46,6 +46,7 @@ pub struct EventInput {
     pub kind: EventKind,
     pub artifacts: Vec<ArtifactId>,
     /// Versioned fact data. Diagnostics are explicitly marked, never commentary.
+    #[serde(deserialize_with = "crate::persisted_json::deserialize")]
     pub data: serde_json::Value,
     /// Optional additive metadata preserves the exact canonical bytes of older
     /// version-1 events when absent. It is filter data, never authority.

@@ -2,6 +2,7 @@
 //! Private versioned envelopes. Public transports and SDK bindings remain deferred.
 pub mod command;
 pub mod event;
+pub mod persisted_json;
 pub mod redaction;
 pub mod subscription;
 pub mod version;
