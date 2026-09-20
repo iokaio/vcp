@@ -7,6 +7,7 @@ mod console;
 mod control;
 #[cfg(windows)]
 mod execution;
+mod memory;
 mod provider;
 pub(super) mod recovery;
 #[cfg(windows)]
@@ -367,6 +368,17 @@ impl Context {
         expected: Revision,
         resume: Option<ResumeEvidence>,
     ) -> Result<CommandReceipt> {
+        // Yield capture/tool hot paths to interactive work. Their durable
+        // observations are picked up at the next task/turn/check boundary.
+        let maintain_memory = matches!(
+            payload,
+            Command::Transition { .. }
+                | Command::RecordVerification { .. }
+                | Command::AdvanceTurn {
+                    next: TurnState::Verifying | TurnState::Completed,
+                    ..
+                }
+        );
         let steering = task
             .as_ref()
             .and_then(|id| {
@@ -417,6 +429,9 @@ impl Context {
             )?
             .decode()?;
         self.access.authority = workspace.authority;
+        if maintain_memory {
+            self.memory_after_command();
+        }
         Ok(receipt)
     }
     pub fn can_start(&self, binding: &ThreadBinding) -> Result<()> {

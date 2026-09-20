@@ -229,6 +229,34 @@ pub fn records(state: &State, access: &Access, query: &InspectionQuery) -> Resul
             .find(|m| m.artifacts.iter().any(|id| id.as_str() == record.id));
         let mut item = if let Some(mask) = removed {
             json!({"reference":key,"visibility":"pruned","reason":mask.reason,"source":record.value.pointer("/spec/source")})
+        } else if record.collection == Collection::Claim
+            && record.value["document_type"] == "vcp_ingestion_job_v1"
+        {
+            let job: vcp_domain::ingestion::Job = record.decode()?;
+            job.validate()?;
+            let source_pruned = state
+                .events
+                .iter()
+                .find(|event| event.event.id == job.origin)
+                .is_none_or(|event| {
+                    masks.iter().any(|mask| {
+                        mask.session == event.event.session
+                            && event.sequence >= mask.first
+                            && event.sequence <= mask.last
+                    })
+                });
+            json!({"reference":key,"id":job.id,"visibility":"available","state":job.state,
+                "origin_watermark":job.origin_watermark,"attempts":job.attempts,"max_attempts":job.max_attempts,
+                "not_before":job.not_before,"lease":job.lease,"results":job.results,
+                "finding":if source_pruned {None} else {job.finding.as_ref()},
+                "last_failure":if source_pruned {None} else {job.last_failure.as_ref()},
+                "origin_visibility":if source_pruned {"pruned"} else {"retained"}})
+        } else if record.collection == Collection::Claim
+            && record.value["document_type"] == "vcp_ingestion_cursor_v1"
+        {
+            let cursor: vcp_domain::ingestion::Cursor = record.decode()?;
+            cursor.validate()?;
+            json!({"reference":key,"visibility":"available","cursor":cursor})
         } else if record.collection == Collection::Claim {
             // Raw claim payloads may derive from currently hidden or pruned
             // sources. A generic inspector exposes identity, never those bytes.

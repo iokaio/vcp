@@ -1,6 +1,6 @@
 # 08 — Munarium-derived governance and automatic memory ingestion
 
-Status: P5-01 complete; P5-02 planned. Owns P5-01 and P5-02. Requires canonical storage and selected Munarium components from P0. Read architecture section 11 and [search integration](09-local-search-and-generations.md).
+Status: P5-01 and P5-02 complete. Owns P5-01 and P5-02. Requires canonical storage and selected Munarium components from P0. Read architecture section 11 and [search integration](09-local-search-and-generations.md).
 
 ## Implementation references and entry evidence
 
@@ -83,6 +83,12 @@ current/history projections and inspector finding types together. P5-01's commit
 receipt must expose indexing as pending until segment 09 publishes a valid view.
 
 ## P5-02 — Activity and evidence ingestion
+
+Implemented in `vcp-memory`, durable store contracts and the canonical host.
+[Implementation and native qualification](../development/p5-ingestion.md) record
+bounded scheduling, exact provenance, accounted optional extraction and six
+process-kill/reopen barriers across both backends. Search publication remains
+owned by P5-03 through P5-06.
 
 1. Consume durable user/task/model/tool/verification/child/correction events using a stored cursor and idempotent ingestion identity. Keep raw history separate from derived claims; a failure to extract a claim cannot delete the underlying activity.
 2. Link code snapshots/diffs, file paths/symbols and check results to exact revisions. On reopening a workspace, compare observed state with the last known state and mark unobserved external actors unknown.

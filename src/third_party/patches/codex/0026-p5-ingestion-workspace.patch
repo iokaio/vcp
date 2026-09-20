@@ -1,0 +1,23 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 6155dbd..e630563 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17595,6 +17595,7 @@ dependencies = [
+  "vcp-context",
+  "vcp-domain",
+  "vcp-engine",
++ "vcp-memory",
+  "vcp-models",
+  "vcp-policy",
+  "vcp-protocol",
+@@ -17615,8 +17616,10 @@ dependencies = [
+  "thiserror 2.0.18",
+  "tokio",
+  "vcp-audit",
++ "vcp-budget",
+  "vcp-domain",
+  "vcp-engine",
++ "vcp-models",
+  "vcp-protocol",
+  "vcp-store",
+ ]

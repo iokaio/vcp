@@ -33,6 +33,8 @@ mod framework_verification;
 #[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;
+#[path = "support/memory_ingestion.rs"]
+mod memory_ingestion;
 #[cfg(windows)]
 #[path = "support/parent_instructions.rs"]
 mod parent_instructions;

@@ -17,6 +17,8 @@ use vcp_protocol::{
     digest_bytes,
     event::{EventEnvelope, EventInput},
 };
+#[path = "ingestion_contract.rs"]
+mod ingestion_contract;
 
 pub const FORMAT_VERSION: u32 = 1;
 pub const MAX_TRANSACTION_BYTES: usize = 8 * 1024 * 1024;
@@ -145,6 +147,9 @@ impl Record {
         TaskId::parse(self.id.clone())?;
         if canonical_bytes(self)?.len() > MAX_RECORD_BYTES {
             return Err(Error::Limit("canonical record"));
+        }
+        if ingestion_contract::kind(self)?.is_some() {
+            return ingestion_contract::shape(self);
         }
         let scope = |workspace: &WorkspaceId, id: &str, revision: Revision| -> Result<()> {
             if workspace != &self.workspace || id != self.id || revision != self.revision {
@@ -347,6 +352,10 @@ impl Record {
         if self.collection != Collection::Workspace {
             refs.insert(key(Collection::Workspace, self.workspace.as_str()));
         }
+        if ingestion_contract::kind(self)?.is_some() {
+            refs.extend(ingestion_contract::references(self)?);
+            return Ok(refs);
+        }
         if let Some(kind) = self.memory_kind()? {
             use vcp_domain::memory::*;
             if let Some(scope) = self.task_scope()? {
@@ -541,6 +550,9 @@ impl Record {
         Ok(refs)
     }
     fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
+        if ingestion_contract::kind(self)?.is_some() {
+            return ingestion_contract::scope(self).map(Some);
+        }
         if let Some(kind) = self.memory_kind()? {
             use vcp_domain::memory::*;
             return Ok(match kind {
@@ -825,6 +837,7 @@ impl State {
                     // belonging to another task cannot be reused as this task's
                     // turn input, verification, approval, or effect observation.
                     if record.memory_kind()?.is_none()
+                        && ingestion_contract::kind(record)?.is_none()
                         && record.collection != Collection::Task
                         && record.collection != Collection::Ledger
                         && reference.split(':').next() != Some("ledger")
@@ -939,6 +952,7 @@ impl State {
             return Err(Error::Corruption("session watermark"));
         }
         crate::accounting_contract::validate(self)?;
+        ingestion_contract::validate(self)?;
         Ok(())
     }
     pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {
@@ -975,13 +989,16 @@ impl State {
                         return Err(Error::Conflict("duplicate mutation"));
                     }
                     match (self.records.get(&key), expected) {
-                        (None, None) if record.revision == Revision::ZERO => {}
+                        (None, None) if record.revision == Revision::ZERO => {
+                            ingestion_contract::insert(record)?;
+                        }
                         (Some(previous), Some(expected))
                             if previous.revision == *expected
                                 && record.revision == expected.next()?
                                 && previous.workspace == record.workspace =>
                         {
                             crate::accounting_contract::transition(previous, record)?;
+                            ingestion_contract::transition(previous, record)?;
                             if previous.immutable_memory()? {
                                 return Err(Error::Conflict("immutable memory evidence"));
                             }

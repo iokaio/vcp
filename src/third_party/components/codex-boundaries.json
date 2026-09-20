@@ -1264,6 +1264,50 @@
         "history",
         "policy"
       ]
+    },
+    {
+      "id": "memory-ingestion-queue",
+      "group": "governed-memory",
+      "package": "vcp-memory",
+      "path": "../../../crates/vcp-memory/src/ingest.rs",
+      "symbol": "pub async fn enqueue(",
+      "observation": "Atomic canonical cursor and pending jobs preserve every selected origin; bounded leases and idempotent proposal results survive retry without starting an independent scheduler.",
+      "effect_class": "effectful",
+      "vcp_boundary": "local-memory",
+      "effects": [
+        "filesystem",
+        "history",
+        "scheduler"
+      ]
+    },
+    {
+      "id": "memory-extraction-admission",
+      "group": "governed-memory",
+      "package": "vcp-memory",
+      "path": "../../../crates/vcp-memory/src/extraction.rs",
+      "symbol": "pub fn validate(",
+      "observation": "Untrusted structured candidates must match an authorized captured accounted model attempt and supplied evidence; validation never dispatches a model request.",
+      "effect_class": "read-only",
+      "vcp_boundary": "model-gateway",
+      "effects": [
+        "file-read"
+      ]
+    },
+    {
+      "id": "host-memory-maintenance",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/foundation/worker/memory.rs",
+      "symbol": "pub fn memory_step(",
+      "observation": "Existing canonical owner admits a bounded local maintenance step; paused or closed owners and read-only inspection never schedule extraction.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": [
+        "filesystem",
+        "history",
+        "scheduler",
+        "policy"
+      ]
     }
   ],
   "groups": [
@@ -2127,13 +2171,16 @@
       ],
       "capabilities": [
         "data",
-        "filesystem"
+        "filesystem",
+        "scheduler",
+        "model"
       ],
       "handling": "retain-with-adapters",
       "owner_tasks": [
-        "P5-01"
+        "P5-01",
+        "P5-02"
       ],
-      "gate": "Canonical scoped memory uses deterministic governance and current access/deletion checks; no independent model call, index publication or execution authority.",
+      "gate": "Canonical governed memory and bounded durable extraction run only through the existing host. Optional model candidates require captured accounted gateway results; remembered commands and queued jobs grant no execution authority.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "local-memory"
     }

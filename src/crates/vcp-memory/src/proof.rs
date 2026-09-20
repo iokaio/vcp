@@ -3,7 +3,7 @@
 use crate::{access::Access, Result};
 use serde::Deserialize;
 use vcp_domain::{
-    artifact::{ArtifactDescriptor, CaptureState},
+    artifact::{ArtifactDescriptor, CaptureState, Omission},
     memory::{ClaimValue, CommandPurpose, EvidenceRef, Proposal},
     verification::CheckOutcome,
     ArtifactId,
@@ -11,6 +11,18 @@ use vcp_domain::{
 use vcp_store::{contract::Collection, Store};
 
 const MAX_PROOF_BYTES: u64 = 256 * 1024;
+
+/// Secret-bearing transport fields are excluded before capture and do not
+/// indicate lost evidence bytes. Only content-loss omissions make it partial.
+pub(crate) fn complete_capture(value: &ArtifactDescriptor) -> bool {
+    value.state == CaptureState::Complete
+        && !value.spec.omissions.iter().any(|omission| {
+            matches!(
+                omission,
+                Omission::UnobservedTail | Omission::CaptureFailure | Omission::ExplicitAbort
+            )
+        })
+}
 
 // The native receipt contains additional preparation/coverage data. Only the
 // fields below attest this command identity; canonical verification separately
@@ -59,8 +71,7 @@ fn descriptor(
     if !access.allows_task(&value.spec.scope.task)
         || value.spec.scope.workspace != access.workspace
         || value.length.get() > MAX_PROOF_BYTES
-        || value.state != CaptureState::Complete
-        || !value.spec.omissions.is_empty()
+        || !complete_capture(&value)
     {
         return Ok(None);
     }

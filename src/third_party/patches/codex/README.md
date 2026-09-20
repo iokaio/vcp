@@ -123,6 +123,9 @@ already include these changes; normal builds never apply patches.
 25. `0025-p5-memory-workspace.patch` registers the original governed-memory
     package and its local lockfile entry. It reuses existing dependency versions
     and preserves external source pins; no retained implementation is changed.
+26. `0026-p5-ingestion-workspace.patch` connects the lifecycle owner to governed
+    memory and reuses existing model/accounting packages for bounded extraction
+    and its qualification fixtures. External dependency pins remain unchanged.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
