@@ -39,7 +39,9 @@ function Ordinary-Path([string]$Path,[bool]$Directory) {
         if ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Redirected or cloud-placeholder path is not qualified; hydrate/reconcile through the documented native boundary.' }
         $ancestor=if($ancestor -is [IO.DirectoryInfo]){$ancestor.Parent}else{$ancestor.Directory}
     }
-    [IO.Path]::GetFullPath($item.FullName).TrimEnd('\','/')
+    $full=[IO.Path]::GetFullPath($item.FullName)
+    if($full.Length -gt [IO.Path]::GetPathRoot($full).Length){$full=$full.TrimEnd('\','/')}
+    $full
 }
 function Relative-Path([string]$Root,[string]$Relative) {
     if ([string]::IsNullOrWhiteSpace($Relative) -or [IO.Path]::IsPathRooted($Relative) -or $Relative.Contains(':') -or $Relative.Contains('\')) { throw 'Invalid portable relative path.' }
