@@ -32,6 +32,14 @@ pub fn check_source_read_access(
     source: &SkillSource,
 ) -> Result<vcp_repository::Root, String> {
     let check = || -> Result<vcp_repository::Root, Box<dyn std::error::Error + Send + Sync>> {
+        if (source.id == vcp_extensions::catalog::SOURCE_ID
+            || source.root.root.as_str() == vcp_extensions::catalog::ROOT_ID)
+            && (source.id != vcp_extensions::catalog::SOURCE_ID
+                || source.root.root.as_str() != vcp_extensions::catalog::ROOT_ID
+                || source.kind != SourceKind::Builtin)
+        {
+            return Err("reserved builtin source and root identity cannot be reassigned".into());
+        }
         let workspace: vcp_domain::workspace::Workspace = state
             .record(
                 vcp_store::contract::Collection::Workspace,

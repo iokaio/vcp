@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "dart",
+  "version": "1.0.0",
+  "description": "Honor Dart/Flutter SDK, package constraints, generated-code, and project test conventions.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "pubspec.yaml"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "89c990a52a33ea322f87b67f931df578bcd0876d9b9b3da45e843b2e95805623"
+  },
+  "resources": []
+}

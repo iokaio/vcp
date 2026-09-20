@@ -66,6 +66,21 @@ async fn skill_source_alias_cannot_bypass_workspace_read_denial() {
             ancestor.registry.sources[0].path = temp.path().canonicalize().unwrap();
             let error = host.configure_skills(ancestor).unwrap_err();
             assert!(error.contains("trusted read denial"), "{error}");
+            let mut builtin = skills(&config, &workspace);
+            builtin.registry.sources[0].id = vcp_extensions::catalog::SOURCE_ID.into();
+            builtin.registry.sources[0].root.root =
+                RootId::parse(vcp_extensions::catalog::ROOT_ID).unwrap();
+            builtin.registry.sources[0].kind = SourceKind::Builtin;
+            std::fs::write(
+                workspace.join("skills/catalog.json"),
+                b"invalid catalog must not be read",
+            )
+            .unwrap();
+            let error = host.configure_skills(builtin).unwrap_err();
+            assert!(
+                error.contains("trusted read denial"),
+                "read policy precedes builtin integrity parsing: {error}"
+            );
             assert!(!host
                 .snapshot()
                 .unwrap()
@@ -77,6 +92,77 @@ async fn skill_source_alias_cannot_bypass_workspace_read_denial() {
                     || a.spec.schema.starts_with("canonical-active-skill")));
             owner.close().await.unwrap();
         }
+    }
+}
+
+#[tokio::test]
+async fn builtin_catalog_host_integrity_is_lazy_and_revalidated() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let assets = temp.path().join("installed-skills");
+        std::fs::create_dir(&workspace).unwrap();
+        std::fs::create_dir(&assets).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let config = config(&temp.path().join("canonical"), &workspace, backend);
+        let mut configuration = skills(&config, &workspace);
+        let source = &mut configuration.registry.sources[0];
+        source.id = vcp_extensions::catalog::SOURCE_ID.into();
+        source.root.root = RootId::parse(vcp_extensions::catalog::ROOT_ID).unwrap();
+        source.kind = SourceKind::Builtin;
+        source.path = assets.clone();
+        let manifest = vcp_extensions::catalog::embedded().unwrap();
+        let original =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../skills/builtin");
+        for path in ["catalog.json", manifest.coverage.path.as_str()] {
+            std::fs::copy(original.join(path), assets.join(path)).unwrap();
+        }
+        for entry in &manifest.skills {
+            std::fs::create_dir(assets.join(&entry.id)).unwrap();
+            std::fs::copy(
+                original.join(&entry.descriptor),
+                assets.join(&entry.descriptor),
+            )
+            .unwrap();
+        }
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let binding = task(&host, &config, config.root_task.clone(), None);
+        host.command(
+            Command::SetPolicy {
+                policy: Policy {
+                    workspace: config.workspace.clone(),
+                    revision: PolicyRevision::ZERO,
+                    mode: Autonomy::Autonomous,
+                    denials: vec![],
+                    workspace_roots: BTreeSet::from([
+                        RootId::parse(config.workspace.as_str()).unwrap()
+                    ]),
+                    automatic_effects: BTreeSet::from([EffectClass::Read]),
+                    timeout_ceiling_ms: Units::new(30_000),
+                    output_ceiling_bytes: ByteCount::new(1024 * 1024),
+                },
+            },
+            None,
+            Revision::ZERO,
+        )
+        .unwrap();
+        let inspected = host.inspect_skills(configuration.registry.clone()).unwrap();
+        assert_eq!(inspected["catalog"]["skills"].as_array().unwrap().len(), 21);
+        assert_eq!(inspected["catalog"]["reads"]["bodies"], 0);
+        assert_eq!(inspected["integrity"]["reads"]["metadata_files"], 2);
+        assert_eq!(inspected["integrity"]["reads"]["descriptors"], 21);
+        host.configure_skills(configuration).unwrap();
+        let id =
+            codex_protocol::ThreadId::from_string("00000000-0000-4000-8000-000000000001").unwrap();
+        host.register(id, binding).unwrap();
+        let status = host.skill_control(id, Request::Status).unwrap();
+        assert_eq!(status["integrity"]["reads"]["revalidations"], 23);
+        std::fs::write(assets.join("coverage.json"), b"{}").unwrap();
+        assert!(
+            host.skill_control(id, Request::Status).is_err(),
+            "current metadata identity invalidates cached builtin attribution"
+        );
+        owner.close().await.unwrap();
     }
 }
 

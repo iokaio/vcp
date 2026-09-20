@@ -1,0 +1,1 @@
+{"schema":"skill-memory-evidence-fixture/1","workspace":"A","claims":[{"id":"old","status":"superseded","evidence":"retained"},{"id":"current","status":"confirmed"},{"id":"accounting","protected":true}],"older_backup_retained":true}

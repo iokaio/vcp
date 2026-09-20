@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Explicit data-only skill discovery. Skill content grants no execution authority.
 pub mod activation;
+pub mod catalog;
 pub mod discovery;
 pub mod skill_manifest;
 

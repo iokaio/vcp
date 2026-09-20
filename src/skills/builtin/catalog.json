@@ -1,0 +1,283 @@
+{
+  "schema_version": 1,
+  "version": "1.0.0",
+  "coverage": {
+    "path": "coverage.json",
+    "sha256": "829a048b021e0cc9680c89ae216cab55790a2ef66801fe93bf938a1bac364c50"
+  },
+  "skills": [
+    {
+      "id": "architecture",
+      "version": "1.0.0",
+      "descriptor": "architecture/skill.json",
+      "descriptor_sha256": "99f14193de84ceb896550515dcac41ed9d663acb339e0ff7fea8bc29c83b02eb",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "ca7647af6c20017d12745018442a0ece1dd20ae776e69bfa16cc3eb5a5c10956"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "review-debug",
+      "version": "1.0.0",
+      "descriptor": "review-debug/skill.json",
+      "descriptor_sha256": "2f86ef57db813517ccf2d2ceaf70785f08dcb02d263093a56a50e0efd907b59d",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "d5f2569fe2c098eb55e672774bc1628bb4d366dcf0c1cb8fb75ecf28177cddd0"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "testing",
+      "version": "1.0.0",
+      "descriptor": "testing/skill.json",
+      "descriptor_sha256": "489609bb4465044fc534ae2126919030e22f23c59af46c5c3ffe681af6121788",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "3bba41f2dac34ca8970aa4880e3a914f893742250d173c136ffa1fa61ba0099b"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "git-workflow",
+      "version": "1.0.0",
+      "descriptor": "git-workflow/skill.json",
+      "descriptor_sha256": "26df3428b89f2f210e439d3d29efd9166a6f6a028cf7b647c2b501b3bfe11596",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "8b890673e7e5ab9f9d2f30e5b987c8484953b30194b6a8c43172ab6022fe96a3"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "javascript-typescript",
+      "version": "1.0.0",
+      "descriptor": "javascript-typescript/skill.json",
+      "descriptor_sha256": "5864702f5f03ee81cbb367b93a9b6347388ddd5e2e3b5d9351f7f16fc0f1e126",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "95d1db5f03670f6de82aa7abf2e6c09fdc430cfc3572b9be120d46c222ce05b2"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "python",
+      "version": "1.0.0",
+      "descriptor": "python/skill.json",
+      "descriptor_sha256": "7efbf1a4dbcbbb7e27208b5a0da2161c5ef45bace1a7cf089b4c736e6996031d",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "e23dc3329e54146166deb4b36b11111e9f7a5d0ae96efcf169bafdceff954e7a"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "rust",
+      "version": "1.0.0",
+      "descriptor": "rust/skill.json",
+      "descriptor_sha256": "e4f3d8246fcece59b9891aaf315a36a83d2fe8b7f3d47107eba4f07960b05d43",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "5b905dd4aaa8aa1eaf4f65c100f192874c66331112db3de9fbe3dd3e393bf03c"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "dotnet-powershell",
+      "version": "1.0.0",
+      "descriptor": "dotnet-powershell/skill.json",
+      "descriptor_sha256": "584680c288117d82832fe41188c2477977098a1977701daab444eea42d1c16c5",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "ded70d80ed95fffb36c49e7580af595e1976eb91100b9ecae3c677484e4fbaf2"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "jvm",
+      "version": "1.0.0",
+      "descriptor": "jvm/skill.json",
+      "descriptor_sha256": "78705d9ea4502e4a992735ec179756b7572193415b61bf957d74fcc6bd18f367",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "6e254b6286289991e52e72f321cae5bfcd79e6fbbe997aa463b09932e49e71eb"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "go",
+      "version": "1.0.0",
+      "descriptor": "go/skill.json",
+      "descriptor_sha256": "77fb283b43d37bf76e11c4d912e2cc0c495a9d8ef17fd4b03a5496adf9a6e159",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "190f232c0827dece5231fb78eb9834f0d026772b174ffe2be63a5003f2f54554"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "cpp",
+      "version": "1.0.0",
+      "descriptor": "cpp/skill.json",
+      "descriptor_sha256": "d66c86887409fd979da0e0e8bd9d9d4bde527da3ec5fd59df960b33b0608cbfa",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "da88fdc7472c897b36f38c76470e8992485507aacbf14acd6ac8080d86505ceb"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "ruby",
+      "version": "1.0.0",
+      "descriptor": "ruby/skill.json",
+      "descriptor_sha256": "f03d449aee73ba88c53bf5f05bc35720f5cca54c28db6a0829ced9910e7c07d5",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "e89947f425be2bce48a8200ee0a98b90b30be5cd9b5b55252e0a2fe01c3362a4"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "php",
+      "version": "1.0.0",
+      "descriptor": "php/skill.json",
+      "descriptor_sha256": "b3d851997825c42d59b9622aa424f3ff4054fe5bb3089c3c3577fbbb8bf8d9a0",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "8bf6680a38b2d4269c2a15e5078b62192410a748b418620ef68b4b4c7d9b22d3"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "swift",
+      "version": "1.0.0",
+      "descriptor": "swift/skill.json",
+      "descriptor_sha256": "dad7cd5117ca3c6ff2c72c91cdf1a844dbfd2f2318bb7c69219a204a47091e39",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "00cd9cee70b9245c4c0f650a44dbb00967644b188074f7afc61c7c7aea28c95f"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "dart",
+      "version": "1.0.0",
+      "descriptor": "dart/skill.json",
+      "descriptor_sha256": "45f1aa84614e0806aea060d8ba594801b46d7d06ff78912c5d28d7429fcb6228",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "89c990a52a33ea322f87b67f931df578bcd0876d9b9b3da45e843b2e95805623"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "shell",
+      "version": "1.0.0",
+      "descriptor": "shell/skill.json",
+      "descriptor_sha256": "a233ddf0e75149954b35038ae9a987ec6c5b9437465c457733b8c0854f0d6f7c",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "d9cb3ec466ce12185342e11d52621e41776a9e7b8818f7822da256a3acbd1504"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "sql",
+      "version": "1.0.0",
+      "descriptor": "sql/skill.json",
+      "descriptor_sha256": "895d2f1b003727e852c8cfe3680375d8d5ead234a27d10874dc52fd7481a0beb",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "6d4abb04dd0df3038b6418d4f8ce9a963dd6687c0c748aefb9c86782444038c7"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "data",
+      "version": "1.0.0",
+      "descriptor": "data/skill.json",
+      "descriptor_sha256": "7abd8fd65145e05f23fb86e695df713befab79bed699074110b4234412922fcd",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "21ce448ef89fe72a7c05fb48123da78cd24b8d387dfba7ebe24f7f5765355fd2"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "infrastructure",
+      "version": "1.0.0",
+      "descriptor": "infrastructure/skill.json",
+      "descriptor_sha256": "98802917f1b7b48ca1b84e288d3100f1317052d8e7b66ad9d63151c917283bc0",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "8892a40c1fdf2f84c3d3c11b8ea8db32825a95656d09ace13d0f9e2bafd33440"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "project-optimize",
+      "version": "1.0.0",
+      "descriptor": "project-optimize/skill.json",
+      "descriptor_sha256": "52be098661899887b9166bab9472c4d96bf19547c6fd9873072b8b875bfc3c5d",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "83fde373233ad53666da5b9c23da872f1d6d97dfedfbb52008d5a5e382b53555"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    },
+    {
+      "id": "memory-hygiene",
+      "version": "1.0.0",
+      "descriptor": "memory-hygiene/skill.json",
+      "descriptor_sha256": "02731fc355a534571b0029d3a3f395402ff3739aafaae72fac22510715ee7144",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "b94abc4539af0b3f65da9417f63205c4f18f7a425709573a6b2915702012f7f5"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": []
+    }
+  ]
+}

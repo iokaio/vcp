@@ -1,0 +1,1 @@
+{"schema":"fixture-git-setup/1","commit":{"staged.txt":"staged-sentinel-v1\n","unstaged.txt":"working-sentinel-v1\n","task.txt":"task-owned-baseline\n"},"stage":["staged.txt"],"leave_unstaged":["unstaged.txt"],"leave_untracked":["untracked.txt"],"requires_real_git_setup":true}

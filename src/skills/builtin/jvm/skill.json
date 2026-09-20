@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "jvm",
+  "version": "1.0.0",
+  "description": "Use Maven/Gradle wrapper, JVM version, module, and test conventions from the project.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "pom.xml",
+    "build.gradle"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "6e254b6286289991e52e72f321cae5bfcd79e6fbbe997aa463b09932e49e71eb"
+  },
+  "resources": []
+}

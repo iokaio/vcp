@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "cpp",
+  "version": "1.0.0",
+  "description": "Honor configured compiler, generator, build directory, ABI, and native test conventions.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "CMakeLists.txt"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "da88fdc7472c897b36f38c76470e8992485507aacbf14acd6ac8080d86505ceb"
+  },
+  "resources": []
+}

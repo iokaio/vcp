@@ -1,0 +1,1 @@
+{"name":"fixture-missing-test-runner","private":true,"scripts":{"test":"fixture-runner --filter amount"}}

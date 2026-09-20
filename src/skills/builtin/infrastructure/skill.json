@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "infrastructure",
+  "version": "1.0.0",
+  "description": "Review declared infrastructure/CI tools, identities, environments, and change plans without implicit deployment.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:infrastructure"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "8892a40c1fdf2f84c3d3c11b8ea8db32825a95656d09ace13d0f9e2bafd33440"
+  },
+  "resources": []
+}

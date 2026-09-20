@@ -9,7 +9,8 @@
       "upstream-source",
       "munarium-source",
       "upstream-boundaries",
-      "cli-trace-fixtures"
+      "cli-trace-fixtures",
+      "builtin-skills"
     ],
     "repository": [
       "repository"
@@ -29,6 +30,14 @@
     ]
   },
   "cases": {
+    "builtin-skills": {
+      "task_ids": ["P7-02"],
+      "args": ["--test", "src/tests/contracts/builtin-assets.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
     "cli-trace-fixtures": {
       "task_ids": [
         "P0-07"

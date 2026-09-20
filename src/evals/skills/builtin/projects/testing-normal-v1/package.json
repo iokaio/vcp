@@ -1,0 +1,1 @@
+{"name":"fixture-testing","private":true,"scripts":{"test:unit":"node --test unit.cjs","test:integration":"node --test integration.cjs"}}

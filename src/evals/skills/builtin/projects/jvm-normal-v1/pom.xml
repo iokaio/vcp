@@ -1,0 +1,1 @@
+<project><modelVersion>4.0.0</modelVersion><groupId>fixture</groupId><artifactId>root</artifactId><version>1</version><packaging>pom</packaging><modules><module>service</module></modules><properties><maven.compiler.release>17</maven.compiler.release></properties></project>

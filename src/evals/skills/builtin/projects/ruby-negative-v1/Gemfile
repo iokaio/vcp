@@ -1,0 +1,2 @@
+source 'https://invalid.example/fixture'
+gem 'fixture_native_extension', '1.0.0'

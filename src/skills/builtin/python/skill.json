@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "python",
+  "version": "1.0.0",
+  "description": "Respect Python environment, dependency, and project-defined test/lint/type-check conventions.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "pyproject.toml"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "e23dc3329e54146166deb4b36b11111e9f7a5d0ae96efcf169bafdceff954e7a"
+  },
+  "resources": []
+}

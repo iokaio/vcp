@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "javascript-typescript",
+  "version": "1.0.0",
+  "description": "Use declared package-manager, workspace, framework, and script conventions for JS/TS changes.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "package.json"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "95d1db5f03670f6de82aa7abf2e6c09fdc430cfc3572b9be120d46c222ce05b2"
+  },
+  "resources": []
+}
