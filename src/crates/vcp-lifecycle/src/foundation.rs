@@ -47,7 +47,9 @@ use codex_extension_api::{
 };
 use codex_protocol::{protocol::TokenUsage, ThreadId};
 #[cfg(windows)]
-pub use execution::{PreparedProcess, PreparedProcessOutcome, ProcessProposal};
+pub use execution::{
+    DuplexIoLimits, DuplexProcess, PreparedProcess, PreparedProcessOutcome, ProcessProposal,
+};
 #[cfg(windows)]
 pub use process::{CanonicalProcess, ProcessOutcome};
 use std::{

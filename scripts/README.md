@@ -33,6 +33,7 @@ This directory owns repository automation. `test.ps1` and `test-runner.cjs` impl
 | `package.ps1` | Assemble qualified artifacts, licenses, notices, and checksums | P8-04 |
 | `package-skills.ps1` (implemented qualification) | Stage an explicit executable with hash-bound built-in skills and notices, then verify every archive entry; see [built-in assets](../docs/development/p7-builtin-skills.md) | P7-02 |
 | `evals/builtin-skill-qualification.ps1` (implemented qualification) | Exercise the frozen project catalog and lazy activation contracts without model or ecosystem toolchain calls | P7-02 |
+| `evals/duplex-qualification.ps1` (implemented qualification) | Exercise bounded native duplex IO and canonical process authority/recovery with stable source and log identities; see [duplex prerequisite](../docs/development/p7-mcp-duplex.md) | P7-03 |
 | `evals/` | Orchestrate explicitly configured evaluations and collect results | P5-08/P8-05 |
 | `upstream/` (implemented baseline tooling) | `inventory.cjs` records immutable Git bytes; `reconstruct.cjs` reconstructs/verifies selected source; `build-baseline.ps1` runs native builds/tests | P0-07/P0-08, rehearsed in P8-06 |
 

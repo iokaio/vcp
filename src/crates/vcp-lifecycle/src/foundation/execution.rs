@@ -5,6 +5,8 @@ use std::{collections::BTreeMap, ffi::OsString};
 use vcp_domain::effect::{Effect, EffectState};
 use vcp_store::contract::Collection;
 use vcp_tools::process::{Pins, Prepared, Profile, Request};
+mod duplex;
+pub use duplex::{DuplexIoLimits, DuplexProcess};
 
 fn fence_process_owner(runtime: &Lifecycle) {
     if runtime.hold_owner().is_err() {
@@ -324,6 +326,13 @@ impl PreparedProcess {
             .wait()
             .await
             .map_err(|e| e.to_string())?;
+        self.finish_observed(observed, vec![])
+    }
+    fn finish_observed(
+        &mut self,
+        observed: crate::process::Outcome,
+        additional_evidence: Vec<ArtifactId>,
+    ) -> Result<PreparedProcessOutcome, String> {
         let partial = observed.stop_reason.is_some();
         let out = Arc::try_unwrap(self.stdout.take().unwrap())
             .map_err(|_| "stdout observer still active")?;
@@ -359,7 +368,7 @@ impl PreparedProcess {
                 _=>serde_json::json!({"complete":false,"reason":"current authority does not permit a fresh workspace observation"})
             };
             let evidence=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"schema_version":1,"effect":effect,"execution":execution,"exit_code":exit,"stop_reason":reason,"stdout_bytes":total.0,"stderr_bytes":total.1,"output_complete":!partial,"owned_processes_remaining":0,"observed_workspace":sources,"external_effects":"opaque; reduced isolation does not inventory external filesystem/network effects"}))?,"vcp-process-outcome-v1")?;
-            let mut receipts=vec![plan,evidence.spec.id.clone()];receipts.extend(output);
+            let mut receipts=vec![plan,evidence.spec.id.clone()];receipts.extend(output);receipts.extend(additional_evidence);
             let current:Effect=context.engine.store().state().record(Collection::Effect,effect.as_str(),&binding.scope.workspace)?.decode()?;
             receipts.extend(current.observed_changes);
             receipts.sort();receipts.dedup();
