@@ -362,6 +362,10 @@ impl Publisher {
     /// One manager per canonical owner. The owner lease excludes another process.
     pub fn new(root: &Path) -> Result<Self> {
         fs::create_dir_all(root).map_err(io)?;
+        Self::open_existing(root)
+    }
+    /// Read-only opening never creates a missing generation directory.
+    pub fn open_existing(root: &Path) -> Result<Self> {
         let metadata = fs::symlink_metadata(root).map_err(io)?;
         if !metadata.is_dir() || redirected(&metadata) {
             return Err(Error::Conflict("generation root boundary"));
@@ -850,7 +854,41 @@ impl Publisher {
     /// Components are pinned while holding the same mutex used by retirement.
     /// Corrupt canonical records fail; corrupt derivatives may fall back visibly.
     pub fn recover(&self, store: &Store, access: &Access) -> Result<Recovery> {
-        let workspace = access::authorize(store.state(), access, false)?;
+        self.recover_with_check(store, access, &|| Ok(()))
+    }
+    pub fn recover_with_check(
+        &self,
+        store: &Store,
+        access: &Access,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Recovery> {
+        self.recover_state(store.state(), access, check)
+    }
+    /// A canonical snapshot keeps the authoritative cut and artifact/root pins
+    /// alive while native component reopen runs outside the owner worker.
+    pub fn recover_snapshot(
+        &self,
+        snapshot: &vcp_store::Snapshot,
+        access: &Access,
+    ) -> Result<Recovery> {
+        self.recover_snapshot_with_check(snapshot, access, &|| Ok(()))
+    }
+    pub fn recover_snapshot_with_check(
+        &self,
+        snapshot: &vcp_store::Snapshot,
+        access: &Access,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Recovery> {
+        self.recover_state(snapshot.state(), access, check)
+    }
+    fn recover_state(
+        &self,
+        state: &State,
+        access: &Access,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Recovery> {
+        check()?;
+        let workspace = access::authorize(state, access, false)?;
         if access.tasks.is_some() {
             return Err(Error::Access);
         }
@@ -858,17 +896,18 @@ impl Publisher {
             .pins
             .lock()
             .map_err(|_| Error::Conflict("generation pin lock"))?;
-        let mut next = active(store.state(), &access.workspace)?.map(|active| active.generation);
+        let mut next = active(state, &access.workspace)?.map(|active| active.generation);
         let mut failed = Vec::new();
         let mut visited = BTreeSet::new();
         for _ in 0..64 {
+            check()?;
             let Some(id) = next else {
                 break;
             };
             if !visited.insert(id.clone()) {
                 return Err(Error::Conflict("canonical generation cycle"));
             }
-            let manifest = generation(store.state(), &id, &access.workspace)?;
+            let manifest = generation(state, &id, &access.workspace)?;
             next = manifest.previous.clone();
             if manifest.authority != workspace.authority || manifest.deletion != workspace.deletion
             {
@@ -877,6 +916,7 @@ impl Publisher {
             }
             if !pins.retired.contains(&id) {
                 if let Ok((inventory, lexical, vector)) = self.open_components(&manifest) {
+                    check()?;
                     *pins.readers.entry(id.clone()).or_default() += 1;
                     let rebuild_required = !failed.is_empty()
                         || (!manifest.empty_complete && manifest.vector_checksum.is_none())
@@ -892,7 +932,7 @@ impl Publisher {
                                 pins: self.pins.clone(),
                             },
                         }),
-                        canonical_head: store.state().watermark,
+                        canonical_head: state.watermark,
                         failed_components: failed,
                         rebuild_required,
                     });
@@ -900,9 +940,10 @@ impl Publisher {
             }
             failed.push(id);
         }
+        check()?;
         Ok(Recovery {
             view: None,
-            canonical_head: store.state().watermark,
+            canonical_head: state.watermark,
             failed_components: failed,
             rebuild_required: true,
         })

@@ -15,6 +15,7 @@ pub mod projections;
 pub mod proof;
 pub mod publication;
 pub mod repository;
+pub mod retrieval;
 pub mod runner;
 pub mod search_record;
 pub mod tokenizer;

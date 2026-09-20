@@ -18,7 +18,8 @@ use std::{
 use tantivy::{
     collector::TopDocs,
     query::{
-        AllQuery, BooleanQuery, BoostQuery, Occur, PhraseQuery, Query as TantivyQuery, TermQuery,
+        AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, Occur, PhraseQuery,
+        Query as TantivyQuery, TermQuery, TermSetQuery,
     },
     schema::{
         Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, INDEXED, STORED,
@@ -34,6 +35,9 @@ use vcp_domain::{
 pub const SCHEMA_VERSION: u32 = 1;
 pub const EXACT_BOOST: f32 = 8.0;
 pub const CODE_BOOST: f32 = 2.0;
+/// Matches the canonical Inventory record ceiling; membership narrows candidates
+/// before TopDocs and contributes no relevance score.
+pub const MAX_AUTHORIZED_IDS: usize = 16_384;
 const MANIFEST: &str = "vcp-lexical.json";
 
 #[derive(Clone, Copy, Debug)]
@@ -516,6 +520,27 @@ impl Reader {
         self.ids.is_empty()
     }
     pub fn search(&self, query: &Query) -> Result<Vec<Candidate>> {
+        self.search_inner(query, None)
+    }
+    pub fn search_authorized(
+        &self,
+        query: &Query,
+        authorized: &BTreeSet<String>,
+    ) -> Result<Vec<Candidate>> {
+        if authorized.len() > MAX_AUTHORIZED_IDS
+            || authorized
+                .iter()
+                .any(|id| !vcp_domain::accounting::valid_hash(id))
+        {
+            return Err(invalid("lexical authorized ID bounds"));
+        }
+        self.search_inner(query, Some(authorized))
+    }
+    fn search_inner(
+        &self,
+        query: &Query,
+        authorized: Option<&BTreeSet<String>>,
+    ) -> Result<Vec<Candidate>> {
         if query.workspace != self.workspace {
             return Err(Error::Access);
         }
@@ -525,6 +550,17 @@ impl Reader {
         let f = self.fields;
         let mut clauses: Vec<(Occur, Box<dyn TantivyQuery>)> =
             vec![(Occur::Must, term(f.workspace, query.workspace.as_str()))];
+        if let Some(authorized) = authorized {
+            clauses.push((
+                Occur::Must,
+                Box::new(ConstScoreQuery::new(
+                    Box::new(TermSetQuery::new(
+                        authorized.iter().map(|id| Term::from_field_text(f.id, id)),
+                    )),
+                    0.0,
+                )),
+            ));
+        }
         filter(
             &mut clauses,
             f.task,

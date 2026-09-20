@@ -31,10 +31,16 @@ pub enum Query {
     Inspect {
         request: vcp_audit::inspection::InspectionQuery,
     },
+    MemorySearch {
+        request: vcp_memory::retrieval::Request,
+    },
 }
 
 pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Value, String> {
     let selected: Vec<Value> = match query {
+        Query::MemorySearch { .. } => {
+            return Err("memory search requires the canonical store query boundary".into())
+        }
         Query::Continuation => {
             return serde_json::to_value(crate::continuation::discover(state, workspace)?)
                 .map_err(|e| e.to_string())
@@ -92,8 +98,26 @@ fn inspection_access(
 pub fn query_store(
     store: &Store,
     workspace: &WorkspaceId,
+    actor: &ActorId,
     request: &Query,
 ) -> Result<Value, String> {
+    if let Query::MemorySearch { request } = request {
+        let access = vcp_memory::access::Access {
+            workspace: workspace.clone(),
+            actor: actor.clone(),
+            authority: inspection_access(store.state(), workspace)?.authority,
+            read: true,
+            write: false,
+            tasks: None,
+        };
+        return serde_json::to_value(vcp_lifecycle::foundation::memory_inspection::inspect_store(
+            store,
+            &access,
+            store.root(),
+            request,
+        )?)
+        .map_err(|e| e.to_string());
+    }
     if let Query::Inspect { request } = request {
         return serde_json::to_value(
             vcp_audit::inspection::inspect(
@@ -340,6 +364,16 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         ValidatedCommand::Inspect { request } => Some(Query::Inspect {
             request: request.clone(),
         }),
+        ValidatedCommand::MemorySearch(search) => Some(Query::MemorySearch {
+            request: search.request(
+                entry
+                    .as_ref()
+                    .ok_or("workspace has no durable session")?
+                    .config
+                    .workspace
+                    .clone(),
+            ),
+        }),
         _ => None,
     };
     if let Some(query_request) = read {
@@ -360,7 +394,12 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         .await;
         let value = match store {
             Ok(store) => {
-                let value = query_store(&store, &entry.config.workspace, &query_request);
+                let value = query_store(
+                    &store,
+                    &entry.config.workspace,
+                    &entry.config.actor,
+                    &query_request,
+                );
                 store.close().await.map_err(|e| e.to_string())?;
                 value?
             }
