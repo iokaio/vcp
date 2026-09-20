@@ -44,6 +44,11 @@ empty replacement crates merely to match a diagram. Follow
 
 ## Segment index
 
+P5-08 now has [integrated memory acceptance](../evaluations/p5-08-integrated-memory.md):
+frozen recall comparisons, bounded recent-memory visibility, native hybrid search,
+retention and authenticated cross-backend restore. P6 routing/profile work is next;
+release acceptance still requires P6, P7 and P8.
+
 The [P0-04 storage milestone](../development/portable-storage-spike.md) now has
 local backend, crash, cryptographic interoperability and encrypted-transfer
 evidence. Its passing second-Windows-environment handoff gate is recorded in

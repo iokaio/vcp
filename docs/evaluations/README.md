@@ -1,5 +1,8 @@
 # Reviewed evaluation summaries
 
+- [P5-08 integrated memory](p5-08-integrated-memory.md): frozen recall strategies,
+  bounded recent-memory overlay, native hybrid search and encrypted restore/retention.
+
 - [P2 reliable local coding qualification](p2-completion.md): completed P2-01
   through P2-08 with native context/provider/policy/tools gates, retained-loop
   integration, honest verification, pause/recovery and current live provider

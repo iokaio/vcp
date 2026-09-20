@@ -1,6 +1,6 @@
 # 15 — Integrated qualification and native Windows release
 
-Status: planned. Owns P5-08 and P8-01 through P8-06. This file contains two stages: memory qualification before P6-04, then final integration after all required CLI features. Do not require the entire file to finish before routing development.
+Status: P5-08 complete with [integrated native memory evidence](../evaluations/p5-08-integrated-memory.md); P8-01 through P8-06 remain planned. This file contains two stages: memory qualification before P6-04, then final integration after all required CLI features. Do not require the entire file to finish before routing development.
 
 Use the [qualification and release design](../architecture/qualification-release-design.md) for executable harness, fault-oracle, package and evidence contracts. [ADR-012](../adr/012-clients-and-distribution.md) owns client/platform sequencing, [ADR-018](../adr/018-release-acceptance.md) records the complete usable-release gate, and [ADR-019](../adr/019-cloud-encryption-and-keys.md) retains the still-unqualified crypto choices. Architecture [section 20](../architecture/vcp-what.md#20-testing-evaluation-and-performance) supplies the quality and invariant authority.
 

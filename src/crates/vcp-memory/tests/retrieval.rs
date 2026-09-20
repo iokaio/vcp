@@ -167,6 +167,148 @@ fn request(scope: &Scope) -> Request {
 }
 
 #[tokio::test]
+async fn recent_overlay_recalls_new_claims_with_current_scope_and_return_fences() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for bounded in [false, true] {
+            let temporary = tempfile::tempdir().unwrap();
+            let (mut store, scope, access) =
+                fixture(&temporary.path().join("canonical"), backend).await;
+            let chunker = ChunkerSpec {
+                max_bytes: if bounded { 64 } else { 2048 },
+                ..ChunkerSpec::default()
+            };
+            let inventory = search_record::inventory(
+                &store,
+                &access,
+                &[],
+                &chunker,
+                search_record::Limits::default(),
+            )
+            .unwrap();
+            let publisher = Publisher::new(&temporary.path().join("derived")).unwrap();
+            let prepared = publisher
+                .prepare(
+                    publication::capture(&store, &access, &scope, inventory).unwrap(),
+                    None,
+                    &AtomicBool::new(false),
+                    &|_| {},
+                )
+                .unwrap();
+            publisher
+                .publish(&mut store, &access, &prepared, Timestamp::new(300), &|_| {})
+                .await
+                .unwrap();
+            let view = publisher.recover(&store, &access).unwrap().view.unwrap();
+            let recent_scope = Scope {
+                task: TaskId::new(),
+                ..scope.clone()
+            };
+            let mut engine = Engine::new(store).unwrap();
+            let value = if bounded {
+                "heliotrope ".repeat(744)
+            } else {
+                "heliotrope".into()
+            };
+            issue(&mut engine, &recent_scope, Command::CreateTask {
+            root: recent_scope.task.clone(), parent: None, fork_origin: None,
+            objective: Objective {
+                text: serde_json::json!({"memory_preference":{"key":"recentColor","value":value}}).to_string(),
+                constraints: vec![], acceptance: vec!["retain".into()], source: EventId::new(), steering: SteeringRevision::ZERO,
+            },
+            fingerprint: Fingerprint {repository:"a".repeat(64), buffers:"b".repeat(64), environment:"c".repeat(64)},
+            editing:false, required_checks:vec![],
+        }).await;
+            let event = engine.store().state().events.last().unwrap().clone();
+            let proposal =
+                vcp_memory::preferences::materialize(engine.store_mut(), &access, &event)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            vcp_memory::repository::propose(
+                engine.store_mut(),
+                &access,
+                proposal,
+                Timestamp::new(400),
+            )
+            .await
+            .unwrap();
+            let store = engine.into_store();
+            let mut query_request = request(&scope);
+            query_request.text = "heliotrope".into();
+            query_request.minimum_sequence = Some(MemorySeq::new(2));
+            let result = query(
+                &store,
+                &access,
+                Some(&view),
+                &query_request,
+                &[],
+                &chunker,
+                None,
+                &|| false,
+            )
+            .unwrap();
+            assert!(
+                !result.passages.is_empty(),
+                "acknowledged recent evidence must be recalled during index lag"
+            );
+            assert!(result.passages.iter().all(|p| p.text.contains("heliotrope")
+                && p.rank.overlay_rank.is_some()
+                && p.rank.lexical_rank.is_none()
+                && p.rank.vector_rank.is_none()));
+            assert!(result.degraded.contains(&"recent_overlay_lexical_only"));
+            assert_eq!(result.degraded.contains(&"recent_overlay_bounded"), bounded);
+            assert!(result.degraded.contains(&"minimum_sequence_unsatisfied"));
+            revalidate_fence(&store, &access, result.fence.as_ref().unwrap()).unwrap();
+            let narrowed = Access {
+                tasks: Some(BTreeSet::from([scope.task.clone()])),
+                workspace: access.workspace.clone(),
+                actor: access.actor.clone(),
+                authority: access.authority,
+                read: access.read,
+                write: access.write,
+            };
+            let denied = query(
+                &store,
+                &narrowed,
+                Some(&view),
+                &query_request,
+                &[],
+                &chunker,
+                None,
+                &|| false,
+            )
+            .unwrap();
+            assert!(denied.passages.is_empty());
+            let selection = search(
+                capture(&store, &access, &query_request, &[], &chunker, &|| false).unwrap(),
+                Some(&view),
+                None,
+                &|| false,
+            )
+            .unwrap();
+            assert!(finish(&store, &narrowed, selection, &|| false)
+                .unwrap()
+                .passages
+                .is_empty());
+            query_request.paths = Some(vec!["src/unrelated.rs".into()]);
+            assert!(query(
+                &store,
+                &access,
+                Some(&view),
+                &query_request,
+                &[],
+                &chunker,
+                None,
+                &|| false
+            )
+            .unwrap()
+            .passages
+            .is_empty());
+        }
+    }
+}
+
+#[tokio::test]
 async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_rechecks_sources() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temporary = tempfile::tempdir().unwrap();

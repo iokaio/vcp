@@ -1,0 +1,11 @@
+{
+  "revision":"p5-08-held-out-questions-v1",
+  "cases":[
+    {"id":"current-deployment","question":"Which deployment cluster is current?","query":"deployment","allowed":["deploy-old","format","deploy-current","late"],"relevant":["deploy-current"],"stale":["deploy-old"]},
+    {"id":"formatting-command","question":"What formatting command should precede review?","query":"formatting","allowed":["deploy-old","format","deploy-current","late"],"relevant":["format"],"stale":["deploy-old"]},
+    {"id":"restricted-scope","question":"What is the restricted recovery contact?","query":"restricted","allowed":["deploy-old","format","deploy-current","late"],"relevant":[],"stale":["deploy-old"]},
+    {"id":"unsupported-question","question":"What is the lunar launch authorization code?","query":"lunar","allowed":["deploy-old","format","deploy-current","late"],"relevant":[],"stale":["deploy-old"]},
+    {"id":"recent-handoff","question":"Where should handoff notes be retained?","query":"handoff","allowed":["deploy-old","format","deploy-current","late"],"relevant":["late"],"stale":["deploy-old"]},
+    {"id":"empty-scope","question":"What deployment information is available with no task access?","query":"deployment","allowed":[],"relevant":[],"stale":["deploy-old"]}
+  ]
+}
