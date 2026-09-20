@@ -1447,6 +1447,17 @@
       "effects": ["process", "scheduler"]
     },
     {
+      "id": "owned-http-socket",
+      "group": "lifecycle-host",
+      "package": "vcp-lifecycle",
+      "path": "../../../crates/vcp-lifecycle/src/remote_transport.rs",
+      "symbol": "pub(crate) async fn exchange(",
+      "observation": "Private one-attempt HTTP/1 transport gates connecting and physical socket writes below TLS against owner generation and scoped credential revocation. Explicit recipient and trust, bounded reads, synchronous owner socket closure and no retries do not themselves grant canonical tool authority.",
+      "effect_class": "effectful",
+      "vcp_boundary": "controller",
+      "effects": ["network", "credential", "scheduler"]
+    },
+    {
       "id": "host-memory-inspection",
       "group": "lifecycle-host",
       "package": "vcp-lifecycle",

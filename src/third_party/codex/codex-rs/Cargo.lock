@@ -17591,6 +17591,7 @@ dependencies = [
 name = "vcp-lifecycle"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "codex-apply-patch",
  "codex-core",
  "codex-extension-api",
@@ -17599,12 +17600,21 @@ dependencies = [
  "codex-protocol",
  "codex-utils-pty",
  "core_test_support",
+ "http 1.4.0",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "munarium-core",
+ "rcgen",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "socket2 0.6.3",
  "tempfile",
  "tokio",
+ "tokio-rustls",
+ "url",
  "vcp-audit",
  "vcp-budget",
  "vcp-context",
@@ -17619,6 +17629,7 @@ dependencies = [
  "vcp-store",
  "vcp-tools",
  "wiremock",
+ "zeroize",
 ]
 
 [[package]]

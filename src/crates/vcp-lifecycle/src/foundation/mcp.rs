@@ -10,6 +10,7 @@ use vcp_mcp::{
     registration::Limits,
 };
 use vcp_store::contract::Collection;
+pub mod remote_authority;
 pub(crate) mod transport;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]

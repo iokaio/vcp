@@ -19,6 +19,8 @@ pub mod integration;
 pub mod ports;
 #[cfg(windows)]
 pub mod process;
+#[cfg(windows)]
+pub(crate) mod remote_transport;
 
 #[derive(Clone, Debug)]
 pub struct Revision {
@@ -204,6 +206,8 @@ struct Inner {
     jobs: Mutex<HashMap<ThreadId, Vec<Arc<codex_utils_pty::JobObject>>>>,
     #[cfg(windows)]
     process_observers: Mutex<HashMap<ThreadId, Vec<Arc<std::sync::atomic::AtomicBool>>>>,
+    #[cfg(windows)]
+    remote_sockets: Mutex<HashMap<ThreadId, Vec<Weak<remote_transport::SocketControl>>>>,
 }
 
 /// Cloneable host API. The separate owner lease controls owner lifetime.
@@ -315,6 +319,8 @@ impl Lifecycle {
             jobs: Mutex::new(HashMap::new()),
             #[cfg(windows)]
             process_observers: Mutex::new(HashMap::new()),
+            #[cfg(windows)]
+            remote_sockets: Mutex::new(HashMap::new()),
         }));
         let owner = OwnerLease(lifecycle.clone());
         (lifecycle, owner)
@@ -622,7 +628,13 @@ impl Lifecycle {
         // Seal in memory first. Even if persistence fails, still interrupt every
         // selected controller; failed acknowledgement must not leave work alive.
         let durable = state.checkpoint();
+        #[cfg(windows)]
+        let remote_wakers = self.close_remote_sockets(&selected);
         drop(state);
+        #[cfg(windows)]
+        for waker in remote_wakers {
+            waker.wake();
+        }
         self.0.changed.notify_waiters();
         let waiter = HoldWaiter(self.interrupt_owned(selected, true));
         durable.map(|_| waiter)
@@ -751,10 +763,19 @@ impl Lifecycle {
     }
 
     fn lose_owner(&self) -> Option<HoldWaiter> {
-        let Ok(mut state) = self.0.state.lock() else {
-            return None;
+        let mut state = match self.0.state.lock() {
+            Ok(state) => state,
+            Err(error) => {
+                drop(error);
+                #[cfg(windows)]
+                self.close_all_remote_sockets();
+                return None;
+            }
         };
         if !state.attached {
+            drop(state);
+            #[cfg(windows)]
+            self.close_all_remote_sockets();
             return None;
         }
         state.attached = false;
@@ -770,7 +791,13 @@ impl Lifecycle {
             entry.interruption_error = None;
         }
         let _ = state.checkpoint();
+        #[cfg(windows)]
+        let remote_wakers = self.close_remote_sockets(&selected);
         drop(state);
+        #[cfg(windows)]
+        for waker in remote_wakers {
+            waker.wake();
+        }
         Some(HoldWaiter(self.interrupt_owned(selected, false)))
     }
 }
