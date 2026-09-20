@@ -25,6 +25,8 @@ pub struct Profile {
     pub automatic_effects: BTreeSet<EffectClass>,
     pub budget_usd: Option<String>,
     pub provider: Snapshot,
+    #[serde(default)]
+    pub routing: Option<vcp_lifecycle::foundation::routing::Configuration>,
     pub catalog: PathBuf,
     pub affected_paths: Vec<PathBuf>,
     pub max_requests: u32,
@@ -241,6 +243,9 @@ impl Profile {
         .map_err(|e| e.to_string())?;
         if expected != self.provider {
             return Err("provider snapshot does not match captured catalog".into());
+        }
+        if let Some(routing) = &self.routing {
+            routing.validate()?;
         }
         let mut names = BTreeSet::new();
         let mut processes = Vec::new();

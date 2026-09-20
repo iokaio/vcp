@@ -8,6 +8,8 @@ mod coding;
 mod console;
 mod control;
 #[cfg(windows)]
+mod escalation;
+#[cfg(windows)]
 mod execution;
 mod memory;
 #[cfg(windows)]
@@ -15,6 +17,7 @@ mod memory_query;
 mod provider;
 pub(super) mod recovery;
 mod retention_policy;
+mod routing;
 #[cfg(windows)]
 mod tools;
 #[cfg(windows)]
@@ -154,6 +157,7 @@ pub struct Context {
     authority_pending: bool,
     provider_required: bool,
     provider: Option<provider::Provider>,
+    routing: Option<routing::Runtime>,
     #[cfg(windows)]
     coding: HashMap<TaskId, coding::Loop>,
     #[cfg(windows)]
@@ -263,6 +267,7 @@ impl Context {
             authority_pending: false,
             provider_required,
             provider: None,
+            routing: None,
             #[cfg(windows)]
             coding: HashMap::new(),
             #[cfg(windows)]
@@ -630,7 +635,22 @@ impl Context {
         if let Some(prepared) = &provider_request {
             body = prepared.body.clone();
         }
-        if body["model"].as_str() != Some(&self.config.price.model) {
+        let price = provider_request.as_ref().map_or_else(
+            || self.config.price.clone(),
+            |prepared| prepared.snapshot.price.clone(),
+        );
+        let input_ceiling =
+            provider_request
+                .as_ref()
+                .map_or(self.config.input_ceiling, |prepared| {
+                    Units::new(
+                        self.config
+                            .input_ceiling
+                            .get()
+                            .min(prepared.snapshot.max_input.get()),
+                    )
+                });
+        if body["model"].as_str() != Some(&price.model) {
             return Err("request model differs from admitted price/capability".into());
         }
         if !body.is_object() {
@@ -654,7 +674,7 @@ impl Context {
             return Err("unpriced provider tool".into());
         }
         let bytes = canonical_bytes(&body)?;
-        if bytes.len() as u64 > self.config.input_ceiling.get() {
+        if bytes.len() as u64 > input_ceiling.get() {
             return Err("request exceeds qualified text input byte ceiling".into());
         }
         let scope = &binding.scope;
@@ -710,7 +730,7 @@ impl Context {
             requests: Units::new(1),
             ..Default::default()
         };
-        let quote = vcp_budget::arithmetic::quote(self.config.price.clone(), bounds, actor.now)?;
+        let quote = vcp_budget::arithmetic::quote(price, bounds, actor.now)?;
         let input = vcp_budget::Admission {
             transaction: TransactionId::new(),
             attempt: AttemptId::new(),
@@ -721,11 +741,21 @@ impl Context {
             request: descriptor.spec.id.clone(),
             request_digest: descriptor.sha256.clone(),
             quote,
-            previous: self
-                .provider
-                .as_ref()
-                .and_then(|p| p.retries.get(&binding.scope.task))
-                .map(|r| r.predecessor.clone()),
+            previous: {
+                let retry = self
+                    .provider
+                    .as_ref()
+                    .and_then(|p| p.retries.get(&binding.scope.task))
+                    .map(|r| r.predecessor.clone());
+                #[cfg(windows)]
+                let retry = retry.or_else(|| {
+                    provider_request
+                        .as_ref()
+                        .and_then(|prepared| prepared.escalation.as_ref())
+                        .map(|pending| pending.plan.previous_attempt.clone())
+                });
+                retry
+            },
             expected_ledger: root.revision,
             policy: root.policy,
             steering: task.steering,
@@ -758,6 +788,56 @@ impl Context {
                 return Err(error.into());
             }
         };
+        if let Some(decision) = provider_request
+            .as_ref()
+            .and_then(|prepared| prepared.routing.as_ref())
+        {
+            if let Err(error) = self.record_routing_attempt(
+                binding,
+                decision,
+                &vcp_protocol::digest_bytes(&bytes),
+                attempt.id.clone(),
+            ) {
+                self.runtime.block_on(vcp_budget::release_before_send(
+                    self.engine.store_mut(),
+                    &attempt.id,
+                    scope,
+                    &actor,
+                ))?;
+                return Err(error);
+            }
+        }
+        #[cfg(windows)]
+        if let Some(pending) = provider_request
+            .as_ref()
+            .and_then(|prepared| prepared.escalation.as_ref())
+        {
+            let access = self.routing_access();
+            let handoff = pending
+                .handoff
+                .as_ref()
+                .ok_or("escalation handoff missing after preparation")?;
+            if let Err(error) =
+                self.runtime
+                    .block_on(crate::foundation::routing_state::record_escalation(
+                        self.engine.store_mut(),
+                        &access,
+                        scope,
+                        &pending.plan,
+                        handoff,
+                        attempt.id.clone(),
+                        now(),
+                    ))
+            {
+                self.runtime.block_on(vcp_budget::release_before_send(
+                    self.engine.store_mut(),
+                    &attempt.id,
+                    scope,
+                    &actor,
+                ))?;
+                return Err(error.into());
+            }
+        }
         let response = self.engine.store().spool().create(self.spec(
             scope,
             Channel::Response,

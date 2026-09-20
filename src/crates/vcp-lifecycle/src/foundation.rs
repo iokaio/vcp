@@ -31,6 +31,8 @@ pub mod memory_vectors;
 pub mod openrouter;
 #[cfg(windows)]
 mod process;
+pub mod routing;
+pub mod routing_state;
 #[cfg(windows)]
 mod tools;
 #[cfg(windows)]

@@ -32,6 +32,10 @@ pub enum Request {
         workspace: WorkspaceId,
         request: vcp_lifecycle::foundation::history_retention::Request,
     },
+    Optimize {
+        workspace: WorkspaceId,
+        command: crate::optimize::offline::Command,
+    },
     Query {
         workspace: WorkspaceId,
         query: crate::app::Query,
@@ -202,6 +206,10 @@ async fn handle(
             workspace: requested,
             request,
         } if requested == *workspace => host.history_retention(request),
+        Request::Optimize {
+            workspace: requested,
+            command,
+        } if requested == *workspace => crate::optimize::offline::on_host(host, &command),
         Request::Query {
             workspace: requested,
             query,

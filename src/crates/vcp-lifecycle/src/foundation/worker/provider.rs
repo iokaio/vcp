@@ -19,6 +19,10 @@ pub(super) struct PendingRetry {
     not_before: std::time::Instant,
 }
 struct Ready {
+    #[cfg(windows)]
+    escalation: Option<super::escalation::Pending>,
+    snapshot: Snapshot,
+    routing: Option<vcp_models::routing::RoutingDecision>,
     context: VerifiedContext,
     schemas: serde_json::Value,
     roots: Vec<Root>,
@@ -26,8 +30,12 @@ struct Ready {
     memory: Option<crate::foundation::memory_query::SendFence>,
 }
 pub(super) struct Prepared {
+    #[cfg(windows)]
+    pub escalation: Option<super::escalation::Pending>,
     pub body: serde_json::Value,
     pub stream: stream::Stream,
+    pub snapshot: Snapshot,
+    pub routing: Option<vcp_models::routing::RoutingDecision>,
 }
 
 impl Context {
@@ -81,12 +89,6 @@ impl Context {
         let catalog = self.capture(&scope, Channel::Evidence, &raw, "openrouter-endpoints/1")?;
         self.capture(&scope,Channel::Evidence,&canonical_bytes(&serde_json::json!({"snapshot":snapshot,"catalog_artifact":catalog.spec.id,"timeout_ms":timeout.as_millis()}))?,"openrouter-provider-configuration/1")?;
         self.config.price = snapshot.price.clone();
-        self.config.input_ceiling = Units::new(
-            self.config
-                .input_ceiling
-                .get()
-                .min(snapshot.max_input.get()),
-        );
         self.provider = Some(Provider {
             snapshot,
             prepared: HashMap::new(),
@@ -174,16 +176,53 @@ impl Context {
         self.validate_ready_context(binding, ready)
     }
     fn validate_ready_context(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
+        if let Some(decision) = &ready.routing {
+            let current_catalog = crate::foundation::routing_state::current_registry(
+                self.engine.store(),
+                &self.routing_access(),
+            )
+            .map_err(|e| -> Failure { e.into() })?;
+            if self
+                .current_routing_policy()?
+                .as_ref()
+                .is_none_or(|policy| policy.id != decision.input.policy)
+                || current_catalog
+                    .as_ref()
+                    .is_none_or(|registry| registry.value.catalog.id != decision.input.catalog)
+                || decision.selected.as_ref().is_none_or(|selected| {
+                    selected.model != ready.snapshot.compatibility.model
+                        || selected.endpoint != ready.snapshot.compatibility.endpoint
+                })
+            {
+                return Err("routing policy or selected endpoint changed before admission".into());
+            }
+            let catalog = &current_catalog
+                .ok_or("routing catalog unavailable")?
+                .value
+                .catalog;
+            let policy = self
+                .current_routing_policy()?
+                .ok_or("routing policy unavailable")?;
+            let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
+            let available = Money {
+                currency: ledger.currency.clone(),
+                micros: Micros::new(
+                    ledger
+                        .cap
+                        .get()
+                        .saturating_sub(ledger.settled.get())
+                        .saturating_sub(ledger.active.get())
+                        .saturating_sub(ledger.unresolved.get()),
+                ),
+            };
+            decision.validate_selected_at(catalog, &policy, now(), available, ledger.protected)?;
+        }
         #[cfg(windows)]
         self.instruction_parents(binding)?;
         #[cfg(windows)]
         if let Some(memory) = &ready.memory {
             self.validate_memory_context(binding, memory, ready.context.sealed())?;
         }
-        let provider = self
-            .provider
-            .as_ref()
-            .ok_or("OpenRouter configuration required")?;
         let current = self.context_revisions(binding)?;
         let sealed = ready.context.sealed();
         sealed.revalidate(
@@ -213,7 +252,7 @@ impl Context {
                 })
             },
         )?;
-        request::validate_sealed(&ready.context, &provider.snapshot, &ready.schemas, now())?;
+        request::validate_sealed(&ready.context, &ready.snapshot, &ready.schemas, now())?;
         if sealed.manifest.envelope.output != self.config.output_ceiling {
             return Err("sealed output differs from host ceiling".into());
         }
@@ -233,6 +272,7 @@ impl Context {
             roots,
             #[cfg(windows)]
             None,
+            None,
         )
     }
     #[cfg(windows)]
@@ -244,7 +284,18 @@ impl Context {
         roots: Vec<Root>,
         memory: Option<crate::foundation::memory_query::SendFence>,
     ) -> Result<()> {
-        self.prepare_context_checked(binding, sealed, schemas, roots, memory)
+        self.prepare_context_checked(binding, sealed, schemas, roots, memory, None)
+    }
+    #[cfg(windows)]
+    pub(super) fn prepare_routed_context(
+        &mut self,
+        binding: &ThreadBinding,
+        sealed: Sealed,
+        schemas: serde_json::Value,
+        roots: Vec<Root>,
+        snapshot: Snapshot,
+    ) -> Result<()> {
+        self.prepare_context_checked(binding, sealed, schemas, roots, None, Some(snapshot))
     }
     fn prepare_context_checked(
         &mut self,
@@ -253,7 +304,9 @@ impl Context {
         schemas: serde_json::Value,
         roots: Vec<Root>,
         #[cfg(windows)] memory: Option<crate::foundation::memory_query::SendFence>,
+        snapshot: Option<Snapshot>,
     ) -> Result<()> {
+        self.require_configured_routing()?;
         #[cfg(windows)]
         for part in &sealed.manifest.included {
             let descriptor: ArtifactDescriptor = self
@@ -301,12 +354,41 @@ impl Context {
             }
         }
         let ready = Ready {
+            #[cfg(windows)]
+            escalation: self
+                .routing
+                .as_mut()
+                .and_then(|runtime| runtime.pending.remove(&binding.scope.task)),
+            snapshot: snapshot.unwrap_or(
+                self.provider
+                    .as_ref()
+                    .ok_or("OpenRouter configuration required")?
+                    .snapshot
+                    .clone(),
+            ),
+            routing: self
+                .routing
+                .as_mut()
+                .and_then(|runtime| runtime.prepared.remove(&binding.scope.task)),
             context: self.verify_context(sealed)?,
             schemas,
             roots,
             #[cfg(windows)]
             memory,
         };
+        if self.routing.is_some() && ready.routing.is_none() {
+            return Err(
+                "automatic routing requires a current qualified selection for this task".into(),
+            );
+        }
+        #[cfg(windows)]
+        if ready
+            .escalation
+            .as_ref()
+            .is_some_and(|pending| pending.handoff.is_none())
+        {
+            return Err("escalation requires a captured validated handoff".into());
+        }
         self.validate_ready(binding, &ready)?;
         let provider = self
             .provider
@@ -359,13 +441,19 @@ impl Context {
         .ok_or("fresh sealed context required for every retained attempt")?;
         self.validate_ready(binding, &ready)?;
         let ready = Ready {
+            #[cfg(windows)]
+            escalation: ready.escalation,
+            snapshot: ready.snapshot,
+            routing: ready.routing,
             context: self.verify_context(ready.context.into_sealed())?,
             schemas: ready.schemas,
             roots: ready.roots,
             #[cfg(windows)]
             memory: ready.memory,
         };
-        if retained["model"].as_str() != Some(&ready.context.sealed().manifest.envelope.model) {
+        if ready.routing.is_none()
+            && retained["model"].as_str() != Some(&ready.context.sealed().manifest.envelope.model)
+        {
             return Err("retained request model differs from seal".into());
         }
         let sealed = ready.context.sealed();
@@ -379,12 +467,23 @@ impl Context {
         )?;
         // Recheck after durable capture, ordered with all canonical commands.
         self.validate_ready(binding, &ready)?;
+        let snapshot = ready.snapshot.clone();
+        let routing = ready.routing.clone();
+        #[cfg(windows)]
+        let escalation = ready.escalation.clone();
         self.provider
             .as_mut()
             .ok_or("provider configuration missing")?
             .active
             .insert(binding.scope.task.clone(), ready);
-        Ok(Prepared { body, stream })
+        Ok(Prepared {
+            body,
+            stream,
+            snapshot,
+            routing,
+            #[cfg(windows)]
+            escalation,
+        })
     }
     #[cfg(windows)]
     pub(super) fn validate_memory_send(&self, binding: &ThreadBinding) -> Result<()> {
@@ -393,6 +492,40 @@ impl Context {
             .as_ref()
             .and_then(|p| p.active.get(&binding.scope.task))
         {
+            self.require_configured_routing()?;
+            if let Some(decision) = &ready.routing {
+                let policy = self
+                    .current_routing_policy()?
+                    .ok_or("routing configuration missing at send fence")?;
+                let registry = crate::foundation::routing_state::current_registry(
+                    self.engine.store(),
+                    &self.routing_access(),
+                )
+                .map_err(|e| -> Failure { e.into() })?
+                .ok_or("routing registry missing at send fence")?;
+                if policy.id != decision.input.policy
+                    || registry.value.catalog.id != decision.input.catalog
+                {
+                    return Err("routing policy or catalog changed at send fence".into());
+                }
+                ready.snapshot.current(now())?;
+                if decision
+                    .selected_snapshot(&registry.value.catalog)?
+                    .is_none_or(|snapshot| snapshot != &ready.snapshot)
+                {
+                    return Err("routing snapshot changed at send fence".into());
+                }
+                // The exact reservation is already active. Recheck expiring
+                // evidence using the recorded pre-reservation allocation;
+                // atomic budget admission owns the current money check.
+                decision.validate_selected_at(
+                    &registry.value.catalog,
+                    &policy,
+                    now(),
+                    decision.input.available.clone(),
+                    decision.input.protected_verification,
+                )?;
+            }
             if let Some(memory) = &ready.memory {
                 self.validate_memory_context(binding, memory, ready.context.sealed())?;
             }
@@ -414,6 +547,50 @@ impl Context {
         };
         if provider.retries.contains_key(&binding.scope.task) {
             return Err("retry already scheduled".into());
+        }
+        if let Some(policy) = self
+            .routing
+            .as_ref()
+            .and_then(|routing| routing.configuration.escalation.as_ref())
+        {
+            let admissions = crate::foundation::routing_state::admitted_escalations(
+                self.engine.store(),
+                &self.routing_access(),
+                &binding.scope,
+            )
+            .map_err(|e| -> Failure { e.into() })?;
+            let switched: std::collections::BTreeSet<_> = admissions
+                .iter()
+                .filter(|record| {
+                    record.plan.trigger.class() != vcp_models::escalation::Class::TransportRetry
+                })
+                .map(|record| &record.attempt)
+                .collect();
+            let attempts: Vec<Attempt> = self
+                .engine
+                .store()
+                .state()
+                .records
+                .values()
+                .filter(|r| r.collection == Collection::Attempt)
+                .map(Record::decode)
+                .collect::<std::result::Result<_, _>>()?;
+            let root: Vec<_> = attempts
+                .iter()
+                .filter(|a| {
+                    a.root == self.config.root_task && a.scope.workspace == binding.scope.workspace
+                })
+                .collect();
+            let retries = root
+                .iter()
+                .filter(|a| a.previous.is_some() && !switched.contains(&a.id))
+                .count();
+            if retries >= policy.max_transport_retries as usize
+                || root.len() >= policy.max_total_attempts as usize
+                || now() >= policy.deadline
+            {
+                return Ok(None);
+            }
         }
         self.validate_retry_sources(
             binding,
@@ -577,10 +754,15 @@ impl Context {
             },
             &actor,
         ))?;
+        let admitted = vcp_budget::attempt(
+            self.engine.store().state(),
+            attempt,
+            &binding.scope.workspace,
+        )?;
         if normalized
             .served_model
             .as_ref()
-            .is_some_and(|model| model != &self.config.price.model)
+            .is_some_and(|model| model != &admitted.quote.price.model)
         {
             self.pause_root("observed served model differs from admitted model pin")?;
         }

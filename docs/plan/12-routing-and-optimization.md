@@ -1,10 +1,10 @@
 # 12 — Model groups, cost profiles and project optimization
 
-Status: planned. Owns P6-01 through P6-05. Registry work follows P2-02 and P5-06; final profile qualification also needs P5-08. Architecture sections 7–8 govern routing. [Model research](../architecture/model-groups.md) supplies candidates, not shipping ranks/prices.
+Status: in progress. The [routing foundation](../evaluations/p6-routing-foundation.md) implements deterministic registry/selection, retained host admission, escalation and local optimizer controls. Live profile/evaluator qualification and the remaining policy surface are still acceptance gates. Owns P6-01 through P6-05. Registry work follows P2-02 and P5-06; final profile qualification also needs P5-08. Architecture sections 7–8 govern routing. [Model research](../architecture/model-groups.md) supplies candidates, not shipping ranks/prices.
 
 ## Code organization
 
-Use `vcp-models/catalog` for gateway metadata and `vcp-routing/group_registry`, `eligibility`, `policy`, `selector`, `explanation`, `escalation`, `handoff`, `optimizer` and `evaluation` for VCP decisions. CLI interview/policy-diff presentation belongs in `vcp-cli/optimize`; policy revisions and outcome observations use the canonical store.
+Use `vcp-models/catalog` for gateway metadata. The logical `vcp-routing` registry, eligibility, policy, selector, explanation, escalation and handoff boundaries map into `vcp-models::{routing,escalation}`; canonical optimizer/publication services map into `vcp-lifecycle::foundation::routing_state`. This retains existing dependency boundaries without another gateway or database. CLI interview/policy-diff presentation belongs in `vcp-cli/optimize`; policy revisions and outcome observations use the canonical store.
 
 P6-02 also owns the logical `vcp-decision` contract, deterministic evaluator and
 optional thin Rust OpenRouter adapter; P6-03/P6-05 consume its bounded advice.

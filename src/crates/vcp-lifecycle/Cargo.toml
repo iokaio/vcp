@@ -7,6 +7,9 @@ license = "Apache-2.0"
 publish = false
 workspace = "../../third_party/codex/codex-rs"
 
+[features]
+qualification = ["vcp-store/qualification"]
+
 [dependencies]
 vcp-domain = { path = "../vcp-domain" }
 vcp-protocol = { path = "../vcp-protocol" }

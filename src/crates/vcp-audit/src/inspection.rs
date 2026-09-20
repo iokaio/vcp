@@ -144,6 +144,8 @@ fn selected(record: &Record, view: View) -> bool {
         View::Routing => {
             matches!(record.collection, Attempt | Settlement)
                 || record.collection == Artifact && matches!(channel, Some("response" | "evidence"))
+                || record.collection == Projection
+                    && record.value["document_type"] == "vcp_routing_decision_v1"
         }
         View::Policy => {
             matches!(record.collection, Workspace | Access | Approval)
@@ -205,8 +207,14 @@ pub fn records(state: &State, access: &Access, query: &InspectionQuery) -> Resul
     if query.view == View::Memory {
         page.gaps.push(json!({"visibility":"unavailable","reason":"memory search and evidence navigation are not ready; P5-06"}));
     }
-    if query.view == View::Routing {
-        page.gaps.push(json!({"visibility":"unavailable","reason":"fixed qualified model; grouped routing decisions and exclusions are not ready", "requested_model":"attempt.quote.price.model", "served_model":"captured response bytes when observed; never inferred from requested model"}));
+    if query.view == View::Routing
+        && !state.records.values().any(|record| {
+            record.workspace == access.workspace
+                && task(record) == Some(page.scope.task.as_str())
+                && record.value["document_type"] == "vcp_routing_decision_v1"
+        })
+    {
+        page.gaps.push(json!({"visibility":"unavailable","reason":"no automatic routing decision retained for this task; fixed provider or no admitted routed request", "requested_model":"attempt.quote.price.model", "served_model":"captured response bytes when observed; never inferred from requested model"}));
     }
     let after = query.cursor.as_ref().map_or("", |c| c.after.as_str());
     let mut bytes = 0;

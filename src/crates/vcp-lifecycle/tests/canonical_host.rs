@@ -69,6 +69,9 @@ mod response_boundary;
 #[cfg(windows)]
 #[path = "support/restore_search.rs"]
 mod restore_search;
+#[cfg(windows)]
+#[path = "support/routing.rs"]
+mod routing;
 #[path = "support/selected_reopen.rs"]
 mod selected_reopen;
 #[cfg(windows)]

@@ -57,6 +57,11 @@ pub enum Command {
         #[command(subcommand)]
         command: crate::history::History,
     },
+    /// Local optimization evidence and preferences; never starts inference.
+    Optimize {
+        #[command(subcommand)]
+        command: crate::optimize::offline::Command,
+    },
     Prune {
         #[command(subcommand)]
         command: crate::history::Prune,
@@ -271,6 +276,7 @@ pub enum ValidatedCommand {
     Storage(crate::storage::Storage),
     Backup(crate::backup::Backup),
     History(crate::history::History),
+    Optimize(crate::optimize::offline::Command),
     Prune(crate::history::Prune),
     Retention(crate::history::Retention),
     Discover,
@@ -318,6 +324,10 @@ impl Cli {
                 Command::Storage { command } => ValidatedCommand::Storage(command),
                 Command::Backup { command } => ValidatedCommand::Backup(command),
                 Command::History { command } => ValidatedCommand::History(command),
+                Command::Optimize { command } => {
+                    command.validate()?;
+                    ValidatedCommand::Optimize(command)
+                }
                 Command::Prune { command } => ValidatedCommand::Prune(command),
                 Command::Retention { command } => ValidatedCommand::Retention(command),
                 Command::Rebind { workspace_id } => ValidatedCommand::Rebind(workspace_id),

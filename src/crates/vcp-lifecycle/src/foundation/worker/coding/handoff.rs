@@ -7,7 +7,7 @@ use vcp_context::{
 use vcp_domain::effect::Effect;
 
 impl Context {
-    pub(super) fn ensure_coding_ledger(&mut self) -> Result<()> {
+    pub(in crate::foundation::worker) fn ensure_coding_ledger(&mut self) -> Result<()> {
         if self
             .engine
             .store()
@@ -176,6 +176,17 @@ impl Context {
             discarded,
         )?;
         self.validate_continuity_ready(binding)?;
+        if let Some(pending) = self
+            .routing
+            .as_mut()
+            .and_then(|runtime| runtime.pending.get_mut(&binding.scope.task))
+        {
+            pending.handoff = Some(vcp_models::escalation::bind_handoff(
+                &pending.plan,
+                &packet,
+                sealed,
+            )?);
+        }
         self.capture(
             &binding.scope,
             Channel::Evidence,

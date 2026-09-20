@@ -1,0 +1,115 @@
+{
+  "revision": "p6-04-offline-routing-v1",
+  "declared_before_execution": true,
+  "purpose": "Deterministic selector assertions, not model task completion or live profile qualification",
+  "criteria": {
+    "quality_floor_bps": 8000,
+    "minimum_samples": 20,
+    "maximum_evidence_age_ms": 1000,
+    "required_decision_assertion_rate_bps": 10000,
+    "permitted_human_interventions": 0,
+    "maximum_estimated_retry_requests": 3,
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "estimated_helper_micros": 20,
+    "estimated_compaction_micros": 20,
+    "estimated_optimizer_micros": 0,
+    "estimated_verification_micros": 100,
+    "estimated_children_micros": 0,
+    "estimated_handoff_requests": 0,
+    "profile": "low"
+  },
+  "models": [
+    {"id":"fixture/economical","endpoint":"fixture/economical-endpoint","group":"low","input_usd_per_token":"0.000001","output_usd_per_token":"0.000002","request_usd":"0.000010","synthetic_p95_ms":20,"synthetic_samples":50,"synthetic_quality_bps":{"analysis":9000,"review":7600,"generation":8500}},
+    {"id":"fixture/stronger","endpoint":"fixture/stronger-endpoint","group":"high","input_usd_per_token":"0.000004","output_usd_per_token":"0.000008","request_usd":"0.000010","synthetic_p95_ms":100,"synthetic_samples":50,"synthetic_quality_bps":{"analysis":9600,"review":9600,"generation":9600}}
+  ],
+  "tasks": [
+    {
+      "id":"tune-analysis","partition":"tuning","task_class":"analysis","input":"Analyze which read-only module imports are involved in a three-file fixture change.",
+      "now":30,"budget_micros":2000,"protected_micros":100,"denied_models":[],"economical_retry_requests":0,"economical_support_known":true,"economical_tools":"supported",
+      "expected": {
+        "fixed_economical":{"eligible":["fixture/economical"],"selected":"fixture/economical"},
+        "fixed_stronger":{"eligible":["fixture/stronger"],"selected":"fixture/stronger"},
+        "routed":{"eligible":["fixture/economical","fixture/stronger"],"selected":"fixture/economical"}
+      }
+    },
+    {
+      "id":"tune-review","partition":"tuning","task_class":"review","input":"Review a synthetic unchecked array access and missing error propagation.",
+      "now":30,"budget_micros":2000,"protected_micros":100,"denied_models":[],"economical_retry_requests":0,"economical_support_known":true,"economical_tools":"supported",
+      "expected": {
+        "fixed_economical":{"eligible":[],"selected":null},
+        "fixed_stronger":{"eligible":["fixture/stronger"],"selected":"fixture/stronger"},
+        "routed":{"eligible":["fixture/stronger"],"selected":"fixture/stronger"}
+      }
+    },
+    {
+      "id":"tune-generation","partition":"tuning","task_class":"generation","input":"Generate a bounded parser for two fixed fixture commands and their error messages.",
+      "now":30,"budget_micros":2000,"protected_micros":100,"denied_models":[],"economical_retry_requests":0,"economical_support_known":true,"economical_tools":"supported",
+      "expected": {
+        "fixed_economical":{"eligible":["fixture/economical"],"selected":"fixture/economical"},
+        "fixed_stronger":{"eligible":["fixture/stronger"],"selected":"fixture/stronger"},
+        "routed":{"eligible":["fixture/economical","fixture/stronger"],"selected":"fixture/economical"}
+      }
+    },
+    {
+      "id":"held-analysis-retries","partition":"held_out","task_class":"analysis","input":"Analyze a dependency cycle fixture after three bounded unsuccessful attempts in the economical cohort.",
+      "now":30,"budget_micros":2000,"protected_micros":100,"denied_models":[],"economical_retry_requests":3,"economical_support_known":true,"economical_tools":"supported",
+      "expected": {
+        "fixed_economical":{"eligible":["fixture/economical"],"selected":"fixture/economical"},
+        "fixed_stronger":{"eligible":["fixture/stronger"],"selected":"fixture/stronger"},
+        "routed":{"eligible":["fixture/economical","fixture/stronger"],"selected":"fixture/stronger"}
+      }
+    },
+    {
+      "id":"held-review-no-qualified-permitted-model","partition":"held_out","task_class":"review","input":"Review a security-sensitive bounds check while the stronger fixture model is explicitly excluded.",
+      "now":30,"budget_micros":2000,"protected_micros":100,"denied_models":["fixture/stronger"],"economical_retry_requests":0,"economical_support_known":true,"economical_tools":"supported",
+      "expected": {
+        "fixed_economical":{"eligible":[],"selected":null},
+        "fixed_stronger":{"eligible":[],"selected":null},
+        "routed":{"eligible":[],"selected":null}
+      }
+    },
+    {
+      "id":"held-generation-protected-reserve","partition":"held_out","task_class":"generation","input":"Generate a tiny utility while preserving the explicitly protected completion reserve.",
+      "now":30,"budget_micros":400,"protected_micros":200,"denied_models":[],"economical_retry_requests":0,"economical_support_known":true,"economical_tools":"supported",
+      "expected": {
+        "fixed_economical":{"eligible":[],"selected":null},
+        "fixed_stronger":{"eligible":[],"selected":null},
+        "routed":{"eligible":[],"selected":null}
+      }
+    },
+    {
+      "id":"held-generation-unknown-support-cost","partition":"held_out","task_class":"generation","input":"Generate validation logic where economical support cost observations are unavailable.",
+      "now":30,"budget_micros":2000,"protected_micros":100,"denied_models":[],"economical_retry_requests":0,"economical_support_known":false,"economical_tools":"supported",
+      "expected": {
+        "fixed_economical":{"eligible":[],"selected":null},
+        "fixed_stronger":{"eligible":["fixture/stronger"],"selected":"fixture/stronger"},
+        "routed":{"eligible":["fixture/stronger"],"selected":"fixture/stronger"}
+      }
+    },
+    {
+      "id":"held-analysis-stale-catalog","partition":"held_out","task_class":"analysis","input":"Analyze a parser fixture after the exact endpoint catalog validity interval has expired.",
+      "now":1000,"budget_micros":2000,"protected_micros":100,"denied_models":[],"economical_retry_requests":0,"economical_support_known":true,"economical_tools":"supported",
+      "expected": {
+        "fixed_economical":{"eligible":[],"selected":null},
+        "fixed_stronger":{"eligible":[],"selected":null},
+        "routed":{"eligible":[],"selected":null}
+      }
+    },
+    {
+      "id":"held-generation-unknown-tools","partition":"held_out","task_class":"generation","input":"Generate a source patch when the economical endpoint has unknown tool compatibility metadata.",
+      "now":30,"budget_micros":2000,"protected_micros":100,"denied_models":[],"economical_retry_requests":0,"economical_support_known":true,"economical_tools":"unknown",
+      "expected": {
+        "fixed_economical":{"eligible":[],"selected":null},
+        "fixed_stronger":{"eligible":["fixture/stronger"],"selected":"fixture/stronger"},
+        "routed":{"eligible":["fixture/stronger"],"selected":"fixture/stronger"}
+      }
+    }
+  ],
+  "remote_comparisons": [
+    {"implementation":"actual_jev_through_openrouter","status":"not_run","reason":"Requires separately authorized spend and qualified host transport/protocol; no emulation accepted"},
+    {"implementation":"conventional_openrouter_comparator","status":"not_run","reason":"Requires separately authorized spend and qualified endpoint/purpose; no substitute requests made"}
+  ],
+  "release_enablement": "No production defaults or evaluator purpose enabled by these synthetic selector assertions",
+  "rollback_triggers": ["Any deterministic eligibility or money invariant fails", "Catalog/provider/prompt/schema drift invalidates an eventual live qualification", "A qualified live purpose later violates its separately declared quality or budget floor"]
+}

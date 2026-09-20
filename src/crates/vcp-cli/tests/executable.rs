@@ -84,6 +84,7 @@ impl Fixture {
         use codex_utils_pty::{spawn_pty_process, TerminalSize};
         use std::collections::HashMap;
         let mut environment: HashMap<String, String> = std::env::vars().collect();
+        environment.remove("RUST_MIN_STACK");
         environment.insert(
             "OPENROUTER_API_KEY".into(),
             "synthetic-cli-qualification".into(),
@@ -148,6 +149,7 @@ impl Fixture {
             .arg("--config")
             .arg(&self.profile)
             .args(args)
+            .env_remove("RUST_MIN_STACK")
             .env("OPENROUTER_API_KEY", "synthetic-cli-qualification");
         command
     }
