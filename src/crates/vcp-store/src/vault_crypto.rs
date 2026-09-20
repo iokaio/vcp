@@ -353,28 +353,7 @@ pub fn decrypt(
     {
         return Err(Error::Access);
     }
-    regular(path)?;
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(0x0020_0000);
-    }
-    let file = options.open(path)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file()
-        || redirected(&metadata)
-        || metadata.len() > limits.ciphertext_bytes as u64
-    {
-        return Err(Error::Limit("snapshot ciphertext input"));
-    }
-    let mut ciphertext = Vec::new();
-    file.take(limits.ciphertext_bytes as u64 + 1)
-        .read_to_end(&mut ciphertext)?;
-    if ciphertext.len() > limits.ciphertext_bytes {
-        return Err(Error::Limit("snapshot ciphertext input"));
-    }
+    let ciphertext = crate::private_paths::read_public_ciphertext(path, limits.ciphertext_bytes)?;
     let decryptor = age::Decryptor::new(ciphertext.as_slice())
         .map_err(|_| Error::Corruption("invalid age ciphertext"))?;
     let decoder = decryptor

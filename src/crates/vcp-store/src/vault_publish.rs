@@ -505,8 +505,12 @@ impl Vault {
     }
     pub fn open(path: &Path, private_roots: &[PathBuf]) -> Result<Self> {
         Ok(Self {
-            directory: Arc::new(Directory::open(path, private_roots)?),
+            directory: Arc::new(Directory::open_cloud(path, private_roots)?),
         })
+    }
+    /// Canonical public directory; this capability holds its native ancestry.
+    pub fn directory(&self) -> &Path {
+        &self.directory.path
     }
     /// Only the finalized production ciphertext capability is accepted here.
     /// No plaintext path/byte-stream overload exists.
@@ -654,7 +658,8 @@ fn published(permit: &PublicationPermit, object: String, cancelled: bool) -> Pub
 }
 fn file_digest(file: &mut File, bytes: u64) -> Result<String> {
     let metadata = file.metadata()?;
-    if !metadata.is_file() || private_paths::redirected(&metadata) || metadata.len() != bytes {
+    if !metadata.is_file() || !private_paths::allowed_handle(file, true)? || metadata.len() != bytes
+    {
         return Err(Error::Access);
     }
     file.seek(SeekFrom::Start(0))?;
@@ -672,7 +677,7 @@ fn file_digest(file: &mut File, bytes: u64) -> Result<String> {
     Ok(format!("{:x}", hash.finalize()))
 }
 fn existing(path: &Path, permit: &PublicationPermit) -> Result<()> {
-    if private_paths::redirected(&std::fs::symlink_metadata(path)?) {
+    if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
         return Err(Error::Access);
     }
     let mut options = OpenOptions::new();
@@ -836,11 +841,9 @@ impl Vault {
                 let mut file = options
                     .open(&path)
                     .map_err(|_| fail(FailureCode::VaultUnavailable))?;
-                if private_paths::redirected(
-                    &file
-                        .metadata()
-                        .map_err(|_| fail(FailureCode::VaultUnavailable))?,
-                ) || !prior.matches(&permit.operation, &source.finalization())
+                if !private_paths::allowed_handle(&file, true)
+                    .map_err(|_| fail(FailureCode::VaultUnavailable))?
+                    || !prior.matches(&permit.operation, &source.finalization())
                     || native_identity(&file).ok().as_ref() != Some(&prior.native)
                     || matching_prefix(source, &mut file).is_err()
                 {

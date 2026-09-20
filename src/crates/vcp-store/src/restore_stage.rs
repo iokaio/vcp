@@ -319,7 +319,7 @@ impl Restore {
         if self.status.stage != Stage::Pending {
             return Err(Error::Conflict("restore acquisition stage"));
         }
-        let bytes = read_bounded(source, self.status.bytes as usize)?;
+        let bytes = private_paths::read_public_ciphertext(source, self.status.bytes as usize)?;
         if bytes.len() as u64 != self.status.bytes || digest_bytes(&bytes) != self.status.ciphertext
         {
             return Err(Error::Corruption("restore ciphertext identity"));

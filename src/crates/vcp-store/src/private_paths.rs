@@ -20,6 +20,7 @@ pub(crate) fn redirected(metadata: &fs::Metadata) -> bool {
     }
     false
 }
+
 pub(crate) struct Directory {
     pub(crate) path: PathBuf,
     // Deny replacement of the directory and its ancestors for the capability's
@@ -28,14 +29,36 @@ pub(crate) struct Directory {
 }
 impl Directory {
     pub(crate) fn open(path: &Path, forbidden: &[PathBuf]) -> Result<Self> {
+        Self::open_policy(path, forbidden, false)
+    }
+    pub(crate) fn open_cloud(path: &Path, forbidden: &[PathBuf]) -> Result<Self> {
+        Self::open_policy(path, forbidden, true)
+    }
+    fn open_policy(path: &Path, forbidden: &[PathBuf], cloud: bool) -> Result<Self> {
         if !path.is_absolute() || forbidden.is_empty() || forbidden.len() > 128 {
+            return Err(Error::Access);
+        }
+        let directory = Self::hold(path, cloud)?;
+        for root in forbidden {
+            let root = root.canonicalize()?;
+            if directory.path.starts_with(&root) || root.starts_with(&directory.path) {
+                return Err(Error::Access);
+            }
+        }
+        Ok(directory)
+    }
+    fn hold(path: &Path, cloud: bool) -> Result<Self> {
+        if !path.is_absolute() {
             return Err(Error::Access);
         }
         let mut held = Vec::new();
         let ancestors = path.ancestors().collect::<Vec<_>>();
         for ancestor in ancestors.into_iter().rev() {
             let metadata = fs::symlink_metadata(ancestor)?;
-            if !metadata.is_dir() || redirected(&metadata) {
+            if !metadata.is_dir()
+                || metadata.file_type().is_symlink()
+                || (!cloud && redirected(&metadata))
+            {
                 return Err(Error::Access);
             }
             let mut options = OpenOptions::new();
@@ -48,23 +71,109 @@ impl Directory {
                     .share_mode(1 | 2);
             }
             let handle = options.open(ancestor)?;
-            if redirected(&handle.metadata()?) {
+            if !handle.metadata()?.is_dir() || !allowed_handle(&handle, cloud)? {
                 return Err(Error::Access);
             }
             held.push(handle);
         }
         let path = path.canonicalize()?;
-        for root in forbidden {
-            let root = root.canonicalize()?;
-            if path.starts_with(&root) || root.starts_with(&path) {
-                return Err(Error::Access);
-            }
-        }
         Ok(Self {
             path,
             _ancestors: held,
         })
     }
+}
+
+/// Only Cloud Files tags are eligible at the public ciphertext boundary.
+/// Their name-surrogate bit is clear; junctions, symlinks and unknown providers
+/// remain rejected. The tag is queried from the actual no-follow handle.
+pub(crate) fn allowed_handle(file: &File, cloud: bool) -> Result<bool> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FileAttributeTagInfo, GetFileInformationByHandleEx, FILE_ATTRIBUTE_TAG_INFO,
+        };
+        #[link(name = "ntdll")]
+        unsafe extern "system" {
+            fn RtlSetThreadPlaceholderCompatibilityMode(mode: i8) -> i8;
+        }
+        // Windows can disguise cloud tags. Expose only for this synchronous
+        // query, then restore the thread mode; never change process policy.
+        // SAFETY: documented scalar API, available on Windows 10 1709+.
+        let previous = unsafe { RtlSetThreadPlaceholderCompatibilityMode(2) };
+        if previous < 0 {
+            return Err(Error::Unavailable("cloud placeholder metadata unavailable"));
+        }
+        let mut info = FILE_ATTRIBUTE_TAG_INFO {
+            FileAttributes: 0,
+            ReparseTag: 0,
+        };
+        // SAFETY: live file handle and correctly sized writable native DTO.
+        let queried = unsafe {
+            GetFileInformationByHandleEx(
+                file.as_raw_handle(),
+                FileAttributeTagInfo,
+                (&mut info as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+                std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+            )
+        };
+        let error = std::io::Error::last_os_error();
+        // SAFETY: validated prior mode, restored on this same native thread.
+        if unsafe { RtlSetThreadPlaceholderCompatibilityMode(previous) } < 0 {
+            return Err(Error::Unavailable(
+                "cloud placeholder metadata mode restore failed",
+            ));
+        }
+        if queried == 0 {
+            return Err(error.into());
+        }
+        Ok(info.FileAttributes & 0x400 == 0 || cloud && cloud_tag(info.ReparseTag))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cloud;
+        Ok(!redirected(&file.metadata()?))
+    }
+}
+#[cfg(windows)]
+fn cloud_tag(tag: u32) -> bool {
+    tag & !0x0000_F000 == 0x9000_001A
+}
+
+/// Read selected public ciphertext while its directory ancestry and exact file
+/// remain held. Hydration may fail; that error never authorizes partial bytes.
+pub(crate) fn read_public_ciphertext(path: &Path, limit: usize) -> Result<Vec<u8>> {
+    use std::io::Read;
+    let absolute = std::path::absolute(path)?;
+    let _parent = Directory::hold(absolute.parent().ok_or(Error::Access)?, true)?;
+    if fs::symlink_metadata(&absolute)?.file_type().is_symlink() {
+        return Err(Error::Access);
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(1).custom_flags(0x0020_0000);
+    }
+    let mut file = options.open(&absolute)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !allowed_handle(&file, true)? {
+        return Err(Error::Access);
+    }
+    if metadata.len() > limit as u64 {
+        return Err(Error::Limit("snapshot ciphertext input"));
+    }
+    let mut bytes = Vec::new();
+    (&mut file).take(limit as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > limit || bytes.len() as u64 != metadata.len() || !allowed_handle(&file, true)?
+    {
+        return Err(Error::Corruption(
+            "snapshot ciphertext changed or incomplete",
+        ));
+    }
+    Ok(bytes)
 }
 
 /// Errors expose no protected file contents. An unsuccessful owner-created
@@ -241,5 +350,71 @@ impl Security {
             }
             Ok(Self(descriptor))
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod cloud_tests {
+    use super::*;
+    #[test]
+    fn public_ciphertext_rejects_junction_ancestors_and_leaf() {
+        let temp = tempfile::tempdir().unwrap();
+        let actual = temp.path().join("actual");
+        let junction = temp.path().join("junction");
+        let outside = temp.path().join("private");
+        fs::create_dir(&actual).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::write(actual.join("object.age"), b"ciphertext").unwrap();
+        let output = std::process::Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&actual)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "native junction fixture creation failed"
+        );
+        assert!(Directory::open_cloud(&junction, &[outside]).is_err());
+        assert!(read_public_ciphertext(&junction.join("object.age"), 64).is_err());
+        assert!(read_public_ciphertext(&junction, 64).is_err());
+        // Remove the junction itself, never recursively traverse its target.
+        fs::remove_dir(&junction).unwrap();
+        assert_eq!(fs::read(actual.join("object.age")).unwrap(), b"ciphertext");
+    }
+    #[test]
+    fn only_documented_cloud_tags_are_public_not_private() {
+        for variant in 0..16 {
+            assert!(cloud_tag(0x9000_001A | variant << 12));
+        }
+        for tag in [
+            0,
+            0xA000_0003,
+            0xA000_000C,
+            0x8000_0021,
+            0x9000_001C,
+            0x9001_001A,
+            0xB000_001A,
+        ] {
+            assert!(!cloud_tag(tag));
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("ciphertext.age");
+        fs::write(&path, b"bounded ordinary ciphertext").unwrap();
+        assert_eq!(
+            read_public_ciphertext(&path, 64).unwrap(),
+            b"bounded ordinary ciphertext"
+        );
+        assert!(read_public_ciphertext(&path, 1).is_err());
+    }
+    #[test]
+    #[ignore = "read-only qualification against explicitly selected real OneDrive root"]
+    fn actual_cloud_directory_opens_only_as_public_capability() {
+        let root = PathBuf::from(std::env::var_os("VCP_TEST_CLOUD_ROOT").unwrap());
+        let private = tempfile::tempdir().unwrap();
+        let held = Directory::open_cloud(&root, &[private.path().to_path_buf()]).unwrap();
+        assert_eq!(held.path, root.canonicalize().unwrap());
+        assert!(Directory::open(&root, &[private.path().to_path_buf()]).is_err());
+        assert!(Directory::open_cloud(&root, &[root.clone()]).is_err());
     }
 }
