@@ -87,13 +87,21 @@ fn seal_memory(
 async fn opaque_memory_context_blocks_filesystem_edits_revocation_and_unfenced_reuse_before_send() {
     use codex_extension_api::{HostModelPurpose, HostWorkAdmission};
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
-        for race in ["filesystem", "authority", "unfenced", "unchanged"] {
+        for race in [
+            "filesystem",
+            "authority",
+            "retention",
+            "unfenced",
+            "unchanged",
+        ] {
             let (temp, config, host, owner, _test, thread) =
                 super::memory_publication::vector_fixture(backend).await;
             let source = super::memory_publication::retained_source(&host, &config, thread);
             let private = temp.path().join("private");
             std::fs::create_dir(&private).unwrap();
-            let publisher = Arc::new(Publisher::new(&temp.path().join("generations")).unwrap());
+            let publisher = Arc::new(
+                Publisher::new(&config.canonical_root.join("search-generations")).unwrap(),
+            );
             let manager = host.publication_manager(thread, publisher.clone()).unwrap();
             let published = host
                 .publish_memory(
@@ -173,6 +181,22 @@ async fn opaque_memory_context_blocks_filesystem_edits_revocation_and_unfenced_r
                         std::path::Path::new(&config.binding.root).join("source.rs"),
                         b"pub fn retained_answer() -> u32 { 666 }\n",
                     )
+                    .unwrap();
+                } else if race == "retention" {
+                    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+                    use vcp_lifecycle::foundation::history_retention::Request;
+                    let preview = host
+                        .history_retention(Request::Preview {
+                            selector: Selector {
+                                schema_version: 1,
+                                tree: Tree::Match(Criterion::Workspace(config.workspace.clone())),
+                            },
+                            action: vcp_memory::retention::Action::Exclude,
+                        })
+                        .unwrap();
+                    host.history_retention(Request::Apply {
+                        preview: preview["id"].as_str().unwrap().into(),
+                    })
                     .unwrap();
                 } else if race == "authority" {
                     let state = host.snapshot().unwrap();

@@ -66,6 +66,21 @@ fn explicit_dates_share_the_same_selector_and_never_guess_local_time() {
     assert!(Cli::try_parse_from(["vcp", "history", "prune"]).is_err());
     assert!(Cli::try_parse_from(["vcp", "retention", "set"]).is_err());
     assert!(Cli::try_parse_from(["vcp", "retention", "set", "--notification-only"]).is_ok());
+    let memory =
+        Cli::try_parse_from(["vcp", "memory", "inspect", "claim-example", "--limit", "2"]).unwrap();
+    let Some(Command::Memory {
+        command: vcp_cli::args::Memory::Inspect(inspect),
+    }) = memory.command
+    else {
+        panic!("memory inspect parser")
+    };
+    assert!(inspect.request().is_ok());
+    assert!(Cli::try_parse_from(["vcp", "memory", "prune"]).is_err());
+    assert!(vcp_cli::history::terminal_request(
+        vec!["memory".into(), "inspect".into(), "claim-example".into()],
+        &workspace
+    )
+    .is_ok());
     let Some(vcp_cli::terminal::Input::Maintenance(words)) =
         vcp_cli::terminal::parse("/history list --limit 2").unwrap()
     else {

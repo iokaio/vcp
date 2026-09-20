@@ -151,7 +151,7 @@ fn latest(
 }
 struct DisplayOutput {
     jsonl: bool,
-    frame:Vec<u8>,
+    frame: Vec<u8>,
 }
 impl Write for DisplayOutput {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
@@ -161,12 +161,19 @@ impl Write for DisplayOutput {
             // serde_json::to_writer emits fragments, not complete records.
             // Decode only the newline-terminated frame, preserving JSON escapes.
             for byte in bytes {
-                if *byte==b'\n' {
-                    let value:Value=serde_json::from_slice(&self.frame)?;
-                    if value["type"]!="event" {writeln!(std::io::stdout(),"{value}")?;}
+                if *byte == b'\n' {
+                    let value: Value = serde_json::from_slice(&self.frame)?;
+                    if value["type"] != "event" {
+                        writeln!(std::io::stdout(), "{value}")?;
+                    }
                     self.frame.clear();
-                }else{
-                    if self.frame.len()>=1024*1024{return Err(io::Error::new(io::ErrorKind::InvalidData,"display frame exceeds 1 MiB"));}
+                } else {
+                    if self.frame.len() >= 1024 * 1024 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "display frame exceeds 1 MiB",
+                        ));
+                    }
                     self.frame.push(*byte);
                 }
             }
@@ -174,14 +181,19 @@ impl Write for DisplayOutput {
         Ok(bytes.len())
     }
     fn flush(&mut self) -> io::Result<()> {
-        if !self.frame.is_empty(){return Err(io::Error::new(io::ErrorKind::UnexpectedEof,"incomplete display frame"));}
+        if !self.frame.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "incomplete display frame",
+            ));
+        }
         std::io::stdout().flush()
     }
 }
 fn command_result(format: Format, data: Value) -> Result<u8, String> {
     Jsonl::new(DisplayOutput {
         jsonl: format == Format::Jsonl,
-        frame:Vec::new(),
+        frame: Vec::new(),
     })
     .emit(
         &CommandId::new(),
@@ -379,6 +391,16 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         ),
         ValidatedCommand::Prune(command) => Some(command.request()?),
         ValidatedCommand::Retention(command) => Some(command.request()?),
+        ValidatedCommand::MemoryInspect(command) => Some(command.request()?),
+        ValidatedCommand::MemoryPrune(command) => Some(
+            command.memory_request(
+                &entry
+                    .as_ref()
+                    .ok_or("workspace has no durable session")?
+                    .config
+                    .workspace,
+            )?,
+        ),
         _ => None,
     };
     if let Some(request) = history_request {
@@ -596,10 +618,15 @@ mod display_tests {
     use super::*;
     #[test]
     fn text_display_waits_for_complete_json_frames() {
-        let mut output=DisplayOutput{jsonl:false,frame:Vec::new()};
+        let mut output = DisplayOutput {
+            jsonl: false,
+            frame: Vec::new(),
+        };
         output.write_all(b"{\"type\":").unwrap();
         assert!(output.flush().is_err());
-        output.write_all(b"\"event\",\"text\":\"escaped\\ncontrol\"}\n").unwrap();
+        output
+            .write_all(b"\"event\",\"text\":\"escaped\\ncontrol\"}\n")
+            .unwrap();
         output.flush().unwrap();
         assert!(output.frame.is_empty());
     }

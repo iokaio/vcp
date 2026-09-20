@@ -40,7 +40,15 @@ broad filter and silently adds newly matching data. `prune cleanup RECEIPT_ID`
 retries pending physical work. Logical unavailability, local cleanup, pending
 generations, and retained backups remain separate receipt facts.
 
-`retention show` displays notification cadence and explicit automatic policy.
+`memory inspect CLAIM_ID --limit 16` pages immutable governed versions, outcome
+and evidence labels, source origins, and applicability under current access.
+Its cursor freezes the memory sequence while later versions remain outside the
+page set. Raw history includes bounded authorized origin-to-claim links;
+`memory prune --preview [FILTERS]` restricts the selection to the six claim
+classes before dependency expansion. Raw activity remains under `history`.
+
+`retention show` displays notification cadence, explicit automatic policy, and
+the latest owner-start evaluation result.
 `retention set --notification-only` disables automatic actions. An automatic
 policy requires `--automatic` with the typed selector, action, and cadence;
 updating a saved policy also requires `--expected-revision`.
@@ -48,8 +56,9 @@ Automatic policy cadence is evaluated when the canonical owner next starts,
 after recovery and before normal execution. Setting a policy does not execute
 it immediately. Read-only inspection does not evaluate automatic work; there
 is no hidden daemon or promised wall-clock execution while the owner is closed.
-Weekly notices are nonblocking and do not delete content. History controls include a notice
-when history is strictly older than 30 days; acknowledgement is persisted only
+Weekly notices are nonblocking and do not delete content. Normal session startup
+and history controls include a notice when history is strictly older than 30 days;
+acknowledgement is persisted only
 after output is presented.
 
 The same structured facts are emitted in JSONL mode. Commands use typed local
@@ -59,7 +68,8 @@ model. Offline operations retain the exclusive canonical store lock and use
 the same service, never editing index files directly.
 
 The open terminal accepts `/history list`, `/history search TEXT`,
-`/history prune --preview`, `/prune show|apply ID`, and `/retention show|set`.
+`/history prune --preview`, `/memory inspect CLAIM_ID`, `/memory prune --preview`,
+`/prune show|apply ID`, and `/retention show|set`.
 `/next` first advances through the displayed page and then its canonical
 cursor. These controls remain available while paused. Arguments are separated
 by whitespace; use the finite CLI for quoted multiword values and selector JSON

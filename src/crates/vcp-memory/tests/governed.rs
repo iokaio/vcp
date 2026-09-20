@@ -276,6 +276,113 @@ async fn date_selector_uses_record_provenance_not_its_old_task_creation() {
     }
 }
 
+#[tokio::test]
+async fn bounded_claim_windows_keep_head_and_frozen_sequence_while_history_appends() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut f = fixture(temp.path(), backend).await;
+        let mut previous = None;
+        let mut ids = Vec::new();
+        for index in 0..5 {
+            let mut proposal = different_output(&f.proposal, &format!("window-{index}"));
+            proposal.predecessor = previous.clone();
+            proposal.correction_reason = previous.as_ref().map(|_| "explicit correction".into());
+            proposal.statement = format!("Parser responsibility revision {index}");
+            if let ClaimValue::Architecture { decision, .. } = &mut proposal.value {
+                *decision = proposal.statement.clone();
+            }
+            let result = propose(
+                &mut f.store,
+                &f.access,
+                proposal,
+                Timestamp::new(200 + index),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.result.resolution.outcome, Outcome::Accepted);
+            previous = result.result.version;
+            ids.push(previous.clone().unwrap());
+        }
+        let (first, at, more) = history::window(
+            &f.store,
+            &f.access,
+            &f.proposal.claim,
+            None,
+            MemorySeq::ZERO,
+            2,
+        )
+        .unwrap();
+        assert!(more);
+        assert!(first.versions.iter().all(|row| !row.current));
+        let mut appended = different_output(&f.proposal, "window-newer");
+        appended.predecessor = previous;
+        appended.correction_reason = Some("later explicit correction".into());
+        appended.statement = "Newer parser responsibility outside frozen history".into();
+        if let ClaimValue::Architecture { decision, .. } = &mut appended.value {
+            *decision = appended.statement.clone();
+        }
+        propose(&mut f.store, &f.access, appended, Timestamp::new(300))
+            .await
+            .unwrap();
+        let (second, same_at, more) = history::window(
+            &f.store,
+            &f.access,
+            &f.proposal.claim,
+            Some(at),
+            first.versions[1].memory_seq,
+            2,
+        )
+        .unwrap();
+        assert_eq!(same_at, at);
+        assert!(more);
+        let (last, _, more) = history::window(
+            &f.store,
+            &f.access,
+            &f.proposal.claim,
+            Some(at),
+            second.versions[1].memory_seq,
+            2,
+        )
+        .unwrap();
+        assert!(!more);
+        assert!(last.versions[0].current);
+        let actual: Vec<_> = first
+            .versions
+            .into_iter()
+            .chain(second.versions)
+            .chain(last.versions)
+            .map(|row| row.id)
+            .collect();
+        assert_eq!(actual, ids);
+        let origins = f.proposal.origins.iter().cloned().collect();
+        let (links, truncated) = history::origin_links(&f.store, &f.access, &origins).unwrap();
+        assert_eq!(links.len(), 6);
+        assert!(!truncated);
+        let denied = Access {
+            workspace: f.access.workspace.clone(),
+            actor: f.access.actor.clone(),
+            authority: f.access.authority,
+            read: true,
+            write: false,
+            tasks: Some(Default::default()),
+        };
+        assert!(history::origin_links(&f.store, &denied, &origins)
+            .unwrap()
+            .0
+            .is_empty());
+        assert!(history::window(
+            &f.store,
+            &denied,
+            &f.proposal.claim,
+            Some(at),
+            MemorySeq::ZERO,
+            2
+        )
+        .is_err());
+        f.store.close().await.unwrap();
+    }
+}
+
 struct Fixture {
     store: Store,
     access: Access,

@@ -55,7 +55,7 @@ pub fn parse(line: &str) -> Result<Option<Input>, String> {
         ["/status"] => Input::Status,
         ["/cost"] => Input::Cost,
         ["/history"] => Input::History,
-        ["/history" | "/prune" | "/retention", ..] => Input::Maintenance(
+        ["/history" | "/prune" | "/retention" | "/memory", _, ..] => Input::Maintenance(
             words
                 .iter()
                 .enumerate()

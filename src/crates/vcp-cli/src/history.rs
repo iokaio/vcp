@@ -20,7 +20,39 @@ pub fn terminal_request(words: Vec<String>, workspace: &WorkspaceId) -> Result<R
         Some(crate::args::Command::History { command }) => command.request(workspace),
         Some(crate::args::Command::Prune { command }) => command.request(),
         Some(crate::args::Command::Retention { command }) => command.request(),
+        Some(crate::args::Command::Memory {
+            command: crate::args::Memory::Inspect(inspect),
+        }) => inspect.request(),
+        Some(crate::args::Command::Memory {
+            command: crate::args::Memory::Prune(preview),
+        }) => preview.memory_request(workspace),
         _ => Err("history, prune or retention control expected".into()),
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct MemoryInspect {
+    pub claim: String,
+    #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u32).range(1..=32))]
+    pub limit: u32,
+    #[arg(long)]
+    pub cursor: Option<String>,
+}
+impl MemoryInspect {
+    pub fn request(&self) -> Result<Request> {
+        if self.cursor.as_ref().is_some_and(|value| value.len() > 8192) {
+            return Err("memory cursor too large".into());
+        }
+        Ok(Request::Memory {
+            claim: ClaimId::parse(&self.claim).map_err(|e| e.to_string())?,
+            limit: self.limit,
+            cursor: self
+                .cursor
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(|_| "invalid memory cursor")?,
+        })
     }
 }
 pub fn next_request(request: Request, result: &serde_json::Value) -> Result<Option<Request>> {
@@ -42,12 +74,16 @@ pub fn next_request(request: Request, result: &serde_json::Value) -> Result<Opti
             })
         }
         Request::PreviewPage { preview, limit, .. } => {
-            let offset=result["next_offset"].as_u64().map(u32::try_from).transpose().map_err(|_|"preview offset overflow")?;
+            let offset = result["next_offset"]
+                .as_u64()
+                .map(u32::try_from)
+                .transpose()
+                .map_err(|_| "preview offset overflow")?;
             offset.map(|offset| Request::PreviewPage {
-                    preview,
-                    limit,
-                    offset,
-                })
+                preview,
+                limit,
+                offset,
+            })
         }
         _ => None,
     })

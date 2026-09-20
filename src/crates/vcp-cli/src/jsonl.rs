@@ -30,6 +30,9 @@ pub enum Payload<'a> {
     CursorGap {
         reason: &'a str,
     },
+    RetentionNotice {
+        data: &'a serde_json::Value,
+    },
     #[serde(rename = "result")]
     CommandResult {
         exit_code: u8,
