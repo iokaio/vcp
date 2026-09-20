@@ -1,8 +1,9 @@
 # 21 — Markov analysis and integration sequence
 
-Status: planned, September 20, 2026. This execution supplement adopts the useful
+Status: M1 in progress, September 20, 2026. This execution supplement adopts the useful
 directions from [the research note](../research/markov.md) into existing work.
-Nothing in this supplement is implemented or qualified. It creates no new product
+The first task-transition inspection increment is described under M1 below;
+remaining statistical work is not implemented or qualified. This creates no new product
 task IDs, changes no architecture dependencies and enables no runtime feature.
 The [owning task sections](20-traceability.md#work-item-ownership-and-readiness)
 remain the implementation entry points; the increments below define their added
@@ -27,7 +28,7 @@ P6-04 decides whether a signal may affect an action. A failed optional candidate
 can be recorded as rejected without blocking rules-only release acceptance.
 
 Increment labels below are checklist identifiers within existing tasks, not new
-architecture work items. All begin **planned**. Complete each with linked code,
+architecture work items. Track their current state in the follow-up ledger. Complete each with linked code,
 tests and evaluation results; do not infer completion from this document.
 
 | Order / increment | Owning work | Prerequisites and placement | Deliverable and gate |
@@ -76,6 +77,15 @@ consumer type in M1/M2, record the detailed boundary and retention choices in a 
 ADR, referencing ADR-007/017/020 without rewriting their historical decisions.
 
 ## M1 — Retained evidence and analysis foundation
+
+**In progress:** the [first transition-evidence increment](../evaluations/p6-transition-evidence.md)
+adds scoped rebuild-on-read task-state observations and explicit gaps through
+`vcp optimize transitions`, under [ADR-029](../adr/029-retained-transition-evidence.md).
+This independently reviewable increment establishes historical source correctness
+before fitting models. It does not complete M1: turn/action symbols, attempt
+lineage/counter augmentation, exact-endpoint cohorts, reward attribution, numerical
+kernels and fitted-artifact retention/consumed-value replay remain next. Existing
+optimizer report schemas and enabled routing behavior are unchanged.
 
 1. Define a closed, revisioned alphabet from canonical task/turn transitions,
    attempt lineage, tool outcomes and verification receipts. Augment state with

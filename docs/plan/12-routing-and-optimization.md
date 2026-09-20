@@ -85,6 +85,11 @@ OpenRouter catalog entry as proof that VCP's request/response contract works.
 
 ## P6-02 — Deterministic profile policy
 
+M1's [task-transition evidence increment](../evaluations/p6-transition-evidence.md)
+establishes scoped historical observation and gap handling through a local
+inspector. Numerical models and richer action/counter/cohort/reward observations
+remain open; these coarse task counts are not a routing estimate.
+
 **Planned Markov increments:** implement [M1](21-markov-integration.md#m1--retained-evidence-and-analysis-foundation)
 before the next P6-03 advisory integration: bounded causal history projection,
 closed state/action alphabet, cost attribution, numerical routines and derived

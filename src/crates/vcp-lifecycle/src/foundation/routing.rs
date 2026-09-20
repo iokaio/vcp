@@ -13,6 +13,10 @@ use vcp_models::{
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
     Status,
+    Transitions {
+        from: Option<Timestamp>,
+        until: Timestamp,
+    },
     Compare {
         baseline: String,
         current: String,
@@ -50,6 +54,14 @@ pub async fn execute(
     now: Timestamp,
 ) -> Result<serde_json::Value, String> {
     let value = match request {
+        Request::Transitions { from, until } => {
+            serde_json::to_value(routing_state::transitions::observe(
+                store,
+                access,
+                routing_state::HistoryWindow { from, until },
+            )?)
+            .map_err(|e| e.to_string())?
+        }
         Request::Compare { baseline, current } => serde_json::to_value(
             routing_state::compare_reports(store, access, &baseline, &current)?,
         )

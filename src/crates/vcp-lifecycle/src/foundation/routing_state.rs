@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Canonical routing publications and local, scoped optimization evidence.
+pub mod transitions;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{

@@ -13,11 +13,12 @@ use vcp_lifecycle::foundation::{
 };
 use vcp_models::routing::{Policy, Preference, Profile};
 
-pub const HELP: &str = "/optimize [status] | /optimize answer priority|size|review|restrictions <answer> | /optimize preview low|med|high --quality-floor <0..10000> | /optimize apply | /optimize rollback <target-revision> --expected <current-revision> | /optimize compare <baseline-report> <current-report>";
+pub const HELP: &str = "/optimize [status] | /optimize transitions | /optimize answer priority|size|review|restrictions <answer> | /optimize preview low|med|high --quality-floor <0..10000> | /optimize apply | /optimize rollback <target-revision> --expected <current-revision> | /optimize compare <baseline-report> <current-report>";
 const CONFIGURE: &str = "Automatic routing is not configured. Add a validated routing catalog, explicit policy and cost estimates to the existing VCP configuration, then reopen this session. Reporting and preference answers remain available.";
 type Result<T> = std::result::Result<T, String>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
+    Transitions,
     Compare {
         baseline: String,
         current: String,
@@ -46,6 +47,7 @@ mod groups;
 pub use groups::parse as parse_groups;
 pub fn parse(words: &[&str]) -> Result<Command> {
     match words {
+        ["transitions"] => Ok(Command::Transitions),
         [] | ["report"] => Ok(Command::Report),
         ["status"] => Ok(Command::Status),
         ["compare", baseline, current] if baseline.len() <= 128 && current.len() <= 128 => {
@@ -228,6 +230,16 @@ impl Session {
         mut service: impl FnMut(Request) -> Result<Value>,
     ) -> Result<String> {
         match command {
+            Command::Transitions => {
+                let value = call(
+                    &mut service,
+                    Request::Transitions {
+                        from: None,
+                        until: now,
+                    },
+                )?;
+                serde_json::to_string_pretty(&value).map_err(|error| error.to_string())
+            }
             Command::Compare { baseline, current } => {
                 let value = call(&mut service, Request::Compare { baseline, current })?;
                 serde_json::to_string_pretty(&value).map_err(|error| error.to_string())
