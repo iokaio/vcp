@@ -14,7 +14,12 @@ they are not release inputs or portable trust anchors.
 | --- | --- | --- |
 | CLI library, qualification feature | 28 passed, including four automatic-trigger tests | `p306-cli-lib-final.log` |
 | Complete CLI test targets, qualification feature | 63 passed, zero failed; three opt-in tests qualified separately | `p306-cancel-cli-final.log` |
+| Full canonical-host regression | 37 passed, zero failed, five explicitly opt-in tests skipped; 713.91 seconds | `p306-host-all-final.log` |
+| CLI Clippy after new-warning fixes | Libraries, binaries and tests passed with warnings treated as errors | `p306-cli-clippy-clean.log` |
 | Qualified production executable | Build passed in 47.43 seconds | `p306-qualified-cli-build.log` |
+| Ordinary executable without qualification features | Build passed in 44.54 seconds | `p306-production-build.log` |
+| Final ordinary executable portability smoke | Actual preview, restore, exact retry and explicit trust passed in both backend directions | `p306-production-smoke.log`, `p306-production-smoke.json` |
+| Storage selection after lint cleanup | Both-backend conversion, retained prior root and exact retry passed in one test | `p306-selection-final.log` |
 | Actual CLI preview, restore, exact retry and explicit trust | Files and SQLite passed; 7.45 seconds reported by the native smoke run | `p306-cli-smoke.log`, `p306-cli-smoke.json` |
 | Restore activation process termination | 12 positive cases passed: six durable boundaries in each cross-backend direction | Positive test in `p306-cli-restore-kills.log` |
 | Receipt-before-selection tampering and deletion-floor changes | Six negative cases passed; focused rerun completed in 13.30 seconds | `p306-cli-restore-negative-kills.log` |
@@ -35,6 +40,12 @@ negative test's setup because its recovery-directory fixture omitted required
 private-root constraints. After correcting that fixture, the negative test alone
 passed all six cases. The first invocation as a whole was not green; the two logs
 together provide the 18-case evidence.
+
+Clippy over the affected libraries, binaries and test targets completed with
+warnings (`p306-clippy-normal.log`). Existing warnings remain in unchanged store
+accounting/backend code, process APIs and older test fixtures. Broader
+warnings-as-errors attempts stopped on unchanged example/test lints; they are
+not claimed as passing checks. No repository lint policy was relaxed.
 
 The [native restore tests](../../src/crates/vcp-cli/tests/restore_crash.rs) kill the
 actual qualified executable after intent, canonical import, activation receipt,

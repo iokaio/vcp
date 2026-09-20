@@ -656,10 +656,9 @@ fn registry(data: &Path, workspace: &WorkspaceId) -> Result<PathBuf> {
         if lease
             .descriptor()?
             .is_some_and(|(entry, _)| entry.config.workspace == *workspace)
+            && selected.replace(directory).is_some()
         {
-            if selected.replace(directory).is_some() {
-                return Err("ambiguous workspace registry identity".into());
-            }
+            return Err("ambiguous workspace registry identity".into());
         }
     }
     Ok(selected

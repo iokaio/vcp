@@ -76,7 +76,7 @@ async fn conversion_reopens_exact_state_and_reconciles_lost_ack_without_changing
         std::fs::create_dir(&workspace).unwrap();
         let cfg = config(&directory, source_backend);
         let original = cfg.canonical_root.clone();
-        let store = Store::open(&original, source_backend, &[workspace.clone()])
+        let store = Store::open(&original, source_backend, std::slice::from_ref(&workspace))
             .await
             .unwrap();
         let state = store.state().clone();
@@ -126,13 +126,13 @@ async fn conversion_reopens_exact_state_and_reconciles_lost_ack_without_changing
         let reopened = Store::open(
             &selected.config.canonical_root,
             target_backend.kind(),
-            &[workspace.clone()],
+            std::slice::from_ref(&workspace),
         )
         .await
         .unwrap();
         assert_eq!(reopened.state(), &state);
         reopened.close().await.unwrap();
-        let old = Store::open(&original, source_backend, &[workspace.clone()])
+        let old = Store::open(&original, source_backend, std::slice::from_ref(&workspace))
             .await
             .unwrap();
         assert_eq!(old.state(), &state);
