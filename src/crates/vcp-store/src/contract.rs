@@ -1056,6 +1056,23 @@ impl State {
                                 && record.revision == expected.next()?
                                 && previous.workspace == record.workspace =>
                         {
+                            if matches!(
+                                previous.collection,
+                                Collection::Task
+                                    | Collection::Turn
+                                    | Collection::Effect
+                                    | Collection::Verification
+                                    | Collection::Attempt
+                                    | Collection::Settlement
+                            ) && previous
+                                .value
+                                .get("redaction")
+                                .is_some_and(|value| !value.is_null())
+                            {
+                                return Err(Error::Conflict(
+                                    "redacted evidence cannot be replaced",
+                                ));
+                            }
                             crate::accounting_contract::transition(previous, record)?;
                             ingestion_contract::transition(previous, record)?;
                             search_contract::transition(previous, record)?;
