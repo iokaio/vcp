@@ -171,6 +171,13 @@ impl Configuration {
         let mut ids = std::collections::BTreeSet::new();
         let mut roots = std::collections::BTreeSet::new();
         for source in &self.sources {
+            if source.id == vcp_extensions::catalog::SOURCE_ID
+                || source.root_id.as_str() == vcp_extensions::catalog::ROOT_ID
+            {
+                return Err(
+                    "The vcp-builtin source and root IDs are reserved for packaged assets.".into(),
+                );
+            }
             if source.id.is_empty()
                 || source.id.len() > 128
                 || !source.id.bytes().all(|b| {
@@ -244,6 +251,81 @@ impl Configuration {
     }
 }
 
+/// Resolves packaged assets only beside the running executable. Metadata probes
+/// do not read descriptors; canonical source policy precedes all content reads.
+pub fn prepare(
+    profile: &crate::settings::Profile,
+    config: &vcp_lifecycle::foundation::Config,
+) -> Result<vcp_lifecycle::foundation::skills::Configuration, String> {
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let directory = executable
+        .parent()
+        .ok_or("Executable installation directory is unavailable")?;
+    prepare_at(
+        profile.skills.as_ref(),
+        config,
+        available_tools(profile),
+        directory,
+    )
+}
+
+fn prepare_at(
+    configured: Option<&Configuration>,
+    config: &vcp_lifecycle::foundation::Config,
+    tools: std::collections::BTreeSet<String>,
+    installation: &std::path::Path,
+) -> Result<vcp_lifecycle::foundation::skills::Configuration, String> {
+    let empty = Configuration {
+        version: 1,
+        revision: Revision::ZERO,
+        sources: vec![],
+        disabled: Default::default(),
+    };
+    let mut prepared = configured.unwrap_or(&empty).prepare(config, tools)?;
+    let path = installation.join("skills").join("builtin");
+    if matches!(std::fs::symlink_metadata(&path), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+    {
+        return Ok(prepared);
+    }
+    if prepared.registry.sources.len() >= 32 {
+        return Err("Packaged built-in skills require one source slot; configure at most 31 additional sources.".into());
+    }
+    prepared
+        .registry
+        .sources
+        .push(vcp_extensions::skill_manifest::SkillSource {
+            id: vcp_extensions::catalog::SOURCE_ID.into(),
+            kind: SourceKind::Builtin,
+            enabled: true,
+            root: vcp_repository::RootIdentity {
+                workspace: config.workspace.clone(),
+                root: RootId::parse(vcp_extensions::catalog::ROOT_ID).map_err(|e| e.to_string())?,
+                repository: config.binding.repository.clone(),
+                worktree: config.binding.worktree.clone(),
+                binding: config.binding.revision,
+            },
+            path,
+        });
+    prepared.registry.validate().map_err(|e| e.to_string())?;
+    Ok(prepared)
+}
+
+fn missing_builtin(
+    catalog: &mut vcp_extensions::discovery::Catalog,
+    registry: &vcp_extensions::skill_manifest::SourceRegistry,
+) {
+    if !registry
+        .sources
+        .iter()
+        .any(|source| source.id == vcp_extensions::catalog::SOURCE_ID)
+    {
+        catalog.diagnostics.push(vcp_extensions::discovery::Diagnostic {
+            source_id: vcp_extensions::catalog::SOURCE_ID.into(), path: "skills/builtin".into(), code: "builtin_assets_missing".into(),
+            message: "Bundled assets are missing beside this executable. Install the complete package; configured skills remain available.".into(),
+        });
+    }
+}
+
 fn within_workspace(path: &std::path::Path, workspace: &std::path::Path) -> bool {
     // Native handles validate containment again without following reparse
     // points. Canonical workspace bindings use Windows' verbatim prefix while
@@ -290,19 +372,19 @@ pub fn inspect(
     state: &vcp_store::contract::State,
     offset: usize,
 ) -> Result<serde_json::Value, String> {
-    let Some(skills) = &profile.skills else {
-        return Ok(
-            serde_json::json!({"configured":false,"diagnostics":["No explicit skill sources configured. Add skills.sources to the trusted user profile."],"skills":[],"activation":"Use /skills activate in an active session; inspection starts no inference."}),
-        );
-    };
-    let mut configuration = skills.prepare(config, available_tools(profile))?;
+    let mut configuration = prepare(profile, config)?;
+    let mut integrity = None;
     for source in configuration
         .registry
         .sources
         .iter()
         .filter(|source| source.enabled)
     {
-        vcp_lifecycle::foundation::skills::check_source_read_access(state, config, source)?;
+        let root =
+            vcp_lifecycle::foundation::skills::check_source_read_access(state, config, source)?;
+        if source.id == vcp_extensions::catalog::SOURCE_ID {
+            integrity = Some(vcp_extensions::catalog::verify(&root).map_err(|e| e.to_string())?);
+        }
     }
     let cue_root = vcp_lifecycle::foundation::skills::check_source_read_access(
         state,
@@ -325,10 +407,16 @@ pub fn inspect(
         &cue_root,
         configuration.context.tools,
     )?;
-    let catalog =
+    let mut catalog =
         vcp_extensions::discovery::discover(&configuration.registry, &configuration.limits)
             .map_err(|e| e.to_string())?;
+    if let Some(integrity) = &integrity {
+        vcp_extensions::catalog::verify_discovery(integrity, &catalog)
+            .map_err(|e| e.to_string())?;
+    }
+    missing_builtin(&mut catalog, &configuration.registry);
     let mut result = catalog_page(&catalog, Some(&configuration.context), offset);
+    result["integrity"] = serde_json::to_value(integrity).map_err(|e| e.to_string())?;
     result["sources"] = serde_json::json!(configuration
         .registry
         .sources
@@ -469,6 +557,11 @@ mod tests {
         config.sources[0].path = std::env::temp_dir();
         config.sources[0].id = "bad\nsource".into();
         assert!(config.validate().is_err());
+        config.sources[0].id = vcp_extensions::catalog::SOURCE_ID.into();
+        assert!(config.validate().unwrap_err().contains("reserved"));
+        config.sources[0].id = "project".into();
+        config.sources[0].root_id = RootId::parse(vcp_extensions::catalog::ROOT_ID).unwrap();
+        assert!(config.validate().unwrap_err().contains("reserved"));
     }
     #[test]
     fn maximum_disabled_history_is_paged_without_losing_the_tail() {

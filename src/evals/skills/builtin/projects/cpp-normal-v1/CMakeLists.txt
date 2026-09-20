@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.25)
+project(fixture LANGUAGES CXX)
+enable_testing()
+add_executable(value value.cpp)
+add_test(NAME value COMMAND value)

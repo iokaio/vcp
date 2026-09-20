@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "shell",
+  "version": "1.0.0",
+  "description": "Review script shell/version, quoting, pipelines, exit status, and effect boundaries before execution.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:shell"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "d9cb3ec466ce12185342e11d52621e41776a9e7b8818f7822da256a3acbd1504"
+  },
+  "resources": []
+}

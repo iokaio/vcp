@@ -23,8 +23,74 @@ struct Fixture {
     workspace: PathBuf,
     data: PathBuf,
     profile: PathBuf,
+    binary: PathBuf,
 }
 impl Fixture {
+    fn maximum_skill_sources(&self) {
+        let mut profile: Value = serde_json::from_slice(&fs::read(&self.profile).unwrap()).unwrap();
+        profile["skills"] = json!({"version":1,"revision":"0","sources":(0..32).map(|index| json!({
+            "id":format!("source-{index}"),"kind":"workspace","enabled":false,
+            "root_id":vcp_domain::RootId::new(),"path":self.workspace,
+        })).collect::<Vec<_>>()});
+        fs::write(&self.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+    }
+    fn package(&mut self, assets: bool) -> PathBuf {
+        // Qualification-only input for exercising an independently built and
+        // extracted archive. Production asset lookup has no environment override.
+        let archive = std::env::var_os("VCP_TEST_SKILL_PACKAGE").map(PathBuf::from);
+        let compiled = PathBuf::from(env!("CARGO_BIN_EXE_vcp"));
+        let executable = archive
+            .as_ref()
+            .map_or_else(|| compiled.clone(), |path| path.join("vcp.exe"));
+        if archive.is_some() {
+            assert_eq!(
+                vcp_protocol::digest_bytes(&fs::read(&executable).unwrap()),
+                vcp_protocol::digest_bytes(&fs::read(&compiled).unwrap()),
+                "archive executable must match the qualified build"
+            );
+        }
+        let installation = self._temp.path().join("installed");
+        fs::create_dir_all(&installation).unwrap();
+        fs::copy(executable, installation.join("vcp.exe")).unwrap();
+        if assets {
+            let frozen = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../skills/builtin");
+            let source = archive
+                .as_ref()
+                .map_or_else(|| frozen.clone(), |path| path.join("skills/builtin"));
+            assert_eq!(
+                fs::read(source.join("catalog.json")).unwrap(),
+                fs::read(frozen.join("catalog.json")).unwrap(),
+                "archive catalog must match the frozen inventory"
+            );
+            let target = installation.join("skills/builtin");
+            fs::create_dir_all(&target).unwrap();
+            let catalog: Value =
+                serde_json::from_slice(&fs::read(source.join("catalog.json")).unwrap()).unwrap();
+            for name in ["catalog.json", "coverage.json"] {
+                fs::copy(source.join(name), target.join(name)).unwrap();
+            }
+            for skill in catalog["skills"].as_array().unwrap() {
+                let descriptor = PathBuf::from(skill["descriptor"].as_str().unwrap());
+                let package = descriptor.parent().unwrap();
+                fs::create_dir_all(target.join(package)).unwrap();
+                fs::copy(source.join(&descriptor), target.join(&descriptor)).unwrap();
+                let metadata: Value =
+                    serde_json::from_slice(&fs::read(source.join(&descriptor)).unwrap()).unwrap();
+                for content in std::iter::once(&metadata["body"])
+                    .chain(metadata["resources"].as_array().unwrap())
+                {
+                    let relative = package.join(content["path"].as_str().unwrap());
+                    fs::create_dir_all(target.join(&relative).parent().unwrap()).unwrap();
+                    fs::copy(source.join(&relative), target.join(&relative)).unwrap();
+                }
+            }
+        }
+        // Resolve from the running executable after the complete tree moves.
+        let relocated = self._temp.path().join("relocated package");
+        fs::rename(&installation, &relocated).unwrap();
+        self.binary = relocated.join("vcp.exe");
+        relocated.join("skills/builtin")
+    }
     fn skills(&self) -> PathBuf {
         let collection = self.workspace.join(".vcp-skills");
         let package = collection.join("review");
@@ -91,6 +157,7 @@ impl Fixture {
             workspace,
             data,
             profile,
+            binary: PathBuf::from(env!("CARGO_BIN_EXE_vcp")),
         }
     }
     async fn terminal(&self, objective: &str) -> codex_utils_pty::SpawnedProcess {
@@ -116,7 +183,7 @@ impl Fixture {
         ];
         args.extend(command.iter().map(|argument| (*argument).to_owned()));
         spawn_pty_process(
-            env!("CARGO_BIN_EXE_vcp"),
+            self.binary.to_str().unwrap(),
             &args,
             &self.workspace,
             &environment,
@@ -157,7 +224,7 @@ impl Fixture {
             .map(|item| item["record"].clone())
     }
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_vcp"));
+        let mut command = Command::new(&self.binary);
         command
             .args(["--format", "jsonl", "--non-interactive", "--workspace"])
             .arg(&self.workspace)
@@ -1294,6 +1361,115 @@ async fn executable_preflight_budget_question_and_incomplete_are_truthful() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_packaged_skills_are_relocatable_lazy_and_integrity_checked() {
+    let server = MockServer::start().await;
+    let mut fixture = Fixture::new(&server.uri(), "budget");
+    let assets = fixture.package(true);
+    let output = fixture
+        .run(&[
+            "run",
+            "Register packaged workspace",
+            "--autonomy",
+            "autonomous",
+            "--budget-usd",
+            "0.000001",
+        ])
+        .await;
+    assert_eq!(
+        output.status.code(),
+        Some(5),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    // Listing uses installed metadata, without reading any skill body or provider catalog.
+    fs::remove_file(assets.join("architecture/SKILL.md")).unwrap();
+    fs::remove_file(fixture.data.join("catalog.json")).unwrap();
+    let mut command = fixture.command(&["skills", "list"]);
+    command.env_remove("OPENROUTER_API_KEY");
+    let output = tokio::task::spawn_blocking(move || command.output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let values = records(&output);
+    let data = &values.last().unwrap()["data"];
+    assert_eq!(data["total_skills"], 21);
+    assert_eq!(data["reads"]["bodies"], 0);
+    assert_eq!(data["reads"]["resources"], 0);
+    assert!(!data["integrity"].is_null());
+    assert!(data["skills"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|skill| skill["source"] == "vcp-builtin"));
+    for relative in ["architecture/skill.json", "catalog.json", "coverage.json"] {
+        let path = assets.join(relative);
+        let original = fs::read(&path).unwrap();
+        fs::write(&path, b"{}").unwrap();
+        let output = fixture.run(&["skills", "list"]).await;
+        assert!(!output.status.success(), "tampered {relative} accepted");
+        fs::write(&path, original).unwrap();
+    }
+    fs::remove_file(assets.join("architecture/skill.json")).unwrap();
+    assert!(!fixture.run(&["skills", "list"]).await.status.success());
+    fixture.maximum_skill_sources();
+    let full = fixture.run(&["skills", "list"]).await;
+    assert!(!full.status.success());
+    let diagnostic = format!(
+        "{}{}",
+        String::from_utf8_lossy(&full.stdout),
+        String::from_utf8_lossy(&full.stderr)
+    );
+    assert!(diagnostic.contains("31 additional sources"), "{diagnostic}");
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_bare_binary_reports_missing_assets_without_ambient_fallback() {
+    let server = MockServer::start().await;
+    let mut fixture = Fixture::new(&server.uri(), "budget");
+    fixture.package(false);
+    // An apparently usable cwd asset tree is deliberately ignored.
+    fs::create_dir_all(fixture.workspace.join("skills/builtin")).unwrap();
+    fs::write(fixture.workspace.join("skills/builtin/catalog.json"), b"{}").unwrap();
+    let output = fixture
+        .run(&[
+            "run",
+            "Register bare workspace",
+            "--autonomy",
+            "autonomous",
+            "--budget-usd",
+            "0.000001",
+        ])
+        .await;
+    assert_eq!(output.status.code(), Some(5));
+    let output = fixture.run(&["skills", "list"]).await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let values = records(&output);
+    let data = &values.last().unwrap()["data"];
+    assert_eq!(data["total_skills"], 0);
+    assert!(data["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["code"] == "builtin_assets_missing"));
+    fixture.maximum_skill_sources();
+    assert!(
+        fixture.run(&["skills", "list"]).await.status.success(),
+        "bare binaries preserve the existing 32-source limit"
+    );
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn executable_skills_inspection_is_lazy_without_provider_or_budget_admission() {
     let server = MockServer::start().await;
     let fixture = Fixture::new(&server.uri(), "budget");
@@ -1356,8 +1532,14 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
         });
     }
     let server = MockServer::start().await;
-    let fixture = Fixture::new(&server.uri(), "budget");
-    fixture.skills();
+    let mut fixture = Fixture::new(&server.uri(), "budget");
+    let assets = fixture.package(true);
+    let project_package = fixture.skills();
+    let descriptor_path = project_package.join("skill.json");
+    let mut descriptor: Value =
+        serde_json::from_slice(&fs::read(&descriptor_path).unwrap()).unwrap();
+    descriptor["id"] = json!("architecture");
+    fs::write(&descriptor_path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
     let mut child = fixture
         .terminal_args(&[
             "run",
@@ -1382,9 +1564,31 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
         wait_for(&captured, "/skills").await;
         writer
             .send(
-                b"/pause\r/skills activate project::review::review cli-explicit-review-evidence\r"
+                b"/pause\r/skills activate vcp-builtin::architecture::architecture explicit-builtin-evidence\r"
                     .to_vec(),
             )
+            .await
+            .unwrap();
+        wait_for(&captured, "explicit-builtin-evidence").await;
+        writer
+            .send(b"/skills disable vcp-builtin::architecture::architecture\r".to_vec())
+            .await
+            .unwrap();
+        wait_for(&captured, "disabled").await;
+        // Descriptor discovery stays lazy; an altered body fails on activation.
+        fs::write(
+            assets.join("review-debug/SKILL.md"),
+            b"untrusted changed instructions",
+        )
+        .unwrap();
+        writer
+            .send(b"/skills activate vcp-builtin::review-debug::review-debug\r".to_vec())
+            .await
+            .unwrap();
+        wait_for(&captured, "skill source or dependency changed").await;
+        // The unqualified ID resolves to the higher-precedence workspace source.
+        writer
+            .send(b"/skills activate architecture cli-explicit-review-evidence\r".to_vec())
             .await
             .unwrap();
         wait_for(&captured, "1.2.0").await;
@@ -1398,6 +1602,8 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
         let values = records(&inspected);
         let data = &values.last().unwrap()["data"];
         assert_eq!(data["reads"]["bodies"], 0);
+        assert_eq!(data["total_skills"], 22);
+        assert!(!data["integrity"].is_null());
         assert!(data["configuration"]
             .as_str()
             .unwrap()
@@ -1408,7 +1614,7 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
             .unwrap();
         wait_for(&captured, "missing skill").await;
         writer
-            .send(b"/skills disable project::review::review\r".to_vec())
+            .send(b"/skills disable project::review::architecture\r".to_vec())
             .await
             .unwrap();
         wait_for(&captured, "disabled").await;
@@ -1458,10 +1664,15 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
         .as_array()
         .unwrap()
         .iter()
-        .any(|id| id == "project::review::review"));
+        .any(|id| id == "project::review::architecture"));
+    assert!(state.value["disabled"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "vcp-builtin::architecture::architecture"));
     assert_eq!(
-        state.value["revision"], "2",
-        "only successful activation and disable persist revisions"
+        state.value["revision"], "4",
+        "only the two successful activations and disables persist revisions"
     );
     store.close().await.unwrap();
     assert!(

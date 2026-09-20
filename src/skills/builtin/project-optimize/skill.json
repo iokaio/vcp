@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "project-optimize",
+  "version": "1.0.0",
+  "description": "Use retained evidence to propose explicit routing/context changes while preserving budgets and quality constraints.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "83fde373233ad53666da5b9c23da872f1d6d97dfedfbb52008d5a5e382b53555"
+  },
+  "resources": []
+}

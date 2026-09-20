@@ -392,7 +392,7 @@ pub(super) async fn execute(
         for process in prepared.processes{host.configure_process_profile(process)?;}
         host.configure_provider(prepared.profile.provider.clone(),prepared.raw_catalog)?;
         if let Some(routing) = prepared.profile.routing.clone() { host.configure_routing(routing)?; }
-        if let Some(skills) = &prepared.profile.skills { host.configure_skills(skills.prepare(&config,crate::skills::available_tools(&prepared.profile))?)?; }
+        host.configure_skills(crate::skills::prepare(&prepared.profile,&config)?)?;
         active_session=Some(crate::session::Session::start(&host,retained,ThreadBinding{scope:scope.clone(),agent:AgentId::new(),role:RequestRole::Main}).await?);
         let session=active_session.as_ref().ok_or("retained session unavailable")?;
         let current=task_from(&host.snapshot()?,&config.workspace,&config.root_task)?;

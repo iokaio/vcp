@@ -30,6 +30,7 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-022 — Retention selection and cleanup](022-retention-selection-and-cleanup.md) | P5-07 exact selection, protection and automatic policy |
 | [ADR-023 — Canonical selection activation](023-canonical-selection-activation.md) | P3-06/P5-10 leased descriptor selection and revision-checked activation |
 | [ADR-024 — Native skill packages](024-native-skill-packages.md) | P7-01 descriptor discovery, activation and authority |
+| [ADR-025 — Built-in skill asset identity](025-builtin-skill-assets.md) | P7-02 lazy packaged assets, integrity and coverage evidence |
 
 ## Maintaining a decision
 

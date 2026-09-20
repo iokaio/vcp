@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "swift",
+  "version": "1.0.0",
+  "description": "Inspect Swift package/platform contracts and distinguish portable guidance from host-supported checks.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "Package.swift"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "00cd9cee70b9245c4c0f650a44dbb00967644b188074f7afc61c7c7aea28c95f"
+  },
+  "resources": []
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "ruby",
+  "version": "1.0.0",
+  "description": "Follow Ruby version, Bundler lock, framework, and declared test-task conventions.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "Gemfile"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "e89947f425be2bce48a8200ee0a98b90b30be5cd9b5b55252e0a2fe01c3362a4"
+  },
+  "resources": []
+}

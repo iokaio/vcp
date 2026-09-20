@@ -17,6 +17,7 @@ use vcp_protocol::{
 pub(super) struct Runtime {
     configuration: Configuration,
     catalog: Catalog,
+    integrity: std::cell::RefCell<Option<vcp_extensions::catalog::Verification>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -57,6 +58,65 @@ fn name(scope: &Scope) -> Result<String> {
 }
 
 impl Context {
+    fn discover_skills(
+        &self,
+        registry: &SourceRegistry,
+        limits: &discovery::Limits,
+    ) -> Result<(Catalog, Option<vcp_extensions::catalog::Verification>)> {
+        let mut integrity = None;
+        for source in registry.sources.iter().filter(|source| source.enabled) {
+            let root = self.skill_source_access(source)?;
+            if source.id == vcp_extensions::catalog::SOURCE_ID {
+                integrity = Some(vcp_extensions::catalog::verify(&root)?);
+            }
+        }
+        let mut catalog = discovery::discover(registry, limits)?;
+        if let Some(verified) = &integrity {
+            vcp_extensions::catalog::verify_discovery(verified, &catalog)?;
+        } else if !registry
+            .sources
+            .iter()
+            .any(|source| source.id == vcp_extensions::catalog::SOURCE_ID)
+        {
+            catalog.diagnostics.push(discovery::Diagnostic {
+                source_id: vcp_extensions::catalog::SOURCE_ID.into(), path: String::new(),
+                code: "builtin_source_unavailable".into(),
+                message: "Bundled skill source is not registered; packaged assets may be missing (for example a bare development binary).".into(),
+            });
+        }
+        Ok((catalog, integrity))
+    }
+    fn validate_builtin_skills(&self) -> Result<()> {
+        let Some(runtime) = &self.skills else {
+            return Ok(());
+        };
+        let Some(source) = runtime
+            .configuration
+            .registry
+            .sources
+            .iter()
+            .find(|source| source.id == vcp_extensions::catalog::SOURCE_ID && source.enabled)
+        else {
+            return Ok(());
+        };
+        let root = self.skill_source_access(source)?;
+        let mut integrity = runtime.integrity.borrow_mut();
+        let verified = integrity
+            .as_mut()
+            .ok_or("builtin catalog integrity evidence missing")?;
+        let reads = vcp_extensions::catalog::revalidate(&root, verified)?;
+        verified.reads.revalidations = verified
+            .reads
+            .revalidations
+            .checked_add(reads.revalidations)
+            .ok_or("builtin integrity read counter overflow")?;
+        verified.reads.revalidation_bytes = verified
+            .reads
+            .revalidation_bytes
+            .checked_add(reads.revalidation_bytes)
+            .ok_or("builtin integrity byte counter overflow")?;
+        Ok(())
+    }
     fn skill_source_access(&self, source: &SkillSource) -> Result<vcp_repository::Root> {
         crate::foundation::skills::check_source_read_access(
             self.engine.store().state(),
@@ -74,8 +134,9 @@ impl Context {
             self.skill_source_access(source)?;
         }
         let context = self.skill_match_task_context(&self.config.root_task)?;
-        let catalog = discovery::discover(&registry, &discovery::Limits::default())?;
-        Ok(serde_json::json!({"catalog":catalog,"context":context}))
+        let (catalog, integrity) =
+            self.discover_skills(&registry, &discovery::Limits::default())?;
+        Ok(serde_json::json!({"catalog":catalog,"context":context,"integrity":integrity}))
     }
     fn skill_state(&self, scope: &Scope) -> Result<TaskSkills> {
         let id = name(scope)?;
@@ -166,7 +227,8 @@ impl Context {
                 self.skill_source_access(source)?;
             }
         }
-        let catalog = discovery::discover(&configuration.registry, &configuration.limits)?;
+        let (catalog, integrity) =
+            self.discover_skills(&configuration.registry, &configuration.limits)?;
         let scope = Scope {
             workspace: self.config.workspace.clone(),
             session: self.config.session.clone(),
@@ -176,13 +238,14 @@ impl Context {
             &scope,
             Channel::Evidence,
             &canonical_bytes(
-                &serde_json::json!({"registry":configuration.registry,"catalog":catalog}),
+                &serde_json::json!({"registry":configuration.registry,"catalog":catalog,"integrity":integrity}),
             )?,
             "canonical-skill-discovery/1",
         )?;
         self.skills = Some(Runtime {
             configuration,
             catalog,
+            integrity: std::cell::RefCell::new(integrity),
         });
         Ok(())
     }
@@ -278,6 +341,7 @@ impl Context {
         let mut state = self.skill_state(&binding.scope)?;
         match request {
             Request::Status => {
+                self.validate_builtin_skills()?;
                 if let Some(runtime) = &self.skills {
                     for source in runtime
                         .configuration
@@ -295,8 +359,12 @@ impl Context {
                     .as_ref()
                     .map(|_| self.skill_match_context(binding))
                     .transpose()?;
+                let integrity = self
+                    .skills
+                    .as_ref()
+                    .and_then(|runtime| runtime.integrity.borrow().clone());
                 return Ok(
-                    serde_json::json!({"state":state,"catalog":catalog,"configured":self.skills.is_some(),"context":context}),
+                    serde_json::json!({"state":state,"catalog":catalog,"configured":self.skills.is_some(),"context":context,"integrity":integrity}),
                 );
             }
             Request::Disable { id } => {
@@ -327,6 +395,7 @@ impl Context {
                 )?;
             }
             Request::Activate { id, reason } => {
+                self.validate_builtin_skills()?;
                 let matches = self.skill_match_context(binding)?;
                 let runtime = self.skills.as_ref().ok_or("skill configuration required")?;
                 let selected = runtime.catalog.resolve(&id, &matches)?;
@@ -418,6 +487,7 @@ impl Context {
     }
     pub(super) fn validate_skills(&self, binding: &ThreadBinding) -> Result<()> {
         self.skill_access(binding)?;
+        self.validate_builtin_skills()?;
         // Cached descriptors remain source content and observe current read denials.
         if let Some(runtime) = &self.skills {
             for source in runtime

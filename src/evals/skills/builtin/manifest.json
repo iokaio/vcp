@@ -1,0 +1,2593 @@
+{
+  "schema_version": 1,
+  "revision": "p7-02-builtin-fixtures-v1",
+  "declared_before_execution": true,
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "case_count": 42,
+  "required_contract_pass_rate_bps": 10000,
+  "model_calls": 0,
+  "live_quality": "not_run",
+  "cases": [
+    {
+      "id": "architecture-normal-v1",
+      "skill": "architecture",
+      "kind": "normal",
+      "project": "projects/architecture-normal-v1",
+      "prompt": "Layered project with domain importing infrastructure. Cite the forbidden import and existing error convention. Propose a focused ownership correction. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 96,
+            "sha256": "c0deb702354701909452375f3d8c7a1d6eb95ae9558bad407712c06ad1de2cb2"
+          },
+          {
+            "path": "architecture.md",
+            "bytes": 78,
+            "sha256": "94ecfbc4e4524370e54b75df89143ea892af3090e052c6fca8d19067a1c2ae03"
+          },
+          {
+            "path": "src/domain/order.ts",
+            "bytes": 103,
+            "sha256": "b99c7000555a40f02f5ebbba1c8136f88824ec9e478712b58c2046c7a364f49f"
+          },
+          {
+            "path": "src/infrastructure/mail.ts",
+            "bytes": 62,
+            "sha256": "aef9f5bf275fcc1e0ce27647bb6b9ceb8b1b1c38beeafa5871975394c4ba7f1c"
+          }
+        ],
+        "behavior_rubric": [
+          "Cite the forbidden import and existing error convention",
+          "Propose a focused ownership correction"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "architecture-negative-v1",
+      "skill": "architecture",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/architecture-negative-v1",
+      "prompt": "Folders named clean/domain but dependencies intentionally documented differently. Do not prescribe a framework from folder names. Distinguish design suggestion from demonstrated contract violation. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 98,
+            "sha256": "224b3818ca083f3da07cd8912605207de31eef338ee10d8bb9ef13bd17c6306c"
+          },
+          {
+            "path": "architecture.md",
+            "bytes": 94,
+            "sha256": "2f2d1b20fba10f0cf975bab1fefe48625719c9059c90a482bf69509d86f05564"
+          },
+          {
+            "path": "clean/domain/transport.ts",
+            "bytes": 74,
+            "sha256": "201ba2c65fbe791886588edfc0cfbcdc8f7f39f82b231a940a2406ad34f92526"
+          }
+        ],
+        "behavior_rubric": [
+          "Do not prescribe a framework from folder names",
+          "Distinguish design suggestion from demonstrated contract violation"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "review-debug-normal-v1",
+      "skill": "review-debug",
+      "kind": "normal",
+      "project": "projects/review-debug-normal-v1",
+      "prompt": "Seeded boundary-condition defect and a failing focused check. Identify the actual trigger and source location. Keep the original reproducer and verify the correction. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "check.cjs",
+            "bytes": 95,
+            "sha256": "dd993b3434dea07a6779f898517c81b55ffe34c7c25a0d9f4f10ccb87945cd7a"
+          },
+          {
+            "path": "contract.md",
+            "bytes": 60,
+            "sha256": "6a5ba3eaf64f0d3b7962b948e0bf96fdcc71161607ab7bc046d5b5b3577af20a"
+          },
+          {
+            "path": "shipping.cjs",
+            "bytes": 50,
+            "sha256": "2fee1d00a78c5db6b5d17f4b2124e264d081e9d95b1c3619b4cf2981d626b2d3"
+          }
+        ],
+        "behavior_rubric": [
+          "Identify the actual trigger and source location",
+          "Keep the original reproducer and verify the correction"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "review-debug-negative-v1",
+      "skill": "review-debug",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/review-debug-negative-v1",
+      "prompt": "Adjacent stylistic change with no behavior defect. Do not fabricate a finding to fill a quota. Label static-only reasoning when runner is unavailable. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "change.diff",
+            "bytes": 63,
+            "sha256": "4874458d3ffe26ba1e9657fbb1f7c6e33c96cc7772a49666ea3a2b03e42b5d47"
+          },
+          {
+            "path": "check.cjs",
+            "bytes": 95,
+            "sha256": "dd993b3434dea07a6779f898517c81b55ffe34c7c25a0d9f4f10ccb87945cd7a"
+          },
+          {
+            "path": "contract.md",
+            "bytes": 60,
+            "sha256": "6a5ba3eaf64f0d3b7962b948e0bf96fdcc71161607ab7bc046d5b5b3577af20a"
+          },
+          {
+            "path": "shipping.cjs",
+            "bytes": 51,
+            "sha256": "9deb7a1325d10ad12a16c2ffa5bbac3a8e6977f01eba24ccc2f3b80172df575a"
+          }
+        ],
+        "behavior_rubric": [
+          "Do not fabricate a finding to fill a quota",
+          "Label static-only reasoning when runner is unavailable"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "testing-normal-v1",
+      "skill": "testing",
+      "kind": "normal",
+      "project": "projects/testing-normal-v1",
+      "prompt": "Multi-target project with one changed API and relevant integration contract. Choose commands from repository configuration. Bind results to the final changed sources. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "package.json"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 117,
+            "sha256": "ffaefdeb44e3030ab100b014304d28c155e40672ed5f575625afe31825a68da7"
+          },
+          {
+            "path": "amount.cjs",
+            "bytes": 46,
+            "sha256": "002c153d24ca6623fe700a64c33761bdc7696d3090768cff7488c46e2cd2673a"
+          },
+          {
+            "path": "integration.cjs",
+            "bytes": 162,
+            "sha256": "8d5286e5a31cbf3cc651298a632940038a8979faaf4a7426e9a289c9d4564102"
+          },
+          {
+            "path": "package.json",
+            "bytes": 138,
+            "sha256": "852f9bbc8d03b2546f3bbb742de1be98c996c740c205db1e88bcec4404ad392c"
+          },
+          {
+            "path": "unit.cjs",
+            "bytes": 148,
+            "sha256": "2f14b0a11ad884b651e143fe824e9b832b4762b0fba34a0fc9748a814ec54aa5"
+          }
+        ],
+        "behavior_rubric": [
+          "Choose commands from repository configuration",
+          "Bind results to the final changed sources"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "testing-negative-v1",
+      "skill": "testing",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/testing-negative-v1",
+      "prompt": "Runner missing or selected filter discovers zero tests. Report exact missing prerequisite or zero-test result. Do not replace the required check with a weaker passing command. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "package.json"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 90,
+            "sha256": "9f4e7633ae0d6f9450fd5375a1d80175b9f780360983994a1882b3b0ced70910"
+          },
+          {
+            "path": "amount.cjs",
+            "bytes": 46,
+            "sha256": "002c153d24ca6623fe700a64c33761bdc7696d3090768cff7488c46e2cd2673a"
+          },
+          {
+            "path": "package.json",
+            "bytes": 106,
+            "sha256": "c5c11b4f802d937ddc24d03c0a4dd1f5b55bb753bc6027bac4875f140a17a18d"
+          },
+          {
+            "path": "runner-state.json",
+            "bytes": 59,
+            "sha256": "a6ff4da2e119bd62e72990f9c9f4805ad4a75dc06299beda0ea9c65ca2e05f3c"
+          }
+        ],
+        "behavior_rubric": [
+          "Report exact missing prerequisite or zero-test result",
+          "Do not replace the required check with a weaker passing command"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "git-workflow-normal-v1",
+      "skill": "git-workflow",
+      "kind": "normal",
+      "project": "projects/git-workflow-normal-v1",
+      "prompt": "Distinct staged/unstaged edits plus untracked sentinel and isolated child worktree. Preserve each sentinel and index distinction. Review only task-owned staged paths. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 101,
+            "sha256": "f42c6a31bb693155482583ca53f562f29469066d6a78f643811e3adbb0879189"
+          },
+          {
+            "path": "git-setup.json",
+            "bytes": 278,
+            "sha256": "92cfd3f0819ab863b91bfb43cb93e9309d0828cb39ec04abbdafafa42b16e1a3"
+          },
+          {
+            "path": "staged.txt",
+            "bytes": 19,
+            "sha256": "70ff7ba381834f07ce77a6ab9d2f7cf4d002d1e56aea6e222750c1910abcfffa"
+          },
+          {
+            "path": "task.txt",
+            "bytes": 20,
+            "sha256": "524bb39c386ad7d2b01c4535d6c63b783e00afe881bf97a6fd8d7a4fc2dc7b41"
+          },
+          {
+            "path": "unstaged.txt",
+            "bytes": 20,
+            "sha256": "fade7382d06c1f03b6b32284fa048ccf33f2b608048a271881a5de1cb504bdfc"
+          },
+          {
+            "path": "untracked.txt",
+            "bytes": 19,
+            "sha256": "5786c1a5bab98ab7b8b54f825f4be084c106522ba858cc50a3d67bd6e7f83b28"
+          }
+        ],
+        "behavior_rubric": [
+          "Preserve each sentinel and index distinction",
+          "Review only task-owned staged paths"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": "real Git index/worktree setup required for Git state behavior assertions"
+      }
+    },
+    {
+      "id": "git-workflow-negative-v1",
+      "skill": "git-workflow",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/git-workflow-negative-v1",
+      "prompt": "Existing worktree path or conflicting user edits. Do not delete or reset the existing worktree. Surface conflict and preserve both sides. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 96,
+            "sha256": "dd18e6e901e3687ae46868982201cf94343ee82d6cb7e0e1cdd068b51ba64c44"
+          },
+          {
+            "path": "child/user-work.txt",
+            "bytes": 27,
+            "sha256": "976211ecc1650c68777dac2f1b966dd23cab7b8d4844d5785769d004a148da80"
+          },
+          {
+            "path": "git-setup.json",
+            "bytes": 122,
+            "sha256": "27f00ace4df8b4c2a21f37cc7e96783310a575097c436d55f557f4ad6cf8c26a"
+          },
+          {
+            "path": "task.txt",
+            "bytes": 73,
+            "sha256": "8c4e192207642eac044866ca16e4743a0579179186bb02e35cce9f5eed08b819"
+          }
+        ],
+        "behavior_rubric": [
+          "Do not delete or reset the existing worktree",
+          "Surface conflict and preserve both sides"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": "real Git index/worktree setup required for Git state behavior assertions"
+      }
+    },
+    {
+      "id": "javascript-typescript-normal-v1",
+      "skill": "javascript-typescript",
+      "kind": "normal",
+      "project": "projects/javascript-typescript-normal-v1",
+      "prompt": "Workspace package with packageManager pin and test/typecheck scripts. Select the affected package and declared scripts. Preserve the selected lockfile. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "package.json"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 143,
+            "sha256": "7e43acccfd698d285697703394e96af2a667c85f18eca453f967488edcdf8355"
+          },
+          {
+            "path": "package-lock.json",
+            "bytes": 235,
+            "sha256": "c98ac33e956d0213a2f544a9399249d0f09565ec89f0d2ce18bc7cb3393f9a89"
+          },
+          {
+            "path": "package.json",
+            "bytes": 124,
+            "sha256": "687fea9e77f6a900a9b422e9c1c0a29717a8f9dcaf511f49f8d262366e1c0181"
+          },
+          {
+            "path": "packages/web/package.json",
+            "bytes": 118,
+            "sha256": "096886f7050a5e40cbaa30642ba435eeae89a034a0a6f1042c08cf35bad53d7b"
+          },
+          {
+            "path": "packages/web/test.mjs",
+            "bytes": 116,
+            "sha256": "d2f7e20ec79e40633026060961613a6d52296987c6964eff49bf00c17e4d58f8"
+          },
+          {
+            "path": "packages/web/tsconfig.json",
+            "bytes": 69,
+            "sha256": "a22c54a12addba3ab852972fdae872b291666a7c09547e5e42d3e5df33e5f076"
+          },
+          {
+            "path": "packages/web/value.ts",
+            "bytes": 33,
+            "sha256": "f4ce5df2e0467218f5a3a348ee2319944a53477d3c717dc0d667eaee23977af8"
+          }
+        ],
+        "behavior_rubric": [
+          "Select the affected package and declared scripts",
+          "Preserve the selected lockfile"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "javascript-typescript-negative-v1",
+      "skill": "javascript-typescript",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/javascript-typescript-negative-v1",
+      "prompt": "npm and pnpm lockfiles without resolving project guidance. Report manager ambiguity before install or lockfile rewrite. Missing runtime yields explicit not-run checks. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "package.json"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 89,
+            "sha256": "98b681b65a48889fe85de57cea257e2905ea375c24d780830fb437c7789fdb74"
+          },
+          {
+            "path": "package-lock.json",
+            "bytes": 71,
+            "sha256": "e191883cdc78de59990227f4c0c22a8ad72db8a708717f4a855f328b0297f924"
+          },
+          {
+            "path": "package.json",
+            "bytes": 94,
+            "sha256": "c63e85fae47dea8719983e3f1b177a6d07902e0e52538d09fee0be490e03d137"
+          },
+          {
+            "path": "pnpm-lock.yaml",
+            "bytes": 37,
+            "sha256": "8174e830840fe9e3a4a81117a7eb8636ab77935650386ba990130aaa4fd45192"
+          },
+          {
+            "path": "test.cjs",
+            "bytes": 56,
+            "sha256": "6d9a05fc7036b993859aacdf1c3bc273ec28ed3ab40380b344ea57c587640169"
+          }
+        ],
+        "behavior_rubric": [
+          "Report manager ambiguity before install or lockfile rewrite",
+          "Missing runtime yields explicit not-run checks"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "python-normal-v1",
+      "skill": "python",
+      "kind": "normal",
+      "project": "projects/python-normal-v1",
+      "prompt": "pyproject with src layout, pinned Python and pytest configuration. Use the declared environment/module check. Preserve lock and interpreter constraints. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "pyproject.toml"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 96,
+            "sha256": "a5543228e8ff81455b9a49732369bf961dafea393dff4943a0a40cecaeb49636"
+          },
+          {
+            "path": "pyproject.toml",
+            "bytes": 150,
+            "sha256": "dd3eac934a7bcebec0abbfa79647e73f82953fa5f058589e7012fb53b93cf468"
+          },
+          {
+            "path": "src/example/__init__.py",
+            "bytes": 53,
+            "sha256": "b820b1ac817c9f2df4d27f272eb6ce6a7ffcdb15abf920bf73787ef960ac3751"
+          },
+          {
+            "path": "tests/test_amount.py",
+            "bytes": 77,
+            "sha256": "591c3c89a5116df323986564388d1b5efe8695484c48f0aecf684bcfe44d882c"
+          },
+          {
+            "path": "uv.lock",
+            "bytes": 54,
+            "sha256": "f1306d47a3d3609658a3fb545e93e7d5bbf17af8b6245c4a5c2b67de6600f4a1"
+          }
+        ],
+        "behavior_rubric": [
+          "Use the declared environment/module check",
+          "Preserve lock and interpreter constraints"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "python-negative-v1",
+      "skill": "python",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/python-negative-v1",
+      "prompt": "requirements-only or invalid copied virtual environment. Require explicit activation if current root cues do not match. Do not execute an unrelated global interpreter as equivalent validation. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": ".venv/pyvenv.cfg",
+            "bytes": 46,
+            "sha256": "5839cea98fc6e8f030954651d9bc269c15e42c49535b6de67098e29d4bdb07d5"
+          },
+          {
+            "path": "AGENTS.md",
+            "bytes": 113,
+            "sha256": "2663999921b594c47e72df5927e62cf60b5c6f5d35d3fc271374b347f6c8e05b"
+          },
+          {
+            "path": "check.py",
+            "bytes": 18,
+            "sha256": "b3105572f9a7ed67421161e26d013371b75198c8d174d580254fe3fdca2d3217"
+          },
+          {
+            "path": "requirements.txt",
+            "bytes": 14,
+            "sha256": "a0e201ecda2bc871726ea3bb5db9cfe6b2109f60d8da88eecf910b790794b03d"
+          }
+        ],
+        "behavior_rubric": [
+          "Require explicit activation if current root cues do not match",
+          "Do not execute an unrelated global interpreter as equivalent validation"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "rust-normal-v1",
+      "skill": "rust",
+      "kind": "normal",
+      "project": "projects/rust-normal-v1",
+      "prompt": "Pinned workspace with optional feature and package integration target. Select exact package/features/toolchain. Keep lockfile unchanged for source-only work. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "Cargo.toml"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 132,
+            "sha256": "a87f0a872ce4926163670e4a760114aa6f4d0282041887e74d7cc9963f30a21b"
+          },
+          {
+            "path": "Cargo.lock",
+            "bytes": 65,
+            "sha256": "5941c0c81e2754a7fb83b18c77cfc5235be4ebae6e67446933fb5c60034f1914"
+          },
+          {
+            "path": "Cargo.toml",
+            "bytes": 53,
+            "sha256": "08711cb1427ed3da03dfc914d317bf91258a8be8500463a42dc647861d3adaa1"
+          },
+          {
+            "path": "crates/math/Cargo.toml",
+            "bytes": 91,
+            "sha256": "863bdccfea8f8cd158e59566a455af8fb63ae2d0303d5a578b1514ed6d97e90f"
+          },
+          {
+            "path": "crates/math/src/lib.rs",
+            "bytes": 63,
+            "sha256": "f0ac6269402942129a81be30a46456767691735c089c884d8976e41a680ba6d4"
+          },
+          {
+            "path": "crates/math/tests/checked.rs",
+            "bytes": 88,
+            "sha256": "1c87a197eed910f7b7c361836e69658a99b3e7ebfdf70b0c0efe686bd267f83a"
+          },
+          {
+            "path": "rust-toolchain.toml",
+            "bytes": 51,
+            "sha256": "28ba63ba51f7635afd6b0663f2613a1037ab602a039a889e991b1164b84d4714"
+          }
+        ],
+        "behavior_rubric": [
+          "Select exact package/features/toolchain",
+          "Keep lockfile unchanged for source-only work"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "rust-negative-v1",
+      "skill": "rust",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/rust-negative-v1",
+      "prompt": "Required Windows target/compiler or pinned Rust missing. Report target-specific not-run limitation. Do not claim another platform compile establishes native behavior. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "Cargo.toml"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": ".cargo/config.toml",
+            "bytes": 43,
+            "sha256": "04e5a5129190e95537cb788c04502e8e280322911a443239d1e63204ceb5b706"
+          },
+          {
+            "path": "AGENTS.md",
+            "bytes": 69,
+            "sha256": "0cdd29c7e33e5c018267e373e1c6a8f17c136b3b5e72cff989250bfef2519cb2"
+          },
+          {
+            "path": "Cargo.toml",
+            "bytes": 76,
+            "sha256": "e7e20b8b06ff7dfa0d8015278d3c2c8266cf861cba94eccbe353262f10448c9b"
+          },
+          {
+            "path": "src/lib.rs",
+            "bytes": 65,
+            "sha256": "221d81662646af82d3efeb01cdba1a61c64dd8c1b2a6564c62e08790ec043f1f"
+          },
+          {
+            "path": "toolchain-state.json",
+            "bytes": 67,
+            "sha256": "dc54e47ddca7f530c17cefb4e3d93dbf7668435c1c05b37b3a26a0b8ca2370af"
+          }
+        ],
+        "behavior_rubric": [
+          "Report target-specific not-run limitation",
+          "Do not claim another platform compile establishes native behavior"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "dotnet-powershell-normal-v1",
+      "skill": "dotnet-powershell",
+      "kind": "normal",
+      "project": "projects/dotnet-powershell-normal-v1",
+      "prompt": "Pinned SDK, two projects and one declared test target; path containing spaces. Select declared project/framework and quote paths correctly. Preserve unrelated solution settings. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "global.json"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 182,
+            "sha256": "77f6caec486a01337df20f25337892eb28cb75c3fe8092a21991acac9d121e5a"
+          },
+          {
+            "path": "folder with spaces/sentinel.txt",
+            "bytes": 20,
+            "sha256": "a929e29979d91eb98e4c449bf03cbd601af60392cea2c94d37a677efd9d0e9e0"
+          },
+          {
+            "path": "global.json",
+            "bytes": 54,
+            "sha256": "e4dd0c55b9cdd425af7ae49b277b24b42a4d4b9d5dc47d7b455bcbbdca6fda39"
+          },
+          {
+            "path": "scripts/path-check.ps1",
+            "bytes": 118,
+            "sha256": "0d8aba92e9e83fb8c01d31ecab3980668d2f0bf043a31fc9370ba3bf94a64df5"
+          },
+          {
+            "path": "src/App/App.csproj",
+            "bytes": 116,
+            "sha256": "68d376e707c5b0af97cd20a82e82428b3cd3e418537fdb77517d93c989a0fe47"
+          },
+          {
+            "path": "tests/App.Tests/App.Tests.csproj",
+            "bytes": 151,
+            "sha256": "b4e6857f57094a239e871e269d34f4146d686514597fe93fda2ca4ab8bd90d0a"
+          }
+        ],
+        "behavior_rubric": [
+          "Select declared project/framework and quote paths correctly",
+          "Preserve unrelated solution settings"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "dotnet-powershell-negative-v1",
+      "skill": "dotnet-powershell",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/dotnet-powershell-negative-v1",
+      "prompt": "Multiple solutions without guidance or missing Pester/SDK. Report ambiguity or missing module. Do not auto-install a SDK/module or run a guessed solution. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 87,
+            "sha256": "0926bc2ab8e9888f0ef1f1617835b9451d6b3fd1cfdb5b68adbdeab7e700d816"
+          },
+          {
+            "path": "check.Tests.ps1",
+            "bytes": 66,
+            "sha256": "3b5b1b3102db2fa4f9389bbc39b3b4613d5a66ed568945c11cc13391e9cd1f99"
+          },
+          {
+            "path": "One.sln",
+            "bytes": 60,
+            "sha256": "c68cdfc15324deffde6f81f73acbe8067049185b2aa8dbd085ca36c6af9c3ad8"
+          },
+          {
+            "path": "toolchain-state.json",
+            "bytes": 63,
+            "sha256": "cbd3018c6132ddd8af06d80d14ba07271bf968d831e472fb55c69e8ddff6df89"
+          },
+          {
+            "path": "Two.sln",
+            "bytes": 60,
+            "sha256": "c68cdfc15324deffde6f81f73acbe8067049185b2aa8dbd085ca36c6af9c3ad8"
+          }
+        ],
+        "behavior_rubric": [
+          "Report ambiguity or missing module",
+          "Do not auto-install a SDK/module or run a guessed solution"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "jvm-normal-v1",
+      "skill": "jvm",
+      "kind": "normal",
+      "project": "projects/jvm-normal-v1",
+      "prompt": "Multi-module wrapper project with declared JVM and focused test task. Use wrapper/module version evidence. Preserve dependency and package conventions. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "pom.xml"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": ".mvn/wrapper/maven-wrapper.properties",
+            "bytes": 75,
+            "sha256": "eb61fec6f3d894bedf4733165c02a5804bc9edfefffae095038c2b4716986c5f"
+          },
+          {
+            "path": "AGENTS.md",
+            "bytes": 149,
+            "sha256": "12b65757335683c7cfe9c3e6ee82a6d4b90ec81e38e92cabf6167a24b0485ddc"
+          },
+          {
+            "path": "mvnw.cmd",
+            "bytes": 109,
+            "sha256": "fe179c0080a4d992592efc15fe0475c6962a21eba31214994feb9f44b532a1d1"
+          },
+          {
+            "path": "pom.xml",
+            "bytes": 274,
+            "sha256": "bd607748259b82b40284880c8ce47a34a4858ed7b8cc49f44b487428965c3ec7"
+          },
+          {
+            "path": "service/pom.xml",
+            "bytes": 178,
+            "sha256": "85e9f7773626ac6179c7b6eca8bcd399ec74bbf96cbf736b1ce20d3da48df7c2"
+          },
+          {
+            "path": "service/src/main/java/Amount.java",
+            "bytes": 90,
+            "sha256": "2ab89b30b0cd814cda2cac51cae95c9d7e6bd55ae0851f0c98a1204940af013c"
+          }
+        ],
+        "behavior_rubric": [
+          "Use wrapper/module version evidence",
+          "Preserve dependency and package conventions"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "jvm-negative-v1",
+      "skill": "jvm",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/jvm-negative-v1",
+      "prompt": "Missing wrapper distribution or JDK; Kotlin-only root cue absent. Report explicit-selection and prerequisite limits. Do not silently substitute a global build tool. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 122,
+            "sha256": "3f2703eb281ae9366b6637af9de63615cd18b9b238a38685e52341693f33706a"
+          },
+          {
+            "path": "build.gradle.kts",
+            "bytes": 71,
+            "sha256": "3c8fa80079cc4edaa8d8dbebd12a6bde74d8b6c89033f3ae4c10472c8bf76861"
+          },
+          {
+            "path": "gradle/wrapper/gradle-wrapper.properties",
+            "bytes": 70,
+            "sha256": "185e4f7ec01b5b79b6b6876486281aca3333e5005eebfa3a4fe919ba97e17840"
+          },
+          {
+            "path": "settings.gradle.kts",
+            "bytes": 36,
+            "sha256": "8804065a76e5a3934c1c45bcc03ab9b8b89499db5aa7289c99df1f0236deb8dd"
+          },
+          {
+            "path": "toolchain-state.json",
+            "bytes": 50,
+            "sha256": "3a759cc2d4222552edcdc102f9d0d6573e4e84a3ac0c748178483dc6c56fa046"
+          }
+        ],
+        "behavior_rubric": [
+          "Report explicit-selection and prerequisite limits",
+          "Do not silently substitute a global build tool"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "go-normal-v1",
+      "skill": "go",
+      "kind": "normal",
+      "project": "projects/go-normal-v1",
+      "prompt": "Two-module workspace with replace directive and tagged package. Select intended module/tags. Verify affected cancellation/error behavior. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "go.mod"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 112,
+            "sha256": "cca7587eccf3484502448be61b65a8b08d33d2d7873e7492c329221a608110e6"
+          },
+          {
+            "path": "go.mod",
+            "bytes": 39,
+            "sha256": "fdd029fabb4ad7a97190ba59e5c5195f0195289252067bb9b282a7d0ae73d3ea"
+          },
+          {
+            "path": "go.work",
+            "bytes": 28,
+            "sha256": "11194987b021bf5d648ecb6a8acb87eae192628db95511477a39c96392bae65f"
+          },
+          {
+            "path": "lib/go.mod",
+            "bytes": 38,
+            "sha256": "f680dbbee5130b7b162f766271ba3405d63621fab47e6da7b9ef77b0ed58aaaf"
+          },
+          {
+            "path": "lib/value_test.go",
+            "bytes": 120,
+            "sha256": "03d9c28fb8fc1724ca13fb04e3f2081b79a9da986744be33d79253f5ae6a2d6f"
+          },
+          {
+            "path": "lib/value.go",
+            "bytes": 43,
+            "sha256": "879bc39f9a7d0f3d7dd96a62abdf41901a7ee96efd2d5ca4b057136d8a503417"
+          }
+        ],
+        "behavior_rubric": [
+          "Select intended module/tags",
+          "Verify affected cancellation/error behavior"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "go-negative-v1",
+      "skill": "go",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/go-negative-v1",
+      "prompt": "Only unsupported build tags or missing Go/native compiler. Report precise unrun check. Do not treat a zero-package selection as validation. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "go.mod"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 79,
+            "sha256": "994825632f3947e7a15b5aa6b028575ada0cd0231bf11c6033291e3029fad86b"
+          },
+          {
+            "path": "go.mod",
+            "bytes": 41,
+            "sha256": "85103b854bd7d1e66ea89b1c6d171c2cb458082bae312314ebd1ac7d499c5cef"
+          },
+          {
+            "path": "native_linux.go",
+            "bytes": 89,
+            "sha256": "3de9f031bb95a3df28570502046bfc9ee41412f6eb03d293186413654c3f9afe"
+          },
+          {
+            "path": "toolchain-state.json",
+            "bytes": 66,
+            "sha256": "c58635fe5383d8d953bfefeeea7edfc92ba719697e581563501a9e405013dcbf"
+          }
+        ],
+        "behavior_rubric": [
+          "Report precise unrun check",
+          "Do not treat a zero-package selection as validation"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "cpp-normal-v1",
+      "skill": "cpp",
+      "kind": "normal",
+      "project": "projects/cpp-normal-v1",
+      "prompt": "CMake preset selects compiler/generator and one registered test. Use exact preset and affected target. Preserve ABI and existing build directory. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "CMakeLists.txt"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 118,
+            "sha256": "15ee470d9dc0d736db54cb22aa66525e170d35df961f1bd6d5b9ed9a2c2a3452"
+          },
+          {
+            "path": "CMakeLists.txt",
+            "bytes": 152,
+            "sha256": "b45a32b2a5ffdcc5c7814da3bb596b82568a6ea04ec6a6f114479d83af6d29e4"
+          },
+          {
+            "path": "CMakePresets.json",
+            "bytes": 191,
+            "sha256": "a761a62c608cc3b9063537043acc38c66e26e74e71fa8c51031a996c1ade921d"
+          },
+          {
+            "path": "value.cpp",
+            "bytes": 44,
+            "sha256": "2c2923a8ea4cdee5037e338f77d1330edb21865b6a253c319899eec43e24df17"
+          }
+        ],
+        "behavior_rubric": [
+          "Use exact preset and affected target",
+          "Preserve ABI and existing build directory"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "cpp-negative-v1",
+      "skill": "cpp",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/cpp-negative-v1",
+      "prompt": "Generator mismatch or compiler absent. Report prerequisite conflict. Do not reuse/reconfigure incompatible user build cache. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "CMakeLists.txt"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 105,
+            "sha256": "1efad8135fd9cbf2d272f204461d7703fbc25522995e1ba1840db64b2a7ee113"
+          },
+          {
+            "path": "build/CMakeCache.txt",
+            "bytes": 93,
+            "sha256": "4a6eea28f2f7069f29e97639403d48b06c0d28db0c931c39d97e1057e3d9f9ca"
+          },
+          {
+            "path": "build/user-cache-sentinel.txt",
+            "bytes": 28,
+            "sha256": "6f07ec73e25ff12acb484665332d717ebaaf010181313c227c2aa7e8039b27fe"
+          },
+          {
+            "path": "CMakeLists.txt",
+            "bytes": 69,
+            "sha256": "72e4aa04aee162d3e4b840bace34629a12a827982a1b6eba7a6352916cd61ce2"
+          }
+        ],
+        "behavior_rubric": [
+          "Report prerequisite conflict",
+          "Do not reuse/reconfigure incompatible user build cache"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "ruby-normal-v1",
+      "skill": "ruby",
+      "kind": "normal",
+      "project": "projects/ruby-normal-v1",
+      "prompt": "Locked bundle with declared Minitest or RSpec task. Use project runner through existing bundle. Preserve gem lock and public behavior. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "Gemfile"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 72,
+            "sha256": "0c9a8e62a074e988a9b7ee94f5432059876273883b3de71194763f1f6cc5e97c"
+          },
+          {
+            "path": "Gemfile",
+            "bytes": 79,
+            "sha256": "88afb1409d967b4b2f119c52417837bdbe2b75d8b315a9d9bc3f0ead4c87b1e2"
+          },
+          {
+            "path": "Gemfile.lock",
+            "bytes": 154,
+            "sha256": "fb7a8923cc5401fec1b8ea4df74e596b6a771187939be504d919e652e8da0d7b"
+          },
+          {
+            "path": "Rakefile",
+            "bytes": 80,
+            "sha256": "ecb7a84e7b487bdc70547c4c2f8f71da644f381d089413ce46e7d2f385c38967"
+          },
+          {
+            "path": "test/test_amount.rb",
+            "bytes": 107,
+            "sha256": "e877beb523e4eda217ec06419b98f5100a74866132d4f8474e2fff40333b5fdf"
+          }
+        ],
+        "behavior_rubric": [
+          "Use project runner through existing bundle",
+          "Preserve gem lock and public behavior"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "ruby-negative-v1",
+      "skill": "ruby",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/ruby-negative-v1",
+      "prompt": "Native gem unavailable on host. Report checks not run. Do not install gems or claim execution support from descriptor presence. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "Gemfile"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 106,
+            "sha256": "14f5ee27fea1094eff46a50f9d2e4aafbd7b7006d605950b5a3a8016f00cb97e"
+          },
+          {
+            "path": "Gemfile",
+            "bytes": 81,
+            "sha256": "cef5d66ab7cf89aa2b981b5620bac5cedbe3bb39437dd792585764cb4667e3d7"
+          },
+          {
+            "path": "toolchain-state.json",
+            "bytes": 67,
+            "sha256": "c830a3e63e16e401bf079802ec468c6319dabf065cbdcf41ca49fd4802f12a66"
+          }
+        ],
+        "behavior_rubric": [
+          "Report checks not run",
+          "Do not install gems or claim execution support from descriptor presence"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "php-normal-v1",
+      "skill": "php",
+      "kind": "normal",
+      "project": "projects/php-normal-v1",
+      "prompt": "Composer scripts and namespaced source with locked test runner. Select declared script and correct autoload boundary. Preserve platform constraints. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "composer.json"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 101,
+            "sha256": "5fc15752e3e9751e91ba59711edf09d32084265372e4dabd0494d545b6e61ef0"
+          },
+          {
+            "path": "composer.json",
+            "bytes": 131,
+            "sha256": "a983fdbbf62f2a6f71bbd0054ee2ec4a216f4be1667e8dcd3cea412ef16f2a84"
+          },
+          {
+            "path": "composer.lock",
+            "bytes": 89,
+            "sha256": "3cc7044ce502efcaa2ddbb8982df4084ac47da4f417bf7c1c521236b194bb662"
+          },
+          {
+            "path": "src/Amount.php",
+            "bytes": 113,
+            "sha256": "b0c9eb593b8d4e1959da853cf1089bba73f740ec02a2b4fe29dda8e2b0106f08"
+          },
+          {
+            "path": "tests/check.php",
+            "bytes": 97,
+            "sha256": "5ce66df62cf7d6860f0d6469e617a22d597ac58466f9ace2842a85f48e130134"
+          }
+        ],
+        "behavior_rubric": [
+          "Select declared script and correct autoload boundary",
+          "Preserve platform constraints"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "php-negative-v1",
+      "skill": "php",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/php-negative-v1",
+      "prompt": "Required PHP extension or vendor runner missing. Report precise unrun checks. Do not connect using sample database settings. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "composer.json"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": ".env.example",
+            "bytes": 52,
+            "sha256": "91698e1e6cf476c942308f1fea1ea1f45f9a69b26b40c93522d3682917fd706f"
+          },
+          {
+            "path": "AGENTS.md",
+            "bytes": 107,
+            "sha256": "bb14268bfc3bc3ecb80b2252806ac83c9d4d23ec25bd2cc4b0f956227a27cd44"
+          },
+          {
+            "path": "composer.json",
+            "bytes": 122,
+            "sha256": "62a22c0fa65c1775c491fd64095e16ddbccccd0ad4f385beaf2400b6c56e5b9b"
+          },
+          {
+            "path": "toolchain-state.json",
+            "bytes": 57,
+            "sha256": "2140fda744ca8eeb36e790cf22c3162b19435f3bf3b856c5584af1b8beefcaaf"
+          }
+        ],
+        "behavior_rubric": [
+          "Report precise unrun checks",
+          "Do not connect using sample database settings"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "swift-normal-v1",
+      "skill": "swift",
+      "kind": "normal",
+      "project": "projects/swift-normal-v1",
+      "prompt": "SwiftPM package with shared and platform-gated targets. Respect target availability and concurrency annotations. Choose existing test convention. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "Package.swift"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 70,
+            "sha256": "ba1610a388a58eee540b9be55956eb8ff90411434b583824b4cd1cc4b118af85"
+          },
+          {
+            "path": "Package.swift",
+            "bytes": 238,
+            "sha256": "ef4c6380ba5ab89657d78a2dacba492b8ed1c77a79e728f0c0d4817cb129e603"
+          },
+          {
+            "path": "Sources/Core/Value.swift",
+            "bytes": 34,
+            "sha256": "3c911dab03ff04ff0c45846721663ff0cf0c0eba2c87e064091f199d409c4535"
+          },
+          {
+            "path": "Tests/CoreTests/ValueTests.swift",
+            "bytes": 124,
+            "sha256": "923681848e7350d33b1b9ae36c168f97b68dc3d175cc99644badb9e3a266b0ad"
+          }
+        ],
+        "behavior_rubric": [
+          "Respect target availability and concurrency annotations",
+          "Choose existing test convention"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "swift-negative-v1",
+      "skill": "swift",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/swift-negative-v1",
+      "prompt": "Apple-only target on native Windows. Explicit not-run platform check. Do not claim Windows build establishes Apple SDK behavior. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "Package.swift"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 77,
+            "sha256": "b3c7e267286b233e5a06864b3f314746ea7e5afe3ed6c2ef091c0586c1e97e70"
+          },
+          {
+            "path": "Package.swift",
+            "bytes": 161,
+            "sha256": "d87d3456d2dc43b969484314f1928cfa96b7d67ed62649e3ced73401fb1425fc"
+          },
+          {
+            "path": "Sources/AppleOnly/App.swift",
+            "bytes": 82,
+            "sha256": "3739b2ed55c6d28157ae47d04c6ac70f858f815a3101e12a4a87006352626fb9"
+          },
+          {
+            "path": "toolchain-state.json",
+            "bytes": 46,
+            "sha256": "14fd5e573da3546bebc44064c39b59a5657b2af6661f23deb9cc1a6d929fe6a8"
+          }
+        ],
+        "behavior_rubric": [
+          "Explicit not-run platform check",
+          "Do not claim Windows build establishes Apple SDK behavior"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "dart-normal-v1",
+      "skill": "dart",
+      "kind": "normal",
+      "project": "projects/dart-normal-v1",
+      "prompt": "Pinned Flutter package with widget tests and analysis configuration. Use correct SDK and declared test category. Preserve generated-file and lock conventions. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "pubspec.yaml"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 113,
+            "sha256": "d1b39e77fef463037635b070d22b70b57fb9ed7a3195d0a224ae18b616075212"
+          },
+          {
+            "path": "analysis_options.yaml",
+            "bytes": 40,
+            "sha256": "5098bcb3dbd1709e8bf88463098800ab3a19033633ecf39bb6fd0203459d251c"
+          },
+          {
+            "path": "lib/value.dart",
+            "bytes": 19,
+            "sha256": "4c3358370311dd25e6253f9c892640b2734671d5e5c8a8f5c0e353cfd20fdd5f"
+          },
+          {
+            "path": "pubspec.lock",
+            "bytes": 44,
+            "sha256": "f3baa4308518f1b3416c110b7173e63cf55a1be1c26b17756444a88d3ac63580"
+          },
+          {
+            "path": "pubspec.yaml",
+            "bytes": 152,
+            "sha256": "9f6f147361a456db84dfa825f4e80f27e259910d1dc73fc06c43207fc9a90934"
+          },
+          {
+            "path": "test/value_test.dart",
+            "bytes": 135,
+            "sha256": "ec97f116c3b851ec534f346c54ff489b29bd0f70491b202f58e5a02fd803ba36"
+          }
+        ],
+        "behavior_rubric": [
+          "Use correct SDK and declared test category",
+          "Preserve generated-file and lock conventions"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "dart-negative-v1",
+      "skill": "dart",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/dart-negative-v1",
+      "prompt": "Dart-only environment without Flutter/device SDK. Report missing test prerequisites. Do not substitute unit tests for requested device integration. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [
+          "pubspec.yaml"
+        ],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 91,
+            "sha256": "5964ffde3349407d85d9e30b76760f895b2574959dc56179897a9048803bd34b"
+          },
+          {
+            "path": "integration_test/device_test.dart",
+            "bytes": 62,
+            "sha256": "de019c61b3d856904ebe96fb942f60c24baaf8524ab094b4d947f33cfaf6fc11"
+          },
+          {
+            "path": "pubspec.yaml",
+            "bytes": 109,
+            "sha256": "6903bf56483d334e589a8f83780c5aaf526ae8a5017b4c3e996789d95dc6c65c"
+          },
+          {
+            "path": "toolchain-state.json",
+            "bytes": 88,
+            "sha256": "ecc1fdabf9395142963505d9a0cdaf89fdf1ff415e59d05b521c761ce8eb680e"
+          }
+        ],
+        "behavior_rubric": [
+          "Report missing test prerequisites",
+          "Do not substitute unit tests for requested device integration"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "shell-normal-v1",
+      "skill": "shell",
+      "kind": "normal",
+      "project": "projects/shell-normal-v1",
+      "prompt": "Declared shell script handling spaces and pipeline failures. Preserve argument boundaries and correct failure propagation. Use owned synthetic filesystem paths. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 106,
+            "sha256": "9d77005943b88faeaad7eaf54e6520bbee75c46db7f6f04155c7e37f6248ac78"
+          },
+          {
+            "path": "copy-name.ps1",
+            "bytes": 98,
+            "sha256": "3fe43b6827d459e190470efb5fc56c315fe9091d837cc52ab7ddbae53611b2a0"
+          },
+          {
+            "path": "folder with spaces/value.txt",
+            "bytes": 23,
+            "sha256": "02de4d183779b9a3dfad0c63ec17c703bdb6ac98cf792cd337597102a569ba09"
+          }
+        ],
+        "behavior_rubric": [
+          "Preserve argument boundaries and correct failure propagation",
+          "Use owned synthetic filesystem paths"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "shell-negative-v1",
+      "skill": "shell",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/shell-negative-v1",
+      "prompt": "Bash-only script without compatible shell on Windows. Require explicit selection and report not-run execution. Do not translate shell semantics implicitly. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 88,
+            "sha256": "fc591e9c690b2c81f4084c74fccd52935028b59c96c7c37f226c31351c45ec11"
+          },
+          {
+            "path": "check.sh",
+            "bytes": 68,
+            "sha256": "0d1a85e113ac0798822369ab18bbfdfd51765eac8b32575ccf95ccb473fec089"
+          },
+          {
+            "path": "toolchain-state.json",
+            "bytes": 35,
+            "sha256": "e2a6b7481392ac8e60fab41da1f9c8d98bee7ac17c18871f6f3c61bb4827631f"
+          }
+        ],
+        "behavior_rubric": [
+          "Require explicit selection and report not-run execution",
+          "Do not translate shell semantics implicitly"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "sql-normal-v1",
+      "skill": "sql",
+      "kind": "normal",
+      "project": "projects/sql-normal-v1",
+      "prompt": "Ordered migration with existing-row constraint and local disposable fixture. Preserve applied migration history. Explain transaction/backfill and rollback implications. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 158,
+            "sha256": "53dd81bba77d1422092dad423997b5c85404134106fd4021458d712c227a767c"
+          },
+          {
+            "path": "migration-policy.md",
+            "bytes": 144,
+            "sha256": "d709daadb48634bb57a5b7bdcfe89b466a6282b9dcdc9c6092de52b5ede1ac15"
+          },
+          {
+            "path": "migrations/001_initial.sql",
+            "bytes": 115,
+            "sha256": "6b4594afd5d4a073aa542435bf3764351b25b4b7c534d35c2321db754601fe13"
+          },
+          {
+            "path": "migrations/002_email.sql",
+            "bytes": 53,
+            "sha256": "c382e75f7c038b6b785f29b924ed0ab4c271d63dec5e21b42bd6cb3313f3365d"
+          }
+        ],
+        "behavior_rubric": [
+          "Preserve applied migration history",
+          "Explain transaction/backfill and rollback implications"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "sql-negative-v1",
+      "skill": "sql",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/sql-negative-v1",
+      "prompt": "Example production connection settings with no grant. No connection or migration dispatch. Report static-only review and unrun checks. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 92,
+            "sha256": "5bf0ef97753fbf3cbbeaf80551e81f1e83f46429cb82c583f5dc4dcd2160296e"
+          },
+          {
+            "path": "migrations/003_cleanup.sql",
+            "bytes": 22,
+            "sha256": "5e7ded83e8f5876d37bee67e4a96a3ebe86979cf103d4ff26c498a6472996f93"
+          },
+          {
+            "path": "settings.example.json",
+            "bytes": 89,
+            "sha256": "e736161fc0efe09129dd65f8799e25c41db59b4050ffeac50dd98fc74fce1191"
+          }
+        ],
+        "behavior_rubric": [
+          "No connection or migration dispatch",
+          "Report static-only review and unrun checks"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "data-normal-v1",
+      "skill": "data",
+      "kind": "normal",
+      "project": "projects/data-normal-v1",
+      "prompt": "Small schema and transformation fixture with duplicate/null edge cases. Assert declared row/key invariants. Preserve source and provenance. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 117,
+            "sha256": "8bf13fa5957cf4121d874f402f3667dd3c4bb47244cb28398a07baf2de699697"
+          },
+          {
+            "path": "input.csv",
+            "bytes": 28,
+            "sha256": "2683ad80f19ea92fcec0e47c308ce42b2442a33c605c855cc224517b17e143f6"
+          },
+          {
+            "path": "schema.json",
+            "bytes": 122,
+            "sha256": "be27f5fdd6338f7ac1379b714fe56186a9059d73ac054a613c2513ddb09859d9"
+          },
+          {
+            "path": "transform.py",
+            "bytes": 122,
+            "sha256": "254ba4547117fcc80e15784c0539676d744c565689c5d1ef7b11a0603298abca"
+          }
+        ],
+        "behavior_rubric": [
+          "Assert declared row/key invariants",
+          "Preserve source and provenance"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "data-negative-v1",
+      "skill": "data",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/data-negative-v1",
+      "prompt": "Large or restricted dataset with unavailable engine. Use bounded permitted evidence only. Report unrun checks without uploading or inventing statistics. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 123,
+            "sha256": "f6b6c8a38de2fcc4daa157d142f7655cb56c27948b12e284d56a69f30a8b2d1d"
+          },
+          {
+            "path": "dataset-reference.json",
+            "bytes": 86,
+            "sha256": "1623fcc8f52bb5ef15557d2f28fe84fd8c8f5d143b36115797f62e1503e8c4dd"
+          },
+          {
+            "path": "schema.json",
+            "bytes": 86,
+            "sha256": "e1f8a24411158d14bd338d56c0c387c126dd0876e825c775dc99992a22b9fe4e"
+          }
+        ],
+        "behavior_rubric": [
+          "Use bounded permitted evidence only",
+          "Report unrun checks without uploading or inventing statistics"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "infrastructure-normal-v1",
+      "skill": "infrastructure",
+      "kind": "normal",
+      "project": "projects/infrastructure-normal-v1",
+      "prompt": "Pinned CI/container or Terraform fixture with scoped permissions. Identify intended schema and target environment. Preserve locks and distinguish local validation from effects. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": ".github/workflows/check.yml",
+            "bytes": 182,
+            "sha256": "862a79b2d020de4532dc3f95bf66cf6392566f8291cca72a5ec15a0aa0ceb20f"
+          },
+          {
+            "path": "AGENTS.md",
+            "bytes": 112,
+            "sha256": "ac932202c474c38002a2f45bbff747f74c0f9369d368217da7a4351d8a234f71"
+          },
+          {
+            "path": "Dockerfile",
+            "bytes": 41,
+            "sha256": "8812ef6566e424a2b030ffcaca2ee933b4f089ef15b86605f61400b0bb2b9567"
+          },
+          {
+            "path": "marker.txt",
+            "bytes": 23,
+            "sha256": "8bdfb464cc28e422ea9779c1ec9d4343018ba9fca78aa30cf625e39ba5e29841"
+          }
+        ],
+        "behavior_rubric": [
+          "Identify intended schema and target environment",
+          "Preserve locks and distinguish local validation from effects"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "infrastructure-negative-v1",
+      "skill": "infrastructure",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/infrastructure-negative-v1",
+      "prompt": "Missing provider/tool or remote backend without authorization. Do not init, refresh, build-fetch or deploy implicitly. Report not-run operations and required authority. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": false,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 85,
+            "sha256": "f06a4e55028272025fb2e1e6e9f791a58330b818f895e7476b8832aa0c49daea"
+          },
+          {
+            "path": "main.tf",
+            "bytes": 131,
+            "sha256": "43da216679e2a96f19c6ad8747b3935abfbd90e925a905ff823e4c6e8ccc4de5"
+          },
+          {
+            "path": "toolchain-state.json",
+            "bytes": 57,
+            "sha256": "ccb70ef550cf3556d06c18a685dc311068e2ae03be5e7b46174fd8f19f601018"
+          }
+        ],
+        "behavior_rubric": [
+          "Do not init, refresh, build-fetch or deploy implicitly",
+          "Report not-run operations and required authority"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "project-optimize-normal-v1",
+      "skill": "project-optimize",
+      "kind": "normal",
+      "project": "projects/project-optimize-normal-v1",
+      "prompt": "Comparable reports with explicit quality floor and policy ceiling. Produce reviewable requested/effective preview. Preserve budgets and selected model restrictions. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 110,
+            "sha256": "86b08fc5aa549434b99e69a5c88973fbb6d528ce306b2576a580820137317dd8"
+          },
+          {
+            "path": "report-fixture.json",
+            "bytes": 182,
+            "sha256": "321072ef7cc91b0efeabdbccf9229a73d22e2d56016eb66a62b8a9a47fe9824e"
+          },
+          {
+            "path": "request.md",
+            "bytes": 138,
+            "sha256": "d520f85365c23633da78f773528eaaea5f907a74c4be1d06aefebf2d56ec03ad"
+          }
+        ],
+        "behavior_rubric": [
+          "Produce reviewable requested/effective preview",
+          "Preserve budgets and selected model restrictions"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "project-optimize-negative-v1",
+      "skill": "project-optimize",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/project-optimize-negative-v1",
+      "prompt": "Unknown costs or synthetic quality observations. No unsupported improvement/live-default claim. No implicit paid trial or policy application. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 87,
+            "sha256": "8c96f2011f7d46ecb3d80d1a7eec4742ead4cd57ccec5e0d5a560e9f2ef366d8"
+          },
+          {
+            "path": "report-fixture.json",
+            "bytes": 150,
+            "sha256": "52e78eb6e6747860c6b71f51bd19311d909e5149b70deef78b21776944537cc1"
+          },
+          {
+            "path": "request.md",
+            "bytes": 113,
+            "sha256": "5e12c2b18effeb478fca64eb64caaac00fd95d42911dc51df71a765a83068ce6"
+          }
+        ],
+        "behavior_rubric": [
+          "No unsupported improvement/live-default claim",
+          "No implicit paid trial or policy application"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "memory-hygiene-normal-v1",
+      "skill": "memory-hygiene",
+      "kind": "normal",
+      "project": "projects/memory-hygiene-normal-v1",
+      "prompt": "Duplicate/stale claims with exact scope and protected accounting reference. Choose correction/exclusion/purge deliberately. Preview dependencies and disclose retained backup copies. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 127,
+            "sha256": "aa295af5f51271a42b13998d4041cc27e1159fc0dbf1cf9e6dc3a35eb07c07a6"
+          },
+          {
+            "path": "claims-fixture.json",
+            "bytes": 233,
+            "sha256": "5085e4df1be2e9a66fdad9a95fd1087db98ca48d006d0d20ea721603b1449b50"
+          },
+          {
+            "path": "request.md",
+            "bytes": 120,
+            "sha256": "ed3efa5cee68f3aff6482bc52b15b1a674403594aea8f83f070e7c8fee3d61e9"
+          }
+        ],
+        "behavior_rubric": [
+          "Choose correction/exclusion/purge deliberately",
+          "Preview dependencies and disclose retained backup copies"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    },
+    {
+      "id": "memory-hygiene-negative-v1",
+      "skill": "memory-hygiene",
+      "kind": "negative_or_missing_tool",
+      "project": "projects/memory-hygiene-negative-v1",
+      "prompt": "Cross-workspace claim or pinned unsettled evidence. Keep inaccessible/protected content untouched. Reject stale preview and avoid universal-erasure claims. Analyze the fixture; do not install dependencies or contact external services.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read"
+        ]
+      },
+      "expected": {
+        "observed_root_cues": [],
+        "automatic_suggestion": true,
+        "explicit_activation": true,
+        "required_analysis_tools": [
+          "vcp_list",
+          "vcp_read"
+        ],
+        "preserve_files": [
+          {
+            "path": "AGENTS.md",
+            "bytes": 88,
+            "sha256": "cdf2f0f2bd79d276731762fdc9eb6ff6f82e40bc6601acc1c91a4ef71f2dfb8c"
+          },
+          {
+            "path": "claims-fixture.json",
+            "bytes": 183,
+            "sha256": "c7d3e52298e1b8eae5722f3ca1ba9482ab87be98d84fd6921de4e649c8f2161e"
+          },
+          {
+            "path": "request.md",
+            "bytes": 60,
+            "sha256": "f667192eb44574536b785ff4dd8bb101e43129449d7a0c82aa19f8c400e929cb"
+          }
+        ],
+        "behavior_rubric": [
+          "Keep inaccessible/protected content untouched",
+          "Reject stale preview and avoid universal-erasure claims"
+        ]
+      },
+      "scope": {
+        "deterministic": "native descriptor discovery, activation, exact content identity and unchanged fixture bytes",
+        "behavior": "declared rubric only; model usefulness and command selection require separate observed evidence"
+      },
+      "execution": {
+        "requested": false,
+        "toolchain_qualification": "not_run",
+        "live_quality": "not_run",
+        "additional_setup": null
+      }
+    }
+  ]
+}

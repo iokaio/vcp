@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "rust",
+  "version": "1.0.0",
+  "description": "Fit Cargo workspace, toolchain, features, ownership, and error contracts when changing Rust code.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "Cargo.toml"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "5b905dd4aaa8aa1eaf4f65c100f192874c66331112db3de9fbe3dd3e393bf03c"
+  },
+  "resources": []
+}

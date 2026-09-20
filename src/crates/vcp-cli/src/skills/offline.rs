@@ -17,6 +17,7 @@ pub fn on_host(
     let context: MatchContext =
         serde_json::from_value(result["context"].clone()).map_err(|e| e.to_string())?;
     let mut page = super::catalog_page(&catalog, Some(&context), offset);
+    page["integrity"] = result["integrity"].clone();
     page["configured"] = serde_json::json!(true);
     page["configuration"] =
         serde_json::json!("trusted profile on disk; inspected through current canonical owner");
@@ -46,11 +47,7 @@ pub async fn execute(
             result
         }
         Err(vcp_store::Error::Conflict("canonical root already has an owner")) => {
-            let configuration = profile
-                .skills
-                .as_ref()
-                .ok_or("No explicit skill sources configured in the trusted profile.")?
-                .prepare(&entry.config, super::available_tools(profile))?;
+            let configuration = super::prepare(profile, &entry.config)?;
             crate::control::request(
                 pipe,
                 &crate::control::Request::Skills {

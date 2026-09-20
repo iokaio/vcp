@@ -1,0 +1,2 @@
+-const orderTotal = subtotal;
++const purchaseTotal = subtotal;

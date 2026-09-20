@@ -1,0 +1,1 @@
+{"key":"id","columns":{"id":"integer","amount":"decimal_or_null"},"duplicate_policy":"reject","source_is_immutable":true}

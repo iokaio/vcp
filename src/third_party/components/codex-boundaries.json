@@ -1444,7 +1444,7 @@
       "packages": ["vcp-extensions"],
       "capabilities": ["data", "instruction", "filesystem", "clock"],
       "handling": "retain-with-adapters",
-      "owner_tasks": ["P7-01"],
+      "owner_tasks": ["P7-01", "P7-02"],
       "gate": "Production discovery and activation perform bounded no-follow reads only after host source-policy checks. Skill content grants no effect authority. Qualification examples create temporary fixture files and reports; these are not product executors.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "controller"

@@ -106,7 +106,7 @@ pub(crate) fn text(value: &str, maximum: usize) -> Result<()> {
     }
     Ok(())
 }
-fn identifier(value: &str) -> Result<()> {
+pub(crate) fn identifier(value: &str) -> Result<()> {
     if value.is_empty()
         || value.len() > 128
         || !value.bytes().all(|b| {

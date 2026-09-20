@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "php",
+  "version": "1.0.0",
+  "description": "Use Composer project scripts, PHP/platform constraints, and framework-specific test conventions.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "composer.json"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "8bf6680a38b2d4269c2a15e5078b62192410a748b418620ef68b4b4c7d9b22d3"
+  },
+  "resources": []
+}

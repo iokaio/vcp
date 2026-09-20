@@ -22,7 +22,7 @@ require canonical host integration and recovery/lifecycle qualification.
 crash qualification. Supply the pinned independent age binary and optionally the
 public handoff fixture; see [the guide](../docs/development/portable-storage-spike.md).
 
-This directory owns repository automation. `test.ps1` and `test-runner.cjs` implement delivery checks; `build.ps1` builds the imported Codex baseline and selected Munarium libraries. See [test setup](../docs/development/delivery-harness.md) and [native build/reconstruction](../docs/development/codex-source.md). Packaging remains planned.
+This directory owns repository automation. `test.ps1` and `test-runner.cjs` implement delivery checks; `build.ps1` builds the imported Codex baseline and selected Munarium libraries. See [test setup](../docs/development/delivery-harness.md) and [native build/reconstruction](../docs/development/codex-source.md). Full P8 distribution packaging remains planned; built-in skill asset packaging is implemented for qualification.
 
 | Entry point (planned unless noted) | Responsibility | Work owner |
 |---|---|---|
@@ -31,6 +31,8 @@ This directory owns repository automation. `test.ps1` and `test-runner.cjs` impl
 | `test-embeddings.ps1` (implemented qualification) | Verify explicit local assets, test/build the CPU helper, check its dependency graph and compare real model results | P0-07; integration continues in P0-02 |
 | `test-local-memory.ps1` (implemented prototype) | Build the corpus qualification executable, verify its dependency closure and observe real local indexes across fresh processes; add `-Scale` for the declared resource gate | P0-02 |
 | `package.ps1` | Assemble qualified artifacts, licenses, notices, and checksums | P8-04 |
+| `package-skills.ps1` (implemented qualification) | Stage an explicit executable with hash-bound built-in skills and notices, then verify every archive entry; see [built-in assets](../docs/development/p7-builtin-skills.md) | P7-02 |
+| `evals/builtin-skill-qualification.ps1` (implemented qualification) | Exercise the frozen project catalog and lazy activation contracts without model or ecosystem toolchain calls | P7-02 |
 | `evals/` | Orchestrate explicitly configured evaluations and collect results | P5-08/P8-05 |
 | `upstream/` (implemented baseline tooling) | `inventory.cjs` records immutable Git bytes; `reconstruct.cjs` reconstructs/verifies selected source; `build-baseline.ps1` runs native builds/tests | P0-07/P0-08, rehearsed in P8-06 |
 

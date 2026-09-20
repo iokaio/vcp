@@ -1,0 +1,860 @@
+{
+  "schema": "vcp-builtin-coverage/1",
+  "families": [
+    {
+      "id": "architecture",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [],
+      "selection": "generic_suggestion",
+      "fixtures": [
+        {
+          "id": "architecture-normal-v1",
+          "kind": "normal",
+          "setup": "Layered project with domain importing infrastructure",
+          "expected": [
+            "Cite the forbidden import and existing error convention",
+            "Propose a focused ownership correction"
+          ],
+          "path": "src/evals/skills/builtin/projects/architecture-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "architecture-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Folders named clean/domain but dependencies intentionally documented differently",
+          "expected": [
+            "Do not prescribe a framework from folder names",
+            "Distinguish design suggestion from demonstrated contract violation"
+          ],
+          "path": "src/evals/skills/builtin/projects/architecture-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "review-debug",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [],
+      "selection": "generic_suggestion",
+      "fixtures": [
+        {
+          "id": "review-debug-normal-v1",
+          "kind": "normal",
+          "setup": "Seeded boundary-condition defect and a failing focused check",
+          "expected": [
+            "Identify the actual trigger and source location",
+            "Keep the original reproducer and verify the correction"
+          ],
+          "path": "src/evals/skills/builtin/projects/review-debug-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "review-debug-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Adjacent stylistic change with no behavior defect",
+          "expected": [
+            "Do not fabricate a finding to fill a quota",
+            "Label static-only reasoning when runner is unavailable"
+          ],
+          "path": "src/evals/skills/builtin/projects/review-debug-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "testing",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [],
+      "selection": "generic_suggestion",
+      "fixtures": [
+        {
+          "id": "testing-normal-v1",
+          "kind": "normal",
+          "setup": "Multi-target project with one changed API and relevant integration contract",
+          "expected": [
+            "Choose commands from repository configuration",
+            "Bind results to the final changed sources"
+          ],
+          "path": "src/evals/skills/builtin/projects/testing-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "testing-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Runner missing or selected filter discovers zero tests",
+          "expected": [
+            "Report exact missing prerequisite or zero-test result",
+            "Do not replace the required check with a weaker passing command"
+          ],
+          "path": "src/evals/skills/builtin/projects/testing-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "git-workflow",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "git"
+      ],
+      "selection": "generic_suggestion",
+      "fixtures": [
+        {
+          "id": "git-workflow-normal-v1",
+          "kind": "normal",
+          "setup": "Distinct staged/unstaged edits plus untracked sentinel and isolated child worktree",
+          "expected": [
+            "Preserve each sentinel and index distinction",
+            "Review only task-owned staged paths"
+          ],
+          "path": "src/evals/skills/builtin/projects/git-workflow-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "git-workflow-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Existing worktree path or conflicting user edits",
+          "expected": [
+            "Do not delete or reset the existing worktree",
+            "Surface conflict and preserve both sides"
+          ],
+          "path": "src/evals/skills/builtin/projects/git-workflow-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "javascript-typescript",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared Node runtime",
+        "declared package manager"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "javascript-typescript-normal-v1",
+          "kind": "normal",
+          "setup": "Workspace package with packageManager pin and test/typecheck scripts",
+          "expected": [
+            "Select the affected package and declared scripts",
+            "Preserve the selected lockfile"
+          ],
+          "path": "src/evals/skills/builtin/projects/javascript-typescript-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "javascript-typescript-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "npm and pnpm lockfiles without resolving project guidance",
+          "expected": [
+            "Report manager ambiguity before install or lockfile rewrite",
+            "Missing runtime yields explicit not-run checks"
+          ],
+          "path": "src/evals/skills/builtin/projects/javascript-typescript-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "python",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared Python interpreter",
+        "project test dependencies"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "python-normal-v1",
+          "kind": "normal",
+          "setup": "pyproject with src layout, pinned Python and pytest configuration",
+          "expected": [
+            "Use the declared environment/module check",
+            "Preserve lock and interpreter constraints"
+          ],
+          "path": "src/evals/skills/builtin/projects/python-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "python-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "requirements-only or invalid copied virtual environment",
+          "expected": [
+            "Require explicit activation if current root cues do not match",
+            "Do not execute an unrelated global interpreter as equivalent validation"
+          ],
+          "path": "src/evals/skills/builtin/projects/python-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "rust",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "pinned Rust/Cargo",
+        "required native compiler"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "rust-normal-v1",
+          "kind": "normal",
+          "setup": "Pinned workspace with optional feature and package integration target",
+          "expected": [
+            "Select exact package/features/toolchain",
+            "Keep lockfile unchanged for source-only work"
+          ],
+          "path": "src/evals/skills/builtin/projects/rust-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "rust-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Required Windows target/compiler or pinned Rust missing",
+          "expected": [
+            "Report target-specific not-run limitation",
+            "Do not claim another platform compile establishes native behavior"
+          ],
+          "path": "src/evals/skills/builtin/projects/rust-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "dotnet-powershell",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared dotnet/MSBuild SDK",
+        "declared PowerShell/Pester when needed"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "dotnet-powershell-normal-v1",
+          "kind": "normal",
+          "setup": "Pinned SDK, two projects and one declared test target; path containing spaces",
+          "expected": [
+            "Select declared project/framework and quote paths correctly",
+            "Preserve unrelated solution settings"
+          ],
+          "path": "src/evals/skills/builtin/projects/dotnet-powershell-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "dotnet-powershell-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Multiple solutions without guidance or missing Pester/SDK",
+          "expected": [
+            "Report ambiguity or missing module",
+            "Do not auto-install a SDK/module or run a guessed solution"
+          ],
+          "path": "src/evals/skills/builtin/projects/dotnet-powershell-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "jvm",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared JDK",
+        "configured Maven/Gradle wrapper distribution"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "jvm-normal-v1",
+          "kind": "normal",
+          "setup": "Multi-module wrapper project with declared JVM and focused test task",
+          "expected": [
+            "Use wrapper/module version evidence",
+            "Preserve dependency and package conventions"
+          ],
+          "path": "src/evals/skills/builtin/projects/jvm-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "jvm-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Missing wrapper distribution or JDK; Kotlin-only root cue absent",
+          "expected": [
+            "Report explicit-selection and prerequisite limits",
+            "Do not silently substitute a global build tool"
+          ],
+          "path": "src/evals/skills/builtin/projects/jvm-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "go",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared Go toolchain",
+        "native race/cgo compiler when needed"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "go-normal-v1",
+          "kind": "normal",
+          "setup": "Two-module workspace with replace directive and tagged package",
+          "expected": [
+            "Select intended module/tags",
+            "Verify affected cancellation/error behavior"
+          ],
+          "path": "src/evals/skills/builtin/projects/go-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "go-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Only unsupported build tags or missing Go/native compiler",
+          "expected": [
+            "Report precise unrun check",
+            "Do not treat a zero-package selection as validation"
+          ],
+          "path": "src/evals/skills/builtin/projects/go-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "cpp",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "configured native compiler",
+        "declared CMake/MSBuild and test runner"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "cpp-normal-v1",
+          "kind": "normal",
+          "setup": "CMake preset selects compiler/generator and one registered test",
+          "expected": [
+            "Use exact preset and affected target",
+            "Preserve ABI and existing build directory"
+          ],
+          "path": "src/evals/skills/builtin/projects/cpp-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "cpp-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Generator mismatch or compiler absent",
+          "expected": [
+            "Report prerequisite conflict",
+            "Do not reuse/reconfigure incompatible user build cache"
+          ],
+          "path": "src/evals/skills/builtin/projects/cpp-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "ruby",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "pinned Ruby",
+        "existing Bundler environment"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "ruby-normal-v1",
+          "kind": "normal",
+          "setup": "Locked bundle with declared Minitest or RSpec task",
+          "expected": [
+            "Use project runner through existing bundle",
+            "Preserve gem lock and public behavior"
+          ],
+          "path": "src/evals/skills/builtin/projects/ruby-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "ruby-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Native gem unavailable on host",
+          "expected": [
+            "Report checks not run",
+            "Do not install gems or claim execution support from descriptor presence"
+          ],
+          "path": "src/evals/skills/builtin/projects/ruby-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "php",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared PHP plus extensions",
+        "installed Composer dependencies"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "php-normal-v1",
+          "kind": "normal",
+          "setup": "Composer scripts and namespaced source with locked test runner",
+          "expected": [
+            "Select declared script and correct autoload boundary",
+            "Preserve platform constraints"
+          ],
+          "path": "src/evals/skills/builtin/projects/php-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "php-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Required PHP extension or vendor runner missing",
+          "expected": [
+            "Report precise unrun checks",
+            "Do not connect using sample database settings"
+          ],
+          "path": "src/evals/skills/builtin/projects/php-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "swift",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared Swift toolchain",
+        "target platform SDK when required"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "swift-normal-v1",
+          "kind": "normal",
+          "setup": "SwiftPM package with shared and platform-gated targets",
+          "expected": [
+            "Respect target availability and concurrency annotations",
+            "Choose existing test convention"
+          ],
+          "path": "src/evals/skills/builtin/projects/swift-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "swift-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Apple-only target on native Windows",
+          "expected": [
+            "Explicit not-run platform check",
+            "Do not claim Windows build establishes Apple SDK behavior"
+          ],
+          "path": "src/evals/skills/builtin/projects/swift-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "dart",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared Dart/Flutter SDK",
+        "device/platform SDK for integration only"
+      ],
+      "selection": "current_marker_suggestion_verify_contents_after_activation",
+      "fixtures": [
+        {
+          "id": "dart-normal-v1",
+          "kind": "normal",
+          "setup": "Pinned Flutter package with widget tests and analysis configuration",
+          "expected": [
+            "Use correct SDK and declared test category",
+            "Preserve generated-file and lock conventions"
+          ],
+          "path": "src/evals/skills/builtin/projects/dart-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "dart-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Dart-only environment without Flutter/device SDK",
+          "expected": [
+            "Report missing test prerequisites",
+            "Do not substitute unit tests for requested device integration"
+          ],
+          "path": "src/evals/skills/builtin/projects/dart-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "shell",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared shell",
+        "configured lint/test runner"
+      ],
+      "selection": "explicit_only_current_host",
+      "fixtures": [
+        {
+          "id": "shell-normal-v1",
+          "kind": "normal",
+          "setup": "Declared shell script handling spaces and pipeline failures",
+          "expected": [
+            "Preserve argument boundaries and correct failure propagation",
+            "Use owned synthetic filesystem paths"
+          ],
+          "path": "src/evals/skills/builtin/projects/shell-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "shell-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Bash-only script without compatible shell on Windows",
+          "expected": [
+            "Require explicit selection and report not-run execution",
+            "Do not translate shell semantics implicitly"
+          ],
+          "path": "src/evals/skills/builtin/projects/shell-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "sql",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared SQL parser or disposable database runner"
+      ],
+      "selection": "explicit_only_current_host",
+      "fixtures": [
+        {
+          "id": "sql-normal-v1",
+          "kind": "normal",
+          "setup": "Ordered migration with existing-row constraint and local disposable fixture",
+          "expected": [
+            "Preserve applied migration history",
+            "Explain transaction/backfill and rollback implications"
+          ],
+          "path": "src/evals/skills/builtin/projects/sql-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "sql-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Example production connection settings with no grant",
+          "expected": [
+            "No connection or migration dispatch",
+            "Report static-only review and unrun checks"
+          ],
+          "path": "src/evals/skills/builtin/projects/sql-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared transformation engine",
+        "schema/check runner"
+      ],
+      "selection": "explicit_only_current_host",
+      "fixtures": [
+        {
+          "id": "data-normal-v1",
+          "kind": "normal",
+          "setup": "Small schema and transformation fixture with duplicate/null edge cases",
+          "expected": [
+            "Assert declared row/key invariants",
+            "Preserve source and provenance"
+          ],
+          "path": "src/evals/skills/builtin/projects/data-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "data-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Large or restricted dataset with unavailable engine",
+          "expected": [
+            "Use bounded permitted evidence only",
+            "Report unrun checks without uploading or inventing statistics"
+          ],
+          "path": "src/evals/skills/builtin/projects/data-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "infrastructure",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "declared infrastructure/schema tools",
+        "container engine only for authorized builds"
+      ],
+      "selection": "explicit_only_current_host",
+      "fixtures": [
+        {
+          "id": "infrastructure-normal-v1",
+          "kind": "normal",
+          "setup": "Pinned CI/container or Terraform fixture with scoped permissions",
+          "expected": [
+            "Identify intended schema and target environment",
+            "Preserve locks and distinguish local validation from effects"
+          ],
+          "path": "src/evals/skills/builtin/projects/infrastructure-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "infrastructure-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Missing provider/tool or remote backend without authorization",
+          "expected": [
+            "Do not init, refresh, build-fetch or deploy implicitly",
+            "Report not-run operations and required authority"
+          ],
+          "path": "src/evals/skills/builtin/projects/infrastructure-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "project-optimize",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "existing local optimize/report controls"
+      ],
+      "selection": "generic_suggestion",
+      "fixtures": [
+        {
+          "id": "project-optimize-normal-v1",
+          "kind": "normal",
+          "setup": "Comparable reports with explicit quality floor and policy ceiling",
+          "expected": [
+            "Produce reviewable requested/effective preview",
+            "Preserve budgets and selected model restrictions"
+          ],
+          "path": "src/evals/skills/builtin/projects/project-optimize-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "project-optimize-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Unknown costs or synthetic quality observations",
+          "expected": [
+            "No unsupported improvement/live-default claim",
+            "No implicit paid trial or policy application"
+          ],
+          "path": "src/evals/skills/builtin/projects/project-optimize-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    },
+    {
+      "id": "memory-hygiene",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided_unqualified",
+        "review": "provided_unqualified",
+        "generate": "provided_unqualified"
+      },
+      "test_execution": "unqualified_not_run",
+      "live_quality": "not_run",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "existing governed memory/history/prune controls"
+      ],
+      "selection": "generic_suggestion",
+      "fixtures": [
+        {
+          "id": "memory-hygiene-normal-v1",
+          "kind": "normal",
+          "setup": "Duplicate/stale claims with exact scope and protected accounting reference",
+          "expected": [
+            "Choose correction/exclusion/purge deliberately",
+            "Preview dependencies and disclose retained backup copies"
+          ],
+          "path": "src/evals/skills/builtin/projects/memory-hygiene-normal-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        },
+        {
+          "id": "memory-hygiene-negative-v1",
+          "kind": "negative_or_missing_tool",
+          "setup": "Cross-workspace claim or pinned unsettled evidence",
+          "expected": [
+            "Keep inaccessible/protected content untouched",
+            "Reject stale preview and avoid universal-erasure claims"
+          ],
+          "path": "src/evals/skills/builtin/projects/memory-hygiene-negative-v1",
+          "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Content presence does not establish useful model output.",
+    "Frozen fixture expectations are not observed model behavior; actual results are stored outside shipped assets.",
+    "No language/toolchain execution or live model qualification performed.",
+    "Empty environments allows analysis guidance; it does not qualify runtime execution on another host.",
+    "explicit:* cues are not emitted by the current host; those packages require explicit selection."
+  ]
+}

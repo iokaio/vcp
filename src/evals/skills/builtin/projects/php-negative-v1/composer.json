@@ -1,0 +1,1 @@
+{"name":"fixture/missing-extension","require":{"php":"^8.2","ext-pdo_pgsql":"*"},"scripts":{"test":"vendor/bin/phpunit"}}

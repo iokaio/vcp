@@ -1,0 +1,1 @@
+{"version":3,"configurePresets":[{"name":"native-debug","generator":"Ninja","binaryDir":"${sourceDir}/build/native","cacheVariables":{"CMAKE_BUILD_TYPE":"Debug","CMAKE_CXX_COMPILER":"cl"}}]}
