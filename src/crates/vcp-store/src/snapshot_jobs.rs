@@ -73,6 +73,7 @@ pub struct Jobs {
 pub struct Capture {
     job: Job,
     snapshot: Snapshot,
+    spool: crate::artifact::Spool,
 }
 impl Capture {
     pub fn job(&self) -> &Job {
@@ -84,13 +85,74 @@ pub struct Prepared {
     revision: Revision,
     inventory: String,
     digest: String,
+    source: String,
+    inputs: String,
 }
 pub struct Encrypted {
     job: CommandId,
     revision: Revision,
     finalization: Finalization,
 }
+pub struct PublicationReconciliation {
+    job: Job,
+}
 impl Jobs {
+    /// Capture the canonical completed job on its owner. Hashing retained and
+    /// vault ciphertext is deferred to `reconcile_publication` off the owner.
+    pub fn publication_reconciliation(
+        store: &Store,
+        id: &CommandId,
+        workspace: &WorkspaceId,
+    ) -> Result<PublicationReconciliation> {
+        let job = Self::inspect(store, id, workspace)?;
+        if job.stage != Stage::Published || !job.active {
+            return Err(Error::Conflict(
+                "published snapshot reconciliation unavailable",
+            ));
+        }
+        let current: Workspace = store
+            .state()
+            .record(Collection::Workspace, workspace.as_str(), workspace)?
+            .decode()?;
+        if current.deletion.get() != job.deletion || current.authority.get() != job.authority {
+            return Err(Error::Conflict(
+                "snapshot policy changed; reconciliation required",
+            ));
+        }
+        Ok(PublicationReconciliation { job })
+    }
+    pub fn reconcile_publication(
+        &self,
+        captured: PublicationReconciliation,
+        trust: &LocalTrust,
+        vault: &crate::vault_publish::Vault,
+    ) -> Result<Published> {
+        let job = captured.job;
+        let source = self.reopen_ciphertext(&job)?;
+        let permit = trust.admit(&source, job.id, job.trust_revision)?;
+        vault.reconcile(&source, &permit)
+    }
+    /// A prior trust-journal update already committed this exact manifest. This
+    /// check does not advance trust, accept a descendant or lower replay floors.
+    pub fn checkpoint_matches(
+        store: &Store,
+        id: &CommandId,
+        workspace: &WorkspaceId,
+        trust: &LocalTrust,
+    ) -> Result<bool> {
+        let job = Self::inspect(store, id, workspace)?;
+        let Some(finalization) = job.finalization else {
+            return Ok(false);
+        };
+        let public = trust.configuration();
+        Ok(job.stage == Stage::Published
+            && public.workspace == job.workspace
+            && public.lineage == finalization.manifest.lineage
+            && public.checkpoint.sequence == finalization.manifest.sequence
+            && public.checkpoint.deletion >= finalization.manifest.deletion
+            && public.checkpoint.parent.as_ref()
+                == Some(&digest_bytes(&canonical_bytes(&finalization.manifest)?)))
+    }
     /// A developer-selected local directory outside workspace and declared sync
     /// roots. Files use generated job IDs only; job metadata never supplies paths.
     pub fn open(path: &Path, forbidden: &[PathBuf]) -> Result<Self> {
@@ -227,7 +289,11 @@ impl Jobs {
             pins,
         };
         put(store, &job, None).await?;
-        Ok(Capture { job, snapshot })
+        Ok(Capture {
+            job,
+            snapshot,
+            spool: store.spool().clone(),
+        })
     }
     pub fn resume_capture(&self, store: &Store, job: &Job) -> Result<Capture> {
         if job.stage != Stage::Captured {
@@ -245,18 +311,28 @@ impl Jobs {
         Ok(Capture {
             job: job.clone(),
             snapshot,
+            spool: store.spool().clone(),
         })
     }
     /// Bounded source preparation; no canonical mutation occurs here. If the
     /// caller drops the result, restart reconciles the exact deterministic bytes.
     pub fn prepare(
         &self,
-        store: &Store,
+        _store: &Store,
         capture: Capture,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Prepared> {
-        let archive = Archive::capture_with_inputs(
-            store,
+        self.prepare_detached(capture, cancelled)
+    }
+    /// The captured spool and retained snapshot pins permit bounded I/O on a
+    /// blocking worker without moving or borrowing the canonical owner.
+    pub fn prepare_detached(
+        &self,
+        capture: Capture,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Prepared> {
+        let archive = Archive::capture_with_spool(
+            &capture.spool,
             &capture.snapshot,
             &capture.job.workspace,
             &capture.job.inputs,
@@ -273,6 +349,8 @@ impl Jobs {
             revision: capture.job.revision,
             inventory: archive.inventory_digest()?,
             digest,
+            source: digest_bytes(&canonical_bytes(archive.state())?),
+            inputs: digest_bytes(&canonical_bytes(archive.inputs())?),
         })
     }
     pub async fn accept_prepared(
@@ -285,18 +363,15 @@ impl Jobs {
         if job.revision != prepared.revision || job.stage != Stage::Captured {
             return Err(Error::Conflict("snapshot preparation stale"));
         }
-        job.inventory = Some(prepared.inventory);
-        job.archive_digest = Some(prepared.digest);
-        let archive = self.archive(&job)?;
-        if archive.workspace() != &job.workspace
-            || archive.inputs() != &job.inputs
-            || archive.state().watermark != job.watermark
-            || digest_bytes(&canonical_bytes(archive.state())?) != job.state_digest
+        if prepared.source != job.state_digest
+            || prepared.inputs != digest_bytes(&canonical_bytes(&job.inputs)?)
         {
             return Err(Error::Conflict(
                 "prepared archive differs from captured snapshot",
             ));
         }
+        job.inventory = Some(prepared.inventory);
+        job.archive_digest = Some(prepared.digest);
         job.stage = Stage::ArchiveReady;
         advance(store, job).await
     }
@@ -306,12 +381,22 @@ impl Jobs {
         if Some(digest_bytes(&bytes)).as_ref() != job.archive_digest.as_ref() {
             return Err(Error::Corruption("snapshot private archive differs"));
         }
-        Archive::decode(
+        let archive = Archive::decode(
             serde_json::from_slice(&bytes)?,
             job.inventory
                 .as_deref()
                 .ok_or(Error::Corruption("snapshot inventory missing"))?,
-        )
+        )?;
+        if archive.workspace() != &job.workspace
+            || archive.inputs() != &job.inputs
+            || archive.state().watermark != job.watermark
+            || digest_bytes(&canonical_bytes(archive.state())?) != job.state_digest
+        {
+            return Err(Error::Conflict(
+                "private archive differs from captured snapshot",
+            ));
+        }
+        Ok(archive)
     }
     pub fn encrypt(
         &self,
@@ -504,17 +589,17 @@ impl Jobs {
         receipt: &Published,
     ) -> Result<Job> {
         let mut job = Self::inspect(store, &receipt.operation, workspace)?;
-        if job.stage == Stage::Published {
-            return Ok(job);
-        }
         let finalization = job
             .finalization
             .as_ref()
             .ok_or(Error::Corruption("snapshot finalization missing"))?;
-        if job.stage != Stage::Admitted
+        if !matches!(job.stage, Stage::Admitted | Stage::Published)
             || !receipt.matches_job(&job.id, finalization, job.trust_revision)
         {
             return Err(Error::Conflict("snapshot publication receipt differs"));
+        }
+        if job.stage == Stage::Published {
+            return Ok(job);
         }
         job.publication = Some(serde_json::to_value(receipt)?);
         job.stage = Stage::Published;

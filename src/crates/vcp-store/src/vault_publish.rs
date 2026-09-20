@@ -483,6 +483,26 @@ pub struct Vault {
     directory: Arc<Directory>,
 }
 impl Vault {
+    /// Reconstruct a typed publication receipt only from an independently
+    /// admitted finalized object and an exact, already existing vault copy.
+    /// This operation never recreates a missing object or writes vault bytes.
+    pub fn reconcile(
+        &self,
+        source: &FinalizedCiphertext,
+        permit: &PublicationPermit,
+    ) -> Result<Published> {
+        if source.sha256() != permit.ciphertext
+            || source.bytes() != permit.bytes
+            || source.manifest != permit.proof.manifest
+            || source.writer != permit.proof.writer
+            || source.recipient != permit.proof.recipient
+        {
+            return Err(Error::Conflict("publication reconciliation source differs"));
+        }
+        let object = format!("{}.age", permit.operation);
+        existing(&self.directory.path.join(&object), permit)?;
+        Ok(published(permit, object, false))
+    }
     pub fn open(path: &Path, private_roots: &[PathBuf]) -> Result<Self> {
         Ok(Self {
             directory: Arc::new(Directory::open(path, private_roots)?),

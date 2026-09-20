@@ -143,7 +143,19 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
         jobs.complete(&mut store, &workspace, &receipt)
             .await
             .unwrap();
-        trust.advance_after_publication(&receipt, 0).unwrap();
+        // Canonical completion survived but the independent trust update did
+        // not: only retained finalized bytes plus the exact vault object can
+        // reconstruct the opaque publication proof after restart.
+        store.close().await.unwrap();
+        let mut store = Store::open(&root, backend, &forbidden).await.unwrap();
+        assert!(!Jobs::checkpoint_matches(&store, &id, &workspace, &trust).unwrap());
+        let captured = Jobs::publication_reconciliation(&store, &id, &workspace).unwrap();
+        let recovered = jobs
+            .reconcile_publication(captured, &trust, &vault)
+            .unwrap();
+        assert_eq!(recovered.object, receipt.object);
+        trust.advance_after_publication(&recovered, 0).unwrap();
+        assert!(Jobs::checkpoint_matches(&store, &id, &workspace, &trust).unwrap());
         assert!(trust
             .verify_restore(&paths[2].join(&receipt.object), &copy, Limits::default())
             .is_err());

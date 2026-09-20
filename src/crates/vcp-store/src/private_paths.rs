@@ -134,7 +134,16 @@ fn private_file(path: &Path) -> Result<File> {
         lpSecurityDescriptor: security.0,
         bInheritHandle: 0,
     };
-    let path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    // Rust's Windows canonicalization supplies the extended-length prefix.
+    // The parent is already retained by the caller's directory capability;
+    // canonicalizing only that existing parent also preserves CREATE_NEW for
+    // the final component without imposing Win32's legacy MAX_PATH limit.
+    let native = path
+        .parent()
+        .ok_or(Error::Access)?
+        .canonicalize()?
+        .join(path.file_name().ok_or(Error::Access)?);
+    let path: Vec<u16> = native.as_os_str().encode_wide().chain(Some(0)).collect();
     // SAFETY: buffers/descriptors live through CreateFileW; its returned handle
     // becomes owned by File exactly once. CREATE_NEW never overwrites a secret.
     let handle = unsafe {

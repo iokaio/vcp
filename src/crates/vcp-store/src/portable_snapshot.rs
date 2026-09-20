@@ -84,6 +84,73 @@ fn add(objects: &mut BTreeMap<String, Vec<u8>>, bytes: Vec<u8>) -> Result<String
     Ok(digest)
 }
 impl Archive {
+    pub(crate) fn write_spool_resumable(
+        &self,
+        root: &Path,
+        forbidden: &[std::path::PathBuf],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<()> {
+        self.validate()?;
+        if !root.exists() {
+            fs::create_dir(root)?;
+        }
+        let _root = crate::private_paths::Directory::open(root, forbidden)?;
+        for row in self
+            .state
+            .records
+            .values()
+            .filter(|r| r.collection == Collection::Artifact)
+        {
+            if cancelled() {
+                return Err(Error::Unavailable("restore spool cancelled"));
+            }
+            let descriptor: ArtifactDescriptor = row.decode()?;
+            if descriptor.state == CaptureState::Purged {
+                continue;
+            }
+            let dir = root.join(descriptor.spec.id.as_str());
+            if !dir.exists() {
+                fs::create_dir(&dir)?;
+            }
+            let _directory = crate::private_paths::Directory::open(&dir, forbidden)?;
+            for part in self
+                .inventory
+                .parts
+                .iter()
+                .filter(|p| p.artifact == descriptor.spec.id)
+            {
+                if cancelled() {
+                    return Err(Error::Unavailable("restore spool cancelled"));
+                }
+                let name = match part.role {
+                    Role::Specification => "spec.json".into(),
+                    Role::Seal => "seal.json".into(),
+                    Role::Chunk { index } => format!("{index:020}-{}.chunk", part.digest),
+                };
+                crate::restore_stage::immutable(&dir.join(name), &self.objects[&part.digest])?;
+            }
+            for name in ["owner.lock", "snapshot.lock"] {
+                crate::restore_stage::immutable(&dir.join(name), &[])?;
+            }
+        }
+        let spool =
+            crate::artifact::Spool::open(root, forbidden, crate::artifact::DEFAULT_ARTIFACT_LIMIT)?;
+        for row in self
+            .state
+            .records
+            .values()
+            .filter(|r| r.collection == Collection::Artifact)
+        {
+            if cancelled() {
+                return Err(Error::Unavailable("restore spool cancelled"));
+            }
+            let descriptor: ArtifactDescriptor = row.decode()?;
+            if descriptor.state != CaptureState::Purged {
+                spool.verify(&descriptor)?;
+            }
+        }
+        Ok(())
+    }
     pub fn capture(
         store: &Store,
         snapshot: &Snapshot,
@@ -105,7 +172,30 @@ impl Archive {
         inputs: &crate::snapshot_inputs::Inputs,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Self> {
-        let coverage = inputs.validate(store, snapshot.state(), workspace)?;
+        Self::capture_with_spool(store.spool(), snapshot, workspace, inputs, cancelled)
+    }
+    pub(crate) fn capture_with_spool(
+        spool: &crate::artifact::Spool,
+        snapshot: &Snapshot,
+        workspace: &WorkspaceId,
+        inputs: &crate::snapshot_inputs::Inputs,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Self> {
+        let coverage = inputs.validate_with(snapshot.state(), workspace, &|id| {
+            if cancelled() {
+                return Err(Error::Unavailable("snapshot cancelled"));
+            }
+            let descriptor: ArtifactDescriptor = snapshot
+                .state()
+                .record(Collection::Artifact, id.as_str(), workspace)?
+                .decode()?;
+            if descriptor.length.get() > MAX_BYTES as u64 {
+                return Err(Error::Limit("snapshot input bytes"));
+            }
+            let mut bytes = Vec::new();
+            spool.read(&descriptor, &mut bytes)?;
+            Ok(bytes)
+        })?;
         scoped(snapshot.state(), workspace)?;
         let mut objects = BTreeMap::new();
         let canonical = add(&mut objects, canonical_bytes(snapshot.state())?)?;
@@ -123,13 +213,13 @@ impl Archive {
             if descriptor.state == CaptureState::Purged {
                 continue;
             }
-            store.spool().verify(&descriptor)?;
-            if store.spool().inspect(&descriptor.spec.id)? != descriptor {
+            spool.verify(&descriptor)?;
+            if spool.inspect(&descriptor.spec.id)? != descriptor {
                 return Err(Error::Conflict(
                     "artifact advanced beyond snapshot cut; rebuild snapshot",
                 ));
             }
-            let directory = store.spool().root().join(descriptor.spec.id.as_str());
+            let directory = spool.root().join(descriptor.spec.id.as_str());
             reject_link(&directory)?;
             let capture = fs::File::open(directory.join("owner.lock"))?;
             capture
@@ -175,7 +265,7 @@ impl Archive {
                     bytes: length,
                 });
             }
-            store.spool().verify(&descriptor)?;
+            spool.verify(&descriptor)?;
         }
         let inventory = Inventory {
             inputs: inputs.clone(),

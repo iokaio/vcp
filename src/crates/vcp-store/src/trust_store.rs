@@ -105,6 +105,10 @@ fn entries(directory: &Directory) -> Result<Vec<std::path::PathBuf>> {
     Ok(files)
 }
 impl TrustStore {
+    /// Independently selected local directory held by this journal's owner.
+    pub fn directory(&self) -> &Path {
+        &self.directory.path
+    }
     /// The host obtains `trust` only through explicit verified key enrollment.
     /// Existing local knowledge is never overwritten by enrollment or restore.
     pub fn enroll(
