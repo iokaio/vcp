@@ -1,10 +1,11 @@
 # U04 actual OneDrive handoff: operator runbook
 
-Status: **prepared, not executed**. A second disposable Windows environment and
-operator confirmation of the real OneDrive arrangement are still pending. No
-actual provider transfer or two-machine result is claimed by this document or
-by the local process-kill/sync-simulator tests. This is the remaining external
-qualification step for declared OneDrive support in P3-06/P5-09/P5-10.
+Status: **executed on two Windows installations**, with authenticated actual
+OneDrive restores in both backend directions on 2026-09-20. See the
+[redacted campaign evidence](p3-onedrive-qualification.md). The local process-kill
+and sync-simulator tests remain separate evidence; they do not establish provider
+delivery. The procedure below describes the qualification boundary for
+P3-06/P5-09/P5-10.
 
 Use the exact reviewed VCP build on both machines. Record its commit and executable
 SHA-256, `vcp-signed-age/1` envelope format, and the build's qualified `age 0.11.2` /
