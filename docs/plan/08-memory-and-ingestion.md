@@ -1,6 +1,6 @@
 # 08 — Munarium-derived governance and automatic memory ingestion
 
-Status: planned. Owns P5-01 and P5-02. Requires canonical storage and selected Munarium components from P0. Read architecture section 11 and [search integration](09-local-search-and-generations.md).
+Status: P5-01 complete; P5-02 planned. Owns P5-01 and P5-02. Requires canonical storage and selected Munarium components from P0. Read architecture section 11 and [search integration](09-local-search-and-generations.md).
 
 ## Implementation references and entry evidence
 
@@ -33,6 +33,8 @@ Under `vcp-memory`, organize `claim`, `evidence`, `scope`, `proposal`, `gates`, 
 Evidence links refer to retained source/output/check versions, not mutable paths alone. Store principal/workspace scope separately from branch/path applicability. Source observations, inferred architecture and user corrections must remain distinguishable after compaction and machine handoff.
 
 ## P5-01 — Governed writes
+
+Implemented and qualified in [governed memory evidence](../development/p5-governed-memory.md).
 
 1. Implement schema/scope/evidence/predecessor checks for test/build commands, module relationships, architecture decisions, environment constraints, verified fixes and user preferences. Version the supported type registry.
 2. Apply automatic acceptance policy to every supported class. Invalid proposals can be rejected, conflicting claims disputed, and inferred statements retained with unverified status; no routine approval queue is required by default.

@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "a44b98deaa7cb5d3bec0f0808d13f4ef9513d673ee80f8a33b40d5e49a06479f",
-  "files_sha256": "e413a8f231798720c60d6d9e9090d0d3656704b15c1b4e8fcb39ee5a67640e1b",
+  "selection_sha256": "2e5c367e2628a7400b04c9bb1d48ec9647f1f1b18800ee293997dbdd14cb237f",
+  "files_sha256": "ab43afa541cf8e2fd1adbd3c7fa0cd95ea7166d05576080510cd4d9b225c7f0b",
   "files": [
     {
       "path": ".bazelignore",
@@ -545,8 +545,8 @@
         "sha256": "582bb7fb0b7d4c7cab24b4e3b8cc28344ddfe146ffbf2297448a3e995eead2b7"
       },
       "result": {
-        "bytes": 434899,
-        "sha256": "173d2afb7dfa7fa556b6f635e5c37e2595ff23cc89f311dfa3d1ac29c1fe3f2e",
+        "bytes": 435131,
+        "sha256": "8d29e2bc4c49956ac82e34fc38bf4eb00a18a98e67b168bbf7625785e27b6e2c",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -559,8 +559,8 @@
         "sha256": "5f531fe8a45a1ab7d9cf56f03eb31dfb5ec2ecfb7574bebaada6130382e5877f"
       },
       "result": {
-        "bytes": 21193,
-        "sha256": "732fe1889c5ca8b5454d035d8fde0ff7f1bdf644a4c91d52749364184d3f83c6",
+        "bytes": 21227,
+        "sha256": "f9d83cf0407e575a43fe3c0ade32370879ac95b9d629e330a1327802fd4f0761",
         "mode": "100644"
       },
       "transformation": "patch-series"

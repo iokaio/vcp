@@ -25,6 +25,7 @@ pub enum EventKind {
     LiabilityRetained,
     AccountingResolved,
     LocalResourcesObserved,
+    MemoryResolved,
     AccessChanged,
     RetentionChanged,
     Commentary,

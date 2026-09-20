@@ -17605,6 +17605,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcp-memory"
+version = "0.1.0"
+dependencies = [
+ "munarium-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "vcp-audit",
+ "vcp-domain",
+ "vcp-engine",
+ "vcp-protocol",
+ "vcp-store",
+]
+
+[[package]]
 name = "vcp-memory-spike"
 version = "0.1.0"
 dependencies = [
