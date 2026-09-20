@@ -76,3 +76,15 @@ The open terminal accepts `/history list`, `/history search TEXT`,
 cursor. These controls remain available while paused. Arguments are separated
 by whitespace; use the finite CLI for quoted multiword values and selector JSON
 containing spaces. Terminal controls always use the active workspace.
+
+## Qualification
+
+Native audit, CLI and domain all-target tests passed 62 tests with no failures
+or ignored tests, including stable browsing across appends, current access and
+retention checks, unsupported nested facets, selector parsing and output framing.
+The full canonical host suite passed 34 tests with four explicitly ignored
+asset-dependent qualifications. Paused history/prune controls and the actual
+provider dispatch race passed for both backend preferences. The CLI build,
+Clippy, changed-source formatting and deterministic delivery checks passed.
+The [retention engine evidence](p5-retention.md#qualification) records physical
+cleanup, replay and native process-kill results.

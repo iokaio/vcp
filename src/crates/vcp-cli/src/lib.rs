@@ -8,8 +8,8 @@ pub mod continuation;
 #[cfg(windows)]
 pub mod control;
 pub mod exit_status;
-pub mod input;
 pub mod history;
+pub mod input;
 pub mod jsonl;
 pub mod outcome;
 pub mod output;

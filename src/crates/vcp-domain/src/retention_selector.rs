@@ -278,14 +278,13 @@ fn normalize(tree: Tree, depth: usize, count: &mut usize) -> Result<Tree> {
                         ));
                     }
                 }
-                Criterion::Model(value) | Criterion::Provider(value) | Criterion::Event(value) => {
+                Criterion::Model(value) | Criterion::Provider(value) | Criterion::Event(value)
                     if value.is_empty()
                         || value.len() > 256
                         || value != value.trim()
-                        || value.contains('\0')
-                    {
-                        return Err(Error::Invalid("retention selector name"));
-                    }
+                        || value.contains('\0') =>
+                {
+                    return Err(Error::Invalid("retention selector name"));
                 }
                 _ => (),
             }
