@@ -39,12 +39,16 @@ fn admission(configured: bool, loaded_enabled: bool) -> Admission {
 pub struct Triggers {
     configured: bool,
     state: Option<TaskState>,
+    pending: Option<Reason>,
+    pending_reported: bool,
 }
 impl Triggers {
     pub fn new(configured: bool) -> Self {
         Self {
             configured,
             state: None,
+            pending: None,
+            pending_reported: false,
         }
     }
     fn edge(&mut self, state: TaskState) -> Option<Reason> {
@@ -57,49 +61,69 @@ impl Triggers {
             _ => None,
         }
     }
-    pub fn observe(&mut self, host: &CanonicalHost, state: TaskState) -> Option<String> {
-        self.edge(state)
-            .and_then(|reason| self.trigger(host, reason))
+    fn queue(&mut self, reason: Reason) {
+        self.pending = Some(reason);
+        self.pending_reported = false;
     }
-    fn trigger(&self, host: &CanonicalHost, reason: Reason) -> Option<String> {
+    pub fn observe(&mut self, host: &CanonicalHost, state: TaskState) -> Option<String> {
+        if let Some(reason) = self.edge(state) {
+            self.queue(reason);
+        }
+        self.dispatch_pending(host)
+    }
+    fn dispatch_pending(&mut self, host: &CanonicalHost) -> Option<String> {
+        let reason = self.pending?;
         let result = (|| -> Result<Option<String>, String> {
             match admission(self.configured, host.backup_automatic_enabled()?) {
-                Admission::Disabled => Ok(None),
+                Admission::Disabled => { self.pending = None; Ok(None) },
                 Admission::MissingLoadedCapability => Ok(Some(format!(
                     "Backup pending after {}: explicitly load the configured verified signing key in this owner; no work scheduled.", reason.label()
                 ))),
                 Admission::Start => {
                     if let Some(progress) = host.backup_progress()? {
                         if progress.running() {
-                            return Ok(Some(format!("Backup {} already in progress; {} shares its pending operation.", progress.operation, reason.label())));
+                            return Ok(Some(format!("Backup after {} is queued behind {}; the earlier snapshot is not evidence of this newer boundary.", reason.label(), progress.operation)));
                         }
                     }
                     let progress = host.start_backup(CommandId::new(), false)?;
+                    self.pending = None;
                     Ok(Some(format!("Backup {} requested after {}; inspect backup status for publication and transfer state.", progress.operation, reason.label())))
                 }
             }
         })();
-        match result {
+        let message = match result {
             Ok(message) => message,
             Err(_) => Some(format!("Backup pending after {}: local backup admission unavailable; inspect backup status. Local task state is preserved.", reason.label())),
+        };
+        if self.pending.is_some() && self.pending_reported {
+            return None;
         }
+        self.pending_reported = self.pending.is_some();
+        message
     }
     /// Controlled shutdown permits at most two seconds of background local work.
-    /// Cancellation preserves already admitted jobs for explicit reconciliation.
-    pub async fn shutdown(&self, host: &CanonicalHost) {
-        if let Some(message) = self.trigger(host, Reason::Exit) {
-            eprintln!("vcp: {message}");
-        }
+    /// A queued newer boundary never inherits an older operation's coverage.
+    pub async fn shutdown(&mut self, host: &CanonicalHost) {
+        self.queue(Reason::Exit);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
         loop {
-            let progress = match host.backup_progress() {
-                Ok(Some(progress)) if progress.running() => progress,
-                _ => return,
-            };
             if tokio::time::Instant::now() >= deadline {
-                let _ = host.cancel_backup(&progress.operation);
-                eprintln!("vcp: backup {} remains pending at controlled exit; inspect its retained status before retrying. No background daemon was started.", progress.operation);
+                if let Ok(Some(progress)) = host.backup_progress() {
+                    if progress.running() {
+                        let _ = host.cancel_backup(&progress.operation);
+                    }
+                }
+                eprintln!("vcp: backup remains pending at controlled exit; inspect retained status and explicitly retry unresolved work.");
                 return;
+            }
+            if let Some(message) = self.dispatch_pending(host) {
+                eprintln!("vcp: {message}");
+            }
+            match host.backup_progress() {
+                Ok(Some(progress)) if progress.running() => {}
+                _ if self.pending.is_some() && host.backup_automatic_enabled().unwrap_or(false) => {
+                }
+                _ => return,
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
@@ -131,6 +155,17 @@ mod tests {
         assert_eq!(triggers.edge(TaskState::Completed), None);
         assert_eq!(triggers.edge(TaskState::Failed), None);
         assert_eq!(triggers.edge(TaskState::Cancelled), None);
+    }
+    #[test]
+    fn newer_edges_coalesce_without_claiming_old_snapshot_coverage() {
+        let mut triggers = Triggers::new(true);
+        triggers.queue(Reason::Pause);
+        triggers.pending_reported = true;
+        triggers.queue(Reason::Completion);
+        assert_eq!(triggers.pending, Some(Reason::Completion));
+        assert!(!triggers.pending_reported);
+        triggers.queue(Reason::Exit);
+        assert_eq!(triggers.pending, Some(Reason::Exit));
     }
     #[tokio::test]
     async fn configured_hooks_without_loaded_keys_leave_canonical_state_unchanged() {
