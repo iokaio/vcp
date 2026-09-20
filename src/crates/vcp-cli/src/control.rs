@@ -15,6 +15,9 @@ use vcp_protocol::command::{Command, CommandEnvelope};
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "operation", deny_unknown_fields)]
 pub enum Request {
+    BackupStatus {
+        workspace: WorkspaceId,
+    },
     HistoryRetention {
         workspace: WorkspaceId,
         request: vcp_lifecycle::foundation::history_retention::Request,
@@ -167,6 +170,9 @@ async fn handle(
     let request: Request =
         serde_json::from_slice(&frame).map_err(|_| "invalid owner request".to_owned())?;
     match request {
+        Request::BackupStatus {
+            workspace: requested,
+        } if requested == *workspace => host.backup_status(),
         Request::HistoryRetention {
             workspace: requested,
             request,

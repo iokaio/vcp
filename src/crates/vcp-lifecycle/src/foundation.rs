@@ -5,6 +5,7 @@ mod authority;
 #[cfg(windows)]
 pub mod backup_checkpoint;
 pub mod history_retention;
+pub mod backup;
 mod scheduler;
 use scheduler::{EffectLease, Scheduler};
 #[cfg(windows)]

@@ -29,6 +29,7 @@ pub(super) async fn execute(
     entry: Option<WorkspaceEntry>,
     locations: Locations<'_>,
 ) -> Result<u8, String> {
+    let descriptor_version = entry.as_ref().map_or(1, |entry| entry.version);
     let expected_identity = entry.as_ref().and_then(|entry| entry.identity.clone());
     let interactive = cli.interactive_terminal(
         std::io::stdin().is_terminal(),
@@ -103,7 +104,7 @@ pub(super) async fn execute(
     } else {
         Config {
             canonical_root: directory.join("canonical"),
-            backend: BackendKind::Sqlite,
+            backend: crate::storage::preference(directory)?.unwrap_or(BackendKind::Sqlite),
             workspace: WorkspaceId::new(),
             session: SessionId::new(),
             binding: Binding {
@@ -326,7 +327,7 @@ pub(super) async fn execute(
     settings::save(
         entry_path,
         &WorkspaceEntry {
-            version: 1,
+            version: descriptor_version,
             config: config.clone(),
             identity: Some(registered_identity),
         },

@@ -38,6 +38,18 @@ pub struct Cli {
 }
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    Workspace {
+        #[command(subcommand)]
+        command: WorkspaceCommand,
+    },
+    Storage {
+        #[command(subcommand)]
+        command: crate::storage::Storage,
+    },
+    Backup {
+        #[command(subcommand)]
+        command: crate::backup::Backup,
+    },
     History {
         #[command(subcommand)]
         command: crate::history::History,
@@ -84,6 +96,13 @@ pub enum Command {
         offset: Option<u64>,
         #[arg(long, requires = "offset", conflicts_with = "cursor", value_parser = clap::value_parser!(u32).range(1..=65536))]
         length: Option<u32>,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum WorkspaceCommand {
+    Rebind {
+        #[arg(value_parser=workspace_id)]
+        workspace_id: WorkspaceId,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -233,6 +252,8 @@ impl ValidatedCli {
 }
 
 pub enum ValidatedCommand {
+    Storage(crate::storage::Storage),
+    Backup(crate::backup::Backup),
     History(crate::history::History),
     Prune(crate::history::Prune),
     Retention(crate::history::Retention),
@@ -262,6 +283,11 @@ impl Cli {
         let command = match self.command {
             None => ValidatedCommand::Discover,
             Some(command) => match command {
+                Command::Workspace {
+                    command: WorkspaceCommand::Rebind { workspace_id },
+                } => ValidatedCommand::Rebind(workspace_id),
+                Command::Storage { command } => ValidatedCommand::Storage(command),
+                Command::Backup { command } => ValidatedCommand::Backup(command),
                 Command::History { command } => ValidatedCommand::History(command),
                 Command::Prune { command } => ValidatedCommand::Prune(command),
                 Command::Retention { command } => ValidatedCommand::Retention(command),
