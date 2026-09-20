@@ -165,9 +165,10 @@ pub async fn run(
 ) -> Result<(), String> {
     let mut input = input(std::io::BufReader::new(std::io::stdin())).map_err(|e| e.to_string())?;
     let renderer = Renderer::new(std::io::stderr()).map_err(|e| e.to_string())?;
-    let mut notice = String::from("/pause /resume /status /cost /history /agents /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task");
+    let mut notice = String::from("/pause /resume /status /cost /history /groups /optimize /agents /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task");
     let mut page: Option<InspectionQuery> = None;
     let mut maintenance_page: Option<vcp_lifecycle::foundation::history_retention::Request> = None;
+    let mut optimization = crate::optimize::Session::default();
     let mut page_text = String::new();
     let mut pending: Option<tokio::task::JoinHandle<Result<(), String>>> = None;
     let mut active = true;
@@ -224,6 +225,12 @@ pub async fn run(
                         page_text=super::sanitize(&serde_json::to_string(&result).map_err(|e|e.to_string())?,1024*1024);
                         display_page(&mut page_text)
                     }
+                    Input::Optimize(command)=>{
+                        let result=optimization.execute(command,crate::settings::now(),|request|host.routing_control(request))?;
+                        maintenance_page=None;page=None;
+                        page_text=super::sanitize(&result,1024*1024);
+                        display_page(&mut page_text)
+                    }
                     Input::History | Input::Cost | Input::Inspect(_) | Input::Read {..} | Input::Next => {
                         maintenance_page=None;
                         let query=match command {
@@ -242,7 +249,7 @@ pub async fn run(
                     }
                     Input::Unavailable(service)=>format!("{service}: service not ready in this stage; no work scheduled"),
                     Input::Status | Input::Agents => serde_json::to_string(&view(&host.snapshot()?,scope,model)?).map_err(|e|e.to_string())?,
-                    Input::Help => "/pause /resume /status /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /agents /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /optimize /cancel /exit; plain text queues durable guidance".into(),
+                    Input::Help => format!("/pause /resume /status /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /groups [exact-model] [--offset <candidate-number>] /agents /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /cancel /exit; {} ; plain text queues durable guidance",crate::optimize::HELP),
                 }) }.await;
                 match result { Ok(message) if message=="exit"=>return Ok(()), Ok(message)=>notice=message, Err(error)=>notice=format!("Command rejected: {error}") }
             }

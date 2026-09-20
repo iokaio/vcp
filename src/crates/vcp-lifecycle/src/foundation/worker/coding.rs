@@ -312,13 +312,32 @@ impl Context {
         }
         // Keep the conversation after current authority-bearing sources.
         parts.sort_by_key(|p| matches!(p.kind, Kind::ToolCall | Kind::ToolResult));
-        let snapshot = self
+        let schemas = crate::foundation::coding::schemas();
+        // Portable compaction runs before candidate capacity filtering. All
+        // qualified candidates use this codec, whose model/provider constants
+        // cancel out of the before/after gain calculation.
+        let codec_snapshot = self
             .provider
             .as_ref()
             .ok_or("provider missing")?
             .snapshot
             .clone();
-        let schemas = crate::foundation::coding::schemas();
+        let codec_envelope = request::envelope(
+            &codec_snapshot,
+            self.config.output_ceiling,
+            Units::new(512),
+            now(),
+        )?;
+        self.ensure_coding_ledger()?;
+        let parts = self.compact_coding_parts(binding, parts, &current, |parts| {
+            Ok(request::encode(
+                parts,
+                &codec_envelope,
+                &schemas,
+                &codec_snapshot,
+            )?)
+        })?;
+        let snapshot = self.select_coding_snapshot(binding, &parts, &schemas)?;
         let envelope = request::envelope(
             &snapshot,
             self.config.output_ceiling,
@@ -326,12 +345,6 @@ impl Context {
             now(),
         )?;
         let probes = instructions.probes;
-        // Denied context must not initialize accounting. Once authority and
-        // envelope checks pass, pin the ledger before continuity/handoff facts.
-        self.ensure_coding_ledger()?;
-        let parts = self.compact_coding_parts(binding, parts, &current, |parts| {
-            Ok(request::encode(parts, &envelope, &schemas, &snapshot)?)
-        })?;
         let sealed = assemble(
             parts,
             current.clone(),
@@ -348,7 +361,7 @@ impl Context {
         let mut roots = parents;
         roots.push(root);
         self.capture_coding_handoff(binding, &sealed)?;
-        self.prepare_context(binding, sealed, schemas, roots)?;
+        self.prepare_routed_context(binding, sealed, schemas, roots, snapshot)?;
         self.coding.get_mut(&binding.scope.task).unwrap().revisions = Some(current);
         self.coding.get_mut(&binding.scope.task).unwrap().probes = probes;
         self.coding

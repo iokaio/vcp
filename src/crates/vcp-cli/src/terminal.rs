@@ -28,6 +28,7 @@ pub enum Input {
     Cost,
     History,
     Maintenance(Vec<String>),
+    Optimize(crate::optimize::Command),
     Next,
     Agents,
     Inspect(String),
@@ -71,7 +72,9 @@ pub fn parse(line: &str) -> Result<Option<Input>, String> {
         ["/next"] => Input::Next,
         ["/agents"] => Input::Agents,
         ["/help"] => Input::Help,
-        ["/memory" | "/optimize"] => Input::Unavailable(line.into()),
+        ["/optimize", arguments @ ..] => Input::Optimize(crate::optimize::parse(arguments)?),
+        ["/groups", arguments @ ..] => Input::Optimize(crate::optimize::parse_groups(arguments)?),
+        ["/memory"] => Input::Unavailable(line.into()),
         ["/inspect", id] => Input::Inspect((*id).into()),
         ["/read", id, offset] => Input::Read {
             id: (*id).into(),

@@ -57,7 +57,17 @@ fn commands_require_explicit_question_answers_and_exact_arguments() {
             },
         ),
         ("/memory", Input::Unavailable("/memory".into())),
-        ("/optimize", Input::Unavailable("/optimize".into())),
+        (
+            "/groups",
+            Input::Optimize(crate::optimize::Command::Groups {
+                model: None,
+                offset: 0,
+            }),
+        ),
+        (
+            "/optimize",
+            Input::Optimize(crate::optimize::Command::Report),
+        ),
         (
             "/answer question allow",
             Input::Answer {

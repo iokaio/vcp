@@ -2,8 +2,11 @@
 //! OpenRouter conversion and bounded normalization. Transport remains in the
 //! retained client and may only be reached through canonical host admission.
 pub mod catalog;
+pub mod decision;
+pub mod escalation;
 pub mod request;
 pub mod retry;
+pub mod routing;
 pub mod stream;
 
 pub type Result<T> = std::result::Result<T, Error>;

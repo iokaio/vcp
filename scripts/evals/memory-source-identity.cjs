@@ -18,8 +18,8 @@ const inputs = [
   'src/third_party/codex/codex-rs/rust-toolchain.toml',
 ];
 const optional = ['.cargo', 'src/.cargo', 'src/third_party/codex/codex-rs/.cargo'];
-function sourceIdentity(root) {
-  const selected = [...inputs, ...optional.filter(relative => fs.existsSync(path.join(root, relative)))];
+function sourceIdentity(root, additional = []) {
+  const selected = [...new Set([...inputs, ...additional, ...optional.filter(relative => fs.existsSync(path.join(root, relative)))])];
   const files = [];
   function visit(relative) {
     const filename = path.join(root, relative), info = fs.lstatSync(filename);

@@ -584,6 +584,13 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             crate::backup::Backup::Keys { .. } => return Err("key control routing failed".into()),
         }
     }
+    if let ValidatedCommand::Optimize(command) = &cli.command {
+        let entry = entry.as_ref().ok_or(
+            "workspace has no durable session; local optimization needs retained workspace history",
+        )?;
+        let value = crate::optimize::offline::execute(entry, &workspace, &pipe, command).await?;
+        return command_result(cli.format, value);
+    }
     let history_request = match &cli.command {
         ValidatedCommand::History(command) => Some(
             command.request(
