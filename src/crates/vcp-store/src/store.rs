@@ -16,6 +16,8 @@ use std::{
 };
 use vcp_domain::{artifact::ArtifactDescriptor, *};
 use vcp_protocol::{canonical_bytes, digest_bytes};
+#[path = "snapshot_pin.rs"]
+pub(crate) mod snapshot_pin;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -41,6 +43,7 @@ pub struct Store {
 pub struct Snapshot {
     state: State,
     _pins: Vec<ArtifactPin>,
+    _root_pin: File,
 }
 impl Snapshot {
     pub fn state(&self) -> &State {
@@ -201,6 +204,7 @@ impl Store {
         if self.poisoned {
             return Err(Error::Unavailable("reopen after indeterminate commit"));
         }
+        let root_pin = snapshot_pin::acquire(&self.root)?;
         let mut pins = Vec::new();
         for record in self
             .state
@@ -214,7 +218,18 @@ impl Store {
         Ok(Snapshot {
             state: self.state.clone(),
             _pins: pins,
+            _root_pin: root_pin,
         })
+    }
+    /// Excludes every snapshot of this physical root, including snapshots held
+    /// after their original owner closed. Keep the guard alive through deletion.
+    /// None means a live snapshot/cleanup holds the lock; other I/O errors remain
+    /// errors. New snapshots cannot start until the returned guard is dropped.
+    pub fn try_snapshot_cleanup_guard(&self) -> Result<Option<File>> {
+        if self.poisoned {
+            return Err(Error::Unavailable("reopen after indeterminate commit"));
+        }
+        snapshot_pin::cleanup(&self.root)
     }
     pub fn checkpoint(&mut self) -> Result<()> {
         if self.poisoned {

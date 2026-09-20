@@ -9,6 +9,8 @@ pub mod coding;
 #[cfg(windows)]
 mod execution;
 #[cfg(windows)]
+pub mod memory_publication;
+#[cfg(windows)]
 pub mod memory_vectors;
 pub mod openrouter;
 #[cfg(windows)]
