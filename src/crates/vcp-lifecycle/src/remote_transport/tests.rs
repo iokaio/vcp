@@ -103,7 +103,7 @@ async fn credential_revocation_alone_prevents_the_next_physical_write() {
         thread,
         0,
         outbound(listener.local_addr().unwrap()),
-        Some(lease),
+        Some(lease.into()),
         control.clone(),
     ));
     let (mut peer, _) = listener.accept().await.unwrap();

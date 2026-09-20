@@ -91,13 +91,14 @@ pub struct Provenance {
 }
 impl Provenance {
     pub(super) fn from_context(
-        context: VerifiedContext,
+        context: impl Into<Arc<VerifiedContext>>,
         roots: Vec<vcp_repository::Root>,
         memory: Option<memory_query::SendFence>,
     ) -> Self {
+        let context = context.into();
         Self {
             revisions: Some(context.sealed().manifest.revisions.clone()),
-            context: Some(Arc::new(context)),
+            context: Some(context),
             memory,
             roots,
             owner_arguments: None,

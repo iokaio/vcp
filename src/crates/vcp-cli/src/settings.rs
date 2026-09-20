@@ -27,6 +27,9 @@ pub struct Profile {
     pub provider: Snapshot,
     #[serde(default)]
     pub routing: Option<vcp_lifecycle::foundation::routing::Configuration>,
+    #[cfg(windows)]
+    #[serde(default)]
+    pub decisions: Option<crate::decision::Configuration>,
     #[serde(default)]
     pub skills: Option<crate::skills::Configuration>,
     #[serde(default)]
@@ -252,6 +255,10 @@ impl Profile {
         }
         if let Some(routing) = &self.routing {
             routing.validate()?;
+        }
+        #[cfg(windows)]
+        if let Some(decisions) = &self.decisions {
+            decisions.validate()?;
         }
         if let Some(skills) = &self.skills {
             skills.validate()?;

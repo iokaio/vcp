@@ -31,6 +31,12 @@ mod coding_verification;
 #[path = "support/context_continuity.rs"]
 mod context_continuity;
 #[cfg(all(windows, feature = "qualification"))]
+#[path = "support/decision_shadow.rs"]
+mod decision_shadow;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/decision_shadow_peer.rs"]
+mod decision_shadow_peer;
+#[cfg(all(windows, feature = "qualification"))]
 #[path = "support/duplex.rs"]
 mod duplex;
 #[cfg(windows)]

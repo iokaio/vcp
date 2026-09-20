@@ -8,6 +8,8 @@ mod coding;
 mod console;
 mod control;
 #[cfg(windows)]
+pub(super) mod decision;
+#[cfg(windows)]
 mod escalation;
 #[cfg(windows)]
 mod execution;
@@ -163,6 +165,8 @@ pub struct Context {
     provider: Option<provider::Provider>,
     routing: Option<routing::Runtime>,
     #[cfg(windows)]
+    decisions: decision::Runtime,
+    #[cfg(windows)]
     skills: Option<skills::Runtime>,
     #[cfg(windows)]
     coding: HashMap<TaskId, coding::Loop>,
@@ -276,6 +280,8 @@ impl Context {
             provider_required,
             provider: None,
             routing: None,
+            #[cfg(windows)]
+            decisions: decision::Runtime::default(),
             #[cfg(windows)]
             skills: None,
             #[cfg(windows)]
@@ -943,6 +949,8 @@ impl Context {
             .as_mut()
             .and_then(|p| p.retries.remove(&binding.scope.task));
         let (deadline, retries) = retry.map_or((deadline, 0), |r| (Some(r.deadline), r.count));
+        #[cfg(windows)]
+        self.seed_decision_shadow(binding, &attempt);
         Ok((attempt.id, body, deadline, retries))
     }
     pub fn response_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {
@@ -1036,6 +1044,8 @@ impl Context {
     }
     pub fn pause_all(&mut self, reason: &str) -> Result<()> {
         self.owner_alive = false;
+        #[cfg(windows)]
+        self.decisions.credentials.close()?;
         let tasks: Vec<Task> = self
             .engine
             .store()

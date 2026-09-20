@@ -10,6 +10,8 @@ pub mod binding;
 pub mod continuation;
 #[cfg(windows)]
 pub mod control;
+#[cfg(windows)]
+pub mod decision;
 pub mod disk_space;
 pub mod doctor;
 pub mod exit_status;
