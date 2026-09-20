@@ -75,6 +75,9 @@ mod routing;
 #[path = "support/selected_reopen.rs"]
 mod selected_reopen;
 #[cfg(windows)]
+#[path = "support/skills.rs"]
+mod skills;
+#[cfg(windows)]
 #[path = "support/verification.rs"]
 mod verification;
 

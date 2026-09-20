@@ -17508,6 +17508,7 @@ dependencies = [
  "vcp-audit",
  "vcp-domain",
  "vcp-engine",
+ "vcp-extensions",
  "vcp-lifecycle",
  "vcp-memory",
  "vcp-models",
@@ -17574,6 +17575,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vcp-extensions"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "vcp-domain",
+ "vcp-protocol",
+ "vcp-repository",
+]
+
+[[package]]
 name = "vcp-lifecycle"
 version = "0.1.0"
 dependencies = [
@@ -17596,6 +17610,7 @@ dependencies = [
  "vcp-context",
  "vcp-domain",
  "vcp-engine",
+ "vcp-extensions",
  "vcp-memory",
  "vcp-models",
  "vcp-policy",

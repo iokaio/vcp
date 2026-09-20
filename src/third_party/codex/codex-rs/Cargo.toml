@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    # VCP modification: bounded native skill discovery and activation.
+    "../../../crates/vcp-extensions",
     "../../../crates/vcp-memory",
     # VCP modification: structured and interactive CLI adapters.
     "../../../crates/vcp-cli",

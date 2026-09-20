@@ -1,6 +1,6 @@
 # Committed Codex source and native build
 
-The current selection contains 7,938 files, including the original private
+The current selection contains 7,939 files, including the original private
 work-admission module added by VCP. It copies upstream source from Codex revision
 `3d3ae4965ab370217e871b3a7f0d15589557ee4b` into
 `src/third_party/codex/`. This is an upstream qualification baseline. The binary

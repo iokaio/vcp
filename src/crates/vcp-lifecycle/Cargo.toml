@@ -20,6 +20,7 @@ vcp-audit = { path = "../vcp-audit" }
 vcp-memory = { path = "../vcp-memory" }
 vcp-context = { path = "../vcp-context" }
 vcp-models = { path = "../vcp-models" }
+vcp-extensions = { path = "../vcp-extensions" }
 vcp-repository = { path = "../vcp-repository" }
 vcp-policy = { path = "../vcp-policy" }
 vcp-tools = { path = "../vcp-tools" }

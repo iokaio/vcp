@@ -139,6 +139,10 @@ already include these changes; normal builds never apply patches.
     already pinned age, Ed25519, randomness, zeroization and Windows packages,
     plus a repository dev-dependency for native checkpoint fixtures. It changes
     local dependency edges only; no package version or upstream source changes.
+31. `0031-p7-skills-workspace.patch` registers the original `vcp-extensions`
+    package and the CLI/lifecycle dependency edges for bounded native skill
+    discovery and activation. It reuses existing locked dependencies without
+    importing another runtime or changing dependency versions.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

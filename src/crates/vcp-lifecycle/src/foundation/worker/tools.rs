@@ -138,6 +138,7 @@ impl Context {
         resources_current: bool,
         isolation: &BTreeSet<Isolation>,
     ) -> Result<vcp_policy::Decision> {
+        self.validate_skills(binding)?;
         let state = self.engine.store().state();
         if prepared.operation().effects != BTreeSet::from([EffectClass::Read])
             && state
@@ -200,6 +201,12 @@ impl Context {
         artifacts: Vec<ArtifactId>,
         reason: &str,
     ) -> Result<()> {
+        if matches!(
+            next,
+            EffectState::Authorized | EffectState::DispatchRecorded
+        ) {
+            self.validate_skill_plan(binding, &artifacts)?;
+        }
         let current: Effect = self
             .engine
             .store()
@@ -274,6 +281,7 @@ impl Context {
                 "controller": self.engine.controller(),
                 "owner": self.engine.owner_epoch(),
                 "host_tool_denials": self.config.host_tool_denials,
+                "skills_revision": self.skill_revision(&binding.scope)?,
                 "prepared": serde_json::from_slice::<serde_json::Value>(evidence)?,
             }))?,
             "vcp-prepared-tool-v2",

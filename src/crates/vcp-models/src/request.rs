@@ -283,7 +283,10 @@ pub fn encode(
             Content::Text { text } => {
                 let role = match part.kind {
                     Kind::Operating => "system",
-                    Kind::ProjectInstruction | Kind::Skill => "developer",
+                    Kind::ProjectInstruction => "developer",
+                    // Activated packages are subordinate guidance, not a
+                    // source of developer authority or trusted permissions.
+                    Kind::Skill => "user",
                     _ => "user",
                 };
                 // Delimit untrusted text as JSON with provenance, never as body

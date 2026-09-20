@@ -1,0 +1,14 @@
+{
+  "schema": "p7-01-skill-discovery-experiment/1",
+  "revision": "p7-01-lazy-discovery-v1",
+  "declared_before_execution": true,
+  "catalog_sizes": [4, 128],
+  "body_bytes": 32768,
+  "resource_bytes": 1024,
+  "matching_cue": "Cargo.toml",
+  "nonmatching_cue": "package.json",
+  "required_tool": "read_file",
+  "required_assertion_rate_bps": 10000,
+  "model_calls": 0,
+  "purpose": "Measure actual bounded file discovery, lazy activation and descriptor listing costs; no model output or skill usefulness qualification."
+}

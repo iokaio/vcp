@@ -151,6 +151,10 @@
     {
       "path": "src/third_party/patches/codex/0030-p5-portability-workspace.patch",
       "sha256": "06016a4b215360874524bda92adfd9c119016fe993155d159f52ebbbe68d996d"
+    },
+    {
+      "path": "src/third_party/patches/codex/0031-p7-skills-workspace.patch",
+      "sha256": "c3dcfabd775600a9140131a1575565173f2d7ecd96e9dbff33da63c9c672cf91"
     }
   ],
   "licenses": [

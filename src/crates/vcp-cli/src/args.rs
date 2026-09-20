@@ -62,6 +62,11 @@ pub enum Command {
         #[command(subcommand)]
         command: crate::optimize::offline::Command,
     },
+    /// Inspect explicitly configured skills without starting inference.
+    Skills {
+        #[command(subcommand)]
+        command: crate::skills::OfflineCommand,
+    },
     Prune {
         #[command(subcommand)]
         command: crate::history::Prune,
@@ -277,6 +282,7 @@ pub enum ValidatedCommand {
     Backup(crate::backup::Backup),
     History(crate::history::History),
     Optimize(crate::optimize::offline::Command),
+    Skills(crate::skills::OfflineCommand),
     Prune(crate::history::Prune),
     Retention(crate::history::Retention),
     Discover,
@@ -328,6 +334,7 @@ impl Cli {
                     command.validate()?;
                     ValidatedCommand::Optimize(command)
                 }
+                Command::Skills { command } => ValidatedCommand::Skills(command),
                 Command::Prune { command } => ValidatedCommand::Prune(command),
                 Command::Retention { command } => ValidatedCommand::Retention(command),
                 Command::Rebind { workspace_id } => ValidatedCommand::Rebind(workspace_id),

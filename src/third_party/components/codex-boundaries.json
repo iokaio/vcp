@@ -1403,6 +1403,28 @@
       ]
     },
     {
+      "id": "native-skill-discovery",
+      "group": "native-skills",
+      "package": "vcp-extensions",
+      "path": "../../../crates/vcp-extensions/src/discovery.rs",
+      "symbol": "pub fn discover(",
+      "observation": "Explicit registered roots bound descriptor traversal and bytes; no-follow native repository reads never load bodies or resources during discovery. Host and CLI enforce current canonical source policy first.",
+      "effect_class": "read-only",
+      "vcp_boundary": "controller",
+      "effects": ["file-read"]
+    },
+    {
+      "id": "native-skill-activation",
+      "group": "native-skills",
+      "package": "vcp-extensions",
+      "path": "../../../crates/vcp-extensions/src/activation.rs",
+      "symbol": "pub fn activate(",
+      "observation": "Selected descriptor and bounded body/resource identities are validated through no-follow reads before returning attributed data; this module cannot execute skill instructions or grant permissions.",
+      "effect_class": "read-only",
+      "vcp_boundary": "controller",
+      "effects": ["file-read"]
+    },
+    {
       "id": "host-memory-inspection",
       "group": "lifecycle-host",
       "package": "vcp-lifecycle",
@@ -1417,6 +1439,16 @@
     }
   ],
   "groups": [
+    {
+      "id": "native-skills",
+      "packages": ["vcp-extensions"],
+      "capabilities": ["data", "instruction", "filesystem", "clock"],
+      "handling": "retain-with-adapters",
+      "owner_tasks": ["P7-01"],
+      "gate": "Production discovery and activation perform bounded no-follow reads only after host source-policy checks. Skill content grants no effect authority. Qualification examples create temporary fixture files and reports; these are not product executors.",
+      "effect_ceiling": "effectful",
+      "vcp_boundary": "controller"
+    },
     {
       "id": "controller",
       "packages": [

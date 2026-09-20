@@ -584,6 +584,19 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             crate::backup::Backup::Keys { .. } => return Err("key control routing failed".into()),
         }
     }
+    if let ValidatedCommand::Skills(crate::skills::OfflineCommand::List { offset }) = &cli.command {
+        let entry = entry.as_ref().ok_or("Skill inspection requires a registered workspace; open or restore its durable session first.")?;
+        let profile = settings::load(
+            &cli.config
+                .clone()
+                .unwrap_or_else(|| data.join("profile.json")),
+            &workspace,
+        )?;
+        return command_result(
+            cli.format,
+            crate::skills::offline::execute(&profile, entry, &workspace, &pipe, *offset).await?,
+        );
+    }
     if let ValidatedCommand::Optimize(command) = &cli.command {
         let entry = entry.as_ref().ok_or(
             "workspace has no durable session; local optimization needs retained workspace history",

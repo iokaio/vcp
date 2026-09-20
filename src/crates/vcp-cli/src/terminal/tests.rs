@@ -27,6 +27,8 @@ fn commands_require_explicit_question_answers_and_exact_arguments() {
         "/read artifact words",
         "/read artifact 18446744073709551616",
         "/read artifact 0 extra",
+        "/skills activate",
+        "/skills disable id extra",
     ] {
         assert!(parse(invalid).is_err(), "{invalid}");
     }
@@ -41,6 +43,16 @@ fn commands_require_explicit_question_answers_and_exact_arguments() {
         ("/next", Input::Next),
         ("/agents", Input::Agents),
         ("/help", Input::Help),
+        (
+            "/skills",
+            Input::Skills(crate::skills::Command::List { offset: 0 }),
+        ),
+        (
+            "/skills disable workspace::rust::review",
+            Input::Skills(crate::skills::Command::Disable {
+                id: "workspace::rust::review".into(),
+            }),
+        ),
         ("/inspect receipt", Input::Inspect("receipt".into())),
         (
             "/read artifact 0",

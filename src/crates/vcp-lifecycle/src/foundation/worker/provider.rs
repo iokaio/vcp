@@ -121,6 +121,10 @@ impl Context {
         // admission rechecks its own ledger policy later in the same worker.
         let policy = vcp_engine::policy::optional(state, &binding.scope.workspace)?
             .map_or(PolicyRevision::ZERO, |policy| policy.revision);
+        #[cfg(windows)]
+        let skills = self.skill_revision(&binding.scope)?;
+        #[cfg(not(windows))]
+        let skills = Revision::ZERO;
         Ok(Revisions {
             scope: binding.scope.clone(),
             steering: task.steering,
@@ -128,11 +132,11 @@ impl Context {
             authority: workspace.authority,
             deletion: workspace.deletion,
             binding: workspace.binding.revision,
-            // Skills/memory are not enabled in the P2 scaffold. Nonzero versions
-            // need their owning canonical adapters rather than trusted prose.
+            // Skill revisions come from canonical activation state. File and
+            // memory dependencies additionally use their owning send fences.
             instructions: Revision::ZERO,
             tools: Revision::ZERO,
-            skills: Revision::ZERO,
+            skills,
             memory: Revision::ZERO,
             task_state: task.revision,
         })
@@ -176,6 +180,8 @@ impl Context {
         self.validate_ready_context(binding, ready)
     }
     fn validate_ready_context(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
+        #[cfg(windows)]
+        self.validate_skills(binding)?;
         if let Some(decision) = &ready.routing {
             let current_catalog = crate::foundation::routing_state::current_registry(
                 self.engine.store(),
@@ -487,6 +493,7 @@ impl Context {
     }
     #[cfg(windows)]
     pub(super) fn validate_memory_send(&self, binding: &ThreadBinding) -> Result<()> {
+        self.validate_skills(binding)?;
         if let Some(ready) = self
             .provider
             .as_ref()

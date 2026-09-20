@@ -1,6 +1,6 @@
 # 13 — Bundled development skills and MCP
 
-Status: planned. Owns P7-01, P7-02 and P7-03. Skill discovery follows P2-01/P2-03; bundled skills also need verification, and MCP needs the execution broker. Hooks/configuration import remain in segment 19.
+Status: P7-01 in progress; P7-02/03 planned. Owns P7-01, P7-02 and P7-03. Skill discovery follows P2-01/P2-03; bundled skills also need verification, and MCP needs the execution broker. Hooks/configuration import remain in segment 19.
 
 ## Code organization
 

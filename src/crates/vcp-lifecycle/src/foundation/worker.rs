@@ -19,6 +19,8 @@ pub(super) mod recovery;
 mod retention_policy;
 mod routing;
 #[cfg(windows)]
+mod skills;
+#[cfg(windows)]
 mod tools;
 #[cfg(windows)]
 mod verification;
@@ -159,6 +161,8 @@ pub struct Context {
     provider: Option<provider::Provider>,
     routing: Option<routing::Runtime>,
     #[cfg(windows)]
+    skills: Option<skills::Runtime>,
+    #[cfg(windows)]
     coding: HashMap<TaskId, coding::Loop>,
     #[cfg(windows)]
     process_profiles: HashMap<String, vcp_tools::process::Profile>,
@@ -268,6 +272,8 @@ impl Context {
             provider_required,
             provider: None,
             routing: None,
+            #[cfg(windows)]
+            skills: None,
             #[cfg(windows)]
             coding: HashMap::new(),
             #[cfg(windows)]

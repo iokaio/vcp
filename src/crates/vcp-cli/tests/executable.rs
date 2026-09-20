@@ -25,6 +25,23 @@ struct Fixture {
     profile: PathBuf,
 }
 impl Fixture {
+    fn skills(&self) -> PathBuf {
+        let collection = self.workspace.join(".vcp-skills");
+        let package = collection.join("review");
+        fs::create_dir_all(&package).unwrap();
+        let body = b"Use the observed project instructions. Report verification results without granting permissions.";
+        fs::write(package.join("SKILL.md"), body).unwrap();
+        fs::write(package.join("skill.json"),serde_json::to_vec(&json!({
+            "schema_version":1,"id":"review","version":"1.2.0","description":"Review the current JavaScript project.",
+            "source":"VCP original test fixture","license":"Apache-2.0","vcp_version":1,
+            "cues":["package.json"],"environments":["windows"],"required_tools":["vcp_read"],
+            "body":{"path":"SKILL.md","sha256":vcp_protocol::digest_bytes(body)},"resources":[]
+        })).unwrap()).unwrap();
+        let mut profile: Value = serde_json::from_slice(&fs::read(&self.profile).unwrap()).unwrap();
+        profile["skills"] = json!({"version":1,"revision":"0","sources":[{"id":"project","root_id":vcp_domain::RootId::new(),"kind":"workspace","enabled":true,"path":collection}]});
+        fs::write(&self.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+        package
+    }
     fn new(endpoint: &str, mode: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let workspace = temp.path().join("workspace");
@@ -1274,4 +1291,181 @@ async fn executable_preflight_budget_question_and_incomplete_are_truthful() {
             assert_eq!(count.load(Ordering::SeqCst), 0);
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_skills_inspection_is_lazy_without_provider_or_budget_admission() {
+    let server = MockServer::start().await;
+    let fixture = Fixture::new(&server.uri(), "budget");
+    let output = fixture
+        .run(&[
+            "run",
+            "Register this workspace",
+            "--autonomy",
+            "autonomous",
+            "--budget-usd",
+            "0.000001",
+        ])
+        .await;
+    assert_eq!(output.status.code(), Some(5));
+    let package = fixture.skills();
+    // Bodies remain unavailable without preventing descriptor inspection.
+    fs::remove_file(package.join("SKILL.md")).unwrap();
+    fs::remove_file(fixture.data.join("catalog.json")).unwrap();
+    let mut command = fixture.command(&["skills", "list"]);
+    command.env_remove("OPENROUTER_API_KEY");
+    let output = tokio::task::spawn_blocking(move || command.output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let values = records(&output);
+    let data = &values.last().unwrap()["data"];
+    assert_eq!(data["skills"][0]["qualified_id"], "project::review::review");
+    assert_eq!(data["skills"][0]["version"], "1.2.0");
+    assert_eq!(data["skills"][0]["matches_project"], true);
+    assert_eq!(data["reads"]["bodies"], 0);
+    assert_eq!(data["reads"]["resources"], 0);
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_terminal_skill_activation_reports_source_version_reason_and_setup_failures() {
+    use std::sync::Mutex;
+    use std::time::Duration;
+    async fn wait_for(captured: &Arc<Mutex<Vec<u8>>>, needle: &str) {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                if String::from_utf8_lossy(&captured.lock().unwrap()).contains(needle) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "terminal never showed {needle}: {}",
+                String::from_utf8_lossy(&captured.lock().unwrap())
+            )
+        });
+    }
+    let server = MockServer::start().await;
+    let fixture = Fixture::new(&server.uri(), "budget");
+    fixture.skills();
+    let mut child = fixture
+        .terminal_args(&[
+            "run",
+            "Inspect the current project",
+            "--autonomy",
+            "autonomous",
+            "--budget-usd",
+            "0.000001",
+        ])
+        .await;
+    let writer = child.session.writer_sender();
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let output = captured.clone();
+    let reader = tokio::spawn(async move {
+        while let Some(bytes) = child.stdout_rx.recv().await {
+            let mut output = output.lock().unwrap();
+            assert!(output.len() + bytes.len() <= 2 * 1024 * 1024);
+            output.extend(bytes);
+        }
+    });
+    let exercise = async {
+        wait_for(&captured, "/skills").await;
+        writer
+            .send(
+                b"/pause\r/skills activate project::review::review cli-explicit-review-evidence\r"
+                    .to_vec(),
+            )
+            .await
+            .unwrap();
+        wait_for(&captured, "1.2.0").await;
+        let inspected = fixture.run(&["skills", "list"]).await;
+        assert_eq!(
+            inspected.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&inspected.stderr)
+        );
+        let values = records(&inspected);
+        let data = &values.last().unwrap()["data"];
+        assert_eq!(data["reads"]["bodies"], 0);
+        assert!(data["configuration"]
+            .as_str()
+            .unwrap()
+            .contains("current canonical owner"));
+        writer
+            .send(b"/skills activate missing-skill\r".to_vec())
+            .await
+            .unwrap();
+        wait_for(&captured, "missing skill").await;
+        writer
+            .send(b"/skills disable project::review::review\r".to_vec())
+            .await
+            .unwrap();
+        wait_for(&captured, "disabled").await;
+        writer.send(b"/exit\r".to_vec()).await.unwrap();
+        let code = (&mut child.exit_rx).await.unwrap();
+        assert!(
+            matches!(code, 5 | 8),
+            "paused or budget-exhausted exit required: {code}"
+        );
+    };
+    if tokio::time::timeout(Duration::from_secs(75), exercise)
+        .await
+        .is_err()
+    {
+        child.session.terminate();
+        panic!("terminal skill controls timed out");
+    }
+    reader.await.unwrap();
+    let output = String::from_utf8_lossy(&captured.lock().unwrap()).into_owned();
+    assert!(output.contains("cli-explicit-review-evidence") && output.contains("project"));
+    let directory = fs::read_dir(fixture.data.join("workspaces"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.join("workspace.json").is_file())
+        .unwrap();
+    let entry: vcp_cli::settings::WorkspaceEntry =
+        serde_json::from_slice(&fs::read(directory.join("workspace.json")).unwrap()).unwrap();
+    let store = vcp_store::Store::open(
+        &entry.config.canonical_root,
+        entry.config.backend,
+        &[fixture.workspace.canonicalize().unwrap()],
+    )
+    .await
+    .unwrap();
+    let state = store
+        .state()
+        .records
+        .values()
+        .find(|record| {
+            record.collection == vcp_store::contract::Collection::Projection
+                && record.value["document_type"] == "vcp_task_skills_v1"
+                && record.value["scope"]["task"] == entry.config.root_task.as_str()
+        })
+        .unwrap();
+    assert!(state.value["active"].as_object().unwrap().is_empty());
+    assert!(state.value["disabled"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "project::review::review"));
+    assert_eq!(
+        state.value["revision"], "2",
+        "only successful activation and disable persist revisions"
+    );
+    store.close().await.unwrap();
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "skill controls dispatched paid inference"
+    );
 }
