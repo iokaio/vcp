@@ -39,7 +39,10 @@ pub struct Policy {
 }
 impl Policy {
     fn validate(&self) -> Result<()> {
-        if self.document_type != POLICY || !(1..=365).contains(&self.notice_repeat_days) {
+        if self.schema_version != 1
+            || self.document_type != POLICY
+            || !(1..=365).contains(&self.notice_repeat_days)
+        {
             return Err(Error::Invalid("retention policy version/cadence".into()));
         }
         if let Some(mode) = &self.automatic {
