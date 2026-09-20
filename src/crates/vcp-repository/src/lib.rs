@@ -9,6 +9,8 @@ pub mod instructions;
 pub mod mutation;
 pub mod observation;
 pub mod path;
+#[cfg(windows)]
+pub mod restore;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use vcp_domain::{ByteCount, Revision, RootId, WorkspaceId};

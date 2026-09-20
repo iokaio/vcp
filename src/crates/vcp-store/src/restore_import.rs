@@ -19,6 +19,7 @@ pub struct Imported {
     workspace: WorkspaceId,
     state_digest: String,
     source_manifest: String,
+    checkpoint: Option<crate::snapshot_inputs::Checkpoint>,
     backend: BackendKind,
     forbidden: Vec<PathBuf>,
     _directory: Directory,
@@ -35,6 +36,10 @@ impl Imported {
     }
     pub fn source_manifest(&self) -> &str {
         &self.source_manifest
+    }
+    /// The native checkpoint selected by the authenticated archive inventory.
+    pub fn checkpoint(&self) -> Option<&crate::snapshot_inputs::Checkpoint> {
+        self.checkpoint.as_ref()
     }
     pub fn backend(&self) -> BackendKind {
         self.backend
@@ -136,6 +141,7 @@ pub(crate) async fn prepare(
         workspace: archive.workspace().clone(),
         state_digest: digest_bytes(&canonical_bytes(&expected)?),
         source_manifest: digest_bytes(&canonical_bytes(&validated.proof.restored().manifest)?),
+        checkpoint: archive.inputs().checkpoint.clone(),
         backend,
         forbidden: forbidden.to_vec(),
         _directory: directory,

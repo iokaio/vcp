@@ -87,7 +87,7 @@ fn dispose(file: &File) -> Result<()> {
     }
     Ok(())
 }
-fn rename(file: &File, destination: &Path) -> Result<()> {
+pub(crate) fn rename(file: &File, destination: &Path) -> Result<()> {
     let name: Vec<u16> = destination.as_os_str().encode_wide().collect();
     let offset = std::mem::offset_of!(FILE_RENAME_INFO, FileName);
     let length = (offset + (name.len() + 1) * 2).max(std::mem::size_of::<FILE_RENAME_INFO>());
