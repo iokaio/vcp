@@ -121,6 +121,9 @@ pub fn query(
         let id = version.id.clone();
         let memory_seq = version.memory_seq;
         let selected = current.as_ref() == Some(&id);
+        // Retention may hide content, but cannot make an unauthorized origin's
+        // version/claim identities observable through a pruned placeholder.
+        access::version_scope(store.state(), access, &version)?;
         if removed(store.state(), &access.workspace, &version)? {
             rows.push(VersionView {
                 id,
@@ -133,7 +136,6 @@ pub fn query(
             });
             continue;
         }
-        access::version_scope(store.state(), access, &version)?;
         let task: Task = store
             .state()
             .record(

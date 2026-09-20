@@ -135,6 +135,10 @@
     {
       "path": "src/third_party/patches/codex/0026-p5-ingestion-workspace.patch",
       "sha256": "b477d4daeff667b6c24400f6b2ccad386da4d8b92b1a811723aa7d3e9d4d4bd4"
+    },
+    {
+      "path": "src/third_party/patches/codex/0027-p5-lexical-workspace.patch",
+      "sha256": "e66ac42b1d48c533ff4fd04dc4c48360178571ec0891b88b3176a8e85ad67485"
     }
   ],
   "licenses": [

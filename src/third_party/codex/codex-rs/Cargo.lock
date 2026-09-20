@@ -17612,6 +17612,7 @@ dependencies = [
  "munarium-core",
  "serde",
  "serde_json",
+ "tantivy",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

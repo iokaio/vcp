@@ -7,11 +7,14 @@ mod fix_proof;
 pub mod gates;
 pub mod history;
 pub mod ingest;
+pub mod lexical;
 pub mod preferences;
 pub mod projections;
 pub mod proof;
 pub mod repository;
 pub mod runner;
+pub mod search_record;
+pub mod tokenizer;
 pub use vcp_domain::memory;
 
 #[derive(Debug, thiserror::Error)]

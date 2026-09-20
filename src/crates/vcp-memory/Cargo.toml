@@ -8,6 +8,7 @@ publish = false
 workspace = "../../third_party/codex/codex-rs"
 
 [dependencies]
+tantivy = { version = "0.22", default-features = false, features = ["mmap"] }
 vcp-models = { path = "../vcp-models" }
 munarium-core = { path = "../../third_party/munarium/server/src/munarium-core" }
 vcp-domain = { path = "../vcp-domain" }
