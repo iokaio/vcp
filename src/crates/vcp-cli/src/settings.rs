@@ -276,10 +276,12 @@ impl Profile {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceEntry {
     pub version: u32,
+    #[serde(default)]
+    pub rebind_pending: bool,
     pub config: vcp_lifecycle::foundation::Config,
     #[serde(default)]
     pub identity: Option<crate::binding::WorkspaceIdentity>,
@@ -354,7 +356,7 @@ pub fn workspace_directory(data: &Path, workspace: &Path) -> Result<Option<PathB
     Ok(found)
 }
 
-fn registry_root(data: &Path) -> Result<vcp_repository::Root, String> {
+pub(crate) fn registry_root(data: &Path) -> Result<vcp_repository::Root, String> {
     vcp_repository::Root::open(
         vcp_repository::RootIdentity {
             workspace: vcp_domain::WorkspaceId::new(),

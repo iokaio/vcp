@@ -274,6 +274,28 @@ async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, Strin
 }
 
 pub async fn run(cli: Cli) -> Result<u8, String> {
+    if let Some(crate::args::Command::Doctor(request)) = &cli.command {
+        let data = cli
+            .data_dir
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(settings::default_data)?;
+        return command_result(
+            cli.format,
+            crate::doctor::execute(request, &data, &cli.workspace)?,
+        );
+    }
+    if let Some(crate::args::Command::Restore(request)) = &cli.command {
+        let data = cli
+            .data_dir
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(settings::default_data)?;
+        return command_result(
+            cli.format,
+            crate::restore::execute(request, &data, &cli.workspace).await?,
+        );
+    }
     let workspace = cli
         .workspace
         .canonicalize()
@@ -286,7 +308,15 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         &workspace,
     )?;
     let path_key = digest_bytes(workspace.to_string_lossy().to_lowercase().as_bytes());
-    let existing_directory = if matches!(cli.command, Some(crate::args::Command::Rebind { .. })) {
+    let existing_directory = if matches!(
+        cli.command,
+        Some(
+            crate::args::Command::Rebind { .. }
+                | crate::args::Command::Workspace {
+                    command: crate::args::WorkspaceCommand::Rebind { .. }
+                }
+        )
+    ) {
         None
     } else {
         settings::workspace_directory(&data, &workspace)?
@@ -342,12 +372,37 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         .map(parse_usd)
         .transpose()?;
     let cli = cli.validate(cap)?;
+    if let ValidatedCommand::WorkspaceTrust {
+        workspace: id,
+        expected,
+    } = &cli.command
+    {
+        return command_result(
+            cli.format,
+            crate::workspace_trust::execute(&data, &workspace, id, *expected).await?,
+        );
+    }
     if let ValidatedCommand::Rebind(id) = &cli.command {
         return command_result(
             cli.format,
             crate::rebind::rebind(&data, &workspace, id).await?,
         );
     }
+    if let ValidatedCommand::Storage(command) = &cli.command {
+        return command_result(
+            cli.format,
+            crate::storage::execute(command, &data, &directory, &workspace).await?,
+        );
+    }
+    if needs_profile && !directory.exists() {
+        std::fs::create_dir_all(&directory)
+            .map_err(|_| "workspace selection directory unavailable")?;
+    }
+    // Lease the selection before reading it, through canonical owner shutdown.
+    let _selection_lease = directory
+        .exists()
+        .then(|| crate::selection::Lease::shared(&data, &directory))
+        .transpose()?;
     let entry: Option<WorkspaceEntry> = if entry_path.exists() {
         Some(
             serde_json::from_slice(&settings::read_workspace_descriptor(&data, &entry_path)?)
@@ -357,10 +412,14 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         None
     };
     if let Some(entry) = &entry {
-        if entry.version != 1
-            || Path::new(&entry.config.binding.root) != workspace
-            || entry.config.canonical_root != directory.join("canonical")
-        {
+        if entry.rebind_pending {
+            return Err(format!(
+                "restored history is selected but rebind is pending; run vcp workspace rebind {}",
+                entry.config.workspace
+            ));
+        }
+        crate::selection::validate_location(&directory, entry)?;
+        if Path::new(&entry.config.binding.root) != workspace {
             return Err("workspace descriptor binding mismatch".into());
         }
         let root = vcp_repository::Root::open(
@@ -378,6 +437,152 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             "legacy workspace binding is unverified; run vcp rebind {} to reconcile the current root", entry.config.workspace
         ))?;
         crate::binding::verify(&root, identity)?;
+    }
+    if let ValidatedCommand::Backup(crate::backup::Backup::Keys {
+        command,
+        workspace_id,
+    }) = &cli.command
+    {
+        return command_result(
+            cli.format,
+            crate::backup::keys(
+                command,
+                &data,
+                &workspace,
+                entry.as_ref(),
+                workspace_id.as_deref(),
+            )?,
+        );
+    }
+    if let ValidatedCommand::Backup(command) = &cli.command {
+        let entry = entry.as_ref().ok_or("workspace has no durable session")?;
+        match command {
+            crate::backup::Backup::Create {
+                key,
+                git,
+                operation,
+                retry,
+            } => {
+                let operation = operation
+                    .as_deref()
+                    .map(CommandId::parse)
+                    .transpose()
+                    .map_err(|_| "invalid backup operation")?
+                    .unwrap_or_default();
+                let request = crate::backup::CreateRequest {
+                    key: key.clone(),
+                    git: git.clone(),
+                    operation: operation.clone(),
+                    retry: *retry,
+                };
+                // A live owner accepts bounded preparation immediately. The
+                // standalone maintenance owner waits and closes without models.
+                let opened = vcp_lifecycle::foundation::CanonicalHost::open(entry.config.clone());
+                match opened {
+                    Ok((host, owner)) => {
+                        let started = crate::backup::create_on_host(&host, &data, request).await;
+                        let result = if let Err(error) = started {
+                            Err(error)
+                        } else {
+                            loop {
+                                let progress =
+                                    host.backup_progress()?.ok_or("backup progress missing")?;
+                                if progress.done() {
+                                    break if let Some(error) = progress.error {
+                                        Err(error)
+                                    } else {
+                                        serde_json::to_value(progress).map_err(|e| e.to_string())
+                                    };
+                                }
+                                tokio::select! {
+                                    _=tokio::time::sleep(std::time::Duration::from_millis(100))=>{},
+                                    _=tokio::signal::ctrl_c()=>{let _=host.cancel_backup(&operation);break Err(format!("backup cancellation requested; inspect operation {operation}"));}
+                                }
+                            }
+                        };
+                        owner.close().await?;
+                        return command_result(cli.format, result?);
+                    }
+                    Err(error) if error.contains("canonical root already has an owner") => {
+                        return command_result(
+                            cli.format,
+                            control::request(
+                                &pipe,
+                                &control::Request::BackupCreate {
+                                    workspace: entry.config.workspace.clone(),
+                                    data: data.clone(),
+                                    request,
+                                },
+                            )
+                            .await?,
+                        );
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            crate::backup::Backup::Cancel { operation } => {
+                let id = CommandId::parse(operation).map_err(|_| "invalid backup operation")?;
+                let result =
+                    match vcp_lifecycle::foundation::CanonicalHost::open(entry.config.clone()) {
+                        Ok((host, owner)) => {
+                            let result = crate::backup::cancel_on_host(&host, &data, id).await;
+                            owner.close().await?;
+                            result?
+                        }
+                        Err(error) if error.contains("canonical root already has an owner") => {
+                            control::request(
+                                &pipe,
+                                &control::Request::BackupCancel {
+                                    workspace: entry.config.workspace.clone(),
+                                    data: data.clone(),
+                                    id,
+                                },
+                            )
+                            .await?
+                        }
+                        Err(error) => return Err(error),
+                    };
+                return command_result(cli.format, result);
+            }
+            crate::backup::Backup::Configure { .. } => {
+                return command_result(
+                    cli.format,
+                    crate::backup::configure(command, &data, &workspace, entry)?,
+                )
+            }
+            crate::backup::Backup::Status => {
+                let mut value=crate::backup::configuration_status(&data,&workspace,entry)
+                    .unwrap_or_else(|error|serde_json::json!({"kind":"backup_status","configuration_unavailable":error}));
+                value["canonical"] = match Store::open(
+                    &entry.config.canonical_root,
+                    entry.config.backend,
+                    std::slice::from_ref(&workspace),
+                )
+                .await
+                {
+                    Ok(store) => {
+                        let value = vcp_lifecycle::foundation::backup::status(
+                            store.state(),
+                            &entry.config.workspace,
+                        )?;
+                        store.close().await.map_err(|e| e.to_string())?;
+                        value
+                    }
+                    Err(vcp_store::Error::Conflict("canonical root already has an owner")) => {
+                        control::request(
+                            &pipe,
+                            &control::Request::BackupStatus {
+                                workspace: entry.config.workspace.clone(),
+                            },
+                        )
+                        .await?
+                    }
+                    Err(error) => return Err(error.to_string()),
+                };
+                return command_result(cli.format, value);
+            }
+            crate::backup::Backup::Keys { .. } => return Err("key control routing failed".into()),
+        }
     }
     let history_request = match &cli.command {
         ValidatedCommand::History(command) => Some(

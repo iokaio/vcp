@@ -3,10 +3,15 @@
 #[cfg(windows)]
 pub mod app;
 pub mod args;
+pub mod backup;
+#[cfg(windows)]
+pub mod backup_triggers;
 pub mod binding;
 pub mod continuation;
 #[cfg(windows)]
 pub mod control;
+pub mod disk_space;
+pub mod doctor;
 pub mod exit_status;
 pub mod history;
 pub mod input;
@@ -17,6 +22,12 @@ pub mod questions;
 #[cfg(windows)]
 pub mod rebind;
 #[cfg(windows)]
+pub mod restore;
+pub mod selection;
+#[cfg(windows)]
 pub mod session;
 pub mod settings;
+pub mod storage;
 pub mod terminal;
+#[cfg(windows)]
+pub mod workspace_trust;

@@ -161,6 +161,7 @@ pub async fn run(
     scope: &Scope,
     model: &str,
     seconds: u32,
+    backup_triggers: &mut crate::backup_triggers::Triggers,
 ) -> Result<(), String> {
     let mut input = input(std::io::BufReader::new(std::io::stdin())).map_err(|e| e.to_string())?;
     let renderer = Renderer::new(std::io::stderr()).map_err(|e| e.to_string())?;
@@ -281,6 +282,9 @@ pub async fn run(
                 expired=true; stop(host,scope,TaskState::Paused)?;
                 notice="Execution deadline reached; paused for inspection. /exit preserves the task.".into();
             }
+        }
+        if let Some(message) = backup_triggers.observe(host, current(host, scope)?.state) {
+            notice = message;
         }
         let snapshot = view(&host.snapshot()?, scope, model)?;
         // Keep control notices, questions and money separate from potentially

@@ -281,10 +281,7 @@ impl Component {
         // Ancestors and concurrent directory replacement remain the trusted
         // caller's ownership boundary; never follow a redirected immediate root.
         private_parent(path)?;
-        let bytes = canonical_bytes(&self.document)?;
-        if bytes.len() as u64 > MAX_FILE_BYTES.min(available_bytes) {
-            return Err(Error::Conflict("vector file limit"));
-        }
+        let bytes = self.bounded_bytes(available_bytes, cancelled)?;
         embedding::check(cancelled)?;
         let mut file = OpenOptions::new()
             .write(true)
@@ -295,6 +292,28 @@ impl Component {
         file.sync_all().map_err(native)?;
         embedding::check(cancelled)?;
         Ok(digest_bytes(&bytes))
+    }
+    /// Write into a private, caller-owned handle. The caller retains ownership
+    /// and synchronizes the handle before publishing the returned digest.
+    pub fn write_bounded(
+        &self,
+        sink: &mut impl Write,
+        available_bytes: u64,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<String> {
+        let bytes = self.bounded_bytes(available_bytes, cancelled)?;
+        sink.write_all(&bytes).map_err(native)?;
+        embedding::check(cancelled)?;
+        Ok(digest_bytes(&bytes))
+    }
+    fn bounded_bytes(&self, available_bytes: u64, cancelled: &dyn Fn() -> bool) -> Result<Vec<u8>> {
+        embedding::check(cancelled)?;
+        let bytes = canonical_bytes(&self.document)?;
+        if bytes.len() as u64 > MAX_FILE_BYTES.min(available_bytes) {
+            return Err(Error::Conflict("vector file limit"));
+        }
+        embedding::check(cancelled)?;
+        Ok(bytes)
     }
     /// The digest must come from the trusted generation descriptor, not this file.
     pub fn open(

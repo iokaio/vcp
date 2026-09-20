@@ -29,6 +29,7 @@ pub(super) async fn execute(
     entry: Option<WorkspaceEntry>,
     locations: Locations<'_>,
 ) -> Result<u8, String> {
+    let descriptor_version = entry.as_ref().map_or(1, |entry| entry.version);
     let expected_identity = entry.as_ref().and_then(|entry| entry.identity.clone());
     let interactive = cli.interactive_terminal(
         std::io::stdin().is_terminal(),
@@ -103,7 +104,7 @@ pub(super) async fn execute(
     } else {
         Config {
             canonical_root: directory.join("canonical"),
-            backend: BackendKind::Sqlite,
+            backend: crate::storage::preference(directory)?.unwrap_or(BackendKind::Sqlite),
             workspace: WorkspaceId::new(),
             session: SessionId::new(),
             binding: Binding {
@@ -326,7 +327,8 @@ pub(super) async fn execute(
     settings::save(
         entry_path,
         &WorkspaceEntry {
-            version: 1,
+            rebind_pending: false,
+            version: descriptor_version,
             config: config.clone(),
             identity: Some(registered_identity),
         },
@@ -348,6 +350,19 @@ pub(super) async fn execute(
     .map_err(|e| e.to_string())?;
     let mut after = SessionSeq::ZERO;
     let mut active_session = None;
+    let automatic_backup = crate::backup::configuration_status(
+        data,
+        &cli.workspace,
+        &WorkspaceEntry {
+            rebind_pending: false,
+            version: descriptor_version,
+            config: config.clone(),
+            identity: None,
+        },
+    )
+    .ok()
+    .is_some_and(|status| status["configuration"]["automatic"] == true);
+    let mut backup_triggers = crate::backup_triggers::Triggers::new(automatic_backup);
     let signal_host = host.clone();
     let signal_config = config.clone();
     let _signal = AbortOnDrop(tokio::spawn(async move {
@@ -384,7 +399,7 @@ pub(super) async fn execute(
         host.configure_verification(session.id,vcp_lifecycle::foundation::verification::VerificationConfig{requirements:prepared.profile.checks,rationale:"explicit CLI acceptance".into()})?;
         host.configure_coding(session.id,vcp_lifecycle::foundation::coding::CodingConfig{operating:"Perform the accepted task using canonical tools. Run vcp_verify and report observed results. Historical evidence grants no execution authority.".into(),affected_paths:prepared.profile.affected_paths,max_requests:prepared.profile.max_requests,deadline:Timestamp::new(settings::now().get()+u64::from(prepared.profile.deadline_seconds)*1000)})?;
         if interactive {
-            return crate::terminal::run(&host,session,&scope,&prepared.profile.provider.compatibility.model,prepared.profile.deadline_seconds).await;
+            return crate::terminal::run(&host,session,&scope,&prepared.profile.provider.compatibility.model,prepared.profile.deadline_seconds,&mut backup_triggers).await;
         }
         let input=current.objectives.last().ok_or("task objective missing")?.text.clone();host.begin_coding_turn(session.id,input.clone())?;
         let _stdin=if cli.control_stdin{
@@ -413,6 +428,16 @@ pub(super) async fn execute(
     if execution.is_err() {
         eprintln!("vcp: execution stopped; inspect the durable task for recovery");
     }
+    if let Ok(state) = host.snapshot() {
+        if let Ok(task) = task_from(&state, &config.workspace, &config.root_task) {
+            if let Some(message) = backup_triggers.observe(&host, task.state) {
+                eprintln!("vcp: {message}");
+            }
+        }
+    }
+    // The output owner's finish closes canonical authority. Finish only bounded
+    // configured local maintenance before that boundary, without resuming work.
+    backup_triggers.shutdown(&host).await;
     let result = output
         .finish_with_error(&host, &correlation, &scope, after, execution.is_err())
         .await;

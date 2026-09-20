@@ -16,6 +16,9 @@ use vcp_lifecycle::{
 };
 #[path = "support/authority_stream.rs"]
 mod authority_stream;
+#[cfg(windows)]
+#[path = "support/backup_checkpoint.rs"]
+mod backup_checkpoint;
 #[path = "support/cli_control.rs"]
 mod cli_control;
 #[cfg(windows)]
@@ -49,6 +52,13 @@ mod memory_vectors;
 #[cfg(windows)]
 #[path = "support/parent_instructions.rs"]
 mod parent_instructions;
+#[path = "support/portable_accounting.rs"]
+mod portable_accounting;
+#[path = "support/portable_operator_fixture.rs"]
+mod portable_operator_fixture;
+#[cfg(windows)]
+#[path = "support/portable_vectors.rs"]
+mod portable_vectors;
 #[cfg(windows)]
 #[path = "support/process_broker.rs"]
 mod process_broker;
@@ -56,6 +66,9 @@ mod process_broker;
 mod provider_retries;
 #[path = "support/response_boundary.rs"]
 mod response_boundary;
+#[cfg(windows)]
+#[path = "support/restore_search.rs"]
+mod restore_search;
 #[path = "support/selected_reopen.rs"]
 mod selected_reopen;
 #[cfg(windows)]

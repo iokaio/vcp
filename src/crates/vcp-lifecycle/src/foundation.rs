@@ -2,7 +2,16 @@
 //! Canonical persistence adapter for the retained controller. The worker only
 //! serializes storage operations; scheduling and interruption remain in Codex.
 mod authority;
+pub mod backup;
+#[cfg(windows)]
+pub mod backup_checkpoint;
+pub mod backup_manager;
+pub mod backup_run;
 pub mod history_retention;
+#[cfg(windows)]
+pub mod restore_search;
+#[cfg(windows)]
+pub mod restore_workspace;
 mod scheduler;
 use scheduler::{EffectLease, Scheduler};
 #[cfg(windows)]
@@ -82,6 +91,7 @@ pub struct CanonicalHost {
     worker: worker::Worker,
     bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
     scheduler: Arc<Scheduler>,
+    backup: Arc<Mutex<Option<backup_manager::Loaded>>>,
 }
 pub struct CanonicalOwner {
     runtime: Option<OwnerLease>,
@@ -235,6 +245,7 @@ impl CanonicalHost {
                 worker,
                 bindings: Arc::new(Mutex::new(HashMap::new())),
                 scheduler: Arc::new(Scheduler::default()),
+                backup: Arc::new(Mutex::new(None)),
             },
             owner,
         ))
