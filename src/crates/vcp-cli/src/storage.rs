@@ -211,8 +211,32 @@ pub async fn execute(
                 .map_err(|e| e.to_string())?
                 .len();
             if *preview {
+                let retained_bytes = source
+                    .state()
+                    .records
+                    .values()
+                    .filter(|row| row.collection == vcp_store::contract::Collection::Artifact)
+                    .try_fold(0u64, |total, row| -> Result<u64> {
+                        let descriptor: vcp_domain::artifact::ArtifactDescriptor =
+                            row.decode().map_err(|e| e.to_string())?;
+                        total
+                            .checked_add(
+                                if descriptor.state == vcp_domain::artifact::CaptureState::Purged {
+                                    0
+                                } else {
+                                    descriptor.length.get()
+                                },
+                            )
+                            .ok_or("migration byte estimate overflow".into())
+                    })?;
+                let capacity = crate::disk_space::observe(
+                    directory,
+                    (bytes as u64)
+                        .checked_add(retained_bytes)
+                        .ok_or("migration estimate overflow")?,
+                )?;
                 let value = serde_json::json!({"preview":true,"operation":id,"expected_descriptor":digest,"source_root":entry.config.canonical_root,"target_root":target,"backend":backend,
-                    "canonical_watermark":source.state().watermark,"canonical_serialized_bytes":bytes,"staging_space":"canonical bytes plus retained artifact payloads and backend overhead; free-space check occurs during materialization",
+                    "canonical_watermark":source.state().watermark,"canonical_serialized_bytes":bytes,"staging_space":capacity,
                     "index_compatibility":"rebuild from retained canonical sources; derived files are not silently trusted","retained_recovery_root":entry.config.canonical_root,"workspace_collision":false,"missing_secrets":[]});
                 source.close().await.map_err(|e| e.to_string())?;
                 return Ok(value);
@@ -282,6 +306,7 @@ pub async fn execute(
             config.backend = backend.kind();
             let next = WorkspaceEntry {
                 version: 2,
+                rebind_pending: false,
                 config,
                 identity: entry.identity,
             };

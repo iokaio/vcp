@@ -82,6 +82,7 @@ async fn conversion_reopens_exact_state_and_reconciles_lost_ack_without_changing
         let state = store.state().clone();
         store.close().await.unwrap();
         let entry = WorkspaceEntry {
+            rebind_pending: false,
             version: 1,
             config: cfg,
             identity: None,

@@ -327,6 +327,7 @@ pub(super) async fn execute(
     settings::save(
         entry_path,
         &WorkspaceEntry {
+            rebind_pending: false,
             version: descriptor_version,
             config: config.clone(),
             identity: Some(registered_identity),
@@ -353,6 +354,7 @@ pub(super) async fn execute(
         data,
         &cli.workspace,
         &WorkspaceEntry {
+            rebind_pending: false,
             version: descriptor_version,
             config: config.clone(),
             identity: None,

@@ -274,6 +274,28 @@ async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, Strin
 }
 
 pub async fn run(cli: Cli) -> Result<u8, String> {
+    if let Some(crate::args::Command::Doctor(request)) = &cli.command {
+        let data = cli
+            .data_dir
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(settings::default_data)?;
+        return command_result(
+            cli.format,
+            crate::doctor::execute(request, &data, &cli.workspace)?,
+        );
+    }
+    if let Some(crate::args::Command::Restore(request)) = &cli.command {
+        let data = cli
+            .data_dir
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(settings::default_data)?;
+        return command_result(
+            cli.format,
+            crate::restore::execute(request, &data, &cli.workspace).await?,
+        );
+    }
     let workspace = cli
         .workspace
         .canonicalize()
@@ -350,6 +372,16 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         .map(parse_usd)
         .transpose()?;
     let cli = cli.validate(cap)?;
+    if let ValidatedCommand::WorkspaceTrust {
+        workspace: id,
+        expected,
+    } = &cli.command
+    {
+        return command_result(
+            cli.format,
+            crate::workspace_trust::execute(&data, &workspace, id, *expected).await?,
+        );
+    }
     if let ValidatedCommand::Rebind(id) = &cli.command {
         return command_result(
             cli.format,
@@ -380,6 +412,12 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         None
     };
     if let Some(entry) = &entry {
+        if entry.rebind_pending {
+            return Err(format!(
+                "restored history is selected but rebind is pending; run vcp workspace rebind {}",
+                entry.config.workspace
+            ));
+        }
         crate::selection::validate_location(&directory, entry)?;
         if Path::new(&entry.config.binding.root) != workspace {
             return Err("workspace descriptor binding mismatch".into());
@@ -419,6 +457,83 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
     if let ValidatedCommand::Backup(command) = &cli.command {
         let entry = entry.as_ref().ok_or("workspace has no durable session")?;
         match command {
+            crate::backup::Backup::Create {
+                key,
+                git,
+                operation,
+                retry,
+            } => {
+                let operation = operation
+                    .as_deref()
+                    .map(CommandId::parse)
+                    .transpose()
+                    .map_err(|_| "invalid backup operation")?
+                    .unwrap_or_default();
+                let request = crate::backup::CreateRequest {
+                    key: key.clone(),
+                    git: git.clone(),
+                    operation: operation.clone(),
+                    retry: *retry,
+                };
+                // A live owner accepts bounded preparation immediately. The
+                // standalone maintenance owner waits and closes without models.
+                let opened = vcp_lifecycle::foundation::CanonicalHost::open(entry.config.clone());
+                match opened {
+                    Ok((host, owner)) => {
+                        let started = crate::backup::create_on_host(&host, &data, request).await;
+                        let result = if let Err(error) = started {
+                            Err(error)
+                        } else {
+                            loop {
+                                let progress =
+                                    host.backup_progress()?.ok_or("backup progress missing")?;
+                                if progress.done() {
+                                    break if let Some(error) = progress.error {
+                                        Err(error)
+                                    } else {
+                                        serde_json::to_value(progress).map_err(|e| e.to_string())
+                                    };
+                                }
+                                tokio::select! {
+                                    _=tokio::time::sleep(std::time::Duration::from_millis(100))=>{},
+                                    _=tokio::signal::ctrl_c()=>{let _=host.cancel_backup(&operation);break Err(format!("backup cancellation requested; inspect operation {operation}"));}
+                                }
+                            }
+                        };
+                        owner.close().await?;
+                        return command_result(cli.format, result?);
+                    }
+                    Err(error) if error.contains("canonical root already has an owner") => {
+                        return command_result(
+                            cli.format,
+                            control::request(
+                                &pipe,
+                                &control::Request::BackupCreate {
+                                    workspace: entry.config.workspace.clone(),
+                                    data: data.clone(),
+                                    request,
+                                },
+                            )
+                            .await?,
+                        );
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            crate::backup::Backup::Cancel { operation } => {
+                let id = CommandId::parse(operation).map_err(|_| "invalid backup operation")?;
+                return command_result(
+                    cli.format,
+                    control::request(
+                        &pipe,
+                        &control::Request::BackupCancel {
+                            workspace: entry.config.workspace.clone(),
+                            id,
+                        },
+                    )
+                    .await?,
+                );
+            }
             crate::backup::Backup::Configure { .. } => {
                 return command_result(
                     cli.format,

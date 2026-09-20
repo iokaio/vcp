@@ -113,6 +113,9 @@ pub async fn rebind(
     if entry.config.workspace != *workspace_id {
         return Err("workspace identity changed during selection".into());
     }
+    if entry.rebind_pending && entry.identity.as_ref() != Some(&identity) {
+        return Err("materialized restore destination changed before rebind".into());
+    }
     let canonical = settings::local_path(&entry.config.canonical_root, destination.path())?;
     if canonical != entry.config.canonical_root || !canonical.join("format.json").is_file() {
         return Err(
@@ -139,6 +142,9 @@ pub async fn rebind(
         .and_then(|row| row.decode())
         .map_err(|e| e.to_string())?;
     let mut next_binding = current.binding.clone();
+    if entry.rebind_pending {
+        next_binding.host = entry.config.binding.host.clone();
+    }
     next_binding.root = destination.path().to_string_lossy().into_owned();
     next_binding.repository = digest_bytes(
         identity
@@ -189,11 +195,13 @@ pub async fn rebind(
     // repairs the descriptor without repeating the authority-changing command.
     binding::verify(&destination, &identity)?;
     entry.config.binding = bound.binding.clone();
+    entry.rebind_pending = false;
     entry.identity = Some(identity);
     settings::save(&entry_path, &entry)?;
     let result = json!({
         "workspace":workspace_id, "root":bound.binding.root,
         "binding_revision":bound.binding.revision, "authority":bound.authority,
+        "workspace_revision":bound.revision,
         "trust":bound.trust, "rebound":changed, "history_preserved":true,
         "tasks_resumed":false, "descriptor":entry_path,
         "next_action":"inspect unfinished tasks and reconcile inputs/effects before explicit resume"
@@ -288,6 +296,7 @@ mod tests {
             settings::save(
                 &entry_path,
                 &WorkspaceEntry {
+                    rebind_pending: false,
                     version: 1,
                     config: config.clone(),
                     identity: None,

@@ -38,6 +38,9 @@ pub struct Cli {
 }
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    Doctor(crate::doctor::Doctor),
+    #[cfg(windows)]
+    Restore(crate::restore::Restore),
     Workspace {
         #[command(subcommand)]
         command: WorkspaceCommand,
@@ -100,6 +103,12 @@ pub enum Command {
 }
 #[derive(Debug, Subcommand)]
 pub enum WorkspaceCommand {
+    Trust {
+        #[arg(value_parser=workspace_id)]
+        workspace_id: WorkspaceId,
+        #[arg(long)]
+        expected_revision: u64,
+    },
     Rebind {
         #[arg(value_parser=workspace_id)]
         workspace_id: WorkspaceId,
@@ -252,6 +261,13 @@ impl ValidatedCli {
 }
 
 pub enum ValidatedCommand {
+    WorkspaceTrust {
+        workspace: WorkspaceId,
+        expected: vcp_domain::Revision,
+    },
+    Doctor(crate::doctor::Doctor),
+    #[cfg(windows)]
+    Restore(crate::restore::Restore),
     Storage(crate::storage::Storage),
     Backup(crate::backup::Backup),
     History(crate::history::History),
@@ -283,6 +299,19 @@ impl Cli {
         let command = match self.command {
             None => ValidatedCommand::Discover,
             Some(command) => match command {
+                Command::Doctor(request) => ValidatedCommand::Doctor(request),
+                #[cfg(windows)]
+                Command::Restore(request) => ValidatedCommand::Restore(request),
+                Command::Workspace {
+                    command:
+                        WorkspaceCommand::Trust {
+                            workspace_id,
+                            expected_revision,
+                        },
+                } => ValidatedCommand::WorkspaceTrust {
+                    workspace: workspace_id,
+                    expected: vcp_domain::Revision::new(expected_revision),
+                },
                 Command::Workspace {
                     command: WorkspaceCommand::Rebind { workspace_id },
                 } => ValidatedCommand::Rebind(workspace_id),

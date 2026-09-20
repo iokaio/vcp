@@ -1,9 +1,9 @@
 # P3-06 portability CLI
 
-This increment implements independent key enrollment, public configuration and
-status, and explicit local storage selection. Snapshot creation and restored
-workspace activation remain separate integration steps until their native
-qualification is complete.
+The portability controls keep independent key enrollment, local publication,
+cloud transfer and restored execution authority distinct. Native qualification
+and the external two-machine/cloud acceptance are recorded separately; a local
+success never proves cloud transfer.
 
 `vcp backup keys --workspace-id ID create --recovery-dir DIRECTORY` creates an
 independent recovery copy and verifies it by rereading it. Import on a fresh
@@ -28,6 +28,13 @@ Vault and staging directories must already exist. `backup status` reports local
 publication and uncovered canonical sequence ranges independently from cloud
 transfer and restore verification, which are not inferred from local copies.
 
+`vcp backup create --key FILE --git ABSOLUTE_EXECUTABLE` explicitly loads a
+verified signing capability and starts a native snapshot without a model call.
+Use `--operation UUID --retry` to continue the same durable cut. A live owner
+returns preparation progress immediately; standalone maintenance waits for local
+publication. `backup cancel --operation UUID` requests cancellation of the live
+owner's matching operation. Inspect status for retained cleanup or copy obligations.
+
 `vcp storage configure --backend files --preview` reports the future-workspace
 preference. Apply omits `--preview` and uses the displayed expected revision for
 an existing preference. It does not change a running workspace backend.
@@ -41,16 +48,49 @@ candidate is never deleted automatically; an invalid candidate remains visible
 as a failed operation. Close all workspace owners and inspectors before apply.
 No free-space reservation or power-loss qualification is claimed.
 
+`vcp --workspace NEW_DESTINATION restore --workspace-id ID --source OBJECT
+--key FILE --staging DIRECTORY --preview` authenticates the signed archive using
+independent enrollment and reports its operation UUID, ciphertext digest/length,
+current descriptor digest, destination collision, retained old root, and separate
+volume-capacity observations. Apply repeats those values with `--operation UUID
+--ciphertext-sha256 HASH --bytes N` and, for an existing registry entry,
+`--expected-descriptor HASH`, omitting `--preview`. `--backend files|sqlite`
+selects the new canonical backend. The destination must be new; divergent work
+is never overwritten. Native paths and ciphertext are checked again on apply.
+
+Restore verifies and selects the sanitized canonical candidate before ordinary
+rebind. An interrupted activation remains explicitly `rebind_pending`, which
+blocks normal startup. Exact retries reconcile the recorded operation without
+reimporting a root that has subsequently received legitimate writes. The old
+canonical root remains retained. Source files are materialized; Git index and
+diffs remain historical evidence, and executable Git metadata is not recreated.
+The lexical rebuild reports retained-canonical readiness, stale source exclusions
+and pending semantic work separately. It does not make old source fingerprints
+current by relabeling them.
+
 `vcp workspace rebind WORKSPACE_ID` is the structured alias for existing rebind.
 It also holds the selection lease and does not silently grant execution rights.
+Its result includes `workspace_revision`. An explicit `vcp workspace trust
+WORKSPACE_ID --expected-revision N` changes only local workspace trust after
+native binding verification. It preserves Plan policy, existing denials, paused
+tasks and provider configuration; no model request or execution grant is created.
+
+`vcp doctor [--vault DIRECTORY] [--staging DIRECTORY] [--sync-root DIRECTORY]`
+checks explicit path separation and native junction/reparse behavior without
+opening an owner or loading keys. The selected workspace and data directory must
+exist so the report describes actual paths. Undeclared synchronizers are not
+inferred. Capacity figures are point-in-time lower bounds excluding backend
+overhead; they neither reserve free space nor guarantee materialization fits.
 
 Automatic hooks use only the verified signing capability explicitly loaded into
 the current owner by backup controls. They do not reopen a recovery file or use a
 secret cache. Configured owners without loaded material report backup pending;
 local task state remains unchanged. Paused tasks can inspect or cancel backup
 progress without resuming provider work. Repeated observations of the same task
-state do not enqueue repeated backups, and an existing operation is shared rather
-than duplicated. Failed preparation stays visible for deliberate retry.
+state do not enqueue repeated backups. A newer lifecycle boundary queues one
+coalesced follow-up behind an existing operation; that older snapshot does not
+claim coverage of the newer state. Existing owner ticks start the follow-up after
+the prior operation finishes. Failed preparation stays visible for deliberate retry.
 
 A controlled CLI exit allows at most two seconds for local backup progress, then
 requests cancellation before closing canonical ownership. Already admitted copy

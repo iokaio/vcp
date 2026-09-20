@@ -15,6 +15,15 @@ use vcp_protocol::command::{Command, CommandEnvelope};
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "operation", deny_unknown_fields)]
 pub enum Request {
+    BackupCreate {
+        workspace: WorkspaceId,
+        data: std::path::PathBuf,
+        request: crate::backup::CreateRequest,
+    },
+    BackupCancel {
+        workspace: WorkspaceId,
+        id: CommandId,
+    },
     BackupStatus {
         workspace: WorkspaceId,
     },
@@ -170,9 +179,25 @@ async fn handle(
     let request: Request =
         serde_json::from_slice(&frame).map_err(|_| "invalid owner request".to_owned())?;
     match request {
+        Request::BackupCreate {
+            workspace: requested,
+            data,
+            request,
+        } if requested == *workspace => crate::backup::create_on_host(host, &data, request).await,
+        Request::BackupCancel {
+            workspace: requested,
+            id,
+        } if requested == *workspace => {
+            serde_json::to_value(host.cancel_backup(&id)?).map_err(|e| e.to_string())
+        }
         Request::BackupStatus {
             workspace: requested,
-        } if requested == *workspace => host.backup_status(),
+        } if requested == *workspace => {
+            let mut value = host.backup_status()?;
+            value["controller"] =
+                serde_json::to_value(host.backup_progress()?).map_err(|e| e.to_string())?;
+            Ok(value)
+        }
         Request::HistoryRetention {
             workspace: requested,
             request,

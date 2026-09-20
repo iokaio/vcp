@@ -6,6 +6,8 @@ mod authority;
 pub mod backup_checkpoint;
 #[cfg(windows)]
 pub mod restore_workspace;
+#[cfg(windows)]
+pub mod restore_search;
 pub mod history_retention;
 pub mod backup;
 pub mod backup_run;
