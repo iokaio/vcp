@@ -608,6 +608,7 @@ mod tests {
             required_checks: vec![],
             cause: event.clone(),
             reason: "fixture".into(),
+            redaction: None,
         };
         let records = vec![
             Record::typed(

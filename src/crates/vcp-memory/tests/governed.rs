@@ -1239,3 +1239,218 @@ async fn historical_reads_and_exact_retry_recheck_origin_task_access() {
         assert_eq!(f.store.state(), &before);
     }
 }
+
+#[tokio::test]
+async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retry() {
+    use vcp_domain::{
+        redaction,
+        task::{Task, TaskState},
+        workspace::Workspace,
+    };
+    use vcp_store::contract::{CanonicalStore, Mutation, Record, Transaction};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut f = fixture(temp.path(), backend).await;
+        let marker = "unique-purged-memory-marker-918";
+        f.proposal.statement = marker.into();
+        f.proposal.value = ClaimValue::Architecture {
+            decision: marker.into(),
+            rationale: marker.into(),
+            inference: true,
+        };
+        let accepted = propose(
+            &mut f.store,
+            &f.access,
+            f.proposal.clone(),
+            Timestamp::new(200),
+        )
+        .await
+        .unwrap();
+        assert_eq!(accepted.result.resolution.outcome, Outcome::Accepted);
+        let mut task: Task = f
+            .store
+            .state()
+            .record(
+                Collection::Task,
+                f.proposal.scope.task.as_str(),
+                &f.access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let mut workspace: Workspace = f
+            .store
+            .state()
+            .record(
+                Collection::Workspace,
+                f.access.workspace.as_str(),
+                &f.access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let task_prior = task.revision;
+        task.revision = task.revision.next().unwrap();
+        task.state = TaskState::Cancelled;
+        let workspace_prior = workspace.revision;
+        workspace.revision = workspace.revision.next().unwrap();
+        workspace.deletion = workspace.deletion.next().unwrap();
+        f.store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: f.store.state().watermark,
+                events: vec![],
+                command: None,
+                mutations: vec![
+                    Mutation::Put {
+                        expected: Some(task_prior),
+                        record: Record::typed(
+                            Collection::Task,
+                            task.scope.task.as_str(),
+                            f.access.workspace.clone(),
+                            task.revision,
+                            &task,
+                        )
+                        .unwrap(),
+                    },
+                    Mutation::Put {
+                        expected: Some(workspace_prior),
+                        record: Record::typed(
+                            Collection::Workspace,
+                            workspace.id.as_str(),
+                            workspace.id.clone(),
+                            workspace.revision,
+                            &workspace,
+                        )
+                        .unwrap(),
+                    },
+                ],
+            })
+            .await
+            .unwrap();
+        let mut state = f.store.state().clone();
+        for row in state
+            .records
+            .values_mut()
+            .filter(|r| r.workspace == f.access.workspace)
+        {
+            row.value = match row.value["document_type"].as_str() {
+                Some("vcp_memory_proposal_v1") => serde_json::to_value(
+                    vcp_protocol::redaction::proposal(
+                        &row.decode::<ProposalRecord>().unwrap(),
+                        workspace.deletion,
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+                Some("vcp_memory_version_v1") => serde_json::to_value(
+                    vcp_protocol::redaction::version(
+                        &row.decode::<Version>().unwrap(),
+                        workspace.deletion,
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+                Some("vcp_memory_result_v1") => serde_json::to_value(
+                    vcp_protocol::redaction::result(
+                        &row.decode::<ProposalResult>().unwrap(),
+                        workspace.deletion,
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+                _ => row.value.clone(),
+            };
+        }
+        for event in state
+            .events
+            .iter_mut()
+            .filter(|e| e.event.workspace == f.access.workspace)
+        {
+            *event = vcp_protocol::redaction::event(event, workspace.deletion).unwrap();
+        }
+        f.store.rewrite_base(state, &[]).await.unwrap();
+        let old_head = head(&f.store, &f.proposal);
+        let sequence: MemoryHead = f
+            .store
+            .state()
+            .record(
+                Collection::Projection,
+                f.access.workspace.as_str(),
+                &f.access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        f.store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: f.store.state().watermark,
+                events: vec![],
+                command: None,
+                mutations: vec![
+                    Mutation::DropProjection {
+                        id: old_head.id.to_string(),
+                        expected: old_head.revision,
+                    },
+                    Mutation::DropProjection {
+                        id: sequence.id.to_string(),
+                        expected: sequence.revision,
+                    },
+                ],
+            })
+            .await
+            .unwrap();
+        assert!(
+            vcp_memory::projections::rebuild(&mut f.store, &f.access, Timestamp::new(205))
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(head(&f.store, &f.proposal).current, accepted.result.version);
+        let bytes = vcp_protocol::canonical_bytes(f.store.state()).unwrap();
+        assert!(!bytes.windows(marker.len()).any(|v| v == marker.as_bytes()));
+        let view = history::query(&f.store, &f.access, &f.proposal.claim, None, None).unwrap();
+        assert_eq!(view.versions.len(), 1);
+        assert_eq!(view.versions[0].visibility, "purged");
+        assert!(
+            view.versions[0].current
+                && !view.versions[0].applicable
+                && view.versions[0].version.is_none()
+        );
+        assert_eq!(view.versions[0].memory_seq, accepted.result.memory_seq);
+        assert!(f
+            .store
+            .state()
+            .records
+            .values()
+            .any(|r| r.value["document_type"] == redaction::VERSION));
+        f.proposal.epochs.deletion = workspace.deletion;
+        let before = f.store.state().watermark;
+        assert!(propose(
+            &mut f.store,
+            &f.access,
+            f.proposal.clone(),
+            Timestamp::new(210)
+        )
+        .await
+        .is_err());
+        assert_eq!(f.store.state().watermark, before);
+        f.access.tasks = Some(Default::default());
+        assert!(matches!(
+            history::query(&f.store, &f.access, &f.proposal.claim, None, None),
+            Err(vcp_memory::Error::Access)
+        ));
+        f.store.close().await.unwrap();
+        let store = Store::open(temp.path(), backend, &[]).await.unwrap();
+        f.access.tasks = None;
+        assert_eq!(
+            history::query(&store, &f.access, &f.proposal.claim, None, None)
+                .unwrap()
+                .versions[0]
+                .visibility,
+            "purged"
+        );
+        store.close().await.unwrap();
+    }
+}

@@ -310,6 +310,7 @@ impl<S: CanonicalStore> Engine<S> {
                     required_checks: required_checks.clone(),
                     cause: event_id.clone(),
                     reason: "accepted objective".into(),
+                    redaction: None,
                 };
                 task.validate()?;
                 put(

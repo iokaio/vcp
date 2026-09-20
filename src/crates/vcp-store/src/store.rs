@@ -29,10 +29,15 @@ struct Format {
 pub struct Store {
     backend: Backend,
     state: State,
+    base: State,
+    prefixes: Vec<crate::replay_base::PrefixCommitment>,
+    anchor: PathBuf,
+    anchors: Vec<File>,
     commits: Vec<Commit>,
     root: PathBuf,
     kind: BackendKind,
     spool: Spool,
+    artifact_limit: u64,
     poisoned: bool,
     #[cfg(feature = "qualification")]
     observer: Option<crate::backend::Observer>,
@@ -41,6 +46,7 @@ pub struct Store {
 pub struct Snapshot {
     state: State,
     _pins: Vec<ArtifactPin>,
+    _root_pin: File,
 }
 impl Snapshot {
     pub fn state(&self) -> &State {
@@ -108,10 +114,38 @@ impl Store {
         owner.write_all(&diagnostic)?;
         owner.set_len(diagnostic.len() as u64)?;
         owner.sync_all()?;
+        if let Some((destination, activation)) = crate::rewrite::resolve(&root)? {
+            if activation.backend != kind {
+                return Err(Error::Incompatible);
+            }
+            let mut active = Box::pin(Self::open_with_artifact_limit(
+                &destination,
+                kind,
+                forbidden_roots,
+                artifact_limit,
+            ))
+            .await?;
+            let activated_base = crate::replay_base::ReplayBase::load(&destination)?
+                .ok_or(Error::Corruption("activated replay base missing"))?;
+            if activated_base.source_digest != activation.source_digest
+                || activated_base.state.watermark != activation.watermark
+                || active.prefix_digest(activation.watermark)? != activation.state_digest
+            {
+                return Err(Error::Corruption("rewrite activation state"));
+            }
+            active.anchor = root;
+            active.anchors.push(owner);
+            return Ok(active);
+        }
         let format_path = root.join("format.json");
         if format_path.exists() {
             let format: Format = serde_json::from_slice(&read_bounded(&format_path, 1024)?)?;
-            if format.version != FORMAT_VERSION || format.backend != kind {
+            let expected_version = if root.join("replay-base.json").exists() {
+                2
+            } else {
+                FORMAT_VERSION
+            };
+            if format.version != expected_version || format.backend != kind {
                 return Err(Error::Incompatible);
             }
         } else {
@@ -124,7 +158,11 @@ impl Store {
             immutable_file(
                 &format_path,
                 &canonical_bytes(&Format {
-                    version: FORMAT_VERSION,
+                    version: if root.join("replay-base.json").exists() {
+                        2
+                    } else {
+                        FORMAT_VERSION
+                    },
                     backend: kind,
                 })?,
             )?;
@@ -144,6 +182,12 @@ impl Store {
                 Err(error) => return Err(error),
             }
         }
+        let loaded_base = crate::replay_base::ReplayBase::load(&root)?;
+        let prefixes = loaded_base
+            .as_ref()
+            .map(|b| b.prefixes.clone())
+            .unwrap_or_default();
+        let base = loaded_base.map(|b| b.state).unwrap_or_default();
         let (backend, state, commits) = Backend::open(&root, kind).await?;
         let spool = Spool::open(&root.join("spool"), forbidden_roots, artifact_limit)?;
         for record in state
@@ -151,15 +195,23 @@ impl Store {
             .values()
             .filter(|record| record.collection == Collection::Artifact)
         {
-            spool.verify(&record.decode()?)?;
+            let descriptor: ArtifactDescriptor = record.decode()?;
+            if descriptor.state != vcp_domain::artifact::CaptureState::Purged {
+                spool.verify(&descriptor)?;
+            }
         }
         Ok(Self {
             backend,
             state,
+            base,
+            prefixes,
+            anchor: root.clone(),
+            anchors: Vec::new(),
             commits,
             root,
             kind,
             spool,
+            artifact_limit,
             poisoned: false,
             #[cfg(feature = "qualification")]
             observer: None,
@@ -185,14 +237,40 @@ impl Store {
         if watermark > self.state.watermark {
             return Err(Error::Corruption("snapshot beyond canonical watermark"));
         }
-        let mut state = State::default();
-        for commit in self.commits.iter().take(watermark.get() as usize) {
+        if watermark < self.base.watermark {
+            return Err(Error::Unavailable("history precedes retained replay base"));
+        }
+        let mut state = self.base.clone();
+        for commit in self
+            .commits
+            .iter()
+            .take_while(|c| c.receipt.watermark <= watermark)
+        {
             state.replay(commit)?;
         }
         if state.watermark != watermark {
             return Err(Error::Corruption("snapshot prefix missing"));
         }
         Ok(digest_bytes(&canonical_bytes(&state)?))
+    }
+    /// Outer migration anchors retain opaque boundary commitments across an
+    /// explicitly validated content rewrite. This never reconstructs old state.
+    pub(crate) fn remember_prefix(&mut self, watermark: Watermark, digest: &str) -> Result<()> {
+        let prefix = crate::replay_base::PrefixCommitment {
+            watermark,
+            digest: digest.to_owned(),
+        };
+        if self.prefixes.contains(&prefix) {
+            return Ok(());
+        }
+        if self.prefix_digest(watermark)? != digest {
+            return Err(Error::Corruption("migration prefix differs"));
+        }
+        if self.prefixes.len() >= 4096 {
+            return Err(Error::Limit("retained prefix commitments"));
+        }
+        self.prefixes.push(prefix);
+        Ok(())
     }
     pub async fn configuration(&mut self) -> Result<serde_json::Value> {
         self.backend.configuration().await
@@ -201,6 +279,7 @@ impl Store {
         if self.poisoned {
             return Err(Error::Unavailable("reopen after indeterminate commit"));
         }
+        let root_pin = crate::rewrite::pin(&self.root)?;
         let mut pins = Vec::new();
         for record in self
             .state
@@ -209,11 +288,14 @@ impl Store {
             .filter(|r| r.collection == Collection::Artifact)
         {
             let descriptor: ArtifactDescriptor = record.decode()?;
-            pins.push(self.spool.pin(&descriptor.spec.id)?);
+            if descriptor.state != vcp_domain::artifact::CaptureState::Purged {
+                pins.push(self.spool.pin(&descriptor.spec.id)?);
+            }
         }
         Ok(Snapshot {
             state: self.state.clone(),
             _pins: pins,
+            _root_pin: root_pin,
         })
     }
     pub fn checkpoint(&mut self) -> Result<()> {
@@ -264,8 +346,28 @@ impl Store {
         if destination.exists() {
             return Err(Error::Conflict("conversion requires a new root"));
         }
+        validate_private_location(destination, forbidden)?;
         let snapshot = self.snapshot()?;
-        let mut target = Store::open(destination, kind, forbidden).await?;
+        if self.base.watermark != Watermark::ZERO {
+            fs::create_dir_all(destination)?;
+            crate::replay_base::ReplayBase::write(
+                destination,
+                &self.base,
+                &self.base,
+                &self.prefixes,
+            )?;
+            immutable_file(
+                &destination.join("format.json"),
+                &canonical_bytes(&Format {
+                    version: 2,
+                    backend: kind,
+                })?,
+            )?;
+            self.copy_retained_artifacts(destination, &self.base)?;
+        }
+        let mut target =
+            Store::open_with_artifact_limit(destination, kind, forbidden, self.artifact_limit)
+                .await?;
         let mut copied = BTreeSet::new();
         for record in snapshot
             .state
@@ -274,6 +376,9 @@ impl Store {
             .filter(|r| r.collection == Collection::Artifact)
         {
             let descriptor: ArtifactDescriptor = record.decode()?;
+            if descriptor.state == vcp_domain::artifact::CaptureState::Purged {
+                continue;
+            }
             if !copied.insert(descriptor.spec.id.clone()) {
                 continue;
             }
@@ -289,6 +394,9 @@ impl Store {
                 .try_lock_shared()
                 .map_err(|_| Error::Conflict("quiesce artifact writers before conversion"))?;
             let destination = target.spool.root().join(current.spec.id.as_str());
+            if destination.exists() {
+                continue;
+            }
             fs::create_dir(&destination)?;
             for entry in fs::read_dir(&source)? {
                 let entry = entry?;
@@ -321,6 +429,165 @@ impl Store {
             &canonical_bytes(&evidence)?,
         )?;
         Ok(target)
+    }
+    fn copy_retained_artifacts(&self, destination: &Path, state: &State) -> Result<()> {
+        let spool = destination.join("spool");
+        fs::create_dir_all(&spool)?;
+        for record in state
+            .records
+            .values()
+            .filter(|r| r.collection == Collection::Artifact)
+        {
+            let descriptor: ArtifactDescriptor = record.decode()?;
+            if descriptor.state == vcp_domain::artifact::CaptureState::Purged {
+                continue;
+            }
+            let source = self.spool.root().join(descriptor.spec.id.as_str());
+            let capture = OpenOptions::new()
+                .read(true)
+                .open(source.join("owner.lock"))?;
+            capture
+                .try_lock_shared()
+                .map_err(|_| Error::Conflict("quiesce artifact writers before rewrite"))?;
+            let target = spool.join(descriptor.spec.id.as_str());
+            fs::create_dir(&target)?;
+            for entry in fs::read_dir(&source)? {
+                let entry = entry?;
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name == "spec.json" || name == "seal.json" || name.ends_with(".chunk") {
+                    immutable_file(
+                        &target.join(&name),
+                        &read_bounded(&entry.path(), crate::artifact::CHUNK_BYTES)?,
+                    )?;
+                }
+            }
+            for name in ["owner.lock", "snapshot.lock"] {
+                File::create(target.join(name))?.sync_all()?;
+            }
+        }
+        Ok(())
+    }
+    /// Rewrite into a sealed replay base without copying historical commit
+    /// payloads. Caller supplies an authorized, validated retention transform.
+    /// Existing root content remains pending cleanup; this is not purge completion.
+    pub async fn rewrite_base(
+        &mut self,
+        baseline: State,
+        forbidden: &[PathBuf],
+    ) -> Result<crate::rewrite::RewriteReceipt> {
+        if self.poisoned {
+            return Err(Error::Unavailable("reopen before rewrite"));
+        }
+        let _snapshot = self.snapshot()?;
+        let history = crate::rewrite::receipts(&self.anchor)?;
+        if history.len() >= crate::rewrite::MAX_REWRITES {
+            return Err(Error::Limit("rewrite activation count"));
+        }
+        let children = self.anchor.join(".replay-roots");
+        validate_private_location(&children, forbidden)?;
+        fs::create_dir_all(&children)?;
+        reject_link(&children)?;
+        let id = TransactionId::new();
+        let destination = children.join(id.as_str());
+        fs::create_dir(&destination)?;
+        crate::replay_base::ReplayBase::write(
+            &destination,
+            &self.state,
+            &baseline,
+            &self.prefixes,
+        )?;
+        immutable_file(
+            &destination.join("format.json"),
+            &canonical_bytes(&Format {
+                version: 2,
+                backend: self.kind,
+            })?,
+        )?;
+        self.copy_retained_artifacts(&destination, &baseline)?;
+        let candidate = Store::open_with_artifact_limit(
+            &destination,
+            self.kind,
+            forbidden,
+            self.artifact_limit,
+        )
+        .await?;
+        candidate.close().await?;
+        #[cfg(feature = "qualification")]
+        if let Some(observer) = &self.observer {
+            observer(Barrier::BeforeValidation);
+        }
+        let mut replacement = Store::open_with_artifact_limit(
+            &destination,
+            self.kind,
+            forbidden,
+            self.artifact_limit,
+        )
+        .await?;
+        if replacement.state != baseline {
+            return Err(Error::Corruption("rewrite reopened state differs"));
+        }
+        let mut pending = history
+            .last()
+            .map(|r| r.pending_roots.clone())
+            .unwrap_or_default();
+        pending.push(if self.root == self.anchor {
+            "anchor".to_owned()
+        } else {
+            self.root
+                .file_name()
+                .and_then(|s| s.to_str())
+                .ok_or(Error::Access)?
+                .to_owned()
+        });
+        let receipt = crate::rewrite::RewriteReceipt {
+            version: 1,
+            generation: history.len() as u64,
+            root: id,
+            backend: self.kind,
+            watermark: baseline.watermark,
+            source_digest: digest_bytes(&canonical_bytes(&self.state)?),
+            state_digest: digest_bytes(&canonical_bytes(&baseline)?),
+            previous: history
+                .last()
+                .map(canonical_bytes)
+                .transpose()?
+                .map(|b| digest_bytes(&b))
+                .unwrap_or_else(|| "0".repeat(64)),
+            pending_roots: pending,
+        };
+        #[cfg(feature = "qualification")]
+        if let Some(observer) = &self.observer {
+            observer(Barrier::BeforeActivation);
+        }
+        self.poisoned = true;
+        immutable_file(
+            &self
+                .anchor
+                .join(format!("rewrite-{:020}.json", receipt.generation)),
+            &canonical_bytes(&receipt)?,
+        )?;
+        #[cfg(feature = "qualification")]
+        if let Some(observer) = &self.observer {
+            observer(Barrier::AfterActivation);
+        }
+        replacement.anchor = self.anchor.clone();
+        #[cfg(feature = "qualification")]
+        {
+            replacement.observer = self.observer.clone();
+        }
+        let previous = std::mem::replace(self, replacement);
+        let Store {
+            backend,
+            _owner,
+            mut anchors,
+            ..
+        } = previous;
+        // Retain ownership across activation; opening the descriptor's original
+        // root cannot acquire a second writer while the new root is active.
+        self.anchors.append(&mut anchors);
+        self.anchors.push(_owner);
+        backend.close().await?;
+        Ok(receipt)
     }
 }
 impl CanonicalStore for Store {
@@ -365,4 +632,19 @@ impl CanonicalStore for Store {
         observe(Barrier::BeforeReply);
         Ok(commit.receipt)
     }
+}
+
+fn validate_private_location(path: &Path, forbidden: &[PathBuf]) -> Result<()> {
+    let absolute = std::path::absolute(path)?;
+    let ancestor = absolute
+        .ancestors()
+        .find(|p| p.exists())
+        .ok_or(Error::Access)?
+        .canonicalize()?;
+    for root in forbidden {
+        if ancestor.starts_with(root.canonicalize()?) {
+            return Err(Error::Access);
+        }
+    }
+    Ok(())
 }

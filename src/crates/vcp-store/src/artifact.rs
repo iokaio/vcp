@@ -282,6 +282,9 @@ impl Spool {
     }
     pub fn verify(&self, expected: &ArtifactDescriptor) -> Result<()> {
         expected.validate()?;
+        if expected.state == CaptureState::Purged {
+            return Err(Error::Unavailable("artifact content purged"));
+        }
         if expected.state != CaptureState::Pending {
             if &self.inspect(&expected.spec.id)? != expected {
                 return Err(Error::Corruption("artifact descriptor changed"));

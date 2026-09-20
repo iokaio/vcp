@@ -46,6 +46,8 @@ pub struct Task {
     pub required_checks: Vec<String>,
     pub cause: EventId,
     pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redaction: Option<crate::redaction::ContentRedaction>,
 }
 
 /// Produced by trusted host revalidation, not deserialized from a user command.
@@ -68,6 +70,19 @@ impl ResumeEvidence {
 impl Task {
     pub fn validate(&self) -> Result<()> {
         self.fingerprint.validate()?;
+        if let Some(redaction) = &self.redaction {
+            redaction.validate()?;
+            if !self.state.terminal()
+                || !self.objectives.is_empty()
+                || !self.required_checks.is_empty()
+                || !self.reason.is_empty()
+                || (self.parent.is_none() && self.root != self.scope.task)
+                || self.parent.as_ref() == Some(&self.scope.task)
+            {
+                return Err(Error::Invalid("purged terminal task"));
+            }
+            return Ok(());
+        }
         if self.objectives.is_empty()
             || self.reason.trim().is_empty()
             || self

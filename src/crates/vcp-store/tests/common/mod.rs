@@ -59,6 +59,7 @@ pub fn task() -> Task {
         required_checks: vec![],
         cause: EventId::parse("created").unwrap(),
         reason: "user request".into(),
+        redaction: None,
     }
 }
 pub fn spec() -> ArtifactSpec {

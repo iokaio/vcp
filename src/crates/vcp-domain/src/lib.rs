@@ -7,6 +7,7 @@ pub mod ids;
 pub mod ingestion;
 pub mod memory;
 pub mod policy;
+pub mod redaction;
 pub mod revision;
 pub mod task;
 pub mod verification;
