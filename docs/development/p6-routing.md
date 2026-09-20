@@ -7,6 +7,9 @@ Interactive presentation uses `vcp-cli::optimize` and the terminal owner.
 These are the logical registry, selector and optimizer boundaries from P6; they
 share the existing gateway, artifact store and budget ledger.
 
+The separate [Markov kernels](markov-kernels.md) provide bounded pure arithmetic
+for M1. They do not yet supply history-backed routing estimates or forecasts.
+
 There are **no live-qualified shipping model groups or measured profile defaults**
 in this increment. Synthetic test observations exercise the gates and qualify no
 actual endpoint. Legacy explicit single-provider configuration remains usable

@@ -101,7 +101,7 @@ Special staging relationships:
 
 Plan revision 13 adds the [Markov execution supplement](21-markov-integration.md).
 This separate ledger prevents earlier completed P2/P5 rows from hiding unfinished
-refactoring. M1's first task-transition increment is in progress; other entries
+refactoring. M1's task-transition and numerical increments are implemented; other entries
 remain planned and no statistical default is qualified. Labels M1–M10 are supplement
 increments, not the architecture's M01–M08 memory tests or new task IDs. When
 implementation lands, update these rows with evidence and refresh affected task
@@ -110,7 +110,7 @@ evaluation; they must not silently disappear from release review.
 
 | Increment | Existing owners / prerequisites | Remaining acceptance | State |
 |---|---|---|---|
-| M1 evidence/analysis foundation | P6-02; supporting P1-06/P5-07/P5-10 refactors | [Task-transition inspection increment](../evaluations/p6-transition-evidence.md); remaining turn/actions, counters/cohorts/rewards, numeric kernels and fitted-artifact retention/replay | in_progress |
+| M1 evidence/analysis foundation | P6-02; supporting P1-06/P5-07/P5-10 refactors | [Task-transition inspection](../evaluations/p6-transition-evidence.md), [pure numerical kernels](../evaluations/p6-markov-kernels.md); remaining turn/actions, counters/cohorts/rewards, fit qualification and fitted-artifact retention/replay | in_progress |
 | M2 escalation integration | P6-03 after M1 | Canonical advisory lifecycle, exact-cycle rules, separate local statistical shadow provenance, bounded/stale/pause tests | planned |
 | M3 optimizer forecasts | P6-05 after P6-03 implementation and M1 | Read-only expected-cost/outcome/loop reports, censored history, uncertainty and drift; no policy mutation | planned |
 | M4 qualification/consumption | P6-04 and P6-02/03; M2/M3 and P5-08 | Four-arm purpose-specific evidence, qualified estimates, safe activation/fallback, explicit not-run/rejected results | planned |
