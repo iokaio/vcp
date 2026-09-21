@@ -48,7 +48,7 @@ without hiding unknown liability or mixing cost components. It still does not
 assign monetary value to success, combine roles into total task cost, establish a
 confidence interval or qualify a forecast.
 
-Consumed-value persistence and exact replay remain before the M1 foundation is
-complete. M3 owns read-only forecasts; M4 owns frozen qualification and any
-activation. Verification is recorded in the
+ADR-035 subsequently adds consumed-value persistence and exact historical replay,
+completing the M1 foundation. M3 owns read-only forecasts; M4 owns frozen
+qualification and any activation. Verification is recorded in the
 [increment evidence](../evaluations/p6-reward-mapping.md).

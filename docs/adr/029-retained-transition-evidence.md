@@ -57,9 +57,10 @@ optimizer reports keep their schema and current-state meaning.
 
 The same retained view, access and window produce the same digest and observations;
 later deletion or authority changes create a different view. This is evidence
-inspection, not a consumed probabilistic decision receipt. Persisting fitted
-models or consuming their values requires the remaining M1 retention/replay
-design and per-purpose qualification; this API does not authorize either.
+inspection, not a consumed probabilistic decision receipt. ADR-032 through ADR-035
+subsequently add unpersisted fits, exact reward mapping and historical
+consumed-value replay. Per-purpose qualification remains separate; this evidence
+API does not authorize it.
 
 ## Alternatives and limits
 

@@ -77,6 +77,15 @@ unpersisted and unqualified. See
 [ADR-034](../adr/034-exact-attempt-reward-mapping.md) and the
 [reward-mapping evidence](../evaluations/p6-reward-mapping.md).
 
+`routing_state::consumption::consume_reward` persists the exact scalar selected by
+a local optimization inspection only after a fresh source-bound artifact matches.
+The immutable receipt binds producer, source, selection, task/attempt identities,
+consumer decision and exact currency/micros. `replay_reward` validates receipt
+integrity and task access, then returns that recorded value without fitting again.
+Receipts are historical-only and cannot serve routing. See
+[ADR-035](../adr/035-consumed-statistical-value-replay.md) and the
+[replay evidence](../evaluations/p6-consumed-value-replay.md).
+
 Local analysis also works without a provider profile or a model budget:
 `vcp optimize status`, `vcp optimize report --from <ms> --until <ms>`,
 `vcp optimize answer priority "lower total cost"`, and
