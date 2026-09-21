@@ -56,6 +56,18 @@ insufficient evidence.
 
 ## P7-02 — Built-in skill catalog
 
+**Selected remaining refinements:** qualify bounded search and ranged reads
+([CR-02a / CC-04](22-cursor-improvements.md#cr-02a--bounded-search-and-ranged-reads)),
+evidence-first debugging ([CR-06](22-cursor-improvements.md#cr-06--evidence-first-debug-guidance)),
+and long-check ceilings / Windows output handling
+([CC-02a](23-claudecode-improvements.md#cc-02a--declared-foreground-execution-ceilings),
+[CC-03](23-claudecode-improvements.md#cc-03--windows-process-output-and-outcomes))
+as part of the remaining U01–U03/U08 skill work. Reuse the existing catalog and
+tool broker; these refinements do not reopen completed P2 tasks or certify
+unrun toolchains. Retain frozen seeded failures, missing-tool rows and the
+separate live-usefulness and generation gates. Review output follows P7-05's
+shared finding contract.
+
 Create each skill with bounded purpose, project-detection cues, analysis/review/generation workflow, tool-discovery/check guidance, expected outputs and explicit missing-tool behavior. Generic advice must adapt to existing architecture and lockfiles.
 
 | Family | Proposed catalog grouping | Representative fixture |

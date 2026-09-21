@@ -24,6 +24,15 @@ root accounting; retain these cases for P8 release qualification.
 
 ## P7-04 — Graph and workspace ownership
 
+**Selected remaining refinements:** use
+[CR-03](22-cursor-improvements.md#cr-03--small-helper-role-defaults) for useful
+read-only helper defaults and
+[CR-08 / CC-15](22-cursor-improvements.md#cr-08--worktree-readiness-and-safe-cleanup)
+for setup diagnosis and reference-checked cleanup. Graphs, dirty snapshots,
+ownership markers and isolated child roots already have construction evidence;
+finish their qualification and only add the stated gaps. A setup recipe does
+not qualify process isolation or grant a read-only child execution rights.
+
 **Planned reuse:** [M8](21-markov-integration.md#m8m10--reuse-and-qualification-campaigns)
 adds qualified child/support/integration forecasts to allocation explanations when
 evidence exists. Atomic root admission and protected verification remain decisive;
@@ -75,6 +84,13 @@ and [root reservations](../architecture/vcp-what.md#81-root-ledger-and-reservati
 
 ## P7-05 — Integration and review
 
+**Selected remaining refinement:**
+[CR-12a / CC-14a](22-cursor-improvements.md#cr-12a--useful-local-review-findings)
+binds useful, evidence-backed findings to the examined base/current revision.
+Qualify the existing review and integration path on U02/U03; a touched diff line
+alone cannot establish that a change introduced a defect. Preserve parent-state
+verification and all remaining interruption and usefulness gates.
+
 Apply [M6 verification ordering](21-markov-integration.md#m6--verification-order)
 only among ready checks against the integrated parent fingerprint. M8 forecasts
 must include integration and final verification; they cannot accept a child patch
@@ -118,6 +134,13 @@ Missing permission to remove a disposable worktree is a cleanup diagnostic, not
 permission to delete its parent directory.
 
 ## P7-06 — Commentary, controls and recovery
+
+**Selected remaining refinement:** expose the role, setup/wait reason, findings,
+cost and cleanup state from [CR-03/08/12a](22-cursor-improvements.md) in the
+existing `/agents`, terminal and JSONL surfaces. Keep ordinary single-agent work
+simple, show actionable blocked states, and do not require developers to choose
+a role or approve unchanged authority at every step. Qualify these states through
+live U06, including pause during setup and failed cleanup with history retained.
 
 For [M8](21-markov-integration.md#m8m10--reuse-and-qualification-campaigns),
 display forecast versus observed cost and any inferred regime with provenance,
