@@ -1,9 +1,9 @@
 # 21 — Markov analysis and integration sequence
 
-Status: M1 in progress, September 20, 2026. This execution supplement adopts the useful
+Status: M1 implemented, September 20, 2026; M2 is next. This execution supplement adopts the useful
 directions from [the research note](../research/markov.md) into existing work.
-The task-transition, pure numerical and causal action-observation increments are
-described under M1 below; remaining statistical integration is not implemented or qualified. This creates no new product
+The M1 foundation described below is implemented; M2–M10 remain unimplemented or
+unqualified. This creates no new product
 task IDs, changes no architecture dependencies and enables no runtime feature.
 The [owning task sections](20-traceability.md#work-item-ownership-and-readiness)
 remain the implementation entry points; the increments below define their added
@@ -105,7 +105,9 @@ explicit: the [reward-mapping increment](../evaluations/p6-reward-mapping.md)
 keeps exact augmented attempt cohorts separate, reports complete terminal cost
 samples, and withholds a cohort mean after any unknown charge under
 [ADR-034](../adr/034-exact-attempt-reward-mapping.md). Consumed-value retention
-and replay remain. Existing
+and replay now persist only the selected scalar, producer/input identities and
+consumer decision under [ADR-035](../adr/035-consumed-statistical-value-replay.md);
+historical replay uses that receipt without refitting. This completes M1. Existing
 optimizer report schemas and enabled routing behavior are unchanged.
 
 1. Define a closed, revisioned alphabet from canonical task/turn transitions,

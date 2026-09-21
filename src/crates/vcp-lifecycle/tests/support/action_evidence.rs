@@ -8,7 +8,7 @@ use vcp_domain::{
 };
 use vcp_lifecycle::foundation::{
     routing,
-    routing_state::{fits, observations::*, rewards},
+    routing_state::{consumption, fits, observations::*, rewards},
 };
 use vcp_protocol::{
     command::{Command, CommandEnvelope},
@@ -912,6 +912,35 @@ async fn reward_mapping_withholds_cohort_mean_when_any_attempt_cost_is_unknown()
         assert_eq!(cells[0].exact_max_charge_micros, Some(10));
         assert_eq!(cells[0].point_estimate_micros, Some(10));
         assert!(!cells[0].unknown_remainder);
+        let selection = consumption::RewardSelection {
+            cohort: cells[0].cohort.clone(),
+            currency: cells[0].currency.clone(),
+        };
+        let consumer_decision = CommandId::new();
+        let receipt = consumption::consume_reward(
+            &mut store,
+            &access,
+            consumer_decision.clone(),
+            &complete,
+            selection.clone(),
+            Timestamp::new(25),
+        )
+        .await
+        .unwrap();
+        assert_eq!(receipt.consumed_micros, 10);
+        assert_eq!(receipt.currency, "USD");
+        assert_eq!(receipt.source_attempts, 2);
+        assert_eq!(receipt.source_tasks.len(), 2);
+        assert_eq!(receipt.selection, selection);
+        assert_eq!(receipt.input_digest.len(), 64);
+        assert_eq!(receipt.source_attempts_digest.len(), 64);
+        assert!(receipt.historical_replay_only && !receipt.serving_qualified);
+        let record = store
+            .state()
+            .records
+            .get(&key(Collection::Projection, &receipt.id))
+            .unwrap();
+        assert_eq!(record.references.len(), 6);
 
         let uncertain = reserve(&mut store, &access, &tasks[2], None, 30).await;
         vcp_budget::submit(
@@ -964,6 +993,67 @@ async fn reward_mapping_withholds_cohort_mean_when_any_attempt_cost_is_unknown()
         assert_eq!(cell.observed_liability_sum_micros, 10);
         assert_eq!(cell.point_estimate_micros, None);
         assert!(cell.unknown_remainder);
+        assert_eq!(
+            consumption::replay_reward(&store, &access, &consumer_decision).unwrap(),
+            receipt
+        );
+        assert_eq!(
+            consumption::consume_reward(
+                &mut store,
+                &access,
+                consumer_decision.clone(),
+                &complete,
+                selection.clone(),
+                Timestamp::new(90),
+            )
+            .await
+            .unwrap(),
+            receipt
+        );
+        let mut conflicting_selection = receipt.selection.clone();
+        conflicting_selection.currency = "EUR".into();
+        assert!(consumption::consume_reward(
+            &mut store,
+            &access,
+            consumer_decision.clone(),
+            &complete,
+            conflicting_selection,
+            Timestamp::new(90),
+        )
+        .await
+        .unwrap_err()
+        .contains("reused"));
+        assert!(consumption::consume_reward(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &complete,
+            selection.clone(),
+            Timestamp::new(91),
+        )
+        .await
+        .unwrap_err()
+        .contains("changed"));
+        assert!(consumption::consume_reward(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &mapped,
+            selection,
+            Timestamp::new(92),
+        )
+        .await
+        .unwrap_err()
+        .contains("unknown remainder"));
+        let denied = Access {
+            workspace: access.workspace.clone(),
+            actor: access.actor.clone(),
+            authority: access.authority,
+            read: true,
+            write: false,
+            tasks: Some(BTreeSet::from([tasks[0].scope.task.clone()])),
+        };
+        assert!(consumption::replay_reward(&store, &denied, &consumer_decision).is_err());
         assert_eq!(rewards::map(&store, &access, window()).unwrap(), mapped);
         assert_eq!(store.state(), &before);
         assert!(matches!(
@@ -984,6 +1074,10 @@ async fn reward_mapping_withholds_cohort_mean_when_any_attempt_cost_is_unknown()
         drop(store);
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(rewards::map(&reopened, &access, window()).unwrap(), mapped);
+        assert_eq!(
+            consumption::replay_reward(&reopened, &access, &consumer_decision).unwrap(),
+            receipt
+        );
     }
 }
 

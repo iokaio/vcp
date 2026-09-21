@@ -55,8 +55,8 @@ refitting. This decision supplies neither persistence nor consumption.
 
 M1 has a provenance-complete first-order candidate and deterministic abstention.
 ADR-033 subsequently adds held-out first/second-order comparison and a multi-step
-check. Reward mapping/uncertainty qualification and consumed-value replay remain.
-M2/M3 remain disabled.
+check; ADR-034/035 add exact reward mapping and historical consumed-value replay.
+M1 is complete, while qualification and M2/M3 remain disabled.
 
 Verification commands and results are recorded in the
 [increment evidence](../evaluations/p6-fit-provenance.md).

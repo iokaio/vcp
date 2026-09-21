@@ -78,10 +78,10 @@ reopen and old-event compatibility use the same source contracts.
 
 The result is structured input for later counting, fitting and exact-cycle
 analysis. It is not itself a Markov state, fitted probability, reward, failure
-cause, quality score or routing recommendation. Attempt cost attribution and
-unknown liability remain the next M1 increment. Fitted-artifact provenance,
-uncertainty, retention invalidation and consumed-value replay remain subsequent
-M1 work. ADR-007/017/020 continue to govern any later consumption.
+cause, quality score or routing recommendation. ADR-031 through ADR-035
+subsequently add exact charge attribution, source-bound fits, held-out comparison,
+reward mapping and historical consumed-value replay. ADR-007/017/020 continue to
+govern any later qualified consumption.
 
 Verification commands and results are recorded in the
 [increment evidence](../evaluations/p6-action-evidence.md).

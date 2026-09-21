@@ -40,6 +40,7 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-032 — Rebuildable unqualified Markov fit artifacts](032-rebuildable-markov-fit-artifacts.md) | P6-02/M1 source-bound first-order candidates and explicit abstention |
 | [ADR-033 — Task-separated held-out Markov order comparison](033-heldout-markov-order-comparison.md) | P6-02/M1 deterministic held-out partition, complexity penalty and multi-step check |
 | [ADR-034 — Exact attempt-visit reward mapping](034-exact-attempt-reward-mapping.md) | P6-02/M1 exact cost samples and unknown-liability mean abstention |
+| [ADR-035 — Consumed statistical value retention and replay](035-consumed-statistical-value-replay.md) | P6-02/M1 immutable selected scalar, input identity and historical replay |
 
 ## Maintaining a decision
 

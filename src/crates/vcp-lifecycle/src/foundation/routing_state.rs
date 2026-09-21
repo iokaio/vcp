@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Canonical routing publications and local, scoped optimization evidence.
+pub mod consumption;
 pub mod fits;
 pub mod observations;
 pub mod rewards;
