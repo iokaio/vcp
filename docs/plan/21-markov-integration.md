@@ -1,9 +1,9 @@
 # 21 — Markov analysis and integration sequence
 
-Status: M1 implemented and M2 in progress, September 20, 2026. This execution supplement adopts the useful
+Status: M1 and M2 construction implemented; M3 in progress, September 20, 2026. This execution supplement adopts the useful
 directions from [the research note](../research/markov.md) into existing work.
-The M1 foundation described below is implemented; M2 has begun with canonical
-advisory request/result records; M3–M10 remain unimplemented or
+The M1 foundation and M2 frozen local shadow path are implemented but unqualified;
+M3 provides read-only action forecasts. Remaining M3 reporting and M4–M10 remain unimplemented or
 unqualified. This creates no new product
 task IDs, changes no architecture dependencies and enables no runtime feature.
 The [owning task sections](20-traceability.md#work-item-ownership-and-readiness)
@@ -265,6 +265,12 @@ action. Remote qualification remains separate and cannot be inherited by local
 signals, or vice versa.
 
 ## M3 — Read-only forecasts in the optimizer
+
+**Implemented first increment:** [bounded action forecasts](../evaluations/p6-action-forecasts.md)
+provide historical episode/cohort reconstruction, observed-support transition
+counts, expected visits/outcomes/costs and explicit exclusions through read-only
+CLI inspection. Saved artifacts, matched drift and compaction diagnostics remain
+the next increments; this does not complete M3 or qualify serving consumers.
 
 Extend the existing report/compare commands with the M1 transition table, sample
 denominators and expected visits to retry, handoff, support and verification

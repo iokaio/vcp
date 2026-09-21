@@ -25,6 +25,10 @@ pub enum Request {
         from: Option<Timestamp>,
         until: Timestamp,
     },
+    Forecasts {
+        from: Option<Timestamp>,
+        until: Timestamp,
+    },
     Compare {
         baseline: String,
         current: String,
@@ -84,6 +88,14 @@ pub async fn execute(
             routing_state::HistoryWindow { from, until },
         )?)
         .map_err(|e| e.to_string())?,
+        Request::Forecasts { from, until } => {
+            serde_json::to_value(routing_state::forecasts::observe(
+                store,
+                access,
+                routing_state::HistoryWindow { from, until },
+            )?)
+            .map_err(|e| e.to_string())?
+        }
         Request::Compare { baseline, current } => serde_json::to_value(
             routing_state::compare_reports(store, access, &baseline, &current)?,
         )
