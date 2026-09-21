@@ -78,6 +78,58 @@ fn snapshot() -> Snapshot {
 }
 
 #[test]
+fn parallel_tool_calls_requires_explicit_catalog_supported_qualification() {
+    let encode_body = |snapshot: &Snapshot| {
+        let env = envelope(
+            snapshot,
+            Units::new(128),
+            Units::new(32),
+            Timestamp::new(30),
+        )
+        .unwrap();
+        serde_json::from_slice::<Value>(&encode(&[], &env, &tools(), snapshot).unwrap()).unwrap()
+    };
+    let body = encode_body(&snapshot());
+    assert!(body.get("parallel_tool_calls").is_none());
+    assert_eq!(body["provider"]["require_parameters"], true);
+    assert_eq!(body["provider"]["allow_fallbacks"], false);
+    let mut compatibility = compat();
+    compatibility
+        .required_parameters
+        .insert("parallel_tool_calls".into());
+    assert!(Snapshot::from_endpoints(
+        &serde_json::to_vec(&catalog()).unwrap(),
+        Timestamp::new(10),
+        Timestamp::new(1000),
+        compatibility.clone(),
+    )
+    .is_err());
+    let mut source = catalog();
+    source["data"]["endpoints"][0]["supported_parameters"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("parallel_tool_calls"));
+    let qualified = Snapshot::from_endpoints(
+        &serde_json::to_vec(&source).unwrap(),
+        Timestamp::new(10),
+        Timestamp::new(1000),
+        compatibility,
+    )
+    .unwrap();
+    assert_eq!(encode_body(&qualified)["parallel_tool_calls"], true);
+    let catalog_only = Snapshot::from_endpoints(
+        &serde_json::to_vec(&source).unwrap(),
+        Timestamp::new(10),
+        Timestamp::new(1000),
+        compat(),
+    )
+    .unwrap();
+    assert!(encode_body(&catalog_only)
+        .get("parallel_tool_calls")
+        .is_none());
+}
+
+#[test]
 fn reasoning_effort_requires_exact_qualification_preserves_legacy_bytes_and_output_bound() {
     use vcp_models::{
         reasoning::Effort,

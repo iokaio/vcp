@@ -59,7 +59,7 @@ pub(super) fn body(
         request_rate.micros.get() % 1_000_000_000_000
     );
     Ok(
-        serde_json::json!({"model":candidate.price.model,"input":input,"tools":tools(),"tool_choice":"auto","parallel_tool_calls":true,"max_output_tokens":output.get(),"stream":true,"store":false,
+        serde_json::json!({"model":candidate.price.model,"input":input,"tools":tools(),"tool_choice":"auto","max_output_tokens":output.get(),"stream":true,"store":false,
         "provider":{"only":[candidate.price.provider],"order":[candidate.price.provider],"allow_fallbacks":false,"require_parameters":true,"data_collection":"deny","zdr":false,
         "max_price":{"prompt":price(ChargeCategory::Input)?,"completion":price(ChargeCategory::Output)?,"request":request}}}),
     )

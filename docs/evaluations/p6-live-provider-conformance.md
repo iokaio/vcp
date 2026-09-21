@@ -1,5 +1,9 @@
 # P6 live provider conformance — September 21, 2026
 
+Historical first-attempt record. The later [authenticated retry](p6-live-provider-retry.md)
+records restored authentication, a corrected parameter mismatch and successful
+text/tool probes; exact provider and broader P6 qualification remain incomplete.
+
 The first capped probe was rejected by OpenRouter with HTTP 401,
 `User not found.` The configured process credential matched the saved user
 credential. Further dispatch stopped pending a valid configured credential.

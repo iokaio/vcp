@@ -199,7 +199,7 @@ async fn execute(
         spec.model.clone(),
         spec.endpoint.clone(),
         spec.request_price_limit.clone(),
-        BTreeSet::from(["tools".into(), "max_tokens".into()]),
+        BTreeSet::from(["tools".into(), "tool_choice".into(), "max_tokens".into()]),
     )?;
     let (host, owner, binding) = setup(output, spec, &candidate)?;
     fresh_file(&output.join("candidate.json"), &candidate)?;
@@ -378,7 +378,7 @@ mod tests {
         for missing_cost in [false, true] {
             let temp = tempfile::tempdir().unwrap();
             let catalog = temp.path().join("input-catalog.json");
-            std::fs::write(&catalog,canonical_bytes(&json!({"data":{"id":"fixture/probe","endpoints":[{"tag":"fixture/region","status":0,"context_length":32000,"max_prompt_tokens":24000,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.001"}}]}})).unwrap()).unwrap();
+            std::fs::write(&catalog,canonical_bytes(&json!({"data":{"id":"fixture/probe","endpoints":[{"tag":"fixture/region","status":0,"context_length":32000,"max_prompt_tokens":24000,"max_completion_tokens":8000,"supported_parameters":["tools","tool_choice","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.001"}}]}})).unwrap()).unwrap();
             let spec = Spec {
                 catalog_sha256: digest_bytes(&std::fs::read(&catalog).unwrap()),
                 catalog,
@@ -395,6 +395,7 @@ mod tests {
             let server = MockServer::start().await;
             Mock::given(method("POST")).and(path("/responses")).respond_with(move |request:&wiremock::Request| {
                 let body:serde_json::Value=serde_json::from_slice(&request.body).unwrap();assert_eq!(body["provider"]["only"],json!(["fixture/region"]));assert_eq!(body["provider"]["allow_fallbacks"],false);
+                assert!(body.get("parallel_tool_calls").is_none());assert_eq!(body["provider"]["require_parameters"],true);
                 let continuation=body["input"].as_array().unwrap().len()>1;
                 let content=if continuation{json!([{"type":"message","id":"final-message","role":"assistant","content":[{"type":"output_text","text":conformance::FINAL}]}])}else{json!([{"type":"function_call","id":"tool-item","call_id":"call-1","name":"vcp_conformance_echo","arguments":serde_json::to_string(&json!({"marker":conformance::MARKER})).unwrap()}])};
                 let mut response=json!({"id":if continuation{"response-2"}else{"response-1"},"status":"completed","model":"fixture/probe","provider":"fixture/region","output":content,"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.000007}});

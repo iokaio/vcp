@@ -113,6 +113,15 @@ P6 decision-adapter qualification and is intentionally outside this regular runn
 
 ## Reproduction
 
+The Responses encoder emits the optional `parallel_tool_calls` parameter only
+when the compatibility record explicitly includes it in `required_parameters`;
+the exact endpoint catalog must support that declaration. Otherwise the field is
+omitted. This avoids rejecting tool-capable endpoints solely because the host
+added an unsupported optional flag. `require_parameters`, exact provider pins,
+fallback restrictions and data policies still apply. The P6 single-echo probe
+omits that flag and requires catalog support for `tools`, `tool_choice` and
+`max_tokens` before dispatch.
+
 ```powershell
 pwsh -NoProfile -File scripts/test-provider.ps1
 pwsh -NoProfile -File scripts/test-openrouter-live.ps1 -SpendCapUsd 10
