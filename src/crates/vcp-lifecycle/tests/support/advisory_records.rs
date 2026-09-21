@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
 use vcp_domain::task::TaskState;
+use vcp_domain::{accounting::RequestRole, artifact::*};
 use vcp_lifecycle::foundation::routing_state::advisory::{self, Disposition};
 use vcp_models::decision::{
     self, Answer, Binding as DecisionBinding, Mode, Operation, Outcome, Purpose,
     QualifiedEvaluator, Question, Request, Usage,
 };
 use vcp_protocol::{canonical_bytes, digest_bytes};
+use vcp_store::artifact::ArtifactWriter;
 
 fn prepare(binding: DecisionBinding, marker: &str) -> decision::Prepared {
     let state = serde_json::json!({"marker":marker,"observations":["bounded"]});
@@ -137,6 +139,83 @@ async fn set_task_state(
         .await
         .unwrap();
     changed
+}
+
+async fn reserve_advisory(
+    store: &mut Store,
+    access: &Access,
+    task: &vcp_domain::task::Task,
+    request: &advisory::RequestRecord,
+    now: u64,
+) -> vcp_domain::accounting::Attempt {
+    let spec = ArtifactSpec {
+        id: ArtifactId::new(),
+        scope: task.scope.clone(),
+        media_type: "application/json".into(),
+        schema: "vcp-escalation-advisory-request-v1".into(),
+        source: "vcp-lifecycle/advisory".into(),
+        channel: Channel::RequestBody,
+        retention: "history".into(),
+        omissions: vec![],
+    };
+    let mut writer = store.spool().create(spec).unwrap();
+    writer
+        .write_chunk(&canonical_bytes(request).unwrap())
+        .unwrap();
+    let artifact = writer.finalize().unwrap();
+    drop(writer);
+    store
+        .transact(Transaction {
+            id: TransactionId::new(),
+            expected_watermark: store.state().watermark,
+            mutations: vec![Mutation::Put {
+                record: Record::typed(
+                    Collection::Artifact,
+                    artifact.spec.id.as_str(),
+                    access.workspace.clone(),
+                    Revision::ZERO,
+                    &artifact,
+                )
+                .unwrap(),
+                expected: None,
+            }],
+            events: vec![],
+            command: None,
+        })
+        .await
+        .unwrap();
+    let ledger = vcp_budget::ledger(store.state(), &task.scope).unwrap();
+    vcp_budget::reserve(
+        store,
+        vcp_budget::Admission {
+            transaction: TransactionId::new(),
+            attempt: AttemptId::new(),
+            reservation: ReservationId::new(),
+            scope: task.scope.clone(),
+            agent: AgentId::new(),
+            role: RequestRole::Helper,
+            request: artifact.spec.id,
+            request_digest: artifact.sha256,
+            quote: vcp_budget::arithmetic::quote(
+                super::action_evidence::price("advisory-model"),
+                vcp_domain::accounting::Usage {
+                    requests: Units::new(1),
+                    ..Default::default()
+                },
+                Timestamp::new(now),
+            )
+            .unwrap(),
+            previous: None,
+            expected_ledger: ledger.revision,
+            policy: ledger.policy,
+            steering: task.steering,
+            draw_protected: false,
+            now: Timestamp::new(now),
+        },
+        &super::action_evidence::budget_actor(access, now),
+    )
+    .await
+    .unwrap()
 }
 
 #[tokio::test]
@@ -573,5 +652,133 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
         );
         assert_eq!(store.state().watermark, watermark);
         store.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn advisory_claim_binds_existing_helper_accounting_and_tracks_uncertain_charge() {
+    use advisory::Claim;
+    use vcp_domain::accounting::ReservationState;
+
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let task =
+            super::action_evidence::create_task(&mut store, &access, TaskState::Running).await;
+        vcp_budget::initialize(
+            &mut store,
+            task.scope.clone(),
+            super::action_evidence::money(1000),
+            Micros::ZERO,
+            None,
+            &super::action_evidence::budget_actor(&access, 3),
+        )
+        .await
+        .unwrap();
+        let prepared = prepare(binding(&task, &access), "accounting");
+        let current = prepared.request().binding.clone();
+        let request = advisory::record_request(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &prepared,
+            &current,
+            Timestamp::new(10),
+        )
+        .await
+        .unwrap();
+        advisory::schedule(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &request.id,
+            &current,
+            Timestamp::new(11),
+        )
+        .await
+        .unwrap();
+        let claimant = CommandId::new();
+        assert!(matches!(
+            advisory::claim(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &request.id,
+                claimant.clone(),
+                &current,
+                Timestamp::new(12),
+            )
+            .await
+            .unwrap(),
+            Claim::Updated(_)
+        ));
+        let attempt = reserve_advisory(&mut store, &access, &task, &request, 13).await;
+        let accounting = advisory::bind_attempt(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &request.id,
+            &claimant,
+            &attempt.id,
+            Timestamp::new(14),
+        )
+        .await
+        .unwrap();
+        assert_eq!(accounting.attempt, attempt.id);
+        assert_eq!(accounting.reservation, attempt.reservation);
+        assert_eq!(accounting.quote, attempt.quote);
+        let watermark = store.state().watermark;
+        assert_eq!(
+            advisory::bind_attempt(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &request.id,
+                &claimant,
+                &attempt.id,
+                Timestamp::new(15),
+            )
+            .await
+            .unwrap(),
+            accounting
+        );
+        assert_eq!(store.state().watermark, watermark);
+
+        vcp_budget::submit(
+            &mut store,
+            &attempt.id,
+            &task.scope,
+            attempt.revision,
+            &super::action_evidence::budget_actor(&access, 16),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            advisory::accounting_attempt(&store, &access, &request.id)
+                .unwrap()
+                .phase,
+            ReservationState::Submitted
+        );
+        vcp_budget::hold_uncertain(
+            &mut store,
+            &attempt.id,
+            &task.scope,
+            &super::action_evidence::budget_actor(&access, 17),
+            "provider outcome unavailable",
+        )
+        .await
+        .unwrap();
+        let uncertain = advisory::accounting_attempt(&store, &access, &request.id).unwrap();
+        assert_eq!(uncertain.phase, ReservationState::ReconciliationPending);
+        assert_eq!(
+            uncertain.uncertain.as_deref(),
+            Some("provider outcome unavailable")
+        );
+        store.close().await.unwrap();
+        let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
+        assert_eq!(
+            advisory::accounting_attempt(&reopened, &access, &request.id).unwrap(),
+            uncertain
+        );
     }
 }
