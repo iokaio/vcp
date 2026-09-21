@@ -459,19 +459,27 @@ pub async fn interrupt(
     put_schedule(store, access, command, schedule, Some(expected), now).await
 }
 
-/// Complete a claim only from its accepted-current canonical result.
+/// Complete a claim only from its accepted-current canonical result, rechecking
+/// current inputs at completion. A stored disposition is historical evidence,
+/// not permission to consume advice after the task or its inputs change.
 pub async fn complete(
     store: &mut Store,
     access: &Access,
     command: CommandId,
     request_id: &str,
     claimant: &CommandId,
+    current: &Binding,
     now: Timestamp,
 ) -> Result<ScheduleRecord> {
     let request = load_request(store, access, request_id)?;
     let result = load_result(store, access, request_id)?;
     if result.disposition != Disposition::AcceptedCurrent {
         return Err("historical advisory result cannot complete a schedule".into());
+    }
+    let task = current_task(store, access, current)?;
+    if cancellation(&request, current, &task, now).is_some() || now >= request.evaluator.valid_until
+    {
+        return Err("advisory completion inputs are no longer current".into());
     }
     let mut schedule = load_schedule(store, access, request_id)?;
     validate_schedule(&schedule, &request)?;
