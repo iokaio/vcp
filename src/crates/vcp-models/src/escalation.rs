@@ -162,6 +162,24 @@ fn hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+/// Existing deterministic repeated-strategy predicate, exposed for the frozen
+/// comparison harness. This is a bounded trigger, not a stall probability or
+/// dispatch authorization; scheduling still validates every normal barrier.
+pub fn repeated_strategy_signal(
+    before: &str,
+    after: &str,
+    observations: u32,
+    minimum_repeated_failures: u32,
+) -> Result<bool> {
+    if !(1..=64).contains(&minimum_repeated_failures) {
+        return Err(Error::Limit("escalation policy"));
+    }
+    if !hash(before) || !hash(after) {
+        return Err(Error::Protocol("strategy progress fingerprints"));
+    }
+    Ok(before == after && observations >= minimum_repeated_failures)
+}
+
 /// Selection has already enforced quality, capability and provider restrictions.
 /// Recompute it here against the supplied policy/catalog to prevent a forged or
 /// stale selection from being promoted by the escalation boundary.
@@ -230,10 +248,12 @@ pub fn evaluate(
             return blocked(Blocked::NoTrigger)
         }
         TriggerKind::RepeatedStrategy { before, after } => {
-            if !hash(before) || !hash(after) {
-                return Err(Error::Protocol("strategy progress fingerprints"));
-            }
-            if before != after || trigger.observations < policy.minimum_repeated_failures {
+            if !repeated_strategy_signal(
+                before,
+                after,
+                trigger.observations,
+                policy.minimum_repeated_failures,
+            )? {
                 return blocked(Blocked::NoTrigger);
             }
         }
