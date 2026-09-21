@@ -187,10 +187,12 @@ a historical-only disposition. The next
 [caller-owned scheduling slice](../evaluations/p6-advisory-scheduling.md) adds a
 single persistent claim, dispatch revalidation, pause/interruption closure and
 reopen without replay. The [accounting binding](../evaluations/p6-advisory-accounting.md)
-then reuses ordinary helper reservations and live charge state. Transport/response
-integration still precedes exact-cycle and local-producer work.
+then reuses ordinary helper reservations and live charge state. The
+[canonical shadow runtime](../evaluations/p6-advisory-runtime.md) connects
+transport/response handling for admitted invalid-output and failed-verification
+escalations. Exact-cycle and local-producer work follow runtime verification.
 
-Transport integration proceeds in the following order:
+The runtime implementation and its acceptance checks follow this order:
 
 1. Revalidate completion against current canonical task/workspace revisions and
    current policy/catalog/evidence, including repeated completion calls. Bind the
@@ -203,8 +205,10 @@ Transport integration proceeds in the following order:
    authorize escalation evaluation.
 3. Run escalation comparisons in host shadow mode through the existing finite
    capability, credential, transport and budget boundaries. Persist a stable run
-   identity from the admitted main attempt and purpose before dispatch; regenerating
-   a deadline must not permit replay. Close claims and release or retain liabilities
+   identity from the admitted main attempt before dispatch, with purpose committed
+   in the request. Only one purpose is installed at a time, and changing it does not
+   permit a second comparison of that admission. Regenerating a deadline must not
+   permit replay. Close claims and release or retain liabilities
    on every failure between scheduling, reservation, submission and response.
 4. Retain sanitized response evidence, decode original bounded bytes and settle
    usage independently of whether advice is current. Recheck source, qualification,
