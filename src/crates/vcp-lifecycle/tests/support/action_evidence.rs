@@ -42,7 +42,7 @@ fn window() -> HistoryWindow {
     }
 }
 
-async fn create_task(store: &mut Store, access: &Access, state: TaskState) -> Task {
+pub(super) async fn create_task(store: &mut Store, access: &Access, state: TaskState) -> Task {
     create_named_task(store, access, state, "action-task").await
 }
 

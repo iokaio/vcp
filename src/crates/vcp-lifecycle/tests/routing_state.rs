@@ -8,6 +8,8 @@ use vcp_protocol::event::{EventInput, EventKind};
 use vcp_store::{contract::*, BackendKind, Store};
 #[path = "support/action_evidence.rs"]
 mod action_evidence;
+#[path = "support/advisory_records.rs"]
+mod advisory_records;
 #[path = "support/routing_accounting.rs"]
 mod routing_accounting;
 #[cfg(feature = "qualification")]
