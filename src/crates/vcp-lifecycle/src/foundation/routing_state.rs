@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Canonical routing publications and local, scoped optimization evidence.
 pub mod advisory;
+pub mod compaction_diagnostics;
 pub mod consumption;
 pub mod cycles;
 pub mod fits;
+pub mod forecast_drift;
+pub mod forecast_reports;
 pub mod forecasts;
 pub mod local_stall;
 pub mod observations;
@@ -222,6 +225,8 @@ pub struct OptimizationReport {
     pub uncertainty: Vec<String>,
     pub source_tasks: Option<BTreeSet<TaskId>>,
     pub observed: ObservedMetrics,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forecast: Option<forecast_reports::ForecastPin>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -459,6 +464,7 @@ pub fn report(store: &Store, access: &Access, window: HistoryWindow) -> Result<O
         uncertainty,
         source_tasks: access.tasks.clone(),
         observed,
+        forecast: None,
     })
 }
 pub async fn save_report(
@@ -468,19 +474,7 @@ pub async fn save_report(
     now: Timestamp,
 ) -> Result<OptimizationReport> {
     let value = report(store, access, window)?;
-    let record = row(access, value.id.clone(), Revision::ZERO, &value)?;
-    commit(
-        store,
-        access,
-        vec![Mutation::Put {
-            record,
-            expected: None,
-        }],
-        CommandId::new(),
-        now,
-    )
-    .await?;
-    Ok(value)
+    forecast_reports::save(store, access, value, now).await
 }
 pub fn load_report(store: &Store, access: &Access, id: &str) -> Result<OptimizationReport> {
     let report: OptimizationReport = read(store, access, id)?.ok_or("report not found")?;
@@ -515,6 +509,7 @@ pub fn load_report(store: &Store, access: &Access, id: &str) -> Result<Optimizat
             return Err("report evidence unavailable; refresh report".into());
         }
     }
+    forecast_reports::load(store, access, &report)?;
     Ok(report)
 }
 

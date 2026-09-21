@@ -26,8 +26,10 @@ pub(crate) fn kind(row: &Record) -> Result<Option<&str>> {
         }
         redaction::RESULT if row.collection == Collection::Projection => Ok(Some(tag)),
         redaction::ADVISORY if row.collection == Collection::Projection => Ok(Some(tag)),
+        vcp_domain::forecast::REDACTED if row.collection == Collection::Projection => Ok(Some(tag)),
         _ if tag.starts_with("vcp_memory_redacted_")
-            || tag.starts_with("vcp_escalation_redacted_") =>
+            || tag.starts_with("vcp_escalation_redacted_")
+            || tag.starts_with("vcp_optimization_redacted_") =>
         {
             Err(Error::Corruption("redacted entity type or collection"))
         }
@@ -44,6 +46,15 @@ pub(crate) fn scope(row: &Record) -> Result<Scope> {
     }
 }
 pub(crate) fn shape(row: &Record) -> Result<()> {
+    if kind(row)? == Some(vcp_domain::forecast::REDACTED) {
+        let value: vcp_domain::forecast::RedactedSources = row.decode()?;
+        value.validate()?;
+        if value.id != row.id || value.workspace != row.workspace || value.revision != row.revision
+        {
+            return Err(Error::Corruption("redacted forecast identity"));
+        }
+        return Ok(());
+    }
     let (id, scope, revision) = match kind(row)? {
         Some(redaction::ADVISORY) => {
             let value: RedactedAdvisory = row.decode()?;
@@ -93,6 +104,12 @@ fn source_refs(refs: &mut BTreeSet<String>, sources: &Sources) {
     );
 }
 pub(crate) fn references(row: &Record) -> Result<BTreeSet<String>> {
+    if kind(row)? == Some(vcp_domain::forecast::REDACTED) {
+        return Ok(BTreeSet::from([key(
+            Collection::Workspace,
+            row.workspace.as_str(),
+        )]));
+    }
     let mut refs = BTreeSet::from([key(Collection::Task, scope(row)?.task.as_str())]);
     match kind(row)? {
         Some(redaction::ADVISORY) => (),
@@ -231,6 +248,10 @@ pub(crate) fn validate(state: &State) -> Result<()> {
             )?
             .decode()?;
         let epoch = match kind(row)? {
+            Some(vcp_domain::forecast::REDACTED) => {
+                row.decode::<vcp_domain::forecast::RedactedSources>()?
+                    .deletion
+            }
             Some(redaction::ADVISORY) => row.decode::<RedactedAdvisory>()?.deletion,
             Some(redaction::PROPOSAL) => row.decode::<RedactedProposal>()?.deletion,
             Some(redaction::VERSION) => {
@@ -427,6 +448,20 @@ pub(crate) fn redact_record(
                 .map_err(|_| Error::Conflict("task content protected"))?,
         )?,
         _ => match source.value["document_type"].as_str() {
+            Some(vcp_domain::forecast::SOURCES) if source.collection == Collection::Projection => {
+                crate::forecast_contract::shape(source)?;
+                serde_json::to_value(vcp_domain::forecast::RedactedSources {
+                    document_type: vcp_domain::forecast::REDACTED.into(),
+                    schema_version: 1,
+                    id: source.id.clone(),
+                    workspace: source.workspace.clone(),
+                    revision: source.revision,
+                    deletion,
+                    original_digest: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
+                        &source.value,
+                    )?),
+                })?
+            }
             Some(tag)
                 if source.collection == Collection::Projection
                     && redaction::advisory_document(tag) =>

@@ -261,6 +261,11 @@ fn scope(state: &State, target: &Target) -> Result<Option<Scope>> {
     }
 }
 fn valid_record(row: &Record) -> bool {
+    if row.collection == Collection::Projection
+        && row.value["document_type"] == vcp_domain::forecast::SOURCES
+    {
+        return true;
+    }
     matches!(
         row.collection,
         Collection::Task
@@ -279,6 +284,9 @@ fn valid_record(row: &Record) -> bool {
             .is_some_and(vcp_domain::redaction::advisory_document)
 }
 fn already_redacted(row: &Record) -> bool {
+    if row.value["document_type"] == vcp_domain::forecast::REDACTED {
+        return true;
+    }
     if row.collection == Collection::Attempt {
         return row
             .decode::<vcp_domain::accounting::Attempt>()
@@ -649,6 +657,15 @@ pub fn preview(
                 closure.contains(&Target::Record(key(Collection::Task, s.task.as_str())))
             });
             let mut depends = own_selected;
+            if row.collection == Collection::Projection
+                && row.value["document_type"] == vcp_domain::forecast::SOURCES
+            {
+                let sources: vcp_domain::forecast::Sources = row.decode()?;
+                depends |= sources
+                    .source_events
+                    .iter()
+                    .any(|id| closure.contains(&Target::Event(id.clone())));
+            }
             if row.collection == Collection::Task {
                 let task: Task = row.decode()?;
                 depends |= task

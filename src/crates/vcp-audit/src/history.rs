@@ -372,6 +372,12 @@ impl History {
         if !allows(access, Some(&artifact.spec.scope.task)) {
             return Err(Error::Access);
         }
+        // Aggregate forecast payloads can depend on many tasks and retained
+        // sources. Only the specialized optimizer loader validates that full
+        // manifest, including logical exclusion and current deletion epochs.
+        if artifact.spec.schema == "vcp-optimization-forecast-v1" {
+            return Err(Error::Access);
+        }
         if masks(store.state(), &access.workspace)?
             .iter()
             .any(|mask| mask.artifacts.contains(id))

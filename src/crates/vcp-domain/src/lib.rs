@@ -3,6 +3,7 @@
 pub mod accounting;
 pub mod artifact;
 pub mod effect;
+pub mod forecast;
 pub mod ids;
 pub mod ingestion;
 pub mod memory;

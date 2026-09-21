@@ -442,6 +442,57 @@ async fn run(backend: BackendKind, oversized: bool) {
         test.codex.shutdown_and_wait().await.unwrap();
         drop(test);
         drop(host);
+        let store = vcp_store::Store::open(&config.canonical_root, backend, &[])
+            .await
+            .unwrap();
+        let retained_workspace: vcp_domain::workspace::Workspace = store
+            .state()
+            .record(
+                Collection::Workspace,
+                config.workspace.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let access = vcp_memory::access::Access {
+            workspace: config.workspace.clone(),
+            actor: config.actor.clone(),
+            authority: retained_workspace.authority,
+            read: true,
+            write: false,
+            tasks: Some(BTreeSet::from([config.root_task.clone()])),
+        };
+        let before = store.state().clone();
+        let diagnostics =
+            vcp_lifecycle::foundation::routing_state::compaction_diagnostics::observe(
+                &store,
+                &access,
+                vcp_lifecycle::foundation::routing_state::HistoryWindow {
+                    from: None,
+                    until: Timestamp::new(u64::MAX),
+                },
+            )
+            .unwrap();
+        assert!(!diagnostics.entries.is_empty());
+        assert!(
+            diagnostics
+                .entries
+                .iter()
+                .any(|entry| entry.consumed_by.is_some()),
+            "real submitted compacted context must be linked: {diagnostics:?}"
+        );
+        assert!(diagnostics
+            .entries
+            .iter()
+            .all(|entry| entry.abstention.is_some()
+                || (entry.before.is_some() && entry.after.is_some())));
+        let rendered = serde_json::to_string(&diagnostics).unwrap();
+        assert!(!rendered.contains("synthetic historical evidence"));
+        assert!(!rendered.contains("Obsolete assumption"));
+        assert!(!diagnostics.serving_qualified);
+        assert_eq!(store.state(), &before);
+        drop(store);
         if phase == 0 {
             fs::write(
                 workspace.join("AGENTS.md"),
