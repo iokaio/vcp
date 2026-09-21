@@ -2,8 +2,8 @@
 
 Status: M1 in progress, September 20, 2026. This execution supplement adopts the useful
 directions from [the research note](../research/markov.md) into existing work.
-The task-transition inspection and pure numerical increments are described under
-M1 below; remaining statistical integration is not implemented or qualified. This creates no new product
+The task-transition, pure numerical and causal action-observation increments are
+described under M1 below; remaining statistical integration is not implemented or qualified. This creates no new product
 task IDs, changes no architecture dependencies and enables no runtime feature.
 The [owning task sections](20-traceability.md#work-item-ownership-and-readiness)
 remain the implementation entry points; the increments below define their added
@@ -85,9 +85,12 @@ This independently reviewable increment establishes historical source correctnes
 before fitting models. The [pure numerical increment](../evaluations/p6-markov-kernels.md)
 implements bounded segment counts, observed-support smoothing, absorbing-chain
 visits/outcomes/rewards and log likelihoods, with independent synthetic oracles.
-These increments do not complete M1: turn/action symbols, attempt
-lineage/counter augmentation, exact-endpoint cohorts, reward attribution, fit
-qualification and fitted-artifact retention/consumed-value replay remain next. Existing
+The [causal action increment](../evaluations/p6-action-evidence.md) adds separate
+turn/effect/attempt traces, retry lineage, exact endpoint/model cohorts, available task
+class, bounded counters and revision-bound failure signatures under
+[ADR-030](../adr/030-causal-action-observations.md). These increments do not
+complete M1: exact charge/reward attribution, fit qualification and fitted-artifact
+retention/consumed-value replay remain next. Existing
 optimizer report schemas and enabled routing behavior are unchanged.
 
 1. Define a closed, revisioned alphabet from canonical task/turn transitions,

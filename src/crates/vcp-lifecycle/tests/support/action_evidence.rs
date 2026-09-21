@@ -1,0 +1,741 @@
+// SPDX-License-Identifier: Apache-2.0
+use super::*;
+use vcp_domain::{
+    accounting::*,
+    artifact::{ArtifactDescriptor, ArtifactSpec, Channel},
+    task::{Objective, Task, TaskState, TurnState},
+    verification::{Check, CheckOutcome, CostCertainty, Verification},
+};
+use vcp_lifecycle::foundation::{routing, routing_state::observations::*};
+use vcp_protocol::{
+    command::{Command, CommandEnvelope},
+    digest_bytes,
+};
+use vcp_store::artifact::ArtifactWriter;
+
+fn window() -> HistoryWindow {
+    HistoryWindow {
+        from: None,
+        until: Timestamp::new(1000),
+    }
+}
+
+async fn create_task(store: &mut Store, access: &Access, state: TaskState) -> Task {
+    let session: Session = store
+        .state()
+        .records
+        .values()
+        .find(|record| record.collection == Collection::Session)
+        .unwrap()
+        .decode()
+        .unwrap();
+    let id = TaskId::parse("action-task").unwrap();
+    let cause = EventId::new();
+    let task = Task {
+        scope: Scope {
+            workspace: access.workspace.clone(),
+            session: session.id.clone(),
+            task: id.clone(),
+        },
+        root: id.clone(),
+        parent: None,
+        fork_origin: None,
+        revision: Revision::ZERO,
+        steering: SteeringRevision::ZERO,
+        objectives: vec![Objective {
+            text: "private action objective".into(),
+            constraints: vec![],
+            acceptance: vec![],
+            source: cause.clone(),
+            steering: SteeringRevision::ZERO,
+        }],
+        state,
+        fingerprint: Fingerprint {
+            repository: "a".repeat(64),
+            buffers: "b".repeat(64),
+            environment: "c".repeat(64),
+        },
+        editing: true,
+        required_checks: vec!["cargo test secret argument".into()],
+        cause: cause.clone(),
+        reason: "private task reason".into(),
+        redaction: None,
+    };
+    store.transact(Transaction {
+        id: TransactionId::new(), expected_watermark: store.state().watermark,
+        mutations: vec![Mutation::Put { record: Record::typed(Collection::Task, id.as_str(), access.workspace.clone(),
+            Revision::ZERO, &task).unwrap(), expected: None }],
+        events: vec![EventInput { id: cause, workspace: access.workspace.clone(), session: session.id,
+            task: Some(id), actor: access.actor.clone(), correlation: CommandId::new(), causation: None,
+            timestamp: Timestamp::new(2), kind: EventKind::TaskCreated, artifacts: vec![],
+            data: serde_json::json!({"schema_version":1,"facts":[{"collection":"task","id":task.scope.task,
+                "revision":task.revision,"value":task}]}), metadata: None }], command: None,
+    }).await.unwrap();
+    task
+}
+
+fn engine_access(access: &Access, task: &Task) -> vcp_engine::Access {
+    vcp_engine::Access {
+        actor: access.actor.clone(),
+        workspace: access.workspace.clone(),
+        session: task.scope.session.clone(),
+        authority: access.authority,
+        read: true,
+        write: true,
+        bootstrap: false,
+    }
+}
+
+fn command(
+    engine: &vcp_engine::Engine<Store>,
+    access: &Access,
+    task: &Task,
+    expected: Revision,
+    payload: Command,
+) -> CommandEnvelope {
+    CommandEnvelope {
+        version: 1,
+        id: CommandId::new(),
+        workspace: access.workspace.clone(),
+        session: task.scope.session.clone(),
+        task: Some(task.scope.task.clone()),
+        caller: access.actor.clone(),
+        controller: engine.controller().clone(),
+        owner_epoch: engine.owner_epoch(),
+        expected,
+        steering: SteeringRevision::ZERO,
+        payload,
+    }
+}
+
+#[tokio::test]
+async fn engine_turn_and_verification_facts_are_revision_bound_without_prose() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let task = create_task(&mut store, &access, TaskState::Running).await;
+        let trigger = capture(&mut store, &task, Channel::Evidence).await;
+        let check_output = capture(&mut store, &task, Channel::Stdout).await;
+        let mut engine = vcp_engine::Engine::new(store).unwrap();
+        let actor = engine_access(&access, &task);
+        let mut host = vcp_engine::HostFacts::inspect(Timestamp::new(10));
+        host.may_execute = true;
+        let turn = TurnId::new();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    &access,
+                    &task,
+                    Revision::ZERO,
+                    Command::StartTurn {
+                        id: turn.clone(),
+                        trigger: trigger.spec.id,
+                    },
+                ),
+                &actor,
+                &host,
+            )
+            .await
+            .unwrap();
+        let effect = ToolRunId::new();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    &access,
+                    &task,
+                    Revision::ZERO,
+                    Command::ProposeEffect {
+                        id: effect.clone(),
+                        operation_digest: "f".repeat(64),
+                    },
+                ),
+                &actor,
+                &host,
+            )
+            .await
+            .unwrap();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    &access,
+                    &task,
+                    Revision::ZERO,
+                    Command::AdvanceEffect {
+                        id: effect,
+                        next: vcp_domain::effect::EffectState::Validated,
+                        reason: "private effect narrative".into(),
+                        execution: None,
+                        exit_code: None,
+                        observed_changes: vec![],
+                    },
+                ),
+                &actor,
+                &host,
+            )
+            .await
+            .unwrap();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    &access,
+                    &task,
+                    Revision::ZERO,
+                    Command::AdvanceTurn {
+                        id: turn,
+                        next: TurnState::AssemblingContext,
+                        reason: "private turn narrative".into(),
+                    },
+                ),
+                &actor,
+                &host,
+            )
+            .await
+            .unwrap();
+        let verification = Verification {
+            redaction: None,
+            id: VerificationId::new(),
+            scope: task.scope.clone(),
+            steering: task.steering,
+            fingerprint: task.fingerprint.clone(),
+            outputs: vec![check_output.spec.id.clone()],
+            checks: vec![Check {
+                specification: " Cargo   TEST secret/path ".into(),
+                outcome: CheckOutcome::Failed {
+                    reason: " Line 99: PRIVATE mismatch ".into(),
+                },
+                output: check_output.spec.id,
+                exit_code: Some(101),
+            }],
+            unresolved_effects: vec![],
+            outstanding_issues: vec![],
+            cost: CostCertainty::Known,
+        };
+        let envelope = command(
+            &engine,
+            &access,
+            &task,
+            Revision::ZERO,
+            Command::RecordVerification { verification },
+        );
+        engine
+            .handle(envelope.clone(), &actor, &host)
+            .await
+            .unwrap();
+        engine.handle(envelope, &actor, &host).await.unwrap();
+        let before = engine.store().state().clone();
+        let read = Access {
+            workspace: access.workspace.clone(),
+            actor: access.actor.clone(),
+            authority: access.authority,
+            read: true,
+            write: false,
+            tasks: access.tasks.clone(),
+        };
+        let evidence = observe(engine.store(), &read, window()).unwrap();
+        assert_eq!(evidence.turns.len(), 1);
+        assert_eq!(evidence.turns[0].observations.len(), 2);
+        assert!(evidence.turns[0].gaps.is_empty() && evidence.turns[0].right_censored);
+        assert_eq!(evidence.effects.len(), 1);
+        assert_eq!(evidence.effects[0].observations.len(), 2);
+        assert_eq!(
+            evidence.effects[0]
+                .observations
+                .iter()
+                .map(|observation| observation.state)
+                .collect::<Vec<_>>(),
+            vec![
+                vcp_domain::effect::EffectState::Proposed,
+                vcp_domain::effect::EffectState::Validated
+            ]
+        );
+        assert!(evidence.effects[0].right_censored);
+        assert_eq!(evidence.verifications.len(), 1);
+        assert_eq!(
+            evidence.verifications[0].observed_task_revision,
+            Some(Revision::ZERO)
+        );
+        assert!(evidence.verifications[0].checks[0]
+            .failure_signature
+            .is_some());
+        let encoded = serde_json::to_string(&evidence).unwrap();
+        for private in [
+            "private action objective",
+            "private turn narrative",
+            "private effect narrative",
+            "cargo",
+            "secret/path",
+            "mismatch",
+        ] {
+            assert!(!encoded.to_lowercase().contains(private));
+        }
+        assert_eq!(engine.store().state(), &before);
+    }
+}
+
+fn money(value: u64) -> Money {
+    Money {
+        currency: "USD".to_owned().try_into().unwrap(),
+        micros: Micros::new(value),
+    }
+}
+fn budget_actor(access: &Access, now: u64) -> vcp_budget::Actor {
+    vcp_budget::Actor {
+        id: access.actor.clone(),
+        now: Timestamp::new(now),
+    }
+}
+async fn capture(store: &mut Store, task: &Task, channel: Channel) -> ArtifactDescriptor {
+    let spec = ArtifactSpec {
+        id: ArtifactId::new(),
+        scope: task.scope.clone(),
+        media_type: "application/json".into(),
+        schema: "synthetic-action/1".into(),
+        source: "fixture".into(),
+        channel,
+        retention: "history".into(),
+        omissions: vec![],
+    };
+    let mut writer = store.spool().create(spec).unwrap();
+    writer.write_chunk(b"synthetic retained input").unwrap();
+    let artifact = writer.finalize().unwrap();
+    drop(writer);
+    store
+        .transact(Transaction {
+            id: TransactionId::new(),
+            expected_watermark: store.state().watermark,
+            mutations: vec![Mutation::Put {
+                record: Record::typed(
+                    Collection::Artifact,
+                    artifact.spec.id.as_str(),
+                    task.scope.workspace.clone(),
+                    Revision::ZERO,
+                    &artifact,
+                )
+                .unwrap(),
+                expected: None,
+            }],
+            events: vec![],
+            command: None,
+        })
+        .await
+        .unwrap();
+    artifact
+}
+fn price(model: &str) -> PriceSnapshot {
+    PriceSnapshot {
+        id: "d".repeat(64),
+        provider: "exact/provider-endpoint".into(),
+        model: model.into(),
+        currency: money(0).currency,
+        capability: "e".repeat(64),
+        valid_until: Timestamp::new(1000),
+        rates: [
+            ChargeCategory::Input,
+            ChargeCategory::Output,
+            ChargeCategory::CacheRead,
+            ChargeCategory::CacheWrite,
+            ChargeCategory::Request,
+            ChargeCategory::ProviderTool,
+        ]
+        .into_iter()
+        .map(|category| {
+            (
+                category,
+                Rate {
+                    micros: Micros::new(u64::from(category == ChargeCategory::Request) * 10),
+                    per_units: Units::new(1),
+                },
+            )
+        })
+        .collect(),
+    }
+}
+async fn reserve(
+    store: &mut Store,
+    access: &Access,
+    task: &Task,
+    previous: Option<AttemptId>,
+    now: u64,
+) -> Attempt {
+    let request = capture(store, task, Channel::RequestBody).await;
+    let ledger = vcp_budget::ledger(store.state(), &task.scope).unwrap();
+    vcp_budget::reserve(
+        store,
+        vcp_budget::Admission {
+            transaction: TransactionId::new(),
+            attempt: AttemptId::new(),
+            reservation: ReservationId::new(),
+            scope: task.scope.clone(),
+            agent: AgentId::new(),
+            role: RequestRole::Main,
+            request: request.spec.id,
+            request_digest: request.sha256,
+            quote: vcp_budget::arithmetic::quote(
+                price("exact-model"),
+                Usage {
+                    requests: Units::new(1),
+                    ..Default::default()
+                },
+                Timestamp::new(now),
+            )
+            .unwrap(),
+            previous,
+            expected_ledger: ledger.revision,
+            policy: ledger.policy,
+            steering: task.steering,
+            draw_protected: false,
+            now: Timestamp::new(now),
+        },
+        &budget_actor(access, now),
+    )
+    .await
+    .unwrap()
+}
+async fn settle(store: &mut Store, access: &Access, task: &Task, attempt: &Attempt, now: u64) {
+    vcp_budget::submit(
+        store,
+        &attempt.id,
+        &task.scope,
+        attempt.revision,
+        &budget_actor(access, now),
+    )
+    .await
+    .unwrap();
+    let raw = capture(store, task, Channel::Response).await;
+    vcp_budget::observe(
+        store,
+        UsageObservation {
+            id: ObservationId::new(),
+            scope: task.scope.clone(),
+            attempt: attempt.id.clone(),
+            provider_request: format!("provider-{}", attempt.id),
+            mode: UsageMode::Cumulative {
+                version: Units::new(1),
+            },
+            amount: money(10),
+            final_usage: true,
+            raw: raw.spec.id,
+            correction: None,
+        },
+        &budget_actor(access, now + 1),
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let task = create_task(&mut store, &access, TaskState::Running).await;
+        vcp_budget::initialize(
+            &mut store,
+            task.scope.clone(),
+            money(1000),
+            Micros::ZERO,
+            None,
+            &budget_actor(&access, 3),
+        )
+        .await
+        .unwrap();
+        let first = reserve(&mut store, &access, &task, None, 10).await;
+        settle(&mut store, &access, &task, &first, 11).await;
+        let second = reserve(&mut store, &access, &task, Some(first.id.clone()), 20).await;
+        settle(&mut store, &access, &task, &second, 21).await;
+        let decision_id = format!(
+            "routing-decision-{}",
+            digest_bytes(second.id.as_str().as_bytes())
+        );
+        let value = serde_json::json!({"routing_encoding":"object_v1","schema_version":1,
+            "document_type":"vcp_routing_decision_v1","scope":task.scope,"task":task.scope.task,"root":task.root,
+            "decision":{"input":{"workspace":access.workspace,"task":task.scope.task,"root":task.root,"task_class":"coding"},
+                "selected":{"model":"exact-model","endpoint":"exact/provider-endpoint"}},
+            "request_digest":second.request_digest,"attempt":second.id});
+        let mut record = Record::typed(
+            Collection::Projection,
+            decision_id,
+            access.workspace.clone(),
+            Revision::ZERO,
+            &value,
+        )
+        .unwrap();
+        record.references.extend([
+            key(Collection::Attempt, second.id.as_str()),
+            key(Collection::Task, task.scope.task.as_str()),
+        ]);
+        store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: store.state().watermark,
+                mutations: vec![Mutation::Put {
+                    record,
+                    expected: None,
+                }],
+                events: vec![],
+                command: None,
+            })
+            .await
+            .unwrap();
+        let evidence = observe(&store, &access, window()).unwrap();
+        assert_eq!(evidence.attempts.len(), 2);
+        let initial = evidence
+            .attempts
+            .iter()
+            .find(|trace| trace.attempt == first.id)
+            .unwrap();
+        assert_eq!(initial.cohort.retry_depth, Some(0));
+        assert_eq!(initial.cohort.prior_attempts, Some(0));
+        assert_eq!(
+            initial
+                .observations
+                .iter()
+                .map(|o| o.phase)
+                .collect::<Vec<_>>(),
+            vec![
+                ReservationState::Created,
+                ReservationState::Submitted,
+                ReservationState::Settled
+            ]
+        );
+        let retry = evidence
+            .attempts
+            .iter()
+            .find(|trace| trace.attempt == second.id)
+            .unwrap();
+        assert_eq!(retry.cohort.retry_depth, Some(1));
+        assert_eq!(retry.cohort.prior_attempts, Some(1));
+        assert_eq!(retry.cohort.decomposition_depth, Some(0));
+        assert_eq!(retry.cohort.task_class.as_deref(), Some("coding"));
+        assert_eq!(retry.cohort.endpoint, "exact/provider-endpoint");
+        assert_eq!(retry.cohort.model, "exact-model");
+        assert!(retry.gaps.is_empty() && !retry.right_censored);
+        let partial = observe(
+            &store,
+            &access,
+            HistoryWindow {
+                from: Some(Timestamp::new(11)),
+                until: Timestamp::new(1000),
+            },
+        )
+        .unwrap();
+        assert!(partial
+            .attempts
+            .iter()
+            .all(|trace| trace.cohort.prior_attempts.is_none()
+                && trace.cohort.prior_failed_checks.is_none()
+                && trace.cohort.retry_depth.is_none()));
+        let scoped = Access {
+            workspace: access.workspace.clone(),
+            actor: access.actor.clone(),
+            authority: access.authority,
+            read: true,
+            write: false,
+            tasks: Some(BTreeSet::from([task.scope.task.clone()])),
+        };
+        assert_eq!(
+            observe(&store, &scoped, window()).unwrap().attempts.len(),
+            2
+        );
+        let denied = Access {
+            workspace: access.workspace.clone(),
+            actor: access.actor.clone(),
+            authority: access.authority,
+            read: false,
+            write: false,
+            tasks: None,
+        };
+        assert!(observe(&store, &denied, window()).is_err());
+        let mut oversized_tasks = (0..6000)
+            .map(|index| TaskId::parse(format!("scope-{index:090}")).unwrap())
+            .collect::<BTreeSet<_>>();
+        oversized_tasks.insert(task.scope.task.clone());
+        let oversized = Access {
+            workspace: access.workspace.clone(),
+            actor: access.actor.clone(),
+            authority: access.authority,
+            read: true,
+            write: false,
+            tasks: Some(oversized_tasks),
+        };
+        assert!(observe(&store, &oversized, window())
+            .unwrap_err()
+            .contains("512 KiB"));
+        drop(store);
+        let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
+        assert_eq!(observe(&reopened, &access, window()).unwrap(), evidence);
+    }
+}
+
+#[tokio::test]
+async fn old_verification_and_partial_attempt_windows_abstain_from_missing_identity_and_counters() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let task = create_task(&mut store, &access, TaskState::Running).await;
+        let check_output = capture(&mut store, &task, Channel::Stdout).await;
+        let id = VerificationId::new();
+        let verification = Verification {
+            redaction: None,
+            id: id.clone(),
+            scope: task.scope.clone(),
+            steering: task.steering,
+            fingerprint: task.fingerprint.clone(),
+            outputs: vec![],
+            checks: vec![Check {
+                specification: "same check".into(),
+                outcome: CheckOutcome::Failed {
+                    reason: "same failure".into(),
+                },
+                output: check_output.spec.id,
+                exit_code: Some(1),
+            }],
+            unresolved_effects: vec![],
+            outstanding_issues: vec![],
+            cost: CostCertainty::Uncertain {
+                attempts: vec![],
+                reason: "unknown cost".into(),
+            },
+        };
+        let event = EventId::new();
+        store.transact(Transaction { id: TransactionId::new(), expected_watermark: store.state().watermark,
+            mutations: vec![Mutation::Put { record: Record::typed(Collection::Verification, id.as_str(), access.workspace.clone(),
+                Revision::ZERO, &verification).unwrap(), expected: None }],
+            events: vec![EventInput { id: event, workspace: access.workspace.clone(), session: task.scope.session.clone(),
+                task: Some(task.scope.task.clone()), actor: access.actor.clone(), correlation: CommandId::new(), causation: None,
+                timestamp: Timestamp::new(30), kind: EventKind::VerificationRecorded, artifacts: vec![],
+                data: serde_json::json!({"schema_version":1,"facts":[{"collection":"verification","id":id,
+                    "revision":Revision::ZERO,"value":verification}]}), metadata: None }], command: None }).await.unwrap();
+        let evidence = observe(&store, &access, window()).unwrap();
+        assert_eq!(evidence.verifications[0].observed_task_revision, None);
+        assert_eq!(evidence.verifications[0].checks[0].failure_signature, None);
+        assert!(!evidence.verifications[0].cost_known);
+        let value = routing::execute(
+            &mut store,
+            &access,
+            routing::Request::Observations {
+                from: Some(Timestamp::new(25)),
+                until: Timestamp::new(100),
+            },
+            None,
+            Timestamp::new(100),
+        )
+        .await
+        .unwrap();
+        let partial: Evidence = serde_json::from_value(value).unwrap();
+        assert!(partial.attempts.is_empty());
+        assert_eq!(partial.verifications.len(), 1);
+        assert!(observe(
+            &store,
+            &access,
+            HistoryWindow {
+                from: Some(Timestamp::new(30)),
+                until: Timestamp::new(30)
+            }
+        )
+        .is_err());
+    }
+}
+
+#[tokio::test]
+async fn logical_event_purge_removes_action_observations_before_cleanup() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_memory::retention::{self, Action};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let task = create_task(&mut store, &access, TaskState::Running).await;
+        let trigger = capture(&mut store, &task, Channel::Evidence).await;
+        let mut engine = vcp_engine::Engine::new(store).unwrap();
+        let actor = engine_access(&access, &task);
+        let host = vcp_engine::HostFacts::inspect(Timestamp::new(10));
+        let turn = TurnId::new();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    &access,
+                    &task,
+                    Revision::ZERO,
+                    Command::StartTurn {
+                        id: turn.clone(),
+                        trigger: trigger.spec.id,
+                    },
+                ),
+                &actor,
+                &host,
+            )
+            .await
+            .unwrap();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    &access,
+                    &task,
+                    Revision::ZERO,
+                    Command::AdvanceTurn {
+                        id: turn,
+                        next: TurnState::Failed,
+                        reason: "terminal turn fixture before retention".into(),
+                    },
+                ),
+                &actor,
+                &host,
+            )
+            .await
+            .unwrap();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    &access,
+                    &task,
+                    Revision::ZERO,
+                    Command::Transition {
+                        next: TaskState::Cancelled,
+                        reason: "terminal fixture before retention".into(),
+                        verification: None,
+                    },
+                ),
+                &actor,
+                &host,
+            )
+            .await
+            .unwrap();
+        let mut store = engine.into_store();
+        assert_eq!(observe(&store, &access, window()).unwrap().turns.len(), 1);
+        let plan = retention::preview(
+            &store,
+            &access,
+            Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Event("turn_transition".into())),
+            },
+            Action::Purge,
+            Timestamp::new(1001),
+        )
+        .unwrap();
+        assert!(plan
+            .selected
+            .iter()
+            .any(|target| matches!(target, retention::Target::Event(_))));
+        retention::apply(&mut store, &access, &plan, Timestamp::new(1001))
+            .await
+            .unwrap();
+        let masked = observe(&store, &access, window()).unwrap();
+        assert!(masked.turns.is_empty());
+        assert_eq!(masked.gaps.len(), 2);
+        assert!(masked
+            .gaps
+            .iter()
+            .all(|gap| gap.reason == GapReason::RedactedEvent));
+        drop(store);
+        let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
+        assert_eq!(observe(&reopened, &access, window()).unwrap(), masked);
+    }
+}

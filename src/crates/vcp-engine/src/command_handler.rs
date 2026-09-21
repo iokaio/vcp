@@ -1086,6 +1086,13 @@ impl<S: CanonicalStore> Engine<S> {
         };
         let result = result.unwrap_or(CommandResult::Accepted { revision: accepted });
         let facts=mutations.iter().filter_map(|m|match m{Mutation::Put{record,..}=>Some(serde_json::json!({"collection":record.collection,"id":record.id,"revision":record.revision,"value":record.value})),_=>None}).collect::<Vec<_>>();
+        let mut data = serde_json::json!({"schema_version":1,"facts":facts});
+        if kind == EventKind::VerificationRecorded {
+            // The verification snapshot already binds steering and fingerprints.
+            // Preserve the accepted task revision as the remaining typed input
+            // identity needed for exact, non-prose failure signatures.
+            data["observed_task_revision"] = serde_json::to_value(command.expected)?;
+        }
         let event = EventInput {
             metadata: None,
             id: event_id,
@@ -1098,7 +1105,7 @@ impl<S: CanonicalStore> Engine<S> {
             timestamp: host.now,
             kind,
             artifacts,
-            data: serde_json::json!({"schema_version":1,"facts":facts}),
+            data,
         };
         let transaction = Transaction {
             id: TransactionId::new(),

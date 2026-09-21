@@ -31,6 +31,15 @@ Counts are not fitted probabilities or total-cost forecasts. See
 [ADR-029](../adr/029-retained-transition-evidence.md) and
 [verification/remaining scope](../evaluations/p6-transition-evidence.md).
 
+`vcp optimize observations --from <ms> --until <ms>` and
+`/optimize observations` inspect the richer M1 action evidence. Turn, tool/effect
+and attempt traces remain separate; retry lineage does not create a fictional transition.
+The result shows typed states/phases, exact endpoint/model cohorts, available
+task class and hashed check/failure identities. It omits raw commands,
+diagnostics, reasons and objectives. Older verification events remain visible
+with unavailable task revision/failure signature. See [ADR-030](../adr/030-causal-action-observations.md)
+and the [verification record](../evaluations/p6-action-evidence.md).
+
 Local analysis also works without a provider profile or a model budget:
 `vcp optimize status`, `vcp optimize report --from <ms> --until <ms>`,
 `vcp optimize answer priority "lower total cost"`, and

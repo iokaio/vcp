@@ -89,8 +89,10 @@ M1's [task-transition evidence increment](../evaluations/p6-transition-evidence.
 establishes scoped historical observation and gap handling through a local
 inspector. The [pure numerical increment](../evaluations/p6-markov-kernels.md)
 adds bounded counting, absorbing-chain solves, rewards and log likelihoods.
-Richer action/counter/cohort/reward observations and fitted-model integration
-remain open; these coarse task counts are not a routing estimate.
+The [causal action increment](../evaluations/p6-action-evidence.md) adds separate
+turn/effect/attempt traces, exact cohorts, retry lineage, bounded counters and failure
+identities. Exact charge/reward attribution and fitted-model integration remain
+open; no current observation is a routing estimate.
 
 **Planned Markov increments:** implement [M1](21-markov-integration.md#m1--retained-evidence-and-analysis-foundation)
 before the next P6-03 advisory integration: bounded causal history projection,
