@@ -96,10 +96,20 @@ pub async fn execute(
             )?)
             .map_err(|e| e.to_string())?
         }
-        Request::Compare { baseline, current } => serde_json::to_value(
-            routing_state::compare_reports(store, access, &baseline, &current)?,
-        )
-        .map_err(|e| e.to_string())?,
+        Request::Compare { baseline, current } => {
+            let mut value = serde_json::to_value(routing_state::compare_reports(
+                store, access, &baseline, &current,
+            )?)
+            .map_err(|e| e.to_string())?;
+            let drift = routing_state::forecast_drift::saved(store, access, &baseline, &current)?;
+            value["forecast_drift"] = serde_json::to_value(&drift).map_err(|e| e.to_string())?;
+            if drift.is_none() {
+                value["forecast_drift_unavailable"] = serde_json::json!(
+                    "One or both reports have no retained forecast snapshot; historical forecasts are not rebuilt."
+                );
+            }
+            value
+        }
         Request::Status => {
             let interview = routing_state::interview(store, access)?;
             serde_json::json!({"registry": routing_state::current_registry(store, access)?, "policy": routing_state::current_policy(store, access)?, "next_question":routing_state::next_question(&interview), "interview":interview, "remote_advice":"disabled; no qualified host dispatch"})
@@ -113,7 +123,9 @@ pub async fn execute(
             )
             .await?;
             let interview = routing_state::interview(store, access)?;
-            serde_json::json!({"next_question":routing_state::next_question_for_report(&interview, &report),"report":report,"interview":interview})
+            let saved = routing_state::forecast_reports::load_saved(store, access, &report)?;
+            serde_json::json!({"next_question":routing_state::next_question_for_report(&interview, &report),"report":report,"interview":interview,
+                "forecast":saved.as_ref().map(|value| &value.forecast),"compaction":saved.as_ref().map(|value| &value.compaction)})
         }
         Request::Answer {
             expected,

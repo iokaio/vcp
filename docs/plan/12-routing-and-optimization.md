@@ -306,9 +306,11 @@ observer agents remain P10-03 deferred scope.
 
 ## P6-05 — `/optimize` workflow
 
-**M3 construction in progress:** [read-only action forecasts](../evaluations/p6-action-forecasts.md)
-now expose supported episode/cohort expectations and exclusions. Saved forecast
-artifacts and matched drift/compaction diagnostics remain before M3 acceptance.
+**M3 construction implemented:** [read-only action forecasts](../evaluations/p6-action-forecasts.md)
+expose supported episode/cohort expectations and exclusions. [Saved forecast
+artifacts and matched drift/compaction diagnostics](../evaluations/p6-saved-forecast-diagnostics.md)
+preserve exact evidence with source access and retention checks. Forecast serving
+remains unqualified pending M4; this does not complete deferred M7 policy proposals.
 
 **Planned Markov increments:** after the P6-03 implementation prerequisite,
 [M3](21-markov-integration.md#m3--read-only-forecasts-in-the-optimizer) adds read-only

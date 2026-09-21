@@ -559,3 +559,283 @@ async fn action_forecasts_exclude_old_schema_and_revision_gaps_instead_of_joinin
         assert_eq!(store.state(), &before);
     }
 }
+
+fn saved_bytes(store: &Store, pin: &forecast_reports::ForecastPin) -> Vec<u8> {
+    let descriptor: vcp_domain::artifact::ArtifactDescriptor = store
+        .state()
+        .record(
+            Collection::Artifact,
+            pin.artifact.as_str(),
+            &store
+                .state()
+                .records
+                .values()
+                .find(|record| record.collection == Collection::Workspace)
+                .unwrap()
+                .workspace,
+        )
+        .unwrap()
+        .decode()
+        .unwrap();
+    let mut bytes = Vec::new();
+    store.spool().read(&descriptor, &mut bytes).unwrap();
+    assert_eq!(vcp_protocol::digest_bytes(&bytes), pin.digest);
+    bytes
+}
+
+#[tokio::test]
+async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_source_access() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_memory::retention::{self, Action};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (store, access) = setup(temp.path(), backend).await;
+        let store = episode(store, &access, 0, false, Some(TaskState::Completed)).await;
+        let mut store = episode(store, &access, 1, false, Some(TaskState::Failed)).await;
+        let baseline = save_report(&mut store, &access, window(), Timestamp::new(1001))
+            .await
+            .unwrap();
+        let pin = baseline.forecast.as_ref().unwrap();
+        assert_eq!(pin.source_tasks.len(), 2);
+        let manifest = store
+            .state()
+            .record(
+                Collection::Projection,
+                &pin.source_manifest,
+                &access.workspace,
+            )
+            .unwrap()
+            .clone();
+        let mut replacement = manifest.clone();
+        replacement.revision = replacement.revision.next().unwrap();
+        replacement.value["revision"] = serde_json::to_value(replacement.revision).unwrap();
+        let before = store.state().clone();
+        assert!(store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: store.state().watermark,
+                mutations: vec![Mutation::Put {
+                    record: replacement,
+                    expected: Some(manifest.revision)
+                }],
+                events: vec![],
+                command: None
+            })
+            .await
+            .is_err());
+        assert_eq!(store.state(), &before);
+        let bytes = saved_bytes(&store, pin);
+        let frozen = forecast_reports::load(&store, &access, &baseline)
+            .unwrap()
+            .unwrap();
+        let mut mismatched = baseline.clone();
+        mismatched.forecast.as_mut().unwrap().digest = "0".repeat(64);
+        assert!(forecast_reports::load(&store, &access, &mismatched).is_err());
+        let mut narrowed_manifest = baseline.clone();
+        narrowed_manifest
+            .forecast
+            .as_mut()
+            .unwrap()
+            .source_tasks
+            .pop_last();
+        assert!(forecast_reports::load(&store, &access, &narrowed_manifest).is_err());
+        assert_eq!(frozen.episodes.len(), 2);
+        assert!(matches!(
+            frozen.cohorts[0].status,
+            ForecastStatus::Abstained { .. }
+        ));
+        // Optional attachment preserves deserialization of reports saved before this feature.
+        let mut legacy = serde_json::to_value(&baseline).unwrap();
+        legacy.as_object_mut().unwrap().remove("forecast");
+        let legacy: OptimizationReport = serde_json::from_value(legacy).unwrap();
+        assert!(legacy.forecast.is_none());
+        assert!(forecast_reports::load(&store, &access, &legacy)
+            .unwrap()
+            .is_none());
+        let mut store = episode(store, &access, 2, false, Some(TaskState::Cancelled)).await;
+        let current = save_report(&mut store, &access, window(), Timestamp::new(1002))
+            .await
+            .unwrap();
+        assert_eq!(saved_bytes(&store, pin), bytes);
+        assert_eq!(
+            forecast_reports::load(&store, &access, &baseline)
+                .unwrap()
+                .unwrap(),
+            frozen
+        );
+        let mut read = copy_access(&access);
+        read.write = false;
+        let before = store.state().clone();
+        assert_eq!(load_report(&store, &read, &baseline.id).unwrap(), baseline);
+        assert!(
+            forecast_drift::saved(&store, &read, &baseline.id, &current.id)
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(store.state(), &before);
+        drop(store);
+        let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
+        assert_eq!(saved_bytes(&store, pin), bytes);
+        assert_eq!(
+            forecast_reports::load(&store, &read, &baseline)
+                .unwrap()
+                .unwrap(),
+            frozen
+        );
+        let mut narrow = copy_access(&read);
+        narrow.tasks = Some(BTreeSet::from([TaskId::parse("forecast-0").unwrap()]));
+        assert!(load_report(&store, &narrow, &baseline.id).is_err());
+        assert!(forecast_reports::load(&store, &narrow, &baseline).is_err());
+        let audit = vcp_audit::history::Access {
+            workspace: access.workspace.clone(),
+            authority: access.authority,
+            read: true,
+            tasks: narrow.tasks.clone(),
+        };
+        let mut sink = Vec::new();
+        assert!(vcp_audit::history::History::read_artifact(
+            &store,
+            &audit,
+            &pin.artifact,
+            &mut sink
+        )
+        .is_err());
+        assert!(sink.is_empty());
+        let audit = vcp_audit::history::Access {
+            tasks: None,
+            ..audit
+        };
+        assert!(vcp_audit::history::History::read_artifact(
+            &store,
+            &audit,
+            &pin.artifact,
+            &mut sink
+        )
+        .is_err());
+        assert!(sink.is_empty());
+        let plan = retention::preview(
+            &store,
+            &access,
+            Selector {
+                schema_version: 1,
+                tree: Tree::All(vec![
+                    Tree::Match(Criterion::Task(TaskId::parse("forecast-1").unwrap())),
+                    Tree::Match(Criterion::Event("task_transition".into())),
+                ]),
+            },
+            Action::Purge,
+            Timestamp::new(1003),
+        )
+        .unwrap();
+        assert!(plan.protected.is_empty());
+        assert!(plan.dependent.contains(&retention::Target::Record(key(
+            Collection::Artifact,
+            pin.artifact.as_str()
+        ))));
+        let receipt = retention::apply(&mut store, &access, &plan, Timestamp::new(1003))
+            .await
+            .unwrap();
+        let before = store.state().clone();
+        assert!(forecast_reports::load(&store, &read, &baseline).is_err());
+        assert!(load_report(&store, &read, &baseline.id).is_err());
+        assert!(forecast_drift::saved(&store, &read, &baseline.id, &current.id).is_err());
+        assert_eq!(store.state(), &before);
+        let cleaned = retention::cleanup(&mut store, &access, &receipt.id, Timestamp::new(1004))
+            .await
+            .unwrap();
+        assert!(cleaned.rewrite_complete);
+        let tombstone = store
+            .state()
+            .record(
+                Collection::Projection,
+                &pin.source_manifest,
+                &access.workspace,
+            )
+            .unwrap();
+        assert_eq!(
+            tombstone.value["document_type"],
+            vcp_domain::forecast::REDACTED
+        );
+        let revision = tombstone.revision;
+        let artifact: vcp_domain::artifact::ArtifactDescriptor = store
+            .state()
+            .record(
+                Collection::Artifact,
+                pin.artifact.as_str(),
+                &access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(artifact.state, vcp_domain::artifact::CaptureState::Purged);
+        let mut restored = manifest;
+        restored.revision = revision.next().unwrap();
+        restored.value["revision"] = serde_json::to_value(restored.revision).unwrap();
+        let before = store.state().clone();
+        assert!(store
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: store.state().watermark,
+                mutations: vec![Mutation::Put {
+                    record: restored,
+                    expected: Some(revision)
+                }],
+                events: vec![],
+                command: None
+            })
+            .await
+            .is_err());
+        assert_eq!(store.state(), &before);
+    }
+}
+
+#[tokio::test]
+async fn saved_action_forecasts_absent_for_empty_sources_and_rejected_save_publishes_nothing() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let empty = save_report(&mut store, &access, window(), Timestamp::new(1001))
+            .await
+            .unwrap();
+        assert!(empty.forecast.is_none());
+        assert!(forecast_reports::load(&store, &access, &empty)
+            .unwrap()
+            .is_none());
+        assert!(forecast_drift::saved(&store, &access, &empty.id, &empty.id)
+            .unwrap()
+            .is_none());
+        let mut store = episode(store, &access, 0, false, Some(TaskState::Failed)).await;
+        let mut read = copy_access(&access);
+        read.write = false;
+        let before = store.state().clone();
+        assert!(
+            save_report(&mut store, &read, window(), Timestamp::new(1002))
+                .await
+                .is_err()
+        );
+        assert_eq!(store.state(), &before);
+        #[cfg(feature = "qualification")]
+        {
+            let failure = forecast_reports::qualification_interrupt_after_spool(
+                &mut store,
+                &access,
+                window(),
+                Timestamp::new(1002),
+            )
+            .await
+            .unwrap_err();
+            assert!(failure.contains("qualification interruption"), "{failure}");
+            // Finalized orphan bytes are unreachable until the atomic descriptor/report commit.
+            assert_eq!(store.state(), &before);
+        }
+        assert!(!store
+            .state()
+            .records
+            .values()
+            .any(|record| record.collection == Collection::Artifact
+                && record.value["spec"]["schema"] == forecast_reports::SCHEMA));
+        drop(store);
+        let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
+        assert_eq!(reopened.state(), &before);
+    }
+}

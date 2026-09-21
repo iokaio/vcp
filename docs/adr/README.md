@@ -45,6 +45,7 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-037 — Caller-owned escalation-advisory scheduling lease](037-caller-owned-advisory-scheduling-lease.md) | P6-03/M2 single claim, dispatch revalidation and interruption-safe reopen |
 | [ADR-038 — Escalation-advisory helper accounting binding](038-advisory-helper-accounting-binding.md) | P6-03/M2 canonical helper reservation/artifact binding and live charge state |
 | [ADR-039 — Escalation-advisory retention and typed redaction](039-advisory-retention-redaction.md) | P6-03/M2 derived-copy closure and non-resurrectable advisory tombstones |
+| [ADR-040 — Saved aggregate forecast provenance](040-saved-aggregate-forecast-provenance.md) | P6-05/M3 workspace source manifests, aggregate access checks and typed retention |
 
 ## Maintaining a decision
 

@@ -302,6 +302,22 @@ impl Session {
                 if !report.uncertainty.is_empty() {
                     message.push_str(&format!(" Coverage: {}", report.uncertainty.join("; ")));
                 }
+                if let Some(forecast) = value.get("forecast").filter(|value| !value.is_null()) {
+                    message.push_str("\nSaved action forecasts (unqualified estimates; observed totals above remain unchanged):\n");
+                    message.push_str(
+                        &serde_json::to_string_pretty(forecast)
+                            .map_err(|error| error.to_string())?,
+                    );
+                }
+                if let Some(compaction) = value.get("compaction").filter(|value| !value.is_null()) {
+                    message.push_str(
+                        "\nSaved compaction diagnostics (associations, not causal effects):\n",
+                    );
+                    message.push_str(
+                        &serde_json::to_string_pretty(compaction)
+                            .map_err(|error| error.to_string())?,
+                    );
+                }
                 if status["policy"].is_null() {
                     message.push_str(&format!(" {CONFIGURE}"));
                 }

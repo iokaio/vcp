@@ -120,6 +120,9 @@ impl Record {
         Ok(Some(kind))
     }
     fn immutable_memory(&self) -> Result<bool> {
+        if crate::forecast_contract::kind(self) {
+            return Ok(true);
+        }
         if crate::redaction_contract::kind(self)?.is_some() {
             return Ok(true);
         }
@@ -159,6 +162,9 @@ impl Record {
         TaskId::parse(self.id.clone())?;
         if canonical_bytes(self)?.len() > MAX_RECORD_BYTES {
             return Err(Error::Limit("canonical record"));
+        }
+        if crate::forecast_contract::kind(self) {
+            return crate::forecast_contract::shape(self);
         }
         if crate::snapshot_jobs::kind(self) {
             return crate::snapshot_jobs::shape(self);
@@ -583,6 +589,9 @@ impl Record {
         Ok(refs)
     }
     pub(crate) fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
+        if self.value["document_type"] == vcp_domain::forecast::REDACTED {
+            return Ok(None);
+        }
         if crate::redaction_contract::kind(self)?.is_some() {
             return Ok(Some(crate::redaction_contract::scope(self)?));
         }
@@ -891,6 +900,7 @@ impl State {
             }
             record.validate_shape()?;
             self.validate_memory(record)?;
+            crate::forecast_contract::validate(self, record)?;
             if record.collection == Collection::Access
                 && record.value["document_type"] == "vcp_authority_v1"
             {

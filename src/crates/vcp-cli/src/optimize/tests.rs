@@ -109,6 +109,7 @@ fn interview() -> Interview {
 }
 fn report() -> OptimizationReport {
     OptimizationReport {
+        forecast: None,
         source_tasks: None,
         observed: Default::default(),
         id: "report-fixture".into(),
@@ -133,6 +134,47 @@ fn report() -> OptimizationReport {
         evidence: vec![],
         uncertainty: vec!["Synthetic incomplete observation".into()],
     }
+}
+
+#[test]
+fn saved_forecast_sidecars_and_drift_keep_observed_totals_and_no_action_requests() {
+    let mut calls = Vec::new();
+    let text = Session::default().execute(Command::Report, Timestamp::new(10), |request| {
+        let value = match request {
+            Request::Status => { calls.push("status"); serde_json::json!({"policy":null}) },
+            Request::Report { .. } => {
+                calls.push("report");
+                serde_json::json!({"report":report(),"interview":interview(),"next_question":"priority",
+                    "forecast":{"source":"saved-forecast","cohorts":[],"serving_qualified":false},
+                    "compaction":{"source":"saved-compaction","entries":[],"serving_qualified":false}})
+            },
+            _ => panic!("report must not request a policy action or provider"),
+        };
+        Ok(value)
+    }).unwrap();
+    assert_eq!(calls, vec!["status", "report"]);
+    assert!(text.contains("3 tasks"));
+    assert!(text.contains("saved-forecast"));
+    assert!(text.contains("saved-compaction"));
+    assert!(text.contains("unqualified"));
+    let value = serde_json::json!({"automatic_action":false,"forecast_drift":null,"forecast_drift_unavailable":"legacy snapshot"});
+    let mut count = 0;
+    let rendered = Session::default()
+        .execute(
+            Command::Compare {
+                baseline: "a".into(),
+                current: "b".into(),
+            },
+            Timestamp::new(10),
+            |request| {
+                assert!(matches!(request, Request::Compare { .. }));
+                count += 1;
+                Ok(value.clone())
+            },
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(serde_json::from_str::<Value>(&rendered).unwrap(), value);
 }
 fn preview() -> Preview {
     Preview {
