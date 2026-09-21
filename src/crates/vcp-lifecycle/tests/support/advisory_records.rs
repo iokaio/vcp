@@ -92,6 +92,53 @@ fn advice(prepared: &decision::Prepared, action: &str) -> Outcome {
     }
 }
 
+fn binding(task: &vcp_domain::task::Task, access: &Access) -> DecisionBinding {
+    DecisionBinding {
+        scope: task.scope.clone(),
+        root: task.root.clone(),
+        step: task.revision,
+        steering: task.steering,
+        authority: access.authority,
+        deletion: DeletionEpoch::ZERO,
+        policy: "c".repeat(64),
+        catalog: "d".repeat(64),
+        input: String::new(),
+        evidence: BTreeMap::from([("observation".into(), "e".repeat(64))]),
+    }
+}
+
+async fn set_task_state(
+    store: &mut Store,
+    access: &Access,
+    task: &vcp_domain::task::Task,
+    state: TaskState,
+) -> vcp_domain::task::Task {
+    let mut changed = task.clone();
+    changed.revision = task.revision.next().unwrap();
+    changed.state = state;
+    store
+        .transact(Transaction {
+            id: TransactionId::new(),
+            expected_watermark: store.state().watermark,
+            mutations: vec![Mutation::Put {
+                record: Record::typed(
+                    Collection::Task,
+                    changed.scope.task.as_str(),
+                    access.workspace.clone(),
+                    changed.revision,
+                    &changed,
+                )
+                .unwrap(),
+                expected: Some(task.revision),
+            }],
+            events: vec![],
+            command: None,
+        })
+        .await
+        .unwrap();
+    changed
+}
+
 #[tokio::test]
 async fn canonical_advisory_records_deduplicate_revalidate_and_reopen() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
@@ -99,18 +146,7 @@ async fn canonical_advisory_records_deduplicate_revalidate_and_reopen() {
         let (mut store, access) = setup(temp.path(), backend).await;
         let task =
             super::action_evidence::create_task(&mut store, &access, TaskState::Running).await;
-        let base = DecisionBinding {
-            scope: task.scope.clone(),
-            root: task.root.clone(),
-            step: task.revision,
-            steering: task.steering,
-            authority: access.authority,
-            deletion: DeletionEpoch::ZERO,
-            policy: "c".repeat(64),
-            catalog: "d".repeat(64),
-            input: String::new(),
-            evidence: BTreeMap::from([("observation".into(), "e".repeat(64))]),
-        };
+        let base = binding(&task, &access);
 
         let prepared = prepare(base.clone(), "current");
         let current = prepared.request().binding.clone();
@@ -252,5 +288,290 @@ async fn canonical_advisory_records_deduplicate_revalidate_and_reopen() {
                 .disposition,
             Disposition::HistoricalStale
         );
+    }
+}
+
+#[tokio::test]
+async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_replay() {
+    use advisory::{Cancellation, Claim, ScheduleState};
+
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let mut task =
+            super::action_evidence::create_task(&mut store, &access, TaskState::Running).await;
+
+        let interrupted_prepared = prepare(binding(&task, &access), "interrupted");
+        let interrupted_current = interrupted_prepared.request().binding.clone();
+        let interrupted_request = advisory::record_request(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &interrupted_prepared,
+            &interrupted_current,
+            Timestamp::new(10),
+        )
+        .await
+        .unwrap();
+        let pending = advisory::schedule(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &interrupted_request.id,
+            &interrupted_current,
+            Timestamp::new(11),
+        )
+        .await
+        .unwrap();
+        assert_eq!(pending.state, ScheduleState::Pending);
+        let watermark = store.state().watermark;
+        assert_eq!(
+            advisory::schedule(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &interrupted_request.id,
+                &interrupted_current,
+                Timestamp::new(12),
+            )
+            .await
+            .unwrap(),
+            pending
+        );
+        assert_eq!(store.state().watermark, watermark);
+        let interrupted_claimant = CommandId::new();
+        let Claim::Updated(claimed) = advisory::claim(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &interrupted_request.id,
+            interrupted_claimant.clone(),
+            &interrupted_current,
+            Timestamp::new(13),
+        )
+        .await
+        .unwrap() else {
+            panic!("pending schedule must admit exactly one claim")
+        };
+        assert!(matches!(claimed.state, ScheduleState::Claimed { .. }));
+        let watermark = store.state().watermark;
+        assert!(matches!(
+            advisory::claim(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &interrupted_request.id,
+                interrupted_claimant.clone(),
+                &interrupted_current,
+                Timestamp::new(14),
+            )
+            .await
+            .unwrap(),
+            Claim::Existing(_)
+        ));
+        assert_eq!(store.state().watermark, watermark);
+        store.close().await.unwrap();
+
+        let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
+        assert!(matches!(
+            advisory::load_schedule(&store, &access, &interrupted_request.id)
+                .unwrap()
+                .state,
+            ScheduleState::Claimed { .. }
+        ));
+        let watermark = store.state().watermark;
+        assert!(matches!(
+            advisory::claim(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &interrupted_request.id,
+                CommandId::new(),
+                &interrupted_current,
+                Timestamp::new(15),
+            )
+            .await
+            .unwrap(),
+            Claim::Existing(_)
+        ));
+        assert_eq!(store.state().watermark, watermark);
+        let interrupted = advisory::interrupt(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &interrupted_request.id,
+            &interrupted_claimant,
+            true,
+            Timestamp::new(16),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            interrupted.state,
+            ScheduleState::Cancelled {
+                reason: Cancellation::Interrupted,
+                cancelled_at: Timestamp::new(16),
+            }
+        );
+        let watermark = store.state().watermark;
+        assert_eq!(
+            advisory::interrupt(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &interrupted_request.id,
+                &interrupted_claimant,
+                true,
+                Timestamp::new(17),
+            )
+            .await
+            .unwrap(),
+            interrupted
+        );
+        assert_eq!(store.state().watermark, watermark);
+
+        let paused_prepared = prepare(binding(&task, &access), "paused");
+        let paused_current = paused_prepared.request().binding.clone();
+        let paused_request = advisory::record_request(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &paused_prepared,
+            &paused_current,
+            Timestamp::new(20),
+        )
+        .await
+        .unwrap();
+        advisory::schedule(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &paused_request.id,
+            &paused_current,
+            Timestamp::new(21),
+        )
+        .await
+        .unwrap();
+        let paused_claimant = CommandId::new();
+        advisory::claim(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &paused_request.id,
+            paused_claimant.clone(),
+            &paused_current,
+            Timestamp::new(22),
+        )
+        .await
+        .unwrap();
+        task = set_task_state(&mut store, &access, &task, TaskState::Paused).await;
+        let mut current_pause = paused_current;
+        current_pause.step = task.revision;
+        let cancelled = advisory::revalidate_dispatch(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &paused_request.id,
+            &paused_claimant,
+            &current_pause,
+            Timestamp::new(23),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            cancelled.state,
+            ScheduleState::Cancelled {
+                reason: Cancellation::Paused,
+                ..
+            }
+        ));
+
+        task = set_task_state(&mut store, &access, &task, TaskState::Running).await;
+        let complete_prepared = prepare(binding(&task, &access), "complete");
+        let complete_current = complete_prepared.request().binding.clone();
+        let complete_request = advisory::record_request(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &complete_prepared,
+            &complete_current,
+            Timestamp::new(30),
+        )
+        .await
+        .unwrap();
+        advisory::schedule(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &complete_request.id,
+            &complete_current,
+            Timestamp::new(31),
+        )
+        .await
+        .unwrap();
+        let complete_claimant = CommandId::new();
+        advisory::claim(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &complete_request.id,
+            complete_claimant.clone(),
+            &complete_current,
+            Timestamp::new(32),
+        )
+        .await
+        .unwrap();
+        let ready = advisory::revalidate_dispatch(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &complete_request.id,
+            &complete_claimant,
+            &complete_current,
+            Timestamp::new(33),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(ready.state, ScheduleState::Claimed { .. }));
+        let outcome = advice(&complete_prepared, "retry");
+        advisory::record_result(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &complete_request.id,
+            &outcome,
+            &complete_current,
+            Timestamp::new(34),
+        )
+        .await
+        .unwrap();
+        let completed = advisory::complete(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &complete_request.id,
+            &complete_claimant,
+            Timestamp::new(35),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(completed.state, ScheduleState::Completed { .. }));
+        assert_eq!(completed.revision, Revision::new(2));
+        let watermark = store.state().watermark;
+        assert_eq!(
+            advisory::complete(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &complete_request.id,
+                &complete_claimant,
+                Timestamp::new(36),
+            )
+            .await
+            .unwrap(),
+            completed
+        );
+        assert_eq!(store.state().watermark, watermark);
+        store.close().await.unwrap();
     }
 }
