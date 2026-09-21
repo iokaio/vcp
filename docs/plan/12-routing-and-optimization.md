@@ -5,9 +5,11 @@ Status: in progress. The [routing foundation](../evaluations/p6-routing-foundati
 The [selected resource controls](../evaluations/p6-resource-controls.md),
 [owner declarations](../evaluations/p6-owner-declarations.md) and
 [conservative provider admission](../evaluations/p6-provider-bounds.md) extend
-that foundation. The first [capped live conformance attempt](../evaluations/p6-live-provider-conformance.md)
-was rejected with HTTP 401; its liability remains retained and live profile
-qualification remains incomplete.
+that foundation. After the first capped attempt returned HTTP 401, the
+[authenticated retry](../evaluations/p6-live-provider-retry.md) corrected an
+unsupported optional parameter and observed both candidate models' tool/text
+protocols. Failed-attempt liability remains retained; exact endpoint evidence,
+live profile and evaluator qualification remain incomplete.
 
 ## Code organization
 
