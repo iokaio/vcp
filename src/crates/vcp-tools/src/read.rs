@@ -69,12 +69,16 @@ pub(crate) fn file(
 ) -> Result<(serde_json::Value, Probe)> {
     checked_path(path, false)?;
     if max_bytes == 0 || max_bytes > 1024 * 1024 {
-        return Err(Error::Invalid("read ceiling"));
+        return Err(Error::Invalid(
+            "max_bytes must be between 1 and 1048576 returned bytes, including ranged reads",
+        ));
     }
     let ranged = start.is_some() || end.is_some();
     let first = start.unwrap_or(1);
     if first == 0 || end.is_some_and(|last| last < first) {
-        return Err(Error::Invalid("read line range"));
+        return Err(Error::Invalid(
+            "start_line must be at least 1 and end_line must be at least start_line; use null bounds for a whole-file read",
+        ));
     }
     // Capture and hash the complete bounded source, even when exposing only a range.
     let source = root.read(

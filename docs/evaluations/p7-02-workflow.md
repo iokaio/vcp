@@ -96,9 +96,13 @@ remain required. A fresh launcher build receipt binds the observed compiler,
 source, embedded runtime paths and binary; it is not a third-party attestation.
 
 The owner subsequently approved the exact eighteen attempts and $45 cap. The
-[live attempt record](p7-02-live-attempt.md) records the first request's HTTP 401,
-retained unresolved liability and stopped dispatch. Approval is no longer the
-blocker; valid credentials and truthful accounting/continuation remain required.
+[live attempt record](p7-02-live-attempt.md) records credential recovery, scoped
+continuations, ten failed attempts and eight not-run cases. Known settled charges
+total $0.051188, with $0.806560 canonical unresolved liability. Independent
+semantic review preserves useful partial observations without overriding strict
+failures; neither generation arm implemented its feature. Approval and credentials
+are resolved. Accounting fixes apply to future execution, and live usefulness,
+the remaining eight cases and toolchain acceptance remain open.
 
 The debug oracle's interrupted case starts from a frozen instrumented state;
 it is not evidence of a real interrupted model session. Its process permissions

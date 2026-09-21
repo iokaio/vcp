@@ -17,6 +17,8 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             "process_fail",
             "limit",
             "missing_cost",
+            "incomplete_usage",
+            "invalid_call_usage",
             "stale_instructions",
             "deadline",
             "empty",
@@ -131,7 +133,28 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 requests.lock().unwrap().push(body);
                 let mut events = vec![];
                 let mut output = vec![];
-                if mode == "empty" {
+                if mode == "invalid_call_usage" {
+                    let arguments = serde_json::json!({"path":"file.txt","max_bytes":678}).to_string();
+                    let mut item = serde_json::json!({"type":"function_call","id":"invalid-item","call_id":"invalid-call","name":"vcp_read","arguments":"","status":"in_progress"});
+                    events.push(serde_json::json!({"type":"response.output_item.added","output_index":0,"item":item}));
+                    events.push(serde_json::json!({"type":"response.function_call_arguments.delta","item_id":"invalid-item","delta":arguments}));
+                    events.push(serde_json::json!({"type":"response.function_call_arguments.done","item_id":"invalid-item","arguments":arguments}));
+                    item["arguments"] = serde_json::json!(arguments);
+                    item["status"] = serde_json::json!("completed");
+                    events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item}));
+                    output.push(item);
+                    let sibling = serde_json::json!({"type":"function_call","id":"valid-patch","call_id":"valid-patch-call","name":"vcp_patch","arguments":serde_json::json!({"patch":"*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** End Patch"}).to_string(),"status":"completed"});
+                    events.push(serde_json::json!({"type":"response.output_item.done","output_index":1,"item":sibling}));
+                    output.push(sibling);
+                } else if mode == "incomplete_usage" {
+                    let mut item = serde_json::json!({"type":"function_call","id":"truncated-item","call_id":"truncated-call","name":"vcp_patch","arguments":"","status":"in_progress"});
+                    events.push(serde_json::json!({"type":"response.output_item.added","output_index":0,"item":item}));
+                    events.push(serde_json::json!({"type":"response.function_call_arguments.done","item_id":"truncated-item","arguments":""}));
+                    item["status"] = serde_json::json!("incomplete");
+                    events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item}));
+                    item["arguments"] = serde_json::json!("{}");
+                    output.push(item);
+                } else if mode == "empty" {
                     events.push(ev_assistant_message("empty-answer", " \n\t "));
                 } else if index < 4 {
                     let (name, arguments) = if index == 1 {
@@ -149,7 +172,13 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 } else { events.push(ev_assistant_message("done", "Observed the file change.")); }
                 let cost = if mode=="missing_cost" {serde_json::Value::Null}else{serde_json::json!(0.0001)};
                 if mode=="stale_instructions" { std::fs::write(directory.join("AGENTS.md"), "concurrent human guidance").unwrap(); }
+                if mode == "incomplete_usage" {
+                    events.push(serde_json::json!({"type":"response.incomplete","response":{"id":format!("coding-{index}"),"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":output,"usage":{"input_tokens":5950,"output_tokens":512,"total_tokens":6462,"cost":0.0021275}}}));
+                } else if mode == "invalid_call_usage" {
+                    events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("coding-{index}"),"status":"completed","output":output,"usage":{"input_tokens":4354,"output_tokens":97,"total_tokens":4451,"cost":0.00120975}}}));
+                } else {
                 events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("coding-{index}"),"status":"completed","output":output,"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":cost}}}));
+                }
                 let response = ResponseTemplate::new(200).insert_header("content-type", "text/event-stream").set_body_string(sse(events));
                 if mode=="deadline" {response.set_delay(Duration::from_secs(20))}else{response}
             }).mount(&server).await;
@@ -273,7 +302,12 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             }
             if !matches!(
                 mode,
-                "missing_cost" | "stale_instructions" | "deadline" | "empty"
+                "missing_cost"
+                    | "incomplete_usage"
+                    | "invalid_call_usage"
+                    | "stale_instructions"
+                    | "deadline"
+                    | "empty"
             ) {
                 if matches!(mode, "complete" | "process_fail") {
                     assert!(requests[2].to_string().contains("instruction version two"));
@@ -320,9 +354,23 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     "before\n"
                 );
             }
-            let view = host
-                .project()
-                .unwrap_or_else(|error| panic!("{backend:?} {mode}: {error}"));
+            let view = if mode == "invalid_call_usage" {
+                // The rejected response still fences this owner. Accounting
+                // cleanup must succeed without reopening ordinary admission.
+                assert!(host.project().unwrap_err().contains("fenced"));
+                let state = host.snapshot().unwrap();
+                vcp_audit::projection::rebuild(&state, &config.workspace, 2, state.watermark)
+                    .unwrap()
+            } else {
+                host.project()
+                    .unwrap_or_else(|error| panic!("{backend:?} {mode}: {error}"))
+            };
+            if matches!(mode, "incomplete_usage" | "invalid_call_usage") {
+                assert_eq!(view.ledgers[&config.root_task].unresolved.get(), 0);
+                assert_eq!(view.ledgers[&config.root_task].active.get(), 0);
+                assert!(host.complete_coding_turn(id).is_err());
+                assert!(view.effects.is_empty(), "partial patch never dispatched");
+            }
             if mode == "empty" {
                 assert!(
                     host.complete_coding_turn(id).is_err(),
@@ -357,7 +405,13 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             )));
             if matches!(
                 mode,
-                "limit" | "missing_cost" | "stale_instructions" | "deadline" | "empty"
+                "limit"
+                    | "missing_cost"
+                    | "incomplete_usage"
+                    | "invalid_call_usage"
+                    | "stale_instructions"
+                    | "deadline"
+                    | "empty"
             ) {
                 assert_eq!(view.tasks[&config.root_task].state, TaskState::Paused);
             }
@@ -366,7 +420,13 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 if matches!(mode, "missing_cost" | "deadline") {
                     0
                 } else {
-                    expected as u64 * 100
+                    if mode == "incomplete_usage" {
+                        2128
+                    } else if mode == "invalid_call_usage" {
+                        1210
+                    } else {
+                        expected as u64 * 100
+                    }
                 }
             );
             assert!(codex_extension_api::HostWorkAdmission::admit_tool(
@@ -387,6 +447,22 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             test.codex.shutdown_and_wait().await.unwrap();
             drop(test);
             drop(host);
+            if matches!(mode, "incomplete_usage" | "invalid_call_usage") {
+                let (reopened, owner) = CanonicalHost::open(config.clone()).unwrap();
+                let restored = reopened.project().unwrap();
+                assert_eq!(
+                    restored.ledgers[&config.root_task].settled.get(),
+                    if mode == "incomplete_usage" {
+                        2128
+                    } else {
+                        1210
+                    }
+                );
+                assert_eq!(restored.ledgers[&config.root_task].unresolved.get(), 0);
+                assert_eq!(restored.tasks[&config.root_task].state, TaskState::Paused);
+                assert!(restored.effects.is_empty());
+                owner.close().await.unwrap();
+            }
             if mode == "complete" {
                 std::fs::write(
                     workspace.join("AGENTS.md"),
