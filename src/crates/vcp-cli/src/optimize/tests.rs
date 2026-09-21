@@ -25,11 +25,11 @@ fn observations_uses_only_the_read_only_evidence_request() {
         .execute(Command::Observations, Timestamp::new(20), |request| {
             calls += 1;
             assert!(matches!(request, Request::Observations { from: None, until } if until == Timestamp::new(20)));
-            Ok(serde_json::json!({"alphabet":"canonical-action-observation/1","attempts":[]}))
+            Ok(serde_json::json!({"alphabet":"canonical-action-observation/2","attempts":[]}))
         })
         .unwrap();
     assert_eq!(calls, 1);
-    assert!(text.contains("canonical-action-observation/1"));
+    assert!(text.contains("canonical-action-observation/2"));
 }
 
 fn policy(profile: Profile, quality: u16) -> Policy {

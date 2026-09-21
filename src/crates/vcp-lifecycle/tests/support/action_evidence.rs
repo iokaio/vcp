@@ -13,6 +13,25 @@ use vcp_protocol::{
 };
 use vcp_store::artifact::ArtifactWriter;
 
+struct LegacyAccounting<'a>(&'a mut Store);
+
+impl CanonicalStore for LegacyAccounting<'_> {
+    fn state(&self) -> &State {
+        self.0.state()
+    }
+
+    async fn transact(&mut self, mut transaction: Transaction) -> vcp_store::Result<Receipt> {
+        for event in &mut transaction.events {
+            if event.kind == EventKind::UsageReconciled {
+                if let Some(data) = event.data.as_object_mut() {
+                    data.remove("settlement");
+                }
+            }
+        }
+        self.0.transact(transaction).await
+    }
+}
+
 fn window() -> HistoryWindow {
     HistoryWindow {
         from: None,
@@ -361,6 +380,17 @@ async fn reserve(
     previous: Option<AttemptId>,
     now: u64,
 ) -> Attempt {
+    reserve_role(store, access, task, previous, RequestRole::Main, now).await
+}
+
+async fn reserve_role(
+    store: &mut Store,
+    access: &Access,
+    task: &Task,
+    previous: Option<AttemptId>,
+    role: RequestRole,
+    now: u64,
+) -> Attempt {
     let request = capture(store, task, Channel::RequestBody).await;
     let ledger = vcp_budget::ledger(store.state(), &task.scope).unwrap();
     vcp_budget::reserve(
@@ -371,7 +401,7 @@ async fn reserve(
             reservation: ReservationId::new(),
             scope: task.scope.clone(),
             agent: AgentId::new(),
-            role: RequestRole::Main,
+            role,
             request: request.spec.id,
             request_digest: request.sha256,
             quote: vcp_budget::arithmetic::quote(
@@ -445,6 +475,76 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
         .unwrap();
         let first = reserve(&mut store, &access, &task, None, 10).await;
         settle(&mut store, &access, &task, &first, 11).await;
+        let late_raw = capture(&mut store, &task, Channel::Response).await;
+        let late = UsageObservation {
+            id: ObservationId::new(),
+            scope: task.scope.clone(),
+            attempt: first.id.clone(),
+            provider_request: format!("provider-{}", first.id),
+            mode: UsageMode::Cumulative {
+                version: Units::new(2),
+            },
+            amount: money(15),
+            final_usage: false,
+            raw: late_raw.spec.id,
+            correction: None,
+        };
+        vcp_budget::observe(&mut store, late.clone(), &budget_actor(&access, 13))
+            .await
+            .unwrap();
+        // Replaying the immutable provider receipt returns the same settlement
+        // without appending a second charge event.
+        vcp_budget::observe(&mut store, late, &budget_actor(&access, 13))
+            .await
+            .unwrap();
+        let stale_raw = capture(&mut store, &task, Channel::Response).await;
+        vcp_budget::observe(
+            &mut store,
+            UsageObservation {
+                id: ObservationId::new(),
+                scope: task.scope.clone(),
+                attempt: first.id.clone(),
+                provider_request: format!("provider-{}", first.id),
+                mode: UsageMode::Cumulative {
+                    version: Units::new(2),
+                },
+                amount: money(15),
+                final_usage: false,
+                raw: stale_raw.spec.id,
+                correction: None,
+            },
+            &budget_actor(&access, 13),
+        )
+        .await
+        .unwrap();
+        let correction_raw = capture(&mut store, &task, Channel::Response).await;
+        let policy = vcp_budget::ledger(store.state(), &task.scope)
+            .unwrap()
+            .policy;
+        vcp_budget::observe(
+            &mut store,
+            UsageObservation {
+                id: ObservationId::new(),
+                scope: task.scope.clone(),
+                attempt: first.id.clone(),
+                provider_request: format!("provider-{}", first.id),
+                mode: UsageMode::Cumulative {
+                    version: Units::new(3),
+                },
+                amount: money(12),
+                final_usage: true,
+                raw: correction_raw.spec.id,
+                correction: Some(Resolution {
+                    actor: access.actor.clone(),
+                    policy,
+                    reason: "provider corrected cumulative usage".into(),
+                    remaining_uncertainty: String::new(),
+                }),
+            },
+            &budget_actor(&access, 14),
+        )
+        .await
+        .unwrap();
         let second = reserve(&mut store, &access, &task, Some(first.id.clone()), 20).await;
         settle(&mut store, &access, &task, &second, 21).await;
         let decision_id = format!(
@@ -481,6 +581,22 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
             })
             .await
             .unwrap();
+        let usage_events = store
+            .state()
+            .events
+            .iter()
+            .filter(|event| event.event.kind == EventKind::UsageReconciled)
+            .collect::<Vec<_>>();
+        assert_eq!(usage_events.len(), 5);
+        for event in &usage_events {
+            let reference = event.event.data["settlement"].as_object().unwrap();
+            assert_eq!(reference.len(), 2);
+            assert_eq!(reference["schema_version"], 1);
+            assert!(reference["id"].as_str().is_some());
+        }
+        assert!(!serde_json::to_string(&usage_events)
+            .unwrap()
+            .contains("provider corrected cumulative usage"));
         let evidence = observe(&store, &access, window()).unwrap();
         assert_eq!(evidence.attempts.len(), 2);
         let initial = evidence
@@ -490,6 +606,30 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
             .unwrap();
         assert_eq!(initial.cohort.retry_depth, Some(0));
         assert_eq!(initial.cohort.prior_attempts, Some(0));
+        assert!(initial.charge.complete && !initial.charge.unknown_remainder);
+        assert_eq!(initial.charge.currency, "USD");
+        assert_eq!(initial.charge.charged_micros, Some(12));
+        assert_eq!(initial.charge.liability_micros, Some(0));
+        assert_eq!(initial.charge.final_charge_micros, Some(12));
+        assert_eq!(initial.charge.settlements.len(), 4);
+        assert_eq!(
+            initial
+                .charge
+                .settlements
+                .iter()
+                .map(|charge| (
+                    charge.direction,
+                    charge.adjustment_micros,
+                    charge.total_micros
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (AdjustmentDirection::Debit, 10, 10),
+                (AdjustmentDirection::Debit, 5, 15),
+                (AdjustmentDirection::None, 0, 15),
+                (AdjustmentDirection::Credit, 3, 12),
+            ]
+        );
         assert_eq!(
             initial
                 .observations
@@ -499,6 +639,9 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
             vec![
                 ReservationState::Created,
                 ReservationState::Submitted,
+                ReservationState::Settled,
+                ReservationState::ReconciliationPending,
+                ReservationState::ReconciliationPending,
                 ReservationState::Settled
             ]
         );
@@ -514,6 +657,7 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
         assert_eq!(retry.cohort.endpoint, "exact/provider-endpoint");
         assert_eq!(retry.cohort.model, "exact-model");
         assert!(retry.gaps.is_empty() && !retry.right_censored);
+        assert_eq!(retry.charge.final_charge_micros, Some(10));
         let partial = observe(
             &store,
             &access,
@@ -523,6 +667,15 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
             },
         )
         .unwrap();
+        let partial_first = partial
+            .attempts
+            .iter()
+            .find(|trace| trace.attempt == first.id)
+            .unwrap();
+        assert!(!partial_first.charge.complete);
+        assert!(partial_first.charge.unknown_remainder);
+        assert_eq!(partial_first.charge.charged_micros, None);
+        assert_eq!(partial_first.charge.final_charge_micros, None);
         assert!(partial
             .attempts
             .iter()
@@ -568,6 +721,130 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
         drop(store);
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(observe(&reopened, &access, window()).unwrap(), evidence);
+    }
+}
+
+#[tokio::test]
+async fn unknown_liability_and_no_send_release_never_become_free_visits() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let task = create_task(&mut store, &access, TaskState::Running).await;
+        vcp_budget::initialize(
+            &mut store,
+            task.scope.clone(),
+            money(1000),
+            Micros::ZERO,
+            None,
+            &budget_actor(&access, 3),
+        )
+        .await
+        .unwrap();
+        let uncertain = reserve(&mut store, &access, &task, None, 10).await;
+        vcp_budget::submit(
+            &mut store,
+            &uncertain.id,
+            &task.scope,
+            uncertain.revision,
+            &budget_actor(&access, 11),
+        )
+        .await
+        .unwrap();
+        vcp_budget::hold_uncertain(
+            &mut store,
+            &uncertain.id,
+            &task.scope,
+            &budget_actor(&access, 12),
+            "provider outcome is unavailable",
+        )
+        .await
+        .unwrap();
+        let released = reserve(&mut store, &access, &task, None, 20).await;
+        vcp_budget::release_before_send(
+            &mut store,
+            &released.id,
+            &task.scope,
+            &budget_actor(&access, 21),
+        )
+        .await
+        .unwrap();
+        let legacy = reserve(&mut store, &access, &task, None, 30).await;
+        vcp_budget::submit(
+            &mut store,
+            &legacy.id,
+            &task.scope,
+            legacy.revision,
+            &budget_actor(&access, 31),
+        )
+        .await
+        .unwrap();
+        let raw = capture(&mut store, &task, Channel::Response).await;
+        vcp_budget::observe(
+            &mut LegacyAccounting(&mut store),
+            UsageObservation {
+                id: ObservationId::new(),
+                scope: task.scope.clone(),
+                attempt: legacy.id.clone(),
+                provider_request: format!("provider-{}", legacy.id),
+                mode: UsageMode::Cumulative {
+                    version: Units::new(1),
+                },
+                amount: money(10),
+                final_usage: true,
+                raw: raw.spec.id,
+                correction: None,
+            },
+            &budget_actor(&access, 32),
+        )
+        .await
+        .unwrap();
+        let supporting = reserve_role(
+            &mut store,
+            &access,
+            &task,
+            None,
+            RequestRole::Verification,
+            40,
+        )
+        .await;
+        settle(&mut store, &access, &task, &supporting, 41).await;
+
+        let evidence = observe(&store, &access, window()).unwrap();
+        let uncertain = evidence
+            .attempts
+            .iter()
+            .find(|trace| trace.attempt == uncertain.id)
+            .unwrap();
+        assert!(uncertain.charge.complete && uncertain.charge.unknown_remainder);
+        assert_eq!(uncertain.charge.charged_micros, Some(0));
+        assert_eq!(uncertain.charge.liability_micros, Some(10));
+        assert_eq!(uncertain.charge.final_charge_micros, None);
+        assert!(uncertain.charge.settlements.is_empty());
+        let released = evidence
+            .attempts
+            .iter()
+            .find(|trace| trace.attempt == released.id)
+            .unwrap();
+        assert!(released.charge.complete && !released.charge.unknown_remainder);
+        assert_eq!(released.charge.charged_micros, Some(0));
+        assert_eq!(released.charge.liability_micros, Some(0));
+        assert_eq!(released.charge.final_charge_micros, Some(0));
+        let legacy = evidence
+            .attempts
+            .iter()
+            .find(|trace| trace.attempt == legacy.id)
+            .unwrap();
+        assert!(!legacy.charge.complete);
+        assert_eq!(legacy.charge.charged_micros, None);
+        assert_eq!(legacy.charge.final_charge_micros, None);
+        assert!(legacy.charge.settlements.is_empty());
+        let supporting = evidence
+            .attempts
+            .iter()
+            .find(|trace| trace.attempt == supporting.id)
+            .unwrap();
+        assert_eq!(supporting.cohort.role, RequestRole::Verification);
+        assert_eq!(supporting.charge.final_charge_micros, Some(10));
     }
 }
 

@@ -40,6 +40,16 @@ diagnostics, reasons and objectives. Older verification events remain visible
 with unavailable task revision/failure signature. See [ADR-030](../adr/030-causal-action-observations.md)
 and the [verification record](../evaluations/p6-action-evidence.md).
 
+Action projection version two adds one currency-preserving charge attribution per
+attempt. Applied debit/credit settlements remain individually visible, while the
+terminal charge is available only from a complete retained prefix ending in a
+settled attempt or no-send release. Reserved or uncertain liability has no point
+estimate. The projection never adds task/root ledger rollups to their component
+attempts. Older usage events without a typed settlement remain readable with
+incomplete charge attribution. See
+[ADR-031](../adr/031-exact-attempt-charge-attribution.md) and the
+[charge-reward evidence](../evaluations/p6-charge-rewards.md).
+
 Local analysis also works without a provider profile or a model budget:
 `vcp optimize status`, `vcp optimize report --from <ms> --until <ms>`,
 `vcp optimize answer priority "lower total cost"`, and

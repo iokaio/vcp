@@ -89,8 +89,12 @@ The [causal action increment](../evaluations/p6-action-evidence.md) adds separat
 turn/effect/attempt traces, retry lineage, exact endpoint/model cohorts, available task
 class, bounded counters and revision-bound failure signatures under
 [ADR-030](../adr/030-causal-action-observations.md). These increments do not
-complete M1: exact charge/reward attribution, fit qualification and fitted-artifact
-retention/consumed-value replay remain next. Existing
+complete M1. The [exact charge-reward increment](../evaluations/p6-charge-rewards.md)
+joins retained settlements once to their owning attempts, preserves late debit/credit
+adjustments and currency, excludes rollups, and withholds a point estimate for
+unknown or reserved liability under
+[ADR-031](../adr/031-exact-attempt-charge-attribution.md). Fit qualification and
+fitted-artifact retention/consumed-value replay remain next. Existing
 optimizer report schemas and enabled routing behavior are unchanged.
 
 1. Define a closed, revisioned alphabet from canonical task/turn transitions,

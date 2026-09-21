@@ -40,7 +40,9 @@ qualification remain not run for this increment.
 
 ## Remaining
 
-Rich action/attempt/cohort/reward capture, fitted-artifact provenance/retention,
-uncertainty, held-out first/second-order comparison and consumer replay remain
-open under M1. M2/M3 consumers and M4 live qualification remain separate. No
+The later [action](p6-action-evidence.md) and
+[charge-reward](p6-charge-rewards.md) increments supply retained causal units and
+per-attempt terminal costs. Fitted-artifact provenance/retention, uncertainty,
+held-out first/second-order comparison and consumer replay remain open under M1.
+M2/M3 consumers and M4 live qualification remain separate. No
 calibration, task-cost improvement, policy default or paid trial is claimed.
