@@ -4,6 +4,7 @@ use std::{fs::File, io::Read, path::PathBuf};
 use vcp_domain::{ids::*, revision::Micros};
 
 pub const MAX_TASK_BYTES: usize = 65_536;
+pub const MAX_RUN_SKILLS: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum Format {
@@ -183,6 +184,9 @@ pub struct Run {
     pub budget_usd: Option<Micros>,
     #[arg(long, value_enum, default_value = "ask")]
     pub autonomy: Autonomy,
+    /// Explicit skill ID to activate before the first turn; repeat up to 32 times.
+    #[arg(long = "skill", value_name = "ID", value_parser = skill_id)]
+    pub skills: Vec<String>,
 }
 #[derive(Debug, Args)]
 pub struct Resume {
@@ -243,6 +247,7 @@ pub struct ValidatedRun {
     pub objective: String,
     pub budget: Micros,
     pub autonomy: Autonomy,
+    pub skills: Vec<String>,
 }
 
 /// Every command resolves its workspace and task input before opening an owner
@@ -405,6 +410,16 @@ impl Cli {
 }
 impl Run {
     pub fn validate(&self, persisted_cap: Option<Micros>) -> Result<ValidatedRun, String> {
+        if self.skills.len() > MAX_RUN_SKILLS {
+            return Err("at most 32 explicit skills may be selected".into());
+        }
+        let mut selected = std::collections::BTreeSet::new();
+        for id in &self.skills {
+            skill_id(id)?;
+            if !selected.insert(id) {
+                return Err("duplicate --skill selection".into());
+            }
+        }
         let budget = self
             .budget_usd
             .or(persisted_cap)
@@ -443,7 +458,14 @@ impl Run {
             objective,
             budget,
             autonomy: self.autonomy,
+            skills: self.skills.clone(),
         })
+    }
+}
+fn skill_id(value: &str) -> Result<String, String> {
+    match crate::skills::parse(&["activate", value])? {
+        crate::skills::Command::Activate { id, .. } => Ok(id),
+        _ => Err("invalid skill ID".into()),
     }
 }
 /// Decimal USD to integer micros, without float rounding, exponent or sign syntax.

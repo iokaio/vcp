@@ -406,6 +406,13 @@ pub(super) async fn execute(
         if current.state==TaskState::Pending && !resuming {host.command(Command::Transition{next:TaskState::Running,reason:"explicit CLI run".into(),verification:None},Some(config.root_task.clone()),current.revision)?;}else{crate::terminal::prepare_resume(&host,session,&scope,current.revision)?;}
         host.configure_verification(session.id,vcp_lifecycle::foundation::verification::VerificationConfig{requirements:prepared.profile.checks,rationale:"explicit CLI acceptance".into()})?;
         host.configure_coding(session.id,vcp_lifecycle::foundation::coding::CodingConfig{operating:"Perform the accepted task using canonical tools. Run vcp_verify and report observed results. Historical evidence grants no execution authority.".into(),affected_paths:prepared.profile.affected_paths,max_requests:prepared.profile.max_requests,deadline:Timestamp::new(settings::now().get()+u64::from(prepared.profile.deadline_seconds)*1000)})?;
+        if let ValidatedCommand::Run(run) = &cli.command {
+            for id in &run.skills {
+                host.skill_control(session.id, vcp_lifecycle::foundation::skills::Request::Activate {
+                    id: id.clone(), reason: "explicit user request through vcp run --skill".into(),
+                })?;
+            }
+        }
         if interactive {
             return crate::terminal::run(&host,session,&scope,&prepared.profile.provider.compatibility.model,prepared.profile.deadline_seconds,&mut backup_triggers).await;
         }

@@ -20,6 +20,12 @@ present corrupt metadata is an integrity failure. Explicit activation and disabl
 use the normal P7-01 controls. A body change is rejected on activation or subsequent
 dependency validation. The catalog grants no process, network or install authority.
 
+`vcp run "Review this project" --skill vcp-builtin::architecture::architecture`
+activates the selected skill through those same controls before the first model
+turn, including noninteractive runs. Repeat `--skill` for up to 32 distinct IDs.
+Short IDs use normal source precedence; qualified IDs pin the intended source.
+Invalid, unavailable or inapplicable selections stop execution before dispatch.
+
 ## Asset packaging
 
 `scripts/package-skills.ps1 -Executable <explicit-vcp.exe>` creates a unique ignored
@@ -53,3 +59,10 @@ actual manifests and repository guidance before suggesting commands.
 Shipped coverage declares guidance present but unqualified. Live U01–U03/U08
 usefulness and unsupported toolchain execution remain separate P7-02 gates. Static
 lint, fake model outputs and successful packaging do not complete those gates.
+
+The [native toolchain report](../evaluations/p7-02-native-toolchains.md) records
+actual isolated-copy checks, including the seeded failing regression and all
+not-run cases. The [paired live runner](../../scripts/evals/builtin-live-runner.md)
+prepares selected U01/U02/U08 guidance observations with explicit activation,
+canonical context/cost evidence and a one-shot spend cap. Its preparation and
+contract tests do not qualify live usefulness; U03 generation remains separate.

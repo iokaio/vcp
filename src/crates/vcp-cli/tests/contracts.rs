@@ -9,6 +9,34 @@ use vcp_cli::{
 use vcp_domain::ids::CommandId;
 
 #[test]
+fn run_skill_selection_is_bounded_validated_and_preserves_order() {
+    let parse = |skills: &[&str]| {
+        let mut args = vec!["vcp", "run", "review sources", "--budget-usd", "1"];
+        for skill in skills {
+            args.extend(["--skill", skill]);
+        }
+        Cli::try_parse_from(args)
+    };
+    for invalid in ["", "bad\nidentity", "bad\0identity", &"a".repeat(2049)] {
+        assert!(parse(&[invalid]).is_err());
+    }
+    let validate = |skills: &[&str]| {
+        let Some(Command::Run(run)) = parse(skills).unwrap().command else {
+            panic!("expected run")
+        };
+        run.validate(None)
+    };
+    let selected = ["vcp-builtin::architecture::architecture", "review"];
+    assert_eq!(validate(&selected).unwrap().skills, selected);
+    assert!(validate(&["review", "review"]).is_err());
+    let ids: Vec<String> = (0..33).map(|i| format!("skill-{i}")).collect();
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    assert!(validate(&ids[..32]).is_ok());
+    assert!(validate(&ids).is_err());
+    assert!(validate(&[]).unwrap().skills.is_empty());
+}
+
+#[test]
 fn malformed_commands_never_produce_typed_inputs() {
     for args in [
         vec!["vcp", "run"],

@@ -307,6 +307,9 @@ function reimport(planFile,destination,call=invoke) {
   write(path.join(destination,'answer-grades.json'),quality.grade(submission,pool));write(path.join(destination,'reimport.json'),derived);return derived;
 }
 module.exports={prepare,run,profileReasons,accounting,micros,reimport,privacyGap,responseAnswer};
+// Shared one-shot qualification boundaries; callers still own their fixture and
+// admission contracts. Exporting these performs no preparation or dispatch.
+module.exports.boundaries={plain,read,write,within,safeChild,filesUnder,noParentInstructions,privateDirectory,noSecrets,usd,frames,inspection,invoke};
 if(require.main===module) {
   try {
     const [command,input,extra,...rest]=process.argv.slice(2);
