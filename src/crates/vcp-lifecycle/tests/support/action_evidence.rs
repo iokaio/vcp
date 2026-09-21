@@ -307,13 +307,13 @@ async fn engine_turn_and_verification_facts_are_revision_bound_without_prose() {
     }
 }
 
-fn money(value: u64) -> Money {
+pub(super) fn money(value: u64) -> Money {
     Money {
         currency: "USD".to_owned().try_into().unwrap(),
         micros: Micros::new(value),
     }
 }
-fn budget_actor(access: &Access, now: u64) -> vcp_budget::Actor {
+pub(super) fn budget_actor(access: &Access, now: u64) -> vcp_budget::Actor {
     vcp_budget::Actor {
         id: access.actor.clone(),
         now: Timestamp::new(now),
@@ -356,7 +356,7 @@ async fn capture(store: &mut Store, task: &Task, channel: Channel) -> ArtifactDe
         .unwrap();
     artifact
 }
-fn price(model: &str) -> PriceSnapshot {
+pub(super) fn price(model: &str) -> PriceSnapshot {
     PriceSnapshot {
         id: "d".repeat(64),
         provider: "exact/provider-endpoint".into(),

@@ -38,7 +38,8 @@ the lease supplies deterministic deduplication and recovery state. Pause and sta
 input close the send path before transport. An interrupted claim is visible and
 cannot silently replay.
 
-The next increment connects a newly claimed and revalidated lease to ordinary
-helper reservation, submission, unknown-charge settlement and raw response
-capture. The lease itself never implies a model call or charge. Verification is
+The subsequent [accounting binding](038-advisory-helper-accounting-binding.md)
+connects a claim to an ordinary helper reservation and its live charge state.
+Caller-owned transport and raw response capture remain open. The lease itself
+never implies a model call or charge. Verification is
 recorded in the [increment evidence](../evaluations/p6-advisory-scheduling.md).

@@ -284,8 +284,9 @@ now binds these closed questions to source revisions and preserves every existin
 deterministic gate. Its finite qualification capability,
 [canonical request/result record seam](../evaluations/p6-advisory-records.md) and
 [caller-owned scheduling lease](../evaluations/p6-advisory-scheduling.md) are
-implemented. Remote helper accounting/transport integration and live qualification
-remain open.
+implemented. The [helper accounting binding](../evaluations/p6-advisory-accounting.md)
+reuses the canonical budget ledger. Caller-owned transport/response integration and
+live qualification remain open.
 Supply bounded observed actions, errors, diffs and checks with source revisions;
 do not invent access to full provider reasoning. Rust evaluates fixed trigger,
 attempt, budget and authority constraints before and after advice. A low risk

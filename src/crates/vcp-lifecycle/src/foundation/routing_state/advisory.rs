@@ -4,7 +4,13 @@
 //! as current advice.
 use super::{commit, read, row, Result};
 use serde::{Deserialize, Serialize};
-use vcp_domain::{task::Task, workspace::Workspace, *};
+use vcp_domain::{
+    accounting::{Attempt, CostQuote, RequestRole, ReservationState},
+    artifact::{ArtifactDescriptor, CaptureState, Channel},
+    task::Task,
+    workspace::Workspace,
+    *,
+};
 use vcp_memory::access::Access;
 use vcp_models::decision::{Binding, Outcome, Prepared, Purpose, QualifiedEvaluator, Request};
 use vcp_protocol::{canonical_bytes, digest_bytes};
@@ -16,6 +22,7 @@ use vcp_store::{
 const REQUEST_DOCUMENT: &str = "vcp_escalation_advisory_request_v1";
 const RESULT_DOCUMENT: &str = "vcp_escalation_advisory_result_v1";
 const SCHEDULE_DOCUMENT: &str = "vcp_escalation_advisory_schedule_v1";
+const ACCOUNTING_DOCUMENT: &str = "vcp_escalation_advisory_accounting_v1";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -106,6 +113,25 @@ pub struct ScheduleRecord {
 pub enum Claim {
     Updated(ScheduleRecord),
     Existing(ScheduleRecord),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountingRecord {
+    pub document_type: String,
+    pub document_version: u32,
+    pub id: String,
+    pub request_id: String,
+    pub workspace: WorkspaceId,
+    pub task: TaskId,
+    pub claimant: CommandId,
+    pub schedule_revision: Revision,
+    pub attempt: AttemptId,
+    pub reservation: ReservationId,
+    pub request_artifact: ArtifactId,
+    pub request_artifact_digest: String,
+    pub quote: CostQuote,
+    pub bound_at: Timestamp,
 }
 
 /// Persist the exact prepared advisory input before a caller schedules transport.
@@ -481,6 +507,99 @@ pub fn load_schedule(store: &Store, access: &Access, request_id: &str) -> Result
     Ok(record)
 }
 
+/// Bind a newly claimed lease to an ordinary canonical helper reservation. The
+/// budget service remains the sole owner of submission, charge and settlement.
+pub async fn bind_attempt(
+    store: &mut Store,
+    access: &Access,
+    command: CommandId,
+    request_id: &str,
+    claimant: &CommandId,
+    attempt_id: &AttemptId,
+    now: Timestamp,
+) -> Result<AccountingRecord> {
+    let request = load_request(store, access, request_id)?;
+    let schedule = load_schedule(store, access, request_id)?;
+    if !matches!(
+        &schedule.state,
+        ScheduleState::Claimed {
+            claimant: owner,
+            ..
+        } if owner == claimant
+    ) {
+        return Err("advisory accounting requires its exact active claim".into());
+    }
+    let attempt = canonical_attempt(store, &request, attempt_id)?;
+    if attempt.phase != ReservationState::Created || attempt.send_intent.is_some() {
+        return Err("advisory accounting must bind before submission".into());
+    }
+    let artifact = canonical_request_artifact(store, &attempt)?;
+    let id = accounting_name(request_id);
+    if let Some(existing) = read::<AccountingRecord>(store, access, &id)? {
+        validate_accounting(&existing, &request, &schedule, &attempt, &artifact)?;
+        if existing.claimant != *claimant {
+            return Err("advisory accounting claimant changed".into());
+        }
+        return Ok(existing);
+    }
+    if !access.write {
+        return Err("advisory accounting write access denied".into());
+    }
+    let accounting = AccountingRecord {
+        document_type: ACCOUNTING_DOCUMENT.into(),
+        document_version: 1,
+        id: id.clone(),
+        request_id: request.id.clone(),
+        workspace: request.workspace.clone(),
+        task: request.task.clone(),
+        claimant: claimant.clone(),
+        schedule_revision: schedule.revision,
+        attempt: attempt.id.clone(),
+        reservation: attempt.reservation.clone(),
+        request_artifact: artifact.spec.id.clone(),
+        request_artifact_digest: artifact.sha256.clone(),
+        quote: attempt.quote.clone(),
+        bound_at: now,
+    };
+    validate_accounting(&accounting, &request, &schedule, &attempt, &artifact)?;
+    let mut stored = row(access, id, Revision::ZERO, &accounting)?;
+    for reference in [
+        key(Collection::Task, accounting.task.as_str()),
+        key(Collection::Projection, &accounting.request_id),
+        key(Collection::Projection, &schedule.id),
+        key(Collection::Attempt, accounting.attempt.as_str()),
+        key(Collection::Reservation, accounting.reservation.as_str()),
+        key(Collection::Artifact, accounting.request_artifact.as_str()),
+    ] {
+        stored.references.insert(reference);
+    }
+    commit(
+        store,
+        access,
+        vec![Mutation::Put {
+            record: stored,
+            expected: None,
+        }],
+        command,
+        now,
+    )
+    .await?;
+    Ok(accounting)
+}
+
+/// Return the current canonical attempt after rechecking its immutable advisory
+/// binding. Charge state is read from the budget ledger, never copied here.
+pub fn accounting_attempt(store: &Store, access: &Access, request_id: &str) -> Result<Attempt> {
+    let request = load_request(store, access, request_id)?;
+    let schedule = load_schedule(store, access, request_id)?;
+    let accounting = read::<AccountingRecord>(store, access, &accounting_name(request_id))?
+        .ok_or("canonical advisory accounting binding not found")?;
+    let attempt = canonical_attempt(store, &request, &accounting.attempt)?;
+    let artifact = canonical_request_artifact(store, &attempt)?;
+    validate_accounting(&accounting, &request, &schedule, &attempt, &artifact)?;
+    Ok(attempt)
+}
+
 fn validate_current(store: &Store, access: &Access, binding: &Binding) -> Result<()> {
     current_task(store, access, binding).map(|_| ())
 }
@@ -597,6 +716,75 @@ fn validate_schedule_shape(schedule: &ScheduleRecord) -> Result<()> {
     Ok(())
 }
 
+fn canonical_attempt(
+    store: &Store,
+    request: &RequestRecord,
+    attempt_id: &AttemptId,
+) -> Result<Attempt> {
+    let attempt: Attempt = store
+        .state()
+        .records
+        .get(&key(Collection::Attempt, attempt_id.as_str()))
+        .ok_or("advisory helper attempt absent")?
+        .decode()
+        .map_err(super::err)?;
+    if attempt.scope != request.request.binding.scope
+        || attempt.root != request.request.binding.root
+        || attempt.steering != request.request.binding.steering
+        || attempt.role != RequestRole::Helper
+    {
+        return Err("attempt is not the canonical advisory helper reservation".into());
+    }
+    Ok(attempt)
+}
+
+fn canonical_request_artifact(store: &Store, attempt: &Attempt) -> Result<ArtifactDescriptor> {
+    let artifact: ArtifactDescriptor = store
+        .state()
+        .records
+        .get(&key(Collection::Artifact, attempt.request.as_str()))
+        .ok_or("advisory request artifact absent")?
+        .decode()
+        .map_err(super::err)?;
+    artifact.validate().map_err(super::err)?;
+    if artifact.spec.scope != attempt.scope
+        || artifact.state != CaptureState::Complete
+        || artifact.spec.channel != Channel::RequestBody
+        || artifact.spec.schema != "vcp-escalation-advisory-request-v1"
+        || artifact.spec.source != "vcp-lifecycle/advisory"
+        || artifact.sha256 != attempt.request_digest
+    {
+        return Err("attempt request is not a retained canonical advisory body".into());
+    }
+    Ok(artifact)
+}
+
+fn validate_accounting(
+    accounting: &AccountingRecord,
+    request: &RequestRecord,
+    schedule: &ScheduleRecord,
+    attempt: &Attempt,
+    artifact: &ArtifactDescriptor,
+) -> Result<()> {
+    if accounting.document_type != ACCOUNTING_DOCUMENT
+        || accounting.document_version != 1
+        || accounting.id != accounting_name(&accounting.request_id)
+        || accounting.request_id != request.id
+        || accounting.workspace != request.workspace
+        || accounting.task != request.task
+        || accounting.schedule_revision.get() == 0
+        || accounting.schedule_revision.get() > schedule.revision.get()
+        || accounting.attempt != attempt.id
+        || accounting.reservation != attempt.reservation
+        || accounting.request_artifact != artifact.spec.id
+        || accounting.request_artifact_digest != artifact.sha256
+        || accounting.quote != attempt.quote
+    {
+        return Err("invalid canonical advisory accounting binding".into());
+    }
+    Ok(())
+}
+
 fn validate_outcome(request: &RequestRecord, outcome: &Outcome) -> Result<()> {
     if let Outcome::Advice {
         binding,
@@ -690,6 +878,13 @@ fn result_name(request_id: &str) -> String {
 fn schedule_name(request_id: &str) -> String {
     format!(
         "routing-advisory-schedule-{}",
+        digest_bytes(request_id.as_bytes())
+    )
+}
+
+fn accounting_name(request_id: &str) -> String {
+    format!(
+        "routing-advisory-accounting-{}",
         digest_bytes(request_id.as_bytes())
     )
 }

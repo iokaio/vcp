@@ -269,5 +269,10 @@ pause/cancel and remote accounting remain the next increment.
 
 The [caller-owned advisory scheduling lease](../evaluations/p6-advisory-scheduling.md)
 now adds a single revisioned claim, dispatch-time pause/stale/deadline checks,
-explicit interruption and reopen without replay. It remains transport-free; helper
-reservation and settlement are the next P6-03 increment.
+explicit interruption and reopen without replay. It remains transport-free; the
+subsequent accounting binding reuses ordinary helper reservations.
+
+The [advisory accounting binding](../evaluations/p6-advisory-accounting.md) now
+connects an active claim to a retained typed request artifact and ordinary helper
+attempt. Budget submission, uncertainty and settlement stay canonical. The actual
+caller-owned transport/response path remains next.
