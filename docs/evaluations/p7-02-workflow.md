@@ -95,6 +95,11 @@ workspace-only and non-runnable. Exact-plan permission and spending approval
 remain required. A fresh launcher build receipt binds the observed compiler,
 source, embedded runtime paths and binary; it is not a third-party attestation.
 
+The owner subsequently approved the exact eighteen attempts and $45 cap. The
+[live attempt record](p7-02-live-attempt.md) records the first request's HTTP 401,
+retained unresolved liability and stopped dispatch. Approval is no longer the
+blocker; valid credentials and truthful accounting/continuation remain required.
+
 The debug oracle's interrupted case starts from a frozen instrumented state;
 it is not evidence of a real interrupted model session. Its process permissions
 bound external access but do not authenticate hostile candidate computation;
