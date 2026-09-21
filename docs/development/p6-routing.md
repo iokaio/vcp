@@ -7,8 +7,9 @@ Interactive presentation uses `vcp-cli::optimize` and the terminal owner.
 These are the logical registry, selector and optimizer boundaries from P6; they
 share the existing gateway, artifact store and budget ledger.
 
-The separate [Markov kernels](markov-kernels.md) provide bounded pure arithmetic
-for M1. They do not yet supply history-backed routing estimates or forecasts.
+The separate [Markov kernels](markov-kernels.md) support the implemented M1
+evidence foundation and M3 read-only forecasts. M4 recorded a rejection; these
+forecasts do not supply qualified routing estimates.
 
 There are **no live-qualified shipping model groups or measured profile defaults**
 in this increment. Synthetic test observations exercise the gates and qualify no
@@ -207,6 +208,10 @@ gate. This is an explicit deterministic policy, not a claim of measured optimali
 /optimize answer review Independent review for risky changes
 /optimize answer restrictions No additional model preferences
 /optimize preview med --quality-floor <explicit-basis-points>
+/optimize preview --models exact/model-id --endpoints exact/endpoint --groups high,medium
+/optimize preview --pin exact/model-id exact/endpoint
+/optimize preview --minimum-samples 30 --maximum-evidence-age-ms 86400000
+/optimize preview --output-tokens 512
 /optimize apply
 /optimize status
 /optimize rollback <target-revision> --expected <current-revision>
@@ -222,13 +227,72 @@ historical state from current rows.
 
 Questions adapt to report gaps and already saved answers. Optional questions may
 be answered directly even when not prompted. Answers are durable project
-preferences, not authority or automatic model restrictions: changed model/provider
-allowlists still require trusted configuration. Reporting and answers remain
+preferences, not authority or automatic model restrictions. Explicit selected
+model/endpoint/group restrictions and pins use the preview/apply workflow within
+the startup configuration's trusted ceilings. Reporting and answers remain
 available when automatic routing is not configured; preview/apply requires the
 configured policy and ceilings.
 
-Preview selects profile, comparison ordering and the supplied quality floor. It
-shows previous, requested and effective values under trusted limits. The pending
+The positional preview selects profile, comparison ordering and the supplied
+quality floor. The flag form changes only selected fields: `--profile` (including
+its ordering), `--quality-floor`, `--output-tokens`, `--input-tokens`, `--minimum-samples`,
+`--maximum-evidence-age-ms`, `--models`, `--endpoints`, `--groups`, `--pin` or
+`--unpin`. Lists are comma-separated, contain at most 32 distinct IDs and use
+`none` for an empty deny-all selection. Group names are frontier/high/medium/low;
+profile names are low/med/high. A pin is strict and names both model and endpoint.
+Removing a project pin cannot remove a trusted startup pin. Conflicting strict
+pins produce no eligible model. Values outside trusted allowlists remain visible
+in the requested policy but are excluded from its effective policy.
+
+`--output-tokens N` selects a positive request output limit; `inherit` clears
+the project preference. The effective value is bounded by both trusted routing
+configuration and the immutable host ceiling. The selected value is used by the
+actual provider envelope, serialized request and reservation quote. An admitted
+request retains its captured limit when later preferences change. Old policy JSON
+without this optional field retains its original digest and remains readable.
+
+`--input-tokens N|inherit` selects the existing conservative context-size ceiling.
+The current host measures serialized request bytes; this is not a new tokenizer
+or a promise of exact token counting. Selection, sealed-context validation and
+admission enforce the smaller selected/trusted ceiling. Providers without a
+qualified byte-to-token bound retain full provider-input-capacity reservations.
+An oversized request is rejected before a provider attempt is admitted.
+
+`--max-transport-retries N|inherit`, `--max-quality-switches N|inherit`,
+`--max-total-attempts N|inherit` and `--minimum-repeated-failures N|inherit`
+narrow an already configured escalation policy. Maxima can only decrease;
+the minimum failure count can only increase. Ranges are 0–4 retries, 0–8 switches,
+1–64 attempts and 1–64 repeated failures; the host's trusted startup retry cap
+also applies. These selections cannot enable missing escalation configuration,
+extend its deadline or grant decomposition permission. Clearing a selection
+restores the current trusted value, including after rollback.
+
+`--reasoning-effort minimal|low|medium|high|inherit` selects an effort level up to
+the explicitly configured trusted level. Without that trusted level the effective
+selection remains unset. A candidate must separately qualify the requested effort
+and advertise the provider parameter; unsupported candidates remain ineligible,
+including strict pins. The provider boundary emits and validates the selected
+parameter. This does not infer supported levels from a model name.
+
+Trusted startup profiles can also set `"output_tokens":"512"` and
+`"max_transport_retries":0` for fixed-provider trials. Omitting those fields
+preserves the existing 4096-token maximum (bounded by provider capacity) and two
+transport retries. Startup rejects zero or above-4096 output limits and more than
+two retries. A selected policy can only narrow these trusted limits.
+
+`--retrieval-limits RESULTS TOKENS BYTES` restricts explicit memory-context
+queries; `inherit` clears the project preference. Each bound is clamped to the
+trusted policy and the retrieval service's hard limits. The token field uses the
+retrieval service's serialized-passage byte estimate. It does not enable memory
+search, expand its source scope, load an embedding model or change read-only
+inspector queries. The ordinary coding loop does not automatically call this
+explicit query API. A policy change during a query or after context preparation
+invalidates its result before it can be sent. Reopening requires the trusted
+routing configuration before a stored routing policy can govern new queries.
+
+Preview shows previous, requested and effective values for every selected field.
+Omitted fields retain their current values; no threshold is inferred from prose.
+The pending
 typed preview remains local to this terminal session; applying sends exactly that
 preview with an idempotent command identity. A changed policy, report access,
 interview or trusted ceiling causes revalidation to reject stale work. An attempted
@@ -242,6 +306,28 @@ authority and do not implicitly resume paused work. Active requests keep their
 captured policy; subsequent work revalidates at the scheduling boundary. Paid
 qualification, optional semantic evaluators and measured P6 profile defaults
 remain separate gates.
+
+## Explicit escalation declarations
+
+In the current owner terminal, use `/escalate complexity --evidence ARTIFACT,...`
+or `/escalate capability NAME --evidence ARTIFACT,...`. Evidence must identify
+complete retained artifacts from the current task. Capability names must have an
+explicitly supported candidate in the current catalog. The terminal binds the
+declaration to the current task revision and steering; the host checks current
+owner, running task/ancestors, authority, workspace binding and prior model attempt.
+Declarations do not resume work or grant a model permission.
+
+At the next scheduling boundary the host consumes a matching declaration once,
+adds any required capability to candidate filtering, and uses the existing bounded
+escalation and handoff path. Strict pins, eligibility, attempt limits and budget
+still apply. A failure after consumption requires a new explicit declaration;
+reopening cannot replay a consumed declaration. An admitted capability remains
+required for subsequent requests in the same task and steering revision.
+`/escalate status` distinguishes pending, stale, superseded,
+consumed-without-admission and admitted records. Inspection and consumption use
+the same authority, binding, revision and evidence checks. Consumption alone is
+not evidence of an admitted or completed handoff. Automatic failed-verification and invalid-tool triggers
+remain available independently of these owner declarations.
 
 ## Verification entry points
 

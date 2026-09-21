@@ -16,6 +16,8 @@ mod scheduler;
 use scheduler::{EffectLease, Scheduler};
 #[cfg(windows)]
 pub mod coding;
+#[cfg(feature = "qualification")]
+pub mod conformance;
 #[cfg(windows)]
 pub mod decision;
 #[cfg(windows)]
@@ -83,11 +85,18 @@ pub struct Config {
     pub price: PriceSnapshot,
     pub input_ceiling: Units,
     pub output_ceiling: Units,
+    /// Trusted retry ceiling; legacy owner configurations retain two retries.
+    #[serde(default = "default_max_transport_retries")]
+    pub max_transport_retries: u32,
     pub artifact_limit: ByteCount,
     /// Explicit trusted host ceilings for native tools. Immutable for this
     /// owner; neither user policy nor restored history can replace these rules.
     pub host_tool_denials: Vec<vcp_domain::policy::Denial>,
 }
+pub fn default_max_transport_retries() -> u32 {
+    2
+}
+
 #[derive(Clone)]
 pub struct ThreadBinding {
     pub scope: Scope,

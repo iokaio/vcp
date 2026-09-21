@@ -4,6 +4,8 @@ mod authority;
 mod backup_checkpoint;
 #[cfg(windows)]
 mod coding;
+#[cfg(feature = "qualification")]
+mod conformance;
 #[cfg(windows)]
 mod console;
 mod control;
@@ -19,6 +21,7 @@ mod memory;
 #[cfg(windows)]
 mod memory_query;
 mod provider;
+mod reasoning;
 pub(super) mod recovery;
 mod retention_policy;
 mod routing;
@@ -222,6 +225,9 @@ impl Context {
         vcp_policy::validate_host_denials(&config.host_tool_denials)?;
         if config.input_ceiling.get() == 0 || config.output_ceiling.get() == 0 {
             return Err("provider ceilings required".into());
+        }
+        if config.max_transport_retries > 2 {
+            return Err("transport retry ceiling cannot exceed two".into());
         }
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -675,24 +681,38 @@ impl Context {
             || self.config.price.clone(),
             |prepared| prepared.snapshot.price.clone(),
         );
-        let input_ceiling =
-            provider_request
-                .as_ref()
-                .map_or(self.config.input_ceiling, |prepared| {
-                    Units::new(
-                        self.config
-                            .input_ceiling
-                            .get()
-                            .min(prepared.snapshot.max_input.get()),
-                    )
-                });
+        let selected_input_ceiling = if provider_request
+            .as_ref()
+            .is_some_and(|prepared| prepared.routing.is_some())
+        {
+            self.current_input_ceiling()?
+        } else {
+            self.config.input_ceiling
+        };
+        let input_ceiling = provider_request
+            .as_ref()
+            .map_or(selected_input_ceiling, |prepared| {
+                Units::new(
+                    selected_input_ceiling
+                        .get()
+                        .min(prepared.snapshot.max_input.get()),
+                )
+            });
         if body["model"].as_str() != Some(&price.model) {
             return Err("request model differs from admitted price/capability".into());
         }
         if !body.is_object() {
             return Err("request body must be an object".into());
         }
-        body["max_output_tokens"] = serde_json::json!(self.config.output_ceiling.get());
+        let output_ceiling = provider_request
+            .as_ref()
+            .map_or(self.config.output_ceiling, |prepared| {
+                prepared.output_ceiling
+            });
+        if output_ceiling == Units::ZERO || output_ceiling > self.config.output_ceiling {
+            return Err("request output exceeds trusted host ceiling".into());
+        }
+        body["max_output_tokens"] = serde_json::json!(output_ceiling.get());
         if has_unpriced_media(&body["input"]) {
             return Err("multimodal request needs a qualified price/capability adapter".into());
         }
@@ -744,25 +764,24 @@ impl Context {
             .decode()?;
         // Reserve all possible input/cache partitions conservatively. Prices
         // retain their original identity; the bound intentionally overestimates.
+        let reservation_input =
+            provider_request
+                .as_ref()
+                .map_or(self.config.input_ceiling, |prepared| {
+                    prepared
+                        .snapshot
+                        .reservation_input(Units::new(bytes.len() as u64))
+                });
         let bounds = Usage {
             input: Units::new(
-                provider_request
-                    .as_ref()
-                    .map_or(self.config.input_ceiling.get(), |_| bytes.len() as u64)
+                reservation_input
+                    .get()
                     .checked_mul(3)
                     .ok_or("input ceiling overflow")?,
             ),
-            cache_read: Units::new(
-                provider_request
-                    .as_ref()
-                    .map_or(self.config.input_ceiling.get(), |_| bytes.len() as u64),
-            ),
-            cache_write: Units::new(
-                provider_request
-                    .as_ref()
-                    .map_or(self.config.input_ceiling.get(), |_| bytes.len() as u64),
-            ),
-            output: self.config.output_ceiling,
+            cache_read: reservation_input,
+            cache_write: reservation_input,
+            output: output_ceiling,
             requests: Units::new(1),
             ..Default::default()
         };

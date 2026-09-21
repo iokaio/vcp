@@ -172,7 +172,7 @@ pub async fn run(
 ) -> Result<(), String> {
     let mut input = input(std::io::BufReader::new(std::io::stdin())).map_err(|e| e.to_string())?;
     let renderer = Renderer::new(std::io::stderr()).map_err(|e| e.to_string())?;
-    let mut notice = String::from("/pause /resume /status /cost /history /groups /optimize /skills /mcp /agents /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task");
+    let mut notice = String::from("/pause /resume /status /cost /history /groups /optimize /escalate /skills /mcp /agents /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task");
     let mut page: Option<InspectionQuery> = None;
     let mut maintenance_page: Option<vcp_lifecycle::foundation::history_retention::Request> = None;
     let mut optimization = crate::optimize::Session::default();
@@ -198,6 +198,7 @@ pub async fn run(
                     Some(Err(e)) => { stop(host,scope,TaskState::Paused)?; return Err(e.to_string()); }
                     Some(Ok(line)) => line,
                 };
+                optimization.prepare_input(&line);
                 let command = match parse(&line) { Ok(Some(c)) => c, Ok(None) => continue, Err(e) => {notice=e; continue;} };
                 let result: Result<String,String> = async { Ok(match command {
                     Input::Pause => {stop(host,scope,TaskState::Paused)?; "Pause requested; inspect retained effects before resuming.".into()}
@@ -241,6 +242,13 @@ pub async fn run(
                         page_text=super::sanitize(&result,1024*1024);
                         display_page(&mut page_text)
                     }
+                    Input::Escalate(command)=>{
+                        let task=current(host,scope)?;
+                        let result=super::escalation::execute(command,&task,|request|host.routing_control(request))?;
+                        maintenance_page=None;page=None;
+                        page_text=super::sanitize(&result,1024*1024);
+                        display_page(&mut page_text)
+                    }
                     Input::Mcp(command)=>{
                         if mcp_pending.is_some() {return Err("MCP control is pending; /pause and /cancel remain available".into());}
                         mcp_pending=Some(crate::mcp::Running::start(host.clone(),session.id,command));
@@ -270,7 +278,7 @@ pub async fn run(
                     }
                     Input::Unavailable(service)=>format!("{service}: service not ready in this stage; no work scheduled"),
                     Input::Status | Input::Agents => serde_json::to_string(&view(&host.snapshot()?,scope,model)?).map_err(|e|e.to_string())?,
-                    Input::Help => format!("/pause /resume /status /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /groups [exact-model] [--offset <candidate-number>] /agents /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /cancel /exit; {} ; {} ; {} ; plain text queues durable guidance",crate::optimize::HELP,crate::skills::HELP,crate::mcp::HELP),
+                    Input::Help => format!("/pause /resume /status /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /groups [exact-model] [--offset <candidate-number>] /agents /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /cancel /exit; {} ; {} ; {} ; {} ; plain text queues durable guidance",crate::optimize::HELP,super::escalation::HELP,crate::skills::HELP,crate::mcp::HELP),
                 }) }.await;
                 match result { Ok(message) if message=="exit"=>return Ok(()), Ok(message)=>notice=message, Err(error)=>notice=format!("Command rejected: {error}") }
             }

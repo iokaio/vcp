@@ -105,6 +105,41 @@ fn commands_require_explicit_question_answers_and_exact_arguments() {
 }
 
 #[test]
+fn escalation_declaration_binds_current_owner_task_without_resuming() {
+    use vcp_lifecycle::foundation::{routing::Request, routing_state::declarations::Kind};
+    let task = fixture_task("current-task");
+    let command = parse("/escalate complexity --evidence artifact-a")
+        .unwrap()
+        .unwrap();
+    let Input::Escalate(command) = command else {
+        panic!("expected owner declaration")
+    };
+    let mut calls = 0;
+    let text = escalation::execute(command, &task, |request| {
+        calls += 1;
+        let Request::DeclareEscalation { declaration } = request else {
+            panic!("declaration must not resume or dispatch")
+        };
+        assert_eq!(declaration.task, task.scope.task);
+        assert_eq!(declaration.expected_revision, task.revision);
+        assert_eq!(declaration.steering, task.steering);
+        assert_eq!(declaration.declaration, Kind::DeclaredComplexity);
+        assert_eq!(
+            declaration.evidence,
+            vec![ArtifactId::parse("artifact-a").unwrap()]
+        );
+        Ok(serde_json::json!({"state":"pending"}))
+    })
+    .unwrap();
+    assert_eq!(calls, 1);
+    assert!(text.contains("does not resume"));
+    assert!(escalation::execute(escalation::Command::Status, &task, |request| {
+        assert!(matches!(request, Request::EscalationDeclarations { task: id } if id == task.scope.task));
+        Err("owner unavailable".into())
+    }).is_err());
+}
+
+#[test]
 fn input_requires_complete_utf8_lines_across_small_buffer_boundaries() {
     let mut reader = BufReader::with_capacity(1, Cursor::new("界 e\u{301}\r\n/pause\npartial"));
     assert_eq!(

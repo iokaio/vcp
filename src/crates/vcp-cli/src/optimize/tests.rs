@@ -96,6 +96,11 @@ fn policy(profile: Profile, quality: u16) -> Policy {
         ordering: order(profile),
         pin: None,
         broader_task_class: None,
+        output_tokens: None,
+        input_tokens: None,
+        escalation_limits: None,
+        reasoning_effort: None,
+        retrieval_limits: None,
     }
     .seal()
     .unwrap()
@@ -256,6 +261,225 @@ fn parser_requires_explicit_floor_and_rollback_revision_without_json() {
     ] {
         assert!(parse(&input).is_err(), "{input:?}");
     }
+}
+
+#[test]
+fn selected_fields_are_explicit_bounded_and_do_not_imply_other_changes() {
+    use vcp_models::routing::{Group, ModelEndpoint, Pin};
+    assert_eq!(
+        parse(&["preview", "--output-tokens", "128"]),
+        Ok(Command::PreviewSelected {
+            selected: vec![Edit::OutputTokens(Some(vcp_domain::Units::new(128)))]
+        })
+    );
+    assert_eq!(
+        parse(&["preview", "--output-tokens", "inherit"]),
+        Ok(Command::PreviewSelected {
+            selected: vec![Edit::OutputTokens(None)]
+        })
+    );
+    assert!(parse(&["preview", "--output-tokens", "0"]).is_err());
+    assert_eq!(
+        parse(&["preview", "--unpin", "--quality-floor", "8000"]),
+        Ok(Command::PreviewSelected {
+            selected: vec![Edit::Pin(None), Edit::QualityFloorBps(8000)]
+        })
+    );
+    assert_eq!(
+        parse(&[
+            "preview",
+            "--minimum-samples",
+            "30",
+            "--models",
+            "b,a",
+            "--endpoints",
+            "none",
+            "--groups",
+            "high,low",
+            "--pin",
+            "a",
+            "provider"
+        ]),
+        Ok(Command::PreviewSelected {
+            selected: vec![
+                Edit::MinimumSamples(30),
+                Edit::AllowedModels(BTreeSet::from(["a".into(), "b".into()])),
+                Edit::AllowedEndpoints(BTreeSet::new()),
+                Edit::AllowedGroups(BTreeSet::from([Group::High, Group::Low])),
+                Edit::Pin(Some(Pin {
+                    candidate: ModelEndpoint {
+                        model: "a".into(),
+                        endpoint: "provider".into()
+                    },
+                    fallback_candidates: BTreeSet::new()
+                })),
+            ]
+        })
+    );
+    assert_eq!(
+        parse(&["preview", "--unpin"]),
+        Ok(Command::PreviewSelected {
+            selected: vec![Edit::Pin(None)]
+        })
+    );
+    for words in [
+        vec!["preview"],
+        vec!["preview", "--models", "a,a"],
+        vec!["preview", "--models", "a,"],
+        vec!["preview", "--models", "a b"],
+        vec!["preview", "--groups", "med"],
+        vec!["preview", "--pin", "a"],
+        vec!["preview", "--unpin", "--pin", "a", "b"],
+        vec!["preview", "--quality-floor", "1", "--quality-floor", "2"],
+        vec!["preview", "--minimum-samples", "0"],
+        vec!["preview", "--maximum-evidence-age-ms", "0"],
+        vec!["preview", "--budget", "100"],
+        vec!["preview", "--remote-advice", "true"],
+    ] {
+        assert!(parse(&words).is_err(), "{words:?}");
+    }
+    let large = (0..33)
+        .map(|i| format!("model{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    assert!(parse(&["preview", "--models", &large]).is_err());
+}
+
+#[test]
+fn resource_controls_parse_explicit_values_inheritance_and_reject_invalid_bounds() {
+    use vcp_domain::{ByteCount, Units};
+    use vcp_models::{reasoning::Effort, routing::RetrievalLimits};
+    assert_eq!(
+        parse(&[
+            "preview",
+            "--input-tokens",
+            "1024",
+            "--max-quality-switches",
+            "0",
+            "--minimum-repeated-failures",
+            "3",
+            "--reasoning-effort",
+            "low",
+            "--retrieval-limits",
+            "2",
+            "500",
+            "1000"
+        ]),
+        Ok(Command::PreviewSelected {
+            selected: vec![
+                Edit::InputTokens(Some(Units::new(1024))),
+                Edit::EscalationMaxQualitySwitches(Some(0)),
+                Edit::EscalationMinimumRepeatedFailures(Some(3)),
+                Edit::ReasoningEffort(Some(Effort::Low)),
+                Edit::RetrievalLimits(Some(RetrievalLimits {
+                    results: 2,
+                    tokens: Units::new(500),
+                    bytes: ByteCount::new(1000)
+                }))
+            ]
+        })
+    );
+    assert_eq!(
+        parse(&[
+            "preview",
+            "--input-tokens",
+            "inherit",
+            "--max-total-attempts",
+            "inherit",
+            "--max-transport-retries",
+            "inherit",
+            "--reasoning-effort",
+            "inherit",
+            "--retrieval-limits",
+            "inherit"
+        ]),
+        Ok(Command::PreviewSelected {
+            selected: vec![
+                Edit::InputTokens(None),
+                Edit::EscalationMaxTotalAttempts(None),
+                Edit::EscalationMaxTransportRetries(None),
+                Edit::ReasoningEffort(None),
+                Edit::RetrievalLimits(None)
+            ]
+        })
+    );
+    for args in [
+        vec!["preview", "--input-tokens", "0"],
+        vec!["preview", "--max-transport-retries", "5"],
+        vec!["preview", "--max-quality-switches", "9"],
+        vec!["preview", "--max-total-attempts", "0"],
+        vec!["preview", "--minimum-repeated-failures", "65"],
+        vec!["preview", "--reasoning-effort", "unknown"],
+        vec!["preview", "--retrieval-limits", "2", "500"],
+        vec!["preview", "--retrieval-limits", "2", "1", "1000"],
+        vec!["preview", "--input-tokens", "2", "--input-tokens", "3"],
+    ] {
+        assert!(parse(&args).is_err(), "{args:?}");
+    }
+}
+
+#[test]
+fn selected_preview_shows_clamped_fields_and_applies_exactly_the_selection() {
+    let selected = vec![Edit::AllowedModels(BTreeSet::from([
+        "selected".into(),
+        "outside".into(),
+    ]))];
+    let mut proposal = preview();
+    proposal.selected = selected.clone();
+    proposal.persisted.allowed_models = BTreeSet::from(["selected".into(), "outside".into()]);
+    proposal.effective.allowed_models = BTreeSet::from(["selected".into()]);
+    let mut session = Session {
+        report: Some(report()),
+        pending: None,
+    };
+    let message = session
+        .execute(
+            Command::PreviewSelected {
+                selected: selected.clone(),
+            },
+            Timestamp::new(10),
+            |request| {
+                let Request::Preview {
+                    selected: actual, ..
+                } = request
+                else {
+                    panic!("preview only")
+                };
+                assert_eq!(actual, selected);
+                Ok(serde_json::to_value(&proposal).unwrap())
+            },
+        )
+        .unwrap();
+    assert!(message
+        .contains("allowed_models: [] -> [\"outside\",\"selected\"]; effective [\"selected\"]"));
+    session
+        .execute(Command::Apply, Timestamp::new(10), |request| {
+            let Request::Apply { preview, command } = request else {
+                panic!("explicit apply only")
+            };
+            assert_eq!(*preview, proposal);
+            Ok(serde_json::to_value(receipt(command)).unwrap())
+        })
+        .unwrap();
+    assert!(session.pending.is_none());
+}
+
+#[test]
+fn malformed_terminal_replacement_cannot_apply_the_previous_preview() {
+    let mut session = Session {
+        report: Some(report()),
+        pending: Some((CommandId::new(), preview())),
+    };
+    session.prepare_input("/optimize status");
+    assert!(session.pending.is_some());
+    let input = "  /optimize preview --models a,a";
+    session.prepare_input(input);
+    assert!(crate::terminal::parse(input).is_err());
+    assert!(session
+        .execute(Command::Apply, Timestamp::new(10), |_| panic!(
+            "must not publish old preview"
+        ))
+        .is_err());
 }
 #[test]
 fn report_displays_uncertainty_and_answers_use_durable_revision() {

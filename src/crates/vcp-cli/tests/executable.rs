@@ -139,6 +139,7 @@ impl Fixture {
                 require_zdr: true,
                 request_price_limit: "0.0001".into(),
                 required_parameters: BTreeSet::from(["tools".into(), "max_tokens".into()]),
+                qualified_reasoning_efforts: BTreeSet::new(),
             },
         )
         .unwrap();

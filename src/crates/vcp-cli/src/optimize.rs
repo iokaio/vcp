@@ -3,6 +3,7 @@
 //! through the canonical host; this module never calls a model or writes a store.
 use serde::de::DeserializeOwned;
 pub mod offline;
+mod selected;
 use serde_json::Value;
 use vcp_domain::{CommandId, Revision, Timestamp};
 use vcp_lifecycle::foundation::{
@@ -13,7 +14,7 @@ use vcp_lifecycle::foundation::{
 };
 use vcp_models::routing::{Policy, Preference, Profile};
 
-pub const HELP: &str = "/optimize [status] | /optimize transitions | /optimize observations | /optimize cycles | /optimize forecasts | /optimize answer priority|size|review|restrictions <answer> | /optimize preview low|med|high --quality-floor <0..10000> | /optimize apply | /optimize rollback <target-revision> --expected <current-revision> | /optimize compare <baseline-report> <current-report>";
+pub const HELP: &str = "/optimize [status] | /optimize transitions | /optimize observations | /optimize cycles | /optimize forecasts | /optimize answer priority|size|review|restrictions <answer> | /optimize preview low|med|high --quality-floor <0..10000> | /optimize preview [--profile low|med|high] [--quality-floor N] [--output-tokens N|inherit] [--input-tokens N|inherit] [--retrieval-limits RESULTS TOKENS BYTES|inherit] [--max-transport-retries N|inherit] [--max-quality-switches N|inherit] [--max-total-attempts N|inherit] [--minimum-repeated-failures N|inherit] [--reasoning-effort minimal|low|medium|high|inherit] [--minimum-samples N] [--maximum-evidence-age-ms N] [--models ID,...|none] [--endpoints ID,...|none] [--groups frontier,high,medium,low|none] [--pin MODEL ENDPOINT|--unpin] | /optimize apply | /optimize rollback <target-revision> --expected <current-revision> | /optimize compare <baseline-report> <current-report>";
 const CONFIGURE: &str = "Automatic routing is not configured. Add a validated routing catalog, explicit policy and cost estimates to the existing VCP configuration, then reopen this session. Reporting and preference answers remain available.";
 type Result<T> = std::result::Result<T, String>;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +40,9 @@ pub enum Command {
     Preview {
         profile: Profile,
         quality_floor_bps: u16,
+    },
+    PreviewSelected {
+        selected: Vec<Edit>,
     },
     Apply,
     Rollback {
@@ -79,7 +83,7 @@ pub fn parse(words: &[&str]) -> Result<Command> {
             }
             Ok(Command::Answer { question, value })
         }
-        ["preview", profile, "--quality-floor", floor] => {
+        ["preview", profile, "--quality-floor", floor] if !profile.starts_with("--") => {
             let profile = match *profile {
                 "low" => Profile::Low,
                 "med" => Profile::Med,
@@ -94,6 +98,9 @@ pub fn parse(words: &[&str]) -> Result<Command> {
             })
         }
         ["apply"] => Ok(Command::Apply),
+        ["preview", flags @ ..] => Ok(Command::PreviewSelected {
+            selected: selected::parse(flags)?,
+        }),
         ["rollback", target, "--expected", expected] => {
             let revision = |text: &str| {
                 text.parse::<u64>()
@@ -161,11 +168,12 @@ fn order_text(order: &[Preference]) -> String {
 }
 fn policy_text(policy: &Policy) -> String {
     format!(
-        "{}; quality floor {}/10000; minimum {} samples; evidence age at most {} ms; order {}",
+        "{}; quality floor {}/10000; minimum {} samples; evidence age at most {} ms; output tokens {}; order {}",
         label(policy.profile),
         policy.quality_floor_bps,
         policy.minimum_samples,
         policy.maximum_evidence_age_ms,
+        policy.output_tokens.map_or_else(|| "inherited".to_owned(), |value| value.get().to_string()),
         order_text(&policy.ordering)
     )
 }
@@ -227,6 +235,14 @@ pub struct Session {
     pending: Option<(CommandId, Preview)>,
 }
 impl Session {
+    /// Invalidate a previous selection before parsing a replacement, including
+    /// malformed replacements that never reach `execute`.
+    pub fn prepare_input(&mut self, line: &str) {
+        let mut words = line.split_whitespace();
+        if words.next() == Some("/optimize") && words.next() == Some("preview") {
+            self.pending = None;
+        }
+    }
     /// The closure is the only effects boundary, allowing the terminal workflow
     /// to be checked without launching an engine or making provider calls.
     pub fn execute(
@@ -373,42 +389,24 @@ impl Session {
                     )
                 );
                 if restrictions {
-                    message.push_str(" Model/provider restrictions are interview preferences here; edit trusted routing configuration to enforce a changed allowlist.");
+                    message.push_str(" This answer records a preference. Use /optimize preview --models ID,... --endpoints ID,... to select restrictions within trusted configuration, then /optimize apply.");
                 }
                 Ok(message)
             }
             Command::Preview {
                 profile,
                 quality_floor_bps,
-            } => {
-                let report = self
-                    .report
-                    .as_ref()
-                    .ok_or("Run /optimize first to capture a current report.")?;
-                // Clear the prior preview before an attempted replacement: an error
-                // must not leave a differently selected old proposal ready to apply.
-                self.pending = None;
-                let selected = vec![
+            } => self.preview_selected(
+                vec![
                     Edit::Profile(profile),
                     Edit::Ordering(order(profile)),
                     Edit::QualityFloorBps(quality_floor_bps),
-                ];
-                let value = call(
-                    &mut service,
-                    Request::Preview {
-                        report: report.id.clone(),
-                        selected,
-                    },
-                )?;
-                let preview: Preview = decode(&value)?;
-                let message = format!("Preview against revision {}. Before: {}. Selected: {}. Effective under trusted limits: {}. {} Uncertainty: {}. Use /optimize apply to apply these selected changes, or create another preview.",
-                    preview.base.get(), policy_text(&preview.prior), policy_text(&preview.persisted),
-                    policy_text(&preview.effective), preview.reason, preview.uncertainty.join("; "));
-                self.pending = Some((CommandId::new(), preview));
-                Ok(message)
-            }
+                ],
+                &mut service,
+            ),
+            Command::PreviewSelected { selected } => self.preview_selected(selected, &mut service),
             Command::Apply => {
-                let (command, preview) = self.pending.as_ref().ok_or("No pending preview. Run /optimize and then /optimize preview low|med|high --quality-floor <0..10000>.")?;
+                let (command, preview) = self.pending.as_ref().ok_or("No pending preview. Run /optimize and then /optimize preview with the fields you want to change.")?;
                 let value = call(
                     &mut service,
                     Request::Apply {
@@ -439,6 +437,31 @@ impl Session {
                 ))
             }
         }
+    }
+    fn preview_selected(
+        &mut self,
+        selected: Vec<Edit>,
+        service: &mut impl FnMut(Request) -> Result<Value>,
+    ) -> Result<String> {
+        // Even a failed replacement invalidates the previous pending selection.
+        self.pending = None;
+        let report = self
+            .report
+            .as_ref()
+            .ok_or("Run /optimize first to capture a current report.")?;
+        let value = call(
+            service,
+            Request::Preview {
+                report: report.id.clone(),
+                selected,
+            },
+        )?;
+        let preview: Preview = decode(&value)?;
+        let message = format!("Preview against revision {}. Before: {}. Selected: {}. Effective under trusted limits: {}. {} {} Uncertainty: {}. Use /optimize apply to apply these selected changes, or create another preview.",
+                    preview.base.get(), policy_text(&preview.prior), policy_text(&preview.persisted),
+                    policy_text(&preview.effective), selected::diff(&preview)?, preview.reason, preview.uncertainty.join("; "));
+        self.pending = Some((CommandId::new(), preview));
+        Ok(message)
     }
 }
 

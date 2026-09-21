@@ -46,6 +46,7 @@ fn candidate(
         require_zdr: true,
         request_price_limit: "0.000010".into(),
         required_parameters: BTreeSet::from(["tools".into()]),
+        qualified_reasoning_efforts: BTreeSet::new(),
     };
     let raw=serde_json::to_vec(&serde_json::json!({"data":{"id":model,"endpoints":[{"tag":endpoint,"status":0,"context_length":4000,"max_prompt_tokens":3000,"max_completion_tokens":1000,"supported_parameters":["tools"],"pricing":{"prompt":input_price,"completion":"0.000002","request":"0.000010"}}]}})).unwrap();
     let snapshot = Snapshot::from_endpoints(
@@ -124,12 +125,116 @@ fn policy(entries: &[Candidate]) -> Policy {
         ],
         pin: None,
         broader_task_class: None,
+        output_tokens: None,
+        input_tokens: None,
+        escalation_limits: None,
+        reasoning_effort: None,
+        retrieval_limits: None,
     }
     .seal()
     .unwrap()
 }
 fn estimate(candidate: &Candidate) -> CostEstimate {
     CostEstimate {candidate:candidate.identity.clone(),first_attempt:Usage {input:Units::new(100),output:Units::new(50),requests:Units::new(1),..Usage::default()},retries:Usage::default(),handoff:Usage::default(),support:Some(money(30)),children:Some(money(0)),verification:Some(money(100)),assumptions:vec!["One first attempt; bounded fixture has no retry, child or handoff; support and protected verification explicit".into()],evidence_refs:vec!["fixture://cost-assumptions-v1".into()]}
+}
+
+#[test]
+fn optional_output_limit_preserves_legacy_bytes_and_rejects_zero() {
+    let original = policy(&[]);
+    let legacy = serde_json::to_value(&original).unwrap();
+    for field in [
+        "output_tokens",
+        "input_tokens",
+        "escalation_limits",
+        "reasoning_effort",
+        "retrieval_limits",
+    ] {
+        assert!(legacy.get(field).is_none(), "{field}");
+    }
+    let legacy_bytes = vcp_protocol::canonical_bytes(&legacy).unwrap();
+    let reopened: Policy = serde_json::from_slice(&legacy_bytes).unwrap();
+    reopened.validate().unwrap();
+    assert_eq!(reopened.output_tokens, None);
+    assert_eq!(reopened.id, original.id);
+    assert_eq!(
+        vcp_protocol::canonical_bytes(&reopened).unwrap(),
+        legacy_bytes
+    );
+    let mut selected = reopened.clone();
+    selected.output_tokens = Some(Units::new(256));
+    let selected = selected.seal().unwrap();
+    assert_ne!(selected.id, reopened.id);
+    assert_eq!(selected.output_tokens, Some(Units::new(256)));
+    let mut invalid = reopened;
+    invalid.output_tokens = Some(Units::ZERO);
+    assert!(invalid.seal().is_err());
+}
+
+#[test]
+fn selected_resource_limits_validate_before_policy_publication() {
+    use vcp_models::routing::{EscalationLimits, RetrievalLimits};
+    let mut invalid = policy(&[]);
+    invalid.input_tokens = Some(Units::ZERO);
+    assert!(invalid.seal().is_err());
+    assert!(EscalationLimits::default().validate().is_err());
+    for limits in [
+        EscalationLimits {
+            max_transport_retries: Some(5),
+            ..Default::default()
+        },
+        EscalationLimits {
+            max_quality_switches: Some(9),
+            ..Default::default()
+        },
+        EscalationLimits {
+            max_total_attempts: Some(0),
+            ..Default::default()
+        },
+        EscalationLimits {
+            minimum_repeated_failures: Some(65),
+            ..Default::default()
+        },
+    ] {
+        assert!(limits.validate().is_err());
+    }
+    assert!(RetrievalLimits::default().validate().is_ok());
+    for limits in [
+        RetrievalLimits {
+            results: 0,
+            ..Default::default()
+        },
+        RetrievalLimits {
+            tokens: Units::new(1),
+            ..Default::default()
+        },
+        RetrievalLimits {
+            bytes: vcp_domain::ByteCount::new(65537),
+            ..Default::default()
+        },
+    ] {
+        assert!(limits.validate().is_err());
+    }
+}
+
+#[test]
+fn selected_input_ceiling_blocks_selection_above_the_bound() {
+    let (catalog, mut policy, mut input) = setup(vec![candidate(
+        "fixture/input",
+        Group::Low,
+        9000,
+        5,
+        "0.000001",
+    )]);
+    policy.input_tokens = Some(Units::new(100));
+    policy = policy.seal().unwrap();
+    input.policy = policy.id.clone();
+    input.input_tokens = Units::new(100);
+    assert!(select(&catalog, &policy, &input)
+        .unwrap()
+        .selected
+        .is_some());
+    input.input_tokens = Units::new(101);
+    assert!(select(&catalog, &policy, &input).is_err());
 }
 fn input(catalog: &CatalogRevision, policy: &Policy) -> RoutingInput {
     RoutingInput {
@@ -173,6 +278,77 @@ fn excluded(decision: &RoutingDecision, model: &str, reason: Exclusion) {
         decision.candidates
     );
 }
+
+#[test]
+fn explicit_reasoning_effort_filters_unqualified_endpoints_without_relaxing_a_pin() {
+    use vcp_models::reasoning::Effort;
+    let cheap = candidate("cheap", Group::Low, 9000, 5, "0.000001");
+    let mut qualified = candidate("qualified", Group::Low, 9000, 5, "0.000002");
+    let previous = qualified.snapshot.take().unwrap();
+    let mut compatibility = previous.compatibility;
+    compatibility.required_parameters.insert("reasoning".into());
+    compatibility
+        .qualified_reasoning_efforts
+        .insert(Effort::Low);
+    let raw = serde_json::to_vec(&serde_json::json!({"data":{"id":"qualified","endpoints":[{"tag":"fixture/region","status":0,"context_length":4000,"max_prompt_tokens":3000,"max_completion_tokens":1000,"supported_parameters":["tools","reasoning"],"pricing":{"prompt":"0.000002","completion":"0.000002","request":"0.000010"}}]}})).unwrap();
+    qualified.snapshot = Some(
+        Snapshot::from_endpoints(
+            &raw,
+            Timestamp::new(10),
+            Timestamp::new(1000),
+            compatibility,
+        )
+        .unwrap(),
+    );
+    let (catalog, mut policy, mut input) = setup(vec![cheap.clone(), qualified.clone()]);
+    policy.reasoning_effort = Some(Effort::Low);
+    policy = policy.seal().unwrap();
+    input.policy = policy.id.clone();
+    let decision = select(&catalog, &policy, &input).unwrap();
+    assert_eq!(decision.selected, Some(qualified.identity));
+    excluded(&decision, "cheap", Exclusion::UnsupportedReasoningEffort);
+    policy.pin = Some(Pin {
+        candidate: cheap.identity,
+        fallback_candidates: BTreeSet::new(),
+    });
+    policy = policy.seal().unwrap();
+    input.policy = policy.id.clone();
+    assert_eq!(select(&catalog, &policy, &input).unwrap().selected, None);
+}
+#[test]
+fn selected_output_bound_is_enforced_in_selection_and_current_revalidation() {
+    let (catalog, mut policy, mut input) = setup(vec![candidate(
+        "fixture/output",
+        Group::Low,
+        9000,
+        5,
+        "0.000001",
+    )]);
+    policy.output_tokens = Some(Units::new(50));
+    policy = policy.seal().unwrap();
+    input.policy = policy.id.clone();
+    input.output_tokens = Units::new(50);
+    let decision = select(&catalog, &policy, &input).unwrap();
+    input.output_tokens = Units::new(51);
+    assert!(select(&catalog, &policy, &input).is_err());
+    input.output_tokens = Units::new(49);
+    assert!(select(&catalog, &policy, &input).is_ok());
+    policy.output_tokens = Some(Units::new(49));
+    policy = policy.seal().unwrap();
+    assert!(
+        decision
+            .validate_selected_at(
+                &catalog,
+                &policy,
+                input.now,
+                input.available.clone(),
+                input.protected_verification,
+            )
+            .is_err(),
+        "policy change cannot reuse a prepared decision"
+    );
+}
+
 #[test]
 fn cheap_low_quality_loses_and_all_failed_candidates_remain_inspectable() {
     let entries = vec![

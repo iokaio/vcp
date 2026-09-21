@@ -17501,6 +17501,7 @@ dependencies = [
  "codex-login",
  "codex-protocol",
  "codex-utils-pty",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tempfile",

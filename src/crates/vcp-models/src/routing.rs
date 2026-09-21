@@ -10,6 +10,8 @@ use vcp_domain::{
 };
 
 pub const SCHEMA_VERSION: u32 = 1;
+mod limits;
+pub use limits::{EscalationLimits, RetrievalLimits};
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelEndpoint {
@@ -150,6 +152,19 @@ pub struct Policy {
     pub ordering: Vec<Preference>,
     pub pin: Option<Pin>,
     pub broader_task_class: Option<String>,
+    /// Selected request output bound; absent retains the trusted host default.
+    /// Omission preserves historical policy bytes and immutable identities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<Units>,
+    /// Maximum serialized request input, using the host's conservative byte bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<Units>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub escalation_limits: Option<EscalationLimits>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<crate::reasoning::Effort>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_limits: Option<RetrievalLimits>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -209,6 +224,7 @@ pub enum Exclusion {
     MissingLiveQualification,
     ContradictoryCompatibility,
     UnsupportedCapability,
+    UnsupportedReasoningEffort,
     UnknownCapability,
     DataPolicy,
     ContextCapacity,

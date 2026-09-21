@@ -17,6 +17,8 @@ mod routing_accounting;
 #[cfg(feature = "qualification")]
 #[path = "support/routing_crash.rs"]
 mod routing_crash;
+#[path = "support/routing_policy_edits.rs"]
+mod routing_policy_edits;
 #[path = "support/transition_evidence.rs"]
 mod transition_evidence;
 
@@ -42,6 +44,11 @@ fn policy() -> Policy {
         ],
         pin: None,
         broader_task_class: None,
+        output_tokens: None,
+        input_tokens: None,
+        escalation_limits: None,
+        reasoning_effort: None,
+        retrieval_limits: None,
     }
     .seal()
     .unwrap()
@@ -282,7 +289,7 @@ async fn interview_reuses_answers_closed_schema_rejects_authority_and_reports_re
         serde_json::from_value::<Edit>(serde_json::json!({"field":"budget","value":1000})).is_err()
     );
     assert!(serde_json::from_value::<Edit>(
-        serde_json::json!({"field":"allowed_models","value":["new"]})
+        serde_json::json!({"field":"deny_data_collection","value":false})
     )
     .is_err());
     let initial = interview(&store, &access).unwrap();

@@ -162,6 +162,9 @@ pub fn restored_configuration(
         output_ceiling: prior
             .map(|config| config.output_ceiling)
             .unwrap_or(Units::new(1)),
+        max_transport_retries: prior
+            .map(|config| config.max_transport_retries)
+            .unwrap_or(super::default_max_transport_retries()),
         artifact_limit: prior
             .map(|config| config.artifact_limit)
             .unwrap_or(ByteCount::new(vcp_store::artifact::DEFAULT_ARTIFACT_LIMIT)),

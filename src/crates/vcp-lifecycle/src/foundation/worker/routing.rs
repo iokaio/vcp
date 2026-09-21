@@ -35,11 +35,14 @@ impl Context {
         if !self.owner_alive || self.authority_pending {
             return Err("routing controls require current authority owner".into());
         }
+        if let crate::foundation::routing::Request::DeclareEscalation { declaration } = &request {
+            #[cfg(windows)]
+            return self.declare_escalation(declaration.clone());
+            #[cfg(not(windows))]
+            return Err("owner escalation declarations require the Windows coding host".into());
+        }
         let access = self.routing_access();
-        let ceilings = self
-            .routing
-            .as_ref()
-            .map(|runtime| runtime.configuration.policy.clone());
+        let ceilings = self.routing_ceilings()?;
         self.runtime
             .block_on(crate::foundation::routing::execute(
                 self.engine.store_mut(),
@@ -129,7 +132,7 @@ impl Context {
     }
 
     pub(super) fn current_routing_policy(&self) -> Result<Option<routing::Policy>> {
-        let Some(runtime) = &self.routing else {
+        let Some(ceilings) = self.routing_ceilings()? else {
             return Ok(None);
         };
         let access = self.routing_access();
@@ -137,9 +140,81 @@ impl Context {
             .map_err(|e| -> Failure { e.into() })?
             .ok_or("canonical routing policy unavailable")?;
         Ok(Some(
-            routing_state::effective_policy(current.value, &runtime.configuration.policy)
+            routing_state::effective_policy(current.value, &ceilings)
                 .map_err(|e| -> Failure { e.into() })?,
         ))
+    }
+
+    fn routing_ceilings(&self) -> Result<Option<routing::Policy>> {
+        self.routing
+            .as_ref()
+            .map(|runtime| {
+                let mut policy = runtime.configuration.policy.clone();
+                policy.input_tokens = Some(
+                    policy
+                        .input_tokens
+                        .unwrap_or(self.config.input_ceiling)
+                        .min(self.config.input_ceiling),
+                );
+                policy.escalation_limits =
+                    runtime.configuration.escalation.as_ref().map(|configured| {
+                        let ceiling = routing::EscalationLimits::from_policy(
+                            configured,
+                            self.config.max_transport_retries,
+                        );
+                        policy
+                            .escalation_limits
+                            .as_ref()
+                            .map_or_else(|| ceiling.clone(), |selected| selected.clamp(&ceiling))
+                    });
+                policy.output_tokens = Some(
+                    policy
+                        .output_tokens
+                        .unwrap_or(self.config.output_ceiling)
+                        .min(self.config.output_ceiling),
+                );
+                policy.seal().map_err(|error| -> Failure { error.into() })
+            })
+            .transpose()
+    }
+
+    pub(super) fn current_output_ceiling(&self) -> Result<Units> {
+        Ok(self
+            .current_routing_policy()?
+            .and_then(|policy| policy.output_tokens)
+            .unwrap_or(self.config.output_ceiling)
+            .min(self.config.output_ceiling))
+    }
+
+    pub(super) fn current_input_ceiling(&self) -> Result<Units> {
+        Ok(self
+            .current_routing_policy()?
+            .and_then(|policy| policy.input_tokens)
+            .unwrap_or(self.config.input_ceiling)
+            .min(self.config.input_ceiling))
+    }
+
+    pub(super) fn current_escalation_policy(
+        &self,
+    ) -> Result<Option<vcp_models::escalation::Policy>> {
+        let Some(mut policy) = self
+            .routing
+            .as_ref()
+            .and_then(|runtime| runtime.configuration.escalation.clone())
+        else {
+            return Ok(None);
+        };
+        if let Some(limits) = self
+            .current_routing_policy()?
+            .and_then(|policy| policy.escalation_limits)
+        {
+            limits.apply(&mut policy);
+        }
+        policy.max_transport_retries = policy
+            .max_transport_retries
+            .min(self.config.max_transport_retries);
+        policy.validate()?;
+        Ok(Some(policy))
     }
 
     #[cfg(windows)]
@@ -167,6 +242,8 @@ impl Context {
         configuration.policy = self
             .current_routing_policy()?
             .ok_or("routing policy unavailable")?;
+        configuration.escalation = self.current_escalation_policy()?;
+        let output_ceiling = self.current_output_ceiling()?;
         let registry = routing_state::current_registry(self.engine.store(), &self.routing_access())
             .map_err(|e| -> Failure { e.into() })?
             .ok_or("routing registry unavailable")?;
@@ -184,12 +261,20 @@ impl Context {
                 &binding.scope.workspace,
             )?
             .decode()?;
+        let mut required_capabilities = routing_state::declarations::admitted_capabilities(
+            self.engine.store(),
+            &self.routing_access(),
+            &binding.scope,
+            task.steering,
+        )?;
+        required_capabilities.insert("responses_text_tools".into());
         let mut escalation = configuration
             .escalation
             .as_ref()
             .map(|policy| self.escalation_evidence(binding, policy))
             .transpose()?;
         if let Some(evidence) = &mut escalation {
+            required_capabilities.extend(evidence.required_capabilities.iter().cloned());
             if let Some((previous, _)) = &evidence.trigger {
                 evidence.excluded.insert(routing::ModelEndpoint {
                     model: previous.quote.price.model.clone(),
@@ -207,16 +292,18 @@ impl Context {
             .iter()
             .filter_map(|candidate| candidate.snapshot.as_ref())
             .filter_map(|snapshot| {
-                let envelope = vcp_models::request::envelope(
+                let envelope =
+                    vcp_models::request::envelope(snapshot, output_ceiling, Units::new(512), now())
+                        .ok()?;
+                vcp_models::request::encode_with_effort(
+                    parts,
+                    &envelope,
+                    schemas,
                     snapshot,
-                    self.config.output_ceiling,
-                    Units::new(512),
-                    now(),
+                    configuration.policy.reasoning_effort,
                 )
-                .ok()?;
-                vcp_models::request::encode(parts, &envelope, schemas, snapshot)
-                    .ok()
-                    .map(|body| body.len() as u64)
+                .ok()
+                .map(|body| body.len() as u64)
             })
             .max()
             .unwrap_or(context_bytes.len() as u64);
@@ -264,9 +351,9 @@ impl Context {
             role: binding.role,
             task_class: configuration.task_class.clone(),
             now: now(),
-            required_capabilities: ["responses_text_tools".to_string()].into_iter().collect(),
+            required_capabilities,
             input_tokens: Units::new(estimated_input),
-            output_tokens: self.config.output_ceiling,
+            output_tokens: output_ceiling,
             available: Money {
                 currency: ledger.currency.clone(),
                 micros: Micros::new(available),

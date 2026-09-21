@@ -19,6 +19,7 @@ pub(super) struct SendFence {
     pub(super) scope: Scope,
     pub(super) source: retrieval::Fence,
     pub(super) part: Part,
+    pub(super) routing_policy: Option<String>,
 }
 
 pub struct Selection {
@@ -171,10 +172,15 @@ impl CanonicalHost {
             return Err("memory query cancelled".into());
         }
         let checked = binding.clone();
-        let request = query.request;
+        let mut request = query.request;
         let embedding = query.embedding;
         let prepared = self.worker.run(move |context| {
             context.can_start(&checked)?;
+            request.validate()?;
+            let (routing_policy, limits) = context.memory_query_policy()?;
+            request.results = request.results.min(limits.results as usize);
+            request.tokens = request.tokens.min(limits.tokens.get() as usize);
+            request.bytes = request.bytes.min(limits.bytes.get() as usize);
             if let Some(vector) = &embedding {
                 if vector.controller != *context.engine.controller()
                     || vector.epoch != context.engine.owner_epoch()
@@ -193,15 +199,16 @@ impl CanonicalHost {
                 &query.chunker,
                 &|| false,
             )?;
-            Ok((captured, embedding))
+            Ok((captured, embedding, routing_policy))
         })?;
+        let routing_policy = prepared.2.clone();
         let cancelled = Arc::new(AtomicBool::new(false));
         let _cancel_on_drop = CancelOnDrop(cancelled.clone());
         let stage_cancel = cancelled.clone();
         let host = self.clone();
         let measured_binding = binding.clone();
         let mut work = tokio::task::spawn_blocking(move || {
-            let (captured, embedding) = prepared;
+            let (captured, embedding, _) = prepared;
             let stopped = || {
                 stage_cancel.load(Ordering::Acquire)
                     || host.worker.fenced()
@@ -243,6 +250,9 @@ impl CanonicalHost {
         let runtime = self.runtime.clone();
         self.worker.run(move |context| {
             context.can_start(&binding)?;
+            if context.memory_query_policy()?.0 != routing_policy {
+                return Err("memory query routing policy changed before materialization".into());
+            }
             if external.load(Ordering::Acquire)
                 || cancelled.load(Ordering::Acquire)
                 || runtime.admission_generation(thread).ok() != Some(generation)
@@ -255,7 +265,8 @@ impl CanonicalHost {
                 selected,
                 &|| external.load(Ordering::Acquire),
             )?;
-            let mut selection = context.capture_memory_selection(&binding, response)?;
+            let mut selection =
+                context.capture_memory_selection(&binding, response, routing_policy)?;
             selection.resources = Some(resources);
             Ok(selection)
         })

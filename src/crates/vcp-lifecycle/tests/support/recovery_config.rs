@@ -35,6 +35,7 @@ pub fn config(root: &std::path::Path, workspace: &std::path::Path, backend: Back
         input_ceiling: Units::new(100),
         output_ceiling: Units::new(100),
         artifact_limit: ByteCount::new(16 * 1024 * 1024),
+        max_transport_retries: 2,
         host_tool_denials: vec![],
     }
 }

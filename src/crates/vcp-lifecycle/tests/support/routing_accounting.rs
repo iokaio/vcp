@@ -8,6 +8,8 @@ use vcp_domain::{
     task::{Task, TaskState},
 };
 use vcp_store::artifact::ArtifactWriter;
+#[path = "owner_declarations.rs"]
+mod owner_declarations;
 fn money(value: u64) -> Money {
     Money {
         currency: "USD".to_owned().try_into().unwrap(),

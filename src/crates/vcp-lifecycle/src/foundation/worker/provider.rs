@@ -30,6 +30,8 @@ struct Ready {
     memory: Option<crate::foundation::memory_query::SendFence>,
 }
 pub(super) struct Prepared {
+    /// Copied from the validated sealed request; never rewritten after admission.
+    pub output_ceiling: Units,
     #[cfg(windows)]
     pub escalation: Option<super::escalation::Pending>,
     pub body: serde_json::Value,
@@ -293,9 +295,32 @@ impl Context {
                 })
             },
         )?;
-        request::validate_sealed(&ready.context, &ready.snapshot, &ready.schemas, now())?;
-        if sealed.manifest.envelope.output != self.config.output_ceiling {
-            return Err("sealed output differs from host ceiling".into());
+        let reasoning_effort = if ready.routing.is_some() {
+            self.current_reasoning_effort()?
+        } else {
+            None
+        };
+        request::validate_sealed_with_effort(
+            &ready.context,
+            &ready.snapshot,
+            &ready.schemas,
+            now(),
+            reasoning_effort,
+        )?;
+        let output_ceiling = if ready.routing.is_some() {
+            self.current_output_ceiling()?
+        } else {
+            self.config.output_ceiling
+        };
+        if sealed.manifest.envelope.output != output_ceiling
+            || sealed.manifest.envelope.output > self.config.output_ceiling
+        {
+            return Err("sealed output differs from effective host ceiling".into());
+        }
+        if ready.routing.is_some()
+            && sealed.manifest.input_estimate > self.current_input_ceiling()?
+        {
+            return Err("sealed input exceeds effective host ceiling".into());
         }
         Ok(())
     }
@@ -512,6 +537,7 @@ impl Context {
         // Recheck after durable capture, ordered with all canonical commands.
         self.validate_ready(binding, &ready)?;
         let snapshot = ready.snapshot.clone();
+        let output_ceiling = ready.context.sealed().manifest.envelope.output;
         let routing = ready.routing.clone();
         #[cfg(windows)]
         let escalation = ready.escalation.clone();
@@ -521,6 +547,7 @@ impl Context {
             .active
             .insert(binding.scope.task.clone(), ready);
         Ok(Prepared {
+            output_ceiling,
             body,
             stream,
             snapshot,
@@ -593,11 +620,7 @@ impl Context {
         if provider.retries.contains_key(&binding.scope.task) {
             return Err("retry already scheduled".into());
         }
-        if let Some(policy) = self
-            .routing
-            .as_ref()
-            .and_then(|routing| routing.configuration.escalation.as_ref())
-        {
+        if let Some(policy) = self.current_escalation_policy()? {
             let admissions = crate::foundation::routing_state::admitted_escalations(
                 self.engine.store(),
                 &self.routing_access(),
@@ -649,7 +672,7 @@ impl Context {
         };
         let now = now();
         let policy = vcp_models::retry::Policy {
-            max_retries: 2,
+            max_retries: self.config.max_transport_retries,
             base_delay_ms: 100,
             max_delay_ms: 5_000,
             deadline: Timestamp::new(now.get().saturating_add(remaining.as_millis() as u64)),

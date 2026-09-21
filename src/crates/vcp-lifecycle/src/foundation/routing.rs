@@ -12,6 +12,12 @@ use vcp_models::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    DeclareEscalation {
+        declaration: routing_state::declarations::Input,
+    },
+    EscalationDeclarations {
+        task: vcp_domain::TaskId,
+    },
     Status,
     Transitions {
         from: Option<Timestamp>,
@@ -66,6 +72,12 @@ pub async fn execute(
     now: Timestamp,
 ) -> Result<serde_json::Value, String> {
     let value = match request {
+        Request::DeclareEscalation { .. } => {
+            return Err("owner declaration requires the retained host capture boundary".into())
+        }
+        Request::EscalationDeclarations { task } => {
+            routing_state::declarations::inspect(store, access, &task)?
+        }
         Request::Transitions { from, until } => {
             serde_json::to_value(routing_state::transitions::observe(
                 store,
@@ -197,6 +209,11 @@ impl Configuration {
         self.policy.validate().map_err(|e| e.to_string())?;
         if let Some(policy) = &self.escalation {
             policy.validate().map_err(|e| e.to_string())?;
+        }
+        if self.policy.escalation_limits.is_some() && self.escalation.is_none() {
+            return Err(
+                "selected escalation limits require trusted escalation configuration".into(),
+            );
         }
         if self.task_class.is_empty()
             || self.task_class.len() > 128

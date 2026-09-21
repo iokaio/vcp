@@ -210,6 +210,9 @@ fn evaluate(
         return row;
     };
     row.evidence_refs.push(snapshot.id.clone());
+    if crate::reasoning::validate(snapshot, policy.reasoning_effort).is_err() {
+        row.exclusions.push(Exclusion::UnsupportedReasoningEffort);
+    }
     if snapshot.current(input.now).is_err() {
         row.exclusions.push(Exclusion::StaleSnapshot);
     }
@@ -359,6 +362,22 @@ pub fn select(
     input.validate()?;
     if input.catalog != catalog.id || input.policy != policy.id {
         return Err(Error::Stale);
+    }
+    if policy
+        .input_tokens
+        .is_some_and(|limit| input.input_tokens > limit)
+    {
+        return Err(Error::Capability(
+            "routing input exceeds selected policy limit",
+        ));
+    }
+    if policy
+        .output_tokens
+        .is_some_and(|limit| input.output_tokens > limit)
+    {
+        return Err(Error::Capability(
+            "routing output exceeds selected policy limit",
+        ));
     }
     let mut candidates: Vec<_> = catalog
         .entries

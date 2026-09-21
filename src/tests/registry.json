@@ -10,7 +10,9 @@
       "munarium-source",
       "upstream-boundaries",
       "cli-trace-fixtures",
-      "builtin-skills"
+      "builtin-skills",
+      "p6-task-quality",
+      "p6-live-runner"
     ],
     "repository": [
       "repository"
@@ -30,6 +32,22 @@
     ]
   },
   "cases": {
+    "p6-live-runner": {
+      "task_ids": ["P6-04"],
+      "args": ["--test", "src/tests/contracts/p6-live-runner.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
+    "p6-task-quality": {
+      "task_ids": ["P6-04"],
+      "args": ["--test", "src/tests/contracts/p6-task-quality.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
     "builtin-skills": {
       "task_ids": ["P7-02"],
       "args": ["--test", "src/tests/contracts/builtin-assets.test.cjs"],

@@ -123,7 +123,8 @@ pub(super) async fn execute(
             protected: Micros::ZERO,
             price: prepared.profile.provider.price.clone(),
             input_ceiling: prepared.profile.provider.max_input,
-            output_ceiling: Units::new(prepared.profile.provider.max_output.get().min(4096)),
+            output_ceiling: prepared.profile.output_ceiling()?,
+            max_transport_retries: prepared.profile.max_transport_retries,
             artifact_limit: ByteCount::new(vcp_store::artifact::DEFAULT_ARTIFACT_LIMIT),
             host_tool_denials: vec![],
         }
@@ -223,7 +224,8 @@ pub(super) async fn execute(
     }
     config.price = prepared.profile.provider.price.clone();
     config.input_ceiling = prepared.profile.provider.max_input;
-    config.output_ceiling = Units::new(prepared.profile.provider.max_output.get().min(4096));
+    config.output_ceiling = prepared.profile.output_ceiling()?;
+    config.max_transport_retries = prepared.profile.max_transport_retries;
     let root = vcp_repository::Root::open(
         vcp_repository::RootIdentity {
             workspace: config.workspace.clone(),

@@ -151,6 +151,10 @@ already include these changes; normal builds never apply patches.
 33. `0033-p7-mcp-http-workspace.patch` records the lifecycle adapter's direct
     dependency on the already locked Windows API package for read-only system
     trust-store snapshots. No external package version changes.
+34. `0034-p6-conformance-workspace.patch` records the CLI qualification fixture's
+    direct dependency on the already locked reqwest 0.12.28 for bounded provider
+    conformance requests. Only the local workspace dependency edge changes;
+    no external package version or retained upstream implementation changes.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

@@ -22,11 +22,62 @@ async fn setup(
     TestCodex,
     wiremock::MockServer,
 ) {
+    setup_with_retries(temp, backend, timeout, cap, coding, 2, None).await
+}
+
+async fn setup_with_retries(
+    temp: &tempfile::TempDir,
+    backend: BackendKind,
+    timeout: Duration,
+    cap: u64,
+    coding: bool,
+    retries: u32,
+    output_ceiling: Option<Units>,
+) -> (
+    CanonicalHost,
+    vcp_lifecycle::foundation::CanonicalOwner,
+    ThreadBinding,
+    TestCodex,
+    wiremock::MockServer,
+) {
+    setup_with_bounds(
+        temp,
+        backend,
+        timeout,
+        cap,
+        coding,
+        retries,
+        output_ceiling,
+        true,
+    )
+    .await
+}
+
+async fn setup_with_bounds(
+    temp: &tempfile::TempDir,
+    backend: BackendKind,
+    timeout: Duration,
+    cap: u64,
+    coding: bool,
+    retries: u32,
+    output_ceiling: Option<Units>,
+    byte_qualified: bool,
+) -> (
+    CanonicalHost,
+    vcp_lifecycle::foundation::CanonicalOwner,
+    ThreadBinding,
+    TestCodex,
+    wiremock::MockServer,
+) {
     let workspace = temp.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
     let workspace = workspace.canonicalize().unwrap();
     let mut config = config(&temp.path().join("canonical"), &workspace, backend);
     config.cap.micros = Micros::new(cap);
+    config.max_transport_retries = retries;
+    if let Some(output) = output_ceiling {
+        config.output_ceiling = output;
+    }
     let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
     let binding = task(&host, &config, config.root_task.clone(), None);
     if coding {
@@ -61,7 +112,18 @@ async fn setup(
         )
         .unwrap();
     }
-    let (snapshot, raw) = provider_snapshot();
+    let (mut snapshot, raw) = provider_snapshot();
+    if !byte_qualified {
+        let mut compatibility = snapshot.compatibility.clone();
+        compatibility.byte_ceiling_qualified = false;
+        snapshot = vcp_models::catalog::Snapshot::from_endpoints(
+            &raw,
+            snapshot.observed_at,
+            snapshot.valid_until,
+            compatibility,
+        )
+        .unwrap();
+    }
     host.configure_provider_with_timeout(snapshot.clone(), raw, timeout)
         .unwrap();
     let server = start_mock_server().await;
@@ -129,6 +191,122 @@ async fn setup(
             .unwrap();
     }
     (host, owner, binding, test, server)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unqualified_byte_estimate_reserves_full_endpoint_input_before_http() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (host, owner, _, test, server) = setup_with_bounds(
+            &temp,
+            backend,
+            Duration::from_secs(10),
+            10_000_000,
+            true,
+            0,
+            Some(Units::new(512)),
+            false,
+        )
+        .await;
+        let maximum = provider_snapshot().0.max_input;
+        let checking = host.clone();
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(move |request: &wiremock::Request| {
+                let state = checking.snapshot().unwrap();
+                let attempts: Vec<Attempt> = state
+                    .records
+                    .values()
+                    .filter(|row| row.collection == Collection::Attempt)
+                    .map(|row| row.decode().unwrap())
+                    .collect();
+                assert_eq!(attempts.len(), 1);
+                assert!((request.body.len() as u64) < maximum.get());
+                assert_eq!(attempts[0].quote.bounds.input.get(), maximum.get() * 3);
+                assert_eq!(attempts[0].quote.bounds.cache_read, maximum);
+                assert_eq!(attempts[0].quote.bounds.cache_write, maximum);
+                ResponseTemplate::new(503).set_body_string("bounded synthetic unknown charge")
+            })
+            .expect(1)
+            .mount(&server)
+            .await;
+        turn(&test).await;
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fixed_provider_zero_retry_cap_sends_once_and_preserves_uncertain_charge() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (host, owner, binding, test, server) = setup_with_retries(
+            &temp,
+            backend,
+            Duration::from_secs(10),
+            1000,
+            true,
+            0,
+            Some(Units::new(512)),
+        )
+        .await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(move |request: &wiremock::Request| {
+                let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+                assert_eq!(body["max_output_tokens"], 512);
+                count.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(503)
+                    .insert_header("retry-after", "0")
+                    .set_body_string("synthetic transient failure")
+            })
+            .mount(&server)
+            .await;
+        turn(&test).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let state = host.snapshot().unwrap();
+        let attempts: Vec<Attempt> = state
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Attempt)
+            .map(|row| row.decode().unwrap())
+            .collect();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].quote.bounds.output, Units::new(512));
+        assert!(attempts[0].previous.is_none());
+        let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+        assert_eq!(ledger.unresolved, attempts[0].quote.amount.micros);
+        assert_eq!(ledger.settled, Micros::ZERO);
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
+#[test]
+fn legacy_host_config_defaults_to_two_retries_and_excess_is_rejected() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let configured = config(
+        &temp.path().join("canonical"),
+        &workspace,
+        BackendKind::Files,
+    );
+    let mut legacy = serde_json::to_value(&configured).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("max_transport_retries");
+    let mut reopened: Config = serde_json::from_value(legacy).unwrap();
+    assert_eq!(reopened.max_transport_retries, 2);
+    reopened.max_transport_retries = 3;
+    assert!(CanonicalHost::open(reopened).is_err());
+    assert!(
+        !temp.path().join("canonical").exists(),
+        "reject invalid setup before creating store"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
