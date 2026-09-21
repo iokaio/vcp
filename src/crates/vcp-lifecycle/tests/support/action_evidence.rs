@@ -8,7 +8,7 @@ use vcp_domain::{
 };
 use vcp_lifecycle::foundation::{
     routing,
-    routing_state::{fits, observations::*},
+    routing_state::{fits, observations::*, rewards},
 };
 use vcp_protocol::{
     command::{Command, CommandEnvelope},
@@ -857,6 +857,133 @@ async fn unknown_liability_and_no_send_release_never_become_free_visits() {
             .unwrap();
         assert_eq!(supporting.cohort.role, RequestRole::Verification);
         assert_eq!(supporting.charge.final_charge_micros, Some(10));
+        let mapped = rewards::map(&store, &access, window()).unwrap();
+        assert_eq!(mapped.attempts, 4);
+        assert_eq!(mapped.exact_attempts, 2);
+        assert_eq!(mapped.unknown_attempts, 2);
+        let rewards::Status::Mapped { cells } = mapped.status else {
+            panic!("attempt rewards must map");
+        };
+        assert!(cells.iter().any(|cell| {
+            cell.cohort.role == RequestRole::Verification && cell.point_estimate_micros == Some(10)
+        }));
+        assert!(cells.iter().any(|cell| {
+            cell.cohort.role == RequestRole::Main
+                && cell.exact_attempts == 1
+                && cell.exact_charge_sum_micros == 0
+                && cell.point_estimate_micros == Some(0)
+        }));
+    }
+}
+
+#[tokio::test]
+async fn reward_mapping_withholds_cohort_mean_when_any_attempt_cost_is_unknown() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let mut tasks = Vec::new();
+        for name in ["reward-task-a", "reward-task-b", "reward-task-c"] {
+            let task = create_named_task(&mut store, &access, TaskState::Running, name).await;
+            vcp_budget::initialize(
+                &mut store,
+                task.scope.clone(),
+                money(1000),
+                Micros::ZERO,
+                None,
+                &budget_actor(&access, 3),
+            )
+            .await
+            .unwrap();
+            tasks.push(task);
+        }
+        for (index, task) in tasks[..2].iter().enumerate() {
+            let attempt = reserve(&mut store, &access, task, None, 10 + index as u64 * 10).await;
+            settle(&mut store, &access, task, &attempt, 11 + index as u64 * 10).await;
+        }
+        let complete = rewards::map(&store, &access, window()).unwrap();
+        let rewards::Status::Mapped { cells } = &complete.status else {
+            panic!("settled attempts must map");
+        };
+        assert_eq!(cells.len(), 1);
+        assert_eq!(cells[0].attempts, 2);
+        assert_eq!(cells[0].exact_attempts, 2);
+        assert_eq!(cells[0].exact_charge_sum_micros, 20);
+        assert_eq!(cells[0].exact_min_charge_micros, Some(10));
+        assert_eq!(cells[0].exact_max_charge_micros, Some(10));
+        assert_eq!(cells[0].point_estimate_micros, Some(10));
+        assert!(!cells[0].unknown_remainder);
+
+        let uncertain = reserve(&mut store, &access, &tasks[2], None, 30).await;
+        vcp_budget::submit(
+            &mut store,
+            &uncertain.id,
+            &tasks[2].scope,
+            uncertain.revision,
+            &budget_actor(&access, 31),
+        )
+        .await
+        .unwrap();
+        vcp_budget::hold_uncertain(
+            &mut store,
+            &uncertain.id,
+            &tasks[2].scope,
+            &budget_actor(&access, 32),
+            "provider outcome unavailable",
+        )
+        .await
+        .unwrap();
+        let before = store.state().clone();
+        let mapped = rewards::map(&store, &access, window()).unwrap();
+        assert_eq!(mapped.attempts, 3);
+        assert_eq!(mapped.exact_attempts, 2);
+        assert_eq!(mapped.unknown_attempts, 1);
+        assert_eq!(mapped.source_digest.len(), 64);
+        assert_eq!(mapped.source_gaps, 0);
+        assert!(mapped.policy.is_none() && mapped.catalog.is_none());
+        assert!(mapped.qualification.is_none() && !mapped.serving_qualified);
+        let rewards::Status::Mapped { cells } = &mapped.status else {
+            panic!("attempt rewards must map");
+        };
+        assert_eq!(cells.len(), 1);
+        let cell = &cells[0];
+        assert_eq!(cell.currency, "USD");
+        assert_eq!(cell.cohort.role, RequestRole::Main);
+        assert_eq!(cell.cohort.model, "exact-model");
+        assert_eq!(cell.cohort.endpoint, "exact/provider-endpoint");
+        assert_eq!(cell.cohort.retry_depth, Some(0));
+        assert_eq!(cell.cohort.prior_attempts, Some(0));
+        assert_eq!(cell.attempts, 3);
+        assert_eq!(cell.exact_attempts, 2);
+        assert_eq!(cell.unknown_attempts, 1);
+        assert_eq!(cell.exact_charge_sum_micros, 20);
+        assert_eq!(cell.exact_min_charge_micros, Some(10));
+        assert_eq!(cell.exact_max_charge_micros, Some(10));
+        assert_eq!(cell.observed_charged_attempts, 3);
+        assert_eq!(cell.observed_charged_sum_micros, 20);
+        assert_eq!(cell.observed_liability_attempts, 3);
+        assert_eq!(cell.observed_liability_sum_micros, 10);
+        assert_eq!(cell.point_estimate_micros, None);
+        assert!(cell.unknown_remainder);
+        assert_eq!(rewards::map(&store, &access, window()).unwrap(), mapped);
+        assert_eq!(store.state(), &before);
+        assert!(matches!(
+            rewards::map(
+                &store,
+                &access,
+                HistoryWindow {
+                    from: Some(Timestamp::new(100)),
+                    until: Timestamp::new(200),
+                },
+            )
+            .unwrap()
+            .status,
+            rewards::Status::Abstained {
+                reason: rewards::Abstention::NoAttempts
+            }
+        ));
+        drop(store);
+        let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
+        assert_eq!(rewards::map(&reopened, &access, window()).unwrap(), mapped);
     }
 }
 

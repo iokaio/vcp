@@ -93,16 +93,19 @@ complete M1. The [exact charge-reward increment](../evaluations/p6-charge-reward
 joins retained settlements once to their owning attempts, preserves late debit/credit
 adjustments and currency, excludes rollups, and withholds a point estimate for
 unknown or reserved liability under
-[ADR-031](../adr/031-exact-attempt-charge-attribution.md). Fit qualification and
-fitted-artifact retention/consumed-value replay remain next. The
+[ADR-031](../adr/031-exact-attempt-charge-attribution.md). The
 [fit-provenance increment](../evaluations/p6-fit-provenance.md) adds a rebuildable,
 source-bound first-order candidate with explicit parameters, counts and abstention
 under [ADR-032](../adr/032-rebuildable-markov-fit-artifacts.md); it is unqualified
 and never persisted. The [held-out comparison increment](../evaluations/p6-heldout-order-comparison.md)
 adds task-separated first/second-order scores, complexity penalties and a
 first-order multi-step frequency check under
-[ADR-033](../adr/033-heldout-markov-order-comparison.md). Reward uncertainty,
-qualification and consumed-value replay remain. Existing
+[ADR-033](../adr/033-heldout-markov-order-comparison.md). Reward mapping is now
+explicit: the [reward-mapping increment](../evaluations/p6-reward-mapping.md)
+keeps exact augmented attempt cohorts separate, reports complete terminal cost
+samples, and withholds a cohort mean after any unknown charge under
+[ADR-034](../adr/034-exact-attempt-reward-mapping.md). Consumed-value retention
+and replay remain. Existing
 optimizer report schemas and enabled routing behavior are unchanged.
 
 1. Define a closed, revisioned alphabet from canonical task/turn transitions,
