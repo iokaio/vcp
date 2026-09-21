@@ -312,6 +312,94 @@ fn records(output: &Output) -> Vec<Value> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_run_skill_activation_precedes_first_provider_request() {
+    let server = MockServer::start().await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let responses = calls.clone();
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(move |_: &wiremock::Request| {
+            let index = responses.fetch_add(1, Ordering::SeqCst);
+            // Verification may first refresh its instruction scope. The next
+            // request has that refreshed context and explicitly retries the check.
+            let body = if index == 2 {
+                response(1, "complete")
+                    .replace("item-1", "item-2")
+                    .replace("call-1", "call-2")
+                    .replace("response-1", "response-2")
+            } else {
+                response(index, "complete")
+            };
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(body)
+        })
+        .mount(&server)
+        .await;
+    let fixture = Fixture::new(&server.uri(), "complete");
+    fixture.skills();
+    let output = fixture
+        .run(&[
+            "run",
+            "Change value to 42 and verify",
+            "--autonomy",
+            "autonomous",
+            "--skill",
+            "project::review::review",
+        ])
+        .await;
+    let values = records(&output);
+    let requests = server.received_requests().await.unwrap();
+    let tool_results: Vec<Value> = requests
+        .iter()
+        .flat_map(|request| {
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            body["input"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|item| item["type"] == "function_call_output")
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(
+        output.status.success(),
+        "final={:?} tool_results={tool_results:?} {}",
+        values.last(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!requests.is_empty());
+    let first = String::from_utf8_lossy(&requests[0].body);
+    assert!(first.contains("Use the observed project instructions. Report verification results without granting permissions."));
+    assert!(first.contains("project::review::review"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_run_unknown_skill_stops_before_provider_dispatch() {
+    let server = MockServer::start().await;
+    let fixture = Fixture::new(&server.uri(), "complete");
+    fixture.skills();
+    let output = fixture
+        .run(&[
+            "run",
+            "Change value to 42 and verify",
+            "--autonomy",
+            "autonomous",
+            "--skill",
+            "project::review::missing",
+        ])
+        .await;
+    records(&output);
+    assert!(!output.status.success());
+    assert!(server.received_requests().await.unwrap().is_empty());
+    assert_eq!(
+        fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
+        "41\n"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn executable_owner_controls_authenticate_and_cancel_inflight_work() {
     use std::io::{BufRead, BufReader};
     use vcp_cli::control::{self, Request};
