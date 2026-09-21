@@ -25,6 +25,11 @@ The 68 task IDs and dependencies are unchanged. The P0 milestones below record
 bounded source, lifecycle, storage and retained-integration qualification;
 the final handoff consolidates their evidence for P1.
 
+The proposed [Cursor-derived improvements](22-cursor-improvements.md) preserve
+the accompanying [research note](../research/cursor.md) and a possible follow-up
+sequence. They are not adopted release requirements; the supplement records the
+remaining adoption steps without changing the current task graph.
+
 Start with [the code layout](code-layout.md), [the delivery contract](00-delivery-contract.md), [test infrastructure and acceptance](16-test-fixtures-and-acceptance.md), then [upstream feasibility](01-upstream-feasibility.md). These files expand [architecture draft 0.4](../architecture/vcp-what.md) into coding and testing work. The architecture remains authoritative for product behavior; this directory owns the detailed execution instructions and repository layout.
 
 The repository contains the executable [delivery harness](../development/delivery-harness.md),
