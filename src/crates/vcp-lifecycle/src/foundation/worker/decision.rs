@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
 mod escalation_input;
+pub(in crate::foundation) mod local;
 use crate::foundation::decision::{
     self as host,
     admission::{Capability, CurrentInstallation, FinitePrepared},
@@ -26,6 +27,9 @@ pub(super) struct Runtime {
     configuration: Configuration,
     revision: Revision,
     installed: Option<Installed>,
+    local: Option<local::Installed>,
+    #[cfg(feature = "qualification")]
+    local_after_compute: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
     pending: HashMap<TaskId, Arc<Seed>>,
     latest: HashMap<TaskId, AttemptId>,
     pub(crate) credentials: credentials::Registry,
@@ -303,6 +307,7 @@ impl Context {
         self.decisions.revision = self.decisions.revision.next()?;
         self.decisions.configuration = configuration;
         self.decisions.installed = installed;
+        self.decisions.local = None;
         Ok(())
     }
     fn decision_installed(

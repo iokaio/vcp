@@ -338,6 +338,482 @@ fn configure_escalation(f: &Fixture, peer: &Peer, operation: Operation) {
         .unwrap();
 }
 
+fn record_local_failures(f: &Fixture, output: &ArtifactId, count: usize) {
+    use vcp_domain::verification::{Check, CheckOutcome, CostCertainty, Verification};
+    let task: Task = f
+        .host
+        .snapshot()
+        .unwrap()
+        .record(
+            Collection::Task,
+            f.config.root_task.as_str(),
+            &f.config.workspace,
+        )
+        .unwrap()
+        .decode()
+        .unwrap();
+    for _ in 0..count {
+        f.host
+            .command(
+                Command::RecordVerification {
+                    verification: Verification {
+                        redaction: None,
+                        id: VerificationId::new(),
+                        scope: task.scope.clone(),
+                        steering: task.steering,
+                        fingerprint: task.fingerprint.clone(),
+                        outputs: vec![output.clone()],
+                        checks: vec![Check {
+                            specification: "synthetic repeated local-shadow check".into(),
+                            outcome: CheckOutcome::Failed {
+                                reason: "same synthetic diagnostic".into(),
+                            },
+                            output: output.clone(),
+                            exit_code: Some(1),
+                        }],
+                        unresolved_effects: vec![],
+                        outstanding_issues: vec![],
+                        cost: CostCertainty::Known,
+                    },
+                },
+                Some(task.scope.task.clone()),
+                task.revision,
+            )
+            .unwrap();
+    }
+}
+
+async fn configure_local_shadow(
+    f: &Fixture,
+) -> (
+    vcp_lifecycle::foundation::routing_state::local_stall::Fit,
+    vcp_lifecycle::foundation::decision::EvidencePin,
+    ArtifactId,
+) {
+    f.host
+        .configure_decisions(vcp_lifecycle::foundation::decision::Configuration {
+            mode: Mode::Shadow,
+            qualification: None,
+        })
+        .unwrap();
+    let output = f
+        .host
+        .capture(
+            f.thread,
+            Channel::Evidence,
+            b"Synthetic failure for local lifecycle qualification only.".to_vec(),
+        )
+        .unwrap()
+        .spec
+        .id;
+    record_local_failures(f, &output, 12);
+    let until = Timestamp::new(now().get() + 1);
+    let fit = f
+        .host
+        .fit_local_shadow(
+            f.thread,
+            vcp_lifecycle::foundation::routing_state::HistoryWindow { from: None, until },
+            3,
+        )
+        .unwrap();
+    let pin = f.host.install_local_shadow(fit.clone()).unwrap();
+    while now() <= until {
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    record_local_failures(f, &output, 3);
+    (fit, pin, output)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_shadow_uses_frozen_statistics_without_helper_spend_and_purges_source_copies() {
+    use vcp_domain::retention_selector::{Bound, Criterion, Selector, TimeWindow, Tree};
+    use vcp_lifecycle::foundation::history_retention::Request as Retention;
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let f = Fixture::with_escalation(backend, 1000, true, true).await;
+        let (fit, pin, source) = configure_local_shadow(&f).await;
+        let installed_bytes = f.host.read_artifact(pin.artifact.clone()).unwrap();
+        f.start().await;
+        f.main_complete().await;
+        let attempts = f.attempts();
+        assert_eq!(attempts.len(), 2);
+        assert!(attempts
+            .iter()
+            .all(|attempt| attempt.role == RequestRole::Main));
+        let baseline = f.decisions();
+        let outcome = f
+            .host
+            .evaluate_pending_decision_shadow(f.thread)
+            .await
+            .unwrap();
+        assert!(outcome.evaluator_attempt.is_none());
+        let statistics: vcp_lifecycle::foundation::routing_state::local_stall::Outcome =
+            serde_json::from_value(outcome.outcome["local_statistics"].clone()).unwrap();
+        assert_eq!(statistics.fit, fit.id);
+        assert!(statistics.abstention.is_none(), "{statistics:?}");
+        assert!(
+            statistics
+                .signal
+                .as_ref()
+                .unwrap()
+                .repeated_strategy_suspected
+        );
+        assert!(!statistics.serving_qualified);
+        assert_eq!(outcome.artifacts.len(), 1);
+        assert_eq!(
+            f.host.read_artifact(pin.artifact.clone()).unwrap(),
+            installed_bytes
+        );
+        assert_eq!(f.attempts(), attempts);
+        assert_eq!(f.decisions(), baseline);
+        assert_eq!(f.main_bodies.lock().unwrap().len(), 2);
+        let repeated = f
+            .host
+            .evaluate_pending_decision_shadow(f.thread)
+            .await
+            .unwrap();
+        assert!(repeated.evaluator_attempt.is_none());
+        assert!(repeated.artifacts.is_empty());
+
+        let retained = f.host.snapshot().unwrap();
+        let fit_key = key(Collection::Artifact, pin.artifact.as_str());
+        for verification in &fit.source_verifications {
+            assert!(retained.records[&fit_key]
+                .references
+                .contains(&key(Collection::Verification, verification.as_str())));
+        }
+        let local_key = key(Collection::Artifact, outcome.artifacts[0].as_str());
+        assert!(retained.records[&local_key].references.contains(&fit_key));
+        let source_event = retained
+            .events
+            .iter()
+            .find(|event| {
+                event.event.kind == EventKind::ArtifactAttached
+                    && event.event.artifacts.contains(&source)
+            })
+            .unwrap();
+        let instant = retention_instant(source_event.event.timestamp);
+        let selector = Selector {
+            schema_version: 1,
+            tree: Tree::All(vec![
+                Tree::Match(Criterion::Event("artifact_attached".into())),
+                Tree::Match(Criterion::Date(TimeWindow {
+                    lower: Some(Bound {
+                        instant: instant.clone(),
+                        inclusive: true,
+                    }),
+                    upper: Some(Bound {
+                        instant,
+                        inclusive: true,
+                    }),
+                })),
+            ]),
+        };
+        let task: Task = retained
+            .record(
+                Collection::Task,
+                f.config.root_task.as_str(),
+                &f.config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        f.host
+            .command(
+                Command::Transition {
+                    next: TaskState::Failed,
+                    reason: "terminal local-shadow purge fixture".into(),
+                    verification: None,
+                },
+                Some(task.scope.task.clone()),
+                task.revision,
+            )
+            .unwrap();
+        for row in retained
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Turn)
+        {
+            let turn: Turn = row.decode().unwrap();
+            if !matches!(
+                turn.state,
+                TurnState::Completed | TurnState::Failed | TurnState::Cancelled
+            ) {
+                f.host
+                    .command(
+                        Command::AdvanceTurn {
+                            id: turn.id,
+                            next: TurnState::Failed,
+                            reason: "close local-shadow fixture turn".into(),
+                        },
+                        Some(turn.scope.task),
+                        turn.revision,
+                    )
+                    .unwrap();
+            }
+        }
+        let preview = f
+            .host
+            .history_retention(Retention::Preview {
+                selector,
+                action: vcp_memory::retention::Action::Purge,
+            })
+            .unwrap();
+        assert_eq!(preview["protected_count"], 0, "{preview}");
+        assert_eq!(preview["dependent_truncated"], false);
+        let dependent = preview["dependent"].as_array().unwrap();
+        assert!(dependent.contains(&json!({"kind":"record","id":fit_key})));
+        assert!(dependent.contains(&json!({"kind":"record","id":local_key})));
+        let applied = f
+            .host
+            .history_retention(Retention::Apply {
+                preview: preview["id"].as_str().unwrap().into(),
+            })
+            .unwrap();
+        assert!(f.host.select_local_shadow(pin.clone()).is_err());
+        assert!(f.host.read_artifact(pin.artifact.clone()).is_err());
+        assert!(f.host.read_artifact(outcome.artifacts[0].clone()).is_err());
+        let cleaned = f
+            .host
+            .history_retention(Retention::Cleanup {
+                receipt: applied["id"].as_str().unwrap().into(),
+            })
+            .unwrap();
+        assert_eq!(cleaned["rewrite_complete"], true);
+        let purged = f.host.snapshot().unwrap();
+        for artifact in [&pin.artifact, &outcome.artifacts[0]] {
+            let descriptor: ArtifactDescriptor = purged.records
+                [&key(Collection::Artifact, artifact.as_str())]
+                .decode()
+                .unwrap();
+            assert_eq!(descriptor.state, CaptureState::Purged);
+        }
+        f.close().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_shadow_rejects_paused_or_steered_seed_without_recording_statistics() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for pause in [false, true] {
+            let f = Fixture::with_escalation(backend, 1000, true, true).await;
+            configure_local_shadow(&f).await;
+            f.start().await;
+            f.main_complete().await;
+            let baseline = f.decisions();
+            let attempts = f.attempts();
+            let task: Task = f
+                .host
+                .snapshot()
+                .unwrap()
+                .record(
+                    Collection::Task,
+                    f.config.root_task.as_str(),
+                    &f.config.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            let command = if pause {
+                Command::Transition {
+                    next: TaskState::Paused,
+                    reason: "pause local shadow before evaluation".into(),
+                    verification: None,
+                }
+            } else {
+                let mut objective = task.objectives.last().unwrap().clone();
+                objective.text = "Changed local-shadow task objective".into();
+                objective.source = EventId::new();
+                objective.steering = task.steering.next().unwrap();
+                Command::Steer { objective }
+            };
+            f.host
+                .command(command, Some(task.scope.task), task.revision)
+                .unwrap();
+            let outcome = f
+                .host
+                .evaluate_pending_decision_shadow(f.thread)
+                .await
+                .unwrap();
+            assert!(outcome.evaluator_attempt.is_none());
+            assert!(outcome.artifacts.is_empty());
+            assert_eq!(f.attempts(), attempts);
+            assert_eq!(f.decisions(), baseline);
+            assert!(f
+                .host
+                .snapshot()
+                .unwrap()
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Artifact)
+                .all(|row| row.value["spec"]["schema"] != "vcp-local-stall-shadow-result-v1"));
+            f.close().await;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_shadow_pause_after_compute_prevents_publication_and_keeps_owner_responsive() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let f = Fixture::with_escalation(backend, 1000, true, true).await;
+        configure_local_shadow(&f).await;
+        f.start().await;
+        f.main_complete().await;
+        let baseline = f.decisions();
+        let attempts = f.attempts();
+        let arrived = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        f.host
+            .qualification_block_local_after_compute(arrived.clone(), release.clone())
+            .unwrap();
+        let host = f.host.clone();
+        let thread = f.thread;
+        let waiter =
+            tokio::spawn(async move { host.evaluate_pending_decision_shadow(thread).await });
+        tokio::time::timeout(Duration::from_secs(10), arrived.notified())
+            .await
+            .unwrap();
+        let task: Task = f
+            .host
+            .snapshot()
+            .unwrap()
+            .record(
+                Collection::Task,
+                f.config.root_task.as_str(),
+                &f.config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let host = f.host.clone();
+        let pause = tokio::task::spawn_blocking(move || {
+            host.command(
+                Command::Transition {
+                    next: TaskState::Paused,
+                    reason: "pause after local computation before publication".into(),
+                    verification: None,
+                },
+                Some(task.scope.task),
+                task.revision,
+            )
+        });
+        let paused = tokio::time::timeout(Duration::from_secs(5), pause).await;
+        release.notify_one();
+        paused.unwrap().unwrap().unwrap();
+        let outcome = tokio::time::timeout(Duration::from_secs(5), waiter)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(outcome.outcome.get("local_statistics").is_none());
+        assert_eq!(outcome.outcome["local_shadow"]["outcome"], "skipped");
+        assert_eq!(outcome.outcome["local_shadow"]["historical_only"], true);
+        assert_eq!(outcome.artifacts.len(), 1);
+        let receipt: Value =
+            serde_json::from_slice(&f.host.read_artifact(outcome.artifacts[0].clone()).unwrap())
+                .unwrap();
+        assert!(receipt.get("local_statistics").is_none());
+        assert_eq!(receipt["baseline_changed"], false);
+        assert!(outcome.evaluator_attempt.is_none());
+        assert_eq!(f.attempts(), attempts);
+        assert_eq!(f.decisions(), baseline);
+        assert!(f
+            .host
+            .snapshot()
+            .unwrap()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Artifact)
+            .all(|row| row.value["spec"]["schema"] != "vcp-local-stall-shadow-result-v1"));
+        assert_eq!(
+            f.host
+                .lifecycle()
+                .inspect(f.thread)
+                .unwrap()
+                .unresolved_work,
+            0
+        );
+        f.close().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_shadow_reopen_requires_explicit_selection_and_does_not_replay_admitted_main() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let f = Fixture::with_escalation(backend, 1000, true, true).await;
+        let (_, pin, _) = configure_local_shadow(&f).await;
+        f.start().await;
+        f.main_complete().await;
+        let outcome = f
+            .host
+            .evaluate_pending_decision_shadow(f.thread)
+            .await
+            .unwrap();
+        assert_eq!(outcome.artifacts.len(), 1);
+        let attempts = f.attempts();
+        let binding = ThreadBinding {
+            scope: attempts[0].scope.clone(),
+            agent: attempts[0].agent.clone(),
+            role: RequestRole::Main,
+        };
+        let Fixture {
+            _temp,
+            host,
+            owner,
+            test,
+            config,
+            thread,
+            ..
+        } = f;
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+        drop(test);
+        drop(host);
+        let (restored, owner) = CanonicalHost::open(config.clone()).unwrap();
+        restored.register(thread, binding).unwrap();
+        assert!(!restored.decision_shadow_pending(thread).unwrap());
+        assert!(restored
+            .evaluate_pending_decision_shadow(thread)
+            .await
+            .unwrap()
+            .artifacts
+            .is_empty());
+        restored
+            .configure_decisions(vcp_lifecycle::foundation::decision::Configuration {
+                mode: Mode::Shadow,
+                qualification: None,
+            })
+            .unwrap();
+        restored.select_local_shadow(pin).unwrap();
+        assert!(!restored.decision_shadow_pending(thread).unwrap());
+        assert!(restored
+            .evaluate_pending_decision_shadow(thread)
+            .await
+            .unwrap()
+            .artifacts
+            .is_empty());
+        let snapshot = restored.snapshot().unwrap();
+        let retained: Vec<Attempt> = snapshot
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Attempt)
+            .map(|row| row.decode().unwrap())
+            .collect();
+        assert_eq!(retained, attempts);
+        assert_eq!(
+            snapshot
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Artifact
+                    && row.value["spec"]["schema"] == "vcp-local-stall-shadow-result-v1")
+                .count(),
+            1
+        );
+        owner.close().await.unwrap();
+        drop(restored);
+        drop(_temp);
+    }
+}
+
 fn advisory_document(f: &Fixture, kind: &str) -> Value {
     let records: Vec<_> = f
         .host

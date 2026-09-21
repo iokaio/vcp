@@ -299,6 +299,34 @@ pub fn evaluate(
     task: &TaskId,
     window: HistoryWindow,
 ) -> Result<Outcome> {
+    prepare_evaluation(store, access, value, task, window)?.compute()
+}
+
+/// Immutable inference snapshot. Model arithmetic runs without canonical owner
+/// locks; consumers must revalidate this snapshot before retaining its result.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Prepared {
+    model: stall::Model,
+    sequence: Vec<usize>,
+    outcome: Outcome,
+    pub source_verifications: Vec<VerificationId>,
+}
+impl Prepared {
+    pub fn compute(mut self) -> Result<Outcome> {
+        if self.outcome.abstention.is_none() {
+            self.outcome.signal = Some(self.model.evaluate(&self.sequence)?);
+        }
+        Ok(self.outcome)
+    }
+}
+
+pub fn prepare_evaluation(
+    store: &Store,
+    access: &Access,
+    value: &Fit,
+    task: &TaskId,
+    window: HistoryWindow,
+) -> Result<Prepared> {
     validate(store, access, value)?;
     if task != &value.task
         || window
@@ -339,6 +367,8 @@ pub fn evaluate(
         .iter()
         .filter(|v| &v.task == task)
         .collect();
+    let source_verifications = rows.iter().map(|v| v.verification.clone()).collect();
+    let mut sequence = Vec::new();
     if source.excluded_pruned_records > 0
         || source.gaps.iter().any(|g| &g.task == task)
         || rows.is_empty()
@@ -355,7 +385,6 @@ pub fn evaluate(
     {
         outcome.abstention = Some(Abstention::ChangedInput);
     } else {
-        let mut sequence = Vec::new();
         for row in rows {
             let Some(symbol) = symbol(row)? else {
                 outcome.abstention = Some(Abstention::MissingObservations);
@@ -367,11 +396,13 @@ pub fn evaluate(
             };
             sequence.push(index);
         }
-        if outcome.abstention.is_none() {
-            outcome.signal = Some(value.model.evaluate(&sequence)?);
-        }
     }
-    Ok(outcome)
+    Ok(Prepared {
+        model: value.model.clone(),
+        sequence,
+        outcome,
+        source_verifications,
+    })
 }
 
 #[cfg(test)]
