@@ -544,7 +544,7 @@ impl Store {
                 .decode()?;
             next.records.insert(
                 key.clone(),
-                crate::redaction_contract::redact_record(row, workspace.deletion)?,
+                crate::redaction_contract::redact_record(&self.state, row, workspace.deletion)?,
             );
         }
         for event in &mut next.events {

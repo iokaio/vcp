@@ -9,7 +9,9 @@ use vcp_domain::{
 use vcp_domain::{
     artifact::CaptureState,
     memory::{ProposalRecord, ProposalResult, Version},
-    redaction::{self, RedactedProposal, RedactedResult, RedactedVersion, Sources},
+    redaction::{
+        self, RedactedAdvisory, RedactedProposal, RedactedResult, RedactedVersion, Sources,
+    },
     workspace::Scope,
 };
 use vcp_protocol::command::{CommandReceipt, CommandResult};
@@ -23,7 +25,10 @@ pub(crate) fn kind(row: &Record) -> Result<Option<&str>> {
             Ok(Some(tag))
         }
         redaction::RESULT if row.collection == Collection::Projection => Ok(Some(tag)),
-        _ if tag.starts_with("vcp_memory_redacted_") => {
+        redaction::ADVISORY if row.collection == Collection::Projection => Ok(Some(tag)),
+        _ if tag.starts_with("vcp_memory_redacted_")
+            || tag.starts_with("vcp_escalation_redacted_") =>
+        {
             Err(Error::Corruption("redacted entity type or collection"))
         }
         _ => Ok(None),
@@ -34,11 +39,17 @@ pub(crate) fn scope(row: &Record) -> Result<Scope> {
         Some(redaction::PROPOSAL) => Ok(row.decode::<RedactedProposal>()?.scope),
         Some(redaction::VERSION) => Ok(row.decode::<RedactedVersion>()?.scope),
         Some(redaction::RESULT) => Ok(row.decode::<RedactedResult>()?.scope),
+        Some(redaction::ADVISORY) => Ok(row.decode::<RedactedAdvisory>()?.scope),
         _ => Err(Error::Corruption("redacted entity expected")),
     }
 }
 pub(crate) fn shape(row: &Record) -> Result<()> {
     let (id, scope, revision) = match kind(row)? {
+        Some(redaction::ADVISORY) => {
+            let value: RedactedAdvisory = row.decode()?;
+            value.validate()?;
+            (value.id, value.scope, value.revision)
+        }
         Some(redaction::PROPOSAL) => {
             let value: RedactedProposal = row.decode()?;
             value.validate()?;
@@ -84,6 +95,7 @@ fn source_refs(refs: &mut BTreeSet<String>, sources: &Sources) {
 pub(crate) fn references(row: &Record) -> Result<BTreeSet<String>> {
     let mut refs = BTreeSet::from([key(Collection::Task, scope(row)?.task.as_str())]);
     match kind(row)? {
+        Some(redaction::ADVISORY) => (),
         Some(redaction::PROPOSAL) => {
             source_refs(&mut refs, &row.decode::<RedactedProposal>()?.sources)
         }
@@ -219,6 +231,7 @@ pub(crate) fn validate(state: &State) -> Result<()> {
             )?
             .decode()?;
         let epoch = match kind(row)? {
+            Some(redaction::ADVISORY) => row.decode::<RedactedAdvisory>()?.deletion,
             Some(redaction::PROPOSAL) => row.decode::<RedactedProposal>()?.deletion,
             Some(redaction::VERSION) => {
                 let value: RedactedVersion = row.decode()?;
@@ -280,7 +293,11 @@ pub(crate) fn validate(state: &State) -> Result<()> {
     }
     Ok(())
 }
-pub(crate) fn redact_record(source: &Record, deletion: DeletionEpoch) -> Result<Record> {
+pub(crate) fn redact_record(
+    state: &State,
+    source: &Record,
+    deletion: DeletionEpoch,
+) -> Result<Record> {
     let mut next = source.clone();
     next.value = match source.collection {
         Collection::Artifact => {
@@ -410,6 +427,39 @@ pub(crate) fn redact_record(source: &Record, deletion: DeletionEpoch) -> Result<
                 .map_err(|_| Error::Conflict("task content protected"))?,
         )?,
         _ => match source.value["document_type"].as_str() {
+            Some(tag)
+                if source.collection == Collection::Projection
+                    && redaction::advisory_document(tag) =>
+            {
+                if source.value["schema_version"] != 1
+                    || source.value["document_version"] != 1
+                    || source.value["routing_encoding"] != "object_v1"
+                    || source.value["id"] != source.id
+                    || source.value["workspace"] != source.workspace.as_str()
+                {
+                    return Err(Error::Corruption("advisory redaction source identity"));
+                }
+                let task_id = source.value["task"]
+                    .as_str()
+                    .ok_or(Error::Corruption("advisory redaction task identity"))?;
+                let task: Task = state
+                    .record(Collection::Task, task_id, &source.workspace)?
+                    .decode()?;
+                let value = RedactedAdvisory {
+                    document_type: redaction::ADVISORY.into(),
+                    schema_version: 1,
+                    original_document_type: tag.into(),
+                    id: source.id.clone(),
+                    scope: task.scope,
+                    revision: source.revision,
+                    deletion,
+                    original_digest: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
+                        &source.value,
+                    )?),
+                };
+                value.validate()?;
+                serde_json::to_value(value)?
+            }
             Some("vcp_memory_proposal_v1") => serde_json::to_value(
                 vcp_protocol::redaction::proposal(&source.decode::<ProposalRecord>()?, deletion)
                     .map_err(|_| Error::Corruption("proposal redaction"))?,
@@ -576,7 +626,7 @@ pub(crate) fn validate_rewrite(source: &State, target: &State) -> Result<()> {
             &before.workspace,
             scope.as_ref().map(|scope| &scope.task),
         )?;
-        if redact_record(before, epoch(source, &before.workspace)?)? != *after {
+        if redact_record(source, before, epoch(source, &before.workspace)?)? != *after {
             return Err(Error::Corruption("unqualified canonical record rewrite"));
         }
     }

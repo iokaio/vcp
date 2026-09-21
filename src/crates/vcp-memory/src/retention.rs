@@ -273,7 +273,10 @@ fn valid_record(row: &Record) -> bool {
     ) || matches!(
         row.value["document_type"].as_str(),
         Some("vcp_memory_proposal_v1" | "vcp_memory_version_v1" | "vcp_memory_result_v1")
-    )
+    ) || row.collection == Collection::Projection
+        && row.value["document_type"]
+            .as_str()
+            .is_some_and(vcp_domain::redaction::advisory_document)
 }
 fn already_redacted(row: &Record) -> bool {
     if row.collection == Collection::Attempt {
