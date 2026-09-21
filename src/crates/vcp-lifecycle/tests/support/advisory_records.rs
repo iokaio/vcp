@@ -630,6 +630,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
             CommandId::new(),
             &complete_request.id,
             &complete_claimant,
+            &complete_current,
             Timestamp::new(35),
         )
         .await
@@ -644,6 +645,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
                 CommandId::new(),
                 &complete_request.id,
                 &complete_claimant,
+                &complete_current,
                 Timestamp::new(36),
             )
             .await
@@ -652,6 +654,141 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
         );
         assert_eq!(store.state().watermark, watermark);
         store.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn advisory_completion_rechecks_inputs_after_result_and_after_completion() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for completed_first in [false, true] {
+            for change in [
+                "pause",
+                "stale_step",
+                "policy",
+                "catalog",
+                "evidence",
+                "deadline",
+            ] {
+                let temp = tempfile::tempdir().unwrap();
+                let (mut store, access) = setup(temp.path(), backend).await;
+                let task =
+                    super::action_evidence::create_task(&mut store, &access, TaskState::Running)
+                        .await;
+                let prepared = prepare(binding(&task, &access), "completion-recheck");
+                let mut current = prepared.request().binding.clone();
+                let request = advisory::record_request(
+                    &mut store,
+                    &access,
+                    CommandId::new(),
+                    &prepared,
+                    &current,
+                    Timestamp::new(10),
+                )
+                .await
+                .unwrap();
+                advisory::schedule(
+                    &mut store,
+                    &access,
+                    CommandId::new(),
+                    &request.id,
+                    &current,
+                    Timestamp::new(11),
+                )
+                .await
+                .unwrap();
+                let claimant = CommandId::new();
+                advisory::claim(
+                    &mut store,
+                    &access,
+                    CommandId::new(),
+                    &request.id,
+                    claimant.clone(),
+                    &current,
+                    Timestamp::new(12),
+                )
+                .await
+                .unwrap();
+                advisory::record_result(
+                    &mut store,
+                    &access,
+                    CommandId::new(),
+                    &request.id,
+                    &advice(&prepared, "retry"),
+                    &current,
+                    Timestamp::new(13),
+                )
+                .await
+                .unwrap();
+                if completed_first {
+                    advisory::complete(
+                        &mut store,
+                        &access,
+                        CommandId::new(),
+                        &request.id,
+                        &claimant,
+                        &current,
+                        Timestamp::new(14),
+                    )
+                    .await
+                    .unwrap();
+                }
+                let now = match change {
+                    "pause" | "stale_step" => {
+                        let paused =
+                            set_task_state(&mut store, &access, &task, TaskState::Paused).await;
+                        if change == "pause" {
+                            current.step = paused.revision;
+                        }
+                        Timestamp::new(15)
+                    }
+                    "policy" => {
+                        current.policy = "f".repeat(64);
+                        Timestamp::new(15)
+                    }
+                    "catalog" => {
+                        current.catalog = "f".repeat(64);
+                        Timestamp::new(15)
+                    }
+                    "evidence" => {
+                        current
+                            .evidence
+                            .insert("observation".into(), "f".repeat(64));
+                        Timestamp::new(15)
+                    }
+                    "deadline" => Timestamp::new(100),
+                    _ => unreachable!(),
+                };
+                let before = advisory::load_schedule(&store, &access, &request.id).unwrap();
+                let watermark = store.state().watermark;
+                assert!(
+                    advisory::complete(
+                        &mut store,
+                        &access,
+                        CommandId::new(),
+                        &request.id,
+                        &claimant,
+                        &current,
+                        now,
+                    )
+                    .await
+                    .is_err(),
+                    "{backend:?} {change} completed_first={completed_first}"
+                );
+                assert_eq!(store.state().watermark, watermark);
+                assert_eq!(
+                    advisory::load_schedule(&store, &access, &request.id).unwrap(),
+                    before
+                );
+                // Rejection never rewrites historical evidence as if it were newly received.
+                assert_eq!(
+                    advisory::load_result(&store, &access, &request.id)
+                        .unwrap()
+                        .disposition,
+                    Disposition::AcceptedCurrent
+                );
+                store.close().await.unwrap();
+            }
+        }
     }
 }
 
