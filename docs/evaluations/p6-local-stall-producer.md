@@ -22,9 +22,10 @@ authority, deletion epoch, policy, catalog and symbol alphabet. Appending new
 observations leaves the frozen model usable; deleting or changing its training
 evidence invalidates it. Current access checks still apply after reopen.
 
-This increment supplies the producer library. Selecting a fit in the canonical
-owner, asynchronous shadow inference and retained local result receipts follow
-as the next M2 increment. Qualification and any behavioral influence remain M4.
+This increment supplies the producer library. The subsequent
+[local shadow runtime](p6-local-shadow-runtime.md) adds owner selection,
+asynchronous inference and retained receipts. Qualification and any behavioral
+influence remain M4.
 No HMM is introduced without held-out evidence that simpler signals are
 insufficient.
 

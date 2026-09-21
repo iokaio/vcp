@@ -35,7 +35,7 @@ tests and evaluation results; do not infer completion from this document.
 | Order / increment | Owning work | Prerequisites and placement | Deliverable and gate |
 |---|---|---|---|
 | M1 — Retained evidence and analysis foundation | P6-02; P1-06/P5-07/P5-10 supporting refactors | Next P6 foundation work, before more advisory integration; use existing canonical capture/storage and retention | Versioned transition/action projection, reward accounting, pure bounded numerical routines, rebuild/replay/privacy tests |
-| M2 — Escalation integration and local stall comparison | P6-03 | M1, canonical advisory runtime and exact repetition evidence implemented; local shadow producer next | Exact cycle evidence and bounded local shadow producer alongside remote advice; no unqualified transition influence |
+| M2 — Escalation integration and local stall comparison | P6-03 | M1, canonical advisory runtime, exact repetition evidence and frozen local shadow runtime implemented; qualification remains M4 | Exact cycle evidence and bounded local shadow producer alongside remote advice; no unqualified transition influence |
 | M3 — Read-only forecasts in `/optimize` | P6-05 | M1 and P6-03 implementation prerequisite, including M2's safe baseline/shadow paths | Inspectable forecasts, loops, uncertainty and drift reports; no dispatch or automatic policy change |
 | M4 — Qualification and routing estimates | P6-04, P6-02/03 | M2/M3, P5-08 and existing P6-04 prerequisites | Frozen four-arm comparison, calibrated forecasts, opt-in qualified estimate/advice consumption or recorded rejection |
 | M5 — Context and retrieval follow-up | P2-01/08, P5-06/08 | Existing completed context/retrieval baseline; independent of M2–M4; compaction diagnostics reuse M1 | Bounded graph/co-change candidates, context comparison, compaction regression analysis; optional memory-graph arm |
@@ -234,8 +234,8 @@ detecting an exact pattern, not to proving the action it should cause.
 
 The [frozen local producer](../evaluations/p6-local-stall-producer.md) supplies
 explicit offline fitting and read-only second-order/entropy inference with
-separate exact-cycle evidence. Canonical owner selection, asynchronous inference
-and retained result receipts follow before M2 is complete.
+separate exact-cycle evidence. The [local shadow runtime](../evaluations/p6-local-shadow-runtime.md)
+adds canonical owner selection, asynchronous inference and retained result receipts.
 Compare that signal with the deterministic baseline in M4.
 Evaluate a small HMM if simpler signals leave material errors; retain it only
 with held-out gains. Exploring, converging, thrashing and environment-blocked are

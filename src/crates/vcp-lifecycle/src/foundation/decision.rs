@@ -117,6 +117,38 @@ impl CanonicalHost {
         self.worker
             .run(move |context| Ok(context.decision_shadow_pending(&binding)))
     }
+    /// Explicit offline fitting; inference never updates these parameters.
+    pub fn fit_local_shadow(
+        &self,
+        thread: ThreadId,
+        window: routing_state::HistoryWindow,
+        minimum_samples: u64,
+    ) -> Result<routing_state::local_stall::Fit, String> {
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.fit_local_shadow(&binding, window, minimum_samples))
+    }
+    pub fn install_local_shadow(
+        &self,
+        fit: routing_state::local_stall::Fit,
+    ) -> Result<EvidencePin, String> {
+        self.worker
+            .run(move |context| context.install_local_shadow(fit))
+    }
+    /// Reopen starts without a selected fit. Selection validates retained sources.
+    pub fn select_local_shadow(&self, pin: EvidencePin) -> Result<(), String> {
+        self.worker
+            .run(move |context| context.select_local_shadow(pin))
+    }
+    #[cfg(feature = "qualification")]
+    pub fn qualification_block_local_after_compute(
+        &self,
+        arrived: std::sync::Arc<tokio::sync::Notify>,
+        release: std::sync::Arc<tokio::sync::Notify>,
+    ) -> Result<(), String> {
+        self.worker
+            .run(move |context| context.qualification_block_local_after_compute(arrived, release))
+    }
     pub async fn evaluate_pending_routing_shadow(
         &self,
         thread: ThreadId,
@@ -127,6 +159,78 @@ impl CanonicalHost {
     /// Escalation-purpose advice is retained for comparison only; it never
     /// changes routing, required checks or escalation limits.
     pub async fn evaluate_pending_decision_shadow(
+        &self,
+        thread: ThreadId,
+    ) -> Result<ShadowOutcome, String> {
+        let local = self.evaluate_pending_local_shadow(thread).await;
+        let mut outcome = self.evaluate_pending_remote_shadow(thread).await?;
+        if let Some(local) = local {
+            if let Some(object) = outcome.outcome.as_object_mut() {
+                if let Some(statistics) = local.outcome.get("local_statistics") {
+                    object.insert("local_statistics".into(), statistics.clone());
+                }
+                object.insert("local_shadow".into(), local.outcome);
+                object.insert("producer_agreement".into(), serde_json::json!("abstained: local suspicion and remote advice have no shared calibrated comparison"));
+                object.insert(
+                    "composition".into(),
+                    serde_json::json!(
+                        "independent_shadow_evidence; no action or probability averaging"
+                    ),
+                );
+            }
+            outcome.artifacts.extend(local.artifacts);
+        }
+        Ok(outcome)
+    }
+
+    async fn evaluate_pending_local_shadow(&self, thread: ThreadId) -> Option<ShadowOutcome> {
+        let binding = match self.binding(thread) {
+            Ok(binding) => binding,
+            Err(_) => return None,
+        };
+        let work = match self
+            .worker
+            .run(move |context| context.prepare_local_shadow(&binding))
+        {
+            Ok(Some(work)) => work,
+            Ok(None) => return None,
+            Err(error) => return Some(ShadowOutcome::baseline(None, &error)),
+        };
+        let main = Some(work.main_attempt.clone());
+        let prepared = work.prepared.clone();
+        let computation = tokio::task::spawn_blocking(move || prepared.compute());
+        // Dropping or timing out this bounded pure computation cannot publish a
+        // result, dispatch a provider, or mutate the canonical owner.
+        let result =
+            match tokio::time::timeout(std::time::Duration::from_secs(2), computation).await {
+                Ok(Ok(Ok(outcome))) => outcome,
+                Ok(Ok(Err(error))) => return Some(ShadowOutcome::baseline(main, &error)),
+                Ok(Err(_)) => {
+                    return Some(ShadowOutcome::baseline(
+                        main,
+                        "local shadow computation unavailable",
+                    ))
+                }
+                Err(_) => {
+                    return Some(ShadowOutcome::baseline(
+                        main,
+                        "local shadow deadline elapsed",
+                    ))
+                }
+            };
+        #[cfg(feature = "qualification")]
+        if let Some((arrived, release)) = &work.local_after_compute {
+            arrived.notify_one();
+            release.notified().await;
+        }
+        Some(
+            self.worker
+                .run(move |context| context.complete_local_shadow(work, result))
+                .unwrap_or_else(|error| ShadowOutcome::baseline(main, &error)),
+        )
+    }
+
+    async fn evaluate_pending_remote_shadow(
         &self,
         thread: ThreadId,
     ) -> Result<ShadowOutcome, String> {
