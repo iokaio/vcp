@@ -541,7 +541,7 @@ pub async fn bind_attempt(
     if attempt.phase != ReservationState::Created || attempt.send_intent.is_some() {
         return Err("advisory accounting must bind before submission".into());
     }
-    let artifact = canonical_request_artifact(store, &attempt)?;
+    let artifact = canonical_request_artifact(store, &request, &attempt)?;
     let id = accounting_name(request_id);
     if let Some(existing) = read::<AccountingRecord>(store, access, &id)? {
         validate_accounting(&existing, &request, &schedule, &attempt, &artifact)?;
@@ -603,7 +603,7 @@ pub fn accounting_attempt(store: &Store, access: &Access, request_id: &str) -> R
     let accounting = read::<AccountingRecord>(store, access, &accounting_name(request_id))?
         .ok_or("canonical advisory accounting binding not found")?;
     let attempt = canonical_attempt(store, &request, &accounting.attempt)?;
-    let artifact = canonical_request_artifact(store, &attempt)?;
+    let artifact = canonical_request_artifact(store, &request, &attempt)?;
     validate_accounting(&accounting, &request, &schedule, &attempt, &artifact)?;
     Ok(attempt)
 }
@@ -740,13 +740,20 @@ fn canonical_attempt(
         || attempt.root != request.request.binding.root
         || attempt.steering != request.request.binding.steering
         || attempt.role != RequestRole::Helper
+        || attempt.quote.price.model != request.evaluator.model
+        || attempt.quote.price.provider != request.evaluator.provider
+        || attempt.quote.price.capability != request.evaluator.configuration_digest
     {
         return Err("attempt is not the canonical advisory helper reservation".into());
     }
     Ok(attempt)
 }
 
-fn canonical_request_artifact(store: &Store, attempt: &Attempt) -> Result<ArtifactDescriptor> {
+fn canonical_request_artifact(
+    store: &Store,
+    request: &RequestRecord,
+    attempt: &Attempt,
+) -> Result<ArtifactDescriptor> {
     let artifact: ArtifactDescriptor = store
         .state()
         .records
@@ -761,6 +768,7 @@ fn canonical_request_artifact(store: &Store, attempt: &Attempt) -> Result<Artifa
         || artifact.spec.schema != "vcp-escalation-advisory-request-v1"
         || artifact.spec.source != "vcp-lifecycle/advisory"
         || artifact.sha256 != attempt.request_digest
+        || artifact.sha256 != digest_bytes(&canonical_bytes(request).map_err(super::err)?)
     {
         return Err("attempt request is not a retained canonical advisory body".into());
     }
