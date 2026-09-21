@@ -38,9 +38,10 @@ impl CanonicalHost {
         let binding = self.binding(thread)?;
         let scoped = binding.clone();
         let (prepared, controller, owner) = self.worker.run(move |context| {
+            context.child_tool_request(&scoped, &request)?;
             let identity = context.tool_identity(&scoped, request.tool())?;
             let prepared = vcp_tools::prepare(
-                context.tool_root()?,
+                context.task_root(&scoped.scope.task)?,
                 identity,
                 request,
                 ByteCount::new(1024 * 1024),
@@ -56,6 +57,46 @@ impl CanonicalHost {
         let (effect, plan, decision, question) = self
             .worker
             .run(move |context| context.tool_propose(&scoped, &proposed))?;
+        Ok(ToolProposal {
+            thread,
+            binding,
+            prepared,
+            controller,
+            owner,
+            effect,
+            plan,
+            generation,
+            decision,
+            question,
+        })
+    }
+    /// Owner-only prepared edits enter the same policy, intent and receipt path
+    /// as ordinary native tools. The caller supplies no execution authority.
+    pub(in crate::foundation) fn propose_prepared_tool(
+        &self,
+        thread: ThreadId,
+        prepared: Arc<vcp_tools::Prepared>,
+    ) -> Result<ToolProposal, String> {
+        let generation = scheduler::generation(&self.runtime, thread)?;
+        let binding = self.binding(thread)?;
+        if prepared.authority().operation().scope != binding.scope {
+            return Err("prepared edit belongs to a different task".into());
+        }
+        let scoped = binding.clone();
+        let proposed = prepared.clone();
+        let (controller, owner, effect, plan, decision, question) =
+            self.worker.run(move |context| {
+                let (effect, plan, decision, question) =
+                    context.tool_propose(&scoped, &proposed)?;
+                Ok((
+                    context.engine.controller().clone(),
+                    context.engine.owner_epoch(),
+                    effect,
+                    plan,
+                    decision,
+                    question,
+                ))
+            })?;
         Ok(ToolProposal {
             thread,
             binding,
@@ -242,6 +283,7 @@ impl CanonicalHost {
                 let state=runtime.0.state.lock().map_err(|_|"poisoned lifecycle")?;
                 if !state.attached || state.held(thread) || !state.admission_current(thread, generation) {return Err("file dispatch is paused, superseded or unowned".into());}
                 if !matches!(context.tool_decision(&binding,&prepared)?,vcp_policy::Decision::Allow{..}) {return Err("tool authority changed before file dispatch".into());}
+                let _index = prepared.hold_index()?;
                 // All paths were validated before the first write. Repeat the
                 // current file's identity check under deny-write/delete sharing.
                 let target=prepared.root().mutation_target(&change.probes[0])?;

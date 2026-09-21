@@ -289,6 +289,9 @@ impl<S: CanonicalStore> Engine<S> {
                 editing,
                 required_checks,
             } => {
+                if parent.is_some() && crate::agents::graph(state, &scope()?, root)?.is_some() {
+                    return Err(Error::Target);
+                }
                 if command.expected != Revision::ZERO || command.steering != SteeringRevision::ZERO
                 {
                     return Err(vcp_domain::Error::Stale.into());
@@ -322,6 +325,158 @@ impl<S: CanonicalStore> Engine<S> {
                 )?;
                 EventKind::TaskCreated
             }
+            Command::CreateChild {
+                id,
+                objective,
+                fingerprint,
+                required_checks,
+                spec,
+                limits,
+                expected_graph,
+                expected_ledger,
+            } => {
+                let parent = task()?;
+                if parent.revision != command.expected
+                    || parent.steering != command.steering
+                    || spec.actor != command.caller
+                {
+                    return Err(vcp_domain::Error::Stale.into());
+                }
+                if objective.acceptance.is_empty()
+                    || objective.acceptance.iter().any(|s| s.trim().is_empty())
+                {
+                    return Err(vcp_domain::Error::Invalid("child acceptance criteria").into());
+                }
+                let (graph, ledger) = crate::agents::create(
+                    state,
+                    &parent,
+                    id,
+                    spec,
+                    limits,
+                    *expected_graph,
+                    *expected_ledger,
+                    host.now,
+                )?;
+                let mut objective = objective.clone();
+                objective.source = event_id.clone();
+                objective.steering = SteeringRevision::ZERO;
+                let child = Task {
+                    scope: Scope {
+                        workspace: command.workspace.clone(),
+                        session: command.session.clone(),
+                        task: id.clone(),
+                    },
+                    root: parent.root.clone(),
+                    parent: Some(parent.scope.task),
+                    fork_origin: None,
+                    revision: Revision::ZERO,
+                    steering: SteeringRevision::ZERO,
+                    objectives: vec![objective],
+                    state: TaskState::Pending,
+                    fingerprint: fingerprint.clone(),
+                    editing: spec.mode == vcp_domain::agents::ChildMode::IsolatedWrite,
+                    required_checks: required_checks.clone(),
+                    cause: event_id.clone(),
+                    reason: "bounded child assignment".into(),
+                    redaction: None,
+                };
+                child.validate()?;
+                put(
+                    Collection::Task,
+                    id.to_string(),
+                    child.revision,
+                    serde_json::to_value(child)?,
+                    None,
+                )?;
+                put(
+                    Collection::Ledger,
+                    parent.root.to_string(),
+                    ledger.revision,
+                    serde_json::to_value(ledger)?,
+                    Some(*expected_ledger),
+                )?;
+                put(
+                    Collection::Projection,
+                    vcp_domain::agents::graph_id(&parent.root),
+                    graph.revision,
+                    serde_json::to_value(graph)?,
+                    *expected_graph,
+                )?;
+                EventKind::ChildGraphChanged
+            }
+            Command::SubmitChildResult {
+                child,
+                result: child_result,
+                expected_graph,
+            } => {
+                let parent = task()?;
+                if parent.revision != command.expected || parent.steering != command.steering {
+                    return Err(vcp_domain::Error::Stale.into());
+                }
+                let mut graph = crate::agents::graph(state, &parent.scope, &parent.root)?
+                    .ok_or(Error::Target)?;
+                if graph.revision != *expected_graph {
+                    return Err(vcp_domain::Error::Stale.into());
+                }
+                if graph
+                    .children
+                    .get(child)
+                    .is_none_or(|spec| spec.parent != parent.scope.task)
+                {
+                    return Err(Error::Target);
+                }
+                graph
+                    .results
+                    .entry(child.clone())
+                    .or_default()
+                    .push(child_result.clone());
+                graph.revision = graph.revision.next()?;
+                graph.validate()?;
+                put(
+                    Collection::Projection,
+                    vcp_domain::agents::graph_id(&parent.root),
+                    graph.revision,
+                    serde_json::to_value(graph)?,
+                    Some(*expected_graph),
+                )?;
+                EventKind::ChildGraphChanged
+            }
+            Command::SetChildDependencies {
+                child,
+                dependencies,
+                expected_graph,
+            } => {
+                let parent = task()?;
+                if parent.revision != command.expected
+                    || parent.steering != command.steering
+                    || parent.state != TaskState::Running
+                {
+                    return Err(vcp_domain::Error::Stale.into());
+                }
+                let mut graph = crate::agents::graph(state, &parent.scope, &parent.root)?
+                    .ok_or(Error::Target)?;
+                if graph.revision != *expected_graph {
+                    return Err(vcp_domain::Error::Stale.into());
+                }
+                let spec = graph.children.get_mut(child).ok_or(Error::Target)?;
+                let current: Task = state
+                    .record(Collection::Task, child.as_str(), &command.workspace)?
+                    .decode()?;
+                if spec.parent != parent.scope.task || current.state != TaskState::Pending {
+                    return Err(Error::Target);
+                }
+                spec.dependencies = dependencies.clone();
+                graph.revision = graph.revision.next()?;
+                graph.validate()?;
+                put(
+                    Collection::Projection,
+                    vcp_domain::agents::graph_id(&parent.root),
+                    graph.revision,
+                    serde_json::to_value(graph)?,
+                    Some(*expected_graph),
+                )?;
+                EventKind::ChildGraphChanged
+            }
             Command::Transition {
                 next: TaskState::Paused,
                 reason,
@@ -353,6 +508,18 @@ impl<S: CanonicalStore> Engine<S> {
                     })
                     .transpose()?;
                 if *next == TaskState::Running && !host.may_execute {
+                    return Err(Error::Host);
+                }
+                if *next == TaskState::Running
+                    && current.parent.is_some()
+                    && crate::agents::graph(state, &current.scope, &current.root)?.is_some()
+                    && !(if current.state == TaskState::Pending {
+                        crate::agents::eligibility(state, &current, host.now, true)?
+                    } else {
+                        crate::agents::eligibility_for_resume(state, &current, host.now, true)?
+                    })
+                    .is_empty()
+                {
                     return Err(Error::Host);
                 }
                 if *next == TaskState::Completed {
@@ -436,6 +603,47 @@ impl<S: CanonicalStore> Engine<S> {
                             serde_json::to_value(completed)?,
                             Some(turn.revision),
                         )?;
+                    }
+                }
+                if next.state == TaskState::Cancelled {
+                    for row in state.records.values().filter(|r| {
+                        r.workspace == command.workspace && r.collection == Collection::Task
+                    }) {
+                        let child: Task = row.decode()?;
+                        if child.state.terminal() || child.scope.task == current.scope.task {
+                            continue;
+                        }
+                        let mut ancestor = child.parent.clone();
+                        let mut descendant = false;
+                        while let Some(id) = ancestor {
+                            if id == current.scope.task {
+                                descendant = true;
+                                break;
+                            }
+                            ancestor = state
+                                .record(Collection::Task, id.as_str(), &command.workspace)?
+                                .decode::<Task>()?
+                                .parent;
+                        }
+                        if descendant {
+                            let cancelled = child.transition(
+                                &child.scope,
+                                child.revision,
+                                child.steering,
+                                TaskState::Cancelled,
+                                event_id.clone(),
+                                "ancestor cancelled; liabilities retained".into(),
+                                None,
+                                None,
+                            )?;
+                            put(
+                                Collection::Task,
+                                child.scope.task.to_string(),
+                                cancelled.revision,
+                                serde_json::to_value(cancelled)?,
+                                Some(child.revision),
+                            )?;
+                        }
                     }
                 }
                 put(

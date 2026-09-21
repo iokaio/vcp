@@ -28,6 +28,10 @@ pub enum Query {
     Task {
         task: TaskId,
     },
+    Agents {
+        task: TaskId,
+        offset: usize,
+    },
     Inspect {
         request: vcp_audit::inspection::InspectionQuery,
     },
@@ -54,6 +58,10 @@ pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Va
         Query::Task { task } => {
             vec![serde_json::to_value(task_from(state, workspace, task)?)
                 .map_err(|e| e.to_string())?]
+        }
+        Query::Agents { task, offset } => {
+            let task = task_from(state, workspace, task)?;
+            return crate::agents_view::page(state, &task.scope, settings::now(), *offset);
         }
         Query::Inspect { request } => {
             return serde_json::to_value(
@@ -672,6 +680,10 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         ValidatedCommand::Discover => Some(Query::Continuation),
         ValidatedCommand::Sessions(Sessions::List) => Some(Query::Sessions),
         ValidatedCommand::Tasks(Tasks::Status { task }) => Some(Query::Task { task: task.clone() }),
+        ValidatedCommand::Tasks(Tasks::Agents { task, offset }) => Some(Query::Agents {
+            task: task.clone(),
+            offset: *offset,
+        }),
         ValidatedCommand::Inspect { request } => Some(Query::Inspect {
             request: request.clone(),
         }),

@@ -98,6 +98,26 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             )
             .unwrap();
             let (snapshot, raw) = provider_snapshot();
+            // This fixture exercises two correlated parallel calls. Optional
+            // request parameters must be qualified by both endpoint metadata
+            // and the compatibility record before the encoder enables them.
+            let mut endpoint: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+            endpoint["data"]["endpoints"][0]["supported_parameters"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!("parallel_tool_calls"));
+            let raw = serde_json::to_vec(&endpoint).unwrap();
+            let mut compatibility = snapshot.compatibility;
+            compatibility
+                .required_parameters
+                .insert("parallel_tool_calls".into());
+            let snapshot = vcp_models::catalog::Snapshot::from_endpoints(
+                &raw,
+                snapshot.observed_at,
+                snapshot.valid_until,
+                compatibility,
+            )
+            .unwrap();
             host.configure_provider(snapshot, raw).unwrap();
             let count = Arc::new(AtomicUsize::new(0));
             let observed = Arc::new(std::sync::Mutex::new(Vec::new()));

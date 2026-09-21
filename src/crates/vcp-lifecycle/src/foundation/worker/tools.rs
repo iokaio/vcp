@@ -94,6 +94,7 @@ impl Context {
         binding: &ThreadBinding,
         prepared: &vcp_tools::Prepared,
     ) -> Result<vcp_policy::Decision> {
+        self.validate_integration_child(binding, prepared)?;
         if self
             .coding_remaining()
             .is_some_and(|remaining| remaining.is_zero())
@@ -103,7 +104,7 @@ impl Context {
         let decision = self.authority_decision(
             binding,
             prepared.authority(),
-            &BTreeSet::from([RootId::parse(self.config.workspace.as_str())?]),
+            &BTreeSet::from([self.task_root(&binding.scope.task)?.identity.root]),
             true,
             &BTreeSet::from([Isolation::PathContainment, Isolation::OutputLimit]),
         )?;
@@ -117,11 +118,12 @@ impl Context {
         binding: &ThreadBinding,
         prepared: &vcp_tools::Prepared,
     ) -> Result<vcp_policy::Decision> {
+        self.validate_integration_child(binding, prepared)?;
         let preflight = self.tool_preflight(binding, prepared)?;
         if matches!(preflight, vcp_policy::Decision::Deny { .. }) {
             return Ok(preflight);
         }
-        let root = self.tool_root()?;
+        let root = self.task_root(&binding.scope.task)?;
         self.authority_decision(
             binding,
             prepared.authority(),
@@ -138,6 +140,7 @@ impl Context {
         resources_current: bool,
         isolation: &BTreeSet<Isolation>,
     ) -> Result<vcp_policy::Decision> {
+        self.child_operation_scope(binding, prepared.operation())?;
         self.validate_skills(binding)?;
         let state = self.engine.store().state();
         if prepared.operation().effects != BTreeSet::from([EffectClass::Read])
@@ -173,7 +176,7 @@ impl Context {
             )?
             .decode()?;
         let policy = vcp_engine::policy::current(state, &workspace.id)?;
-        Ok(vcp_engine::policy::evaluate(
+        let original = vcp_engine::policy::evaluate(
             state,
             prepared,
             &vcp_policy::Facts {
@@ -189,6 +192,31 @@ impl Context {
                 registered_roots: roots,
                 isolation,
                 host_denials: &self.config.host_tool_denials,
+            },
+        )?;
+        if matches!(original, vcp_policy::Decision::Deny { .. }) {
+            return Ok(original);
+        }
+        let Some((inherited, grants, denials)) = self.child_policy(binding)? else {
+            return Ok(original);
+        };
+        Ok(vcp_policy::evaluate(
+            prepared,
+            &inherited,
+            &grants,
+            &vcp_policy::Facts {
+                workspace: &workspace,
+                scope: &binding.scope,
+                actor: &self.config.actor,
+                steering: task.steering,
+                policy: policy.revision,
+                now: now(),
+                owner_current: self.owner_alive,
+                task_running: self.can_start(binding).is_ok(),
+                resources_current,
+                registered_roots: roots,
+                isolation,
+                host_denials: &denials,
             },
         )?)
     }

@@ -91,7 +91,8 @@ impl Context {
                 if workspace.trust != Trust::Trusted {
                     return Err("resume requires current workspace trust".into());
                 }
-                let root = self.tool_root()?;
+                self.child_context_scope(binding)?;
+                let root = self.task_root(&binding.scope.task)?;
                 self.tool_read_access(&root.identity.root, "vcp_read")?;
                 let scan = root.discover(&vcp_repository::discovery::Limits::default())?;
                 if !scan.complete {
@@ -215,8 +216,9 @@ impl Context {
                             if let Some(path) = value["observation"]["staging_path"].as_str() {
                                 #[cfg(windows)]
                                 {
-                                    unresolved_staging |=
-                                        self.staging_unresolved(path).unwrap_or(true);
+                                    unresolved_staging |= self
+                                        .staging_unresolved(&effect.scope.task, path)
+                                        .unwrap_or(true);
                                 }
                                 #[cfg(not(windows))]
                                 {
@@ -309,7 +311,7 @@ impl Context {
     }
 
     #[cfg(windows)]
-    fn staging_unresolved(&self, path: &str) -> Result<bool> {
+    fn staging_unresolved(&self, task: &TaskId, path: &str) -> Result<bool> {
         let workspace: Workspace = self
             .engine
             .store()
@@ -323,7 +325,7 @@ impl Context {
         if workspace.trust != Trust::Trusted {
             return Err("workspace trust prevents recovery inspection".into());
         }
-        let root = self.tool_root()?;
+        let root = self.recovery_task_root(task)?;
         self.tool_read_access(&root.identity.root, "vcp_patch")?;
         match root.hold(Some(std::path::Path::new(path)), false) {
             Err(vcp_repository::Error::Io(error))
@@ -351,10 +353,10 @@ impl Context {
             if workspace.trust != Trust::Trusted {
                 return Err("workspace trust prevents file recovery reads".into());
             }
-            let root = self.tool_root()?;
-            self.tool_read_access(&root.identity.root, "vcp_patch")?;
             let operation: vcp_domain::policy::Operation =
                 serde_json::from_value(plan["operation"].clone())?;
+            let root = self.recovery_task_root(&operation.scope.task)?;
+            self.tool_read_access(&RootId::parse(self.config.workspace.as_str())?, "vcp_patch")?;
             if operation.binding != root.identity.binding
                 || operation.host != self.config.binding.host
             {

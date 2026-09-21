@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! CLI inputs and presentation. Admission belongs to the canonical owner.
+pub mod agents_view;
 #[cfg(windows)]
 pub mod app;
 pub mod args;
@@ -12,6 +13,8 @@ pub mod continuation;
 pub mod control;
 #[cfg(windows)]
 pub mod decision;
+#[cfg(windows)]
+pub mod delegation;
 pub mod disk_space;
 pub mod doctor;
 pub mod exit_status;

@@ -15,6 +15,7 @@ impl UserInstructionsProvider for CanonicalInstructions {
     }
 }
 
+#[derive(Clone)]
 pub struct Session {
     pub manager: Arc<ThreadManager>,
     pub thread: Arc<CodexThread>,
@@ -41,6 +42,103 @@ pub async fn configuration(
 }
 
 impl Session {
+    /// Reattach a registered child while held. Explicit resume remains a
+    /// separate control after canonical/native reconciliation.
+    pub async fn recover_child(
+        &self,
+        host: &CanonicalHost,
+        child: vcp_domain::TaskId,
+        snapshotter: &vcp_repository::worktree::Snapshotter,
+    ) -> Result<(Self, vcp_domain::ArtifactId), String> {
+        let recovery = host
+            .prepare_child_recovery(self.id, child, snapshotter)
+            .await?;
+        let evidence = recovery.evidence;
+        let mut ticket = recovery.ticket.ok_or_else(|| {
+            format!(
+                "child recovery blocked: {}; evidence={evidence}",
+                recovery
+                    .blocked
+                    .unwrap_or_else(|| "no attachment ticket".into())
+            )
+        })?;
+        let mut config = self.thread.config().await.as_ref().clone();
+        config.cwd = ticket
+            .workspace()
+            .to_path_buf()
+            .try_into()
+            .map_err(|_| "absolute child workspace required")?;
+        host.authorize_child_recovery_startup(&mut ticket)?;
+        let mut options = StartThreadOptions::new(config);
+        options
+            .thread_extension_init
+            .insert(vcp_lifecycle::foundation::coding::allowed_tools());
+        let started = self
+            .manager
+            .start_thread(options)
+            .await
+            .map_err(|e| format!("retained recovery startup: {e}"))?;
+        let id = match host
+            .attach_recovered_child(ticket, started.thread.clone())
+            .await
+        {
+            Ok(id) => id,
+            Err(error) => {
+                let cleanup = started.thread.shutdown_and_wait().await;
+                return Err(format!("{error}; retained startup cleanup: {cleanup:?}"));
+            }
+        };
+        Ok((
+            Self {
+                manager: self.manager.clone(),
+                thread: started.thread,
+                id,
+            },
+            evidence,
+        ))
+    }
+    /// Start an already admitted, isolated child on the same retained manager.
+    /// The canonical host owns lineage, authority, accounting and launch order.
+    pub async fn start_child(
+        &self,
+        host: &CanonicalHost,
+        mut config: Config,
+        child: vcp_domain::TaskId,
+        snapshotter: &vcp_repository::worktree::Snapshotter,
+    ) -> Result<Self, String> {
+        let ticket = host
+            .prepare_child_start(self.id, child, snapshotter)
+            .await?;
+        config.cwd = ticket
+            .workspace()
+            .to_path_buf()
+            .try_into()
+            .map_err(|_| "absolute child workspace required")?;
+        host.lifecycle()
+            .authorize_startup(config.cwd.as_path(), None)
+            .map_err(|e| format!("child startup: {e:?}"))?;
+        let mut options = StartThreadOptions::new(config);
+        options
+            .thread_extension_init
+            .insert(vcp_lifecycle::foundation::coding::allowed_tools());
+        let started = self
+            .manager
+            .start_thread(options)
+            .await
+            .map_err(|e| format!("retained child startup: {e}"))?;
+        let id = match host.attach_prepared_child(ticket, started.thread.clone()) {
+            Ok(id) => id,
+            Err(error) => {
+                let cleanup = started.thread.shutdown_and_wait().await;
+                return Err(format!("{error}; retained startup cleanup: {cleanup:?}"));
+            }
+        };
+        Ok(Self {
+            manager: self.manager.clone(),
+            thread: started.thread,
+            id,
+        })
+    }
     /// Caller has validated configuration and created the canonical task before
     /// startup. Turn admission remains closed until that task is bound below.
     pub async fn start(

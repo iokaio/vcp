@@ -15,6 +15,7 @@ impl Context {
         Ok(())
     }
     pub fn prepare_process(&self, binding: &ThreadBinding, request: Request) -> Result<Prepared> {
+        self.child_process_scope(binding)?;
         let identity = self.tool_identity(binding, "vcp_exec")?;
         let profile = self
             .process_profiles
@@ -25,7 +26,7 @@ impl Context {
         self.tool_read_access(&root, "vcp_exec")
             .map_err(|_| "trusted read denial prevents executable preparation")?;
         Ok(vcp_tools::process::prepare(
-            self.tool_root()?,
+            self.task_root(&binding.scope.task)?,
             identity,
             profile,
             request,
@@ -78,7 +79,7 @@ impl Context {
         if matches!(decision, vcp_policy::Decision::Deny { .. }) {
             return Ok(decision);
         }
-        let root = self.tool_root()?;
+        let root = self.task_root(&binding.scope.task)?;
         if root.identity != prepared.root().identity || root.path() != prepared.root().path() {
             return Ok(vcp_policy::Decision::Deny {
                 origin: "current identity".into(),

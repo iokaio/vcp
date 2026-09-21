@@ -176,6 +176,9 @@ impl CanonicalHost {
                 &context.access,
                 &vcp_engine::HostFacts::inspect(worker::now()),
             ))?;
+            // Pending children have no retained thread to hold, but may have an
+            // in-flight native workspace preparation owned by their parent.
+            runtime.0.changed.notify_waiters();
             #[cfg(windows)]
             context.stop_coding_turns("explicit owner stop")?;
             Ok(receipt)

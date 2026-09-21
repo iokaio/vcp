@@ -172,7 +172,7 @@ pub async fn run(
 ) -> Result<(), String> {
     let mut input = input(std::io::BufReader::new(std::io::stdin())).map_err(|e| e.to_string())?;
     let renderer = Renderer::new(std::io::stderr()).map_err(|e| e.to_string())?;
-    let mut notice = String::from("/pause /resume /status /cost /history /groups /optimize /escalate /skills /mcp /agents /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task");
+    let mut notice = String::from("/pause /resume /status /cost /history /groups /optimize /escalate /skills /mcp /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents delegate <spec.json> /agents recover <task> <git.exe> /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task");
     let mut page: Option<InspectionQuery> = None;
     let mut maintenance_page: Option<vcp_lifecycle::foundation::history_retention::Request> = None;
     let mut optimization = crate::optimize::Session::default();
@@ -181,6 +181,28 @@ pub async fn run(
     let mut mcp_pending: Option<crate::mcp::Running> = None;
     let mut shadow = crate::decision::Driver::default();
     let mut active = true;
+    let mut child_review_pending = false;
+    let mut followed: Option<TaskId> = None;
+    let mut delegation_pending: Option<
+        tokio::task::JoinHandle<Result<(crate::delegation::Child, bool), String>>,
+    > = None;
+    let mut children: std::collections::BTreeMap<
+        TaskId,
+        (
+            crate::delegation::Child,
+            Option<tokio::task::JoinHandle<Result<(), String>>>,
+        ),
+    > = std::collections::BTreeMap::new();
+    let (child_notices, mut child_updates) = tokio::sync::mpsc::channel::<String>(8);
+    let mut integration_pending: Option<
+        tokio::task::JoinHandle<
+            Result<(TaskId, vcp_lifecycle::foundation::ChildIntegration), String>,
+        >,
+    > = None;
+    let mut integration_apply: Option<
+        tokio::task::JoinHandle<Result<vcp_lifecycle::foundation::ToolOutcome, String>>,
+    > = None;
+    let mut integration_tickets = std::collections::BTreeMap::new();
     let result = async {
     submit(host, session, scope).await?;
     let mut tick = tokio::time::interval(Duration::from_millis(200));
@@ -207,7 +229,7 @@ pub async fn run(
                     Input::Resume => {
                         if pending.is_some() || mcp_pending.is_some() || shadow.active() || active {return Err("wait for the current turn, steering, shadow evaluation and MCP control to drain before /resume".into());}
                         if expired {return Err("execution deadline reached; reopen explicitly to renew the execution window".into());}
-                        resume(host,session,scope).await?; active=true; "Resumed after revalidation.".into()
+                        resume(host,session,scope).await?; active=true; child_review_pending=false; "Resumed after revalidation.".into()
                     }
                     Input::Answer{id,allow} => {answer(host,scope,id,allow)?; "Answer recorded. Use /resume deliberately; no work was dispatched by the answer.".into()}
                     Input::Steer(text) => {
@@ -277,8 +299,70 @@ pub async fn run(
                         display_page(&mut page_text)
                     }
                     Input::Unavailable(service)=>format!("{service}: service not ready in this stage; no work scheduled"),
-                    Input::Status | Input::Agents => serde_json::to_string(&view(&host.snapshot()?,scope,model)?).map_err(|e|e.to_string())?,
-                    Input::Help => format!("/pause /resume /status /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /groups [exact-model] [--offset <candidate-number>] /agents /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /cancel /exit; {} ; {} ; {} ; {} ; plain text queues durable guidance",crate::optimize::HELP,super::escalation::HELP,crate::skills::HELP,crate::mcp::HELP),
+                    Input::Agent {task,action} => {
+                        let state=host.snapshot()?;
+                        let child=crate::agents_view::child(&state,scope,&task)?;
+                        match action {
+                            AgentAction::Integrate => {
+                                if integration_pending.is_some() || integration_apply.is_some() {return Err("integration is already pending; pause remains available".into());}
+                                let snapshotter=children.get(&task).ok_or("attach the registered child before preparing integration")?.0.snapshotter.clone();
+                                let host=host.clone();let parent=session.id;
+                                integration_pending=Some(tokio::spawn(async move {host.prepare_observed_child_integration(parent,task.clone(),&snapshotter).await.map(|result|(task,result))}));
+                                "Child result inspection and conflict-aware integration preview requested.".into()
+                            },
+                            AgentAction::Apply => {
+                                if integration_apply.is_some(){return Err("integration application is already pending".into());}
+                                if current(host,scope)?.state!=TaskState::Running {return Err("explicitly resume the parent before applying an integration".into());}
+                                let ticket=integration_tickets.remove(&task).ok_or("prepare an integration preview for this child first")?;
+                                let host=host.clone();integration_apply=Some(tokio::spawn(async move{host.schedule_tool(ticket).await}));
+                                format!("Agent {task}: prepared integration queued through current parent policy.")
+                            },
+                            AgentAction::Resume => {
+                                let (child,pump)=children.get_mut(&task).ok_or("child owner is not attached; pause the root and use /agents recover first")?;
+                                if pump.as_ref().is_some_and(|job|!job.is_finished()) {return Err("child observer is still draining".into());}
+                                if let Some(previous)=pump.take(){let _=previous.await;}
+                                crate::delegation::resume(host,child,scope)?;
+                                match crate::delegation::run(host.clone(),child,scope,child_notices.clone()).await {
+                                    Ok(started)=>*pump=Some(started),
+                                    Err(error)=>{let mut child_scope=scope.clone();child_scope.task=task.clone();stop(host,&child_scope,TaskState::Paused)?;return Err(error);}
+                                }
+                                child_review_pending=true;
+                                format!("Agent {task}: explicitly resumed after revalidation.")
+                            },
+                            AgentAction::Pause | AgentAction::Cancel => {
+                                stop(host,&child.scope,if action==AgentAction::Pause {TaskState::Paused} else {TaskState::Cancelled})?;
+                                format!("Agent {task}: control recorded; active effects may still be stopping or unknown.")
+                            },
+                            AgentAction::Focus | AgentAction::Follow => {
+                                if action==AgentAction::Follow {followed=Some(task.clone());}
+                                page_text=super::sanitize(&serde_json::to_string(&crate::agents_view::detail(&state,scope,&task,crate::settings::now())?).map_err(|e|e.to_string())?,1024*1024);
+                                display_page(&mut page_text)
+                            }
+                        }
+                    },
+                    Input::Delegate(path) => {
+                        if delegation_pending.is_some() {return Err("child preparation is already pending; pause remains available".into());}
+                        let host=host.clone();let parent=session.clone();let scope=scope.clone();
+                        delegation_pending=Some(tokio::spawn(async move {crate::delegation::prepare(&host,&parent,&scope,&path).await.map(|child|(child,true))}));
+                        child_review_pending=true;
+                        "Delegation requested; snapshot, scope and shared budget admission are pending.".into()
+                    },
+                    Input::RecoverChild {task,git} => {
+                        crate::agents_view::child(&host.snapshot()?,scope,&task)?;
+                        if delegation_pending.is_some() || children.contains_key(&task) {return Err("child preparation is pending or selected owner is already attached".into());}
+                        let host=host.clone();let parent=session.clone();
+                        delegation_pending=Some(tokio::spawn(async move {crate::delegation::recover(&host,&parent,task,git).await.map(|child|(child,false))}));
+                        child_review_pending=true;
+                        "Child recovery requested; attachment remains held until explicit parent and child resume.".into()
+                    },
+                    Input::Agents | Input::AgentsPage(_) => {
+                        followed=None;
+                        let offset=match command {Input::AgentsPage(offset)=>offset,_=>0};
+                        page_text=super::sanitize(&serde_json::to_string(&crate::agents_view::page(&host.snapshot()?,scope,crate::settings::now(),offset)?).map_err(|e|e.to_string())?,1024*1024);
+                        display_page(&mut page_text)
+                    },
+                    Input::Status => serde_json::to_string(&view(&host.snapshot()?,scope,model)?).map_err(|e|e.to_string())?,
+                    Input::Help => format!("/pause /resume /status /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /groups [exact-model] [--offset <candidate-number>] /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents delegate <spec.json> /agents recover <task> <git.exe> /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /cancel /exit; {} ; {} ; {} ; {} ; plain text queues durable guidance",crate::optimize::HELP,super::escalation::HELP,crate::skills::HELP,crate::mcp::HELP),
                 }) }.await;
                 match result { Ok(message) if message=="exit"=>return Ok(()), Ok(message)=>notice=message, Err(error)=>notice=format!("Command rejected: {error}") }
             }
@@ -300,7 +384,15 @@ pub async fn run(
                     shadow.cancel().await;
                     active=false;
                     let outcome=Outcome::read(host,scope)?;
-                    if outcome.task.state==TaskState::Running && !outcome.conditions.required_input && !outcome.conditions.budget_exhausted {
+                    let child_work=host.snapshot()?.records.values().filter(|r|r.collection==Collection::Task && r.workspace==scope.workspace)
+                        .filter_map(|r|r.decode::<Task>().ok()).any(|t|t.scope.session==scope.session && t.root==scope.task && t.scope.task!=scope.task && !t.state.terminal());
+                    if matches!(event.msg,EventMsg::TurnAborted(_)) {
+                        stop(host,scope,TaskState::Paused)?;
+                        notice="Parent turn interrupted; inspect current state before explicit /resume.".into();
+                    } else if child_work || child_review_pending || delegation_pending.is_some() {
+                        child_review_pending=true;
+                        notice="Parent turn ended while children remain active or paused. Inspect /agents; parent completion still requires integrated verification.".into();
+                    } else if outcome.task.state==TaskState::Running && !outcome.conditions.required_input && !outcome.conditions.budget_exhausted {
                         if let Err(error)=host.complete_coding_turn(session.id) {
                             stop(host,scope,TaskState::Paused)?;
                             notice=format!("Completion evidence unavailable; task paused: {error}");
@@ -308,7 +400,56 @@ pub async fn run(
                     }
                 }
             }
+            update=child_updates.recv()=>{if let Some(update)=update {notice=update;}}
             _ = tick.tick() => {
+                if integration_pending.as_ref().is_some_and(|job|job.is_finished()) {
+                    match integration_pending.take().ok_or("integration preparation missing")?.await.map_err(|e|e.to_string())? {
+                        Ok((task,result))=>{
+                            notice=format!("Agent {task}: packet={} plan={} rejection={:?}",result.packet,result.plan,result.rejection);
+                            if let Some(ticket)=result.proposal {
+                                notice.push_str(&format!("; decision={:?} question={:?}; inspect plan then /agents apply {task}",ticket.decision,ticket.question));
+                                integration_tickets.insert(task,ticket);
+                            }
+                        },
+                        Err(error)=>notice=format!("Integration preparation stopped: {error}"),
+                    }
+                }
+                if integration_apply.as_ref().is_some_and(|job|job.is_finished()) {
+                    notice=match integration_apply.take().ok_or("integration application missing")?.await.map_err(|e|e.to_string())? {
+                        Ok(result)=>format!("Integration effect={} evidence={} result={}; current parent verification is still required.",result.effect,result.evidence.spec.id,super::sanitize(&result.result.to_string(),2048)),
+                        Err(error)=>format!("Integration stopped: {error}; inspect receipts before preparing another attempt"),
+                    };
+                }
+                if delegation_pending.as_ref().is_some_and(|job|job.is_finished()) {
+                    let child=delegation_pending.take().ok_or("delegation preparation missing")?.await.map_err(|e|e.to_string())?;
+                    match child {
+                        Ok((child,start))=>{
+                            let task=child.task.clone();
+                            let pump=if !start {notice=format!("Agent {task}: recovered and held. Resume the parent, then /agents resume {task}.");None} else {match crate::delegation::run(host.clone(),&child,scope,child_notices.clone()).await {
+                                Ok(pump)=>{notice=format!("Agent {task} started in its registered isolated workspace with a shared root allocation.");Some(pump)},
+                                Err(error)=>{
+                                    let mut child_scope=scope.clone();child_scope.task=task.clone();stop(host,&child_scope,TaskState::Paused)?;
+                                    notice=format!("Agent {task} did not start: {error}");None
+                                }
+                            }};
+                            children.insert(task,(child,pump));
+                        },
+                        Err(error)=>notice=format!("Delegation stopped: {error}"),
+                    }
+                }
+                for (task,(_,pump)) in &mut children {
+                    if pump.as_ref().is_some_and(|job|job.is_finished()) {
+                        if let Err(error)=pump.take().ok_or("child observer missing")?.await.map_err(|e|e.to_string())? {notice=format!("Agent {task}: {error}");}
+                    }
+                }
+                if !active && child_review_pending && delegation_pending.is_none() && integration_pending.is_none() && integration_apply.is_none() && current(host,scope)?.state==TaskState::Running {
+                    let live_children=host.snapshot()?.records.values().filter(|r|r.collection==Collection::Task && r.workspace==scope.workspace)
+                        .filter_map(|r|r.decode::<Task>().ok()).any(|t|t.scope.session==scope.session && t.root==scope.task && t.scope.task!=scope.task && !t.state.terminal());
+                    if !live_children {
+                        stop(host,scope,TaskState::Paused)?;
+                        notice="Child turns are terminal. Review their evidence and any integration, then /resume for current parent verification and completion.".into();
+                    }
+                }
                 if active && current(host,scope)?.state == TaskState::Running {
                     if let Some(message) = shadow.poll(host,session.id).await { notice=message.into(); }
                 } else {
@@ -342,7 +483,7 @@ pub async fn run(
         let snapshot = view(&host.snapshot()?, scope, model)?;
         // Keep control notices, questions and money separate from potentially
         // large inspection pages and untrusted commentary.
-        let lines=vec![
+        let mut lines=vec![
             format!("Task {} | state={} | revision={} | model={}",scope.task,snapshot["state"],snapshot["revision"],super::sanitize(model,256)),
             format!("Objective: {}",snapshot["objective"]),
             format!("Step: {} | {}",snapshot["current_step"],snapshot["group"]),
@@ -354,6 +495,9 @@ pub async fn run(
             notice.clone(),commentary.clone(),
             "Pause fences admission; effects can still be stopping or unknown. /history /next /inspect for full evidence.".into(),
         ];
+        if let Some(task)=&followed {
+            lines.push(format!("Following: {}",crate::agents_view::detail(&host.snapshot()?,scope,task,crate::settings::now())?));
+        }
         let display = lines.join("\n");
         if display != last {
             renderer.show_lines(&lines);
@@ -365,5 +509,37 @@ pub async fn run(
     }
     }.await;
     shadow.cancel().await;
+    // Fence descendant and integration admission before dropping observers.
+    // An already dispatched blocking edit can outlive its async waiter.
+    if delegation_pending.is_some()
+        || !children.is_empty()
+        || integration_pending.is_some()
+        || integration_apply.is_some()
+    {
+        if current(host, scope).is_ok_and(|task| !task.state.terminal()) {
+            let _ = stop(host, scope, TaskState::Paused);
+        }
+    }
+    if let Some(job) = integration_pending {
+        job.abort();
+        let _ = job.await;
+    }
+    if let Some(job) = integration_apply {
+        job.abort();
+        let _ = job.await;
+    }
+    if delegation_pending.is_some() || !children.is_empty() {
+        if let Some(job) = delegation_pending {
+            job.abort();
+            let _ = job.await;
+        }
+        for (_, (child, pump)) in children {
+            if let Some(pump) = pump {
+                pump.abort();
+                let _ = pump.await;
+            }
+            let _ = child.session.thread.shutdown_and_wait().await;
+        }
+    }
     result
 }

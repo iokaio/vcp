@@ -167,6 +167,10 @@
     {
       "path": "src/third_party/patches/codex/0034-p6-conformance-workspace.patch",
       "sha256": "02818e383bc0e53af70743683d73d3724fafc39eb27894c92c618b47779b812e"
+    },
+    {
+      "path": "src/third_party/patches/codex/0035-p7-integration-merge-workspace.patch",
+      "sha256": "46d8f040b0995d84130422099fbacb6f5e006e6f998f1553e3f27f65b09af8d6"
     }
   ],
   "licenses": [

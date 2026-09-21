@@ -35,12 +35,38 @@ pub enum Input {
     Mcp(crate::mcp::Command),
     Next,
     Agents,
+    AgentsPage(usize),
+    Delegate(std::path::PathBuf),
+    RecoverChild {
+        task: vcp_domain::TaskId,
+        git: std::path::PathBuf,
+    },
+    Agent {
+        task: vcp_domain::TaskId,
+        action: AgentAction,
+    },
     Inspect(String),
-    Read { id: String, offset: u64 },
-    Answer { id: String, allow: bool },
+    Read {
+        id: String,
+        offset: u64,
+    },
+    Answer {
+        id: String,
+        allow: bool,
+    },
     Unavailable(String),
     Help,
     Steer(String),
+}
+#[derive(Debug, PartialEq, Eq)]
+pub enum AgentAction {
+    Focus,
+    Follow,
+    Pause,
+    Cancel,
+    Resume,
+    Integrate,
+    Apply,
 }
 
 pub fn parse(line: &str) -> Result<Option<Input>, String> {
@@ -50,6 +76,41 @@ pub fn parse(line: &str) -> Result<Option<Input>, String> {
     }
     if line.len() > INPUT_LIMIT {
         return Err("input exceeds 64 KiB".into());
+    }
+    if let Some(path) = line.strip_prefix("/agents delegate ") {
+        let path = path.trim();
+        let path = if path.starts_with('"') {
+            path.strip_prefix('"')
+                .and_then(|p| p.strip_suffix('"'))
+                .ok_or("unclosed delegation path quote")?
+        } else {
+            path
+        };
+        if path.is_empty() || path.contains('"') {
+            return Err("literal delegation specification path required".into());
+        }
+        return Ok(Some(Input::Delegate(path.into())));
+    }
+    if let Some(rest) = line.strip_prefix("/agents recover ") {
+        let (task, path) = rest
+            .trim()
+            .split_once(char::is_whitespace)
+            .ok_or("recover requires child ID and absolute Git executable path")?;
+        let path = path.trim();
+        let path = if path.starts_with('"') {
+            path.strip_prefix('"')
+                .and_then(|p| p.strip_suffix('"'))
+                .ok_or("unclosed Git path quote")?
+        } else {
+            path
+        };
+        if path.is_empty() || path.contains('"') {
+            return Err("literal Git executable path required".into());
+        }
+        return Ok(Some(Input::RecoverChild {
+            task: vcp_domain::TaskId::parse(task).map_err(|e| e.to_string())?,
+            git: path.into(),
+        }));
     }
     if let Some(arguments) = line
         .strip_prefix("/mcp")
@@ -81,6 +142,25 @@ pub fn parse(line: &str) -> Result<Option<Input>, String> {
         ),
         ["/next"] => Input::Next,
         ["/agents"] => Input::Agents,
+        ["/agents", action @ ("focus" | "follow" | "pause" | "cancel" | "resume" | "integrate" | "apply"), task] => {
+            Input::Agent {
+                task: vcp_domain::TaskId::parse(*task).map_err(|e| e.to_string())?,
+                action: match *action {
+                    "focus" => AgentAction::Focus,
+                    "follow" => AgentAction::Follow,
+                    "pause" => AgentAction::Pause,
+                    "resume" => AgentAction::Resume,
+                    "integrate" => AgentAction::Integrate,
+                    "apply" => AgentAction::Apply,
+                    _ => AgentAction::Cancel,
+                },
+            }
+        }
+        ["/agents", offset] => Input::AgentsPage(
+            offset
+                .parse()
+                .map_err(|_| "agent page offset must be an unsigned integer")?,
+        ),
         ["/help"] => Input::Help,
         ["/optimize", arguments @ ..] => Input::Optimize(crate::optimize::parse(arguments)?),
         ["/escalate", arguments @ ..] => Input::Escalate(escalation::parse(arguments)?),
@@ -352,12 +432,12 @@ pub fn view_at(
     checks.truncate(1);
     let changes: Vec<_> = changes.into_iter().map(|(_, _, value)| value).collect();
     let checks: Vec<_> = checks.into_iter().map(|(_, value)| value).collect();
+    let agents = crate::agents_view::page(state, scope, now, 0)?;
     Ok(
         json!({"task":task.scope.task,"revision":task.revision,"state":task.state,
         "objective":task.objectives.last().map(|o|sanitize(&o.text,1024)),
         "model":model,"group":"fixed qualified model; routing groups unavailable",
-        "children":tasks.iter().filter(|t|t.scope.task!=scope.task && included.contains(t.scope.task.as_str())).take(8)
-            .map(|t|json!({"task":t.scope.task,"state":t.state,"reason":sanitize(&t.reason,256)})).collect::<Vec<_>>(),
+        "children":agents["items"],"child_count":agents["total"],"child_next_offset":agents["next_offset"],
         "cost":costs,"current_step":step,"pending_questions":questions,"question_count":question_count,
         "changes":changes,"change_count":change_count,"current_checks":checks,
         "details":"bounded summaries; /history and /next page full evidence; /inspect <effect-id> shows question operation",

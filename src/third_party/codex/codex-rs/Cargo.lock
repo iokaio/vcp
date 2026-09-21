@@ -17709,6 +17709,7 @@ name = "vcp-repository"
 version = "0.1.0"
 dependencies = [
  "codex-utils-pty",
+ "diffy",
  "ignore",
  "serde",
  "serde_json",
