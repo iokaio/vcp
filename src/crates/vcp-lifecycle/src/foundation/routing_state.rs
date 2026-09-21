@@ -2,6 +2,7 @@
 //! Canonical routing publications and local, scoped optimization evidence.
 pub mod advisory;
 pub mod consumption;
+pub mod cycles;
 pub mod fits;
 pub mod observations;
 pub mod rewards;

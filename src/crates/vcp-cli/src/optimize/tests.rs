@@ -18,6 +18,26 @@ fn transitions_uses_only_the_read_only_evidence_request() {
 }
 
 #[test]
+fn cycles_uses_only_the_read_only_evidence_request() {
+    assert_eq!(parse(&["cycles"]), Ok(Command::Cycles));
+    assert!(parse(&["cycles", "apply"]).is_err());
+    let mut calls = 0;
+    let text = Session::default()
+        .execute(Command::Cycles, Timestamp::new(20), |request| {
+            calls += 1;
+            assert!(matches!(request, Request::Cycles { from: None, until } if until == Timestamp::new(20)));
+            Ok(serde_json::json!({"cycles":[],"remote_requests":0}))
+        })
+        .unwrap();
+    assert_eq!(calls, 1);
+    assert_eq!(
+        serde_json::from_str::<Value>(&text).unwrap(),
+        serde_json::json!({"cycles":[],"remote_requests":0})
+    );
+    assert!(HELP.contains("/optimize cycles"));
+}
+
+#[test]
 fn observations_uses_only_the_read_only_evidence_request() {
     assert_eq!(parse(&["observations"]), Ok(Command::Observations));
     let mut calls = 0;
