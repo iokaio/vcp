@@ -16,10 +16,16 @@ name = "vcp-terminal-fixture"
 path = "src/bin/vcp-terminal-fixture.rs"
 required-features = ["qualification"]
 
+[[bin]]
+name = "vcp-provider-conformance"
+path = "src/bin/vcp-provider-conformance.rs"
+required-features = ["qualification"]
+
 [features]
-qualification = []
+qualification = ["vcp-models/qualification", "vcp-lifecycle/qualification", "dep:reqwest"]
 
 [dependencies]
+reqwest = { workspace = true, optional = true }
 vcp-extensions = { path = "../vcp-extensions" }
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }

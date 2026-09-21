@@ -63,6 +63,7 @@ fn config(root: &std::path::Path, backend: BackendKind) -> Config {
         input_ceiling: Units::new(4096),
         output_ceiling: Units::new(1024),
         artifact_limit: ByteCount::new(vcp_store::artifact::DEFAULT_ARTIFACT_LIMIT),
+        max_transport_retries: 2,
         host_tool_denials: vec![],
     }
 }

@@ -132,6 +132,7 @@ fn candidate(model: &Model, case: &Case, hypothetical: bool) -> Result<Candidate
         require_zdr: true,
         request_price_limit: model.request_usd.clone(),
         required_parameters: BTreeSet::from(["tools".into()]),
+        qualified_reasoning_efforts: BTreeSet::new(),
     };
     let raw = vcp_protocol::canonical_bytes(
         &json!({"data":{"id":model.id,"endpoints":[{"tag":model.endpoint,"status":0,"context_length":4000,"max_prompt_tokens":3000,"max_completion_tokens":1000,"supported_parameters":["tools"],"pricing":{"prompt":model.input_usd_per_token,"completion":model.output_usd_per_token,"request":model.request_usd}}]}}),
@@ -253,6 +254,11 @@ fn policy(
             fallback_candidates: BTreeSet::new(),
         }),
         broader_task_class: None,
+        output_tokens: None,
+        input_tokens: None,
+        escalation_limits: None,
+        reasoning_effort: None,
+        retrieval_limits: None,
     }
     .seal()?)
 }

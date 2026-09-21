@@ -114,6 +114,12 @@ mod restore_search;
 #[cfg(windows)]
 #[path = "support/routing.rs"]
 mod routing;
+#[cfg(windows)]
+#[path = "support/routing_effort.rs"]
+mod routing_effort;
+#[cfg(windows)]
+#[path = "support/routing_output.rs"]
+mod routing_output;
 #[path = "support/selected_reopen.rs"]
 mod selected_reopen;
 #[cfg(windows)]
@@ -439,6 +445,7 @@ fn provider_snapshot() -> (vcp_models::catalog::Snapshot, Vec<u8>) {
         deny_data_collection: true,
         require_zdr: true,
         request_price_limit: "0.0001".into(),
+        qualified_reasoning_efforts: Default::default(),
         required_parameters: std::collections::BTreeSet::from([
             "tools".into(),
             "max_tokens".into(),
@@ -1015,6 +1022,7 @@ fn config(root: &std::path::Path, workspace: &std::path::Path, backend: BackendK
         input_ceiling: Units::new(500_000),
         output_ceiling: Units::new(1024),
         artifact_limit: ByteCount::new(vcp_store::artifact::DEFAULT_ARTIFACT_LIMIT),
+        max_transport_retries: 2,
         host_tool_denials: vec![],
     }
 }

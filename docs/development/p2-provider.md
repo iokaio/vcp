@@ -38,6 +38,17 @@ restriction, optional ZDR and price ceilings are explicit serialized fields.
 Current compatibility still needs separate qualification for a real selected
 model/endpoint, including tokenizer estimation and provider-policy enforcement.
 The UTF-8 byte ceiling is a conservative text estimate, not an exact token count.
+Fixed-provider snapshots may retain `byte_ceiling_qualified: false`; admission
+then reserves the endpoint's full input capacity for each possible input/cache
+partition. Serialized bytes remain a context-fit estimate. This fallback does not
+waive Responses tools or provider-policy qualification, and routing catalogs still
+require their existing tokenizer gate. A few successful probes cannot establish a
+global byte-to-token bound.
+
+Admission uses maximum listed prompt/completion tier rates and cache-write rates,
+including the one-hour tariff. Unsupported tier structures fail closed. If this
+normalization changes historical rates, the corrected snapshot receives a new
+versioned identity; unchanged tariffs keep their original identity.
 
 ## Admission and observation
 

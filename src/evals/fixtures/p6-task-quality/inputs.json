@@ -1,0 +1,50 @@
+{
+  "revision": "p6-task-quality-v1",
+  "cases": [
+    {
+      "id": "tuning-analysis", "partition": "tuning", "class": "analysis",
+      "prompt": "Identify every direct dependency imported by entry.mjs. Return JSON {\"dependencies\":[{\"path\":string,\"line\":integer}]}; cite import lines in entry.mjs. Exclude transitive dependencies and comments.",
+      "files": {
+        "entry.mjs": "import { total } from './sum.mjs';\n// import './unused.mjs';\nimport { print } from './view.mjs';\nprint(total([1, 2]));\n",
+        "sum.mjs": "import { identity } from './number.mjs';\nexport const total = xs => xs.reduce((a, b) => a + identity(b), 0);\n",
+        "number.mjs": "export const identity = x => x;\n",
+        "view.mjs": "export const print = x => String(x);\n"
+      }
+    },
+    {
+      "id": "heldout-analysis", "partition": "held_out", "class": "analysis",
+      "prompt": "Identify every direct dependency imported by entry.mjs. Return JSON {\"dependencies\":[{\"path\":string,\"line\":integer}]}; cite import lines in entry.mjs. Exclude transitive dependencies and comments.",
+      "files": {
+        "entry.mjs": "// import './legacy.mjs';\nimport { load } from './load.mjs';\nexport const run = () => load();\n",
+        "load.mjs": "import { parse } from './parse.mjs';\nexport const load = () => parse('7');\n",
+        "parse.mjs": "export const parse = x => Number(x);\n"
+      }
+    },
+    {
+      "id": "tuning-review", "partition": "tuning", "class": "review",
+      "prompt": "Review lookup.mjs against contract.txt. Return JSON {\"findings\":[{\"path\":string,\"line\":integer,\"kind\":\"boundary\"|\"coercion\"}]}. Report only defects, at the first faulty check line. No stylistic findings.",
+      "files": {
+        "contract.txt": "lookup accepts integer indices 0 through values.length - 1. Any other index returns null.\n",
+        "lookup.mjs": "export function lookup(values, index) {\n  if (!Number.isInteger(index)) return null;\n  if (index < 0 || index > values.length) return null;\n  return values[index];\n}\n"
+      }
+    },
+    {
+      "id": "heldout-review", "partition": "held_out", "class": "review",
+      "prompt": "Review permitted.mjs against contract.txt. Return JSON {\"findings\":[{\"path\":string,\"line\":integer,\"kind\":\"boundary\"|\"coercion\"}]}. Report only defects, at the first faulty check line. No stylistic findings.",
+      "files": {
+        "contract.txt": "permitted returns true only for the number 7, never the string '7', booleans, or any other value.\n",
+        "permitted.mjs": "export function permitted(value) {\n  return value == 7;\n}\n"
+      }
+    },
+    {
+      "id": "tuning-generation", "partition": "tuning", "class": "generation",
+      "prompt": "Generate a JSON validation schema for contract.txt. Return the schema object itself using only type, properties, required, additionalProperties; each property may use only type, minimum, maximum. Types supported: object and integer. Do not include Markdown.",
+      "files": {"contract.txt": "Accept an object with exactly one required field named count. Its value must be an integer from 0 through 3 inclusive. Reject missing fields, extra fields, nonobjects, and other values.\n"}
+    },
+    {
+      "id": "heldout-generation", "partition": "held_out", "class": "generation",
+      "prompt": "Generate a JSON validation schema for contract.txt. Return the schema object itself using only type, properties, required, additionalProperties; each property may use only type, minimum, maximum. Types supported: object and integer. Do not include Markdown.",
+      "files": {"contract.txt": "Accept an object with exactly one required field named offset. Its value must be an integer from -2 through 2 inclusive. Reject missing fields, extra fields, nonobjects, and other values.\n"}
+    }
+  ]
+}

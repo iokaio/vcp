@@ -326,12 +326,9 @@ impl Context {
             .ok_or("provider missing")?
             .snapshot
             .clone();
-        let codec_envelope = request::envelope(
-            &codec_snapshot,
-            self.config.output_ceiling,
-            Units::new(512),
-            now(),
-        )?;
+        let output_ceiling = self.current_output_ceiling()?;
+        let codec_envelope =
+            request::envelope(&codec_snapshot, output_ceiling, Units::new(512), now())?;
         self.ensure_coding_ledger()?;
         let parts = self.compact_coding_parts(binding, parts, &current, |parts| {
             Ok(request::encode(
@@ -342,12 +339,8 @@ impl Context {
             )?)
         })?;
         let snapshot = self.select_coding_snapshot(binding, &parts, &schemas)?;
-        let envelope = request::envelope(
-            &snapshot,
-            self.config.output_ceiling,
-            Units::new(512),
-            now(),
-        )?;
+        let reasoning_effort = self.current_reasoning_effort()?;
+        let envelope = request::envelope(&snapshot, output_ceiling, Units::new(512), now())?;
         let probes = instructions.probes;
         let sealed = assemble(
             parts,
@@ -357,9 +350,10 @@ impl Context {
             probes.clone(),
             &Utf8ByteCeiling,
             |parts, envelope, schemas| {
-                request::encode(parts, envelope, schemas, &snapshot).map_err(|_| {
-                    vcp_context::manifest::Error::Incompatible("canonical provider codec")
-                })
+                request::encode_with_effort(parts, envelope, schemas, &snapshot, reasoning_effort)
+                    .map_err(|_| {
+                        vcp_context::manifest::Error::Incompatible("canonical provider codec")
+                    })
             },
         )?;
         let mut roots = parents;

@@ -131,6 +131,7 @@ fn setup(temp: &tempfile::TempDir, backend: BackendKind) -> (Context, ThreadBind
         input_ceiling: Units::new(100),
         output_ceiling: Units::new(100),
         artifact_limit: ByteCount::new(16 * 1024 * 1024),
+        max_transport_retries: 2,
         host_tool_denials: vec![],
     };
     let mut context = Context::open(config).unwrap();

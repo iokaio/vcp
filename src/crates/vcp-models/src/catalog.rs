@@ -65,6 +65,8 @@ pub struct Compatibility {
     pub responses_text_tools: bool,
     pub byte_ceiling_qualified: bool,
     pub provider_preferences_qualified: bool,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub qualified_reasoning_efforts: BTreeSet<crate::reasoning::Effort>,
     pub deny_data_collection: bool,
     pub require_zdr: bool,
     /// Explicit USD/request ceiling enforced by provider.max_price.request.
@@ -75,6 +77,8 @@ pub struct Compatibility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tariff_normalization: Option<u32>,
     pub observed_at: Timestamp,
     pub valid_until: Timestamp,
     pub raw_sha256: String,
@@ -91,18 +95,28 @@ impl Snapshot {
         valid_until: Timestamp,
         compatibility: Compatibility,
     ) -> Result<Self> {
+        if !compatibility.responses_text_tools || !compatibility.provider_preferences_qualified {
+            return Err(Error::Capability("dated compatibility record"));
+        }
+        Self::metadata(raw, observed_at, valid_until, compatibility)
+    }
+    fn metadata(
+        raw: &[u8],
+        observed_at: Timestamp,
+        valid_until: Timestamp,
+        compatibility: Compatibility,
+    ) -> Result<Self> {
         if raw.len() > 4 * 1024 * 1024 {
             return Err(Error::Limit("catalog bytes"));
         }
         if compatibility.id.is_empty()
-            || !compatibility.responses_text_tools
-            || !compatibility.byte_ceiling_qualified
-            || !compatibility.provider_preferences_qualified
             || compatibility.endpoint.is_empty()
             || compatibility.model.is_empty()
             || compatibility.qualified_at > observed_at
             || compatibility.valid_until < valid_until
             || valid_until <= observed_at
+            || (!compatibility.qualified_reasoning_efforts.is_empty()
+                && !compatibility.required_parameters.contains("reasoning"))
         {
             return Err(Error::Capability("dated compatibility record"));
         }
@@ -172,33 +186,76 @@ impl Snapshot {
                 .and_then(|p| p.as_str())
                 .ok_or(Error::Capability("missing price"))
         };
-        let input = rate(required("prompt")?)?;
-        let output = rate(required("completion")?)?;
-        let request = rate(&compatibility.request_price_limit)?;
-        if let Some(value) = prices.get("request") {
-            let catalog_rate = rate(value.as_str().ok_or(Error::Capability("request price"))?)?;
-            if catalog_rate.micros > request.micros {
-                return Err(Error::Capability("request price exceeds enforced ceiling"));
+        let mut tariffs = vec![prices];
+        if let Some(overrides) = prices.get("overrides") {
+            let overrides = overrides
+                .as_array()
+                .filter(|rows| rows.len() <= 128)
+                .ok_or(Error::Capability("bounded pricing overrides"))?;
+            for tier in overrides {
+                let tier = tier
+                    .as_object()
+                    .ok_or(Error::Capability("pricing override"))?;
+                if tier
+                    .get("min_prompt_tokens")
+                    .and_then(serde_json::Value::as_u64)
+                    .is_none()
+                    || tier.keys().any(|key| {
+                        !matches!(
+                            key.as_str(),
+                            "min_prompt_tokens"
+                                | "prompt"
+                                | "completion"
+                                | "request"
+                                | "input_cache_read"
+                                | "input_cache_write"
+                                | "input_cache_write_1h"
+                        )
+                    })
+                {
+                    return Err(Error::Capability("unsupported pricing override"));
+                }
+                tariffs.push(tier);
             }
+        }
+        // Admission does not predict the provider's tier or cache duration.
+        // Preserve raw metadata and use the maximum listed rate for each class.
+        let maximum = |keys: &[&str], mut bound: Rate| -> Result<Rate> {
+            for tariff in &tariffs {
+                for key in keys {
+                    if let Some(value) = tariff.get(*key) {
+                        let candidate =
+                            rate(value.as_str().ok_or(Error::Capability("tariff price"))?)?;
+                        if candidate.micros > bound.micros {
+                            bound = candidate;
+                        }
+                    }
+                }
+            }
+            Ok(bound)
+        };
+        let input = maximum(&["prompt"], rate(required("prompt")?)?)?;
+        let output = maximum(&["completion"], rate(required("completion")?)?)?;
+        let request = rate(&compatibility.request_price_limit)?;
+        if maximum(&["request"], request.clone())?.micros > request.micros {
+            return Err(Error::Capability("request price exceeds enforced ceiling"));
         }
         // Caching details may be absent. The conservative admission price is
         // at least the ordinary input price; missing observed totals stay unknown.
-        let cache = |key: &str| -> Result<Rate> {
-            let candidate = match prices.get(key).and_then(|p| p.as_str()) {
-                Some(v) => rate(v)?,
-                None => input.clone(),
-            };
-            Ok(if candidate.micros < input.micros {
-                input.clone()
-            } else {
-                candidate
-            })
-        };
         let rates = BTreeMap::from([
             (ChargeCategory::Input, input.clone()),
             (ChargeCategory::Output, output),
-            (ChargeCategory::CacheRead, cache("input_cache_read")?),
-            (ChargeCategory::CacheWrite, cache("input_cache_write")?),
+            (
+                ChargeCategory::CacheRead,
+                maximum(&["input_cache_read"], input.clone())?,
+            ),
+            (
+                ChargeCategory::CacheWrite,
+                maximum(
+                    &["input_cache_write", "input_cache_write_1h"],
+                    input.clone(),
+                )?,
+            ),
             (ChargeCategory::Request, request),
             (
                 ChargeCategory::ProviderTool,
@@ -209,12 +266,38 @@ impl Snapshot {
             ),
         ]);
         let raw_sha256 = vcp_protocol::digest_bytes(raw);
-        let id = vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&(
-            observed_at,
-            valid_until,
-            &raw_sha256,
-            &compatibility,
-        ))?);
+        let legacy_input = rate(required("prompt")?)?;
+        let legacy_cache = |key: &str| -> Result<Rate> {
+            let legacy = prices
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(rate)
+                .transpose()?
+                .unwrap_or_else(|| legacy_input.clone());
+            Ok(if legacy.micros < legacy_input.micros {
+                legacy_input.clone()
+            } else {
+                legacy
+            })
+        };
+        let tariff_upgrade = rates[&ChargeCategory::Input] != legacy_input
+            || rates[&ChargeCategory::Output] != rate(required("completion")?)?
+            || rates[&ChargeCategory::CacheRead] != legacy_cache("input_cache_read")?
+            || rates[&ChargeCategory::CacheWrite] != legacy_cache("input_cache_write")?;
+        let identity = if tariff_upgrade {
+            vcp_protocol::canonical_bytes(&(
+                "endpoint-tariff-maxima/2",
+                observed_at,
+                valid_until,
+                &raw_sha256,
+                &compatibility,
+            ))?
+        } else {
+            // Preserve historical IDs only when their exact price interpretation
+            // is unchanged. A corrected tariff cannot reuse an old price ID.
+            vcp_protocol::canonical_bytes(&(observed_at, valid_until, &raw_sha256, &compatibility))?
+        };
+        let id = vcp_protocol::digest_bytes(&identity);
         let price = PriceSnapshot {
             id: id.clone(),
             provider: compatibility.endpoint.clone(),
@@ -226,6 +309,7 @@ impl Snapshot {
         };
         Ok(Self {
             id,
+            tariff_normalization: tariff_upgrade.then_some(2),
             observed_at,
             valid_until,
             raw_sha256,
@@ -245,5 +329,85 @@ impl Snapshot {
         } else {
             Ok(())
         }
+    }
+    pub fn identity_digest(&self) -> Result<String> {
+        let bytes = match self.tariff_normalization {
+            None => vcp_protocol::canonical_bytes(&(
+                self.observed_at,
+                self.valid_until,
+                &self.raw_sha256,
+                &self.compatibility,
+            ))?,
+            Some(2) => vcp_protocol::canonical_bytes(&(
+                "endpoint-tariff-maxima/2",
+                self.observed_at,
+                self.valid_until,
+                &self.raw_sha256,
+                &self.compatibility,
+            ))?,
+            _ => return Err(Error::Capability("unsupported tariff normalization")),
+        };
+        Ok(vcp_protocol::digest_bytes(&bytes))
+    }
+    /// An unqualified tokenizer estimate cannot bound monetary admission. Keep
+    /// byte length for context fit, but reserve the full endpoint input capacity.
+    pub fn reservation_input(&self, encoded_bytes: Units) -> Units {
+        if self.compatibility.byte_ceiling_qualified {
+            encoded_bytes
+        } else {
+            self.max_input
+        }
+    }
+}
+
+/// Qualification tooling may price a candidate without claiming its protocol or
+/// provider-policy conformance. This type grants no production Snapshot.
+#[cfg(feature = "qualification")]
+#[derive(Clone, Debug, Serialize)]
+pub struct CandidateMetadata {
+    pub raw_sha256: String,
+    pub context: Units,
+    pub max_input: Units,
+    pub max_output: Units,
+    pub price: PriceSnapshot,
+}
+#[cfg(feature = "qualification")]
+impl CandidateMetadata {
+    pub fn from_endpoints(
+        raw: &[u8],
+        observed_at: Timestamp,
+        valid_until: Timestamp,
+        model: String,
+        endpoint: String,
+        request_price_limit: String,
+        required_parameters: BTreeSet<String>,
+    ) -> Result<Self> {
+        let candidate = Snapshot::metadata(
+            raw,
+            observed_at,
+            valid_until,
+            Compatibility {
+                id: "unqualified-conformance-candidate/1".into(),
+                model,
+                endpoint,
+                qualified_at: observed_at,
+                valid_until,
+                responses_text_tools: false,
+                byte_ceiling_qualified: false,
+                provider_preferences_qualified: false,
+                qualified_reasoning_efforts: BTreeSet::new(),
+                deny_data_collection: true,
+                require_zdr: false,
+                request_price_limit,
+                required_parameters,
+            },
+        )?;
+        Ok(Self {
+            raw_sha256: candidate.raw_sha256,
+            context: candidate.context,
+            max_input: candidate.max_input,
+            max_output: candidate.max_output,
+            price: candidate.price,
+        })
     }
 }

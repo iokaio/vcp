@@ -62,6 +62,7 @@ fn candidate(
         require_zdr: true,
         request_price_limit: "0.000010".into(),
         required_parameters: BTreeSet::from(["tools".into()]),
+        qualified_reasoning_efforts: BTreeSet::new(),
     };
     let raw=serde_json::to_vec(&serde_json::json!({"data":{"id":model,"endpoints":[{"tag":endpoint,"status":0,"context_length":4000,"max_prompt_tokens":3000,"max_completion_tokens":1000,"supported_parameters":["tools"],"pricing":{"prompt":input_price,"completion":"0.000002","request":"0.000010"}}]}})).unwrap();
     let snapshot = Snapshot::from_endpoints(
@@ -140,6 +141,11 @@ fn policy(entries: &[Candidate]) -> Policy {
         ],
         pin: None,
         broader_task_class: None,
+        output_tokens: None,
+        input_tokens: None,
+        escalation_limits: None,
+        reasoning_effort: None,
+        retrieval_limits: None,
     }
     .seal()
     .unwrap()

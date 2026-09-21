@@ -4,6 +4,7 @@ pub mod advisory;
 pub mod compaction_diagnostics;
 pub mod consumption;
 pub mod cycles;
+pub mod declarations;
 pub mod fits;
 pub mod forecast_drift;
 pub mod forecast_reports;
@@ -21,7 +22,9 @@ use vcp_domain::{
     *,
 };
 use vcp_memory::access::Access;
-use vcp_models::routing::{CatalogRevision, Policy, Preference, Profile, RoutingDecision};
+use vcp_models::routing::{
+    CatalogRevision, Group, Pin, Policy, Preference, Profile, RoutingDecision,
+};
 use vcp_protocol::{
     canonical_bytes, digest_bytes,
     event::{EventInput, EventKind},
@@ -886,7 +889,7 @@ pub async fn publish_registry(
     Ok(published)
 }
 /// A separately authorized initial configuration. Optimizer edits cannot create
-/// policy, expand provider allowlists, enable evaluators or modify budgets.
+/// policy, expand trusted provider ceilings, enable evaluators or modify budgets.
 pub async fn initialize_policy(
     store: &mut Store,
     access: &Access,
@@ -909,20 +912,44 @@ pub async fn initialize_policy(
     deny_unknown_fields
 )]
 pub enum Edit {
+    RetrievalLimits(Option<vcp_models::routing::RetrievalLimits>),
+    InputTokens(Option<Units>),
+    EscalationMaxTransportRetries(Option<u32>),
+    EscalationMaxQualitySwitches(Option<u32>),
+    EscalationMaxTotalAttempts(Option<u32>),
+    EscalationMinimumRepeatedFailures(Option<u32>),
+    ReasoningEffort(Option<vcp_models::reasoning::Effort>),
+    OutputTokens(Option<Units>),
     Profile(Profile),
     Ordering(Vec<Preference>),
     QualityFloorBps(u16),
     MinimumSamples(u32),
     MaximumEvidenceAgeMs(u64),
+    AllowedModels(BTreeSet<String>),
+    AllowedEndpoints(BTreeSet<String>),
+    AllowedGroups(BTreeSet<Group>),
+    Pin(Option<Pin>),
 }
 impl Edit {
     fn key(&self) -> &'static str {
         match self {
+            Self::RetrievalLimits(_) => "retrieval_limits",
+            Self::InputTokens(_) => "input_tokens",
+            Self::EscalationMaxTransportRetries(_) => "max_transport_retries",
+            Self::EscalationMaxQualitySwitches(_) => "max_quality_switches",
+            Self::EscalationMaxTotalAttempts(_) => "max_total_attempts",
+            Self::EscalationMinimumRepeatedFailures(_) => "minimum_repeated_failures",
+            Self::ReasoningEffort(_) => "reasoning_effort",
+            Self::OutputTokens(_) => "output_tokens",
             Self::Profile(_) => "profile",
             Self::Ordering(_) => "ordering",
             Self::QualityFloorBps(_) => "quality_floor_bps",
             Self::MinimumSamples(_) => "minimum_samples",
             Self::MaximumEvidenceAgeMs(_) => "maximum_evidence_age_ms",
+            Self::AllowedModels(_) => "allowed_models",
+            Self::AllowedEndpoints(_) => "allowed_endpoints",
+            Self::AllowedGroups(_) => "allowed_groups",
+            Self::Pin(_) => "pin",
         }
     }
 }
@@ -943,6 +970,31 @@ pub struct Preview {
 pub fn effective_policy(mut policy: Policy, ceilings: &Policy) -> Result<Policy> {
     policy.validate().map_err(err)?;
     ceilings.validate().map_err(err)?;
+    policy.retrieval_limits = match (&policy.retrieval_limits, &ceilings.retrieval_limits) {
+        (Some(selected), Some(limit)) => Some(selected.clamp(limit)),
+        (selected, limit) => selected.clone().or_else(|| limit.clone()),
+    };
+    policy.input_tokens = match (policy.input_tokens, ceilings.input_tokens) {
+        (Some(selected), Some(limit)) => Some(selected.min(limit)),
+        (selected, limit) => selected.or(limit),
+    };
+    policy.reasoning_effort = match (policy.reasoning_effort, ceilings.reasoning_effort) {
+        (Some(selected), Some(limit)) => Some(selected.min(limit)),
+        (_, limit) => limit,
+    };
+    policy.escalation_limits = match (&policy.escalation_limits, &ceilings.escalation_limits) {
+        (Some(selected), Some(limit)) => Some(selected.clamp(limit)),
+        (None, limit) => limit.clone(),
+        (Some(_), None) => {
+            return Err(
+                "selected escalation limits require trusted escalation configuration".into(),
+            )
+        }
+    };
+    policy.output_tokens = match (policy.output_tokens, ceilings.output_tokens) {
+        (Some(selected), Some(limit)) => Some(selected.min(limit)),
+        (selected, limit) => selected.or(limit),
+    };
     policy.allowed_models = policy
         .allowed_models
         .intersection(&ceilings.allowed_models)
@@ -1007,12 +1059,51 @@ pub fn preview(
             return Err("duplicate proposal field".into());
         }
         match edit {
+            Edit::RetrievalLimits(value) => policy.retrieval_limits = value.clone(),
+            Edit::InputTokens(value) => policy.input_tokens = *value,
+            Edit::ReasoningEffort(value) => policy.reasoning_effort = *value,
+            Edit::EscalationMaxTransportRetries(value) => {
+                policy
+                    .escalation_limits
+                    .get_or_insert_with(Default::default)
+                    .max_transport_retries = *value
+            }
+            Edit::EscalationMaxQualitySwitches(value) => {
+                policy
+                    .escalation_limits
+                    .get_or_insert_with(Default::default)
+                    .max_quality_switches = *value
+            }
+            Edit::EscalationMaxTotalAttempts(value) => {
+                policy
+                    .escalation_limits
+                    .get_or_insert_with(Default::default)
+                    .max_total_attempts = *value
+            }
+            Edit::EscalationMinimumRepeatedFailures(value) => {
+                policy
+                    .escalation_limits
+                    .get_or_insert_with(Default::default)
+                    .minimum_repeated_failures = *value
+            }
+            Edit::OutputTokens(value) => policy.output_tokens = *value,
             Edit::Profile(value) => policy.profile = *value,
             Edit::Ordering(value) => policy.ordering = value.clone(),
             Edit::QualityFloorBps(value) => policy.quality_floor_bps = *value,
             Edit::MinimumSamples(value) => policy.minimum_samples = *value,
             Edit::MaximumEvidenceAgeMs(value) => policy.maximum_evidence_age_ms = *value,
+            Edit::AllowedModels(value) => policy.allowed_models = value.clone(),
+            Edit::AllowedEndpoints(value) => policy.allowed_endpoints = value.clone(),
+            Edit::AllowedGroups(value) => policy.allowed_groups = value.clone(),
+            Edit::Pin(value) => policy.pin = value.clone(),
         }
+    }
+    if policy
+        .escalation_limits
+        .as_ref()
+        .is_some_and(|limits| limits.is_empty())
+    {
+        policy.escalation_limits = None;
     }
     policy.parent = Some(current.value.id.clone());
     policy = policy.seal().map_err(err)?;

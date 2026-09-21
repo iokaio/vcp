@@ -61,6 +61,7 @@ fn compat() -> Compatibility {
         require_zdr: true,
         request_price_limit: "0.001".into(),
         required_parameters: BTreeSet::from(["tools".into(), "max_tokens".into()]),
+        qualified_reasoning_efforts: BTreeSet::new(),
     }
 }
 fn catalog() -> Value {
@@ -74,6 +75,83 @@ fn snapshot() -> Snapshot {
         compat(),
     )
     .unwrap()
+}
+
+#[test]
+fn reasoning_effort_requires_exact_qualification_preserves_legacy_bytes_and_output_bound() {
+    use vcp_models::{
+        reasoning::Effort,
+        request::{encode_with_effort, envelope},
+    };
+    let legacy = compat();
+    let encoded = serde_json::to_value(&legacy).unwrap();
+    assert!(encoded.get("qualified_reasoning_efforts").is_none());
+    assert_eq!(
+        serde_json::from_value::<Compatibility>(encoded).unwrap(),
+        legacy
+    );
+    let plain = snapshot();
+    let env = envelope(&plain, Units::new(128), Units::new(32), Timestamp::new(30)).unwrap();
+    assert_eq!(
+        encode(&[], &env, &json!([]), &plain).unwrap(),
+        encode_with_effort(&[], &env, &json!([]), &plain, None).unwrap()
+    );
+    assert!(encode_with_effort(&[], &env, &json!([]), &plain, Some(Effort::Low)).is_err());
+    let mut compatibility = legacy;
+    compatibility
+        .qualified_reasoning_efforts
+        .insert(Effort::Low);
+    let mut source = catalog();
+    assert!(Snapshot::from_endpoints(
+        &serde_json::to_vec(&source).unwrap(),
+        Timestamp::new(10),
+        Timestamp::new(1000),
+        compatibility.clone()
+    )
+    .is_err());
+    compatibility.required_parameters.insert("reasoning".into());
+    assert!(Snapshot::from_endpoints(
+        &serde_json::to_vec(&source).unwrap(),
+        Timestamp::new(10),
+        Timestamp::new(1000),
+        compatibility.clone()
+    )
+    .is_err());
+    source["data"]["endpoints"][0]["supported_parameters"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("reasoning"));
+    let qualified = Snapshot::from_endpoints(
+        &serde_json::to_vec(&source).unwrap(),
+        Timestamp::new(10),
+        Timestamp::new(1000),
+        compatibility,
+    )
+    .unwrap();
+    let env = envelope(
+        &qualified,
+        Units::new(128),
+        Units::new(32),
+        Timestamp::new(30),
+    )
+    .unwrap();
+    let body: Value = serde_json::from_slice(
+        &encode_with_effort(&[], &env, &json!([]), &qualified, Some(Effort::Low)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(body["reasoning"], json!({"effort":"low"}));
+    assert_eq!(body["max_output_tokens"], 128);
+    assert_eq!(body["provider"]["require_parameters"], true);
+    assert_eq!(body["provider"]["allow_fallbacks"], false);
+    assert!(encode_with_effort(&[], &env, &json!([]), &qualified, Some(Effort::High)).is_err());
+    assert!(
+        Effort::Minimal < Effort::Low
+            && Effort::Low < Effort::Medium
+            && Effort::Medium < Effort::High
+    );
+    for unsupported in ["none", "xhigh", "max", "invented"] {
+        assert!(serde_json::from_value::<Effort>(json!(unsupported)).is_err());
+    }
 }
 
 #[test]
@@ -148,13 +226,34 @@ fn dated_endpoint_snapshot_rejects_stale_missing_and_unsupported_capabilities() 
     .is_err());
     let mut c = compat();
     c.byte_ceiling_qualified = false;
-    assert!(Snapshot::from_endpoints(
+    let conservative = Snapshot::from_endpoints(
         &serde_json::to_vec(&catalog()).unwrap(),
         Timestamp::new(10),
         Timestamp::new(1000),
-        c
+        c,
     )
-    .is_err());
+    .unwrap();
+    assert!(!conservative.compatibility.byte_ceiling_qualified);
+    assert_eq!(
+        conservative.reservation_input(Units::new(10)),
+        conservative.max_input
+    );
+    assert_eq!(snapshot.reservation_input(Units::new(10)), Units::new(10));
+    for provider_policy in [false, true] {
+        let mut denied = compat();
+        if provider_policy {
+            denied.provider_preferences_qualified = false;
+        } else {
+            denied.responses_text_tools = false;
+        }
+        assert!(Snapshot::from_endpoints(
+            &serde_json::to_vec(&catalog()).unwrap(),
+            Timestamp::new(10),
+            Timestamp::new(1000),
+            denied
+        )
+        .is_err());
+    }
     assert!(envelope(
         &snapshot,
         Units::new(9000),
@@ -163,6 +262,86 @@ fn dated_endpoint_snapshot_rejects_stale_missing_and_unsupported_capabilities() 
     )
     .is_err());
 }
+#[test]
+fn endpoint_prices_bound_all_prompt_tiers_and_long_cache_write_tariffs() {
+    use vcp_domain::accounting::ChargeCategory;
+    let mut value = catalog();
+    value["data"]["endpoints"][0]["pricing"]["overrides"] = json!([
+        {"min_prompt_tokens": 12000, "prompt":"0.000004", "completion":"0.000008", "input_cache_read":"0.000006", "input_cache_write":"0.000005"}
+    ]);
+    value["data"]["endpoints"][0]["pricing"]["input_cache_write_1h"] = json!("0.000009");
+    let selected = Snapshot::from_endpoints(
+        &serde_json::to_vec(&value).unwrap(),
+        Timestamp::new(10),
+        Timestamp::new(1000),
+        compat(),
+    )
+    .unwrap();
+    let old_id = vcp_protocol::digest_bytes(
+        &vcp_protocol::canonical_bytes(&(
+            Timestamp::new(10),
+            Timestamp::new(1000),
+            &selected.raw_sha256,
+            compat(),
+        ))
+        .unwrap(),
+    );
+    assert_ne!(
+        selected.id, old_id,
+        "changed tariffs must not reuse historical price identities"
+    );
+    assert_eq!(selected.tariff_normalization, Some(2));
+    assert_eq!(selected.identity_digest().unwrap(), selected.id);
+    assert_eq!(snapshot().tariff_normalization, None);
+    assert_eq!(snapshot().identity_digest().unwrap(), snapshot().id);
+    for (category, expected) in [
+        (ChargeCategory::Input, 4_000_000),
+        (ChargeCategory::Output, 8_000_000),
+        (ChargeCategory::CacheRead, 6_000_000),
+        (ChargeCategory::CacheWrite, 9_000_000),
+    ] {
+        assert_eq!(selected.price.rates[&category].micros.get(), expected);
+    }
+    assert_eq!(
+        selected.raw_sha256,
+        vcp_protocol::digest_bytes(&serde_json::to_vec(&value).unwrap())
+    );
+    for malformed in [
+        json!({}),
+        json!([{"min_prompt_tokens":12,"new_price_rule":"0.1"}]),
+        json!([{"min_prompt_tokens":12,"prompt":0.1}]),
+        json!([{"min_prompt_tokens":12,"request":"0.002"}]),
+    ] {
+        value["data"]["endpoints"][0]["pricing"]["overrides"] = malformed;
+        assert!(Snapshot::from_endpoints(
+            &serde_json::to_vec(&value).unwrap(),
+            Timestamp::new(10),
+            Timestamp::new(1000),
+            compat()
+        )
+        .is_err());
+    }
+}
+
+#[cfg(feature = "qualification")]
+#[test]
+fn conformance_candidate_metadata_does_not_publish_a_qualified_snapshot() {
+    let metadata = CandidateMetadata::from_endpoints(
+        &serde_json::to_vec(&catalog()).unwrap(),
+        Timestamp::new(10),
+        Timestamp::new(1000),
+        "fixture/coder".into(),
+        "fixture/region".into(),
+        "0.001".into(),
+        BTreeSet::from(["tools".into(), "max_tokens".into()]),
+    )
+    .unwrap();
+    assert_eq!(metadata.max_input, Units::new(24000));
+    let value = serde_json::to_value(metadata).unwrap();
+    assert!(value.get("compatibility").is_none());
+    assert!(serde_json::from_value::<Snapshot>(value).is_err());
+}
+
 #[test]
 fn decimal_money_rounds_up_without_float_arithmetic_or_negative_rates() {
     for (text, micros) in [

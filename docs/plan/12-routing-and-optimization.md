@@ -2,13 +2,22 @@
 
 Status: in progress. The [routing foundation](../evaluations/p6-routing-foundation.md) implements deterministic registry/selection, retained host admission, escalation and local optimizer controls. Live profile/evaluator qualification and the remaining policy surface are still acceptance gates. Owns P6-01 through P6-05. Registry work follows P2-02 and P5-06; final profile qualification also needs P5-08. Architecture sections 7–8 govern routing. [Model research](../architecture/model-groups.md) supplies candidates, not shipping ranks/prices.
 
+The [selected resource controls](../evaluations/p6-resource-controls.md),
+[owner declarations](../evaluations/p6-owner-declarations.md) and
+[conservative provider admission](../evaluations/p6-provider-bounds.md) extend
+that foundation. The first [capped live conformance attempt](../evaluations/p6-live-provider-conformance.md)
+was rejected with HTTP 401; its liability remains retained and live profile
+qualification remains incomplete.
+
 ## Code organization
 
 The [Markov supplement](21-markov-integration.md) adds planned increments within
 these owners. Start M1's shared evidence/analysis foundation under P6-02, then
 M2 under P6-03, then M3 reporting under P6-05 and M4 qualification. M7's offline
 threshold proposals/provider-burst experiment follow that evidence. These are
-unimplemented extensions, not new task dependencies or enabled defaults.
+supporting increments, not new task dependencies or enabled defaults. M1–M3
+construction and M4's recorded-rejection path have landed; qualification remains
+purpose-specific.
 
 Use `vcp-models/catalog` for gateway metadata. The logical `vcp-routing` registry, eligibility, policy, selector, explanation, escalation and handoff boundaries map into `vcp-models::{routing,escalation}`; canonical optimizer/publication services map into `vcp-lifecycle::foundation::routing_state`. This retains existing dependency boundaries without another gateway or database. CLI interview/policy-diff presentation belongs in `vcp-cli/optimize`; policy revisions and outcome observations use the canonical store.
 
@@ -306,18 +315,31 @@ observer agents remain P10-03 deferred scope.
 
 ## P6-05 — `/optimize` workflow
 
+Selected policy controls now include explicit model/endpoint/group restrictions,
+strict project pins, evidence sample/age requirements and independent quality-floor
+changes through the existing preview/apply/rollback transaction. Selected output
+limits flow through assembly, actual provider requests and reservation quotes.
+Requested and effective values remain distinct under current trusted ceilings.
+Selected input ceilings now constrain serialized context before admission;
+qualified reasoning effort reaches provider encoding; explicit memory queries
+respect selected retrieval result/token/byte limits. Escalation maxima and failure
+minima narrow configured retry/switch/attempt behavior without enabling escalation
+or extending trusted deadlines. These optional fields retain legacy policy digests
+when absent and use the same preview/apply/rollback protocol. See the
+[resource-control evidence](../evaluations/p6-resource-controls.md) for verification
+and remaining limits. Concurrency selection awaits P7's actual child scheduler
+and remains an explicit release gate; no inactive concurrency knob is exposed.
+Measured profile defaults and live evaluator qualification remain separate gates.
+
 **M3 construction implemented:** [read-only action forecasts](../evaluations/p6-action-forecasts.md)
 expose supported episode/cohort expectations and exclusions. [Saved forecast
 artifacts and matched drift/compaction diagnostics](../evaluations/p6-saved-forecast-diagnostics.md)
 preserve exact evidence with source access and retention checks. Forecast serving
 remains disabled after M4's recorded rejection; this does not complete deferred M7 policy proposals.
 
-**Planned Markov increments:** after the P6-03 implementation prerequisite,
-[M3](21-markov-integration.md#m3--read-only-forecasts-in-the-optimizer) adds read-only
-transition/reward forecasts and drift reports using M1's shared foundation.
-Refactor existing current-state counts without pretending they reconstruct past
-transitions. [M7](21-markov-integration.md#m7--offline-proposals-and-provider-bursts)
-then adds offline threshold hypotheses through preview, selected apply and rollback
+**Remaining Markov increment:**
+[M7](21-markov-integration.md#m7--offline-proposals-and-provider-bursts)
+adds offline threshold hypotheses through preview, selected apply and rollback
 after M4 evidence; it does not infer unobserved actions or authorize paid trials.
 
 1. Read a scoped history window and calculate task classes, languages, failures/abandonment, retries, intervention, token/effort, cost certainty, latency, child overhead and retrieval contribution. Mark missing/pruned/small samples.
@@ -376,6 +398,11 @@ performance, and a new alias or missing native output field invalidates affected
 comparisons rather than silently inheriting an earlier recommendation.
 
 ## P6-04 — Profile qualification
+
+The [frozen task-quality preparation](../../src/evals/tasks/README.md) adds small
+analysis/review/schema-generation cases, separate labels and independent offline
+graders. All three strategy arms remain not-run; these smoke fixtures do not
+qualify model quality, a production sample floor, prices or shipping defaults.
 
 **M4 construction implemented through recorded rejection:** the
 [four-arm offline qualification](../evaluations/p6-markov-qualification.md)

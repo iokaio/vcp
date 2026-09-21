@@ -163,6 +163,10 @@
     {
       "path": "src/third_party/patches/codex/0033-p7-mcp-http-workspace.patch",
       "sha256": "8334788b4f4568d6685cfc3a38b1b7ffbdb96f386c8869d78fdb9afd75cb2e4d"
+    },
+    {
+      "path": "src/third_party/patches/codex/0034-p6-conformance-workspace.patch",
+      "sha256": "02818e383bc0e53af70743683d73d3724fafc39eb27894c92c618b47779b812e"
     }
   ],
   "licenses": [

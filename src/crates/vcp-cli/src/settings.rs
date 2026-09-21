@@ -10,6 +10,7 @@ use std::{
 use vcp_domain::{
     policy::{Autonomy, EffectClass, Isolation},
     revision::*,
+    Units,
 };
 use vcp_models::catalog::Snapshot;
 
@@ -39,6 +40,10 @@ pub struct Profile {
     pub catalog: PathBuf,
     pub affected_paths: Vec<PathBuf>,
     pub max_requests: u32,
+    #[serde(default)]
+    pub output_tokens: Option<Units>,
+    #[serde(default = "vcp_lifecycle::foundation::default_max_transport_retries")]
+    pub max_transport_retries: u32,
     pub deadline_seconds: u32,
     pub processes: Vec<ProcessProfile>,
     pub checks: Vec<vcp_tools::verification::Requirement>,
@@ -206,8 +211,90 @@ fn rank(mode: Autonomy) -> u8 {
     }
 }
 
+fn startup_output_ceiling(
+    selected: Option<Units>,
+    provider_maximum: Units,
+) -> Result<Units, String> {
+    let selected = selected.unwrap_or(Units::new(4096));
+    if selected == Units::ZERO || selected.get() > 4096 || provider_maximum == Units::ZERO {
+        return Err("startup output tokens must be 1..4096 within provider capacity".into());
+    }
+    Ok(Units::new(selected.get().min(provider_maximum.get())))
+}
+
+#[cfg(test)]
+mod request_limit_tests {
+    use super::*;
+
+    #[test]
+    fn startup_output_is_bounded_and_legacy_default_is_preserved() {
+        assert_eq!(
+            startup_output_ceiling(None, Units::new(8000)).unwrap(),
+            Units::new(4096)
+        );
+        assert_eq!(
+            startup_output_ceiling(None, Units::new(2000)).unwrap(),
+            Units::new(2000)
+        );
+        assert_eq!(
+            startup_output_ceiling(Some(Units::new(512)), Units::new(8000)).unwrap(),
+            Units::new(512)
+        );
+        assert_eq!(
+            startup_output_ceiling(Some(Units::new(512)), Units::new(256)).unwrap(),
+            Units::new(256)
+        );
+        for output in [0, 4097, u64::MAX] {
+            assert!(startup_output_ceiling(Some(Units::new(output)), Units::new(8000)).is_err());
+        }
+        assert!(startup_output_ceiling(None, Units::ZERO).is_err());
+    }
+
+    #[test]
+    fn profile_deserialization_defaults_and_explicit_zero_retry_are_distinct() {
+        // Deserialization-only provider data, never conformance evidence.
+        let legacy = serde_json::json!({
+            "version":1,"workspace":"fixture","trust_workspace":true,
+            "maximum_autonomy":"autonomous","automatic_effects":[],"budget_usd":null,
+            "provider":{"id":"fixture","observed_at":"1","valid_until":"2","raw_sha256":"fixture",
+                "compatibility":{"id":"fixture","model":"fixture/model","endpoint":"fixture/provider",
+                    "qualified_at":"1","valid_until":"2","responses_text_tools":true,
+                    "byte_ceiling_qualified":true,"provider_preferences_qualified":true,
+                    "deny_data_collection":true,"require_zdr":true,"request_price_limit":"0",
+                    "required_parameters":[]},"context":"10000","max_input":"9000","max_output":"8000",
+                "price":{"id":"fixture","provider":"fixture/provider","model":"fixture/model","currency":"USD",
+                    "capability":"fixture","valid_until":"2","rates":{}}},
+            "catalog":"fixture","affected_paths":["file.txt"],"max_requests":1,
+            "deadline_seconds":60,"processes":[],"checks":[]
+        });
+        let old: Profile = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(old.output_tokens, None);
+        assert_eq!(old.output_ceiling().unwrap(), Units::new(4096));
+        assert_eq!(old.max_transport_retries, 2);
+        let mut selected = legacy;
+        selected["output_tokens"] = serde_json::json!("512");
+        selected["max_transport_retries"] = serde_json::json!(0);
+        let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
+        assert_eq!(configured.output_ceiling().unwrap(), Units::new(512));
+        assert_eq!(configured.max_transport_retries, 0);
+        selected["max_transport_retries"] = serde_json::json!(3);
+        let invalid: Profile = serde_json::from_value(selected).unwrap();
+        assert!(
+            matches!(invalid.prepare(Autonomy::Autonomous), Err(reason) if reason == "transport retry ceiling must be 0..2")
+        );
+    }
+}
+
 impl Profile {
+    pub fn output_ceiling(&self) -> Result<Units, String> {
+        startup_output_ceiling(self.output_tokens, self.provider.max_output)
+    }
+
     pub fn prepare(self, requested: Autonomy) -> Result<PreparedProfile, String> {
+        self.output_ceiling()?;
+        if self.max_transport_retries > 2 {
+            return Err("transport retry ceiling must be 0..2".into());
+        }
         if rank(requested) > rank(self.maximum_autonomy) {
             return Err("requested autonomy exceeds trusted user profile".into());
         }

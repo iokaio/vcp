@@ -14,6 +14,7 @@ pub(super) struct Evidence {
     pub excluded: BTreeSet<ModelEndpoint>,
     pub trigger: Option<(Attempt, model::Trigger)>,
     pub counters: model::Counters,
+    pub required_capabilities: BTreeSet<String>,
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,12 +25,58 @@ struct Pair {
     sources: Vec<ArtifactId>,
 }
 impl Context {
+    pub(super) fn declare_escalation(
+        &mut self,
+        input: crate::foundation::routing_state::declarations::Input,
+    ) -> Result<serde_json::Value> {
+        use crate::foundation::routing_state::declarations;
+        if self.interrupted_capture
+            || self
+                .routing
+                .as_ref()
+                .and_then(|r| r.configuration.escalation.as_ref())
+                .is_none()
+        {
+            return Err(
+                "owner declaration requires configured escalation and reconciled capture".into(),
+            );
+        }
+        let access = self.routing_access();
+        let declared_task: Task = self
+            .engine
+            .store()
+            .state()
+            .record(Collection::Task, input.task.as_str(), &access.workspace)?
+            .decode()?;
+        if declared_task.root != self.config.root_task {
+            return Err("owner declaration root differs from current host".into());
+        }
+        if let Some(existing) = declarations::existing(self.engine.store(), &access, &input)? {
+            return Ok(serde_json::to_value(existing)?);
+        }
+        let (task, _) = declarations::validate(self.engine.store(), &access, &input)?;
+        let artifact = self.capture(
+            &task.scope,
+            Channel::Evidence,
+            &canonical_bytes(&input)?,
+            declarations::SCHEMA,
+        )?;
+        let result = self.runtime.block_on(declarations::record(
+            self.engine.store_mut(),
+            &access,
+            input,
+            artifact.spec.id,
+            now(),
+        ))?;
+        Ok(serde_json::to_value(result)?)
+    }
     pub(super) fn escalation_evidence(
-        &self,
+        &mut self,
         binding: &ThreadBinding,
         policy: &model::Policy,
     ) -> Result<Evidence> {
         let access = self.routing_access();
+        let mut required_capabilities = BTreeSet::new();
         let admissions = crate::foundation::routing_state::admitted_escalations(
             self.engine.store(),
             &access,
@@ -89,6 +136,30 @@ impl Context {
             .iter()
             .flat_map(|r| r.plan.trigger.evidence.iter().cloned())
             .collect();
+        // Explicit owner input is claimed durably before any new selection or
+        // reservation. A failed scheduling attempt does not replay this signal.
+        if let Some((declaration, previous)) =
+            self.runtime
+                .block_on(crate::foundation::routing_state::declarations::claim(
+                    self.engine.store_mut(),
+                    &access,
+                    &binding.scope.task,
+                    now(),
+                ))?
+        {
+            if let crate::foundation::routing_state::declarations::Kind::UnsupportedCapability {
+                capability,
+            } = &declaration.input.declaration
+            {
+                required_capabilities.insert(capability.clone());
+            }
+            return Ok(Evidence {
+                excluded,
+                trigger: Some((previous, declaration.trigger())),
+                counters,
+                required_capabilities,
+            });
+        }
         let mut pairs = Vec::new();
         let mut bytes_total = 0usize;
         for row in self.engine.store().state().records.values().filter(|r| {
@@ -237,6 +308,7 @@ impl Context {
             excluded,
             trigger,
             counters,
+            required_capabilities,
         })
     }
 }

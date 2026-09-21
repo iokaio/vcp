@@ -1,0 +1,23 @@
+{
+  "revision": "p6-task-quality-v1",
+  "labels": {
+    "tuning-analysis": {"dependencies":[{"path":"./sum.mjs","line":1},{"path":"./view.mjs","line":3}]},
+    "heldout-analysis": {"dependencies":[{"path":"./load.mjs","line":2}]},
+    "tuning-review": {"findings":[{"path":"lookup.mjs","line":3,"kind":"boundary"}]},
+    "heldout-review": {"findings":[{"path":"permitted.mjs","line":2,"kind":"coercion"}]},
+    "tuning-generation": {"probes":[
+      {"input":{"count":0},"accept":true},{"input":{"count":1},"accept":true},{"input":{"count":3},"accept":true},
+      {"input":{"count":-1},"accept":false},{"input":{"count":4},"accept":false},{"input":{"count":1.5},"accept":false},
+      {"input":{"count":"1"},"accept":false},{"input":{"count":true},"accept":false},{"input":{"count":null},"accept":false},
+      {"input":{},"accept":false},{"input":{"count":1,"extra":0},"accept":false},{"input":null,"accept":false},
+      {"input":[],"accept":false},{"input":1,"accept":false},{"input":"count","accept":false}
+    ]},
+    "heldout-generation": {"probes":[
+      {"input":{"offset":-2},"accept":true},{"input":{"offset":0},"accept":true},{"input":{"offset":2},"accept":true},
+      {"input":{"offset":-3},"accept":false},{"input":{"offset":3},"accept":false},{"input":{"offset":0.5},"accept":false},
+      {"input":{"offset":"0"},"accept":false},{"input":{"offset":false},"accept":false},{"input":{"offset":null},"accept":false},
+      {"input":{},"accept":false},{"input":{"offset":0,"extra":0},"accept":false},{"input":null,"accept":false},
+      {"input":[],"accept":false},{"input":0,"accept":false},{"input":"offset","accept":false}
+    ]}
+  }
+}

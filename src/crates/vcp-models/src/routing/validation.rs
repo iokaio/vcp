@@ -70,6 +70,8 @@ fn snapshot(value: &Snapshot, identity: &ModelEndpoint, observed_at: Timestamp) 
         || !compatibility.responses_text_tools
         || !compatibility.byte_ceiling_qualified
         || !compatibility.provider_preferences_qualified
+        || (!compatibility.qualified_reasoning_efforts.is_empty()
+            && !compatibility.required_parameters.contains("reasoning"))
         || value.context == Units::ZERO
         || value.max_input == Units::ZERO
         || value.max_input > value.context
@@ -86,12 +88,7 @@ fn snapshot(value: &Snapshot, identity: &ModelEndpoint, observed_at: Timestamp) 
         ));
     }
     crate::catalog::usd_micros(&compatibility.request_price_limit)?;
-    let digest = vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&(
-        value.observed_at,
-        value.valid_until,
-        &value.raw_sha256,
-        compatibility,
-    ))?);
+    let digest = value.identity_digest()?;
     let capability = vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(compatibility)?);
     if value.id != digest || value.price.capability != capability {
         return Err(Error::Protocol("routing snapshot digest"));
@@ -261,6 +258,8 @@ impl Policy {
         if self.quality_floor_bps > 10_000
             || self.minimum_samples == 0
             || self.maximum_evidence_age_ms == 0
+            || self.output_tokens == Some(Units::ZERO)
+            || self.input_tokens == Some(Units::ZERO)
             || self.allowed_models.len() > 1024
             || self.allowed_endpoints.len() > 1024
         {
@@ -268,6 +267,12 @@ impl Policy {
         }
         for value in self.allowed_models.iter().chain(&self.allowed_endpoints) {
             text(value, 256)?;
+        }
+        if let Some(limits) = &self.escalation_limits {
+            limits.validate()?;
+        }
+        if let Some(limits) = &self.retrieval_limits {
+            limits.validate()?;
         }
         let ordering: BTreeSet<_> = self.ordering.iter().collect();
         if self.ordering.len() != 4 || ordering.len() != 4 {

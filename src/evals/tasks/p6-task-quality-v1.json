@@ -1,0 +1,104 @@
+{
+  "schema": "p6-task-quality-manifest/1",
+  "revision": "p6-task-quality-v1",
+  "task_id": "P6-04",
+  "declared_before_execution": true,
+  "scope": "Preparatory synthetic task-quality smoke corpus; insufficient for production sample floors or shipping defaults",
+  "inputs": {
+    "path": "src/evals/fixtures/p6-task-quality/inputs.json",
+    "sha256": "7526e21aba9256f0d3319683f5e71eb02afbf5d4f18a66a97c60b597030e86b2"
+  },
+  "labels": {
+    "path": "src/evals/fixtures/p6-task-quality/labels.json",
+    "sha256": "46191c960cb03846081d1a808a93d867069228e901d4e0369cc371e0fc1ae4c3",
+    "exposure": "grader_only_never_model_context"
+  },
+  "start_states": {
+    "tuning-analysis": "2c5cfb7d7ec32053b89cf519685596e54ea73cd143d8ac2d640c046e999b3415",
+    "heldout-analysis": "8a4957c0a8c22599e1e2ec379dbefd5521d5d700d5ef08f04bde1b5309b8a12b",
+    "tuning-review": "c40e0cec956a64915779ab88384500781afa712b7ceabba08ee8d550d6804cb5",
+    "heldout-review": "68112cf4c61452774fbada4f5363df763df656ff04ce6f1ffac321c8a9b62ff8",
+    "tuning-generation": "add19b346c5b86631d4879b21ff321eaf9a36d1d198e976f04336083969d07f0",
+    "heldout-generation": "2cea51bae4d0e77ef8c3455788fa5941bb5112b4cddf23866307b2b71105aa6e"
+  },
+  "strategies": [
+    {
+      "id": "fixed_economical",
+      "model_id": null,
+      "provider_id": null,
+      "policy_revision": null,
+      "selection": "strict pin; no fallback"
+    },
+    {
+      "id": "fixed_stronger",
+      "model_id": null,
+      "provider_id": null,
+      "policy_revision": null,
+      "selection": "strict pin; no fallback"
+    },
+    {
+      "id": "routed",
+      "model_id": null,
+      "provider_id": null,
+      "policy_revision": null,
+      "selection": "recorded deterministic eligibility and profile policy; same quality floor as fixed arms"
+    }
+  ],
+  "execution": {
+    "status": "not_run",
+    "executor": "unimplemented",
+    "order": "case order, then strategy order; retain actual order and catalog/provider drift",
+    "starting_state": "identical prompt/file content hash across strategies; fresh isolated state per run",
+    "labels": "held-out labels are grader-only; tuning never changes this frozen revision",
+    "allowed_human_interventions": 0,
+    "maximum_retry_requests": 0,
+    "maximum_output_tokens": 512
+  },
+  "proposed_trial": {
+    "authorization": false,
+    "configured_cap_usd": null,
+    "currency": "USD",
+    "scope": "18 main task runs; any future configured cap must include every helper/retry/compaction/optimizer/verification/child cost",
+    "admission": "requires separate configured authorization, current finite price bounds, canonical reservations and exact model/provider/catalog/policy identities; no requests authorized by this manifest"
+  },
+  "grading": {
+    "analysis": "exact direct-import set and line citations; omissions/extras/duplicates fail",
+    "review": "exact defect category, file and line; false positives and missed defects fail",
+    "generation": "closed declarative schema shape plus independent frozen positive/negative boundary probes; no generated code execution",
+    "per_case_required_check_rate_bps": 10000,
+    "quality_floor": "all checks pass; cannot weaken to fit budget",
+    "serious_failure": "any missed review defect, false evidence, or invalid generated boundary",
+    "failed_cancelled_missing_runs": "remain in planned strategy/partition denominators as unsuccessful",
+    "exclusions": "none; unavailable providers remain not_run without substitute model",
+    "unknown_cost": "retain unknown liability; total spend/cost per success stays unavailable until every attributed charge is reconciled; no zero substitution",
+    "sampling": "one case per class per partition; descriptive counts only, insufficient for calibrated production quality estimates"
+  },
+  "required_live_evidence": [
+    "exact model/provider/catalog/policy/prompt identities",
+    "canonical attempts and reservation/settlement receipts for every cost category",
+    "all failed/cancelled/missing outcomes",
+    "wall time and intervention receipts",
+    "grading source and frozen manifest identities",
+    "held-out task outcomes independent of tuning"
+  ],
+  "remaining": [
+    "live executor and canonical accounting import",
+    "configured trial authorization",
+    "current endpoint conformance and model eligibility",
+    "expanded independent task corpus and declared statistical sample floor",
+    "actual P8 delegation and packaged CLI comparison"
+  ],
+  "shipping_defaults": "none",
+  "remote_evaluators": [
+    {
+      "arm": "actual_jev_through_openrouter",
+      "status": "not_run",
+      "reason": "separate protocol/finite-charge/quality qualification and authorization required"
+    },
+    {
+      "arm": "conventional_openrouter_comparator",
+      "status": "not_run",
+      "reason": "separate endpoint/purpose qualification and authorization required"
+    }
+  ]
+}

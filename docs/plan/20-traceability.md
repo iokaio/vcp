@@ -102,8 +102,9 @@ Special staging relationships:
 Plan revision 13 adds the [Markov execution supplement](21-markov-integration.md).
 This separate ledger prevents earlier completed P2/P5 rows from hiding unfinished
 refactoring. M1's task-transition, numerical, action/effect-observation, exact
-charge-reward, fit-provenance, held-out order-comparison, exact reward-mapping and consumed-value replay increments are implemented; other entries
-remain planned and no statistical default is qualified. Labels M1–M10 are supplement
+charge-reward, fit-provenance, held-out order-comparison, exact reward-mapping and consumed-value replay increments are implemented. M2 shadow construction and
+M3 read-only reporting are implemented; M4 exited with recorded rejection and
+disabled candidates. No statistical default is qualified. Labels M1–M10 are supplement
 increments, not the architecture's M01–M08 memory tests or new task IDs. When
 implementation lands, update these rows with evidence and refresh affected task
 acceptance. Optional candidates may exit as explicitly rejected/deferred after
@@ -112,9 +113,9 @@ evaluation; they must not silently disappear from release review.
 | Increment | Existing owners / prerequisites | Remaining acceptance | State |
 |---|---|---|---|
 | M1 evidence/analysis foundation | P6-02; supporting P1-06/P5-07/P5-10 refactors | [Task transitions](../evaluations/p6-transition-evidence.md), [numerical kernels](../evaluations/p6-markov-kernels.md), [causal action observations](../evaluations/p6-action-evidence.md), [exact charges/rewards](../evaluations/p6-charge-rewards.md), [fit provenance](../evaluations/p6-fit-provenance.md), [held-out order comparison](../evaluations/p6-heldout-order-comparison.md), [reward mapping](../evaluations/p6-reward-mapping.md), [consumed-value replay](../evaluations/p6-consumed-value-replay.md) | implemented |
-| M2 escalation integration | P6-03 after M1 | Canonical advisory lifecycle, exact-cycle rules, separate local statistical shadow provenance, bounded/stale/pause tests | in progress: records, scheduling lease and canonical helper accounting binding implemented |
-| M3 optimizer forecasts | P6-05 after P6-03 implementation and M1 | Read-only expected-cost/outcome/loop reports, censored history, uncertainty and drift; no policy mutation | planned |
-| M4 qualification/consumption | P6-04 and P6-02/03; M2/M3 and P5-08 | Four-arm purpose-specific evidence, qualified estimates, safe activation/fallback, explicit not-run/rejected results | planned |
+| M2 escalation integration | P6-03 after M1 | [Canonical local/remote shadow runtime](../evaluations/p6-local-shadow-runtime.md), exact-cycle rules and separate provenance; serving influence remains unqualified | implemented shadow construction |
+| M3 optimizer forecasts | P6-05 after P6-03 implementation and M1 | [Saved read-only forecasts and drift/compaction diagnostics](../evaluations/p6-saved-forecast-diagnostics.md); no policy mutation or predictive qualification | implemented construction |
+| M4 qualification/consumption | P6-04 and P6-02/03; M2/M3 and P5-08 | [Recorded rejection](../evaluations/p6-markov-qualification.md); remote arms not-run, no qualified estimate or behavioral enablement | complete through disabled-candidate outcome |
 | M5 context/retrieval refactors | P2-01/08, P5-06/08; current baseline, M1 for compaction diagnostics | Bounded graph/co-change candidates, refreshed scope/recall/outcome evidence; optional graph fusion justified or rejected | planned |
 | M6 verification refactor | P2-06; current baseline and M1 observations | Required-check set preserved, dependency-aware order, current-revision completion and measured time to useful failure | planned |
 | M7 proposals/bursts | P6-05/03/04 after M3/M4 | Offline supported-action policy tables, selected diffs/rollback and authorized trials; endpoint burst evidence or recorded abstention | planned |

@@ -131,6 +131,11 @@ pub(super) fn routing_configuration(profile: Profile, forbidden: bool) -> Config
         },
         pin: None,
         broader_task_class: None,
+        output_tokens: None,
+        input_tokens: None,
+        escalation_limits: None,
+        reasoning_effort: None,
+        retrieval_limits: None,
     }
     .seal()
     .unwrap();
@@ -202,7 +207,35 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                 100,
             ),
             (
+                "escalation-selected-cap",
+                Profile::Low,
+                RequestRole::Main,
+                "fixture/economical",
+                100,
+            ),
+            (
                 "escalation-pin",
+                Profile::Low,
+                RequestRole::Main,
+                "fixture/economical",
+                100,
+            ),
+            (
+                "escalate-owner-complexity",
+                Profile::Low,
+                RequestRole::Main,
+                "fixture/stronger",
+                200,
+            ),
+            (
+                "escalate-owner-capability",
+                Profile::Low,
+                RequestRole::Main,
+                "fixture/stronger",
+                200,
+            ),
+            (
+                "escalation-owner-pin",
                 Profile::Low,
                 RequestRole::Main,
                 "fixture/economical",
@@ -266,19 +299,75 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                         minimum_repeated_failures: 1,
                         deadline: Timestamp::new(clock().get() + 300_000),
                     });
-                    if mode == "escalation-pin" {
+                    if mode == "escalation-pin" || mode == "escalation-owner-pin" {
                         routing.policy.pin = Some(Pin {
                             candidate: routing.catalog.entries[0].identity.clone(),
                             fallback_candidates: BTreeSet::new(),
                         });
                         routing.policy = routing.policy.seal().unwrap();
                     }
+                    if mode == "escalate-owner-capability" {
+                        routing.catalog.entries[1]
+                            .capabilities
+                            .insert("owner_required".into(), State::Supported);
+                        // A cheaper fallback without the owner's capability
+                        // must remain excluded on the following request too.
+                        let mut alternate = routing.catalog.entries[0].clone();
+                        let prior = alternate.snapshot.as_ref().unwrap();
+                        let raw = routing.raw_catalogs[&prior.id]
+                            .replace("fixture/economical", "fixture/alternate")
+                            .replace("0.0001", "0.00015");
+                        let mut compatibility = prior.compatibility.clone();
+                        compatibility.id = "synthetic-alternate/1".into();
+                        compatibility.model = "fixture/alternate".into();
+                        compatibility.endpoint = "fixture/alternate-region".into();
+                        compatibility.request_price_limit = "0.00015".into();
+                        let snapshot = Snapshot::from_endpoints(
+                            raw.as_bytes(),
+                            prior.observed_at,
+                            prior.valid_until,
+                            compatibility.clone(),
+                        )
+                        .unwrap();
+                        alternate.identity = ModelEndpoint {
+                            model: compatibility.model,
+                            endpoint: compatibility.endpoint,
+                        };
+                        alternate.compatibility[0].compatibility = compatibility.id;
+                        routing.raw_catalogs.insert(snapshot.id.clone(), raw);
+                        alternate.snapshot = Some(snapshot);
+                        routing
+                            .policy
+                            .allowed_models
+                            .insert(alternate.identity.model.clone());
+                        routing
+                            .policy
+                            .allowed_endpoints
+                            .insert(alternate.identity.endpoint.clone());
+                        routing.policy = routing.policy.seal().unwrap();
+                        let mut estimate = routing.estimates[0].clone();
+                        estimate.candidate = alternate.identity.clone();
+                        routing.estimates.push(estimate);
+                        routing.catalog.entries.push(alternate);
+                        routing.catalog = CatalogRevision::create(
+                            routing.catalog.parent,
+                            routing.catalog.observed_at,
+                            routing.catalog.effective_at,
+                            routing.catalog.entries,
+                        )
+                        .unwrap();
+                    }
                 }
                 host.configure_routing(routing).unwrap();
+                if mode == "escalation-selected-cap" {
+                    super::routing_output::select_edits(&host, vec![vcp_lifecycle::foundation::routing_state::Edit::EscalationMaxQualitySwitches(Some(0))]);
+                }
             }
             let server = start_mock_server().await;
             let observed = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
             let captured = observed.clone();
+            let declaring_host = mode.contains("owner").then(|| host.clone());
+            let declaration_scope = binding.scope.clone();
             Mock::given(method("POST")).and(path("/v1/responses")).respond_with(move |request: &wiremock::Request| {
                 let body:serde_json::Value=serde_json::from_slice(&request.body).unwrap();
                 let mut observations=captured.lock().unwrap();
@@ -287,8 +376,20 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                 observations.push(body);
                 if mode=="retry-zero" {return ResponseTemplate::new(503).insert_header("retry-after","0").set_body_string("scripted transient failure");}
                 let mut events=Vec::new();let mut output=Vec::new();
-                if mode.starts_with("escalat") && index==0 {
-                    let call=serde_json::json!({"type":"function_call","id":"missing-read","call_id":"missing-read","name":"vcp_read","arguments":"{\"path\":\"missing-file.txt\",\"max_bytes\":1024}","status":"completed"});
+                if (mode.starts_with("escalat") && index==0) || (mode == "escalate-owner-capability" && index == 1) {
+                    if mode.contains("owner") && index == 0 {
+                        let declaring_host = declaring_host.as_ref().unwrap();
+                        use vcp_lifecycle::foundation::{routing::Request, routing_state::declarations::{Input, Kind}};
+                        let state = declaring_host.snapshot().unwrap();
+                        let task: Task = state.record(Collection::Task, declaration_scope.task.as_str(), &declaration_scope.workspace).unwrap().decode().unwrap();
+                        let attempt: Attempt = state.records.values().find(|r| r.collection == Collection::Attempt).unwrap().decode().unwrap();
+                        let declaration = Input { command: CommandId::new(), task: task.scope.task.clone(), expected_revision: task.revision,
+                            steering: task.steering, declaration: if mode == "escalate-owner-capability" { Kind::UnsupportedCapability { capability: "owner_required".into() } } else { Kind::DeclaredComplexity }, evidence: vec![attempt.request] };
+                        declaring_host.routing_control(Request::DeclareEscalation { declaration }).unwrap();
+                    }
+                    let arguments = serde_json::json!({"path": if mode.contains("owner") { "file.txt" } else { "missing-file.txt" }, "max_bytes":1024}).to_string();
+                    let call_id = format!("routing-read-{index}");
+                    let call=serde_json::json!({"type":"function_call","id":call_id,"call_id":call_id,"name":"vcp_read","arguments":arguments,"status":"completed"});
                     events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":call}));output.push(call);
                 } else {events.push(ev_assistant_message("done", "Observed synthetic routing evidence."));}
                 events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("routing-response-{index}"),"status":"completed","output":output,"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":charged as f64 / 1_000_000.0}}}));
@@ -379,10 +480,16 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                     .unwrap();
                 assert_eq!(turn.state, TurnState::Paused);
             } else if mode.starts_with("escalat") {
-                let switched = mode == "escalate";
+                let switched = mode == "escalate" || mode.starts_with("escalate-owner");
                 assert_eq!(
                     bodies.len(),
-                    if switched { 2 } else { 1 },
+                    if mode == "escalate-owner-capability" {
+                        3
+                    } else if switched {
+                        2
+                    } else {
+                        1
+                    },
                     "{backend:?}/{mode}: {attempts:?}"
                 );
                 assert_eq!(attempts.len(), bodies.len());
@@ -408,6 +515,56 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                     let record: &serde_json::Value = &escalations[0].value;
                     let plan: vcp_models::escalation::Plan =
                         serde_json::from_value(record["plan"].clone()).unwrap();
+                    if mode.contains("owner") {
+                        assert_eq!(
+                            plan.trigger.kind,
+                            if mode == "escalate-owner-capability" {
+                                vcp_models::escalation::TriggerKind::UnsupportedCapability
+                            } else {
+                                vcp_models::escalation::TriggerKind::DeclaredComplexity
+                            }
+                        );
+                        if mode == "escalate-owner-capability" {
+                            assert_eq!(bodies[2]["model"], "fixture/stronger");
+                            assert_eq!(
+                                decisions
+                                    .iter()
+                                    .filter(|row| row.value["decision"]["input"]
+                                        ["required_capabilities"]
+                                        .as_array()
+                                        .unwrap()
+                                        .iter()
+                                        .any(|capability| capability == "owner_required"))
+                                    .count(),
+                                2
+                            );
+                            let selected: RoutingDecision = decisions
+                                .iter()
+                                .map(|row| {
+                                    serde_json::from_value::<RoutingDecision>(
+                                        row.value["decision"].clone(),
+                                    )
+                                    .unwrap()
+                                })
+                                .find(|decision| {
+                                    decision.selected.as_ref().is_some_and(|candidate| {
+                                        candidate.model == "fixture/stronger"
+                                    })
+                                })
+                                .unwrap();
+                            assert!(selected
+                                .input
+                                .required_capabilities
+                                .contains("owner_required"));
+                            assert!(selected
+                                .candidates
+                                .iter()
+                                .find(|candidate| candidate.identity.model == "fixture/economical")
+                                .unwrap()
+                                .exclusions
+                                .contains(&Exclusion::UnknownCapability));
+                        }
+                    }
                     assert_eq!(plan.before.total_attempts, 1);
                     assert_eq!(plan.after.total_attempts, 2);
                     assert_eq!(plan.after.quality_switches, 1);
@@ -419,7 +576,7 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                     assert_eq!(prior.quote.price.model, "fixture/economical");
                     let next = attempts
                         .iter()
-                        .find(|a| a.quote.price.model == "fixture/stronger")
+                        .find(|a| record["attempt"] == a.id.as_str())
                         .unwrap();
                     assert_eq!(next.quote.amount.micros.get(), 200);
                     assert_eq!(

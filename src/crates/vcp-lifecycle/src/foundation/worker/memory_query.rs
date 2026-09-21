@@ -5,6 +5,18 @@ use vcp_context::manifest::{Kind, Part, Trust};
 use vcp_memory::{retrieval, search_record::SourceBinding};
 
 impl Context {
+    pub fn memory_query_policy(
+        &self,
+    ) -> Result<(Option<String>, vcp_models::routing::RetrievalLimits)> {
+        self.require_configured_routing()?;
+        let policy = self.current_routing_policy()?;
+        Ok((
+            policy.as_ref().map(|policy| policy.id.clone()),
+            policy
+                .and_then(|policy| policy.retrieval_limits)
+                .unwrap_or_default(),
+        ))
+    }
     /// Read current bounded native observations, including ignore/instruction
     /// probes. Canonical retained SourceBinding fingerprints alone are not proof
     /// that an editor has not changed the working tree since capture.
@@ -78,8 +90,12 @@ impl Context {
         &mut self,
         binding: &ThreadBinding,
         response: retrieval::Response,
+        routing_policy: Option<String>,
     ) -> Result<Selection> {
         self.can_start(binding)?;
+        if self.memory_query_policy()?.0 != routing_policy {
+            return Err("memory query routing policy changed before capture".into());
+        }
         if response.passages.is_empty() {
             return Ok(Selection {
                 response,
@@ -111,8 +127,9 @@ impl Context {
             false,
             100,
             format!(
-                "governed retrieval {}; disputed and inferred statements retain their labels",
-                response.fusion
+                "governed retrieval {}; routing policy {}; disputed and inferred statements retain their labels",
+                response.fusion,
+                routing_policy.as_deref().unwrap_or("unconfigured")
             ),
         )?;
         let fence = SendFence {
@@ -121,6 +138,7 @@ impl Context {
             scope: binding.scope.clone(),
             source,
             part,
+            routing_policy,
         };
         Ok(Selection {
             response,
@@ -137,6 +155,7 @@ impl Context {
         if fence.controller != *self.engine.controller()
             || fence.epoch != self.engine.owner_epoch()
             || fence.scope != binding.scope
+            || fence.routing_policy != self.memory_query_policy()?.0
             || !sealed
                 .manifest
                 .included

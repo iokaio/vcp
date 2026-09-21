@@ -92,6 +92,8 @@ async fn opaque_memory_context_blocks_filesystem_edits_revocation_and_unfenced_r
             "authority",
             "retention",
             "unfenced",
+            "routing_policy",
+            "retrieval_limit",
             "unchanged",
         ] {
             let (temp, config, host, owner, _test, thread) =
@@ -131,6 +133,17 @@ async fn opaque_memory_context_blocks_filesystem_edits_revocation_and_unfenced_r
             assert!(measured.observation_retained);
             let (snapshot, raw) = provider_snapshot();
             host.configure_provider(snapshot.clone(), raw).unwrap();
+            if race == "retrieval_limit" {
+                let mut routing =
+                    super::routing::routing_configuration(vcp_models::routing::Profile::Low, false);
+                routing.policy.retrieval_limits = Some(vcp_models::routing::RetrievalLimits {
+                    results: 1,
+                    tokens: Units::new(if race == "retrieval_limit" { 2 } else { 4096 }),
+                    bytes: ByteCount::new(4096),
+                });
+                routing.policy = routing.policy.seal().unwrap();
+                host.configure_routing(routing).unwrap();
+            }
             let selection = host
                 .query_memory_context(
                     thread,
@@ -158,6 +171,19 @@ async fn opaque_memory_context_blocks_filesystem_edits_revocation_and_unfenced_r
                 )
                 .await
                 .unwrap();
+            if race == "retrieval_limit" {
+                assert!(selection.response().passages.is_empty());
+                assert!(selection.response().token_upper_bound <= 2);
+                assert!(selection.part().is_none());
+                assert!(!host
+                    .snapshot()
+                    .unwrap()
+                    .records
+                    .values()
+                    .any(|row| row.collection == Collection::Attempt));
+                owner.close().await.unwrap();
+                continue;
+            }
             assert!(!selection.response().passages.is_empty());
             assert!(selection.resources.as_ref().unwrap().observation_retained);
             let sealed = seal_memory(&host, thread, &snapshot, &selection);
@@ -174,7 +200,51 @@ async fn opaque_memory_context_blocks_filesystem_edits_revocation_and_unfenced_r
                     selection,
                 )
                 .unwrap();
-                if race == "filesystem" {
+                if race == "routing_policy" {
+                    // The explicit memory adapter prepares a fixed-provider
+                    // request. Adding routed policy after preparation must
+                    // invalidate its previously unconfigured source fence.
+                    host.configure_routing(super::routing::routing_configuration(
+                        vcp_models::routing::Profile::Low,
+                        false,
+                    ))
+                    .unwrap();
+                    use vcp_lifecycle::foundation::{
+                        routing::Request,
+                        routing_state::{Edit, Preview},
+                    };
+                    let now = Timestamp::new(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64,
+                    );
+                    let report = host
+                        .routing_control(Request::Report {
+                            from: None,
+                            until: now,
+                        })
+                        .unwrap();
+                    let preview: Preview = serde_json::from_value(
+                        host.routing_control(Request::Preview {
+                            report: report["report"]["id"].as_str().unwrap().into(),
+                            selected: vec![Edit::RetrievalLimits(Some(
+                                vcp_models::routing::RetrievalLimits {
+                                    results: 1,
+                                    tokens: Units::new(2),
+                                    bytes: ByteCount::new(2),
+                                },
+                            ))],
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                    host.routing_control(Request::Apply {
+                        command: CommandId::new(),
+                        preview: Box::new(preview),
+                    })
+                    .unwrap();
+                } else if race == "filesystem" {
                     // No canonical ObserveFingerprint: the send fence must
                     // detect the independent editor's actual filesystem change.
                     std::fs::write(

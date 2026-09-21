@@ -17,6 +17,7 @@ pub use owner::{prepare_resume, run};
 
 pub const INPUT_LIMIT: usize = 65_536;
 pub const DISPLAY_LIMIT: usize = 16_384;
+pub mod escalation;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Input {
@@ -29,6 +30,7 @@ pub enum Input {
     History,
     Maintenance(Vec<String>),
     Optimize(crate::optimize::Command),
+    Escalate(escalation::Command),
     Skills(crate::skills::Command),
     Mcp(crate::mcp::Command),
     Next,
@@ -81,6 +83,7 @@ pub fn parse(line: &str) -> Result<Option<Input>, String> {
         ["/agents"] => Input::Agents,
         ["/help"] => Input::Help,
         ["/optimize", arguments @ ..] => Input::Optimize(crate::optimize::parse(arguments)?),
+        ["/escalate", arguments @ ..] => Input::Escalate(escalation::parse(arguments)?),
         ["/groups", arguments @ ..] => Input::Optimize(crate::optimize::parse_groups(arguments)?),
         ["/skills", arguments @ ..] => Input::Skills(crate::skills::parse(arguments)?),
         ["/memory"] => Input::Unavailable(line.into()),

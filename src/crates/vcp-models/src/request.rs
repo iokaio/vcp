@@ -247,6 +247,17 @@ pub fn encode(
     schemas: &Value,
     snapshot: &Snapshot,
 ) -> Result<Vec<u8>> {
+    encode_with_effort(parts, envelope, schemas, snapshot, None)
+}
+
+pub fn encode_with_effort(
+    parts: &[Part],
+    envelope: &Envelope,
+    schemas: &Value,
+    snapshot: &Snapshot,
+    effort: Option<crate::reasoning::Effort>,
+) -> Result<Vec<u8>> {
+    crate::reasoning::validate(snapshot, effort)?;
     let expected = self::envelope(
         snapshot,
         envelope.output,
@@ -303,9 +314,11 @@ pub fn encode(
         let micros = snapshot.price.rates[&category].micros.get();
         format!("{}.{:06}", micros / 1_000_000, micros % 1_000_000)
     };
-    Ok(vcp_protocol::canonical_bytes(
-        &json!({"model":envelope.model,"input":input,"tools":schemas,"tool_choice":"auto","parallel_tool_calls":true,"max_output_tokens":envelope.output.get(),"stream":true,"store":false,"provider":{"only":[c.endpoint],"order":[c.endpoint],"allow_fallbacks":false,"require_parameters":true,"data_collection":if c.deny_data_collection{"deny"}else{"allow"},"zdr":c.require_zdr,"max_price":{"prompt":price_text(vcp_domain::accounting::ChargeCategory::Input),"completion":price_text(vcp_domain::accounting::ChargeCategory::Output),"request":c.request_price_limit}}}),
-    )?)
+    let mut body = json!({"model":envelope.model,"input":input,"tools":schemas,"tool_choice":"auto","parallel_tool_calls":true,"max_output_tokens":envelope.output.get(),"stream":true,"store":false,"provider":{"only":[c.endpoint],"order":[c.endpoint],"allow_fallbacks":false,"require_parameters":true,"data_collection":if c.deny_data_collection{"deny"}else{"allow"},"zdr":c.require_zdr,"max_price":{"prompt":price_text(vcp_domain::accounting::ChargeCategory::Input),"completion":price_text(vcp_domain::accounting::ChargeCategory::Output),"request":c.request_price_limit}}});
+    if let Some(effort) = effort {
+        body["reasoning"] = json!({"effort": effort});
+    }
+    Ok(vcp_protocol::canonical_bytes(&body)?)
 }
 
 /// Rebuild from immutable captured views and require byte identity before the
@@ -316,6 +329,16 @@ pub fn validate_sealed(
     schemas: &Value,
     now: Timestamp,
 ) -> Result<()> {
+    validate_sealed_with_effort(context, snapshot, schemas, now, None)
+}
+
+pub fn validate_sealed_with_effort(
+    context: &VerifiedContext,
+    snapshot: &Snapshot,
+    schemas: &Value,
+    now: Timestamp,
+    effort: Option<crate::reasoning::Effort>,
+) -> Result<()> {
     snapshot.current(now)?;
     let sealed = context.sealed();
     let m = &sealed.manifest;
@@ -323,7 +346,7 @@ pub fn validate_sealed(
         || m.input_estimate > snapshot.max_input
         || m.estimate_method != "utf8-byte-ceiling/1"
         || m.schemas_sha256 != vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(schemas)?)
-        || encode(&m.included, &m.envelope, schemas, snapshot)? != sealed.body()
+        || encode_with_effort(&m.included, &m.envelope, schemas, snapshot, effort)? != sealed.body()
     {
         return Err(Error::Stale);
     }
