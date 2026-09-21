@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{workspace::Scope, *};
 
+pub mod native_bound;
 mod unique_json;
 
 pub const VERSION: u32 = 1;
@@ -523,6 +524,15 @@ fn native_answer(q: &Question, value: &Value, evaluator: &QualifiedEvaluator) ->
             })
         }
     }
+}
+/// Cost-only receipt for a bootstrap probe. No answer or operation qualification.
+pub fn observed_usage(raw: &[u8], operation: Operation) -> Result<(Value, Usage)> {
+    if raw.len() > MAX_BYTES {
+        return Err(Error::Limit("decision receipt bytes"));
+    }
+    let value = unique_json::parse(raw)?;
+    let observed = usage(&value, operation);
+    Ok((value, observed))
 }
 fn usage(value: &Value, operation: Operation) -> Usage {
     let raw = &value["usage"];

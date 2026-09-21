@@ -44,6 +44,7 @@ pub(crate) struct CurrentInstallation {
     pub conformance: EvidencePin,
     pub configuration_digest: String,
     pub now: Timestamp,
+    pub native_bound: Option<decision::native_bound::NativeChargeBound>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,10 +92,47 @@ impl Capability {
         record: QualificationRecord,
         current: &CurrentInstallation,
     ) -> Result<Self> {
-        // No production native finite capability has yet been qualified. Do not
-        // turn a user-provided finite number into evidence of a provider limit.
+        // The owner-installed number alone is not a service bound. The worker
+        // independently parses the exact captured catalog on every installation.
         if record.evaluator.operation == Operation::JevDecisions {
-            return Err(Rejection::NativeChargeBoundUnqualified);
+            let bound = current
+                .native_bound
+                .as_ref()
+                .ok_or(Rejection::NativeChargeBoundUnqualified)?;
+            if bound.raw_sha256 != record.catalog.digest
+                || bound.model != record.evaluator.model
+                || bound.provider != record.evaluator.provider
+                || record.input_ceiling < bound.input
+                || vcp_models::catalog::usd_micros(&record.evaluator.output_price_per_million)
+                    .map_err(|_| Rejection::Quote)?
+                    != 0
+                || record
+                    .price
+                    .rates
+                    .get(&ChargeCategory::Output)
+                    .is_none_or(|r| r.micros.get() != 0)
+                || record
+                    .price
+                    .rates
+                    .get(&ChargeCategory::ProviderTool)
+                    .is_none_or(|r| r.micros.get() != 0)
+            {
+                return Err(Rejection::NativeChargeBoundUnqualified);
+            }
+            for (category, minimum) in [
+                (ChargeCategory::Input, &bound.input_rate),
+                (ChargeCategory::CacheRead, &bound.cache_read_rate),
+                (ChargeCategory::CacheWrite, &bound.cache_write_rate),
+                (ChargeCategory::Request, &bound.request_rate),
+            ] {
+                let actual = record.price.rates.get(&category).ok_or(Rejection::Quote)?;
+                if actual.per_units.get() == 0
+                    || u128::from(actual.micros.get()) * u128::from(minimum.per_units.get())
+                        < u128::from(minimum.micros.get()) * u128::from(actual.per_units.get())
+                {
+                    return Err(Rejection::Quote);
+                }
+            }
         }
         Self::checked(record, current, Origin::Production)
     }

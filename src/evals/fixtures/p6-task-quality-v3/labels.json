@@ -1,0 +1,579 @@
+{
+  "revision": "p6-task-quality-v3",
+  "labels": {
+    "tuning-analysis": {
+      "dependencies": [
+        {
+          "path": "./sum.mjs",
+          "line": 1
+        },
+        {
+          "path": "./view.mjs",
+          "line": 3
+        }
+      ]
+    },
+    "heldout-analysis": {
+      "dependencies": [
+        {
+          "path": "./load.mjs",
+          "line": 2
+        }
+      ]
+    },
+    "tuning-review": {
+      "findings": [
+        {
+          "path": "lookup.mjs",
+          "line": 3,
+          "kind": "boundary"
+        }
+      ]
+    },
+    "heldout-review": {
+      "findings": [
+        {
+          "path": "permitted.mjs",
+          "line": 2,
+          "kind": "coercion"
+        }
+      ]
+    },
+    "tuning-generation": {
+      "probes": [
+        {
+          "input": {
+            "count": 0
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "count": 1
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "count": 3
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "count": -1
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "count": 4
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "count": 1.5
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "count": "1"
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "count": true
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "count": null
+          },
+          "accept": false
+        },
+        {
+          "input": {},
+          "accept": false
+        },
+        {
+          "input": {
+            "count": 1,
+            "extra": 0
+          },
+          "accept": false
+        },
+        {
+          "input": null,
+          "accept": false
+        },
+        {
+          "input": [],
+          "accept": false
+        },
+        {
+          "input": 1,
+          "accept": false
+        },
+        {
+          "input": "count",
+          "accept": false
+        }
+      ]
+    },
+    "heldout-generation": {
+      "probes": [
+        {
+          "input": {
+            "offset": -2
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "offset": 0
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "offset": 2
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "offset": -3
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "offset": 3
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "offset": 0.5
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "offset": "0"
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "offset": false
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "offset": null
+          },
+          "accept": false
+        },
+        {
+          "input": {},
+          "accept": false
+        },
+        {
+          "input": {
+            "offset": 0,
+            "extra": 0
+          },
+          "accept": false
+        },
+        {
+          "input": null,
+          "accept": false
+        },
+        {
+          "input": [],
+          "accept": false
+        },
+        {
+          "input": 0,
+          "accept": false
+        },
+        {
+          "input": "offset",
+          "accept": false
+        }
+      ]
+    },
+    "tuning-analysis-side-effect": {
+      "dependencies": [
+        {
+          "path": "./polyfill.mjs",
+          "line": 1
+        }
+      ]
+    },
+    "tuning-analysis-multiline": {
+      "dependencies": [
+        {
+          "path": "./values.mjs",
+          "line": 1
+        },
+        {
+          "path": "./view.mjs",
+          "line": 6
+        }
+      ]
+    },
+    "heldout-analysis-no-static": {
+      "dependencies": []
+    },
+    "heldout-analysis-cycle": {
+      "dependencies": [
+        {
+          "path": "./cycle.mjs",
+          "line": 1
+        },
+        {
+          "path": "./init.mjs",
+          "line": 2
+        }
+      ]
+    },
+    "tuning-review-correct": {
+      "findings": []
+    },
+    "tuning-review-two-checks": {
+      "findings": [
+        {
+          "path": "implementation.mjs",
+          "line": 2,
+          "kind": "coercion"
+        },
+        {
+          "path": "implementation.mjs",
+          "line": 3,
+          "kind": "boundary"
+        }
+      ]
+    },
+    "heldout-review-half-open": {
+      "findings": [
+        {
+          "path": "implementation.mjs",
+          "line": 3,
+          "kind": "boundary"
+        }
+      ]
+    },
+    "heldout-review-boolean": {
+      "findings": [
+        {
+          "path": "implementation.mjs",
+          "line": 2,
+          "kind": "coercion"
+        }
+      ]
+    },
+    "tuning-generation-enum": {
+      "probes": [
+        {
+          "input": {
+            "mode": "read"
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "mode": "write"
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "mode": "READ"
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "mode": ""
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "mode": 1
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "mode": true
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "mode": null
+          },
+          "accept": false
+        },
+        {
+          "input": {},
+          "accept": false
+        },
+        {
+          "input": null,
+          "accept": false
+        },
+        {
+          "input": [],
+          "accept": false
+        },
+        {
+          "input": {
+            "mode": "read",
+            "extra": 0
+          },
+          "accept": false
+        }
+      ]
+    },
+    "tuning-generation-array": {
+      "probes": [
+        {
+          "input": [
+            0
+          ],
+          "accept": true
+        },
+        {
+          "input": [
+            -1,
+            1
+          ],
+          "accept": true
+        },
+        {
+          "input": [
+            1,
+            0,
+            -1
+          ],
+          "accept": true
+        },
+        {
+          "input": [],
+          "accept": false
+        },
+        {
+          "input": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "accept": false
+        },
+        {
+          "input": [
+            2
+          ],
+          "accept": false
+        },
+        {
+          "input": [
+            -2
+          ],
+          "accept": false
+        },
+        {
+          "input": [
+            0.5
+          ],
+          "accept": false
+        },
+        {
+          "input": [
+            "0"
+          ],
+          "accept": false
+        },
+        {
+          "input": [
+            null
+          ],
+          "accept": false
+        },
+        {
+          "input": {},
+          "accept": false
+        },
+        {
+          "input": null,
+          "accept": false
+        },
+        {
+          "input": true,
+          "accept": false
+        }
+      ]
+    },
+    "heldout-generation-multifield": {
+      "probes": [
+        {
+          "input": {
+            "enabled": true,
+            "retries": 0
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "enabled": false,
+            "retries": 2
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "enabled": 1,
+            "retries": 0
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "enabled": "false",
+            "retries": 0
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "enabled": true,
+            "retries": 3
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "enabled": false,
+            "retries": -1
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "enabled": true,
+            "retries": 1.5
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "enabled": true
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "retries": 0
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "enabled": true,
+            "retries": 0,
+            "extra": 0
+          },
+          "accept": false
+        },
+        {
+          "input": null,
+          "accept": false
+        },
+        {
+          "input": [],
+          "accept": false
+        }
+      ]
+    },
+    "heldout-generation-optional": {
+      "probes": [
+        {
+          "input": {
+            "id": "a"
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "id": "abc",
+            "active": false
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "id": "😀",
+            "active": true
+          },
+          "accept": true
+        },
+        {
+          "input": {
+            "id": ""
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "id": "abcd"
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "id": 7
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "id": "a",
+            "active": 0
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "active": true
+          },
+          "accept": false
+        },
+        {
+          "input": {
+            "id": "a",
+            "extra": 0
+          },
+          "accept": false
+        },
+        {
+          "input": null,
+          "accept": false
+        },
+        {
+          "input": [],
+          "accept": false
+        }
+      ]
+    }
+  }
+}

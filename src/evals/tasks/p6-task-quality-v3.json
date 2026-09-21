@@ -1,0 +1,115 @@
+{
+  "schema": "p6-task-quality-manifest/1",
+  "revision": "p6-task-quality-v3",
+  "task_id": "P6-04",
+  "declared_before_execution": true,
+  "scope": "18 structurally varied synthetic analysis/review/schema-generation cases; six per class, three tuning and three held-out. Descriptive subsystem comparison, insufficient representative production samples. V3 clarifies strict answer serialization before valid quality trials; diagnostic v1 prose wrappers revealed ambiguity. V2 was never executed.",
+  "inputs": {
+    "path": "src/evals/fixtures/p6-task-quality-v3/inputs.json",
+    "sha256": "b0a2e04343e3da3077894cf5e2b98ea48ae77f079a8fe20317cd4b3306d1f23e"
+  },
+  "labels": {
+    "path": "src/evals/fixtures/p6-task-quality-v3/labels.json",
+    "sha256": "1eee4cea616daa1e32022b0901abe2ef2814d27ed9b3737683cf27d6a8e8312c",
+    "exposure": "grader_only_never_model_context"
+  },
+  "start_states": {
+    "tuning-analysis": "3527586efcec7ce48b52149796ebc2204a4b47961721560128f9355ad811a5e0",
+    "tuning-analysis-multiline": "a48c898444f8b2f8e72313bfa29f696b28b500b75801d28a3d0e1e9248a1f336",
+    "tuning-analysis-side-effect": "a67e1659a1ec5a683cc649a26f4492d356d5eed91a1c542e805822688ffa5170",
+    "tuning-generation": "c51258bc882cf187b2d7ec1043d4f83715f10584d5510be9003a31a541f5b255",
+    "tuning-generation-array": "16d97cd88ef3e59910d78a97547fff4bfcee600ce7d3c57b41ba9a01238906a3",
+    "tuning-generation-enum": "483e49b42afe7f7cdadb35034d0ce2ec6512c4891a0f6f4fbbcb7f50d99fade4",
+    "tuning-review": "0a655957ac05a9c10914b711f76eec4c12230460b7d70cbd6e27c41c058c742d",
+    "tuning-review-correct": "9ec96f60496bcb0f1b1a2a18b0939c1812809d4867ed85b45eef5f80f9bc040b",
+    "tuning-review-two-checks": "776e66b64f1572d658abe5ed918eebaf7e205e7275ed0dc67d1e401aa88d3d01",
+    "heldout-analysis": "4582b35a8a2e28fd18ac0e9353577d38f06afe362d8864bb0b017f38746e417a",
+    "heldout-analysis-cycle": "90f24274c7efe484f5a7257fee2b5efbd379281354dde72845e0dfe173b10a22",
+    "heldout-analysis-no-static": "a7d3d42a04ad6ccb729fd4cfda1e75e5785fd351046a178a1d54116fb78bfa33",
+    "heldout-generation": "5e96fe33aee8c7c95e9e4c22dab6ee2ee5339707dd901e55027fcbf5aee11838",
+    "heldout-generation-multifield": "c780f1c59c3cd67b80cefd334406e203795313ee5eb7e2974a99dc3cda670e0f",
+    "heldout-generation-optional": "8549e769bc11f0d4cdf78d8e293169f4c83ef349eac48deefb940b36c529b52f",
+    "heldout-review": "33af382a56c9b02694e09037ad19a3bfcbcf3e550c20daa147a9d26942a1b9a8",
+    "heldout-review-boolean": "dcf147a699fd3a60ce4c69cf5cbdf6c51c91a2f64b6629ec05f30277cb0a5e96",
+    "heldout-review-half-open": "11debcb62f6a3923d6eb2fa15b89434d40abd0f180c993d7138a3b732af78cde"
+  },
+  "strategies": [
+    {
+      "id": "fixed_economical",
+      "model_id": null,
+      "provider_id": null,
+      "policy_revision": null,
+      "selection": "strict pin; no fallback"
+    },
+    {
+      "id": "fixed_stronger",
+      "model_id": null,
+      "provider_id": null,
+      "policy_revision": null,
+      "selection": "strict pin; no fallback"
+    },
+    {
+      "id": "routed",
+      "model_id": null,
+      "provider_id": null,
+      "policy_revision": null,
+      "selection": "recorded deterministic eligibility and profile policy; same quality floor as fixed arms"
+    }
+  ],
+  "execution": {
+    "status": "not_run",
+    "executor": "scripts/evals/p6-live-runner.cjs",
+    "order": "all tuning cases by id then all held-out cases by id; within each case fixed economical, fixed stronger, routed",
+    "starting_state": "identical prompt/file content hash across strategies; fresh isolated state per run",
+    "labels": "held-out labels are grader-only; tuning never changes this frozen revision",
+    "allowed_human_interventions": 0,
+    "maximum_retry_requests": 0,
+    "maximum_output_tokens": 512
+  },
+  "proposed_trial": {
+    "authorization": false,
+    "configured_cap_usd": null,
+    "currency": "USD",
+    "scope": "54 main task runs; every helper/retry/compaction/optimizer/verification/child cost must remain within authorized allocation",
+    "admission": "requires separate configured authorization, current finite price bounds, canonical reservations and exact model/provider/catalog/policy identities; no requests authorized by this manifest"
+  },
+  "grading": {
+    "analysis": "exact direct-import set and line citations; omissions/extras/duplicates fail",
+    "review": "exact defect category, file and line; false positives and missed defects fail",
+    "generation": "v1 interval cases retain original interpreter; structurally varied v2 cases use closed bounded schema interpreter and independent positive/negative/type/shape probes; output never executes",
+    "per_case_required_check_rate_bps": 10000,
+    "quality_floor": "all checks pass; cannot weaken to fit budget",
+    "serious_failure": "any missed review defect, false evidence, or invalid generated boundary",
+    "failed_cancelled_missing_runs": "remain in planned strategy/partition denominators as unsuccessful",
+    "exclusions": "none; unavailable providers remain not_run without substitute model",
+    "unknown_cost": "retain unknown liability; total spend/cost per success stays unavailable until every attributed charge is reconciled; no zero substitution",
+    "sampling": "Three structurally distinct synthetic cases per class per partition. Descriptive only; fails minimum independent held-out and representative-sampling gates."
+  },
+  "required_live_evidence": [
+    "exact model/provider/catalog/policy/prompt identities",
+    "canonical attempts and reservation/settlement receipts for every cost category",
+    "all failed/cancelled/missing outcomes",
+    "wall time and intervention receipts",
+    "grading source and frozen manifest identities",
+    "held-out task outcomes independent of tuning"
+  ],
+  "remaining": [
+    "configured trial authorization",
+    "current endpoint conformance and model eligibility",
+    "representative independent task corpus for enabled defaults",
+    "actual P8 delegation and packaged CLI comparison"
+  ],
+  "shipping_defaults": "none",
+  "remote_evaluators": [
+    {
+      "arm": "actual_jev_through_openrouter",
+      "status": "not_run",
+      "reason": "separate protocol/finite-charge/quality qualification and authorization required"
+    },
+    {
+      "arm": "conventional_openrouter_comparator",
+      "status": "not_run",
+      "reason": "separate endpoint/purpose qualification and authorization required"
+    }
+  ]
+}

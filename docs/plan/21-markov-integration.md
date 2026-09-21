@@ -1,10 +1,13 @@
 # 21 — Markov analysis and integration sequence
 
-Status: M1–M4 construction implemented; M4 recorded rejection keeps serving disabled, September 20, 2026. This execution supplement adopts the useful
+Status: M1–M4 construction implemented; the original M4 result and subsequent
+actual evaluator comparison retain recorded rejection and disabled serving. M7
+is explicitly deferred for insufficient qualified downstream/endpoint evidence. This execution supplement adopts the useful
 directions from [the research note](../research/markov.md) into existing work.
 The M1 foundation and M2 frozen local shadow path are implemented but unqualified;
-M3 provides read-only action forecasts and saved diagnostics. M4's four-arm offline
-comparison records insufficient evidence; M5–M10 remain unimplemented or
+M3 provides read-only action forecasts and saved diagnostics. M4's offline and
+[later live comparison](../evaluations/p6-decision-comparison.md) retain separate
+provenance and reject activation; M5–M10 remain unimplemented or
 unqualified. This creates no new product
 task IDs, changes no architecture dependencies and enables no runtime feature.
 The [owning task sections](20-traceability.md#work-item-ownership-and-readiness)
@@ -301,8 +304,9 @@ mutation.
 
 **Implemented through recorded rejection:** the [frozen four-arm comparison](../evaluations/p6-markov-qualification.md)
 executes the production rules and local statistical producer on separate synthetic
-project/time splits, with actual Jev and conventional remote arms explicitly
-not-run. The [source-bound result](../evaluations/p6-markov-qualification-result.json)
+project/time splits. Its historical remote arms remain explicitly not-run; the
+[subsequent actual comparison](../evaluations/p6-decision-comparison.md) records
+live Jev and conventional observations separately. The [source-bound result](../evaluations/p6-markov-qualification-result.json)
 rejects behavioral enablement for insufficient samples, error floors, serious
 misses, unknown liabilities and unavailable calibration/live trials. No qualified
 `CostEstimate` is installed. Independent forecast calibration, live outcome trials
@@ -409,6 +413,11 @@ after repair. Compare resource overhead as well as latency. Apply the same rules
 to P7-05's final integrated-parent verification.
 
 ## M7 — Offline proposals and provider bursts
+
+Exit disposition: explicitly deferred. Current candidate qualification is rejected;
+there is no qualified downstream action/outcome model or adequate exact-endpoint
+burst evidence. This does not block the rules-only P6 construction, and enables
+no policy proposal, inferred counterfactual or paid trial.
 
 Only after M3/M4 evidence, build a small bounded offline MDP over task class,
 capability, counter buckets, trigger and budget bucket. Estimate transitions only

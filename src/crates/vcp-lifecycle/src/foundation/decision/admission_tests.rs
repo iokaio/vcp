@@ -85,6 +85,7 @@ fn current(r: &QualificationRecord) -> CurrentInstallation {
         conformance: r.conformance.clone(),
         configuration_digest: r.evaluator.configuration_digest.clone(),
         now: Timestamp::new(1000),
+        native_bound: None,
     }
 }
 fn request(r: &QualificationRecord) -> Request {
@@ -227,6 +228,72 @@ fn native_claimed_finite_numbers_do_not_establish_production_qualification() {
         Capability::install(record, &pin),
         Err(Rejection::NativeChargeBoundUnqualified)
     ));
+}
+
+#[test]
+fn native_catalog_zero_output_tariff_bounds_full_context_without_output_parameter() {
+    let (mut record, _) = fixture();
+    record.evaluator.model = "typesafe/jev-1.13".into();
+    record.evaluator.provider = "typesafe".into();
+    record.price.model = record.evaluator.model.clone();
+    record.price.provider = record.evaluator.provider.clone();
+    record.evaluator.operation = Operation::JevDecisions;
+    record.evaluator.output_price_per_million = "0".into();
+    record
+        .price
+        .rates
+        .get_mut(&ChargeCategory::Output)
+        .unwrap()
+        .micros = Micros::ZERO;
+    record.input_ceiling = Units::new(64000);
+    let raw = serde_json::to_vec(&serde_json::json!({"data": {
+        "id": "typesafe/jev-1.13", "architecture": {"modality":"text->decisions"},
+        "endpoints": [{"tag":"typesafe", "status":0, "context_length":32000,
+            "pricing":{"prompt":"0.000000042", "completion":"0", "discount":0}}]
+    }}))
+    .unwrap();
+    let bound = decision::native_bound::NativeChargeBound::from_endpoints(
+        &raw,
+        "typesafe/jev-1.13",
+        "typesafe",
+        "0.000001",
+    )
+    .unwrap();
+    record.catalog.digest = bound.raw_sha256.clone();
+    let mut pin = current(&record);
+    pin.native_bound = Some(bound.clone());
+    let request = request(&record);
+    let cap = Capability::install(record.clone(), &pin).unwrap();
+    let prepared = cap.prepare(&request, 0, &pin).unwrap();
+    assert_eq!(prepared.quote.amount.micros, Micros::new(192001));
+    assert!(prepared.prepared.body().get("max_tokens").is_none());
+    cap.require_production().unwrap();
+    for change in 0..4 {
+        let mut changed = record.clone();
+        match change {
+            0 => changed.input_ceiling = Units::new(63999),
+            1 => {
+                changed
+                    .price
+                    .rates
+                    .get_mut(&ChargeCategory::Output)
+                    .unwrap()
+                    .micros = Micros::new(1)
+            }
+            2 => changed.catalog.digest = "0".repeat(64),
+            _ => {
+                changed
+                    .price
+                    .rates
+                    .get_mut(&ChargeCategory::CacheWrite)
+                    .unwrap()
+                    .micros = Micros::ZERO
+            }
+        }
+        let mut changed_pin = current(&changed);
+        changed_pin.native_bound = Some(bound.clone());
+        assert!(Capability::install(changed, &changed_pin).is_err());
+    }
 }
 #[test]
 fn current_installation_is_required_and_immutable() {

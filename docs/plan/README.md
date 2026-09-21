@@ -52,8 +52,9 @@ empty replacement crates merely to match a diagram. Follow
 
 P5-08 now has [integrated memory acceptance](../evaluations/p5-08-integrated-memory.md):
 frozen recall comparisons, bounded recent-memory visibility, native hybrid search,
-retention and authenticated cross-backend restore. P6 routing/profile work is next;
-release acceptance still requires P6, P7 and P8.
+retention and authenticated cross-backend restore. [P6 completion](../evaluations/p6-completion.md)
+records routing/optimizer construction and explicit qualification rejections.
+Remaining P7 and P8 work still gates release.
 
 The [P0-04 storage milestone](../development/portable-storage-spike.md) now has
 local backend, crash, cryptographic interoperability and encrypted-transfer
@@ -107,13 +108,14 @@ Segment numbers organize reading; individual task dependencies determine executi
 
 The first usable release includes coding, automatic selection across groups, persistent local memory, MCP, skills, visible delegation, optimization, full history/pruning, pause/resume and encrypted portable handoff. A fixed-model loop alone is an internal milestone.
 
-For remaining P6 work, use [M1–M4](21-markov-integration.md#scope-and-dependency-order):
-shared retained-evidence foundation first, then canonical escalation integration
-and local shadow signals, read-only optimizer forecasts, and held-out qualification
-before estimate/advice activation. This preserves P6-05's P6-03 prerequisite.
+[M1–M4](21-markov-integration.md#scope-and-dependency-order) construction is
+complete: retained evidence, canonical escalation/local shadow, read-only optimizer
+forecasts and qualification with recorded rejection. No unqualified estimate or
+advice is activated. This preserves P6-05's P6-03 prerequisite.
 The M5 context/retrieval and M6 verification follow-ups can proceed independently;
-freeze their selected revisions before final P6 comparison. M7 policy proposals
-follow trustworthy evidence, M8/M9 reuse it in delegation/release, and M10 observers
+later selected revisions invalidate affected comparisons. M7 policy proposals
+are explicitly deferred for insufficient qualified downstream evidence; M8/M9
+reuse qualified results when available in delegation/release, and M10 observers
 stay deferred. The [follow-up ledger](20-traceability.md#markov-follow-up-readiness)
 tracks new scope separately from earlier completed acceptance.
 

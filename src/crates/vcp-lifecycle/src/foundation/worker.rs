@@ -655,13 +655,29 @@ impl Context {
     pub fn admit(
         &mut self,
         binding: &ThreadBinding,
-        mut body: serde_json::Value,
+        body: serde_json::Value,
     ) -> Result<(
         AttemptId,
         serde_json::Value,
         Option<std::time::Instant>,
         u32,
     )> {
+        self.admit_inner(binding, body, false)
+    }
+    fn admit_inner(
+        &mut self,
+        binding: &ThreadBinding,
+        mut body: serde_json::Value,
+        native_probe: bool,
+    ) -> Result<(
+        AttemptId,
+        serde_json::Value,
+        Option<std::time::Instant>,
+        u32,
+    )> {
+        if native_probe && !cfg!(feature = "qualification") {
+            return Err("native probe requires qualification build".into());
+        }
         if !self.owner_alive {
             return Err("canonical owner is closed".into());
         }
@@ -712,7 +728,9 @@ impl Context {
         if output_ceiling == Units::ZERO || output_ceiling > self.config.output_ceiling {
             return Err("request output exceeds trusted host ceiling".into());
         }
-        body["max_output_tokens"] = serde_json::json!(output_ceiling.get());
+        if !native_probe {
+            body["max_output_tokens"] = serde_json::json!(output_ceiling.get());
+        }
         if has_unpriced_media(&body["input"]) {
             return Err("multimodal request needs a qualified price/capability adapter".into());
         }
@@ -740,7 +758,11 @@ impl Context {
             let mut writer = self.engine.store().spool().create(self.spec(
                 scope,
                 Channel::RequestBody,
-                "responses-request/1",
+                if native_probe {
+                    "decisions-request/1"
+                } else {
+                    "responses-request/1"
+                },
             ))?;
             for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
                 writer.write_chunk(chunk)?;

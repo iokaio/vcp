@@ -1,0 +1,20 @@
+{
+  "schema": "p6-profile-gate/1",
+  "revision": "p6-profile-gate-v1",
+  "task_id": "P6-04",
+  "declared_before_task_trials": true,
+  "task_manifests": ["p6-task-quality-v1", "p6-task-quality-v2", "p6-task-quality-v3"],
+  "decision": "Enable no automatic profile default without every held-out class gate; otherwise retain explicitly configured policy values",
+  "per_task_check_rate": 1,
+  "candidate_population_success_floor": 0.8,
+  "one_sided_confidence": 0.95,
+  "minimum_independent_heldout_tasks_per_class": 30,
+  "maximum_serious_failures": 0,
+  "human_interventions": 0,
+  "unknown_cost_allowed": false,
+  "exclusions": "none; failed, cancelled, missing and not-run tasks remain unsuccessful",
+  "selection": "Only eligible strategies may compete; lowest total attributable USD cost, then lowest p95 latency, then strategy id. No eligible strategy means no enabled measured default.",
+  "uncertainty": "Exact one-sided binomial bounds are descriptive for these synthetic tasks, not a claim of independent representative population sampling. Repeated executions and renamed/paraphrased templates do not increase independent sample count.",
+  "rollback": ["expired or changed provider/catalog/model/policy/prompt identities", "quality floor violation or serious review/generation failure", "unknown charge or cap overrun", "memory/context configuration changes requiring refreshed P5-08 evidence"],
+  "release_limit": "P8 must repeat relevant qualification with actual child isolation, final integration and packaged CLI"
+}

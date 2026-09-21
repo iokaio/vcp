@@ -39,6 +39,47 @@ pub(crate) struct Run {
     environment: String,
 }
 impl Context {
+    /// An accounted read-only final answer needs an observed integrity proof,
+    /// not a model-invented empty check result. Called only under the quiescent
+    /// completion fence; never dispatches processes or replaces failed checks.
+    pub(super) fn verify_unchanged_analysis(
+        &mut self,
+        binding: &ThreadBinding,
+        citations: Vec<ArtifactId>,
+    ) -> Result<VerificationId> {
+        self.can_start(binding)?;
+        self.verification_paths(binding)?;
+        let setup = self
+            .verification
+            .get(&binding.scope.task)
+            .ok_or("verification is not configured")?;
+        let task: Task = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Task,
+                binding.scope.task.as_str(),
+                &binding.scope.workspace,
+            )?
+            .decode()?;
+        if setup.latest.is_some()
+            || !setup.config.requirements.is_empty()
+            || task.editing
+            || !task.required_checks.is_empty()
+        {
+            return Err("configured or editing checks require observed verification".into());
+        }
+        let (_, observed) = self.verification_observe(binding)?;
+        if observed.manifest != setup.baseline.manifest {
+            return Err("changed source requires observed verification".into());
+        }
+        let run = self.begin_verification(binding, citations)?;
+        if !run.plans.is_empty() {
+            return Err("discovered checks require explicit verification".into());
+        }
+        Ok(self.finish_verification(binding, run, vec![])?.id)
+    }
     pub(super) fn latest_verification(&self, binding: &ThreadBinding) -> Result<VerificationId> {
         self.verification
             .get(&binding.scope.task)

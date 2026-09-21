@@ -216,6 +216,48 @@ fn evaluate(
     if snapshot.current(input.now).is_err() {
         row.exclusions.push(Exclusion::StaleSnapshot);
     }
+    if !snapshot.compatibility.byte_ceiling_qualified {
+        // Request bytes remain a context estimate, never a tokenizer guarantee.
+        // Admission uses the full endpoint input capacity independently for
+        // ordinary input and both cache categories. Check that immediate bound
+        // separately from the configured expected task cost used for ranking.
+        row.assumptions.push("Input byte estimate is unqualified; immediate admission reserves the full endpoint input capacity for ordinary input, cache read and cache write.".into());
+        let bound = snapshot.reservation_input(input.input_tokens);
+        let maximum = bound
+            .get()
+            .checked_mul(3)
+            .ok_or(Exclusion::InvalidCost)
+            .and_then(|inclusive| {
+                cost(
+                    snapshot,
+                    &Usage {
+                        input: Units::new(inclusive),
+                        cache_read: bound,
+                        cache_write: bound,
+                        output: input.output_tokens,
+                        requests: Units::new(1),
+                        ..Usage::default()
+                    },
+                )
+            });
+        match maximum {
+            Err(reason) => row.exclusions.push(reason),
+            Ok(maximum) => {
+                let protected = if input.role == RequestRole::Verification {
+                    0
+                } else {
+                    input.protected_verification.get()
+                };
+                if maximum
+                    .get()
+                    .checked_add(protected)
+                    .is_none_or(|amount| amount > input.available.micros.get())
+                {
+                    row.exclusions.push(Exclusion::Budget);
+                }
+            }
+        }
+    }
     let observations: Vec<_> = candidate
         .compatibility
         .iter()
@@ -288,7 +330,7 @@ fn evaluate(
     {
         None => row.exclusions.push(Exclusion::MissingCostEstimate),
         Some(estimate) => {
-            row.assumptions = estimate.assumptions.clone();
+            row.assumptions.extend(estimate.assumptions.clone());
             row.evidence_refs.extend(estimate.evidence_refs.clone());
             match estimate_cost(snapshot, estimate, input) {
                 Err(reason) => row.exclusions.push(reason),

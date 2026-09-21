@@ -1,5 +1,14 @@
 # Reviewed evaluation summaries
 
+- [P6 completion](p6-completion.md): deterministic routing/escalation/optimizer,
+  actual provider and evaluator observations, rejected automatic defaults/advice,
+  canonical cost evidence and separate P7/P8 release gates.
+- [P6 profile activation gate](p6-profile-gate.md),
+  [provider qualification](p6-provider-qualification.md),
+  [actual evaluator comparison](p6-decision-comparison.md) and
+  [canonical optimizer campaign inspection](p6-optimize-campaign.md) retain
+  qualification limits and distinguish live observations from workflow tests.
+
 - [P5-08 integrated memory](p5-08-integrated-memory.md): frozen recall strategies,
   bounded recent-memory overlay, native hybrid search and encrypted restore/retention.
 

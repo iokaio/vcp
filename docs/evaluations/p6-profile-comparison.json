@@ -1,0 +1,1563 @@
+{
+  "schema": "p6-profile-comparison-reviewed/1",
+  "task_id": "P6-04",
+  "date": "2026-09-21",
+  "decision": "reject_automatic_default_activation",
+  "enabled_defaults": [],
+  "retained_defaults": "explicit configured values only",
+  "publication": "Reviewed allowlist derivative; no private paths, raw bodies, provider request IDs or canonical owner scopes",
+  "identity": {
+    "plan_sha256": "5ad8b94a780802bbb8510c01c1eb78bf56d2743614dafbb9a1b5ccfe69c6517b",
+    "result_sha256": "332255559c6787c7b3fe093eb6b3b5a97864171edaa8216808c41e05c8d90657",
+    "executable_sha256": "d6a727000f69c9ae4f45ce867dd60c89e72c2bfaf28dbbacb64229e7b2ca0c9b",
+    "manifest_sha256": "c1806e3146ec43e43e51283258937f414201b50021006122ca1794de4be4d1d1",
+    "grader_sha256": "62dffa6621ed8f5d9aea4c02eda1e04ca941aed67b19c6d51508b88a15620d5f",
+    "gate_sha256": "7b0d7e98a98c9fae3ac55d7c9637700d463357f095908e854035c7c9b1fbc1a5",
+    "reporter_sha256": "00a4343738fdf24067731fb6b0a72b4e57f462563a35aca48561b054da21ae1c"
+  },
+  "bootstrap": {
+    "plan_sha256": "86156073ec023b153cc6e0040565fbfe6ef35f06b3cd755ca2edbbe94b187840",
+    "result_sha256": "5aa639d8d9ba67fa23bab4bc0ffc00abffa4fd03a371f748a4afc2ff1f07ee94",
+    "builder_sha256": "5fe342a0f7a3fdcbc7eb4ceb088e8e64a37e2ce383574cc93bf75c919a84d9c6",
+    "provider_calls": 48,
+    "actual_cost_micros": 95858,
+    "training": [
+      {
+        "strategy": "fixed_economical",
+        "case_ids": [
+          "tuning-analysis",
+          "tuning-analysis-multiline",
+          "tuning-analysis-side-effect",
+          "tuning-generation",
+          "tuning-generation-array",
+          "tuning-generation-enum",
+          "tuning-review",
+          "tuning-review-correct",
+          "tuning-review-two-checks"
+        ],
+        "samples": 9,
+        "quality_bps": 1111,
+        "eligible": false,
+        "profile_sha256": "c0592ec537621db91ce8c75740ba7f5b440b8353ce8493fd545000c4257039e2",
+        "probe_sha256": "a49c73d3f0ed52fc745eae426e517ae6ee34bda5230f55e14594ebb82a7273a1"
+      },
+      {
+        "strategy": "fixed_stronger",
+        "case_ids": [
+          "tuning-analysis",
+          "tuning-analysis-multiline",
+          "tuning-analysis-side-effect",
+          "tuning-generation",
+          "tuning-generation-array",
+          "tuning-generation-enum",
+          "tuning-review",
+          "tuning-review-correct",
+          "tuning-review-two-checks"
+        ],
+        "samples": 9,
+        "quality_bps": 0,
+        "eligible": false,
+        "profile_sha256": "aba89aeeec862aa6c8743bb2b6b29eb47ab0c4277ead6e87ae4aa569b28c6e58",
+        "probe_sha256": "32a1dc1b2497638b49f2a0673ba001eb4e6390fa6aae3fb10150779fd765b478"
+      }
+    ]
+  },
+  "strategies": {
+    "fixed_economical": {
+      "model": "anthropic/claude-3-haiku",
+      "endpoint": "amazon-bedrock",
+      "compatibility_id": "p6-generation-qualified/8c26ffabf6e10ac04d021f09ea9ca567880fe8a00c73ce0cd60edd8891e44578",
+      "profile_sha256": "f0226cad838696accd1bea1029b618caf8d41129d7f6536354dcf2c82d22563b",
+      "catalog_sha256": "abc476ae65e98c175ea379bd7d166a1235893b8f842c48de722f70372e1c0088",
+      "policy_id": null,
+      "reasons": []
+    },
+    "fixed_stronger": {
+      "model": "anthropic/claude-haiku-4.5",
+      "endpoint": "anthropic",
+      "compatibility_id": "p6-generation-qualified/24924e69b81f4132ad3a8bd0dcf22112e5ddf44a0d8677a592025b9ed4e7e6e7",
+      "profile_sha256": "af2b401b2d6ab5db9ebf51aa0bb2dbe159f32555188ead0aee7109fd3df4b09b",
+      "catalog_sha256": "122317d06fc84be58d3bfa3e140fe280445060c156477f8308ea7cc6bca8013e",
+      "policy_id": null,
+      "reasons": []
+    },
+    "routed": {
+      "model": null,
+      "endpoint": null,
+      "compatibility_id": null,
+      "profile_sha256": "3bdfbe3173867de54fccda6a5d2ab09e14f8462126fc0673cbee5c9b3e4fde2e",
+      "catalog_sha256": "abc476ae65e98c175ea379bd7d166a1235893b8f842c48de722f70372e1c0088",
+      "policy_id": "bcc76d04e60792138fd44247f9a64e580467100bbfcda25b38a567788f425319",
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    }
+  },
+  "planned_rows": 54,
+  "recorded_rows": 54,
+  "executed_rows": 36,
+  "not_run_rows": 18,
+  "observed_fixed_spend_micros": 188138,
+  "three_arm_total_cost_micros": null,
+  "provider_attempts": 93,
+  "summaries": [
+    {
+      "strategy": "fixed_economical",
+      "partition": "tuning",
+      "planned": 9,
+      "passed": 1,
+      "unsuccessful": 8,
+      "actual_cost_micros": 20031,
+      "latency_observations": 9,
+      "latency_p50_ms": 10545,
+      "latency_p95_ms": 13912,
+      "classes": [
+        {
+          "task_class": "analysis",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "review",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "generation",
+          "planned": 3,
+          "passed": 1,
+          "unsuccessful": 2,
+          "success_lower_bound": 0.01695242750844151,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        }
+      ],
+      "activation_eligible": false,
+      "rejection_reasons": [
+        "tuning cannot qualify held-out defaults",
+        "insufficient independent held-out tasks per class",
+        "confidence bound below candidate quality floor",
+        "unsuccessful tasks conservatively fail serious-failure gate",
+        "frozen smoke corpus does not establish representative independent samples"
+      ]
+    },
+    {
+      "strategy": "fixed_economical",
+      "partition": "held_out",
+      "planned": 9,
+      "passed": 0,
+      "unsuccessful": 9,
+      "actual_cost_micros": 25767,
+      "latency_observations": 9,
+      "latency_p50_ms": 11681,
+      "latency_p95_ms": 15455,
+      "classes": [
+        {
+          "task_class": "analysis",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "review",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "generation",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        }
+      ],
+      "activation_eligible": false,
+      "rejection_reasons": [
+        "insufficient independent held-out tasks per class",
+        "confidence bound below candidate quality floor",
+        "unsuccessful tasks conservatively fail serious-failure gate",
+        "frozen smoke corpus does not establish representative independent samples"
+      ]
+    },
+    {
+      "strategy": "fixed_stronger",
+      "partition": "tuning",
+      "planned": 9,
+      "passed": 0,
+      "unsuccessful": 9,
+      "actual_cost_micros": 69005,
+      "latency_observations": 9,
+      "latency_p50_ms": 7456,
+      "latency_p95_ms": 10021,
+      "classes": [
+        {
+          "task_class": "analysis",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "review",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "generation",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        }
+      ],
+      "activation_eligible": false,
+      "rejection_reasons": [
+        "tuning cannot qualify held-out defaults",
+        "insufficient independent held-out tasks per class",
+        "confidence bound below candidate quality floor",
+        "unsuccessful tasks conservatively fail serious-failure gate",
+        "frozen smoke corpus does not establish representative independent samples"
+      ]
+    },
+    {
+      "strategy": "fixed_stronger",
+      "partition": "held_out",
+      "planned": 9,
+      "passed": 0,
+      "unsuccessful": 9,
+      "actual_cost_micros": 73335,
+      "latency_observations": 9,
+      "latency_p50_ms": 8523,
+      "latency_p95_ms": 9881,
+      "classes": [
+        {
+          "task_class": "analysis",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "review",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "generation",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        }
+      ],
+      "activation_eligible": false,
+      "rejection_reasons": [
+        "insufficient independent held-out tasks per class",
+        "confidence bound below candidate quality floor",
+        "unsuccessful tasks conservatively fail serious-failure gate",
+        "frozen smoke corpus does not establish representative independent samples"
+      ]
+    },
+    {
+      "strategy": "routed",
+      "partition": "tuning",
+      "planned": 9,
+      "passed": 0,
+      "unsuccessful": 9,
+      "actual_cost_micros": null,
+      "latency_observations": 0,
+      "latency_p50_ms": null,
+      "latency_p95_ms": null,
+      "classes": [
+        {
+          "task_class": "analysis",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "review",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "generation",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        }
+      ],
+      "activation_eligible": false,
+      "rejection_reasons": [
+        "tuning cannot qualify held-out defaults",
+        "insufficient independent held-out tasks per class",
+        "confidence bound below candidate quality floor",
+        "unsuccessful tasks conservatively fail serious-failure gate",
+        "incomplete attributable cost",
+        "incomplete wall-time evidence",
+        "frozen smoke corpus does not establish representative independent samples"
+      ]
+    },
+    {
+      "strategy": "routed",
+      "partition": "held_out",
+      "planned": 9,
+      "passed": 0,
+      "unsuccessful": 9,
+      "actual_cost_micros": null,
+      "latency_observations": 0,
+      "latency_p50_ms": null,
+      "latency_p95_ms": null,
+      "classes": [
+        {
+          "task_class": "analysis",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "review",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        },
+        {
+          "task_class": "generation",
+          "planned": 3,
+          "passed": 0,
+          "unsuccessful": 3,
+          "success_lower_bound": 0,
+          "minimum_sample_met": false,
+          "population_floor_met": false
+        }
+      ],
+      "activation_eligible": false,
+      "rejection_reasons": [
+        "insufficient independent held-out tasks per class",
+        "confidence bound below candidate quality floor",
+        "unsuccessful tasks conservatively fail serious-failure gate",
+        "incomplete attributable cost",
+        "incomplete wall-time evidence",
+        "frozen smoke corpus does not establish representative independent samples"
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "case_id": "tuning-analysis",
+      "strategy": "fixed_economical",
+      "partition": "tuning",
+      "task_class": "analysis",
+      "start_state_sha256": "3527586efcec7ce48b52149796ebc2204a4b47961721560128f9355ad811a5e0",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 2618,
+      "latency_ms": 11236,
+      "attempts": 3,
+      "settlements": 3,
+      "canonical_cost_pages_sha256": "7f74316ba95cee03f487b522eb25d1731d48a84efc297ee12c091d17370c7ed9",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-analysis",
+      "strategy": "fixed_stronger",
+      "partition": "tuning",
+      "task_class": "analysis",
+      "start_state_sha256": "3527586efcec7ce48b52149796ebc2204a4b47961721560128f9355ad811a5e0",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 10120,
+      "latency_ms": 10021,
+      "attempts": 3,
+      "settlements": 3,
+      "canonical_cost_pages_sha256": "9d37b5d624231c0833c8195b2e02f6e76a4b9085fdb46ea597e19a71c0e7e23c",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-analysis",
+      "strategy": "routed",
+      "partition": "tuning",
+      "task_class": "analysis",
+      "start_state_sha256": "3527586efcec7ce48b52149796ebc2204a4b47961721560128f9355ad811a5e0",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "tuning-analysis-multiline",
+      "strategy": "fixed_economical",
+      "partition": "tuning",
+      "task_class": "analysis",
+      "start_state_sha256": "a48c898444f8b2f8e72313bfa29f696b28b500b75801d28a3d0e1e9248a1f336",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 2646,
+      "latency_ms": 11848,
+      "attempts": 3,
+      "settlements": 3,
+      "canonical_cost_pages_sha256": "ce64fcb9e5ba8f03d3660cd63738be96b783e2b5a3578451e9e5dc68694b776f",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-analysis-multiline",
+      "strategy": "fixed_stronger",
+      "partition": "tuning",
+      "task_class": "analysis",
+      "start_state_sha256": "a48c898444f8b2f8e72313bfa29f696b28b500b75801d28a3d0e1e9248a1f336",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 6580,
+      "latency_ms": 5863,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "8e5ff10158a61b3c495b4d89ea04f283a9005c96ff312533be39ddaa4da11628",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-analysis-multiline",
+      "strategy": "routed",
+      "partition": "tuning",
+      "task_class": "analysis",
+      "start_state_sha256": "a48c898444f8b2f8e72313bfa29f696b28b500b75801d28a3d0e1e9248a1f336",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "tuning-analysis-side-effect",
+      "strategy": "fixed_economical",
+      "partition": "tuning",
+      "task_class": "analysis",
+      "start_state_sha256": "a67e1659a1ec5a683cc649a26f4492d356d5eed91a1c542e805822688ffa5170",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 2567,
+      "latency_ms": 10779,
+      "attempts": 3,
+      "settlements": 3,
+      "canonical_cost_pages_sha256": "99fdc6852090b28ed7f1ce106593f3a457b2ac0ee42eb5f1028410adf90504f2",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-analysis-side-effect",
+      "strategy": "fixed_stronger",
+      "partition": "tuning",
+      "task_class": "analysis",
+      "start_state_sha256": "a67e1659a1ec5a683cc649a26f4492d356d5eed91a1c542e805822688ffa5170",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 7250,
+      "latency_ms": 7456,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "fb18bf8b95a4c735b6c4f8c1164ffbb91e30ba9b4835df8909e6024f8ce7f10a",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-analysis-side-effect",
+      "strategy": "routed",
+      "partition": "tuning",
+      "task_class": "analysis",
+      "start_state_sha256": "a67e1659a1ec5a683cc649a26f4492d356d5eed91a1c542e805822688ffa5170",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "tuning-generation",
+      "strategy": "fixed_economical",
+      "partition": "tuning",
+      "task_class": "generation",
+      "start_state_sha256": "c51258bc882cf187b2d7ec1043d4f83715f10584d5510be9003a31a541f5b255",
+      "status": "completed",
+      "task_success": true,
+      "grade": {
+        "pass": true,
+        "reason": null,
+        "checks": 15,
+        "passed_checks": 15
+      },
+      "actual_cost_micros": 1509,
+      "latency_ms": 8367,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "4966c5e29a83fbec77f1de32dba49c531b3fe330420960c045de8c500af036d9",
+      "reasons": []
+    },
+    {
+      "case_id": "tuning-generation",
+      "strategy": "fixed_stronger",
+      "partition": "tuning",
+      "task_class": "generation",
+      "start_state_sha256": "c51258bc882cf187b2d7ec1043d4f83715f10584d5510be9003a31a541f5b255",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 6635,
+      "latency_ms": 6636,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "d75b70de5247df8241a5f352b79259ddfd9b5062157e3ab03e940823eb2c2b50",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-generation",
+      "strategy": "routed",
+      "partition": "tuning",
+      "task_class": "generation",
+      "start_state_sha256": "c51258bc882cf187b2d7ec1043d4f83715f10584d5510be9003a31a541f5b255",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "tuning-generation-array",
+      "strategy": "fixed_economical",
+      "partition": "tuning",
+      "task_class": "generation",
+      "start_state_sha256": "16d97cd88ef3e59910d78a97547fff4bfcee600ce7d3c57b41ba9a01238906a3",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 705,
+      "latency_ms": 3333,
+      "attempts": 1,
+      "settlements": 1,
+      "canonical_cost_pages_sha256": "e3bea744798feebc2922fd46a9bfd8913436dd0d4dc163c37dc6035081a5c617",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-generation-array",
+      "strategy": "fixed_stronger",
+      "partition": "tuning",
+      "task_class": "generation",
+      "start_state_sha256": "16d97cd88ef3e59910d78a97547fff4bfcee600ce7d3c57b41ba9a01238906a3",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 6934,
+      "latency_ms": 6595,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "283b9c64969ff82f1d3973b0e36fb34d6c34caf3620d241a4579e32b98c61122",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-generation-array",
+      "strategy": "routed",
+      "partition": "tuning",
+      "task_class": "generation",
+      "start_state_sha256": "16d97cd88ef3e59910d78a97547fff4bfcee600ce7d3c57b41ba9a01238906a3",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "tuning-generation-enum",
+      "strategy": "fixed_economical",
+      "partition": "tuning",
+      "task_class": "generation",
+      "start_state_sha256": "483e49b42afe7f7cdadb35034d0ce2ec6512c4891a0f6f4fbbcb7f50d99fade4",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 1585,
+      "latency_ms": 6687,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "de4e0c559ae19e223c5e1fe79f6541c52c55df305f323325002a50f974a9eabb",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-generation-enum",
+      "strategy": "fixed_stronger",
+      "partition": "tuning",
+      "task_class": "generation",
+      "start_state_sha256": "483e49b42afe7f7cdadb35034d0ce2ec6512c4891a0f6f4fbbcb7f50d99fade4",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 6711,
+      "latency_ms": 6390,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "de6041b86d5c296b2568c73c0fa1b70e8c2b4e2667352590c5b577b86223761f",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-generation-enum",
+      "strategy": "routed",
+      "partition": "tuning",
+      "task_class": "generation",
+      "start_state_sha256": "483e49b42afe7f7cdadb35034d0ce2ec6512c4891a0f6f4fbbcb7f50d99fade4",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "tuning-review",
+      "strategy": "fixed_economical",
+      "partition": "tuning",
+      "task_class": "review",
+      "start_state_sha256": "0a655957ac05a9c10914b711f76eec4c12230460b7d70cbd6e27c41c058c742d",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 1481,
+      "latency_ms": 8475,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "462c686d348b17fc831bb497a958ee2b57a93da47b6ff8e8422b8fd1dbb83c20",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-review",
+      "strategy": "fixed_stronger",
+      "partition": "tuning",
+      "task_class": "review",
+      "start_state_sha256": "0a655957ac05a9c10914b711f76eec4c12230460b7d70cbd6e27c41c058c742d",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 8305,
+      "latency_ms": 9435,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "d96f718c425b72dcc561dc04ec97f56f12851079403a09fbc2634cb671f8fff5",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-review",
+      "strategy": "routed",
+      "partition": "tuning",
+      "task_class": "review",
+      "start_state_sha256": "0a655957ac05a9c10914b711f76eec4c12230460b7d70cbd6e27c41c058c742d",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "tuning-review-correct",
+      "strategy": "fixed_economical",
+      "partition": "tuning",
+      "task_class": "review",
+      "start_state_sha256": "9ec96f60496bcb0f1b1a2a18b0939c1812809d4867ed85b45eef5f80f9bc040b",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 3372,
+      "latency_ms": 10545,
+      "attempts": 4,
+      "settlements": 4,
+      "canonical_cost_pages_sha256": "210a1fd8f45acbe34ba77689c91a4dbd75343940d5b4dce362820b23034bf1c3",
+      "reasons": []
+    },
+    {
+      "case_id": "tuning-review-correct",
+      "strategy": "fixed_stronger",
+      "partition": "tuning",
+      "task_class": "review",
+      "start_state_sha256": "9ec96f60496bcb0f1b1a2a18b0939c1812809d4867ed85b45eef5f80f9bc040b",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 7888,
+      "latency_ms": 8225,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "477e7adb66f76da5b13c84d8274d1c2352de63f5bc6e40ce8e4de1f8e6bb8aa7",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-review-correct",
+      "strategy": "routed",
+      "partition": "tuning",
+      "task_class": "review",
+      "start_state_sha256": "9ec96f60496bcb0f1b1a2a18b0939c1812809d4867ed85b45eef5f80f9bc040b",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "tuning-review-two-checks",
+      "strategy": "fixed_economical",
+      "partition": "tuning",
+      "task_class": "review",
+      "start_state_sha256": "776e66b64f1572d658abe5ed918eebaf7e205e7275ed0dc67d1e401aa88d3d01",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 3548,
+      "latency_ms": 13912,
+      "attempts": 4,
+      "settlements": 4,
+      "canonical_cost_pages_sha256": "b9798933c58b9c18625b353e4582067a3cba2cb864c159840f44b5d3662966f8",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-review-two-checks",
+      "strategy": "fixed_stronger",
+      "partition": "tuning",
+      "task_class": "review",
+      "start_state_sha256": "776e66b64f1572d658abe5ed918eebaf7e205e7275ed0dc67d1e401aa88d3d01",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 8582,
+      "latency_ms": 9924,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "7932df67fc557927c19e41c6a4616011f2e992675d5c74c12d0facb841fe66b7",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "tuning-review-two-checks",
+      "strategy": "routed",
+      "partition": "tuning",
+      "task_class": "review",
+      "start_state_sha256": "776e66b64f1572d658abe5ed918eebaf7e205e7275ed0dc67d1e401aa88d3d01",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "heldout-analysis",
+      "strategy": "fixed_economical",
+      "partition": "held_out",
+      "task_class": "analysis",
+      "start_state_sha256": "4582b35a8a2e28fd18ac0e9353577d38f06afe362d8864bb0b017f38746e417a",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 2564,
+      "latency_ms": 11091,
+      "attempts": 3,
+      "settlements": 3,
+      "canonical_cost_pages_sha256": "4fdbcd1d431c0df4e7a6af820e8d026861d2202c104ca44f0e66f2fc2d27def5",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-analysis",
+      "strategy": "fixed_stronger",
+      "partition": "held_out",
+      "task_class": "analysis",
+      "start_state_sha256": "4582b35a8a2e28fd18ac0e9353577d38f06afe362d8864bb0b017f38746e417a",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 10387,
+      "latency_ms": 9818,
+      "attempts": 3,
+      "settlements": 3,
+      "canonical_cost_pages_sha256": "5f02b8ccfa81180d34fab9f8307c40e812e05a22cfc3885b98e13822c205d493",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-analysis",
+      "strategy": "routed",
+      "partition": "held_out",
+      "task_class": "analysis",
+      "start_state_sha256": "4582b35a8a2e28fd18ac0e9353577d38f06afe362d8864bb0b017f38746e417a",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "heldout-analysis-cycle",
+      "strategy": "fixed_economical",
+      "partition": "held_out",
+      "task_class": "analysis",
+      "start_state_sha256": "90f24274c7efe484f5a7257fee2b5efbd379281354dde72845e0dfe173b10a22",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 2658,
+      "latency_ms": 11681,
+      "attempts": 3,
+      "settlements": 3,
+      "canonical_cost_pages_sha256": "37e2b4029f9c35195f31d442ee0f44f327f760afd5d87fc3e34f4b32b1b5c99d",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-analysis-cycle",
+      "strategy": "fixed_stronger",
+      "partition": "held_out",
+      "task_class": "analysis",
+      "start_state_sha256": "90f24274c7efe484f5a7257fee2b5efbd379281354dde72845e0dfe173b10a22",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 6529,
+      "latency_ms": 8249,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "7616849f730d729a9273580204423fda7f779517a4cda93605a2a91c5de54794",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-analysis-cycle",
+      "strategy": "routed",
+      "partition": "held_out",
+      "task_class": "analysis",
+      "start_state_sha256": "90f24274c7efe484f5a7257fee2b5efbd379281354dde72845e0dfe173b10a22",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "heldout-analysis-no-static",
+      "strategy": "fixed_economical",
+      "partition": "held_out",
+      "task_class": "analysis",
+      "start_state_sha256": "a7d3d42a04ad6ccb729fd4cfda1e75e5785fd351046a178a1d54116fb78bfa33",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 2802,
+      "latency_ms": 12063,
+      "attempts": 3,
+      "settlements": 3,
+      "canonical_cost_pages_sha256": "177e8fe3bf041e4afd517133021c45f534eadd6fd917e1e3c544b75bc2f11fe2",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-analysis-no-static",
+      "strategy": "fixed_stronger",
+      "partition": "held_out",
+      "task_class": "analysis",
+      "start_state_sha256": "a7d3d42a04ad6ccb729fd4cfda1e75e5785fd351046a178a1d54116fb78bfa33",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 11152,
+      "latency_ms": 9752,
+      "attempts": 3,
+      "settlements": 3,
+      "canonical_cost_pages_sha256": "9a38db97306af2e363be89a5e709cdce1440f91deaa59561f2b61d954d7deecc",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-analysis-no-static",
+      "strategy": "routed",
+      "partition": "held_out",
+      "task_class": "analysis",
+      "start_state_sha256": "a7d3d42a04ad6ccb729fd4cfda1e75e5785fd351046a178a1d54116fb78bfa33",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "heldout-generation",
+      "strategy": "fixed_economical",
+      "partition": "held_out",
+      "task_class": "generation",
+      "start_state_sha256": "5e96fe33aee8c7c95e9e4c22dab6ee2ee5339707dd901e55027fcbf5aee11838",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 2420,
+      "latency_ms": 12068,
+      "attempts": 3,
+      "settlements": 3,
+      "canonical_cost_pages_sha256": "efc48714fc0b36f1c110d9071503dace8aa04e05d7a84a88a78943b4436db5a0",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-generation",
+      "strategy": "fixed_stronger",
+      "partition": "held_out",
+      "task_class": "generation",
+      "start_state_sha256": "5e96fe33aee8c7c95e9e4c22dab6ee2ee5339707dd901e55027fcbf5aee11838",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 6710,
+      "latency_ms": 6284,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "5536c518174a3c7a6ee7d338bfc05edb3f3ef0421a418e5399834818721a8ed2",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-generation",
+      "strategy": "routed",
+      "partition": "held_out",
+      "task_class": "generation",
+      "start_state_sha256": "5e96fe33aee8c7c95e9e4c22dab6ee2ee5339707dd901e55027fcbf5aee11838",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "heldout-generation-multifield",
+      "strategy": "fixed_economical",
+      "partition": "held_out",
+      "task_class": "generation",
+      "start_state_sha256": "c780f1c59c3cd67b80cefd334406e203795313ee5eb7e2974a99dc3cda670e0f",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 1606,
+      "latency_ms": 6840,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "8f87882f560d769741445f06fba59098d8213218f786c7e6d63e00ae37cdc0d8",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-generation-multifield",
+      "strategy": "fixed_stronger",
+      "partition": "held_out",
+      "task_class": "generation",
+      "start_state_sha256": "c780f1c59c3cd67b80cefd334406e203795313ee5eb7e2974a99dc3cda670e0f",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 6936,
+      "latency_ms": 6110,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "89913da71cac833f419b160d35255a7be3b5e9ad3c17b6c90229a4421bdbbf8e",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-generation-multifield",
+      "strategy": "routed",
+      "partition": "held_out",
+      "task_class": "generation",
+      "start_state_sha256": "c780f1c59c3cd67b80cefd334406e203795313ee5eb7e2974a99dc3cda670e0f",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "heldout-generation-optional",
+      "strategy": "fixed_economical",
+      "partition": "held_out",
+      "task_class": "generation",
+      "start_state_sha256": "8549e769bc11f0d4cdf78d8e293169f4c83ef349eac48deefb940b36c529b52f",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 3453,
+      "latency_ms": 12352,
+      "attempts": 4,
+      "settlements": 4,
+      "canonical_cost_pages_sha256": "f0fb7e5ddb19ffdb1f4a1fb9d0432630352c9e6862e87940c2cadd9aa5a511fe",
+      "reasons": []
+    },
+    {
+      "case_id": "heldout-generation-optional",
+      "strategy": "fixed_stronger",
+      "partition": "held_out",
+      "task_class": "generation",
+      "start_state_sha256": "8549e769bc11f0d4cdf78d8e293169f4c83ef349eac48deefb940b36c529b52f",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 6852,
+      "latency_ms": 6063,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "7e3b99f03749cadf440d4db8a5c1b135e27d19601d90fc57c3e25d1e9511b80f",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-generation-optional",
+      "strategy": "routed",
+      "partition": "held_out",
+      "task_class": "generation",
+      "start_state_sha256": "8549e769bc11f0d4cdf78d8e293169f4c83ef349eac48deefb940b36c529b52f",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "heldout-review",
+      "strategy": "fixed_economical",
+      "partition": "held_out",
+      "task_class": "review",
+      "start_state_sha256": "33af382a56c9b02694e09037ad19a3bfcbcf3e550c20daa147a9d26942a1b9a8",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 3298,
+      "latency_ms": 11249,
+      "attempts": 4,
+      "settlements": 4,
+      "canonical_cost_pages_sha256": "eefe697c510b5dd441e8a50e054b92cf1565267c79ce15d4e4ee9926fd191809",
+      "reasons": []
+    },
+    {
+      "case_id": "heldout-review",
+      "strategy": "fixed_stronger",
+      "partition": "held_out",
+      "task_class": "review",
+      "start_state_sha256": "33af382a56c9b02694e09037ad19a3bfcbcf3e550c20daa147a9d26942a1b9a8",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 8018,
+      "latency_ms": 8591,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "801ddaf1a14f3fcfe6217e0460c0e22e2511c33a2c96c90f49c1c8d28b48c957",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-review",
+      "strategy": "routed",
+      "partition": "held_out",
+      "task_class": "review",
+      "start_state_sha256": "33af382a56c9b02694e09037ad19a3bfcbcf3e550c20daa147a9d26942a1b9a8",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "heldout-review-boolean",
+      "strategy": "fixed_economical",
+      "partition": "held_out",
+      "task_class": "review",
+      "start_state_sha256": "dcf147a699fd3a60ce4c69cf5cbdf6c51c91a2f64b6629ec05f30277cb0a5e96",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 3416,
+      "latency_ms": 10606,
+      "attempts": 4,
+      "settlements": 4,
+      "canonical_cost_pages_sha256": "23456847ffe15c7ecc24729785c69c3ff1c1849e63eeb68ce2aa23ef90739243",
+      "reasons": []
+    },
+    {
+      "case_id": "heldout-review-boolean",
+      "strategy": "fixed_stronger",
+      "partition": "held_out",
+      "task_class": "review",
+      "start_state_sha256": "dcf147a699fd3a60ce4c69cf5cbdf6c51c91a2f64b6629ec05f30277cb0a5e96",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 8151,
+      "latency_ms": 8523,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "df966f217c9f8d04d061f2e20bda89a603dc861d7bdf29e9163bf1b7cedebc18",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-review-boolean",
+      "strategy": "routed",
+      "partition": "held_out",
+      "task_class": "review",
+      "start_state_sha256": "dcf147a699fd3a60ce4c69cf5cbdf6c51c91a2f64b6629ec05f30277cb0a5e96",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    },
+    {
+      "case_id": "heldout-review-half-open",
+      "strategy": "fixed_economical",
+      "partition": "held_out",
+      "task_class": "review",
+      "start_state_sha256": "11debcb62f6a3923d6eb2fa15b89434d40abd0f180c993d7138a3b732af78cde",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 3550,
+      "latency_ms": 15455,
+      "attempts": 4,
+      "settlements": 4,
+      "canonical_cost_pages_sha256": "0ec9f2fab046c92bca5e086390a576a75768005e70c8601e74013213efbc1f18",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-review-half-open",
+      "strategy": "fixed_stronger",
+      "partition": "held_out",
+      "task_class": "review",
+      "start_state_sha256": "11debcb62f6a3923d6eb2fa15b89434d40abd0f180c993d7138a3b732af78cde",
+      "status": "failed",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "failed"
+      },
+      "actual_cost_micros": 8600,
+      "latency_ms": 9881,
+      "attempts": 2,
+      "settlements": 2,
+      "canonical_cost_pages_sha256": "261bedc2f2363119766aaed30fbb589b9b821783765bc1f7b6b3da5b7d5eab52",
+      "reasons": [
+        "canonical_answer_import_failed",
+        "invalid_json_or_sse"
+      ]
+    },
+    {
+      "case_id": "heldout-review-half-open",
+      "strategy": "routed",
+      "partition": "held_out",
+      "task_class": "review",
+      "start_state_sha256": "11debcb62f6a3923d6eb2fa15b89434d40abd0f180c993d7138a3b732af78cde",
+      "status": "not_run",
+      "task_success": false,
+      "grade": {
+        "pass": false,
+        "reason": "not_run"
+      },
+      "actual_cost_micros": null,
+      "latency_ms": null,
+      "attempts": null,
+      "settlements": null,
+      "canonical_cost_pages_sha256": null,
+      "reasons": [
+        "no current live-qualified routing memberships; bootstrap fixed-provider evidence first"
+      ]
+    }
+  ],
+  "limitations": [
+    "Exact one-sided binomial bounds are descriptive for these synthetic tasks, not a claim of independent representative population sampling. Repeated executions and renamed/paraphrased templates do not increase independent sample count.",
+    "P8 must repeat relevant qualification with actual child isolation, final integration and packaged CLI"
+  ],
+  "rollback": [
+    "expired or changed provider/catalog/model/policy/prompt identities",
+    "quality floor violation or serious review/generation failure",
+    "unknown charge or cap overrun",
+    "memory/context configuration changes requiring refreshed P5-08 evidence"
+  ]
+}

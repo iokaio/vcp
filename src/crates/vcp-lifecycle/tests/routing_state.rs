@@ -347,127 +347,139 @@ async fn interview_reuses_answers_closed_schema_rejects_authority_and_reports_re
 #[tokio::test]
 async fn report_keeps_failed_cancelled_and_unfinished_denominators_and_scopes_saved_evidence() {
     use vcp_domain::task::{Objective, Task, TaskState};
-    let temp = tempfile::tempdir().unwrap();
-    let (mut store, mut access) = setup(temp.path(), BackendKind::Files).await;
-    let session: Session = store
-        .state()
-        .records
-        .values()
-        .find(|r| r.collection == Collection::Session)
-        .unwrap()
-        .decode()
-        .unwrap();
-    let mut selected = BTreeSet::new();
-    for state in [TaskState::Failed, TaskState::Cancelled, TaskState::Paused] {
-        let task_id = TaskId::new();
-        let event_id = EventId::new();
-        selected.insert(task_id.clone());
-        let task = Task {
-            scope: Scope {
-                workspace: access.workspace.clone(),
-                session: session.id.clone(),
-                task: task_id.clone(),
-            },
-            root: task_id.clone(),
-            parent: None,
-            fork_origin: None,
-            revision: Revision::ZERO,
-            steering: SteeringRevision::ZERO,
-            objectives: vec![Objective {
-                text: "synthetic objective".into(),
-                constraints: vec![],
-                acceptance: vec![],
-                source: event_id.clone(),
-                steering: SteeringRevision::ZERO,
-            }],
-            state,
-            fingerprint: Fingerprint {
-                repository: "a".repeat(64),
-                buffers: "b".repeat(64),
-                environment: "c".repeat(64),
-            },
-            editing: false,
-            required_checks: vec![],
-            cause: event_id.clone(),
-            reason: "synthetic sample".into(),
-            redaction: None,
-        };
-        store
-            .transact(Transaction {
-                id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
-                mutations: vec![Mutation::Put {
-                    record: Record::typed(
-                        Collection::Task,
-                        task_id.as_str(),
-                        access.workspace.clone(),
-                        Revision::ZERO,
-                        &task,
-                    )
-                    .unwrap(),
-                    expected: None,
-                }],
-                events: vec![EventInput {
-                    id: event_id,
+    for (backend, repetitions) in [(BackendKind::Files, 1), (BackendKind::Sqlite, 4)] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, mut access) = setup(temp.path(), backend).await;
+        let session: Session = store
+            .state()
+            .records
+            .values()
+            .find(|r| r.collection == Collection::Session)
+            .unwrap()
+            .decode()
+            .unwrap();
+        let mut selected = BTreeSet::new();
+        for state in (0..repetitions)
+            .flat_map(|_| [TaskState::Failed, TaskState::Cancelled, TaskState::Paused])
+        {
+            let task_id = TaskId::new();
+            let event_id = EventId::new();
+            selected.insert(task_id.clone());
+            let task = Task {
+                scope: Scope {
                     workspace: access.workspace.clone(),
                     session: session.id.clone(),
-                    task: Some(task_id),
-                    actor: access.actor.clone(),
-                    correlation: CommandId::new(),
-                    causation: None,
-                    timestamp: Timestamp::new(5),
-                    kind: EventKind::TaskCreated,
-                    artifacts: vec![],
-                    data: serde_json::json!({}),
-                    metadata: None,
+                    task: task_id.clone(),
+                },
+                root: task_id.clone(),
+                parent: None,
+                fork_origin: None,
+                revision: Revision::ZERO,
+                steering: SteeringRevision::ZERO,
+                objectives: vec![Objective {
+                    text: "synthetic objective".into(),
+                    constraints: vec![],
+                    acceptance: vec![],
+                    source: event_id.clone(),
+                    steering: SteeringRevision::ZERO,
                 }],
-                command: None,
-            })
-            .await
-            .unwrap();
+                state,
+                fingerprint: Fingerprint {
+                    repository: "a".repeat(64),
+                    buffers: "b".repeat(64),
+                    environment: "c".repeat(64),
+                },
+                editing: false,
+                required_checks: vec![],
+                cause: event_id.clone(),
+                reason: "synthetic sample".into(),
+                redaction: None,
+            };
+            store
+                .transact(Transaction {
+                    id: TransactionId::new(),
+                    expected_watermark: store.state().watermark,
+                    mutations: vec![Mutation::Put {
+                        record: Record::typed(
+                            Collection::Task,
+                            task_id.as_str(),
+                            access.workspace.clone(),
+                            Revision::ZERO,
+                            &task,
+                        )
+                        .unwrap(),
+                        expected: None,
+                    }],
+                    events: vec![EventInput {
+                        id: event_id,
+                        workspace: access.workspace.clone(),
+                        session: session.id.clone(),
+                        task: Some(task_id),
+                        actor: access.actor.clone(),
+                        correlation: CommandId::new(),
+                        causation: None,
+                        timestamp: Timestamp::new(5),
+                        kind: EventKind::TaskCreated,
+                        artifacts: vec![],
+                        data: serde_json::json!({}),
+                        metadata: None,
+                    }],
+                    command: None,
+                })
+                .await
+                .unwrap();
+        }
+        let saved = save_report(
+            &mut store,
+            &access,
+            HistoryWindow {
+                from: Some(Timestamp::new(4)),
+                until: Timestamp::new(6),
+            },
+            Timestamp::new(6),
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved.counts.tasks, 3 * repetitions);
+        assert_eq!(
+            saved.uncertainty.iter().any(|s| s.contains("Small sample")),
+            repetitions == 1
+        );
+        assert!(saved
+            .uncertainty
+            .iter()
+            .any(|s| s.contains("not causal improvement")));
+        assert_eq!(saved.counts.failed, repetitions);
+        assert_eq!(saved.counts.cancelled, repetitions);
+        assert_eq!(saved.counts.unfinished, repetitions);
+        assert_eq!(saved.counts.completed, 0);
+        assert!(saved.uncertainty.iter().any(|s| s.contains("abandonment")));
+        selected.pop_first();
+        access.tasks = Some(selected);
+        assert!(load_report(&store, &access, &saved.id).is_err());
+        let restricted = report(
+            &store,
+            &access,
+            HistoryWindow {
+                from: None,
+                until: Timestamp::new(7),
+            },
+        )
+        .unwrap();
+        assert_eq!(restricted.counts.tasks, 3 * repetitions - 1);
+        assert_eq!(restricted.evidence.len() as u64, 3 * repetitions - 1);
+        let empty = report(
+            &store,
+            &access,
+            HistoryWindow {
+                from: Some(Timestamp::new(10)),
+                until: Timestamp::new(11),
+            },
+        )
+        .unwrap();
+        assert_eq!(empty.counts.tasks, 0);
+        store.close().await.unwrap();
     }
-    let saved = save_report(
-        &mut store,
-        &access,
-        HistoryWindow {
-            from: Some(Timestamp::new(4)),
-            until: Timestamp::new(6),
-        },
-        Timestamp::new(6),
-    )
-    .await
-    .unwrap();
-    assert_eq!(saved.counts.tasks, 3);
-    assert_eq!(saved.counts.failed, 1);
-    assert_eq!(saved.counts.cancelled, 1);
-    assert_eq!(saved.counts.unfinished, 1);
-    assert_eq!(saved.counts.completed, 0);
-    assert!(saved.uncertainty.iter().any(|s| s.contains("abandonment")));
-    selected.pop_first();
-    access.tasks = Some(selected);
-    assert!(load_report(&store, &access, &saved.id).is_err());
-    let restricted = report(
-        &store,
-        &access,
-        HistoryWindow {
-            from: None,
-            until: Timestamp::new(7),
-        },
-    )
-    .unwrap();
-    assert_eq!(restricted.counts.tasks, 2);
-    assert_eq!(restricted.evidence.len(), 2);
-    let empty = report(
-        &store,
-        &access,
-        HistoryWindow {
-            from: Some(Timestamp::new(10)),
-            until: Timestamp::new(11),
-        },
-    )
-    .unwrap();
-    assert_eq!(empty.counts.tasks, 0);
-    store.close().await.unwrap();
 }
 
 #[test]

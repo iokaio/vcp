@@ -3,6 +3,135 @@ use super::*;
 use crate::foundation::conformance::{self, Probe};
 use vcp_models::{catalog::CandidateMetadata, stream::ResultBody};
 impl Context {
+    pub(crate) fn admit_decision_cohort(
+        &mut self,
+        binding: &ThreadBinding,
+        candidate: &conformance::cohort::Candidate,
+    ) -> Result<(AttemptId, serde_json::Value)> {
+        self.can_start(binding)?;
+        let metadata = candidate.metadata()?;
+        if self.provider_required
+            || self.routing.is_some()
+            || binding.role != RequestRole::Main
+            || binding.scope.task != self.config.root_task
+            || self.config.max_transport_retries != 0
+            || self.config.price != metadata.price
+            || self.config.input_ceiling != metadata.max_input
+            || self.config.output_ceiling != candidate.output()
+            || candidate.output() > metadata.max_output
+            || self
+                .engine
+                .store()
+                .state()
+                .records
+                .values()
+                .any(|r| r.collection == Collection::Attempt)
+        {
+            return Err("decision cohort requires exact fresh isolated owner".into());
+        }
+        self.capture(
+            &binding.scope,
+            Channel::Evidence,
+            &candidate.raw,
+            "unqualified-decision-cohort-catalog/1",
+        )?;
+        self.capture(
+            &binding.scope,
+            Channel::Evidence,
+            conformance::cohort::WORKLOAD,
+            "frozen-decision-cohort/1",
+        )?;
+        let body = conformance::cohort::body(candidate, &metadata)?;
+        let (attempt, body, _, _) = self.admit_inner(binding, body, true)?;
+        Ok((attempt, body))
+    }
+    pub(crate) fn admit_native_conformance(
+        &mut self,
+        binding: &ThreadBinding,
+        raw: &[u8],
+        model: &str,
+        provider: &str,
+        request_cap: &str,
+        expires: Timestamp,
+    ) -> Result<(AttemptId, serde_json::Value)> {
+        self.can_start(binding)?;
+        let candidate = conformance::native::candidate(raw, model, provider, request_cap, expires)?;
+        if self.provider_required
+            || self.routing.is_some()
+            || binding.role != RequestRole::Main
+            || binding.scope.task != self.config.root_task
+            || self.config.max_transport_retries != 0
+            || self.config.price != candidate.price
+            || self.config.input_ceiling != candidate.max_input
+            || self.config.output_ceiling != Units::new(1)
+            || self
+                .engine
+                .store()
+                .state()
+                .records
+                .values()
+                .any(|r| r.collection == Collection::Attempt)
+        {
+            return Err("native probe requires exact isolated fresh candidate owner".into());
+        }
+        self.capture(
+            &binding.scope,
+            Channel::Evidence,
+            raw,
+            "unqualified-native-catalog/1",
+        )?;
+        let body = conformance::native::body(&candidate)?;
+        let (attempt, body, _, _) = self.admit_inner(binding, body, true)?;
+        Ok((attempt, body))
+    }
+    pub(crate) fn complete_native_conformance(
+        &mut self,
+        binding: &ThreadBinding,
+        attempt: &AttemptId,
+        raw: &serde_json::Value,
+        cost: Option<Micros>,
+    ) -> Result<()> {
+        let mut writer = self
+            .streams
+            .remove(attempt)
+            .ok_or("native probe capture missing")?;
+        let descriptor = writer.finalize()?;
+        drop(writer);
+        self.command(
+            Command::AttachArtifact {
+                descriptor: descriptor.clone(),
+            },
+            Some(binding.scope.task.clone()),
+            Revision::ZERO,
+        )?;
+        let cost = cost.ok_or("native probe has no observed cost; liability retained")?;
+        let request = raw["id"]
+            .as_str()
+            .filter(|id| !id.is_empty() && id.len() <= 256)
+            .ok_or("native response identity absent; liability retained")?;
+        let actor = self.actor();
+        self.runtime.block_on(vcp_budget::observe(
+            self.engine.store_mut(),
+            UsageObservation {
+                id: ObservationId::new(),
+                scope: binding.scope.clone(),
+                attempt: attempt.clone(),
+                provider_request: request.into(),
+                mode: UsageMode::Cumulative {
+                    version: Units::new(1),
+                },
+                amount: Money {
+                    currency: "USD".to_owned().try_into()?,
+                    micros: cost,
+                },
+                final_usage: true,
+                raw: descriptor.spec.id,
+                correction: None,
+            },
+            &actor,
+        ))?;
+        Ok(())
+    }
     pub(crate) fn admit_conformance(
         &mut self,
         binding: &ThreadBinding,
