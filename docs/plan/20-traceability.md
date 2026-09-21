@@ -1,6 +1,6 @@
 # 20 — Work-item, requirement and test traceability
 
-Status: early implementation. Ownership inventory from architecture draft 0.4 and the task headings in this directory, expanded with implementation/design traceability on September 17, 2026. All 68 architecture items have exactly one implementation owner. There are 56 first-release items and 12 deferred items (P4, P9 and P10). P0-01 has [completed infrastructure evidence](../evaluations/p0-01-experiment-harness.md), and P0-07 has [completed selection evidence](../evaluations/p0-07-selection-gate.md). P0-02 has [completed bounded feasibility evidence](../evaluations/p0-02-local-resources.md); P0-03 and P0-05 have [completed recovery/execution feasibility evidence](../evaluations/p0-03-recovery-execution.md). All P0 tasks have bounded qualification evidence. P1-01 through P1-06 are complete with [native canonical foundation acceptance](../evaluations/p1-completion.md). P2-01 through P2-08 are complete with [native coding-loop acceptance](../evaluations/p2-completion.md). Other tasks remain planned and dependencies are unchanged.
+Status: implementation and qualification in progress. Ownership inventory from architecture draft 0.4 and the task headings in this directory, with developer-workflow follow-ups aligned on September 21, 2026. All 68 architecture items have exactly one implementation owner: 56 first-release items and 12 deferred items (P4, P9 and P10). The evidence-linked rows below record completed P0–P3, P5, P6 and P7-01/03 boundaries. P7-02/04/05/06 remain in progress; P8 and the deferred tasks remain planned. No task state or dependency changes in this documentation revision.
 
 Use this ledger with [the segment index](README.md) and [the shared test guide](16-test-fixtures-and-acceptance.md). Dependencies below retain the architecture's exact IDs; slash suffixes share the preceding phase, and an ellipsis denotes an inclusive range. A whole segment is not an additional dependency.
 
@@ -81,10 +81,11 @@ Each linked task supplies code organization, implementation increments and testi
 
 ## First-release dependency closure
 
-The [Markov follow-up ledger](#markov-follow-up-readiness) adds pending increments
-inside existing owners. The architecture dependency graph and historical
-completion evidence below remain unchanged; new consumer behavior needs its own
-implementation and qualification evidence.
+The [Markov](#markov-follow-up-readiness) and
+[developer-workflow](#developer-workflow-follow-up-readiness) ledgers track
+pending increments inside existing owners. The architecture dependency graph and
+historical completion evidence remain unchanged; new consumer behavior needs its
+own implementation and qualification evidence.
 
 The transitive dependency closure of [P8-05](15-integration-and-release.md#p8-05--owner-acceptance-and-release-evaluation) includes all 56 first-release tasks and none of the deferred 12. Maintain this property when changing dependencies.
 
@@ -122,6 +123,44 @@ evaluation; they must not silently disappear from release review.
 | M8 child reuse | P7-04/05/06 under existing dependencies | Forecast attribution without double counting, atomic root limits, integrated-parent checks and visible uncertainty | planned |
 | M9 synthetic/release campaign | Segment 16 from M1; final P8-01/02/05 after enabled consumers/P7 | Invented seeded traces and independent oracles; both-store/native packaged behavior and final feature disposition | planned |
 | M10 regime observer | P10-03 after P8-05/P7-06 | Qualified local producer reused with bounded cursors, pause/recovery and matched usefulness evidence | planned |
+
+## Developer workflow follow-up readiness
+
+Revision 14 adopts the selected scope in [plan 22](22-cursor-improvements.md) and
+[plan 23](23-claudecode-improvements.md), informed by the preserved
+[Cursor](../research/cursor.md) and [Claude Code](../research/claudecode.md) research.
+The research labels are supplement references, not new architecture tasks. Each
+row below belongs to still-open P7 implementation or P8 qualification. Completed
+P2/P3/P5/P6/P7-01/03 code is a supporting boundary, not a newly reopened owner.
+All additions below are planned; existing construction and its unpassed gates
+remain recorded in the primary task rows. No behavior is implemented by adoption.
+
+| Increment | Remaining owner and prerequisite | Required acceptance | State |
+|---|---|---|---|
+| [CR-02a / CC-04 bounded search and reads](22-cursor-improvements.md#cr-02a--bounded-search-and-ranged-reads) | P7-02; existing P2 tools, then P8-01 | Literal-default compatibility, explicit bounded regex and paging, deterministic authorized discovery, source/version evidence, U01/U02 usefulness | planned |
+| [CR-06 debug guidance](22-cursor-improvements.md#cr-06--evidence-first-debug-guidance) | P7-02; existing review-debug/testing skills | Reproduce, fix, verify current result and remove only owned instrumentation; missing checks remain not-run | planned |
+| [CR-03 helper defaults](22-cursor-improvements.md#cr-03--small-helper-role-defaults) | P7-04/06; existing graph and routing | Bounded useful read-only helpers, inherited authority/root budget, concise attributed progress and single-agent path | planned |
+| [CR-08 / CC-15 worktree readiness and cleanup](22-cursor-improvements.md#cr-08--worktree-readiness-and-safe-cleanup) | P7-04/05/06; existing snapshots/markers, then P8-02 | Actionable setup state, exact registered-root cleanup, preserved live references/history and interrupted/locked-root recovery | planned |
+| [CR-12a / CC-14a review findings](22-cursor-improvements.md#cr-12a--useful-local-review-findings) | P7-05; P7-02 shared review guidance, then P8-05 | Evidence-backed current-revision findings, honest causality/verification, U02 quality and integrated-parent checks | planned |
+| [CC-02a execution ceilings](23-claudecode-improvements.md#cc-02a--declared-foreground-execution-ceilings) | P7-02; existing process/verification broker, then P8-01/02 | Trusted bounded long foreground checks; default compatibility, responsive pause/cancel, current-result and output-cap outcomes | planned |
+| [CC-03 Windows process output](23-claudecode-improvements.md#cc-03--windows-process-output-and-outcomes) | P7-02; existing raw outcome/artifacts, then P8-01/03 | Declared decoding, explicit decoding loss and accurate raw outcomes without rewriting exit status or verification pass rules | planned |
+| [CR-10a / CC-08 boundary qualification](22-cursor-improvements.md#cr-10a--qualify-existing-trust-boundaries) | P8-02 with P8-01; existing policy/native/MCP/child paths | Independent hostile-path/cleanup cases and normal granted developer edits; fix demonstrated gaps without broad new prompts | planned qualification |
+| [CR-13 retained context and MCP evidence](22-cursor-improvements.md) | P8-03; existing artifacts, history, compaction and MCP | Access/retention enforced after compaction and reopen, truthful MCP identity/state, no new recall subsystem | planned qualification |
+| Packaged workflow acceptance | P8-01/02/03/05 under their exact task dependencies | Current artifact, both stores where state changes, live U01–U03/U06/U08 and all existing release gates; concise usable developer workflow | planned |
+
+Implement the P7 refinements with their owning milestones, then qualify the
+combined package under P8. Follow explicit increment prerequisites inside the
+supplements; file order introduces no dependency. New records or tool/catalog
+revisions require affected reopen, retention, authority and compatibility cases.
+Use the existing M5/M6 comparisons when changed context or verification behavior
+affects them; no selected refinement depends on an unqualified statistical fit.
+
+The deferred/non-selected tables in plans 22/23 are the disposition record for
+larger candidates. They add no release gate, command, dependency or automatic
+implementation commitment. Reconsider one only through separately scoped work
+with a demonstrated developer benefit. At P8-05, record selected implementation
+and evidence plus the deferred disposition; do not mark a selected gap complete
+merely because the research was reviewed.
 
 ## Owner-answer coverage
 

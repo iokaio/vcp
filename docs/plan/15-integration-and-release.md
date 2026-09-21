@@ -41,6 +41,14 @@ The report must include all attempted queries/tasks, sourced recall and stale/fo
 
 ## P8-01 — Native Windows support matrix
 
+Include the selected [Cursor](22-cursor-improvements.md) and
+[Claude Code](23-claudecode-improvements.md) refinements in the same packaged
+matrix: bounded search/read coverage, declared long foreground checks, Windows
+output decoding, helper setup diagnostics and current-result review. Test only
+advertised shell/toolchain combinations, preserve direct-profile verification
+requirements, and record unavailable combinations as not-run. These are
+qualification rows for P7 deliverables, not a second implementation backlog.
+
 Include [M9's enabled statistical consumers](21-markov-integration.md#m8m10--reuse-and-qualification-campaigns)
 in packaged Windows and actual-delegation qualification, with both-store
 prune/restore/replay coverage in P8-02 and the final enabled/rejected/deferred
@@ -59,6 +67,15 @@ For each supported environment run explicit `/pause`, inspect state while the CL
 
 ## P8-02 — Recovery and portability campaign
 
+Apply [CR-10a / CC-08](22-cursor-improvements.md#cr-10a--qualify-existing-trust-boundaries)
+to the integrated native-tool, MCP and child paths. Exercise unsafe outside-root
+and execution-configuration writes, junctions, destructive cleanup and ordinary
+authorized developer edits. Confirm existing policy and grants first; add no
+blanket prompt or denial merely because a path looks sensitive. Include pause or
+owner loss during long checks and cleanup, exact owned-path validation, locked
+roots, retained recovery references and both-store reopen. Fix any demonstrated
+boundary defect before release without changing the intended permission model.
+
 Combine real process termination with deterministic write/dispatch barriers. Cover root/child model and tool activity, journal/SQLite writes, artifact finalization, prune tombstones/cleanup, generation publication, encrypted vault copy and restore activation.
 
 For each crash point, record whether work was acknowledged, actual external effects, post-reopen canonical records, ledger and search visibility. Verify no repeated non-idempotent action, lost acknowledged record, resurrected deletion or plaintext publication. Include disk exhaustion, corrupt canonical versus derived data, locked files, interrupted cloud hydration and offline divergence. E10/E14/M02/M07/M08/U04–U06 apply.
@@ -72,6 +89,15 @@ On reopen, compare canonical records and complete artifact references with the a
 Start with every boundary individually, then combine selected realistic sequences such as pause during child output followed by backup copy interruption. Do not claim exhaustive interleavings. Keep failing seeds/barriers as repeatable regression cases; never repair a recovery run by deleting its data root.
 
 ## P8-03 — Full-history and encryption review
+
+Cover any records/artifacts added by the
+[selected workflow refinements](20-traceability.md#developer-workflow-follow-up-readiness):
+full process bytes versus decoded previews, finding evidence, worktree ownership
+and cleanup receipts. Pruning and restore must preserve live dependencies and
+explicit gaps; cleanup of a disposable root cannot silently erase its history.
+For [CR-13](22-cursor-improvements.md), qualify existing retained-output and
+history inspection plus truthful MCP identity/state across compaction and
+reopen. This adds evidence, not a new recall tool or unconditional context part.
 
 Audit full capture versus prompt/UI tails using oversized synthetic outputs and child transcripts. Check provider/recovery-key exclusion at request, logging, inspector, bug-report and export boundaries. Exercise 30-day notices, filtered purge and older-cloud-backup disclosure.
 
@@ -115,6 +141,15 @@ Choose the representative update and affected contracts before patching. Record 
 Keep pre-existing upstream failures distinct from new regressions and intentional VCP differences. Inspect effect inventories for newly introduced retry, credential, network or telemetry paths. Update notices and model/native asset inventory with source changes. A smaller patch is useful only if the single controller, authority and accounting contracts still hold.
 
 ## P8-05 — Owner acceptance and release evaluation
+
+Join the [workflow follow-up ledger](20-traceability.md#developer-workflow-follow-up-readiness)
+to the existing release evidence. Selected refinements require implementation
+and their stated acceptance; deferred candidates in plans 22/23 are not release
+requirements. Demonstrate an ordinary analysis/review/generation flow with useful
+defaults, concise progress, actionable setup failures and no repeated approvals
+for already authorized work. Record actual developer interventions as well as
+quality, time and total root cost. A planning or automated review result cannot
+stand in for the owner's release acceptance.
 
 Run all U01–U09 with the final Windows artifact and predeclared owner task/threshold definitions from segment 16. Owner work must demonstrate architecture-aware analysis, defect review and generation fitting existing code organization, with routing, local memory, MCP/skills, visible children, optimization, history controls and encrypted handoff functioning together.
 

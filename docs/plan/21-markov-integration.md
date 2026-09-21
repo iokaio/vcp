@@ -390,6 +390,12 @@ evidence; reject the extra source if its burden or false positives outweigh gain
 
 ## M6 — Verification order
 
+Reuse [CC-02a's declared foreground ceilings](23-claudecode-improvements.md#cc-02a--declared-foreground-execution-ceilings)
+when the P7-02 refinement lands; a longer permitted check does not become
+optional. [CC-03](23-claudecode-improvements.md#cc-03--windows-process-output-and-outcomes)
+must preserve raw outcomes and verification pass rules. A quick diagnostic may
+provide earlier feedback but cannot replace the applicable required check set.
+
 Under P2-06, record per-check duration/cost and failure observations bound to check
 identity, relevant paths, toolchain/configuration and input fingerprint. Discover
 the complete applicable check set before ordering. Among ready independent checks,

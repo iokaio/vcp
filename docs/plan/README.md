@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Plan revision 13 — September 20, 2026. Delivery uses larger behavioral milestones
+Plan revision 14 — September 21, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded
 qualification already completed from remaining product implementation. Explicit
 pause while the CLI stays open is required alongside close-to-pause.
@@ -25,10 +25,14 @@ The 68 task IDs and dependencies are unchanged. The P0 milestones below record
 bounded source, lifecycle, storage and retained-integration qualification;
 the final handoff consolidates their evidence for P1.
 
-The proposed [Cursor-derived improvements](22-cursor-improvements.md) preserve
-the accompanying [research note](../research/cursor.md) and a possible follow-up
-sequence. They are not adopted release requirements; the supplement records the
-remaining adoption steps without changing the current task graph.
+The [Cursor](22-cursor-improvements.md) and
+[Claude Code](23-claudecode-improvements.md) supplements select a bounded set of
+developer workflow improvements for the remaining P7 skills/delegation work and
+P8 qualification. They reuse completed tools, CLI, memory, routing and MCP
+contracts. The [workflow follow-up ledger](20-traceability.md#developer-workflow-follow-up-readiness)
+separates planned additions from implemented behavior and deferred candidates;
+this documentation revision implements none of them. The 68 task IDs, exact
+dependencies and 56-task first-release closure remain unchanged.
 
 Start with [the code layout](code-layout.md), [the delivery contract](00-delivery-contract.md), [test infrastructure and acceptance](16-test-fixtures-and-acceptance.md), then [upstream feasibility](01-upstream-feasibility.md). These files expand [architecture draft 0.4](../architecture/vcp-what.md) into coding and testing work. The architecture remains authoritative for product behavior; this directory owns the detailed execution instructions and repository layout.
 
@@ -95,6 +99,8 @@ the completed feasibility decision and the remaining production work.
 | [19 Deferred extensions and platforms](19-deferred-extensions-and-platforms.md) | Hooks, configuration import, observers and later execution hosts | P10-01 through P10-04 |
 | [20 Traceability](20-traceability.md) | All 68 items, exact dependencies, requirements and test ownership | Navigation and coverage ledger |
 | [21 Markov integration](21-markov-integration.md) | Sequenced local analytics, existing-feature refactors, qualification and later reuse | Supporting increments within P2/P5/P6/P7/P8 and deferred P10-03; no new task IDs |
+| [22 Cursor improvements](22-cursor-improvements.md) | Bounded search, useful helpers, worktree readiness, review and debug workflows | Selected refinements within remaining P7-02/04/05/06 and P8 qualification |
+| [23 Claude Code improvements](23-claudecode-improvements.md) | Long-check ceilings, Windows output correctness and shared read/review refinements | Selected refinements within the same remaining owners; larger candidates deferred |
 
 ## Execution order
 
