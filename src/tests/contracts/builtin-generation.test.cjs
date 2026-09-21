@@ -18,7 +18,14 @@ test('independent executable oracle rejects seeded missing feature and accepts e
   const original=require(path.join(fixture,'project/src/cart.cjs'));
   assert.equal(oracle.evaluate(observe(original.quoteCart)).pass,false);
   const measured=oracle.evaluate(observe(reference));
-  assert.equal(measured.pass,true);assert.equal(measured.total,38);
+  assert.equal(measured.pass,true);assert.equal(measured.total,44);
+  // The public contract rejects arrays and strings even when their missing
+  // discountBps field could otherwise look like the default options object.
+  assert.equal(oracle.evaluate(observe((items,options)=>reference(items,
+    Array.isArray(options)||typeof options==='string'?{}:options))).pass,false);
+  // An invalid price must still be rejected when quantity zero masks overflow.
+  assert.equal(oracle.evaluate(observe((items,options)=>reference(
+    items?.map?.(item=>item?.quantity===0?{...item,unitCents:0}:item)??items,options))).pass,false);
   assert.equal(oracle.evaluate(observe((items,options)=>{const result=reference(items,options);if(items.length)items[0].quantity++;return result;})).pass,false);
   assert.equal(oracle.evaluate(observe(reference),['package-lock.json']).pass,false);
   assert.equal(oracle.evaluate([]).pass,false);
@@ -41,13 +48,42 @@ test('preparation freezes matched arms without executable authority, expected an
   const generation=require('../../../scripts/evals/builtin-generation-runner.cjs');
   assert.throws(()=>generation.run(result.plan,result.sha256,()=>{throw Error('must not dispatch');}),/Runnable qualified/);
   if(process.env.VCP_U03_LAUNCHER){
-    fs.writeFileSync(spec,JSON.stringify({executable,profile:profileFile,aggregate_cap_usd:'0.200001',runtime:{node:process.execPath,launcher:process.env.VCP_U03_LAUNCHER}}));
+    const runtime={node:process.execPath,launcher:process.env.VCP_U03_LAUNCHER};
+    if(process.env.VCP_U03_BUILD_RECEIPT)runtime.build_receipt=process.env.VCP_U03_BUILD_RECEIPT;
+    fs.writeFileSync(spec,JSON.stringify({executable,profile:profileFile,aggregate_cap_usd:'0.200001',runtime}));
+    const defaultPlan=prepare(spec,path.join(root,'runtime-without-proposal'));
+    assert.equal(defaultPlan.runnable,false);
+    const blocked=JSON.parse(fs.readFileSync(defaultPlan.plan));
+    assert.deepEqual(blocked.blockers,['explicit_opaque_launcher_permission_proposal_required']);
+    const limited=JSON.parse(fs.readFileSync(path.join(path.dirname(defaultPlan.plan),'baseline/profile.json')));
+    assert.deepEqual(limited.automatic_effects,['read','write']);assert.deepEqual(limited.processes,[]);
+    assert.throws(()=>generation.validate(blocked,defaultPlan.plan),/Runnable qualified/);
+    fs.writeFileSync(spec,JSON.stringify({executable,profile:profileFile,aggregate_cap_usd:'0.200001',runtime,propose_opaque_launcher_effects:true}));
+    assert.throws(()=>prepare(spec,path.join(root,'short-deadline')),/deadline above the default 120-second/);
+    assert.equal(fs.existsSync(path.join(root,'short-deadline')),false);
+    profile.deadline_seconds=600;fs.writeFileSync(profileFile,JSON.stringify(profile));
     const qualified=prepare(spec,path.join(root,'qualified')),qualifiedPlan=JSON.parse(fs.readFileSync(qualified.plan));
     assert.equal(qualified.runnable,true);generation.validate(qualifiedPlan,qualified.plan);
-    assert.equal(qualified.launcher_build_provenance,'owner_supplied_unverified');
-    assert.equal(qualifiedPlan.runtime.launcher_build_provenance,'owner_supplied_unverified');
+    const provenance=runtime.build_receipt?'recorded_local_build':'owner_supplied_unverified';
+    assert.equal(qualified.launcher_build_provenance,provenance);
+    assert.equal(qualifiedPlan.runtime.launcher_build_provenance,provenance);
     assert.match(qualifiedPlan.runtime.launcher_reference_source_sha256,/^[a-f0-9]{64}$/);
     assert.equal(qualifiedPlan.runtime.launcher_source_sha256,undefined);
+    assert.equal(qualifiedPlan.authorization,false);
+    assert.equal(qualifiedPlan.permission_review.approval,'pending_exact_plan_authorization');
+    assert.deepEqual(qualifiedPlan.permission_review.automatic_effects,['read','write','execute','network','install','publish','opaque']);
+    const altered=structuredClone(qualifiedPlan);altered.permission_review.automatic_effects.pop();
+    assert.throws(()=>generation.validate(altered,qualified.plan),/permission proposal changed/);
+    const injectedProfile=path.join(path.dirname(qualified.plan),'baseline/profile.json'),originalProfile=fs.readFileSync(injectedProfile);
+    const broadened=JSON.parse(originalProfile);broadened.processes.push({...broadened.processes[0],name:'unscoped'});
+    fs.writeFileSync(injectedProfile,JSON.stringify(broadened));
+    assert.throws(()=>generation.validate(qualifiedPlan,qualified.plan),/verification profile changed/);
+    fs.writeFileSync(injectedProfile,originalProfile);
+    if(runtime.build_receipt){
+      const receipt=JSON.parse(fs.readFileSync(runtime.build_receipt));receipt.embedded.VCP_U03_NODE='changed';
+      const tampered=path.join(root,'tampered-build.json');fs.writeFileSync(tampered,JSON.stringify(receipt));
+      assert.throws(()=>require('../../../scripts/evals/builtin-generation-prepare.cjs').qualifyRuntime({...runtime,build_receipt:tampered}),/build receipt does not bind/);
+    }
     let calls=0;
     const stopped=generation.run(qualified.plan,qualified.sha256,()=>{calls++;return {error:'ETIMEDOUT',status:null,stdout:'',stderr:''};});
     assert.equal(calls,1);assert.equal(stopped.stopped,true);assert.equal(stopped.actual_cost_micros,null);assert.equal(stopped.runs[1].status,'not_run');
@@ -56,6 +92,14 @@ test('preparation freezes matched arms without executable authority, expected an
   }
   profile.automatic_effects.push('execute');fs.writeFileSync(profileFile,JSON.stringify(profile));
   assert.throws(()=>prepare(spec,path.join(root,'denied')),/no execution authority/);assert.equal(fs.existsSync(path.join(root,'denied')),false);
+});
+
+test('runtime verification profile cannot be derived with an impossible task deadline',()=>{
+  const {qualifiedProfile}=require('../../../scripts/evals/builtin-generation-prepare.cjs');
+  const defaults=qualifiedProfile({deadline_seconds:600,maximum_autonomy:'workspace',automatic_effects:['read','write'],processes:[]},'workspace','catalog',100,{launcher:'unused'});
+  assert.equal(defaults.maximum_autonomy,'workspace');assert.deepEqual(defaults.automatic_effects,['read','write']);assert.deepEqual(defaults.processes,[]);
+  for(const deadline_seconds of [60,120])assert.throws(()=>qualifiedProfile({deadline_seconds},'workspace','catalog',100,{launcher:'unused'},true),/deadline above the default 120-second/);
+  assert.equal(qualifiedProfile({deadline_seconds:600},'workspace','catalog',100,{launcher:'unused'},true).deadline_seconds,600);
 });
 test('oracle refuses current runtime before loading candidate when network permission is absent',()=>{
   const help=require('node:child_process').execFileSync(process.execPath,['--help'],{encoding:'utf8'});

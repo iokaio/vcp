@@ -102,6 +102,8 @@ pub struct PreparedProcessOutcome {
     pub exit_code: Option<i32>,
     pub stdout: ArtifactDescriptor,
     pub stderr: ArtifactDescriptor,
+    pub stdout_presentation: vcp_tools::process::output::Decoded,
+    pub stderr_presentation: vcp_tools::process::output::Decoded,
     pub stdout_tail: Vec<u8>,
     pub stderr_tail: Vec<u8>,
     pub reason: Option<String>,
@@ -377,6 +379,18 @@ impl PreparedProcess {
         let exit = observed.exit_code;
         let reason = observed.stop_reason.clone();
         let total = (observed.stdout.total, observed.stderr.total);
+        let stdout_presentation = vcp_tools::process::output::decode(
+            &observed.stdout.bytes,
+            observed.stdout.total,
+            prepared.profile().output_encoding(),
+        );
+        let stderr_presentation = vcp_tools::process::output::decode(
+            &observed.stderr.bytes,
+            observed.stderr.total,
+            prepared.profile().output_encoding(),
+        );
+        let presentation =
+            serde_json::json!({"stdout":stdout_presentation,"stderr":stderr_presentation});
         let evidence=self.host.worker.run_cleanup(move|context|{
             // Drained output is already observed work. A new filesystem scan
             // needs current read authority even while recording a late outcome.
@@ -387,7 +401,7 @@ impl PreparedProcess {
                 },
                 _=>serde_json::json!({"complete":false,"reason":"current authority does not permit a fresh workspace observation"})
             };
-            let evidence=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"schema_version":1,"effect":effect,"execution":execution,"exit_code":exit,"stop_reason":reason,"stdout_bytes":total.0,"stderr_bytes":total.1,"output_complete":!partial,"owned_processes_remaining":0,"observed_workspace":sources,"external_effects":"opaque; reduced isolation does not inventory external filesystem/network effects"}))?,"vcp-process-outcome-v1")?;
+            let evidence=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"schema_version":1,"effect":effect,"execution":execution,"exit_code":exit,"stop_reason":reason,"stdout_bytes":total.0,"stderr_bytes":total.1,"presentation":presentation,"output_complete":!partial,"owned_processes_remaining":0,"observed_workspace":sources,"external_effects":"opaque; reduced isolation does not inventory external filesystem/network effects"}))?,"vcp-process-outcome-v1")?;
             let mut receipts=vec![plan,evidence.spec.id.clone()];receipts.extend(output);receipts.extend(additional_evidence);
             let current:Effect=context.engine.store().state().record(Collection::Effect,effect.as_str(),&binding.scope.workspace)?.decode()?;
             receipts.extend(current.observed_changes);
@@ -401,6 +415,8 @@ impl PreparedProcess {
             exit_code: observed.exit_code,
             stdout,
             stderr,
+            stdout_presentation,
+            stderr_presentation,
             stdout_tail: observed.stdout.bytes,
             stderr_tail: observed.stderr.bytes,
             reason: observed.stop_reason,

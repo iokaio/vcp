@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "testing",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Discover project checks, select meaningful regressions, and bind observed results to current changes.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "3bba41f2dac34ca8970aa4880e3a914f893742250d173c136ffa1fa61ba0099b"
+    "sha256": "6aa515c4d9967861794e070dab822c4f80c05f5659e429bb746f6f9388635513"
   },
   "resources": []
 }

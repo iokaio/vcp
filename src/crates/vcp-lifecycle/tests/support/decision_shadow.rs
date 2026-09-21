@@ -208,7 +208,7 @@ impl Fixture {
             let mut events = Vec::new();
             let mut output = Vec::new();
             if escalation && index == 0 {
-                let call = json!({"type":"function_call","id":"missing-read","call_id":"missing-read","name":"vcp_read","arguments":"{\"path\":\"missing-file.txt\",\"max_bytes\":1024}","status":"completed"});
+                let call = json!({"type":"function_call","id":"missing-read","call_id":"missing-read","name":"vcp_read","arguments":"{\"path\":\"missing-file.txt\",\"max_bytes\":1024,\"start_line\":null,\"end_line\":null}","status":"completed"});
                 events.push(json!({"type":"response.output_item.done","output_index":0,"item":call}));
                 output.push(call);
             } else {

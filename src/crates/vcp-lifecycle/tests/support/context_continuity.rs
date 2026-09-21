@@ -51,7 +51,7 @@ async fn run(backend: BackendKind, oversized: bool) {
         let mut events = vec![];
         let mut output = vec![];
         if n < 5 {
-            let item = serde_json::json!({"type":"function_call","id":format!("item-{n}"),"call_id":format!("read-{n}"),"name":"vcp_read","arguments":serde_json::json!({"path":"evidence.txt","max_bytes":8192}).to_string(),"status":"completed"});
+            let item = serde_json::json!({"type":"function_call","id":format!("item-{n}"),"call_id":format!("read-{n}"),"name":"vcp_read","arguments":serde_json::json!({"path":"evidence.txt","max_bytes":8192,"start_line":null,"end_line":null}).to_string(),"status":"completed"});
             events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item}));
             output.push(item);
         } else { events.push(ev_assistant_message("final", "Observed historical sources; no completion claim.")); }
@@ -104,6 +104,19 @@ async fn run(backend: BackendKind, oversized: bool) {
             .unwrap();
         }
         let (snapshot, raw) = provider_snapshot();
+        // P7-02 adds 891 schema bytes and 38 quoted bytes per explicit nullable
+        // read call. Keep this compaction fixture's effective source/history
+        // budget comparable without changing the shared provider fixture.
+        let mut endpoint: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        endpoint["data"]["endpoints"][0]["max_prompt_tokens"] = serde_json::json!(25_000);
+        let raw = serde_json::to_vec(&endpoint).unwrap();
+        let snapshot = vcp_models::catalog::Snapshot::from_endpoints(
+            &raw,
+            snapshot.observed_at,
+            snapshot.valid_until,
+            snapshot.compatibility,
+        )
+        .unwrap();
         host.configure_provider(snapshot, raw).unwrap();
         let mut registry = ExtensionRegistryBuilder::new();
         registry.turn_start_admission(Arc::new(host.clone()));
@@ -178,8 +191,8 @@ async fn run(backend: BackendKind, oversized: bool) {
             thread,
             vcp_context::compaction::Config {
                 keep_recent_pairs: 1,
-                // 24,000 minus output and safety reserves leaves 22,464
-                // input bytes. A larger historical preview must still fail
+                // The 25,000 prompt ceiling minus the 512 safety reserve leaves
+                // 24,488 input bytes. A larger historical preview must still fail
                 // closed when current facts and the recent pair cannot fit.
                 preview_bytes: if oversized && phase == 2 { 1024 } else { 64 },
                 minimum_gain_bytes: 256,

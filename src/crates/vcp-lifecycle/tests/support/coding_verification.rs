@@ -141,10 +141,10 @@ async fn run(backend: BackendKind, mode: &'static str) {
         let mut events=Vec::new();
         let mut output=Vec::new();
         let selected = match index {
-            0 => Some(("vcp_read",serde_json::json!({"path":"value.txt","max_bytes":1024}))),
+            0 => Some(("vcp_read",serde_json::json!({"path":"value.txt","max_bytes":1024,"start_line":null,"end_line":null}))),
             1 => Some(("vcp_patch",serde_json::json!({"patch":format!("*** Begin Patch\n*** Update File: value.txt\n@@\n-41\n+{}\n*** End Patch",if mode=="failed" {43}else{42})}))),
             2 if mode != "missing" => Some(("vcp_verify",serde_json::json!({"citations":[]}))),
-            3 if mode == "later_effect" => Some(("vcp_read",serde_json::json!({"path":"value.txt","max_bytes":1024}))),
+            3 if mode == "later_effect" => Some(("vcp_read",serde_json::json!({"path":"value.txt","max_bytes":1024,"start_line":null,"end_line":null}))),
             3 if mode == "siblings" => Some(("vcp_verify",serde_json::json!({"citations":[]}))),
             _ => None,
         };
@@ -188,6 +188,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
         thread,
         VerificationConfig {
             requirements: vec![Requirement {
+                timeout_ms: None,
                 manifest: "package.json".into(),
                 runner: Runner::Node,
                 profile: "node".into(),

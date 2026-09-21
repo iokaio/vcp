@@ -77,7 +77,7 @@
     },
     "builtin-skills": {
       "task_ids": ["P7-02"],
-      "args": ["--test", "src/tests/contracts/builtin-assets.test.cjs", "src/tests/contracts/builtin-live-runner.test.cjs", "src/tests/contracts/builtin-toolchain.test.cjs", "src/tests/contracts/builtin-generation.test.cjs"],
+      "args": ["--test", "src/tests/contracts/builtin-assets.test.cjs", "src/tests/contracts/builtin-live-runner.test.cjs", "src/tests/contracts/builtin-toolchain.test.cjs", "src/tests/contracts/builtin-generation.test.cjs", "src/tests/contracts/builtin-debug.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 30000,

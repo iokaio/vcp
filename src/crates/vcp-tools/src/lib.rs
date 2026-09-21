@@ -30,10 +30,33 @@ pub enum Error {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "tool", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
-    Read { path: String, max_bytes: u64 },
-    List { path: String, max_entries: usize },
-    Search { query: String, max_hits: usize },
-    Patch { patch: String },
+    Read {
+        path: String,
+        max_bytes: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start_line: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        end_line: Option<usize>,
+    },
+    List {
+        path: String,
+        max_entries: usize,
+    },
+    Search {
+        query: String,
+        max_hits: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<read::SearchMode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path_pattern: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_files: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_scan_bytes: Option<u64>,
+    },
+    Patch {
+        patch: String,
+    },
 }
 impl Request {
     pub fn tool(&self) -> &'static str {
@@ -83,22 +106,51 @@ impl Prepared {
         &self.result
     }
     pub fn revalidate(&self) -> Result<()> {
+        self.revalidate_cancellable(&|| false)
+    }
+    pub fn revalidate_cancellable(&self, cancelled: &dyn Fn() -> bool) -> Result<()> {
+        if cancelled() {
+            return Err(Error::Invalid("tool revalidation cancelled"));
+        }
         self.revalidate_index()?;
         if let Some((manifest, probes)) = &self.integration_parent {
             vcp_repository::merge::revalidate_parent(&self.root, manifest, probes)?;
         }
-        vcp_repository::instructions::revalidate_probes(
-            &self.probes,
-            std::slice::from_ref(&self.root),
-        )?;
+        for dependency in &self.probes {
+            if cancelled() {
+                return Err(Error::Invalid("tool revalidation cancelled"));
+            }
+            vcp_repository::instructions::revalidate_probes(
+                std::slice::from_ref(dependency),
+                std::slice::from_ref(&self.root),
+            )?;
+        }
         match &self.request {
             Request::List { path, max_entries } => {
                 if read::list(&self.root, path, *max_entries)? != self.result {
                     return Err(vcp_repository::Error::Stale.into());
                 }
             }
-            Request::Search { query, max_hits } => {
-                if read::search(&self.root, query, *max_hits)?.0 != self.result {
+            Request::Search {
+                query,
+                max_hits,
+                mode,
+                path_pattern,
+                max_files,
+                max_scan_bytes,
+            } => {
+                if read::search(
+                    &self.root,
+                    query,
+                    *max_hits,
+                    *mode,
+                    path_pattern.as_deref(),
+                    *max_files,
+                    *max_scan_bytes,
+                    cancelled,
+                )?
+                .0 != self.result
+                {
                     return Err(vcp_repository::Error::Stale.into());
                 }
             }
@@ -136,6 +188,19 @@ pub fn prepare(
     request: Request,
     output_bytes: ByteCount,
 ) -> Result<Prepared> {
+    prepare_cancellable(root, identity, request, output_bytes, &|| false)
+}
+/// Cancellation is trusted execution context and is never accepted in model arguments.
+pub fn prepare_cancellable(
+    root: Root,
+    identity: Identity,
+    request: Request,
+    output_bytes: ByteCount,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Prepared> {
+    if cancelled() {
+        return Err(Error::Invalid("tool preparation cancelled"));
+    }
     if root.identity.workspace != identity.scope.workspace
         || root.identity.binding != identity.binding
         || output_bytes == ByteCount::ZERO
@@ -150,21 +215,35 @@ pub fn prepare(
     let mut probes = vec![];
     let mut changes = vec![];
     let result = match &request {
-        Request::Read { path, max_bytes } => {
-            checked_path(path, false)?;
-            if *max_bytes == 0 || *max_bytes > 1024 * 1024 {
-                return Err(Error::Invalid("read ceiling"));
-            }
-            let source = root.read(Path::new(path), *max_bytes)?;
-            probes.push(probe(&root, path, Some(source.version.clone())));
-            let text = std::str::from_utf8(&source.bytes).map_err(|_| {
-                Error::Invalid("read requires UTF-8 text; binary capture is not enabled")
-            })?;
-            serde_json::json!({"text":text,"version":source.version,"complete":true})
+        Request::Read {
+            path,
+            max_bytes,
+            start_line,
+            end_line,
+        } => {
+            let (result, dependency) = read::file(&root, path, *max_bytes, *start_line, *end_line)?;
+            probes.push(dependency);
+            result
         }
         Request::List { path, max_entries } => read::list(&root, path, *max_entries)?,
-        Request::Search { query, max_hits } => {
-            let (result, dependencies) = read::search(&root, query, *max_hits)?;
+        Request::Search {
+            query,
+            max_hits,
+            mode,
+            path_pattern,
+            max_files,
+            max_scan_bytes,
+        } => {
+            let (result, dependencies) = read::search(
+                &root,
+                query,
+                *max_hits,
+                *mode,
+                path_pattern.as_deref(),
+                *max_files,
+                *max_scan_bytes,
+                cancelled,
+            )?;
             probes = dependencies;
             result
         }

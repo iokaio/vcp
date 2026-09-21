@@ -22,6 +22,25 @@ impl Context {
             .get(&request.profile)
             .ok_or("process profile is not configured")?
             .clone();
+        if request.timeout_ms == 0 || request.timeout_ms > profile.max_timeout_ms() {
+            return Err(format!(
+                "profile {} requested duration {}ms exceeds ceiling {}ms",
+                profile.name(),
+                request.timeout_ms,
+                profile.max_timeout_ms()
+            )
+            .into());
+        }
+        if self
+            .coding_remaining()
+            .is_some_and(|remaining| u128::from(request.timeout_ms) > remaining.as_millis())
+        {
+            return Err(format!(
+                "profile {} requested duration exceeds remaining coding task deadline",
+                profile.name()
+            )
+            .into());
+        }
         let root = profile.executable_root_id()?;
         self.tool_read_access(&root, "vcp_exec")
             .map_err(|_| "trusted read denial prevents executable preparation")?;

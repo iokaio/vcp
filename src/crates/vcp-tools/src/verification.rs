@@ -19,6 +19,8 @@ pub struct Requirement {
     pub manifest: String,
     pub runner: Runner,
     pub profile: String,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
     pub expected_tests: Vec<String>,
     pub rationale: String,
 }
@@ -26,6 +28,14 @@ impl Requirement {
     pub fn validate(&self) -> Result<()> {
         if vcp_repository::path::relative(Path::new(&self.manifest))? != self.manifest {
             return Err(Error::Invalid("normalized manifest path required"));
+        }
+        if self
+            .timeout_ms
+            .is_some_and(|duration| !(1..=process::MAX_TIMEOUT_MS).contains(&duration))
+        {
+            return Err(Error::Invalid(
+                "verification check duration exceeds finite host ceiling",
+            ));
         }
         if self.profile.is_empty()
             || self.profile.len() > 64
@@ -76,7 +86,7 @@ pub fn discover(observation: &Observation, requirements: &[Requirement]) -> Resu
             origin: source.map(|s| s.version.clone()),
             directory: directory.clone(), runner: requirement.runner,
             request: process::Request { profile: requirement.profile.clone(), arguments: vec![], directory,
-                timeout_ms: 120_000, output_bytes: 1024 * 1024, input: None },
+                timeout_ms: requirement.timeout_ms.unwrap_or(process::DEFAULT_TIMEOUT_MS), output_bytes: 1024 * 1024, input: None },
             expected_tests: requirement.expected_tests.clone(), rationale: requirement.rationale.clone(), not_run: None,
         };
         let discovered: std::result::Result<Vec<String>, String> = (|| {

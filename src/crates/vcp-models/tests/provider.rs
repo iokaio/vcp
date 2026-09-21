@@ -30,6 +30,31 @@ fn nullable_tool_input_accepts_only_explicit_string_or_null() {
         assert!(Tools::parse(&schema).is_err());
     }
 }
+#[test]
+fn nullable_integer_tool_limits_reject_other_types_and_general_unions() {
+    let mut schema = tools();
+    schema[0]["parameters"]["properties"]["path"]["type"] = json!(["integer", "null"]);
+    let parsed = Tools::parse(&schema).unwrap();
+    for valid in [r#"{"path":null}"#, r#"{"path":1}"#, r#"{"path":-1}"#] {
+        assert!(parsed.validate_call("read_file", valid).is_ok());
+    }
+    for invalid in [
+        r#"{"path":1.5}"#,
+        r#"{"path":"1"}"#,
+        r#"{"path":true}"#,
+        r#"{}"#,
+    ] {
+        assert!(parsed.validate_call("read_file", invalid).is_err());
+    }
+    for unsupported in [
+        json!(["integer", "number"]),
+        json!(["integer", "null", "string"]),
+        json!(["boolean", "null"]),
+    ] {
+        schema[0]["parameters"]["properties"]["path"]["type"] = unsupported;
+        assert!(Tools::parse(&schema).is_err());
+    }
+}
 fn stream() -> Stream {
     Stream::new(Tools::parse(&tools()).unwrap())
 }

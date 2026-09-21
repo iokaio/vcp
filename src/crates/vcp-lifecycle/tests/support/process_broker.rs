@@ -123,7 +123,7 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
                 EffectClass::Publish,
                 EffectClass::Opaque,
             ]),
-            timeout_ceiling_ms: Units::new(120_000),
+            timeout_ceiling_ms: Units::new(180_000),
             output_ceiling_bytes: ByteCount::new(8 * 1024 * 1024),
         };
         host.command(
@@ -187,6 +187,65 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
         assert_eq!(actual["args"], serde_json::json!(expected));
         assert_eq!(actual["ci"], "synthetic-public-setting");
         assert_eq!(actual["inherited"], serde_json::Value::Null);
+        let mut encoded_receipts = Vec::new();
+        for encoding in [None, Some(vcp_tools::process::output::Encoding::Utf16Le)] {
+            host.configure_process_profile(
+                profile("fixture", &executable, true)
+                    .with_output_encoding(encoding)
+                    .unwrap(),
+            )
+            .unwrap();
+            let mode = if encoding.is_some() {
+                "encoded-output-utf16"
+            } else {
+                "encoded-output-utf8"
+            };
+            let ticket = host.prepare_process(id, request(mode, &workspace)).unwrap();
+            let result = host.dispatch_process(ticket).unwrap().wait().await.unwrap();
+            assert_eq!(result.exit_code, Some(7));
+            let raw = host.read_artifact(result.stdout.spec.id.clone()).unwrap();
+            let expected = format!("raw-prefix{}\u{1b}[31mé終", "😀".repeat(20_000));
+            let mut expected = if encoding.is_some() {
+                expected
+                    .encode_utf16()
+                    .flat_map(u16::to_le_bytes)
+                    .collect::<Vec<_>>()
+            } else {
+                expected.into_bytes()
+            };
+            expected.push(0xff);
+            assert_eq!(raw, expected);
+            encoded_receipts.push((result.stdout.spec.id.clone(), raw.clone()));
+            encoded_receipts.push((
+                result.evidence.spec.id.clone(),
+                host.read_artifact(result.evidence.spec.id.clone()).unwrap(),
+            ));
+            assert_eq!(result.stdout_tail, raw[raw.len() - 65536..]);
+            assert!(result
+                .stdout_presentation
+                .tail
+                .ends_with("\u{1b}[31mé終\u{fffd}"));
+            assert_eq!(result.stdout_presentation.replacement_characters, 1);
+            assert!(result.stdout_presentation.omitted_bytes > 0);
+            let evidence: serde_json::Value =
+                serde_json::from_slice(&host.read_artifact(result.evidence.spec.id).unwrap())
+                    .unwrap();
+            assert_eq!(evidence["exit_code"], 7);
+            assert_eq!(
+                evidence["presentation"]["stdout"]["replacement_characters"],
+                1
+            );
+            assert_eq!(
+                evidence["presentation"]["stdout"]["decision"],
+                if encoding.is_some() {
+                    "trusted_profile"
+                } else {
+                    "legacy_utf8"
+                }
+            );
+        }
+        host.configure_process_profile(profile("fixture", &executable, true))
+            .unwrap();
         // An observed process exit is not enough to release the resource claim:
         // the canonical outcome must be collected and committed first.
         let first = host
@@ -369,6 +428,70 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
             if name=="cmd"{assert_eq!(fs::read_to_string(workspace.join("cmd marker.txt")).unwrap().trim(),"preserved");}
             if name=="powershell"{assert_eq!(fs::read_to_string(workspace.join("powershell ü.txt")).unwrap().trim(),"exact ; &");}
         }
+        // Explicit pipe profiles exercise both Windows PowerShell and PowerShell 7.
+        let powershells = [
+            system.join("System32/WindowsPowerShell/v1.0/powershell.exe"),
+            std::env::var_os("VCP_TEST_PWSH")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    std::path::PathBuf::from(std::env::var_os("ProgramFiles").unwrap())
+                        .join("PowerShell/7/pwsh.exe")
+                }),
+        ];
+        for executable in powershells {
+            assert!(
+                executable.is_file(),
+                "PowerShell output qualification requires {}",
+                executable.display()
+            );
+            for (encoding, constructor) in [
+                (
+                    vcp_tools::process::output::Encoding::Utf8,
+                    "[System.Text.UTF8Encoding]::new($false)",
+                ),
+                (
+                    vcp_tools::process::output::Encoding::Utf16Le,
+                    "[System.Text.UnicodeEncoding]::new($false,$false)",
+                ),
+            ] {
+                let profile = Profile::new(
+                    "powershell".into(),
+                    executable.clone(),
+                    Mode::PowerShell,
+                    BTreeMap::from([("SystemRoot".into(), system.to_str().unwrap().into())]),
+                    BTreeSet::new(),
+                    true,
+                )
+                .unwrap()
+                .with_output_encoding(Some(encoding))
+                .unwrap();
+                host.configure_process_profile(profile).unwrap();
+                let script = format!("if ([Console]::OpenStandardInput().ReadByte() -ne -1) {{ exit 9 }}; $bytes=({constructor}).GetBytes('é終'); $out=[Console]::OpenStandardOutput(); $out.Write($bytes,0,$bytes.Length); $out.Flush(); exit 7");
+                let ticket = host
+                    .prepare_process(
+                        id,
+                        Request {
+                            profile: "powershell".into(),
+                            arguments: vec![script],
+                            directory: String::new(),
+                            timeout_ms: 10_000,
+                            output_bytes: 65536,
+                            input: None,
+                        },
+                    )
+                    .unwrap();
+                let result = host.dispatch_process(ticket).unwrap().wait().await.unwrap();
+                assert_eq!(result.exit_code, Some(7));
+                assert_eq!(result.stdout_presentation.tail, "é終");
+                assert_eq!(result.stdout_presentation.replacement_characters, 0);
+                let expected = if encoding == vcp_tools::process::output::Encoding::Utf8 {
+                    "é終".as_bytes().to_vec()
+                } else {
+                    "é終".encode_utf16().flat_map(u16::to_le_bytes).collect()
+                };
+                assert_eq!(host.read_artifact(result.stdout.spec.id).unwrap(), expected);
+            }
+        }
         for terminal in [false, true] {
             let directory = workspace.join(if terminal {
                 "count-terminal"
@@ -434,6 +557,8 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
                 vcp_tools::Request::Read {
                     path: "fixture.txt".into(),
                     max_bytes: 100,
+                    start_line: None,
+                    end_line: None,
                 },
             )
             .unwrap();
@@ -681,7 +806,9 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
                 "policy-stop"
             });
             fs::create_dir(&directory).unwrap();
-            let mut bounded = profile("fixture", &executable, true);
+            let mut bounded = profile("fixture", &executable, true)
+                .with_max_timeout_ms(180_000)
+                .unwrap();
             if terminal {
                 bounded = bounded.with_terminal(24, 80).unwrap();
             }
@@ -689,9 +816,9 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
             let queued = host
                 .prepare_process(id, request("write", &directory.join("queued-marker")))
                 .unwrap();
-            let live = host
-                .prepare_process(id, request("tree", &directory))
-                .unwrap();
+            let mut long_request = request("tree", &directory);
+            long_request.timeout_ms = 150_000;
+            let live = host.prepare_process(id, long_request).unwrap();
             let process = host.dispatch_process(live).unwrap();
             ready(&directory.join("child-ready")).await;
             let queued_host = host.clone();
@@ -746,7 +873,10 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
                     "synthetic revised objective"
                 );
             } else {
-                control.wait().await.unwrap();
+                tokio::time::timeout(Duration::from_secs(5), control.wait())
+                    .await
+                    .unwrap()
+                    .unwrap();
             }
             // Acknowledged authority change must itself observe native quiescence,
             // independently of the caller subsequently collecting process results.
@@ -828,5 +958,14 @@ async fn process_broker_observes_authority_argv_limits_and_native_tree_stop() {
         assert!(host
             .prepare_process(id, request("verify", &workspace))
             .is_err());
+        test.codex.shutdown_and_wait().await.unwrap();
+        // Retained extensions own host clones until the test runtime is dropped.
+        drop(test);
+        drop(host);
+        let (reopened, owner) = CanonicalHost::open(config.clone()).unwrap();
+        for (artifact, expected) in encoded_receipts {
+            assert_eq!(reopened.read_artifact(artifact).unwrap(), expected);
+        }
+        owner.close().await.unwrap();
     }
 }

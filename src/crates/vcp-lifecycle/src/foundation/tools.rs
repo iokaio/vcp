@@ -37,14 +37,16 @@ impl CanonicalHost {
         let generation = scheduler::generation(&self.runtime, thread)?;
         let binding = self.binding(thread)?;
         let scoped = binding.clone();
+        let runtime = self.runtime.clone();
         let (prepared, controller, owner) = self.worker.run(move |context| {
             context.child_tool_request(&scoped, &request)?;
             let identity = context.tool_identity(&scoped, request.tool())?;
-            let prepared = vcp_tools::prepare(
+            let prepared = vcp_tools::prepare_cancellable(
                 context.task_root(&scoped.scope.task)?,
                 identity,
                 request,
                 ByteCount::new(1024 * 1024),
+                &|| scheduler::check_generation(&runtime, thread, generation).is_err(),
             )?;
             Ok((
                 Arc::new(prepared),
@@ -173,6 +175,9 @@ impl CanonicalHost {
         let owner = ticket.owner;
         let execution = ExecutionId::new();
         let run = execution.clone();
+        let runtime = self.runtime.clone();
+        let thread = ticket.thread;
+        let generation = ticket.generation;
         let admitted = self.worker.run(move |context| {
             if context.engine.controller() != &controller || context.engine.owner_epoch() != owner {
                 return Err("prepared ticket belongs to another owner".into());
@@ -183,7 +188,9 @@ impl CanonicalHost {
             ) {
                 return Err("current tool authority rejected before native revalidation".into());
             }
-            prepared.revalidate()?;
+            prepared.revalidate_cancellable(&|| {
+                scheduler::check_generation(&runtime, thread, generation).is_err()
+            })?;
             match context.tool_decision(&binding, &prepared)? {
                 vcp_policy::Decision::Allow { origin, .. } => {
                     context.tool_advance(
@@ -321,11 +328,14 @@ impl CanonicalHost {
             serde_json::json!({"complete":failure.is_none(),"files":observations,"error":failure})
         };
         let result_copy = result.clone();
+        let runtime = self.runtime.clone();
         let finished = self.worker.run_cleanup(move |context| {
             // Read results are released only if the observed inputs and current
             // authority still match after preparation/admission.
             if prepared.changes().is_empty() {
-                prepared.revalidate()?;
+                prepared.revalidate_cancellable(&|| {
+                    scheduler::check_generation(&runtime, thread, generation).is_err()
+                })?;
                 if !matches!(
                     context.tool_decision(&binding, &prepared)?,
                     vcp_policy::Decision::Allow { .. }

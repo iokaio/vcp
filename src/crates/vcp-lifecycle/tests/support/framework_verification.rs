@@ -174,7 +174,7 @@ async fn run(backend: BackendKind, runner: Runner) {
     )
     .unwrap();
     host.configure_verification(thread, VerificationConfig {
-        requirements: vec![Requirement {manifest: manifest.into(),runner,profile:"check".into(),expected_tests:vec![expected.into()],rationale:"Exercise the actual changed source or documentation target".into()}],
+        requirements: vec![Requirement { timeout_ms: None,manifest: manifest.into(),runner,profile:"check".into(),expected_tests:vec![expected.into()],rationale:"Exercise the actual changed source or documentation target".into()}],
         rationale:"Native framework qualification with a seeded defect and independently observed test execution".into(),
     }).unwrap();
 

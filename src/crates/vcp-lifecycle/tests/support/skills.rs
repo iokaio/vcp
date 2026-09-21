@@ -570,7 +570,7 @@ async fn retained_skills_are_lazy_attributed_and_cannot_override_denials_or_stal
                     id,
                     vcp_tools::Request::from_call(
                         "vcp_read",
-                        &serde_json::json!({"path":"marker.txt","max_bytes":1024}).to_string(),
+                        &serde_json::json!({"path":"marker.txt","max_bytes":1024,"start_line":null,"end_line":null}).to_string(),
                     )
                     .unwrap(),
                 ) {

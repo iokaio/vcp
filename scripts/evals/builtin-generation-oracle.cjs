@@ -31,6 +31,11 @@ function cases() {
     [[{unitCents:2,quantity:-1}]], [[{unitCents:2,quantity:0.5}]], [[{unitCents:'2',quantity:1}]],
     [[{unitCents:2,quantity:1}],{discountBps:-1}], [[{unitCents:2,quantity:1}],{discountBps:10001}],
     [[{unitCents:2,quantity:1}],{discountBps:0.5}], [[{unitCents:2,quantity:1}],null],
+    [[{unitCents:2,quantity:1}],[]], [[{unitCents:2,quantity:1}],'invalid'],
+    [[{unitCents:2,quantity:1}],{discountBps:'5000'}],
+    [[{unitCents:2,quantity:Number.MAX_SAFE_INTEGER+1}]],
+    [[{unitCents:Number.MAX_SAFE_INTEGER+1,quantity:0}]],
+    [[{unitCents:NaN,quantity:1}]],
     [[{unitCents:Number.MAX_SAFE_INTEGER,quantity:2}]],
     [[{unitCents:Number.MAX_SAFE_INTEGER,quantity:1},{unitCents:1,quantity:1}]],
   ];

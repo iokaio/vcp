@@ -137,12 +137,12 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     let (name, arguments) = if index == 1 {
                         ("vcp_patch", serde_json::json!({"patch":"*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** Update File: AGENTS.md\n@@\n-instruction version one\n+instruction version two\n*** End Patch"}))
                     } else if index==3 { ("vcp_exec", serde_json::json!({"profile":"fixture","arguments":["verify",directory.to_str().unwrap()],"directory":"","timeout_ms":10_000,"output_bytes":1_048_576,"input":null})) }
-                    else { ("vcp_read", serde_json::json!({"path":if mode=="nested" && index==0 {"nested/file.txt"}else{"file.txt"},"max_bytes":1024})) };
+                    else { ("vcp_read", serde_json::json!({"path":if mode=="nested" && index==0 {"nested/file.txt"}else{"file.txt"},"max_bytes":1024,"start_line":null,"end_line":null})) };
                     let item = serde_json::json!({"type":"function_call","id":format!("item-{index}"),"call_id":format!("call-{index}"),"name":name,"arguments":arguments.to_string(),"status":"completed"});
                     events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item}));
                     output.push(item);
                     if mode == "complete" && index == 0 {
-                        let sibling = serde_json::json!({"type":"function_call","id":"sibling-item","call_id":"sibling-read","name":"vcp_read","arguments":serde_json::json!({"path":"fixture.txt","max_bytes":1024}).to_string(),"status":"completed"});
+                        let sibling = serde_json::json!({"type":"function_call","id":"sibling-item","call_id":"sibling-read","name":"vcp_read","arguments":serde_json::json!({"path":"fixture.txt","max_bytes":1024,"start_line":null,"end_line":null}).to_string(),"status":"completed"});
                         events.push(serde_json::json!({"type":"response.output_item.done","output_index":1,"item":sibling}));
                         output.push(sibling);
                     }

@@ -45,6 +45,7 @@ fn verification_discovers_real_targets_and_rejects_shell_hooks_and_wrong_project
     )
     .unwrap();
     let requirement = Requirement {
+        timeout_ms: None,
         manifest: "project/package.json".into(),
         runner: Runner::Node,
         profile: "node".into(),
@@ -122,6 +123,7 @@ fn verification_discovers_real_targets_and_rejects_shell_hooks_and_wrong_project
     )
     .unwrap();
     let cargo = Requirement {
+        timeout_ms: None,
         manifest: "project/Cargo.toml".into(),
         runner: Runner::Cargo,
         profile: "cargo".into(),
@@ -202,6 +204,8 @@ fn reads_lists_and_search_have_visible_bounds_and_source_fences() {
         Request::Read {
             path: "file".into(),
             max_bytes: 100,
+            start_line: None,
+            end_line: None,
         },
     )
     .unwrap();
@@ -210,7 +214,9 @@ fn reads_lists_and_search_have_visible_bounds_and_source_fences() {
         &r,
         Request::Read {
             path: "file".into(),
-            max_bytes: 1
+            max_bytes: 1,
+            start_line: None,
+            end_line: None,
         }
     )
     .is_err());
@@ -228,6 +234,10 @@ fn reads_lists_and_search_have_visible_bounds_and_source_fences() {
         Request::Search {
             query: "needle".into(),
             max_hits: 1,
+            mode: None,
+            path_pattern: None,
+            max_files: None,
+            max_scan_bytes: None,
         },
     )
     .unwrap();
@@ -273,10 +283,302 @@ fn absent_destination_is_bound_and_git_metadata_and_devices_are_rejected() {
             &r,
             Request::Read {
                 path: path.into(),
-                max_bytes: 10
+                max_bytes: 10,
+                start_line: None,
+                end_line: None,
             }
         )
         .is_err());
     }
     assert_eq!(fs::read(temp.path().join("new.txt")).unwrap(), b"human");
+}
+
+fn navigation(
+    root: &Root,
+    name: &str,
+    arguments: serde_json::Value,
+) -> vcp_tools::Result<Prepared> {
+    prepare(
+        root.clone(),
+        identity(),
+        Request::from_call(name, &arguments.to_string())?,
+        ByteCount::new(8 * 1024 * 1024),
+    )
+}
+
+#[test]
+fn regex_search_matches_independent_full_scan_and_preserves_literal_default() {
+    let temp = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("outside.rs"), "alpha\n").unwrap();
+    fs::create_dir(temp.path().join("src")).unwrap();
+    fs::write(temp.path().join(".gitignore"), "ignored.rs\n").unwrap();
+    fs::write(temp.path().join("ignored.rs"), "alpha\n").unwrap();
+    let fixtures = [
+        ("src/a.rs", "alpha\r\nbeta\r\nαβ\r\nx alpha\r\n"),
+        ("src/b.rs", "beta\nalpha|beta\n"),
+        ("notes.txt", "alpha\n"),
+    ];
+    for (path, content) in fixtures {
+        fs::write(temp.path().join(path), content).unwrap();
+    }
+    let root = root(temp.path());
+    for (query, case) in [("^(alpha|beta)$", 0), (r"^\p{Greek}+$", 1), ("absent", 2)] {
+        let prepared = navigation(&root, "vcp_search", serde_json::json!({"query":query,"max_hits":100,"mode":"regex","path_pattern":"^src/.*\\.rs$"})).unwrap();
+        let expected: Vec<_> = fixtures
+            .iter()
+            .filter(|(path, _)| path.starts_with("src/"))
+            .flat_map(|(path, content)| {
+                content
+                    .lines()
+                    .enumerate()
+                    .filter(move |(_, line)| match case {
+                        0 => *line == "alpha" || *line == "beta",
+                        1 => *line == "αβ",
+                        _ => false,
+                    })
+                    .map(move |(i, line)| (path.to_string(), i + 1, line.to_string()))
+            })
+            .collect();
+        let actual: Vec<_> = prepared.proposed_result()["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|hit| {
+                (
+                    hit["path"].as_str().unwrap().to_owned(),
+                    hit["line"].as_u64().unwrap() as usize,
+                    hit["text"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect();
+        assert_eq!(actual, expected);
+        assert_eq!(prepared.proposed_result()["complete"], true);
+        prepared.revalidate().unwrap();
+    }
+    let literal = navigation(
+        &root,
+        "vcp_search",
+        serde_json::json!({"query":"alpha|beta","max_hits":100}),
+    )
+    .unwrap();
+    assert_eq!(
+        literal.proposed_result()["matches"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(literal.proposed_result()["exclusions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["path"] == "ignored.rs"));
+}
+
+#[test]
+fn search_invalid_patterns_limits_and_cancellation_are_explicit() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("a.txt"), "hit\nhit\nhit\n").unwrap();
+    fs::write(temp.path().join("b.txt"), "hit\n").unwrap();
+    let root = root(temp.path());
+    for extra in [
+        serde_json::json!({"mode":"regex","query":"["}),
+        serde_json::json!({"path_pattern":"["}),
+        serde_json::json!({"max_scan_bytes":0}),
+        serde_json::json!({"max_files":10001}),
+    ] {
+        let mut args = serde_json::json!({"query":"hit","max_hits":10});
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        assert!(navigation(&root, "vcp_search", args).is_err());
+    }
+    for extra in [
+        serde_json::json!({"max_hits":1}),
+        serde_json::json!({"max_scan_bytes":1}),
+        serde_json::json!({"max_files":1}),
+    ] {
+        let mut args = serde_json::json!({"query":"hit","max_hits":10});
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        let prepared = navigation(&root, "vcp_search", args).unwrap();
+        assert_eq!(prepared.proposed_result()["complete"], false);
+    }
+    let polls = std::cell::Cell::new(0);
+    let cancelled = || {
+        polls.set(polls.get() + 1);
+        polls.get() > 4
+    };
+    assert!(prepare_cancellable(
+        root,
+        identity(),
+        Request::from_call("vcp_search", r#"{"query":"hit","max_hits":10}"#).unwrap(),
+        ByteCount::new(1024 * 1024),
+        &cancelled
+    )
+    .is_err());
+    assert!(polls.get() > 4);
+}
+
+#[test]
+fn ranged_reads_preserve_crlf_unicode_versions_and_explicit_continuations() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("file.txt"), "first\r\nαβ\r\nlast").unwrap();
+    let root = root(temp.path());
+    let first = navigation(
+        &root,
+        "vcp_read",
+        serde_json::json!({"path":"file.txt","max_bytes":7,"start_line":1,"end_line":3}),
+    )
+    .unwrap();
+    assert_eq!(first.proposed_result()["text"], "first\r\n");
+    assert_eq!(first.proposed_result()["next_line"], 2);
+    assert_eq!(first.proposed_result()["complete"], false);
+    let middle = navigation(
+        &root,
+        "vcp_read",
+        serde_json::json!({"path":"file.txt","max_bytes":100,"start_line":2,"end_line":2}),
+    )
+    .unwrap();
+    assert_eq!(middle.proposed_result()["text"], "αβ\r\n");
+    assert_eq!(
+        middle.proposed_result()["returned_range"],
+        serde_json::json!({"start_line":2,"end_line":2})
+    );
+    assert_eq!(
+        first.proposed_result()["version"],
+        middle.proposed_result()["version"]
+    );
+    let last = navigation(
+        &root,
+        "vcp_read",
+        serde_json::json!({"path":"file.txt","max_bytes":100,"start_line":3}),
+    )
+    .unwrap();
+    assert_eq!(last.proposed_result()["text"], "last");
+    assert!(last.proposed_result()["next_line"].is_null());
+    assert_eq!(last.proposed_result()["complete"], false);
+    for bounds in [
+        serde_json::json!({"start_line":0}),
+        serde_json::json!({"start_line":4}),
+        serde_json::json!({"start_line":3,"end_line":2}),
+        serde_json::json!({"start_line":2,"max_bytes":1}),
+    ] {
+        let mut args = serde_json::json!({"path":"file.txt","max_bytes":100});
+        args.as_object_mut()
+            .unwrap()
+            .extend(bounds.as_object().unwrap().clone());
+        assert!(navigation(&root, "vcp_read", args).is_err());
+    }
+    fs::write(temp.path().join("file.txt"), "first\r\nchanged\r\nlast").unwrap();
+    assert!(first.revalidate().is_err());
+    let changed = navigation(
+        &root,
+        "vcp_read",
+        serde_json::json!({"path":"file.txt","max_bytes":100,"start_line":2}),
+    )
+    .unwrap();
+    assert_ne!(
+        first.proposed_result()["version"],
+        changed.proposed_result()["version"]
+    );
+}
+
+#[test]
+fn ranged_reads_do_not_relax_legacy_size_encoding_or_scope_errors() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("large.txt"), "short\n".repeat(200_000)).unwrap();
+    fs::write(temp.path().join("binary.txt"), [0xff]).unwrap();
+    fs::write(temp.path().join("empty.txt"), "").unwrap();
+    let root = root(temp.path());
+    assert!(navigation(
+        &root,
+        "vcp_read",
+        serde_json::json!({"path":"large.txt","max_bytes":1048576})
+    )
+    .is_err());
+    let range = navigation(
+        &root,
+        "vcp_read",
+        serde_json::json!({"path":"large.txt","max_bytes":6,"start_line":200000}),
+    )
+    .unwrap();
+    assert_eq!(range.proposed_result()["text"], "short\n");
+    for path in ["binary.txt", "../outside.txt"] {
+        for bounds in [serde_json::json!({}), serde_json::json!({"start_line":1})] {
+            let mut args = serde_json::json!({"path":path,"max_bytes":100});
+            args.as_object_mut()
+                .unwrap()
+                .extend(bounds.as_object().unwrap().clone());
+            assert!(navigation(&root, "vcp_read", args).is_err());
+        }
+    }
+    let empty = navigation(
+        &root,
+        "vcp_read",
+        serde_json::json!({"path":"empty.txt","max_bytes":100,"start_line":1}),
+    )
+    .unwrap();
+    assert_eq!(empty.proposed_result()["complete"], true);
+    assert!(empty.proposed_result()["returned_range"].is_null());
+}
+
+#[test]
+fn search_revalidation_observes_cancellation_after_entry_without_releasing_stale_results() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("source.txt"), "hit\n".repeat(100)).unwrap();
+    let root = root(temp.path());
+    let prepared = navigation(
+        &root,
+        "vcp_search",
+        serde_json::json!({"query":"hit","max_hits":100}),
+    )
+    .unwrap();
+    let polls = std::cell::Cell::new(0);
+    let cancelled = || {
+        polls.set(polls.get() + 1);
+        polls.get() > 8
+    };
+    let error = prepared.revalidate_cancellable(&cancelled).unwrap_err();
+    assert!(error.to_string().contains("cancelled"), "{error}");
+    assert!(polls.get() > 8);
+    prepared.revalidate_cancellable(&|| false).unwrap();
+    fs::write(temp.path().join("source.txt"), "changed\n").unwrap();
+    assert!(prepared.revalidate_cancellable(&|| false).is_err());
+}
+
+#[test]
+fn path_filters_apply_before_byte_capture_and_revalidate_ignore_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("a-large.txt"), "irrelevant".repeat(1000)).unwrap();
+    fs::write(temp.path().join("wanted.rs"), "hit\n").unwrap();
+    let root = root(temp.path());
+    let prepared = navigation(&root, "vcp_search", serde_json::json!({"query":"^hit$","mode":"regex","path_pattern":"^wanted[.]rs$","max_hits":1,"max_scan_bytes":4})).unwrap();
+    assert_eq!(prepared.proposed_result()["complete"], true);
+    assert_eq!(
+        prepared.proposed_result()["matches"][0]["path"],
+        "wanted.rs"
+    );
+    assert!(prepared.proposed_result()["exclusions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["path"] == "a-large.txt" && item["reason"] == "path_filter"));
+    prepared.revalidate().unwrap();
+    fs::write(temp.path().join(".gitignore"), "wanted.rs\n").unwrap();
+    assert!(prepared.revalidate().is_err());
+    assert!(navigation(
+        &root,
+        "vcp_search",
+        serde_json::json!({"query":"a".repeat(4097),"max_hits":1})
+    )
+    .is_err());
+    assert!(navigation(
+        &root,
+        "vcp_search",
+        serde_json::json!({"query":r"(?:\w{1000}){1000}","mode":"regex","max_hits":1})
+    )
+    .is_err());
 }

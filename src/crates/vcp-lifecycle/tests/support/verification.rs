@@ -183,6 +183,7 @@ async fn verification_case(backend: BackendKind, mode: &str, node: &std::ffi::Os
                 vec![]
             } else {
                 vec![Requirement {
+                    timeout_ms: None,
                     manifest: if mode == "uncovered" {
                         "project/package.json"
                     } else {

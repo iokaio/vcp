@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "829a048b021e0cc9680c89ae216cab55790a2ef66801fe93bf938a1bac364c50"
+    "sha256": "e15ee526ed219c8d5accbbcf176ae68f6fb90a25b3ede5b4e6d416b980574500"
   },
   "skills": [
     {
       "id": "architecture",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "descriptor": "architecture/skill.json",
-      "descriptor_sha256": "99f14193de84ceb896550515dcac41ed9d663acb339e0ff7fea8bc29c83b02eb",
+      "descriptor_sha256": "c94de8fc78a26e427835d6b6e0cef77c8a709d0ee1048160790b79019789d62c",
       "body": {
         "path": "SKILL.md",
-        "sha256": "ca7647af6c20017d12745018442a0ece1dd20ae776e69bfa16cc3eb5a5c10956"
+        "sha256": "aa8bb9bdd0f0537b2655cb5db67f1052470cb4300e4028400edac13b28f70889"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
@@ -21,12 +21,12 @@
     },
     {
       "id": "review-debug",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "descriptor": "review-debug/skill.json",
-      "descriptor_sha256": "2f86ef57db813517ccf2d2ceaf70785f08dcb02d263093a56a50e0efd907b59d",
+      "descriptor_sha256": "250ba5626461ebd6ee4ce377944377610968d483bf8f7a9ada5e12fd9b83671e",
       "body": {
         "path": "SKILL.md",
-        "sha256": "d5f2569fe2c098eb55e672774bc1628bb4d366dcf0c1cb8fb75ecf28177cddd0"
+        "sha256": "05b55222438cd55d364241d7c0a17b99136a6a4dc30064323a520d16c13f0a8d"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
@@ -34,12 +34,12 @@
     },
     {
       "id": "testing",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "descriptor": "testing/skill.json",
-      "descriptor_sha256": "489609bb4465044fc534ae2126919030e22f23c59af46c5c3ffe681af6121788",
+      "descriptor_sha256": "e1bb3246d8fde622f1c0c5843f0be5aca4a464aa9a7fb743c4f570f781683a08",
       "body": {
         "path": "SKILL.md",
-        "sha256": "3bba41f2dac34ca8970aa4880e3a914f893742250d173c136ffa1fa61ba0099b"
+        "sha256": "6aa515c4d9967861794e070dab822c4f80c05f5659e429bb746f6f9388635513"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
