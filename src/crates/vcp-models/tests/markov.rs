@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-use vcp_models::markov::{self, Chain, Error, MAX_OBSERVATIONS, MAX_STATES};
+use vcp_models::markov::{self, compare_orders, Chain, Error, MAX_OBSERVATIONS, MAX_STATES};
 
 fn close(actual: f64, expected: f64) {
     assert!(
@@ -274,6 +274,60 @@ fn unknown_invalid_or_overflowing_rewards_are_not_zero_cost() {
             .unwrap()
             .expected_rewards[0],
         6.0,
+    );
+}
+
+#[test]
+fn heldout_order_comparison_penalizes_complexity_and_checks_two_step_frequency() {
+    let patterned = [0usize, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1];
+    let comparison = compare_orders(2, &[&patterned, &patterned], &[&patterned], 0.0, 1).unwrap();
+    assert_eq!(comparison.heldout_predictions, 10);
+    assert_eq!(comparison.selected_order, 2);
+    assert!(comparison.second_log_likelihood > comparison.first_log_likelihood);
+    assert!(comparison.second_penalized_score > comparison.first_penalized_score);
+    assert!(comparison.first_order_two_step_max_abs_error > 0.0);
+
+    let deterministic = [0usize, 1, 1, 1, 1, 1];
+    let simpler = compare_orders(
+        2,
+        &[&deterministic, &deterministic],
+        &[&deterministic],
+        0.5,
+        1,
+    )
+    .unwrap();
+    assert_eq!(simpler.selected_order, 1);
+    assert_eq!(simpler.first_parameters, 0);
+    assert_eq!(simpler.second_parameters, 0);
+}
+
+#[test]
+fn heldout_order_comparison_abstains_on_missing_support_and_bounds() {
+    assert_eq!(
+        compare_orders(2, &[&[0, 0, 1]], &[&[1, 1, 0]], 0.0, 1),
+        Err(Error::Sparse)
+    );
+    assert_eq!(
+        compare_orders(2, &[&[0, 1, 0]], &[&[0, 1]], 0.0, 1),
+        Err(Error::Sparse)
+    );
+    assert_eq!(
+        compare_orders(2, &[&[0, 1, 0]], &[&[0, 1, 0]], -1.0, 1),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        compare_orders(2, &[&[0, 2, 0]], &[&[0, 1, 0]], 0.0, 1),
+        Err(Error::Shape)
+    );
+    assert_eq!(
+        compare_orders(2, &[&[0, 0, 1, 0, 0, 1]], &[&[0, 0, 1]], f64::MAX, 1),
+        Err(Error::Numerical)
+    );
+    let training = vec![0; MAX_OBSERVATIONS / 2 + 1];
+    let heldout = vec![0; MAX_OBSERVATIONS / 2];
+    assert_eq!(
+        compare_orders(2, &[&training], &[&heldout], 0.0, 1),
+        Err(Error::Limit)
     );
 }
 

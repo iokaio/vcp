@@ -98,8 +98,11 @@ fitted-artifact retention/consumed-value replay remain next. The
 [fit-provenance increment](../evaluations/p6-fit-provenance.md) adds a rebuildable,
 source-bound first-order candidate with explicit parameters, counts and abstention
 under [ADR-032](../adr/032-rebuildable-markov-fit-artifacts.md); it is unqualified
-and never persisted. Held-out order comparison, qualification and consumed-value
-replay remain. Existing
+and never persisted. The [held-out comparison increment](../evaluations/p6-heldout-order-comparison.md)
+adds task-separated first/second-order scores, complexity penalties and a
+first-order multi-step frequency check under
+[ADR-033](../adr/033-heldout-markov-order-comparison.md). Reward uncertainty,
+qualification and consumed-value replay remain. Existing
 optimizer report schemas and enabled routing behavior are unchanged.
 
 1. Define a closed, revisioned alphabet from canonical task/turn transitions,

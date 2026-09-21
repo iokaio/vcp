@@ -54,9 +54,9 @@ refitting. This decision supplies neither persistence nor consumption.
 ## Consequences and remaining work
 
 M1 has a provenance-complete first-order candidate and deterministic abstention.
-It still needs held-out first/second-order comparison with complexity penalties,
-multi-step checks, reward mapping/uncertainty qualification, and consumed-value
-replay. M2/M3 remain disabled.
+ADR-033 subsequently adds held-out first/second-order comparison and a multi-step
+check. Reward mapping/uncertainty qualification and consumed-value replay remain.
+M2/M3 remain disabled.
 
 Verification commands and results are recorded in the
 [increment evidence](../evaluations/p6-fit-provenance.md).
