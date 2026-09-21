@@ -43,6 +43,15 @@ fn window() -> HistoryWindow {
 }
 
 async fn create_task(store: &mut Store, access: &Access, state: TaskState) -> Task {
+    create_named_task(store, access, state, "action-task").await
+}
+
+async fn create_named_task(
+    store: &mut Store,
+    access: &Access,
+    state: TaskState,
+    name: &str,
+) -> Task {
     let session: Session = store
         .state()
         .records
@@ -51,7 +60,7 @@ async fn create_task(store: &mut Store, access: &Access, state: TaskState) -> Ta
         .unwrap()
         .decode()
         .unwrap();
-    let id = TaskId::parse("action-task").unwrap();
+    let id = TaskId::parse(name).unwrap();
     let cause = EventId::new();
     let task = Task {
         scope: Scope {
@@ -1000,6 +1009,113 @@ async fn first_order_fit_records_source_parameters_and_abstention_without_persis
             }
         ));
         assert!(fits::fit(&store, &access, window(), 10_001, 1).is_err());
+    }
+}
+
+#[tokio::test]
+async fn heldout_order_comparison_uses_stable_task_partitions_on_both_stores() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let mut training_names = Vec::new();
+        let mut heldout_names = Vec::new();
+        for index in 0..100 {
+            let name = format!("comparison-task-{index}");
+            let digest = digest_bytes(name.as_bytes());
+            let prefix = u64::from_str_radix(&digest[..16], 16).unwrap();
+            if prefix % 2 == 0 && heldout_names.len() < 2 {
+                heldout_names.push(name);
+            } else if prefix % 2 == 1 && training_names.len() < 2 {
+                training_names.push(name);
+            }
+            if training_names.len() == 2 && heldout_names.len() == 2 {
+                break;
+            }
+        }
+        assert_eq!((training_names.len(), heldout_names.len()), (2, 2));
+        let mut tasks = Vec::new();
+        for name in training_names.iter().chain(&heldout_names) {
+            tasks.push(create_named_task(&mut store, &access, TaskState::Running, name).await);
+        }
+        let mut engine = vcp_engine::Engine::new(store).unwrap();
+        for task in &tasks {
+            let actor = engine_access(&access, task);
+            engine
+                .handle(
+                    command(
+                        &engine,
+                        &access,
+                        task,
+                        Revision::ZERO,
+                        Command::Transition {
+                            next: TaskState::Blocked,
+                            reason: "comparison fixture intermediate".into(),
+                            verification: None,
+                        },
+                    ),
+                    &actor,
+                    &vcp_engine::HostFacts::inspect(Timestamp::new(10)),
+                )
+                .await
+                .unwrap();
+            engine
+                .handle(
+                    command(
+                        &engine,
+                        &access,
+                        task,
+                        Revision::new(1),
+                        Command::Transition {
+                            next: TaskState::Failed,
+                            reason: "comparison fixture terminal".into(),
+                            verification: None,
+                        },
+                    ),
+                    &actor,
+                    &vcp_engine::HostFacts::inspect(Timestamp::new(20)),
+                )
+                .await
+                .unwrap();
+        }
+        let store = engine.into_store();
+        let before = store.state().clone();
+        let comparison = fits::compare(&store, &access, window(), 0, 1, 2, 0).unwrap();
+        assert_eq!(comparison.training_tasks, 2);
+        assert_eq!(comparison.heldout_tasks, 2);
+        assert_eq!(comparison.training_segments, 2);
+        assert_eq!(comparison.heldout_segments, 2);
+        assert_eq!(comparison.partition_digest.len(), 64);
+        assert_eq!(comparison.partition_method, "task-identity-digest-modulo/1");
+        assert_eq!(comparison.left_censored_traces, 4);
+        assert_eq!(comparison.right_censored_traces, 0);
+        assert_eq!(comparison.excluded_pruned_tasks, 0);
+        assert_eq!(comparison.features, vec!["task_state"]);
+        assert_eq!(comparison.cohort, "authorized-task-state-scope/1");
+        assert!(comparison.task_class.is_none() && comparison.endpoint.is_none());
+        assert!(comparison.policy.is_none() && comparison.catalog.is_none());
+        assert!(comparison.qualification.is_none() && !comparison.serving_qualified);
+        assert!(matches!(
+            &comparison.status,
+            fits::ComparisonStatus::Compared { result }
+                if result.heldout_predictions == 2
+                    && result.selected_order == 1
+                    && result.first_order_two_step_max_abs_error == 0.0
+        ));
+        assert_eq!(
+            fits::compare(&store, &access, window(), 0, 1, 2, 0).unwrap(),
+            comparison
+        );
+        assert_eq!(store.state(), &before);
+        assert!(matches!(
+            fits::compare(&store, &access, window(), 0, 3, 2, 0)
+                .unwrap()
+                .status,
+            fits::ComparisonStatus::Abstained {
+                reason: fits::ComparisonAbstention::Sparse
+            }
+        ));
+        assert!(fits::compare(&store, &access, window(), 0, 1, 1, 0).is_err());
+        assert!(fits::compare(&store, &access, window(), 0, 1, 2, 2).is_err());
     }
 }
 

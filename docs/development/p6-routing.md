@@ -59,6 +59,15 @@ qualification/serving fields remain empty/false. See
 [ADR-032](../adr/032-rebuildable-markov-fit-artifacts.md) and the
 [fit-provenance evidence](../evaluations/p6-fit-provenance.md).
 
+`routing_state::fits::compare` rebuilds the same retained evidence and assigns
+whole task identities to a deterministic training or held-out cohort. It compares
+first- and second-order next-state likelihood on identical held-out predictions,
+penalizes supported free parameters, and checks first-order two-step frequencies.
+Sparse or unseen contexts abstain. The comparison artifact is source- and
+partition-bound, unpersisted and unqualified. See
+[ADR-033](../adr/033-heldout-markov-order-comparison.md) and the
+[comparison evidence](../evaluations/p6-heldout-order-comparison.md).
+
 Local analysis also works without a provider profile or a model budget:
 `vcp optimize status`, `vcp optimize report --from <ms> --until <ms>`,
 `vcp optimize answer priority "lower total cost"`, and

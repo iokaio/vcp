@@ -38,6 +38,7 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-030 — Causal action, effect and attempt observations](030-causal-action-observations.md) | P6-02/M1 separate turn/effect/attempt traces, exact cohorts and failure identities |
 | [ADR-031 — Exact attempt charge attribution](031-exact-attempt-charge-attribution.md) | P6-02/M1 per-attempt settlements, liabilities and terminal cost rewards |
 | [ADR-032 — Rebuildable unqualified Markov fit artifacts](032-rebuildable-markov-fit-artifacts.md) | P6-02/M1 source-bound first-order candidates and explicit abstention |
+| [ADR-033 — Task-separated held-out Markov order comparison](033-heldout-markov-order-comparison.md) | P6-02/M1 deterministic held-out partition, complexity penalty and multi-step check |
 
 ## Maintaining a decision
 
