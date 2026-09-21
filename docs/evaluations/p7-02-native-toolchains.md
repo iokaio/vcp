@@ -24,7 +24,8 @@ remains a failure in the result denominator.
 
 ## Windows observation, 2026-09-21
 
-Final observed artifact: `artifacts/p7-builtin-toolchain/run-imFxpN/manifest.json`.
+Earlier observation with the Visual Studio developer environment:
+`artifacts/p7-builtin-toolchain/run-imFxpN/manifest.json`.
 Manifest SHA-256:
 `079237794c6999bf29e37ede3cfbf9cfe8c997c29258832104ff4d7ee91be881`.
 Runner SHA-256:
@@ -50,7 +51,7 @@ Python 3.13.7 is available, but the Python fixture requires an existing 3.12
 environment with pytest. .NET SDKs are installed, but the test adapter dependencies
 are deliberately absent. Java 21 is available, while the Java 17 fixture's Maven
 wrapper is an unavailable stub. Go, Ruby, PHP, Swift and Dart probes returned
-`ENOENT`; no installation was attempted. SQL has no authorized disposable database.
+`ENOENT`; no installation was attempted. That run did not execute SQL.
 The C++ run used the installed Visual Studio developer environment and its bundled
 CMake/Ninja paths. No compiler was installed. Other analysis/control fixtures have no execution recipe in this runner. A detected
 tool on a future host does not automatically qualify an unimplemented recipe.
@@ -71,6 +72,56 @@ to execute synthetic negative cases or fetch missing pinned Rust. During runner
 testing, inherited `NODE_TEST_CONTEXT` suppressed nested Node tests; the helper
 now removes that parent-worker flag before executing child checks, and the test
 proves a broken copy produces a real failure.
+
+## SQLite continuation, 2026-09-21
+
+Artifact: `artifacts/p7-builtin-toolchain/run-eevNui/manifest.json`.
+Manifest SHA-256:
+`5bae9f2aa14a47a10a4fb92c1a225d1f2b1bfa7d0e2d40398ebe146d18f6ad06`.
+Runner SHA-256:
+`bf4d56d986ab85cb7501e5ea7752321479c4cbfde67cf3adada606cc8e2ff85f`.
+SQL helper SHA-256:
+`9d5682edf04658bf8ecb9bad7c68f19083ac8ef35ca5a19ff9b981db3849761d`.
+The report verifies all three source identities before and after execution,
+including original generated .NET files. No fixture bytes changed.
+
+The installed Node SQLite binding reports SQLite **3.53.4**. Two fresh in-memory
+databases exercise the frozen SQL fixture: applying `001_initial.sql` and checking
+the existing row passes; applying `002_email.sql` fails because its new NOT NULL
+column has no default. The receipt retains the error and verifies rollback
+preserves the original row. No database file, service, external connection,
+installation or corrective edit is involved. This qualifies this SQLite migration
+check only; it is not evidence for other SQL engines or model usefulness.
+
+This ordinary shell run records **5 passed, 2 failed, 35 not-run, 0 runner
+errors**, with exit 1. The two failed cases are the seeded review/debug and SQL
+defects. CMake/Ninja/CTest are not on this shell's PATH, so C++ is explicitly
+not-run here; its earlier developer-environment pass remains separate evidence.
+The other five passes match their earlier native checks. Rust builds in its
+fresh fixture copy and does not use the main workspace's shared Cargo target.
+
+Further discovery confirms that .NET SDK **8.0.100**, required by the frozen
+`global.json` with roll-forward disabled, is absent. Installed 8.0.206 and newer
+SDKs cannot satisfy that pin; no override was attempted. Test adapters are also
+unprovisioned. TypeScript is absent from PATH, the repository's installed modules
+and the installed global npm modules checked on this host; JS tests remain
+qualified but TypeScript checking remains not-run. Python SQLite 3.50.4 is also
+installed but was not used for this receipt.
+
+The focused contract suite now passes **5/5** tests. The added test runs the real
+SQLite helper against a fresh frozen copy, asserts the initial pass and seeded
+failure, proves a correction in that disposable copy passes, checks no database
+file was created, and verifies the original fixture tree remains unchanged.
+
+The subsequent combined run supplied the installed Visual Studio developer
+environment and its CMake/Ninja paths:
+`artifacts/p7-builtin-toolchain/run-apxLZ9/manifest.json`, SHA-256
+`7550b6dad6bfca846de6c59a7cc43b6303152b54e715dc702bac86dd269a0641`.
+It records **6 passed, 2 seeded failures, 34 not-run, 0 runner errors** and
+`source_unchanged: true`. This combines the C++ pass with the SQLite receipts
+under the same current runner/helper identities. Exit 1 faithfully retains the
+two seeded defects; they were not fixed in the source fixtures or relabelled as
+passing application tests.
 
 Native coverage remains limited to the checks above. No broad ecosystem support,
 model command-selection quality, .NET test success, or fresh-machine packaging

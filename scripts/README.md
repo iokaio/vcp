@@ -83,6 +83,14 @@ fresh-process reopen. It does not download models or qualify OS network isolatio
 
 Resolve paths from the script's location, document real tool prerequisites, reject unknown inputs, and return failures to callers. Missing tools, model assets, or environments must be reported as not run. Add working entry points with their owning implementation; do not add no-op success scripts to satisfy the tree.
 
+P7-02's [U03 generation fixture](../src/evals/skills/builtin/generation-v1/README.md)
+documents `evals/builtin-generation-prepare.cjs`, the optional live runner, the
+independent oracle and the qualification-only launcher. Preparation makes no model
+calls; execution requires an explicitly authorized cap and exact plan hash.
+Launcher build provenance and actual CLI generation qualification remain open.
+The fast suite runs its deterministic contracts; native permission controls require
+the pinned Node runtime and an owner-built launcher described in that guide.
+
 `test-foundation.ps1` qualifies the [P1 durable foundation](../docs/development/p1-foundation.md)
 with native typed-state, command, capture, backend, process-crash and controlled
 activation contracts. It records stable source inputs and actual native test

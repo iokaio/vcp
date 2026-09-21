@@ -68,6 +68,7 @@ function execute(command, args, cwd, options = {}) {
 }
 const probes = {
   node: [process.execPath, ['--version']], pwsh: ['pwsh', ['-NoLogo', '-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()']],
+  sqlite: [process.execPath, ['-e', 'const {DatabaseSync}=require("node:sqlite"); const db=new DatabaseSync(":memory:"); console.log(db.prepare("select sqlite_version() as version").get().version); db.close();']],
   rustup: ['rustup', ['toolchain', 'list']], python: ['python', ['--version']], dotnet: ['dotnet', ['--list-sdks']],
   java: ['java', ['-version']], go: ['go', ['version']], cmake: ['cmake', ['--version']],
   ninja: ['ninja', ['--version']], ctest: ['ctest', ['--version']],
@@ -82,7 +83,12 @@ function plan(fixture, inventory) {
     case 'testing': return { steps: [command('node', ['--test', 'unit.cjs']), command('node', ['--test', 'integration.cjs'])] };
     case 'javascript-typescript': return { steps: [command('node', ['--test', 'test.mjs'], 'packages/web')], limitations: ['Direct invocation of declared test script; TypeScript dependencies are not provisioned; typecheck not-run.'] };
     case 'shell': return available('pwsh') ? { steps: [command('pwsh', ['-NoLogo', '-NoProfile', '-File', 'copy-name.ps1', '-InputPath', 'folder with spaces/value.txt'])] } : { reason: 'PowerShell unavailable.' };
-    case 'dotnet-powershell': return available('pwsh') ? { steps: [command('pwsh', ['-NoLogo', '-NoProfile', '-File', 'scripts/path-check.ps1', '-FixturePath', 'folder with spaces/sentinel.txt'])], limitations: ['Only PowerShell literal-path check; .NET test adapter dependencies are not provisioned; .NET build/test not-run. Existing obj files are excluded from the fresh copy.'] } : { reason: 'PowerShell unavailable; .NET test adapter dependencies not provisioned.' };
+    case 'dotnet-powershell': return available('pwsh') ? { steps: [command('pwsh', ['-NoLogo', '-NoProfile', '-File', 'scripts/path-check.ps1', '-FixturePath', 'folder with spaces/sentinel.txt'])], limitations: ['Only PowerShell literal-path check; .NET test adapter dependencies are not provisioned; .NET build/test not-run. Existing obj files are excluded from the fresh copy.',
+      /^8\.0\.100\s/m.test(inventory.dotnet?.stdout ?? '') ? 'Exact pinned .NET SDK detected; no qualified build/test recipe.' : 'Required .NET SDK 8.0.100 is absent; global.json disables roll-forward. Installed newer SDKs do not satisfy the fixture pin.'] } : { reason: 'PowerShell unavailable; .NET test adapter dependencies not provisioned.' };
+    case 'sql': return available('sqlite') ? {
+      steps: ['initial', 'pending'].map(stage => command('node', [path.join(__dirname, 'builtin-toolchain-sql.cjs'), stage])),
+      limitations: ['SQLite only, using separate disposable in-memory databases. Seeded invalid migration failures remain failures; no corrective migration or external database is used.'],
+    } : { reason: 'Installed Node does not expose SQLite; no database or package installation attempted.' };
     case 'rust': {
       const installed = inventory.rustup?.stdout.split(/\r?\n/).map(s => s.split(/\s/)[0]).filter(s => /^1\.95\.0(?:-|$)/.test(s)) ?? [];
       return installed.length ? { steps: [{ command: 'rustup', args: ['run', installed[0], 'cargo', 'test', '--locked', '--offline', '-p', 'fixture-math', '--features', 'checked', '--test', 'checked'], cwd: '.' }] } : { reason: 'Pinned Rust 1.95.0 is not installed; automatic installation prohibited.' };
@@ -111,7 +117,7 @@ function run(outputRoot = path.join(repository, 'artifacts/p7-builtin-toolchain'
   const filename = path.join(directory, 'manifest.json');
   const record = { schema: 'p7-builtin-toolchain-qualification/1', started_at: new Date().toISOString(),
     status: 'running', host: { platform: process.platform, release: os.release(), architecture: process.arch },
-    runner_sha256: hash(fs.readFileSync(__filename)), model_calls: 0, live_usefulness: 'not_run', inventory: {}, cases: [] };
+    runner_sha256: hash(fs.readFileSync(__filename)), helper_sha256: hash(fs.readFileSync(path.join(__dirname, 'builtin-toolchain-sql.cjs'))), model_calls: 0, live_usefulness: 'not_run', inventory: {}, cases: [] };
   const save = () => fs.writeFileSync(filename, JSON.stringify(record, null, 2) + '\n');
   save();
   try {
@@ -151,7 +157,8 @@ function run(outputRoot = path.join(repository, 'artifacts/p7-builtin-toolchain'
     try {
       record.source_after = snapshot(fixtures);
       record.runner_sha256_after = hash(fs.readFileSync(__filename));
-      record.source_unchanged = record.source_before?.sha256 === record.source_after.sha256 && record.runner_sha256 === record.runner_sha256_after;
+      record.helper_sha256_after = hash(fs.readFileSync(path.join(__dirname, 'builtin-toolchain-sql.cjs')));
+      record.source_unchanged = record.source_before?.sha256 === record.source_after.sha256 && record.runner_sha256 === record.runner_sha256_after && record.helper_sha256 === record.helper_sha256_after;
       if (!record.source_unchanged) { record.status = 'error'; record.source_error = 'Fixture or runner bytes changed, or initial identity unavailable'; }
     } catch (error) { record.status = 'error'; record.source_error = error.message; }
     record.finished_at = new Date().toISOString(); save();

@@ -78,3 +78,26 @@ test('synthetic negative state and unavailable pinned toolchains never authorize
   assert.equal(native.steps.length, 3);
   assert.ok(native.steps[2].args.includes('--no-tests=error'));
 });
+
+test('SQLite checks exercise existing rows and retain seeded failure in an isolated memory database', () => {
+  // This recipe requires Node's installed SQLite; absence is not a skipped pass.
+  const temp = ownedRoot(os.tmpdir());
+  try {
+    const before = snapshot(fixtures);
+    const fixture = manifest.cases.find(c => c.id === 'sql-normal-v1');
+    const target = path.join(temp.root, 'sql');
+    materialize(fixtures, fixture, target);
+    assert.equal(plan(fixture, {}).steps, undefined);
+    const recipe = plan(fixture, { sqlite: { status: 'passed' } });
+    const receipts = recipe.steps.map(step => execute(step.command, step.args, target));
+    assert.equal(receipts[0].status, 'passed', receipts[0].stderr);
+    assert.equal(receipts[1].status, 'failed');
+    assert.match(receipts[1].stderr, /rollback preserved existing row/);
+    assert.match(receipts[1].stderr, /NOT NULL/);
+    fs.writeFileSync(path.join(target, 'migrations/002_email.sql'), 'ALTER TABLE customer ADD COLUMN email TEXT;');
+    const corrected = execute(recipe.steps[1].command, recipe.steps[1].args, target);
+    assert.equal(corrected.status, 'passed', corrected.stderr);
+    assert.deepEqual(fs.readdirSync(target).sort(), ['AGENTS.md', 'migration-policy.md', 'migrations']);
+    assert.deepEqual(snapshot(fixtures), before);
+  } finally { temp.cleanup(); }
+});
