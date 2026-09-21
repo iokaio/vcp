@@ -95,7 +95,11 @@ identities. The [charge-reward increment](../evaluations/p6-charge-rewards.md)
 adds exact per-attempt settlements, late debit/credit reconciliation, currency,
 reserved liability and terminal-cost abstention under
 [ADR-031](../adr/031-exact-attempt-charge-attribution.md). Fitted-model integration
-remains open; no current observation is a routing estimate.
+has started with a [rebuildable first-order candidate](../evaluations/p6-fit-provenance.md)
+whose source, parameters, counts and abstention are explicit under
+[ADR-032](../adr/032-rebuildable-markov-fit-artifacts.md). Held-out order selection,
+qualification and consumed-value replay remain open; no current candidate is a
+routing estimate.
 
 **Planned Markov increments:** implement [M1](21-markov-integration.md#m1--retained-evidence-and-analysis-foundation)
 before the next P6-03 advisory integration: bounded causal history projection,

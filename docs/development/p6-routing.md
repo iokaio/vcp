@@ -50,6 +50,15 @@ incomplete charge attribution. See
 [ADR-031](../adr/031-exact-attempt-charge-attribution.md) and the
 [charge-reward evidence](../evaluations/p6-charge-rewards.md).
 
+`routing_state::fits::fit` rebuilds an unqualified first-order task-state
+candidate from one authorized transition-evidence view. The artifact records its
+source digest/cutoff/window, authority/deletion revisions, observed-state cohort,
+counts, raw row samples, prior and minimum-sample gate. Sparse, nonabsorbing or
+invalid inputs return a closed abstention. The artifact is never stored and its
+qualification/serving fields remain empty/false. See
+[ADR-032](../adr/032-rebuildable-markov-fit-artifacts.md) and the
+[fit-provenance evidence](../evaluations/p6-fit-provenance.md).
+
 Local analysis also works without a provider profile or a model budget:
 `vcp optimize status`, `vcp optimize report --from <ms> --until <ms>`,
 `vcp optimize answer priority "lower total cost"`, and

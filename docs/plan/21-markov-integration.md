@@ -94,7 +94,12 @@ joins retained settlements once to their owning attempts, preserves late debit/c
 adjustments and currency, excludes rollups, and withholds a point estimate for
 unknown or reserved liability under
 [ADR-031](../adr/031-exact-attempt-charge-attribution.md). Fit qualification and
-fitted-artifact retention/consumed-value replay remain next. Existing
+fitted-artifact retention/consumed-value replay remain next. The
+[fit-provenance increment](../evaluations/p6-fit-provenance.md) adds a rebuildable,
+source-bound first-order candidate with explicit parameters, counts and abstention
+under [ADR-032](../adr/032-rebuildable-markov-fit-artifacts.md); it is unqualified
+and never persisted. Held-out order comparison, qualification and consumed-value
+replay remain. Existing
 optimizer report schemas and enabled routing behavior are unchanged.
 
 1. Define a closed, revisioned alphabet from canonical task/turn transitions,
