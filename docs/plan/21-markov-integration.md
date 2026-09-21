@@ -190,6 +190,34 @@ reopen without replay. The [accounting binding](../evaluations/p6-advisory-accou
 then reuses ordinary helper reservations and live charge state. Transport/response
 integration still precedes exact-cycle and local-producer work.
 
+Transport integration proceeds in the following order:
+
+1. Revalidate completion against current canonical task/workspace revisions and
+   current policy/catalog/evidence, including repeated completion calls. Bind the
+   helper's retained request evidence and evaluator price identity to the exact
+   canonical advisory request; a matching artifact schema alone is insufficient.
+2. Capture the admitted escalation plan with the existing verified context seed.
+   Derive bounded observations from authorized canonical trigger evidence and
+   construct the typed advisory input in the owner. Require an escalation-purpose
+   qualification and its exact question revision; routing qualification does not
+   authorize escalation evaluation.
+3. Run escalation comparisons in host shadow mode through the existing finite
+   capability, credential, transport and budget boundaries. Persist a stable run
+   identity from the admitted main attempt and purpose before dispatch; regenerating
+   a deadline must not permit replay. Close claims and release or retain liabilities
+   on every failure between scheduling, reservation, submission and response.
+4. Retain sanitized response evidence, decode original bounded bytes and settle
+   usage independently of whether advice is current. Recheck source, qualification,
+   credential, pause and deadline immediately before the application write and
+   before consuming a result. Preserve deterministic escalation and required checks
+   throughout this shadow increment; behavioral influence remains P6-04.
+
+Integration fixtures must prove zero calls when disabled or mismatched, one call
+per stable trigger, exact request/quote binding, pause and revocation before write,
+source changes before consumption, late usage settlement, and interruption/reopen
+without replay. These are runtime acceptance conditions, not properties established
+by the standalone record APIs alone.
+
 Start with exact repeated n-grams from M1's symbols and input/failure identities.
 Record observed repetition as a deterministic fact; repeated reading or a
 productive repair is not automatically a stall. Add a closed rule only with

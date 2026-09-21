@@ -148,6 +148,24 @@ async fn reserve_advisory(
     request: &advisory::RequestRecord,
     now: u64,
 ) -> vcp_domain::accounting::Attempt {
+    reserve_advisory_with_price(store, access, task, request, advisory_price(request), now).await
+}
+
+fn advisory_price(request: &advisory::RequestRecord) -> vcp_domain::accounting::PriceSnapshot {
+    let mut price = super::action_evidence::price(&request.evaluator.model);
+    price.provider = request.evaluator.provider.clone();
+    price.capability = request.evaluator.configuration_digest.clone();
+    price
+}
+
+async fn reserve_advisory_with_price(
+    store: &mut Store,
+    access: &Access,
+    task: &vcp_domain::task::Task,
+    request: &advisory::RequestRecord,
+    price: vcp_domain::accounting::PriceSnapshot,
+    now: u64,
+) -> vcp_domain::accounting::Attempt {
     let spec = ArtifactSpec {
         id: ArtifactId::new(),
         scope: task.scope.clone(),
@@ -197,7 +215,7 @@ async fn reserve_advisory(
             request: artifact.spec.id,
             request_digest: artifact.sha256,
             quote: vcp_budget::arithmetic::quote(
-                super::action_evidence::price("advisory-model"),
+                price,
                 vcp_domain::accounting::Usage {
                     requests: Units::new(1),
                     ..Default::default()
@@ -788,6 +806,174 @@ async fn advisory_completion_rechecks_inputs_after_result_and_after_completion()
                 );
                 store.close().await.unwrap();
             }
+        }
+    }
+}
+
+#[tokio::test]
+async fn advisory_accounting_rejects_other_request_and_evaluator_on_bind_and_read() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for mismatch in ["request", "model", "provider", "capability"] {
+            let temp = tempfile::tempdir().unwrap();
+            let (mut store, access) = setup(temp.path(), backend).await;
+            let task =
+                super::action_evidence::create_task(&mut store, &access, TaskState::Running).await;
+            vcp_budget::initialize(
+                &mut store,
+                task.scope.clone(),
+                super::action_evidence::money(1000),
+                Micros::ZERO,
+                None,
+                &super::action_evidence::budget_actor(&access, 3),
+            )
+            .await
+            .unwrap();
+            let prepared = prepare(binding(&task, &access), "accounting-identity");
+            let current = prepared.request().binding.clone();
+            let request = advisory::record_request(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &prepared,
+                &current,
+                Timestamp::new(10),
+            )
+            .await
+            .unwrap();
+            advisory::schedule(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &request.id,
+                &current,
+                Timestamp::new(11),
+            )
+            .await
+            .unwrap();
+            let claimant = CommandId::new();
+            advisory::claim(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &request.id,
+                claimant.clone(),
+                &current,
+                Timestamp::new(12),
+            )
+            .await
+            .unwrap();
+            let mut other_request = request.clone();
+            let mut other_price = advisory_price(&request);
+            match mismatch {
+                "request" => {
+                    let other = prepare(binding(&task, &access), "another-canonical-request");
+                    other_request = advisory::record_request(
+                        &mut store,
+                        &access,
+                        CommandId::new(),
+                        &other,
+                        &other.request().binding,
+                        Timestamp::new(12),
+                    )
+                    .await
+                    .unwrap();
+                }
+                "model" => other_price.model = "other/model".into(),
+                "provider" => other_price.provider = "other/provider".into(),
+                "capability" => other_price.capability = "f".repeat(64),
+                _ => unreachable!(),
+            }
+            let other_attempt = reserve_advisory_with_price(
+                &mut store,
+                &access,
+                &task,
+                &other_request,
+                other_price,
+                13,
+            )
+            .await;
+            let expected_error = if mismatch == "request" {
+                "attempt request is not a retained canonical advisory body"
+            } else {
+                "attempt is not the canonical advisory helper reservation"
+            };
+            let watermark = store.state().watermark;
+            assert_eq!(
+                advisory::bind_attempt(
+                    &mut store,
+                    &access,
+                    CommandId::new(),
+                    &request.id,
+                    &claimant,
+                    &other_attempt.id,
+                    Timestamp::new(14),
+                )
+                .await
+                .unwrap_err(),
+                expected_error,
+                "{mismatch}"
+            );
+            assert_eq!(store.state().watermark, watermark);
+
+            let attempt = reserve_advisory(&mut store, &access, &task, &request, 15).await;
+            let accounting = advisory::bind_attempt(
+                &mut store,
+                &access,
+                CommandId::new(),
+                &request.id,
+                &claimant,
+                &attempt.id,
+                Timestamp::new(16),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                advisory::accounting_attempt(&store, &access, &request.id).unwrap(),
+                attempt
+            );
+
+            // Simulate an older persisted binding that points at a different
+            // otherwise-valid helper. Reads must enforce the same identities.
+            let mut stored =
+                store.state().records[&key(Collection::Projection, &accounting.id)].clone();
+            let revision = stored.revision;
+            stored.revision = revision.next().unwrap();
+            for (field, value) in [
+                ("attempt", serde_json::to_value(&other_attempt.id).unwrap()),
+                (
+                    "reservation",
+                    serde_json::to_value(&other_attempt.reservation).unwrap(),
+                ),
+                (
+                    "request_artifact",
+                    serde_json::to_value(&other_attempt.request).unwrap(),
+                ),
+                (
+                    "request_artifact_digest",
+                    serde_json::to_value(&other_attempt.request_digest).unwrap(),
+                ),
+                ("quote", serde_json::to_value(&other_attempt.quote).unwrap()),
+            ] {
+                stored.value[field] = value;
+            }
+            store
+                .transact(Transaction {
+                    id: TransactionId::new(),
+                    expected_watermark: store.state().watermark,
+                    mutations: vec![Mutation::Put {
+                        record: stored,
+                        expected: Some(revision),
+                    }],
+                    events: vec![],
+                    command: None,
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                advisory::accounting_attempt(&store, &access, &request.id).unwrap_err(),
+                expected_error,
+                "{mismatch}"
+            );
         }
     }
 }
