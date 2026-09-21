@@ -28,6 +28,17 @@ includes the actual literal patch syntax. Parsing, source-version checks and
 authority remain unchanged. Read-only trial prompts explicitly request bare
 JSON; historical XML/prose-wrapped answers remain failures.
 
+The approved follow-up campaign exposed an unchanged-analysis usability gap:
+both normal architecture arms read the relevant files but supplied empty
+verification citations. The host correctly refused completion. Subsequent
+product guidance explicitly maps successful tool-result `evidence` UUIDs to
+`citations`, explains the non-finalizing `complete:false` field and directs
+the caller to resolve outstanding issues. The missing-citation diagnostic
+gives the same recovery action. Explicit citation selection, source/scope
+validation and completion requirements remain unchanged. These edits are not
+part of the frozen executable used by the approved campaign; its failures
+remain failures.
+
 ## Evidence so far
 
 - Eleven native tool preparation tests passed, including scope/version fences,
@@ -71,6 +82,20 @@ JSON; historical XML/prose-wrapped answers remain failures.
   After adding the debug-runner tests to the permanent built-in-skills gate,
   that updated gate also passed:
   `artifacts/p7-02-completion-fast/cd5f3ff2-be60-44f7-9455-6c36b8c6cdea/manifest.json`.
+
+The citation-guidance correction passed the existing native verification
+regression across both stores (187.21 seconds) and all four context-continuity
+combinations (192.49 seconds), with no model calls. Its additional 305 schema
+bytes are offset exactly in the compaction fixture, preserving the source/history
+budget and all refusal assertions. Receipts:
+`artifacts/p7-02-citation-verification.log` and
+`artifacts/p7-02-citation-context.log`. Rust formatting and the locked offline CLI
+build passed; the corrected 48-entry archive verified and passed its help smoke
+check. Corrected executable SHA-256:
+`8f40b767e94c639f3bc817c88de932d830c4f5114c89e0487669b24f035cdc59`.
+This is offline validation, not a new live qualification.
+All fourteen fast gates also passed for this correction; receipt:
+`artifacts/p7-02-citation-fast/b77f1917-7a73-4267-8c1b-1195fb3d2cf6/manifest.json`.
 
 ## Fresh live acceptance
 

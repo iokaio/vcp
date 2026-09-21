@@ -105,11 +105,11 @@ async fn run(backend: BackendKind, oversized: bool) {
         }
         let (snapshot, raw) = provider_snapshot();
         // P7-02 added 891 schema bytes and 38 quoted bytes per nullable read.
-        // Its completion increment adds another 372 serialized description bytes.
+        // Completion guidance adds 372 read/patch and 305 citation schema bytes.
         // Offset exactly that later growth to preserve this fixture's effective
         // source/history budget without changing the shared provider fixture.
         let mut endpoint: serde_json::Value = serde_json::from_slice(&raw).unwrap();
-        endpoint["data"]["endpoints"][0]["max_prompt_tokens"] = serde_json::json!(25_372);
+        endpoint["data"]["endpoints"][0]["max_prompt_tokens"] = serde_json::json!(25_677);
         let raw = serde_json::to_vec(&endpoint).unwrap();
         let snapshot = vcp_models::catalog::Snapshot::from_endpoints(
             &raw,
@@ -192,8 +192,8 @@ async fn run(backend: BackendKind, oversized: bool) {
             thread,
             vcp_context::compaction::Config {
                 keep_recent_pairs: 1,
-                // The 25,372 prompt ceiling minus the 512 safety reserve leaves
-                // 24,860 input bytes. A larger historical preview must still fail
+                // The 25,677 prompt ceiling minus the 512 safety reserve leaves
+                // 25,165 input bytes. A larger historical preview must still fail
                 // closed when current facts and the recent pair cannot fit.
                 preview_bytes: if oversized && phase == 2 { 1024 } else { 64 },
                 minimum_gain_bytes: 256,
