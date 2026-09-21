@@ -6,7 +6,10 @@ use vcp_domain::{
     task::{Objective, Task, TaskState, TurnState},
     verification::{Check, CheckOutcome, CostCertainty, Verification},
 };
-use vcp_lifecycle::foundation::{routing, routing_state::observations::*};
+use vcp_lifecycle::foundation::{
+    routing,
+    routing_state::{fits, observations::*},
+};
 use vcp_protocol::{
     command::{Command, CommandEnvelope},
     digest_bytes,
@@ -915,6 +918,88 @@ async fn old_verification_and_partial_attempt_windows_abstain_from_missing_ident
             }
         )
         .is_err());
+    }
+}
+
+#[tokio::test]
+async fn first_order_fit_records_source_parameters_and_abstention_without_persistence() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (store, access) = setup(temp.path(), backend).await;
+        let mut store = store;
+        let task = create_task(&mut store, &access, TaskState::Running).await;
+        let mut engine = vcp_engine::Engine::new(store).unwrap();
+        let actor = engine_access(&access, &task);
+        engine
+            .handle(
+                command(
+                    &engine,
+                    &access,
+                    &task,
+                    Revision::ZERO,
+                    Command::Transition {
+                        next: TaskState::Failed,
+                        reason: "terminal fit fixture".into(),
+                        verification: None,
+                    },
+                ),
+                &actor,
+                &vcp_engine::HostFacts::inspect(Timestamp::new(10)),
+            )
+            .await
+            .unwrap();
+        let store = engine.into_store();
+        let before = store.state().clone();
+        let fitted = fits::fit(&store, &access, window(), 1_000, 1).unwrap();
+        assert_eq!(fitted.alphabet, vec![TaskState::Running, TaskState::Failed]);
+        assert_eq!(fitted.row_samples, vec![1, 0]);
+        assert!(matches!(
+            &fitted.status,
+            fits::FitStatus::Fitted { probabilities }
+                if probabilities == &vec![vec![0.0, 1.0], vec![0.0, 1.0]]
+        ));
+        assert_eq!(fitted.prior_basis_points, 1_000);
+        assert_eq!(fitted.minimum_samples, 1);
+        assert_eq!(fitted.source_digest.len(), 64);
+        assert_eq!(fitted.source_gaps, 0);
+        assert_eq!(fitted.left_censored_traces, 1);
+        assert_eq!(fitted.right_censored_traces, 0);
+        assert_eq!(fitted.features, vec!["task_state"]);
+        assert_eq!(fitted.cohort, "authorized-task-state-scope/1");
+        assert!(fitted.task_class.is_none() && fitted.endpoint.is_none());
+        assert!(fitted.policy.is_none() && fitted.catalog.is_none());
+        assert!(fitted.qualification.is_none() && !fitted.serving_qualified);
+        assert_eq!(
+            fits::fit(&store, &access, window(), 1_000, 1).unwrap(),
+            fitted
+        );
+        assert_eq!(store.state(), &before);
+
+        let sparse = fits::fit(&store, &access, window(), 1_000, 2).unwrap();
+        assert!(matches!(
+            sparse.status,
+            fits::FitStatus::Abstained {
+                reason: fits::Abstention::Sparse
+            }
+        ));
+        let empty = fits::fit(
+            &store,
+            &access,
+            HistoryWindow {
+                from: Some(Timestamp::new(30)),
+                until: Timestamp::new(40),
+            },
+            0,
+            1,
+        )
+        .unwrap();
+        assert!(matches!(
+            empty.status,
+            fits::FitStatus::Abstained {
+                reason: fits::Abstention::NoTransitions
+            }
+        ));
+        assert!(fits::fit(&store, &access, window(), 10_001, 1).is_err());
     }
 }
 
