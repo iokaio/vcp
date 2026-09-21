@@ -348,7 +348,7 @@ pub(super) async fn create_task(store: &mut Store, access: &Access, state: TaskS
     create_named_task(store, access, state, "action-task").await
 }
 
-async fn create_named_task(
+pub(super) async fn create_named_task(
     store: &mut Store,
     access: &Access,
     state: TaskState,
@@ -407,7 +407,7 @@ async fn create_named_task(
     task
 }
 
-fn engine_access(access: &Access, task: &Task) -> vcp_engine::Access {
+pub(super) fn engine_access(access: &Access, task: &Task) -> vcp_engine::Access {
     vcp_engine::Access {
         actor: access.actor.clone(),
         workspace: access.workspace.clone(),
@@ -419,7 +419,7 @@ fn engine_access(access: &Access, task: &Task) -> vcp_engine::Access {
     }
 }
 
-fn command(
+pub(super) fn command(
     engine: &vcp_engine::Engine<Store>,
     access: &Access,
     task: &Task,
@@ -621,7 +621,11 @@ pub(super) fn budget_actor(access: &Access, now: u64) -> vcp_budget::Actor {
         now: Timestamp::new(now),
     }
 }
-async fn capture(store: &mut Store, task: &Task, channel: Channel) -> ArtifactDescriptor {
+pub(super) async fn capture(
+    store: &mut Store,
+    task: &Task,
+    channel: Channel,
+) -> ArtifactDescriptor {
     let spec = ArtifactSpec {
         id: ArtifactId::new(),
         scope: task.scope.clone(),
@@ -697,7 +701,7 @@ async fn reserve(
     reserve_role(store, access, task, previous, RequestRole::Main, now).await
 }
 
-async fn reserve_role(
+pub(super) async fn reserve_role(
     store: &mut Store,
     access: &Access,
     task: &Task,
@@ -739,7 +743,13 @@ async fn reserve_role(
     .await
     .unwrap()
 }
-async fn settle(store: &mut Store, access: &Access, task: &Task, attempt: &Attempt, now: u64) {
+pub(super) async fn settle(
+    store: &mut Store,
+    access: &Access,
+    task: &Task,
+    attempt: &Attempt,
+    now: u64,
+) {
     vcp_budget::submit(
         store,
         &attempt.id,

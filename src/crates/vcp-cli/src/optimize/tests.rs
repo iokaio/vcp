@@ -38,6 +38,33 @@ fn cycles_uses_only_the_read_only_evidence_request() {
 }
 
 #[test]
+fn forecasts_preserves_source_and_abstention_without_mutation_requests() {
+    assert_eq!(parse(&["forecasts"]), Ok(Command::Forecasts));
+    for argument in ["apply", "--provider", "--quality-floor"] {
+        assert!(parse(&["forecasts", argument]).is_err());
+    }
+    let expected = serde_json::json!({
+        "source_evidence":"retained-source", "source_cutoff":"15",
+        "forecast":null, "abstention":"sparse", "unknown_liabilities":true,
+        "serving_qualified":false, "limitations":["observed costs are not forecasts"]
+    });
+    let mut calls = 0;
+    let text = Session::default().execute(Command::Forecasts, Timestamp::new(20), |request| {
+        calls += 1;
+        assert!(matches!(request, Request::Forecasts { from: None, until } if until == Timestamp::new(20)));
+        Ok(expected.clone())
+    }).unwrap();
+    assert_eq!(calls, 1);
+    assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), expected);
+    assert!(HELP.contains("/optimize forecasts"));
+    assert!(Session::default()
+        .execute(Command::Forecasts, Timestamp::new(20), |_| {
+            Err("retained source unavailable".into())
+        })
+        .is_err());
+}
+
+#[test]
 fn observations_uses_only_the_read_only_evidence_request() {
     assert_eq!(parse(&["observations"]), Ok(Command::Observations));
     let mut calls = 0;
