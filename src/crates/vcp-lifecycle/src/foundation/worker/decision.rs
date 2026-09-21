@@ -234,7 +234,18 @@ impl Context {
     }
     fn decision_installation(&self, record: &QualificationRecord) -> Result<CurrentInstallation> {
         self.decision_setup_allowed()?;
-        self.read_decision_evidence(&record.catalog)?;
+        let catalog = self.read_decision_evidence(&record.catalog)?;
+        let native_bound = if record.evaluator.operation == codec::Operation::JevDecisions {
+            codec::native_bound::NativeChargeBound::from_endpoints(
+                &catalog,
+                &record.evaluator.model,
+                &record.evaluator.provider,
+                &record.evaluator.request_price,
+            )
+            .ok()
+        } else {
+            None
+        };
         let conformance = self.read_decision_evidence(&record.conformance)?;
         if serde_json::from_slice::<ConformanceEvidence>(&conformance)?
             != ConformanceEvidence::from_record(record)
@@ -253,6 +264,7 @@ impl Context {
             conformance: record.conformance.clone(),
             configuration_digest: record.evaluator.configuration_digest.clone(),
             now: now(),
+            native_bound,
         })
     }
     fn load_decision_record(&self, reference: &QualificationRef) -> Result<QualificationRecord> {

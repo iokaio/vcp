@@ -28,8 +28,9 @@ function readBounded(file) {
     return buffer.subarray(0, used);
   } finally { fs.closeSync(descriptor); }
 }
-function load() {
-  const manifestBytes = readBounded(path.join(root, manifestPath));
+function load(revision = 'p6-task-quality-v1') {
+  if (!['p6-task-quality-v1', 'p6-task-quality-v2', 'p6-task-quality-v3'].includes(revision)) throw Error('Unknown task manifest revision');
+  const manifestBytes = readBounded(path.join(root, revision === 'p6-task-quality-v1' ? manifestPath : `src/evals/tasks/${revision}.json`));
   const manifest = JSON.parse(manifestBytes);
   function bound(entry) {
     const bytes = readBounded(path.join(root, entry.path));
@@ -40,7 +41,8 @@ function load() {
   }
   const inputs = bound(manifest.inputs);
   const labels = bound(manifest.labels);
-  if (inputs.cases.length !== 6 || new Set(inputs.cases.map(c => c.id)).size !== 6) throw Error('Invalid case pool');
+  const count = revision === 'p6-task-quality-v1' ? 6 : 18;
+  if (inputs.cases.length !== count || new Set(inputs.cases.map(c => c.id)).size !== count) throw Error('Invalid case pool');
   for (const c of inputs.cases) {
     if (!Object.hasOwn(labels.labels, c.id)) throw Error('Missing label');
     if (identity({prompt:c.prompt, files:c.files}) !== manifest.start_states[c.id]) throw Error('Starting state changed');
@@ -53,7 +55,7 @@ function prepare(pool = load()) {
     manifest_sha256:pool.manifest_sha256,
     grader_sha256:hash(readBounded(__filename)),
     status:'not_run', budget_authorized:false, model_calls:0,
-    reason:'Preparatory corpus only. No live executor, canonical charge import, installed model qualification, or trial authorization.',
+    reason:'Preparation performs no provider requests or canonical charge import and grants no trial authorization or model qualification.',
     grading_scope:'Small synthetic smoke corpus; no shipping quality or calibration claim',
     runs:pool.cases.flatMap(c => pool.manifest.strategies.map(s => ({
       case_id:c.id, partition:c.partition, task_class:c.class, strategy:s.id,
@@ -81,6 +83,11 @@ function accepts(schema, value) {
 }
 function gradeAnswer(task, label, answer) {
   if (task.class === 'generation') {
+    if (task.grading_kind === 'bounded_schema_v2') {
+      if (!validV2(answer)) return {pass:false, reason:'invalid_schema'};
+      const passed = label.probes.filter(p => acceptsV2(answer, p.input) === p.accept).length;
+      return {pass:passed === label.probes.length, reason:passed === label.probes.length ? null : 'behavior_mismatch', checks:label.probes.length, passed_checks:passed};
+    }
     if (!validateSchema(answer)) return {pass:false, reason:'invalid_schema', checks:0, passed_checks:0};
     const passed = label.probes.filter(p => accepts(answer, p.input) === p.accept).length;
     return {pass:passed === label.probes.length, reason:passed === label.probes.length ? null : 'behavior_mismatch', checks:label.probes.length, passed_checks:passed};
@@ -96,7 +103,7 @@ function gradeAnswer(task, label, answer) {
 }
 function grade(submission, pool = load()) {
   if (!keys(submission, ['revision','manifest_sha256','runs']) || submission.revision !== pool.manifest.revision ||
-      submission.manifest_sha256 !== pool.manifest_sha256 || !Array.isArray(submission.runs) || submission.runs.length > 18) throw Error('Invalid submission identity or shape');
+      submission.manifest_sha256 !== pool.manifest_sha256 || !Array.isArray(submission.runs) || submission.runs.length > pool.cases.length * pool.manifest.strategies.length) throw Error('Invalid submission identity or shape');
   const planned = prepare(pool).runs;
   const supplied = new Map();
   for (const run of submission.runs) {
@@ -125,7 +132,25 @@ function grade(submission, pool = load()) {
     })), runs:rows
   };
 }
-module.exports = {load, prepare, grade, gradeAnswer, identity};
+function validV2(s, depth = 0) {
+  if (!object(s) || depth > 4 || !['object','array','integer','string','boolean'].includes(s.type)) return false;
+  const allowed = {object:['type','properties','required','additionalProperties'], array:['type','items','minItems','maxItems'], integer:['type','minimum','maximum'], string:['type','enum','minLength','maxLength'], boolean:['type']}[s.type];
+  if (Object.keys(s).some(k => !allowed.includes(k))) return false;
+  if (s.type === 'object') return object(s.properties) && Object.keys(s.properties).length <= 8 && Array.isArray(s.required) && new Set(s.required).size === s.required.length && s.required.every(k => typeof k === 'string' && Object.hasOwn(s.properties,k)) && s.additionalProperties === false && Object.values(s.properties).every(p => validV2(p,depth+1));
+  if (s.type === 'array' && !validV2(s.items,depth+1)) return false;
+  if (s.enum !== undefined && (!Array.isArray(s.enum) || !s.enum.length || s.enum.length > 16 || s.enum.some(x => typeof x !== 'string'))) return false;
+  for (const k of ['minimum','maximum','minItems','maxItems','minLength','maxLength']) if (s[k] !== undefined && (!Number.isSafeInteger(s[k]) || (k !== 'minimum' && k !== 'maximum' && s[k] < 0))) return false;
+  for (const [min,max] of [['minimum','maximum'],['minItems','maxItems'],['minLength','maxLength']]) if (s[min] !== undefined && s[max] !== undefined && s[min] > s[max]) return false;
+  return true;
+}
+function acceptsV2(s,v) {
+  if (s.type === 'object') return object(v) && Object.keys(v).every(k => Object.hasOwn(s.properties,k)) && s.required.every(k => Object.hasOwn(v,k)) && Object.entries(v).every(([k,x]) => acceptsV2(s.properties[k],x));
+  if (s.type === 'array') return Array.isArray(v) && v.length >= (s.minItems ?? 0) && v.length <= (s.maxItems ?? Infinity) && v.every(x => acceptsV2(s.items,x));
+  if (s.type === 'integer') return Number.isSafeInteger(v) && v >= (s.minimum ?? -Infinity) && v <= (s.maximum ?? Infinity);
+  if (s.type === 'boolean') return typeof v === 'boolean';
+  return typeof v === 'string' && (!s.enum || s.enum.includes(v)) && Array.from(v).length >= (s.minLength ?? 0) && Array.from(v).length <= (s.maxLength ?? Infinity);
+}
+module.exports = {load, prepare, grade, gradeAnswer, identity, validV2, acceptsV2};
 if (require.main === module) {
   try {
     const [command, input, ...extra] = process.argv.slice(2);

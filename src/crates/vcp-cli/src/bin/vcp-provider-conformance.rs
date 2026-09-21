@@ -27,6 +27,10 @@ use vcp_models::{
 use vcp_protocol::{canonical_bytes, command::Command, digest_bytes};
 use vcp_store::{contract::Collection, BackendKind};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+#[path = "conformance/native.rs"]
+mod native_probe;
+#[path = "conformance/qualify.rs"]
+mod qualify;
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Spec {
@@ -69,6 +73,7 @@ fn setup(
     output: &Path,
     spec: &Spec,
     candidate: &CandidateMetadata,
+    objective: &str,
 ) -> Result<(
     CanonicalHost,
     vcp_lifecycle::foundation::CanonicalOwner,
@@ -109,7 +114,7 @@ fn setup(
         buffers: digest_bytes(b"no-editor"),
         environment: digest_bytes(b"explicit-qualification-binary"),
     };
-    host.command(Command::CreateTask{root:config.root_task.clone(),parent:None,fork_origin:None,objective:Objective{text:"Qualify only the fixed public echo-tool Responses probe; no filesystem effects, retries or shipping model groups.".into(),constraints:vec![],acceptance:vec!["capture actual provider charge and exact fixed tool continuation".into()],source:EventId::new(),steering:SteeringRevision::ZERO},fingerprint,editing:false,required_checks:vec![]},Some(config.root_task.clone()),Revision::ZERO)?;
+    host.command(Command::CreateTask{root:config.root_task.clone(),parent:None,fork_origin:None,objective:Objective{text:objective.into(),constraints:vec![],acceptance:vec!["capture actual provider charge and immutable probe output".into()],source:EventId::new(),steering:SteeringRevision::ZERO},fingerprint,editing:false,required_checks:vec![]},Some(config.root_task.clone()),Revision::ZERO)?;
     host.command(
         Command::Transition {
             next: TaskState::Running,
@@ -201,7 +206,7 @@ async fn execute(
         spec.request_price_limit.clone(),
         BTreeSet::from(["tools".into(), "tool_choice".into(), "max_tokens".into()]),
     )?;
-    let (host, owner, binding) = setup(output, spec, &candidate)?;
+    let (host, owner, binding) = setup(output, spec, &candidate,"Qualify only the fixed public echo-tool Responses probe; no filesystem effects, retries or shipping model groups.")?;
     fresh_file(&output.join("candidate.json"), &candidate)?;
     let mut catalog = OpenOptions::new()
         .write(true)
@@ -310,6 +315,27 @@ async fn execute(
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--native") {
+        return native_probe::run(&args[1..]).await;
+    }
+    if args.first().is_some_and(|arg| arg == "--native-cohort") {
+        return native_probe::run_cohort(&args[1..], vcp_models::decision::Operation::JevDecisions)
+            .await;
+    }
+    if args.first().is_some_and(|arg| arg == "--comparator-cohort") {
+        return native_probe::run_cohort(
+            &args[1..],
+            vcp_models::decision::Operation::ConventionalChat,
+        )
+        .await;
+    }
+    if args.first().is_some_and(|arg| arg == "--qualify") && args.len() == 4 {
+        return qualify::run(
+            Path::new(&args[1]),
+            Path::new(&args[2]),
+            args[3].to_str().ok_or("qualification hash")?,
+        );
+    }
     if args.len() != 3 {
         return Err("Usage: vcp-provider-conformance <spec.json> <new-private-output-directory> <authorized-spec-sha256>".into());
     }

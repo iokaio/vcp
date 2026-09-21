@@ -68,7 +68,6 @@ fn snapshot(value: &Snapshot, identity: &ModelEndpoint, observed_at: Timestamp) 
         || value.valid_until <= value.observed_at
         || compatibility.valid_until < value.valid_until
         || !compatibility.responses_text_tools
-        || !compatibility.byte_ceiling_qualified
         || !compatibility.provider_preferences_qualified
         || (!compatibility.qualified_reasoning_efforts.is_empty()
             && !compatibility.required_parameters.contains("reasoning"))

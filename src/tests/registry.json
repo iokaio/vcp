@@ -12,7 +12,10 @@
       "cli-trace-fixtures",
       "builtin-skills",
       "p6-task-quality",
-      "p6-live-runner"
+      "p6-live-runner",
+      "p6-profile-qualification",
+      "p6-bootstrap-profiles",
+      "p6-decision-comparison"
     ],
     "repository": [
       "repository"
@@ -32,6 +35,30 @@
     ]
   },
   "cases": {
+    "p6-decision-comparison": {
+      "task_ids": ["P6-04"],
+      "args": ["--test", "src/tests/contracts/p6-decision-comparison.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
+    "p6-profile-qualification": {
+      "task_ids": ["P6-04"],
+      "args": ["--test", "src/tests/contracts/p6-profile-qualification.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
+    "p6-bootstrap-profiles": {
+      "task_ids": ["P6-04"],
+      "args": ["--test", "src/tests/contracts/p6-bootstrap-profiles.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
     "p6-live-runner": {
       "task_ids": ["P6-04"],
       "args": ["--test", "src/tests/contracts/p6-live-runner.test.cjs"],

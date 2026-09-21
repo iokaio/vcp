@@ -168,9 +168,14 @@ shadow comparison; that comparison then supplies no advice, and any uncertain
 charge remains visible in canonical history. Library callers must explicitly
 drive the asynchronous observer to obtain a comparison.
 
-Production native Decisions remains unavailable with
-`native_charge_bound_unqualified`: the retained public protocol evidence does
-not establish a finite bound for every billable category. Conventional Chat also
+Production native Decisions requires a finite bound from the exact captured
+endpoint catalog in addition to separately installed operation conformance.
+The native bound reserves the whole 64k Jev 1.13 request for input and each cache
+category; it does not infer tokens from request bytes. It requires an explicitly
+zero output tariff because Decisions exposes no output cap, rejects unknown
+charge categories or tiers, and bounds request charges by the separately
+qualified provider price control. Missing or conflicting evidence remains
+`native_charge_bound_unqualified`. Conventional Chat also
 requires independently installed operation/control/price qualification. Synthetic
 TLS fixtures prove host mechanics, not service conformance, calibration, utility
 or authorization for paid evaluation. P6-04 live qualification and additional

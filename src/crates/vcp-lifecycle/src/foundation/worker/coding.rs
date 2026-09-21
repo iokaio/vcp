@@ -458,7 +458,7 @@ impl Context {
         )?;
         Ok(())
     }
-    pub fn coding_completion(&self, binding: &ThreadBinding) -> Result<VerificationId> {
+    pub fn coding_completion(&mut self, binding: &ThreadBinding) -> Result<VerificationId> {
         let current = self.context_revisions(binding)?;
         let state = self
             .coding
@@ -474,7 +474,11 @@ impl Context {
         for source in sources {
             self.coding_artifact(source)?;
         }
-        self.latest_verification(binding)
+        let sources = sources.clone();
+        match self.latest_verification(binding) {
+            Ok(id) => Ok(id),
+            Err(_) => self.verify_unchanged_analysis(binding, sources),
+        }
     }
     pub fn admit_coding_tool(
         &mut self,

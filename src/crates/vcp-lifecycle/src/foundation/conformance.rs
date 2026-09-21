@@ -2,6 +2,8 @@
 //! Qualification-only fixed probes. Candidate metadata never becomes a qualified
 //! Snapshot. The canonical owner still captures, reserves and settles every call.
 use super::*;
+pub mod cohort;
+pub mod native;
 use vcp_models::{
     catalog::CandidateMetadata,
     request::Tools,

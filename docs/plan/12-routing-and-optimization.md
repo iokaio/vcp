@@ -1,15 +1,23 @@
 # 12 — Model groups, cost profiles and project optimization
 
-Status: in progress. The [routing foundation](../evaluations/p6-routing-foundation.md) implements deterministic registry/selection, retained host admission, escalation and local optimizer controls. Live profile/evaluator qualification and the remaining policy surface are still acceptance gates. Owns P6-01 through P6-05. Registry work follows P2-02 and P5-06; final profile qualification also needs P5-08. Architecture sections 7–8 govern routing. [Model research](../architecture/model-groups.md) supplies candidates, not shipping ranks/prices.
+Status: construction complete; qualification dispositions and delivery evidence are
+recorded in [P6 completion](../evaluations/p6-completion.md). P6-01 through P6-05
+retain deterministic selection, bounded escalation and reversible local controls.
+Live observations support explicit candidate rejections, not enabled automatic
+profile defaults or remote advice. Delivery remains pending until the associated
+PR passes its checks and merges. P7 child scheduling and P8 release qualification
+remain separate work.
 
 The [selected resource controls](../evaluations/p6-resource-controls.md),
-[owner declarations](../evaluations/p6-owner-declarations.md) and
-[conservative provider admission](../evaluations/p6-provider-bounds.md) extend
-that foundation. After the first capped attempt returned HTTP 401, the
-[authenticated retry](../evaluations/p6-live-provider-retry.md) corrected an
-unsupported optional parameter and observed both candidate models' tool/text
-protocols. Failed-attempt liability remains retained; exact endpoint evidence,
-live profile and evaluator qualification remain incomplete.
+[owner declarations](../evaluations/p6-owner-declarations.md),
+[provider evidence decision](../adr/041-provider-evidence-and-conservative-routing.md),
+[profile activation gate](../evaluations/p6-profile-gate.md) and
+[actual evaluator comparison](../evaluations/p6-decision-comparison.md) supply the
+current evidence. Original authentication/parameter failures and unknown charges
+remain in the retained campaign history. Exact endpoint attribution is derived
+only through the reviewed generation/catalog join; tokenizer qualification stays
+false and admission reserves full input/cache capacity. Research candidates remain
+inputs for investigation, never shipping ranks or prices.
 
 ## Code organization
 
@@ -27,8 +35,9 @@ P6-02 also owns the logical `vcp-decision` contract, deterministic evaluator and
 optional thin Rust OpenRouter adapter; P6-03/P6-05 consume its bounded advice.
 The [canonical routing shadow increment](../evaluations/p6-decision-shadow.md)
 connects actual admitted routes to separately budgeted native/comparator
-observations. It preserves the baseline and leaves live qualification, advisory
-consumers and qualified fallback transitions incomplete.
+observations. It preserves the baseline. The completed comparison records rejection of
+unqualified advisory purposes and fallback activation; the safe disabled path
+remains selected.
 Qualify deterministic rules as the baseline, actual Jev
 through OpenRouter as the preferred specialized candidate, and a conventional
 OpenRouter LLM as a comparator and explicitly permitted fallback. Add M4's local
@@ -300,7 +309,7 @@ reuses the canonical budget ledger. The
 [canonical shadow runtime](../evaluations/p6-advisory-runtime.md) connects the
 caller-owned transport and response path for admitted invalid-output and
 failed-verification escalations. Unsupported trigger evidence mappings abstain;
-live qualification remains open.
+live per-purpose comparison records rejection; transition influence remains disabled.
 Supply bounded observed actions, errors, diffs and checks with source revisions;
 do not invent access to full provider reasoning. Rust evaluates fixed trigger,
 attempt, budget and authority constraints before and after advice. A low risk
@@ -331,7 +340,8 @@ when absent and use the same preview/apply/rollback protocol. See the
 [resource-control evidence](../evaluations/p6-resource-controls.md) for verification
 and remaining limits. Concurrency selection awaits P7's actual child scheduler
 and remains an explicit release gate; no inactive concurrency knob is exposed.
-Measured profile defaults and live evaluator qualification remain separate gates.
+The recorded qualification outcomes leave automatic defaults and optional remote
+advice disabled; existing explicit preferences remain available.
 
 **M3 construction implemented:** [read-only action forecasts](../evaluations/p6-action-forecasts.md)
 expose supported episode/cohort expectations and exclusions. [Saved forecast
@@ -339,10 +349,11 @@ artifacts and matched drift/compaction diagnostics](../evaluations/p6-saved-fore
 preserve exact evidence with source access and retention checks. Forecast serving
 remains disabled after M4's recorded rejection; this does not complete deferred M7 policy proposals.
 
-**Remaining Markov increment:**
-[M7](21-markov-integration.md#m7--offline-proposals-and-provider-bursts)
-adds offline threshold hypotheses through preview, selected apply and rollback
-after M4 evidence; it does not infer unobserved actions or authorize paid trials.
+**Explicitly deferred Markov increment:**
+[M7](21-markov-integration.md#m7--offline-proposals-and-provider-bursts) needs
+qualified downstream outcome/action evidence and adequate exact-endpoint history.
+The rejected current candidates supply neither. No threshold proposal, burst
+policy or trial is enabled; the rules-only configuration remains usable.
 
 1. Read a scoped history window and calculate task classes, languages, failures/abandonment, retries, intervention, token/effort, cost certainty, latency, child overhead and retrieval contribution. Mark missing/pruned/small samples.
 2. Build a baseline report with evidence links and uncertainty. Avoid presenting correlations from unlike tasks/providers as causal improvement.
@@ -403,14 +414,18 @@ comparisons rather than silently inheriting an earlier recommendation.
 
 The [frozen task-quality preparation](../../src/evals/tasks/README.md) adds small
 analysis/review/schema-generation cases, separate labels and independent offline
-graders. All three strategy arms remain not-run; these smoke fixtures do not
-qualify model quality, a production sample floor, prices or shipping defaults.
+graders. The current campaign retains all fixed and routed strategy rows,
+including explicit not-run outcomes when tuning leaves no eligible candidate.
+The frozen activation gate rejects these samples as a basis for shipping defaults;
+[P6 completion](../evaluations/p6-completion.md) records actual outcomes and costs.
 
 **M4 construction implemented through recorded rejection:** the
 [four-arm offline qualification](../evaluations/p6-markov-qualification.md)
-ran rules/local statistics under frozen synthetic project/time splits. Remote
-arms and calibrated forecast/outcome trials remain not-run; the source-bound
-result leaves serving disabled and configured cost assumptions unchanged.
+ran rules/local statistics under frozen synthetic project/time splits. The later
+[actual Jev/conventional comparison](../evaluations/p6-decision-comparison.md)
+adds real remote observations without rewriting that historical result. Sample,
+quality and calibration limits leave serving disabled and configured cost
+assumptions unchanged; no task-level benefit or qualified forecast is inferred.
 
 [M4](21-markov-integration.md#m4--qualification-and-routing-estimates)
 defines local statistical advice as a fourth comparison arm, forecast/interval

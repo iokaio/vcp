@@ -94,10 +94,11 @@ function profileReasons(p, strategy, now = Date.now()) {
   return reasons;
 }
 function prepare(specFile, destination) {
-  const pool = quality.load();
   const specBytes = read(specFile, 1024 * 1024);
   const spec = JSON.parse(specBytes); noSecrets(spec);
-  if (Object.keys(spec).sort().join() !== 'aggregate_cap_usd,executable,strategies' || !spec.strategies || typeof spec.strategies !== 'object') throw Error('Spec needs executable, aggregate_cap_usd, strategies');
+  if (Object.keys(spec).some(k=>!['aggregate_cap_usd','executable','strategies','manifest_revision','partition'].includes(k)) || !spec.executable || !spec.aggregate_cap_usd || !spec.strategies || typeof spec.strategies !== 'object' || (spec.partition!==undefined && spec.partition!=='tuning')) throw Error('Spec needs executable, aggregate_cap_usd, strategies and optional manifest_revision/partition:tuning');
+  const pool = quality.load(spec.manifest_revision);
+  const runCount = pool.cases.length * pool.manifest.strategies.length;
   const ids = pool.manifest.strategies.map(s => s.id);
   if (Object.keys(spec.strategies).some(id => !ids.includes(id))) throw Error('Unknown strategy');
   const executable = plain(path.resolve(spec.executable));
@@ -107,7 +108,7 @@ function prepare(specFile, destination) {
   if (fs.existsSync(destination)) throw Error('Trial destination must be new; never reuse a store or workspace');
   noParentInstructions(path.dirname(destination));
   privateDirectory(destination);
-  const aggregate = micros(spec.aggregate_cap_usd), allocation = Math.floor(aggregate / 18);
+  const aggregate = micros(spec.aggregate_cap_usd), allocation = Math.floor(aggregate / runCount);
   if (allocation === 0) throw Error('Cap must fund a positive allocation for every planned run');
   const profiles = {};
   for (const id of ids) {
@@ -120,7 +121,11 @@ function prepare(specFile, destination) {
   const fixed = ids.filter(id => id.startsWith('fixed_')).map(id => profiles[id].profile?.routing?.policy?.pin?.candidate ?? profiles[id].profile?.provider?.compatibility);
   if (fixed.every(Boolean) && fixed[0].model === fixed[1].model && fixed[0].endpoint === fixed[1].endpoint) throw Error('Fixed economical and stronger arms must name different exact providers/models');
   fs.mkdirSync(destination, {recursive:false, mode:0o700});
-  const plan = {schema:'p6-live-plan/1', manifest_sha256:pool.manifest_sha256, grader_sha256:sha(read(path.join(__dirname,'p6-task-quality.cjs'))), runner_sha256:sha(read(__filename)), spec_sha256:sha(specBytes), directory:destination, executable, executable_sha256:executableHash, aggregate_cap_micros:aggregate, allocated_cap_micros:allocation*18, authorization:false, limitations:'Synthetic smoke only; no shipping defaults, statistical qualification, or evaluator claims.', strategies:{}, runs:[]};
+  const plan = {schema:'p6-live-plan/1', manifest_sha256:pool.manifest_sha256, grader_sha256:sha(read(path.join(__dirname,'p6-task-quality.cjs'))), runner_sha256:sha(read(__filename)), spec_sha256:sha(specBytes), directory:destination, executable, executable_sha256:executableHash, aggregate_cap_micros:aggregate, allocated_cap_micros:allocation*runCount, authorization:false, limitations:'Synthetic subsystem comparison only; no shipping defaults, statistical qualification, or evaluator claims.', strategies:{}, runs:[]};
+  if (spec.manifest_revision) plan.manifest_revision = spec.manifest_revision;
+  if (spec.partition) plan.partition = spec.partition;
+  plan.profile_gate_sha256 = sha(read(path.join(repo,'src/evals/tasks/p6-profile-gate-v1.json')));
+  plan.profile_reporter_sha256 = sha(read(path.join(__dirname,'p6-profile-qualification.cjs')));
   for (const id of ids) {
     const p = profiles[id];
     plan.strategies[id] = {reasons:p.reasons, profile_source:p.source ?? null, profile_sha256:p.source_sha256 ?? null, catalog:p.catalog ?? null, catalog_sha256:p.catalog_sha256 ?? null, provider:p.profile?.provider?.compatibility ?? null, policy_id:p.profile?.routing?.policy?.id ?? null};
@@ -138,7 +143,9 @@ function prepare(specFile, destination) {
       const derived = {...profiles[strategy].profile, workspace:path.join(base,'workspace'), catalog:profiles[strategy].catalog, budget_usd:usd(allocation), affected_paths:Object.keys(task.files)};
       write(path.join(base,'profile.json'),derived); profileHash=sha(read(path.join(base,'profile.json')));
     }
-    plan.runs.push({id, case_id:task.id, strategy, start_state_sha256:pool.manifest.start_states[task.id], files, prompt_sha256:sha(Buffer.from(task.prompt)), profile_sha256:profileHash, cap_micros:allocation, status:profiles[strategy].reasons.length ? 'not_run' : 'ready', reasons:profiles[strategy].reasons});
+    const reasons=[...profiles[strategy].reasons];
+    if(spec.partition==='tuning' && (task.partition!=='tuning' || strategy==='routed')) reasons.push('outside fixed-strategy tuning bootstrap; retained in planned denominator');
+    plan.runs.push({id, case_id:task.id, strategy, start_state_sha256:pool.manifest.start_states[task.id], files, prompt_sha256:sha(Buffer.from(task.prompt)), profile_sha256:profileHash, cap_micros:allocation, status:reasons.length ? 'not_run' : 'ready', reasons});
   }
   write(path.join(destination,'plan.json'),plan);
   return {plan:path.join(destination,'plan.json'), plan_sha256:sha(read(path.join(destination,'plan.json'))), eligible_runs:plan.runs.filter(r=>r.status==='ready').length, allocated_cap_micros:plan.allocated_cap_micros, authorization:false};
@@ -172,7 +179,12 @@ function accounting(pages,cap) {
   if(!Number.isSafeInteger(total) || total!==counter(ledgers[0].settled) || total>cap) throw Error('Cost totals do not reconcile');
   return {actual_cost_micros:total,attempts};
 }
-function responseAnswer(plan,base,pages,attempts,call) {
+function privacyGap(gap,artifact) {
+  if(gap.artifact!==artifact || !Array.isArray(gap.omissions) || !gap.omissions.length || new Set(gap.omissions).size!==gap.omissions.length || gap.omissions.some(x=>!['authentication_headers','recovery_material'].includes(x)))return false;
+  if(gap.visibility==='omitted')return gap.capture_state==='complete' && gap.reason==='only retained observed bytes are available; not reconstructed' && gap.range===undefined;
+  return gap.visibility==='redacted' && gap.range===null && gap.reason==='excluded at capture boundary; no retained byte offsets exist';
+}
+function responseAnswer(plan,base,pages,attempts,call,captureDirectory=base) {
   const answers=[];
   for(const item of pages.flatMap(p=>p.items).filter(i=>i.collection==='artifact' && i.record?.spec?.channel==='response')) {
     const descriptor=item.record;
@@ -182,12 +194,13 @@ function responseAnswer(plan,base,pages,attempts,call) {
     for(let offset=0;offset<length;offset+=65536) {
       const ranged=inspection(plan,base,item.id,'outputs',call,['--offset',String(offset),'--length','65536']);
       const row=ranged[0].items[0];
-      if(ranged.some(p=>p.gaps.length) || row?.range?.start!==offset || !Array.isArray(row.bytes)) throw Error('Response range unavailable');
+      const end=Math.min(offset+65536,length);
+      if(ranged.length!==1 || ranged[0].items.length!==1 || ranged.some(p=>p.gaps.some(g=>!privacyGap(g,item.id))) || row?.range?.start!==offset || row.range.end!==end || !Array.isArray(row.bytes) || row.bytes.length!==end-offset || row.bytes.some(b=>!Number.isInteger(b)||b<0||b>255) || (row.artifact!==undefined && row.artifact!==item.id) || (row.visibility!==undefined && row.visibility!=='available')) throw Error('Response range unavailable or has retained-byte gaps');
       chunks.push(Buffer.from(row.bytes));
     }
     const bytes=Buffer.concat(chunks);
     if(bytes.length!==length || sha(bytes)!==descriptor.sha256) throw Error('Response identity mismatch');
-    write(path.join(base,`response-${sha(Buffer.from(item.id))}.sse`),bytes.toString('utf8'));
+    write(path.join(captureDirectory,`response-${sha(Buffer.from(item.id))}.sse`),bytes.toString('utf8'));
     for(const block of bytes.toString('utf8').split(/\r?\n\r?\n/)) {
       const data=block.split(/\r?\n/).filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trimStart()).join('\n');
       if(!data || data==='[DONE]') continue;
@@ -204,11 +217,12 @@ function responseAnswer(plan,base,pages,attempts,call) {
 }
 function run(planFile,authorization,call=invoke) {
   const bytes=read(planFile); if(sha(bytes)!==authorization) throw Error('Explicit authorization must match the exact prepared plan hash');
-  const plan=JSON.parse(bytes), pool=quality.load();
+  const plan=JSON.parse(bytes), pool=quality.load(plan.manifest_revision);
   noParentInstructions(plan.directory);
   privateDirectory(plan.directory);
   if(plan.schema!=='p6-live-plan/1' || plain(path.dirname(path.resolve(planFile)))!==plan.directory || plan.manifest_sha256!==pool.manifest_sha256 || plan.runner_sha256!==sha(read(__filename)) || plan.grader_sha256!==sha(read(path.join(__dirname,'p6-task-quality.cjs'))) || plan.executable_sha256!==sha(read(plan.executable,1024*1024*1024))) throw Error('Prepared execution identity changed');
-  if(plan.runs.length!==18 || plan.runs.reduce((sum,r)=>sum+r.cap_micros,0)!==plan.allocated_cap_micros || plan.allocated_cap_micros>plan.aggregate_cap_micros) throw Error('Prepared cap allocation changed');
+  if(plan.runs.length!==pool.cases.length*pool.manifest.strategies.length || plan.runs.reduce((sum,r)=>sum+r.cap_micros,0)!==plan.allocated_cap_micros || plan.allocated_cap_micros>plan.aggregate_cap_micros) throw Error('Prepared cap allocation changed');
+  if(plan.profile_gate_sha256!==sha(read(path.join(repo,'src/evals/tasks/p6-profile-gate-v1.json'))) || plan.profile_reporter_sha256!==sha(read(path.join(__dirname,'p6-profile-qualification.cjs')))) throw Error('Frozen qualification gate or reporting source changed');
   // Validate every arm before creating the permanent execution claim.
   for(const strategy of Object.values(plan.strategies)) if(strategy.profile_source) {
     if(sha(read(strategy.profile_source))!==strategy.profile_sha256 || sha(read(strategy.catalog))!==strategy.catalog_sha256) throw Error('External profile or catalog changed; prepare a new trial');
@@ -243,7 +257,7 @@ function run(planFile,authorization,call=invoke) {
       result.actual_cost_micros+=money.actual_cost_micros;
       if(report.status==='completed') {
         try { const answer=responseAnswer(plan,base,evidence.outputs,money.attempts,call); report.answer=answer.answer; report.answer_source=answer; }
-        catch { report.status='failed'; report.reasons=['canonical final answer missing, ambiguous, or invalid JSON']; }
+        catch(error) { report.status='failed'; report.reasons=['canonical_answer_import_failed',classifyAnswerError(error)]; }
       }
     } catch(error) { report.status='failed'; report.reasons=[error.message]; result.actual_cost_micros=null; result.stopped=true; }
     write(path.join(base,'result.json'),report);
@@ -255,12 +269,49 @@ function run(planFile,authorization,call=invoke) {
   if(result.runs.some(r=>r.status==='not_run')) result.actual_cost_micros=null;
   write(path.join(plan.directory,'result.json'),result); return result;
 }
-module.exports={prepare,run,profileReasons,accounting,micros};
+function classifyAnswerError(error) {
+  if(error instanceof SyntaxError)return 'invalid_json_or_sse';
+  const message=String(error.message);
+  return ['Response capture is incomplete or too large','Response range unavailable or has retained-byte gaps','Response identity mismatch','Expected exactly one unambiguous canonical JSON final answer','Canonical inspection unavailable','Invalid or unbounded inspection'].includes(message)?message:'unclassified_capture_error';
+}
+function reimport(planFile,destination,call=invoke) {
+  const planBytes=read(planFile),plan=JSON.parse(planBytes),pool=quality.load(plan.manifest_revision);
+  if(plan.schema!=='p6-live-plan/1' || plain(path.dirname(path.resolve(planFile)))!==plan.directory || plan.manifest_sha256!==pool.manifest_sha256 || plan.executable_sha256!==sha(read(plan.executable,1024*1024*1024)))throw Error('Original plan, fixture or binary identity mismatch');
+  const expected=quality.prepare(pool).runs;
+  if(plan.runs.length!==expected.length || plan.runs.some((r,i)=>r.case_id!==expected[i].case_id || r.strategy!==expected[i].strategy || r.start_state_sha256!==expected[i].start_state_sha256))throw Error('Original execution denominator or order mismatch');
+  const claimBytes=read(path.join(plan.directory,'execution-claim.json'));
+  if(JSON.parse(claimBytes).plan_sha256!==sha(planBytes))throw Error('Original execution claim mismatch');
+  destination=plain(path.resolve(destination));privateDirectory(destination);noParentInstructions(destination);
+  if(within(repo,destination)||within(destination,repo)||within(plan.directory,destination)||within(destination,plan.directory))throw Error('Derived import requires separate private directory');
+  fs.mkdirSync(destination,{recursive:false,mode:0o700});
+  const derived={schema:'p6-live-reimport/1',purpose:'Read-only recovery of existing canonical evidence; no task replay, new dispatch or changed original verdict',original_plan_sha256:sha(planBytes),original_runner_sha256:plan.runner_sha256,importer_sha256:sha(read(__filename)),claim_sha256:sha(claimBytes),manifest_sha256:pool.manifest_sha256,model_calls:0,runs:[]};
+  for(const row of plan.runs) {
+    const original=safeChild(plan.directory,row.id),output=safeChild(destination,row.id);fs.mkdirSync(output);
+    const report={case_id:row.case_id,strategy:row.strategy,start_state_sha256:row.start_state_sha256,status:'not_run',answer:null,actual_cost_micros:null,reasons:row.reasons};derived.runs.push(report);
+    if(!fs.existsSync(path.join(original,'attempted.json')))continue;
+    try {
+      const stdout=read(path.join(original,'stdout.jsonl')),framesRead=frames(stdout.toString('utf8'));
+      const accepted=framesRead.find(f=>f.type==='accepted'),final=framesRead.findLast(f=>f.type==='result');
+      if(!accepted?.scope?.task || !final?.conditions)throw Error('Missing original durable completion identity');
+      report.stdout_sha256=sha(stdout);report.scope=accepted.scope;report.original_completed=final.conditions.completed===true;
+      report.status=final.conditions.completed?'completed':final.conditions.cancelled?'cancelled':'failed';
+      const evidence={};
+      for(const view of ['costs','routing','outputs']) {evidence[view]=inspection(plan,original,accepted.scope.task,view,call);write(path.join(output,view+'.json'),evidence[view]);}
+      const money=accounting(evidence.costs,row.cap_micros);report.actual_cost_micros=money.actual_cost_micros;
+      try {const answer=responseAnswer(plan,original,evidence.outputs,money.attempts,call,output);report.answer=answer.answer;report.answer_source=answer;}
+      catch(error){report.reasons=['canonical_answer_import_failed',classifyAnswerError(error)];if(report.status==='completed')report.status='failed';}
+    } catch(error){report.status='failed';report.reasons=['canonical_reimport_failed',classifyAnswerError(error)];}
+    write(path.join(output,'result.json'),report);
+  }
+  const submission={revision:pool.manifest.revision,manifest_sha256:pool.manifest_sha256,runs:derived.runs.map(({case_id,strategy,start_state_sha256,status,answer})=>({case_id,strategy,start_state_sha256,status,answer}))};
+  write(path.join(destination,'answer-grades.json'),quality.grade(submission,pool));write(path.join(destination,'reimport.json'),derived);return derived;
+}
+module.exports={prepare,run,profileReasons,accounting,micros,reimport,privacyGap,responseAnswer};
 if(require.main===module) {
   try {
     const [command,input,extra,...rest]=process.argv.slice(2);
-    if(rest.length || !input || !extra || !['prepare','run'].includes(command)) throw Error('Usage: node scripts/evals/p6-live-runner.cjs prepare <spec.json> <new-private-directory> | run <plan.json> <authorized-plan-sha256>');
-    const result=command==='prepare'?prepare(input,extra):run(input,extra);
-    process.stdout.write(json(command==='prepare'?result:{result:path.join(path.dirname(input),'result.json'),stopped:result.stopped,actual_cost_micros:result.actual_cost_micros}));
+    if(rest.length || !input || !extra || !['prepare','run','reimport'].includes(command)) throw Error('Usage: node scripts/evals/p6-live-runner.cjs prepare <spec.json> <new-private-directory> | run <plan.json> <authorized-plan-sha256> | reimport <plan.json> <new-private-directory>');
+    const result=command==='prepare'?prepare(input,extra):command==='reimport'?reimport(input,extra):run(input,extra);
+    process.stdout.write(json(command==='prepare'?result:command==='reimport'?{result:path.join(extra,'reimport.json'),model_calls:0}:{result:path.join(path.dirname(input),'result.json'),stopped:result.stopped,actual_cost_micros:result.actual_cost_micros}));
   } catch(error) { console.error(error.message); process.exitCode=1; }
 }

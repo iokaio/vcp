@@ -1,6 +1,6 @@
 # P6-05 selected resource controls
 
-Status: implementation integrated; native combined verification pending. No live
+Status: implementation integrated; native combined verification passed below. No live
 model qualification or measured profile default is claimed by these controls.
 
 Optional policy input, escalation, retrieval and reasoning fields use the existing

@@ -50,10 +50,11 @@ pub(super) fn select_edits(host: &CanonicalHost, selected: Vec<Edit>) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn selected_output_matches_body_reservation_and_survives_policy_change_after_send() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
-        for (selected, expected, change_after_send, small_input) in [
-            (256, 256, true, false),
-            (4096, 1024, false, false),
-            (256, 256, false, true),
+        for (selected, expected, change_after_send, small_input, full_input_bound) in [
+            (256, 256, true, false, false),
+            (4096, 1024, false, false, false),
+            (256, 256, false, true, false),
+            (256, 256, false, false, true),
         ] {
             let temp = tempfile::tempdir().unwrap();
             let workspace = temp.path().join("workspace");
@@ -105,8 +106,26 @@ async fn selected_output_matches_body_reservation_and_survives_policy_change_aft
             .unwrap();
             let (snapshot, raw) = provider_snapshot();
             host.configure_provider(snapshot, raw).unwrap();
-            host.configure_routing(super::routing::routing_configuration(Profile::Low, false))
-                .unwrap();
+            let mut routing = super::routing::routing_configuration(Profile::Low, false);
+            if full_input_bound {
+                for candidate in &mut routing.catalog.entries {
+                    let prior = candidate.snapshot.as_ref().unwrap();
+                    let raw = routing.raw_catalogs.remove(&prior.id).unwrap();
+                    let mut compatibility = prior.compatibility.clone();
+                    compatibility.byte_ceiling_qualified = false;
+                    let snapshot = vcp_models::catalog::Snapshot::from_endpoints(
+                        raw.as_bytes(),
+                        prior.observed_at,
+                        prior.valid_until,
+                        compatibility,
+                    )
+                    .unwrap();
+                    routing.raw_catalogs.insert(snapshot.id.clone(), raw);
+                    candidate.snapshot = Some(snapshot);
+                }
+                routing.catalog.id = routing.catalog.digest().unwrap();
+            }
+            host.configure_routing(routing).unwrap();
             select_output(&host, selected);
             if small_input {
                 select_edits(&host, vec![Edit::InputTokens(Some(Units::new(1)))]);
@@ -199,6 +218,12 @@ async fn selected_output_matches_body_reservation_and_survives_policy_change_aft
             assert_eq!(bodies[0]["max_output_tokens"], expected);
             assert_eq!(attempts.len(), 1);
             assert_eq!(attempts[0].quote.bounds.output, Units::new(expected));
+            if full_input_bound {
+                assert_eq!(attempts[0].quote.bounds.input, Units::new(720_000));
+                assert_eq!(attempts[0].quote.bounds.cache_read, Units::new(240_000));
+                assert_eq!(attempts[0].quote.bounds.cache_write, Units::new(240_000));
+                assert!(serde_json::to_vec(&bodies[0]).unwrap().len() < 240_000);
+            }
             assert_eq!(attempts[0].phase, ReservationState::Settled);
             assert_eq!(attempts[0].charged, Micros::new(100));
             let current = host.routing_control(Request::Status).unwrap();

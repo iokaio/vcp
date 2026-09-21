@@ -62,3 +62,22 @@ makes no paid requests:
 ```powershell
 cargo test --manifest-path src/third_party/codex/codex-rs/Cargo.toml --locked --offline -p vcp-cli --features qualification --bin vcp-provider-conformance
 ```
+
+After a completed pair, `--qualify <sources.json> <new-output> <sources-sha256>`
+performs an offline evidence join and writes `snapshot.json`. Each of
+`probe_spec`, `report`, `catalog`, and the two `generations` entries has `path`
+and `sha256`. `observed_at` and `valid_until` are decimal millisecond strings.
+Generation records must come from the authenticated read-only OpenRouter
+`/api/v1/generation?id=<observed-response-id>` endpoint. Capture a fresh complete
+model catalog; capability, context/output and normalized tariff drift rejects.
+The explicit source hash is the review boundary; this command performs no network
+operation and does not authenticate arbitrary user-supplied JSON itself.
+
+[ADR-041](../../docs/adr/041-provider-evidence-and-conservative-routing.md)
+defines the strict receipt/catalog join. Both requests must have one successful
+provider attempt, matching IDs/charges, a stable observed model revision and
+internal endpoint UUID, and an unambiguous provider name in the complete catalog.
+The raw Responses identity remains unchanged. The snapshot can establish dated
+provider-policy/text-tool compatibility but retains `byte_ceiling_qualified:false`;
+automatic routing uses the separately verified full-input reservation fallback.
+Quality/group membership is still independent measured evidence.

@@ -68,6 +68,15 @@ marked analysis-only still needs checks when its source baseline changes.
 Unchanged analysis requires explicit complete, same-task canonical citations.
 Changes outside every configured project block completion.
 
+An accounted final response with no prior verification can trigger a local
+integrity observation at the quiescent completion boundary. This narrow path
+requires an unchanged source baseline, no editing flag, and no configured,
+task-required or discovered checks. It supplies the final response's canonical
+citations to the existing verification pipeline and dispatches no process.
+Current verification denials, authority, source, effect and accounting fences
+still apply. It cannot replace an earlier failed verification or complete changed
+work without required checks; semantic answer quality remains separately graded.
+
 `complete_verified` requires quiescent retained work, the current owner's opaque
 verification candidate, unchanged task/authority/effect revisions and fresh
 native sources. It pins existing selected files against write/delete, checks

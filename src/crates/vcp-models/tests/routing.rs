@@ -32,6 +32,16 @@ fn candidate(
     latency: u64,
     input_price: &str,
 ) -> Candidate {
+    candidate_with_byte_bound(model, group, quality, latency, input_price, true)
+}
+fn candidate_with_byte_bound(
+    model: &str,
+    group: Group,
+    quality: u16,
+    latency: u64,
+    input_price: &str,
+    byte_ceiling_qualified: bool,
+) -> Candidate {
     let endpoint = "fixture/region";
     let compatibility = Compatibility {
         id: format!("synthetic-{model}"),
@@ -40,7 +50,7 @@ fn candidate(
         qualified_at: Timestamp::new(1),
         valid_until: Timestamp::new(1000),
         responses_text_tools: true,
-        byte_ceiling_qualified: true,
+        byte_ceiling_qualified,
         provider_preferences_qualified: true,
         deny_data_collection: true,
         require_zdr: true,
@@ -264,6 +274,52 @@ fn setup(entries: Vec<Candidate>) -> (CatalogRevision, Policy, RoutingInput) {
     let catalog = CatalogRevision::create(None, Timestamp::new(20), None, entries).unwrap();
     let input = input(&catalog, &policy);
     (catalog, policy, input)
+}
+
+#[test]
+fn unqualified_bytes_require_full_input_admission_without_inflating_expected_task_cost() {
+    let entry = candidate_with_byte_bound("unqualified", Group::Low, 9000, 5, "0.000001", false);
+    let (catalog, policy, mut input) = setup(vec![entry]);
+    let snapshot = catalog.entries[0].snapshot.as_ref().unwrap();
+    assert!(!snapshot.compatibility.byte_ceiling_qualified);
+    assert_eq!(
+        snapshot.reservation_input(Units::new(100)),
+        Units::new(3000)
+    );
+    let decision = select(&catalog, &policy, &input).unwrap();
+    assert!(decision.selected.is_some());
+    // Expected cost is still 100 input + 100 output + 10 request + 130 support/
+    // verification; it is not relabelled as the full-capacity reservation.
+    assert_eq!(
+        decision.candidates[0]
+            .total_estimate
+            .as_ref()
+            .unwrap()
+            .total
+            .micros,
+        Micros::new(340)
+    );
+    assert!(decision.candidates[0]
+        .assumptions
+        .iter()
+        .any(|s| s.contains("unqualified")));
+    // Each input/cache bound costs 3000, output 100, request 10, protection 100.
+    input.available = money(9209);
+    let denied = select(&catalog, &policy, &input).unwrap();
+    assert!(denied.selected.is_none());
+    excluded(&denied, "unqualified", Exclusion::Budget);
+    input.available = money(9210);
+    assert!(select(&catalog, &policy, &input)
+        .unwrap()
+        .selected
+        .is_some());
+    input.input_tokens = Units::new(3001);
+    input.estimates[0].first_attempt.input = Units::new(3001);
+    excluded(
+        &select(&catalog, &policy, &input).unwrap(),
+        "unqualified",
+        Exclusion::ContextCapacity,
+    );
 }
 fn excluded(decision: &RoutingDecision, model: &str, reason: Exclusion) {
     assert!(

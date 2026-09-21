@@ -1,0 +1,192 @@
+{
+  "revision": "p6-task-quality-v3",
+  "cases": [
+    {
+      "id": "tuning-analysis",
+      "partition": "tuning",
+      "class": "analysis",
+      "prompt": "Identify every direct dependency imported by entry.mjs. Return JSON {\"dependencies\":[{\"path\":string,\"line\":integer}]}; cite import lines in entry.mjs. Exclude transitive dependencies and comments. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "entry.mjs": "import { total } from './sum.mjs';\n// import './unused.mjs';\nimport { print } from './view.mjs';\nprint(total([1, 2]));\n",
+        "sum.mjs": "import { identity } from './number.mjs';\nexport const total = xs => xs.reduce((a, b) => a + identity(b), 0);\n",
+        "number.mjs": "export const identity = x => x;\n",
+        "view.mjs": "export const print = x => String(x);\n"
+      }
+    },
+    {
+      "id": "tuning-analysis-multiline",
+      "partition": "tuning",
+      "class": "analysis",
+      "prompt": "Identify static import declarations in entry.mjs only. Return JSON {\"dependencies\":[{\"path\":string,\"line\":integer}]}, with each module specifier and the starting line of its import declaration. Include side-effect imports. Exclude re-exports, dynamic import(), require(), strings, comments and transitive imports. Return JSON only. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "entry.mjs": "import {\n  first,\n  second\n} from './values.mjs';\nconst text = \"import './fake.mjs'\";\nimport * as view from './view.mjs';\n",
+        "values.mjs": "export const first=1, second=2;\n",
+        "view.mjs": "export const format = String;\n"
+      }
+    },
+    {
+      "id": "tuning-analysis-side-effect",
+      "partition": "tuning",
+      "class": "analysis",
+      "prompt": "Identify static import declarations in entry.mjs only. Return JSON {\"dependencies\":[{\"path\":string,\"line\":integer}]}, with each module specifier and the starting line of its import declaration. Include side-effect imports. Exclude re-exports, dynamic import(), require(), strings, comments and transitive imports. Return JSON only. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "entry.mjs": "import './polyfill.mjs';\nexport { version } from './version.mjs';\nconst lazy = () => import('./lazy.mjs');\n",
+        "polyfill.mjs": "globalThis.ready = true;\n",
+        "version.mjs": "export const version = 1;\n",
+        "lazy.mjs": "export default 7;\n"
+      }
+    },
+    {
+      "id": "tuning-generation",
+      "partition": "tuning",
+      "class": "generation",
+      "prompt": "Generate a JSON validation schema for contract.txt. Return the schema object itself using only type, properties, required, additionalProperties; each property may use only type, minimum, maximum. Types supported: object and integer. Do not include Markdown. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "Accept an object with exactly one required field named count. Its value must be an integer from 0 through 3 inclusive. Reject missing fields, extra fields, nonobjects, and other values.\n"
+      }
+    },
+    {
+      "id": "tuning-generation-array",
+      "partition": "tuning",
+      "class": "generation",
+      "prompt": "Generate a JSON validation schema for contract.txt. Return only the schema object. Allowed keywords: type, properties, required, additionalProperties, items, minItems, maxItems, minimum, maximum, enum, minLength, maxLength. Allowed types: object, array, integer, string, boolean. Every object must specify properties, required and additionalProperties:false. Do not include Markdown. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "Accept an array containing 1 through 3 integer values, each from -1 through 1 inclusive. Reject all other values.\n"
+      },
+      "grading_kind": "bounded_schema_v2"
+    },
+    {
+      "id": "tuning-generation-enum",
+      "partition": "tuning",
+      "class": "generation",
+      "prompt": "Generate a JSON validation schema for contract.txt. Return only the schema object. Allowed keywords: type, properties, required, additionalProperties, items, minItems, maxItems, minimum, maximum, enum, minLength, maxLength. Allowed types: object, array, integer, string, boolean. Every object must specify properties, required and additionalProperties:false. Do not include Markdown. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "Accept exactly an object with required mode equal to string \"read\" or \"write\". No additional fields.\n"
+      },
+      "grading_kind": "bounded_schema_v2"
+    },
+    {
+      "id": "tuning-review",
+      "partition": "tuning",
+      "class": "review",
+      "prompt": "Review lookup.mjs against contract.txt. Return JSON {\"findings\":[{\"path\":string,\"line\":integer,\"kind\":\"boundary\"|\"coercion\"}]}. Report only defects, at the first faulty check line. No stylistic findings. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "lookup accepts integer indices 0 through values.length - 1. Any other index returns null.\n",
+        "lookup.mjs": "export function lookup(values, index) {\n  if (!Number.isInteger(index)) return null;\n  if (index < 0 || index > values.length) return null;\n  return values[index];\n}\n"
+      }
+    },
+    {
+      "id": "tuning-review-correct",
+      "partition": "tuning",
+      "class": "review",
+      "prompt": "Review implementation.mjs against contract.txt. Return JSON {\"findings\":[{\"path\":string,\"line\":integer,\"kind\":\"boundary\"|\"coercion\"}]}. Report defects at the first faulty check line; boundary means an incorrect accepted range, coercion means accepting a wrong input type. For correct code return the object {\"findings\":[]}. No stylistic findings. Return JSON only. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "Accept only integer ages 18 through 65 inclusive; return false otherwise.\n",
+        "implementation.mjs": "export function eligible(age) {\n  if (!Number.isInteger(age)) return false;\n  return age >= 18 && age <= 65;\n}\n"
+      }
+    },
+    {
+      "id": "tuning-review-two-checks",
+      "partition": "tuning",
+      "class": "review",
+      "prompt": "Review implementation.mjs against contract.txt. Return JSON {\"findings\":[{\"path\":string,\"line\":integer,\"kind\":\"boundary\"|\"coercion\"}]}. Report defects at the first faulty check line; boundary means an incorrect accepted range, coercion means accepting a wrong input type. For correct code return the object {\"findings\":[]}. No stylistic findings. Return JSON only. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "Accept only numeric integer quantities 1 through 10 inclusive. Strings must be rejected.\n",
+        "implementation.mjs": "export function accepted(quantity) {\n  if (!Number.isInteger(Number(quantity))) return false;\n  return quantity >= 1 && quantity < 10;\n}\n"
+      }
+    },
+    {
+      "id": "heldout-analysis",
+      "partition": "held_out",
+      "class": "analysis",
+      "prompt": "Identify every direct dependency imported by entry.mjs. Return JSON {\"dependencies\":[{\"path\":string,\"line\":integer}]}; cite import lines in entry.mjs. Exclude transitive dependencies and comments. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "entry.mjs": "// import './legacy.mjs';\nimport { load } from './load.mjs';\nexport const run = () => load();\n",
+        "load.mjs": "import { parse } from './parse.mjs';\nexport const load = () => parse('7');\n",
+        "parse.mjs": "export const parse = x => Number(x);\n"
+      }
+    },
+    {
+      "id": "heldout-analysis-cycle",
+      "partition": "held_out",
+      "class": "analysis",
+      "prompt": "Identify static import declarations in entry.mjs only. Return JSON {\"dependencies\":[{\"path\":string,\"line\":integer}]}, with each module specifier and the starting line of its import declaration. Include side-effect imports. Exclude re-exports, dynamic import(), require(), strings, comments and transitive imports. Return JSON only. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "entry.mjs": "import { call } from './cycle.mjs';\nimport './init.mjs';\nexport const root = 1;\ncall();\n",
+        "cycle.mjs": "import { root } from './entry.mjs';\nimport { leaf } from './leaf.mjs';\nexport const call = () => root + leaf;\n",
+        "leaf.mjs": "export const leaf=2;\n",
+        "init.mjs": "globalThis.started = true;\n"
+      }
+    },
+    {
+      "id": "heldout-analysis-no-static",
+      "partition": "held_out",
+      "class": "analysis",
+      "prompt": "Identify static import declarations in entry.mjs only. Return JSON {\"dependencies\":[{\"path\":string,\"line\":integer}]}, with each module specifier and the starting line of its import declaration. Include side-effect imports. Exclude re-exports, dynamic import(), require(), strings, comments and transitive imports. Return JSON only. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "entry.mjs": "/* import './fake.mjs'; */\nexport * from './exports.mjs';\nconst lazy = () => import('./lazy.mjs');\nconst text = `import './other.mjs'`;\n",
+        "exports.mjs": "export const n=1;\n",
+        "lazy.mjs": "export default 2;\n"
+      }
+    },
+    {
+      "id": "heldout-generation",
+      "partition": "held_out",
+      "class": "generation",
+      "prompt": "Generate a JSON validation schema for contract.txt. Return the schema object itself using only type, properties, required, additionalProperties; each property may use only type, minimum, maximum. Types supported: object and integer. Do not include Markdown. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "Accept an object with exactly one required field named offset. Its value must be an integer from -2 through 2 inclusive. Reject missing fields, extra fields, nonobjects, and other values.\n"
+      }
+    },
+    {
+      "id": "heldout-generation-multifield",
+      "partition": "held_out",
+      "class": "generation",
+      "prompt": "Generate a JSON validation schema for contract.txt. Return only the schema object. Allowed keywords: type, properties, required, additionalProperties, items, minItems, maxItems, minimum, maximum, enum, minLength, maxLength. Allowed types: object, array, integer, string, boolean. Every object must specify properties, required and additionalProperties:false. Do not include Markdown. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "Accept exactly an object with required fields enabled (Boolean) and retries (integer 0 through 2 inclusive). No extra fields.\n"
+      },
+      "grading_kind": "bounded_schema_v2"
+    },
+    {
+      "id": "heldout-generation-optional",
+      "partition": "held_out",
+      "class": "generation",
+      "prompt": "Generate a JSON validation schema for contract.txt. Return only the schema object. Allowed keywords: type, properties, required, additionalProperties, items, minItems, maxItems, minimum, maximum, enum, minLength, maxLength. Allowed types: object, array, integer, string, boolean. Every object must specify properties, required and additionalProperties:false. Do not include Markdown. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "Accept exactly an object with required id (string of 1 through 3 Unicode code points), and optional active (Boolean). No additional fields.\n"
+      },
+      "grading_kind": "bounded_schema_v2"
+    },
+    {
+      "id": "heldout-review",
+      "partition": "held_out",
+      "class": "review",
+      "prompt": "Review permitted.mjs against contract.txt. Return JSON {\"findings\":[{\"path\":string,\"line\":integer,\"kind\":\"boundary\"|\"coercion\"}]}. Report only defects, at the first faulty check line. No stylistic findings. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "permitted returns true only for the number 7, never the string '7', booleans, or any other value.\n",
+        "permitted.mjs": "export function permitted(value) {\n  return value == 7;\n}\n"
+      }
+    },
+    {
+      "id": "heldout-review-boolean",
+      "partition": "held_out",
+      "class": "review",
+      "prompt": "Review implementation.mjs against contract.txt. Return JSON {\"findings\":[{\"path\":string,\"line\":integer,\"kind\":\"boundary\"|\"coercion\"}]}. Report defects at the first faulty check line; boundary means an incorrect accepted range, coercion means accepting a wrong input type. For correct code return the object {\"findings\":[]}. No stylistic findings. Return JSON only. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "enabled returns true only for Boolean true; reject numbers, strings, objects, null and Boolean false.\n",
+        "implementation.mjs": "export function enabled(value) {\n  return Boolean(value);\n}\n"
+      }
+    },
+    {
+      "id": "heldout-review-half-open",
+      "partition": "held_out",
+      "class": "review",
+      "prompt": "Review implementation.mjs against contract.txt. Return JSON {\"findings\":[{\"path\":string,\"line\":integer,\"kind\":\"boundary\"|\"coercion\"}]}. Report defects at the first faulty check line; boundary means an incorrect accepted range, coercion means accepting a wrong input type. For correct code return the object {\"findings\":[]}. No stylistic findings. Return JSON only. Return exactly one JSON object and nothing else. Do not include Markdown fences, commentary, explanations, or text before or after the JSON object.",
+      "files": {
+        "contract.txt": "Given finite numeric start/end with start < end, contains returns true for finite numeric time in [start,end); otherwise false.\n",
+        "implementation.mjs": "export function contains(time, start, end) {\n  if (!Number.isFinite(time)) return false;\n  return time > start && time < end;\n}\n"
+      }
+    }
+  ]
+}

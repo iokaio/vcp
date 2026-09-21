@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{accounting::*, Micros, Timestamp, Units};
 
+#[cfg(feature = "qualification")]
+pub mod attribution;
+
 /// Exact nonnegative decimal conversion, including bounded scientific notation.
 /// Returns millionths rounded upwards, never a floating-point money operation.
 pub fn usd_micros(value: &str) -> Result<u64> {
@@ -41,7 +44,7 @@ pub fn usd_micros(value: &str) -> Result<u64> {
 }
 /// Rates preserve up to 12 fractional USD digits through a million-token unit.
 /// Finer precision is rounded upward at that unit, so admission stays conservative.
-fn rate(value: &str) -> Result<Rate> {
+pub(crate) fn rate(value: &str) -> Result<Rate> {
     let micros_per_million = usd_micros(&format!("{}e6", value)).or_else(|_| {
         let (m, e) = value.split_once(['e', 'E']).ok_or(Error::Decimal)?;
         let e = e.parse::<i32>().map_err(|_| Error::Decimal)?;

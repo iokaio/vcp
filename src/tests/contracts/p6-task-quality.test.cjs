@@ -8,6 +8,35 @@ const path = require('node:path');
 const {spawnSync} = require('node:child_process');
 const {load, prepare, grade, gradeAnswer} = require('../../../scripts/evals/p6-task-quality.cjs');
 const pool = load();
+test('v3 freezes explicit strict JSON prompts with unchanged substantive fixtures and labels',()=>{
+  const prior=load('p6-task-quality-v2'), current=load('p6-task-quality-v3');
+  assert.deepEqual(current.labels,prior.labels);
+  for(const task of current.cases) {
+    assert.deepEqual(task.files,prior.cases.find(c=>c.id===task.id).files);
+    assert.match(task.prompt,/Return exactly one JSON object and nothing else/);
+    assert.doesNotMatch(task.prompt,/Return \[\] for correct code/);
+    assert.notEqual(current.manifest.start_states[task.id],prior.manifest.start_states[task.id]);
+  }
+});
+test('v2 adds structural coverage and independent boundary probes without production sample claims',()=>{
+  const p=load('p6-task-quality-v2');
+  assert.equal(p.cases.length,18);assert.equal(prepare(p).runs.length,54);
+  for(const partition of ['tuning','held_out']) for(const cls of ['analysis','review','generation']) assert.equal(p.cases.filter(c=>c.partition===partition && c.class===cls).length,3);
+  const answers={
+    'tuning-generation-enum':{type:'object',properties:{mode:{type:'string',enum:['read','write']}},required:['mode'],additionalProperties:false},
+    'tuning-generation-array':{type:'array',items:{type:'integer',minimum:-1,maximum:1},minItems:1,maxItems:3},
+    'heldout-generation-multifield':{type:'object',properties:{enabled:{type:'boolean'},retries:{type:'integer',minimum:0,maximum:2}},required:['enabled','retries'],additionalProperties:false},
+    'heldout-generation-optional':{type:'object',properties:{id:{type:'string',minLength:1,maxLength:3},active:{type:'boolean'}},required:['id'],additionalProperties:false}
+  };
+  for(const [id,answer] of Object.entries(answers)) {
+    const task=p.cases.find(c=>c.id===id);
+    assert.equal(gradeAnswer(task,p.labels[id],answer).pass,true,id);
+    assert.equal(gradeAnswer(task,p.labels[id],{...answer,evil:'execute'}).pass,false);
+  }
+  const task=p.cases.find(c=>c.id==='heldout-generation-optional');
+  assert.equal(gradeAnswer(task,p.labels[task.id],{...answers[task.id],required:['id','active']}).pass,false);
+  assert.equal(gradeAnswer(p.cases.find(c=>c.id==='tuning-generation-array'),p.labels['tuning-generation-array'],{...answers['tuning-generation-array'],maxItems:4}).pass,false);
+});
 // Independently authored accepted responses; these do not come from production routing.
 const good = {
   'tuning-analysis':{dependencies:[{path:'./view.mjs',line:3},{path:'./sum.mjs',line:1}]},

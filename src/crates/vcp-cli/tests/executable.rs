@@ -484,6 +484,68 @@ fn response(index: usize, mode: &str) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_plan_final_answer_observes_unchanged_analysis_without_waiving_checks() {
+    for (required_check, external_change) in [(false, false), (true, false), (false, true)] {
+        let server = MockServer::start().await;
+        let fixture = Fixture::new(&server.uri(), "complete");
+        if !required_check {
+            let mut profile: Value =
+                serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+            profile["checks"] = json!([]);
+            profile["processes"] = json!([]);
+            fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+            fs::remove_file(fixture.workspace.join("package.json")).unwrap();
+            fs::remove_file(fixture.workspace.join("acceptance.cjs")).unwrap();
+        }
+        let file = fixture.workspace.join("value.txt");
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(move |_: &wiremock::Request| {
+                if external_change {
+                    fs::write(&file, "43\n").unwrap();
+                }
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(response(2, "complete"))
+            })
+            .expect(1)
+            .mount(&server)
+            .await;
+        let output = fixture
+            .run(&[
+                "run",
+                "Analyze the supplied value without editing.",
+                "--autonomy",
+                "plan",
+            ])
+            .await;
+        let values = records(&output);
+        let expected = if required_check || external_change {
+            3
+        } else {
+            0
+        };
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
+            "required={required_check} changed={external_change}: {} {}",
+            String::from_utf8_lossy(&output.stderr),
+            values.last().unwrap()
+        );
+        assert_eq!(
+            fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
+            if external_change { "43\n" } else { "41\n" }
+        );
+        if expected == 0 {
+            assert!(values
+                .iter()
+                .any(|v| v.to_string().contains("verification_recorded")));
+            assert_eq!(values.last().unwrap()["conditions"]["completed"], true);
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn executable_terminal_pauses_steers_resizes_and_resumes_in_same_console() {
     use codex_utils_pty::TerminalSize;
     use std::time::Duration;

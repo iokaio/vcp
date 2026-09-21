@@ -8,6 +8,7 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const runner=require('../../../scripts/evals/p6-live-runner.cjs');
 const quality=require('../../../scripts/evals/p6-task-quality.cjs');
+const qualification=require('../../../scripts/evals/p6-profile-qualification.cjs');
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 function setup(t) {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'vcp-p6-live-'));
@@ -57,13 +58,81 @@ test('prepares private immutable 18-run plan; absent arms remain unavailable wit
   assert.throws(f.prepare,/must be new/);
   assert.throws(()=>runner.run(prepared.plan,'wrong',()=>assert.fail('must not launch')),/authorization/);
 });
+
+test('v2 freezes 54 matched runs and predeclared gate without recycling allocation',t=>{
+  const f=setup(t), spec=JSON.parse(fs.readFileSync(f.spec));
+  spec.manifest_revision='p6-task-quality-v2';spec.aggregate_cap_usd='54.000000';
+  fs.writeFileSync(f.spec,JSON.stringify(spec));
+  const prepared=f.prepare(), plan=JSON.parse(fs.readFileSync(prepared.plan));
+  assert.equal(plan.runs.length,54);assert.equal(prepared.eligible_runs,18);
+  assert.equal(plan.runs.every(r=>r.cap_micros===1000000),true);
+  assert.equal(plan.profile_gate_sha256.length,64);
+  assert.equal(plan.manifest_revision,'p6-task-quality-v2');
+  assert.equal(plan.runs.slice(0,27).every(r=>r.case_id.startsWith('tuning-')),true);
+  assert.equal(plan.runs.slice(27).every(r=>r.case_id.startsWith('heldout-')),true);
+});
+
+test('v3 tuning bootstrap retains all54 rows but never makes heldout or routed rows ready',t=>{
+  const f=setup(t),spec=JSON.parse(fs.readFileSync(f.spec));
+  spec.manifest_revision='p6-task-quality-v3';spec.partition='tuning';spec.aggregate_cap_usd='54.000000';
+  fs.writeFileSync(f.spec,JSON.stringify(spec));
+  const prepared=f.prepare(),plan=JSON.parse(fs.readFileSync(prepared.plan));
+  assert.equal(plan.runs.length,54);assert.equal(prepared.eligible_runs,9);
+  assert.equal(plan.runs.filter(r=>r.status==='ready').every(r=>r.case_id.startsWith('tuning-') && r.strategy==='fixed_economical'),true);
+  assert.equal(plan.runs.filter(r=>r.case_id.startsWith('heldout-')).every(r=>r.status==='not_run'),true);
+});
 test('real command arguments and canonical inspections export bounded costs and strict final answers without replay',t=>{
   const f=setup(t), prepared=f.prepare(), fake=fakeCli();const result=runner.run(prepared.plan,prepared.plan_sha256,fake.call);
   assert.equal(fake.calls.filter(c=>c.includes('run')).length,6);assert.equal(result.stopped,false);
   assert.equal(result.runs.filter(r=>r.status==='completed').length,6);assert.equal(result.runs[0].actual_cost_micros,12);
   assert.deepEqual(result.runs[0].answer,{dependencies:quality.load().labels['tuning-analysis'].dependencies});
   assert.equal(result.actual_cost_micros,null,'missing arms never become zero spend');
+  const report=qualification.report(path.dirname(prepared.plan));
+  assert.equal(report.decision,'reject_automatic_default_activation');
+  assert.equal(report.enabled_defaults.length,0);
+  assert.equal(report.summaries.find(s=>s.strategy==='fixed_economical' && s.partition==='held_out').actual_cost_micros,36);
+  assert.equal(report.summaries.find(s=>s.strategy==='routed' && s.partition==='held_out').actual_cost_micros,null);
   assert.throws(()=>runner.run(prepared.plan,prepared.plan_sha256,fake.call),/EEXIST/);
+});
+
+test('exact confidence bounds never qualify tiny all-pass or failed samples',()=>{
+  assert.equal(qualification.lowerBound(0,3),0);
+  assert.ok(Math.abs(qualification.lowerBound(3,3)-Math.pow(0.05,1/3))<1e-12);
+  assert.ok(qualification.lowerBound(30,30)>0.9);
+  assert.ok(qualification.lowerBound(29,30)<qualification.lowerBound(30,30));
+  assert.throws(()=>qualification.lowerBound(4,3),/sample/);
+  assert.equal(qualification.percentile([100,1,3],0.5),3);
+  assert.equal(qualification.percentile([],0.95),null);
+});
+
+test('capture-boundary privacy omissions retain exact bytes while byte gaps still fail',t=>{
+  for(const invalid of [false,true]) {
+    const f=setup(t),prepared=f.prepare(),fake=fakeCli();
+    const call=(exe,args,timeout)=>{
+      const result=fake.call(exe,args,timeout);
+      if(args.includes('--offset')) {
+        const frame=JSON.parse(result.stdout),artifact=args[args.indexOf('inspect')+1];
+        frame.data.gaps=[{artifact,capture_state:'complete',omissions:['authentication_headers','recovery_material'],reason:'only retained observed bytes are available; not reconstructed',visibility:'omitted'},
+          {artifact,omissions:['authentication_headers','recovery_material'],range:invalid?{start:0,end:1}:null,reason:'excluded at capture boundary; no retained byte offsets exist',visibility:'redacted'}];
+        result.stdout=JSON.stringify(frame)+'\n';
+      }
+      return result;
+    };
+    const result=runner.run(prepared.plan,prepared.plan_sha256,call);
+    assert.equal(result.runs[0].status,invalid?'failed':'completed');
+    if(invalid)assert.match(result.runs[0].reasons[1],/retained-byte gaps/);
+  }
+});
+
+test('read-only reimport preserves original verdict files and never invokes run',t=>{
+  const f=setup(t),prepared=f.prepare(),fake=fakeCli();runner.run(prepared.plan,prepared.plan_sha256,fake.call);
+  const original=fs.readFileSync(path.join(path.dirname(prepared.plan),'result.json'));
+  const derived=runner.reimport(prepared.plan,path.join(f.dir,'derived'),(exe,args,timeout)=>{
+    assert.ok(args.includes('inspect'));assert.equal(args.includes('run'),false);return fake.call(exe,args,timeout);
+  });
+  assert.equal(derived.model_calls,0);assert.equal(derived.runs[0].status,'completed');
+  assert.deepEqual(fs.readFileSync(path.join(path.dirname(prepared.plan),'result.json')),original);
+  assert.throws(()=>runner.reimport(prepared.plan,path.join(f.dir,'derived'),fake.call),/EEXIST/);
 });
 test('unknown canonical liability stops all subsequent dispatch and preserves denominator',t=>{
   const f=setup(t), prepared=f.prepare(), fake=fakeCli(true);const result=runner.run(prepared.plan,prepared.plan_sha256,fake.call);

@@ -1,0 +1,579 @@
+{
+  "schema": "p6-decision-comparison/1",
+  "source_sha256": "32dacbeb460195057c209de5bdde8d8c4ab51c0d2024fa146ff66d9e9ed46a32",
+  "local_source_binding": {
+    "recorded_sha256": "51bedc59eae56aba4340f730c7164eedc7e3981b4c914783e1c4b2414d520dd1",
+    "current_sha256": "32dacbeb460195057c209de5bdde8d8c4ab51c0d2024fa146ff66d9e9ed46a32",
+    "normalization": "exact LF-to-CRLF reconstruction matches historical hash",
+    "run_id": "4d2ead2a-a26e-4805-b0af-4e547c3035ca",
+    "source_content_sha256": "76d59e53f10b3b60fde936b36a0791b1db79231d89a0bb8b7f462454d6ced5e2"
+  },
+  "workload_sha256": "e7bc658ed30c92db9697de72a4d78d6a53082d7b75c62ec219527666be21f897",
+  "purpose": "repeated_strategy_suspicion",
+  "arms": [
+    {
+      "all_splits": {
+        "abstained": 0,
+        "cases": 12,
+        "coverage": {
+          "denominator": 12,
+          "lower95": 0.7575059933447592,
+          "numerator": 12,
+          "point": 1,
+          "upper95": 1
+        },
+        "covered": 12,
+        "false_negative": 3,
+        "false_positive": 3,
+        "maximum_evaluation_wall_micros": 34,
+        "precision": {
+          "denominator": 6,
+          "lower95": 0.18761630648265054,
+          "numerator": 3,
+          "point": 0.5,
+          "upper95": 0.8123836935173494
+        },
+        "recall": {
+          "denominator": 6,
+          "lower95": 0.18761630648265054,
+          "numerator": 3,
+          "point": 0.5,
+          "upper95": 0.8123836935173494
+        },
+        "serious_misses_including_abstention": 3,
+        "true_negative": 3,
+        "true_positive": 3,
+        "uncertainty": "Wilson95% descriptive bounds on synthetic fixtures; correlated fixture families are not population evidence",
+        "unknown_costs": 3
+      },
+      "arm": "rules_only",
+      "held_out": {
+        "abstained": 0,
+        "cases": 4,
+        "coverage": {
+          "denominator": 4,
+          "lower95": 0.5101091635454027,
+          "numerator": 4,
+          "point": 1,
+          "upper95": 1
+        },
+        "covered": 4,
+        "false_negative": 1,
+        "false_positive": 1,
+        "maximum_evaluation_wall_micros": 12,
+        "precision": {
+          "denominator": 2,
+          "lower95": 0.09453120573423074,
+          "numerator": 1,
+          "point": 0.5,
+          "upper95": 0.9054687942657693
+        },
+        "recall": {
+          "denominator": 2,
+          "lower95": 0.09453120573423074,
+          "numerator": 1,
+          "point": 0.5,
+          "upper95": 0.9054687942657693
+        },
+        "serious_misses_including_abstention": 1,
+        "true_negative": 1,
+        "true_positive": 1,
+        "uncertainty": "Wilson95% descriptive bounds on synthetic fixtures; correlated fixture families are not population evidence",
+        "unknown_costs": 1
+      },
+      "qualification": {
+        "enabled": false,
+        "reasons": [
+          "synthetic_only_no_live_outcome_trials",
+          "no_calibrated_forecast_intervals",
+          "no_authorized_live_cap",
+          "unqualified_source_and_config",
+          "insufficient_held_out_projects_or_cases",
+          "precision_floor",
+          "recall_floor",
+          "coverage_floor",
+          "serious_miss",
+          "unknown_liability"
+        ],
+        "status": "rejected"
+      },
+      "status": "ran_synthetic",
+      "supported_purpose": "repeated_strategy_suspicion"
+    },
+    {
+      "all_splits": {
+        "abstained": 3,
+        "cases": 12,
+        "coverage": {
+          "denominator": 12,
+          "lower95": 0.46769466506643426,
+          "numerator": 9,
+          "point": 0.75,
+          "upper95": 0.9110583316059453
+        },
+        "covered": 9,
+        "false_negative": 0,
+        "false_positive": 3,
+        "maximum_evaluation_wall_micros": 20,
+        "precision": {
+          "denominator": 6,
+          "lower95": 0.18761630648265054,
+          "numerator": 3,
+          "point": 0.5,
+          "upper95": 0.8123836935173494
+        },
+        "recall": {
+          "denominator": 6,
+          "lower95": 0.18761630648265054,
+          "numerator": 3,
+          "point": 0.5,
+          "upper95": 0.8123836935173494
+        },
+        "serious_misses_including_abstention": 3,
+        "true_negative": 3,
+        "true_positive": 3,
+        "uncertainty": "Wilson95% descriptive bounds on synthetic fixtures; correlated fixture families are not population evidence",
+        "unknown_costs": 3
+      },
+      "arm": "local_statistics",
+      "held_out": {
+        "abstained": 1,
+        "cases": 4,
+        "coverage": {
+          "denominator": 4,
+          "lower95": 0.30064184258240184,
+          "numerator": 3,
+          "point": 0.75,
+          "upper95": 0.9544127391902995
+        },
+        "covered": 3,
+        "false_negative": 0,
+        "false_positive": 1,
+        "maximum_evaluation_wall_micros": 6,
+        "precision": {
+          "denominator": 2,
+          "lower95": 0.09453120573423074,
+          "numerator": 1,
+          "point": 0.5,
+          "upper95": 0.9054687942657693
+        },
+        "recall": {
+          "denominator": 2,
+          "lower95": 0.09453120573423074,
+          "numerator": 1,
+          "point": 0.5,
+          "upper95": 0.9054687942657693
+        },
+        "serious_misses_including_abstention": 1,
+        "true_negative": 1,
+        "true_positive": 1,
+        "uncertainty": "Wilson95% descriptive bounds on synthetic fixtures; correlated fixture families are not population evidence",
+        "unknown_costs": 1
+      },
+      "qualification": {
+        "enabled": false,
+        "reasons": [
+          "synthetic_only_no_live_outcome_trials",
+          "no_calibrated_forecast_intervals",
+          "no_authorized_live_cap",
+          "unqualified_source_and_config",
+          "insufficient_held_out_projects_or_cases",
+          "precision_floor",
+          "recall_floor",
+          "coverage_floor",
+          "serious_miss",
+          "unknown_liability"
+        ],
+        "status": "rejected"
+      },
+      "status": "ran_synthetic",
+      "supported_purpose": "repeated_strategy_suspicion"
+    },
+    {
+      "arm": "actual_jev_openrouter",
+      "status": "ran_synthetic",
+      "valid_batch": true,
+      "identity": {
+        "requested_model": "typesafe/jev-1.13",
+        "requested_endpoint": "typesafe",
+        "served_model": "typesafe/jev-1.13-20260917",
+        "served_provider": "TypeSafe",
+        "catalog_sha256": "88a9d4c00f56eee84e94b0b34a75cbda0da27c77818bc3d35a320738c7c2ec24",
+        "price_id": "097f3f9f80e54219fe5b3768d5dc9e4747e6745f26073759045532e3fe282ce7"
+      },
+      "held_out": {
+        "cases": 4,
+        "covered": 4,
+        "abstained": 0,
+        "coverage": 1,
+        "true_positive": 1,
+        "false_positive": 1,
+        "false_negative": 1,
+        "true_negative": 1,
+        "recall": 0.5,
+        "precision": 0.5,
+        "serious_misses_including_abstention": 1,
+        "native_brier": 0.277625,
+        "native_probability_samples": 4
+      },
+      "all_splits": {
+        "cases": 12,
+        "covered": 12,
+        "abstained": 0,
+        "coverage": 1,
+        "true_positive": 3,
+        "false_positive": 3,
+        "false_negative": 3,
+        "true_negative": 3,
+        "recall": 0.5,
+        "precision": 0.5,
+        "serious_misses_including_abstention": 3,
+        "native_brier": 0.27153333333333335,
+        "native_probability_samples": 12
+      },
+      "rows": [
+        {
+          "question": "c00",
+          "case": "tuning-repetition",
+          "partition": "tuning",
+          "label": true,
+          "serious": false,
+          "probability": 0.62,
+          "prediction": true
+        },
+        {
+          "question": "c01",
+          "case": "tuning-benign-repetition",
+          "partition": "tuning",
+          "label": false,
+          "serious": false,
+          "probability": 0.65,
+          "prediction": true
+        },
+        {
+          "question": "c02",
+          "case": "tuning-unpredictable-stall",
+          "partition": "tuning",
+          "label": true,
+          "serious": true,
+          "probability": 0.4,
+          "prediction": false
+        },
+        {
+          "question": "c03",
+          "case": "tuning-progress",
+          "partition": "tuning",
+          "label": false,
+          "serious": false,
+          "probability": 0.41,
+          "prediction": false
+        },
+        {
+          "question": "c04",
+          "case": "calibration-repetition",
+          "partition": "calibration",
+          "label": true,
+          "serious": false,
+          "probability": 0.58,
+          "prediction": true
+        },
+        {
+          "question": "c05",
+          "case": "calibration-benign-repetition",
+          "partition": "calibration",
+          "label": false,
+          "serious": false,
+          "probability": 0.6,
+          "prediction": true
+        },
+        {
+          "question": "c06",
+          "case": "calibration-unpredictable-stall",
+          "partition": "calibration",
+          "label": true,
+          "serious": true,
+          "probability": 0.39,
+          "prediction": false
+        },
+        {
+          "question": "c07",
+          "case": "calibration-progress",
+          "partition": "calibration",
+          "label": false,
+          "serious": false,
+          "probability": 0.38,
+          "prediction": false
+        },
+        {
+          "question": "c08",
+          "case": "held_out-repetition",
+          "partition": "held_out",
+          "label": true,
+          "serious": false,
+          "probability": 0.54,
+          "prediction": true
+        },
+        {
+          "question": "c09",
+          "case": "held_out-benign-repetition",
+          "partition": "held_out",
+          "label": false,
+          "serious": false,
+          "probability": 0.58,
+          "prediction": true
+        },
+        {
+          "question": "c10",
+          "case": "held_out-unpredictable-stall",
+          "partition": "held_out",
+          "label": true,
+          "serious": true,
+          "probability": 0.4,
+          "prediction": false
+        },
+        {
+          "question": "c11",
+          "case": "held_out-progress",
+          "partition": "held_out",
+          "label": false,
+          "serious": false,
+          "probability": 0.45,
+          "prediction": false
+        }
+      ],
+      "elapsed_ms": 653,
+      "known_spend_micros": "80",
+      "ledger": {
+        "active": "0",
+        "allocations": {},
+        "cap": "10000",
+        "currency": "USD",
+        "daily": null,
+        "overrun": false,
+        "policy": "0",
+        "protected": "0",
+        "revision": "3",
+        "schema_version": 1,
+        "scope": {
+          "session": "80f95f19-723f-4ee2-8b1f-da64191abeeb",
+          "task": "ad1be116-9ee1-4a8a-9b10-7a5736dc9fe1",
+          "workspace": "1401ee39-d45b-489d-8924-5de1bf745336"
+        },
+        "settled": "80",
+        "unresolved": "0"
+      },
+      "planned_requests": 1,
+      "observed_response_count": 1,
+      "qualification": {
+        "enabled": false,
+        "status": "rejected",
+        "reasons": [
+          "synthetic_only_no_task_outcome_trials",
+          "insufficient_independent_held_out_cases_and_projects",
+          "no_per_purpose_operation_qualification",
+          "precision_floor",
+          "recall_floor",
+          "serious_miss"
+        ]
+      }
+    },
+    {
+      "arm": "conventional_openrouter",
+      "status": "ran_synthetic",
+      "valid_batch": true,
+      "identity": {
+        "requested_model": "anthropic/claude-haiku-4.5",
+        "requested_endpoint": "anthropic",
+        "served_model": "anthropic/claude-haiku-4.5",
+        "served_provider": "Anthropic",
+        "catalog_sha256": "6eceee3c16138261a5600c7365394a0c33fa03de060c60bd1e95bf7eed88bfb2",
+        "price_id": "b1fa25f51e9a9b99b271bc741dc44330c7e1ad629db4f6057f8a1510d4c5ee0e"
+      },
+      "held_out": {
+        "cases": 4,
+        "covered": 4,
+        "abstained": 0,
+        "coverage": 1,
+        "true_positive": 2,
+        "false_positive": 2,
+        "false_negative": 0,
+        "true_negative": 0,
+        "recall": 1,
+        "precision": 0.5,
+        "serious_misses_including_abstention": 0,
+        "native_brier": null,
+        "native_probability_samples": 0
+      },
+      "all_splits": {
+        "cases": 12,
+        "covered": 12,
+        "abstained": 0,
+        "coverage": 1,
+        "true_positive": 6,
+        "false_positive": 6,
+        "false_negative": 0,
+        "true_negative": 0,
+        "recall": 1,
+        "precision": 0.5,
+        "serious_misses_including_abstention": 0,
+        "native_brier": null,
+        "native_probability_samples": 0
+      },
+      "rows": [
+        {
+          "question": "c00",
+          "case": "tuning-repetition",
+          "partition": "tuning",
+          "label": true,
+          "serious": false,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c01",
+          "case": "tuning-benign-repetition",
+          "partition": "tuning",
+          "label": false,
+          "serious": false,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c02",
+          "case": "tuning-unpredictable-stall",
+          "partition": "tuning",
+          "label": true,
+          "serious": true,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c03",
+          "case": "tuning-progress",
+          "partition": "tuning",
+          "label": false,
+          "serious": false,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c04",
+          "case": "calibration-repetition",
+          "partition": "calibration",
+          "label": true,
+          "serious": false,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c05",
+          "case": "calibration-benign-repetition",
+          "partition": "calibration",
+          "label": false,
+          "serious": false,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c06",
+          "case": "calibration-unpredictable-stall",
+          "partition": "calibration",
+          "label": true,
+          "serious": true,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c07",
+          "case": "calibration-progress",
+          "partition": "calibration",
+          "label": false,
+          "serious": false,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c08",
+          "case": "held_out-repetition",
+          "partition": "held_out",
+          "label": true,
+          "serious": false,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c09",
+          "case": "held_out-benign-repetition",
+          "partition": "held_out",
+          "label": false,
+          "serious": false,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c10",
+          "case": "held_out-unpredictable-stall",
+          "partition": "held_out",
+          "label": true,
+          "serious": true,
+          "probability": null,
+          "prediction": true
+        },
+        {
+          "question": "c11",
+          "case": "held_out-progress",
+          "partition": "held_out",
+          "label": false,
+          "serious": false,
+          "probability": null,
+          "prediction": true
+        }
+      ],
+      "elapsed_ms": 1775,
+      "known_spend_micros": "2101",
+      "ledger": {
+        "active": "0",
+        "allocations": {},
+        "cap": "1000000",
+        "currency": "USD",
+        "daily": null,
+        "overrun": false,
+        "policy": "0",
+        "protected": "0",
+        "revision": "3",
+        "schema_version": 1,
+        "scope": {
+          "session": "54251c7e-1466-4cc6-b4ca-ed25eb9630f8",
+          "task": "51081fc0-9f5d-4475-9011-88b11cc936af",
+          "workspace": "db1af954-f439-4463-9fb3-64b5f33dc827"
+        },
+        "settled": "2101",
+        "unresolved": "0"
+      },
+      "planned_requests": 1,
+      "observed_response_count": 1,
+      "qualification": {
+        "enabled": false,
+        "status": "rejected",
+        "reasons": [
+          "synthetic_only_no_task_outcome_trials",
+          "insufficient_independent_held_out_cases_and_projects",
+          "no_per_purpose_operation_qualification",
+          "precision_floor"
+        ]
+      }
+    }
+  ],
+  "shipping_evaluator_enabled": false,
+  "limitations": [
+    "Local producer results retain their original measured source/run identity; no invented rerun.",
+    "One remote batch per arm; all unlabeled prefixes share context. This is not twelve isolated sessions or independent latency observations.",
+    "No downstream policy was changed, so task quality, cost reduction, interventions and missed reviews remain unmeasured.",
+    "Brier applies only to actual native probabilities, never Boolean comparator outputs.",
+    "No fitted calibration, forecast interval coverage or enabled advisory transition is established."
+  ],
+  "source_reports_sha256": {
+    "native": "4c7b1fa90bf349e2323a5fff95cbbac51f0c7d8c24a427dd8843b4d91db8d398",
+    "conventional": "c33fe3955ddbd684800dbfa54b74455b3eedcab31706f90804978728162ab0c3"
+  }
+}
