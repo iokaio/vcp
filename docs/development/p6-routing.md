@@ -68,6 +68,15 @@ partition-bound, unpersisted and unqualified. See
 [ADR-033](../adr/033-heldout-markov-order-comparison.md) and the
 [comparison evidence](../evaluations/p6-heldout-order-comparison.md).
 
+`routing_state::rewards::map` groups attempts into exact augmented model-cycle
+cohorts and maps only complete terminal charges to currency-preserving cost
+samples. Every role and root/child component stays separate. A cohort with any
+unknown terminal charge has no sample mean; available charged and reserved-
+liability totals remain visible separately. The source-bound artifact is rebuilt,
+unpersisted and unqualified. See
+[ADR-034](../adr/034-exact-attempt-reward-mapping.md) and the
+[reward-mapping evidence](../evaluations/p6-reward-mapping.md).
+
 Local analysis also works without a provider profile or a model budget:
 `vcp optimize status`, `vcp optimize report --from <ms> --until <ms>`,
 `vcp optimize answer priority "lower total cost"`, and

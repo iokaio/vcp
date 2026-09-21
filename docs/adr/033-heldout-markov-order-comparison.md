@@ -52,7 +52,8 @@ not the project-separated and time-separated frozen split required for final
 qualification. Small or unrepresentative cohorts can abstain or produce a noisy
 diagnostic. No comparison result changes runtime routing.
 
-M1 still needs reward mapping and uncertainty qualification plus consumed-value
-retention/replay. M4 owns final purpose-specific qualification and any activation.
+ADR-034 subsequently adds exact attempt-visit rewards and unknown-liability mean
+abstention. Consumed-value retention/replay remains. M4 owns final purpose-specific
+qualification and any activation.
 Verification commands and results are recorded in the
 [increment evidence](../evaluations/p6-heldout-order-comparison.md).

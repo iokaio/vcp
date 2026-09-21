@@ -70,10 +70,9 @@ required output fields explicit instead of silently changing version one.
 ## Consequences and remaining work
 
 M1 now has exact per-attempt charges, late-adjustment identity and explicit
-liability abstention. It still needs to map selected complete charges to a fitted
-state/reward definition, qualify first- versus second-order fits, version and
-invalidate fitted artifacts, and record consumed-value replay. M2/M3 consumers
-remain disabled.
+liability abstention. ADR-032/033 subsequently add source-bound fits and held-out
+order comparison; ADR-034 maps complete charges to exact attempt-visit rewards.
+Consumed-value replay remains. M2/M3 consumers remain disabled.
 
 Verification commands and results are recorded in the
 [increment evidence](../evaluations/p6-charge-rewards.md).

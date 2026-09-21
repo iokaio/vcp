@@ -2,6 +2,7 @@
 //! Canonical routing publications and local, scoped optimization evidence.
 pub mod fits;
 pub mod observations;
+pub mod rewards;
 pub mod transitions;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
