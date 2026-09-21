@@ -97,6 +97,8 @@ The public API, TypeScript SDK, VS Code extension, executable hooks, foreign con
 
 Design review, corrections, test scenarios, and implementation contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Contributions use Developer Certificate of Origin sign-offs (`git commit -s`); no contributor license agreement is required. Disclose borrowed material, generated code, and AI assistance, and review everything you submit.
 
+Join the [Ioka Discord server](https://discord.gg/YdDsb8Eeb) to discuss VCP, share ideas, and connect with the community.
+
 Use [GitHub Issues](https://github.com/iokaio/vcp/issues) for non-sensitive questions, defects, and proposals. Report vulnerabilities through the private routes in [SECURITY.md](SECURITY.md). [SUPPORT.md](SUPPORT.md) explains the current support scope, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies to project participation.
 
 ## License and acknowledgements
