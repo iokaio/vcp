@@ -655,6 +655,7 @@ async fn persist<S: CanonicalStore>(
     mut reservation: Reservation,
     actor: &Actor,
     kind: EventKind,
+    settlement: Option<&Settlement>,
     extra: Vec<Mutation>,
     artifacts: Vec<ArtifactId>,
     send_event: Option<EventId>,
@@ -715,13 +716,11 @@ async fn persist<S: CanonicalStore>(
         )?,
     ];
     mutations.extend(extra);
-    let mut event = event(
-        actor,
-        &old.scope,
-        kind,
-        serde_json::json!({"schema_version":1,"attempt":next,"reservation":reservation,"ledger":root}),
-        artifacts,
-    );
+    let mut data = serde_json::json!({"schema_version":1,"attempt":next,"reservation":reservation,"ledger":root});
+    if let Some(settlement) = settlement {
+        data["settlement"] = serde_json::json!({"schema_version":1,"id":settlement.id});
+    }
+    let mut event = event(actor, &old.scope, kind, data, artifacts);
     if let Some(id) = send_event {
         event.id = id;
     }
@@ -764,6 +763,7 @@ pub async fn submit<S: CanonicalStore>(
         reserved,
         actor,
         EventKind::AttemptSubmitted,
+        None,
         vec![],
         vec![old.request.clone()],
         Some(send),
@@ -803,6 +803,7 @@ pub async fn hold_uncertain<S: CanonicalStore>(
         reserved,
         actor,
         EventKind::LiabilityRetained,
+        None,
         vec![],
         vec![],
         None,
@@ -836,6 +837,7 @@ pub async fn release_before_send<S: CanonicalStore>(
         reserved,
         actor,
         EventKind::ReservationReleased,
+        None,
         vec![],
         vec![],
         None,
@@ -1003,6 +1005,7 @@ pub async fn observe<S: CanonicalStore>(
         reserved,
         actor,
         EventKind::UsageReconciled,
+        Some(&settlement),
         vec![mutation],
         vec![observation.raw],
         None,

@@ -36,6 +36,7 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-028 — Exact MCP schema profile](028-exact-mcp-schema-profile.md) | P7-03 exact numeric values, bounded schema semantics and profile identity |
 | [ADR-029 — Retained task-transition evidence](029-retained-transition-evidence.md) | P6-02/M1 scoped causal observations, gaps and rebuild-on-read retention |
 | [ADR-030 — Causal action, effect and attempt observations](030-causal-action-observations.md) | P6-02/M1 separate turn/effect/attempt traces, exact cohorts and failure identities |
+| [ADR-031 — Exact attempt charge attribution](031-exact-attempt-charge-attribution.md) | P6-02/M1 per-attempt settlements, liabilities and terminal cost rewards |
 
 ## Maintaining a decision
 

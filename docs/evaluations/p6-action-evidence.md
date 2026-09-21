@@ -43,8 +43,9 @@ remain; no paid or packaged qualification was run.
 
 ## Remaining
 
-M1 still needs exact settled-charge/reward attribution with unknown liabilities,
-then fit provenance/retention, uncertainty, held-out comparison and consumed-value
-replay. These observations do not feed the numerical kernels or any routing
+The subsequent [charge-reward increment](p6-charge-rewards.md) adds exact settled
+charges and unknown-liability abstention. M1 still needs fit provenance/retention,
+uncertainty, held-out comparison and consumed-value replay. These observations do
+not feed the numerical kernels or any routing
 consumer in this increment. No paid, live-provider or packaged qualification is
 included.

@@ -5,7 +5,10 @@ use super::{authorize, decision_name, err, HistoryWindow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{
-    accounting::{valid_hash, Attempt, RequestRole, ReservationState},
+    accounting::{
+        valid_hash, AdjustmentDirection, Attempt, RequestRole, Reservation, ReservationState,
+        Settlement,
+    },
     effect::{Effect, EffectState},
     task::{Task, Turn, TurnState},
     verification::{CheckOutcome, CostCertainty, Verification},
@@ -112,6 +115,36 @@ pub struct AttemptObservation {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ChargeObservation {
+    pub settlement: ObservationId,
+    pub direction: AdjustmentDirection,
+    pub adjustment_micros: u64,
+    pub total_micros: u64,
+    pub applied: bool,
+    pub final_usage: bool,
+    pub event: EventId,
+    pub watermark: Watermark,
+    pub timestamp: Timestamp,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChargeAttribution {
+    pub currency: String,
+    /// Cumulative charge at the last retained observation. Unavailable when a
+    /// settlement source or the attempt prefix is missing.
+    pub charged_micros: Option<u64>,
+    /// Canonical reserved liability at the last retained observation.
+    pub liability_micros: Option<u64>,
+    /// Exact terminal cost-reward component. None is unknown, never zero.
+    pub final_charge_micros: Option<u64>,
+    pub unknown_remainder: bool,
+    pub complete: bool,
+    pub settlements: Vec<ChargeObservation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AttemptCohort {
     pub role: RequestRole,
     pub model: String,
@@ -133,6 +166,7 @@ pub struct AttemptTrace {
     pub previous: Option<AttemptId>,
     pub task: TaskId,
     pub cohort: AttemptCohort,
+    pub charge: ChargeAttribution,
     pub observations: Vec<AttemptObservation>,
     pub gaps: Vec<Gap>,
     pub left_censored: bool,
@@ -200,12 +234,21 @@ pub struct Evidence {
 struct AttemptIdentity {
     scope: workspace::Scope,
     root: TaskId,
+    reservation: ReservationId,
     role: RequestRole,
     agent: AgentId,
     previous: Option<AttemptId>,
     model: String,
     endpoint: String,
     authority_policy: PolicyRevision,
+}
+
+struct AccountingSnapshot {
+    charged_micros: Option<u64>,
+    liability_micros: Option<u64>,
+    unknown_remainder: bool,
+    complete: bool,
+    settlement: Option<ChargeObservation>,
 }
 
 struct Build {
@@ -220,6 +263,7 @@ struct Build {
     facts: usize,
     attempts_seen: BTreeMap<TaskId, u16>,
     failures_seen: BTreeMap<TaskId, u16>,
+    settlements_seen: BTreeMap<ObservationId, AttemptId>,
 }
 
 impl Build {
@@ -236,6 +280,7 @@ impl Build {
             facts: 0,
             attempts_seen: BTreeMap::new(),
             failures_seen: BTreeMap::new(),
+            settlements_seen: BTreeMap::new(),
         }
     }
     fn add(&mut self, count: usize) -> Result<()> {
@@ -378,8 +423,8 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
     }
     finalize_attempts(store, access, &mut build)?;
     let mut evidence = Evidence {
-        schema_version: 1,
-        alphabet: "canonical-action-observation/1".into(),
+        schema_version: 2,
+        alphabet: "canonical-action-observation/2".into(),
         id: String::new(), workspace: access.workspace.clone(), authority: access.authority,
         deletion: workspace.deletion, cutoff: state.watermark, window, source_tasks: access.tasks.clone(),
         turns: build.turns.into_values().collect(),
@@ -388,10 +433,11 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
         verifications: build.verifications, gaps: build.gaps,
         excluded_pruned_records: build.excluded.len() as u64,
         limitations: vec![
-            "Observed retained actions only; no inferred regime, fitted probability, reward or routing input.".into(),
+            "Observed retained actions and exact terminal charge rewards only; no inferred regime, fitted probability or routing input.".into(),
             "Independent turn, effect and attempt traces are never joined. Missing/pruned/out-of-window revisions break continuity.".into(),
             "Older verification events lack an applicable task revision; their failure signature remains unavailable.".into(),
             "Task class and counters remain unavailable when their retained source or complete prefix is absent.".into(),
+            "Charge rewards preserve currency and owning attempt. Unknown or reserved liability has no point estimate; parent/root rollups are never added.".into(),
         ],
     };
     let encoded = canonical_bytes(&evidence).map_err(err)?;
@@ -814,6 +860,9 @@ fn observe_attempt(
     {
         return build.gap(task_id, &event.id, GapReason::InvalidFact);
     }
+    let Some(accounting) = accounting_snapshot(store, access, envelope, &attempt, build)? else {
+        return build.gap(task_id, &event.id, GapReason::InvalidFact);
+    };
     let prior = build
         .attempts
         .get(&attempt.id)
@@ -821,10 +870,11 @@ fn observe_attempt(
     let connected = prior
         .is_some_and(|value| value.revision.get().checked_add(1) == Some(attempt.revision.get()));
     let revision_gap = prior.is_some() && !connected;
-    build.add(1 + usize::from(revision_gap))?;
+    build.add(1 + usize::from(revision_gap) + usize::from(accounting.settlement.is_some()))?;
     let identity = AttemptIdentity {
         scope: attempt.scope.clone(),
         root: attempt.root.clone(),
+        reservation: attempt.reservation.clone(),
         role: attempt.role,
         agent: attempt.agent.clone(),
         previous: attempt.previous.clone(),
@@ -862,6 +912,15 @@ fn observe_attempt(
                 previous: attempt.previous.clone(),
                 task: task_id.clone(),
                 cohort,
+                charge: ChargeAttribution {
+                    currency: attempt.quote.amount.currency.code().to_owned(),
+                    charged_micros: None,
+                    liability_micros: None,
+                    final_charge_micros: None,
+                    unknown_remainder: true,
+                    complete: attempt.revision == Revision::ZERO,
+                    settlements: vec![],
+                },
                 observations: vec![],
                 gaps: vec![],
                 left_censored: true,
@@ -869,7 +928,9 @@ fn observe_attempt(
             },
         )
     });
-    if !identity_matches(saved, &identity) {
+    if !identity_matches(saved, &identity)
+        || trace.charge.currency != attempt.quote.amount.currency.code()
+    {
         build.tainted.insert(task_id.clone());
         trace.gaps.push(Gap {
             task: task_id.clone(),
@@ -899,6 +960,17 @@ fn observe_attempt(
             reason: GapReason::RevisionGap,
         });
     }
+    trace.charge.complete &= accounting.complete && !revision_gap;
+    trace.charge.charged_micros = trace
+        .charge
+        .complete
+        .then_some(accounting.charged_micros)
+        .flatten();
+    trace.charge.liability_micros = accounting.liability_micros;
+    trace.charge.unknown_remainder = accounting.unknown_remainder;
+    if let Some(settlement) = accounting.settlement {
+        trace.charge.settlements.push(settlement);
+    }
     if trace.observations.is_empty() {
         trace.left_censored = attempt.revision != Revision::ZERO;
     }
@@ -917,6 +989,194 @@ fn observe_attempt(
             | ReservationState::ExplicitlyResolved
     );
     Ok(())
+}
+
+fn accounting_snapshot(
+    store: &Store,
+    access: &Access,
+    envelope: &vcp_protocol::event::EventEnvelope,
+    attempt: &Attempt,
+    build: &mut Build,
+) -> Result<Option<AccountingSnapshot>> {
+    let event = &envelope.event;
+    let Some(reservation) = event
+        .data
+        .get("reservation")
+        .and_then(|value| serde_json::from_value::<Reservation>(value.clone()).ok())
+    else {
+        return Ok(None);
+    };
+    if reservation.validate().is_err()
+        || reservation.id != attempt.reservation
+        || reservation.scope != attempt.scope
+        || reservation.attempt != attempt.id
+        || reservation.phase != attempt.phase
+        || reservation.role != attempt.role
+        || reservation.charged != attempt.charged
+        || reservation.amount.currency != attempt.quote.amount.currency
+    {
+        return Ok(None);
+    }
+    let retained_reservation = eligible_record(
+        store,
+        access,
+        Collection::Reservation,
+        reservation.id.as_str(),
+        &mut build.excluded,
+    )?;
+    let reservation_available = retained_reservation
+        .and_then(|record| record.decode::<Reservation>().ok())
+        .is_some_and(|current| {
+            current.validate().is_ok()
+                && current.id == reservation.id
+                && current.scope == reservation.scope
+                && current.root == reservation.root
+                && current.attempt == reservation.attempt
+                && current.role == reservation.role
+                && current.amount == reservation.amount
+                && current.day == reservation.day
+                && current.revision >= reservation.revision
+        });
+    let mut complete = reservation_available;
+    let mut charge = None;
+    match (&event.kind, event.data.get("settlement")) {
+        (EventKind::UsageReconciled, None) => complete = false,
+        (EventKind::UsageReconciled, Some(value)) => {
+            let Some(reference) = value.as_object() else {
+                return Ok(None);
+            };
+            if reference.len() != 2
+                || reference
+                    .get("schema_version")
+                    .and_then(serde_json::Value::as_u64)
+                    != Some(1)
+            {
+                return Ok(None);
+            }
+            let Some(id) = reference
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|id| ObservationId::parse(id).ok())
+            else {
+                return Ok(None);
+            };
+            let record_key = key(Collection::Settlement, id.as_str());
+            let retained = eligible_record(
+                store,
+                access,
+                Collection::Settlement,
+                id.as_str(),
+                &mut build.excluded,
+            )?;
+            let Some(record) = retained else {
+                complete = false;
+                return Ok(Some(AccountingSnapshot {
+                    charged_micros: None,
+                    liability_micros: reservation_available.then_some(reservation.liability.get()),
+                    unknown_remainder: true,
+                    complete,
+                    settlement: None,
+                }));
+            };
+            let Ok(settlement) = record.decode::<Settlement>() else {
+                return Ok(None);
+            };
+            if settlement.redaction.is_some() {
+                build.excluded.insert(record_key);
+                complete = false;
+                return Ok(Some(AccountingSnapshot {
+                    charged_micros: None,
+                    liability_micros: reservation_available.then_some(reservation.liability.get()),
+                    unknown_remainder: true,
+                    complete,
+                    settlement: None,
+                }));
+            }
+            if settlement.schema_version != 1
+                || settlement.normalization_version != 1
+                || settlement.id != id
+                || settlement.id != settlement.observation.id
+                || settlement.scope != attempt.scope
+                || settlement.attempt != attempt.id
+                || settlement.observation.scope != attempt.scope
+                || settlement.observation.attempt != attempt.id
+                || settlement.observation.amount.currency != attempt.quote.amount.currency
+                || settlement.observation.provider_request.trim().is_empty()
+                || attempt.provider_request.as_ref()
+                    != Some(&settlement.observation.provider_request)
+                || !event.artifacts.contains(&settlement.observation.raw)
+                || settlement.total != attempt.charged
+                || (settlement.applied
+                    && match settlement.direction {
+                        AdjustmentDirection::Debit | AdjustmentDirection::Credit => {
+                            settlement.adjustment == Micros::ZERO
+                        }
+                        AdjustmentDirection::None => settlement.adjustment != Micros::ZERO,
+                    })
+                || (!settlement.applied
+                    && (settlement.direction != AdjustmentDirection::None
+                        || settlement.adjustment != Micros::ZERO))
+            {
+                return Ok(None);
+            }
+            if let Some(previous) = build
+                .attempts
+                .get(&attempt.id)
+                .and_then(|(_, trace)| trace.charge.charged_micros)
+            {
+                let valid_delta = match settlement.direction {
+                    AdjustmentDirection::Debit => {
+                        previous.checked_add(settlement.adjustment.get())
+                            == Some(settlement.total.get())
+                    }
+                    AdjustmentDirection::Credit => {
+                        settlement
+                            .total
+                            .get()
+                            .checked_add(settlement.adjustment.get())
+                            == Some(previous)
+                    }
+                    AdjustmentDirection::None => previous == settlement.total.get(),
+                };
+                if !valid_delta {
+                    return Ok(None);
+                }
+            }
+            if build
+                .settlements_seen
+                .insert(settlement.id.clone(), attempt.id.clone())
+                .is_some()
+            {
+                return Ok(None);
+            }
+            charge = Some(ChargeObservation {
+                settlement: settlement.id,
+                direction: settlement.direction,
+                adjustment_micros: settlement.adjustment.get(),
+                total_micros: settlement.total.get(),
+                applied: settlement.applied,
+                final_usage: settlement.observation.final_usage,
+                event: event.id.clone(),
+                watermark: envelope.watermark,
+                timestamp: event.timestamp,
+            });
+        }
+        (_, Some(_)) => return Ok(None),
+        (_, None) => {}
+    }
+    let unknown_remainder = attempt.uncertain.is_some()
+        || !matches!(
+            attempt.phase,
+            ReservationState::Settled | ReservationState::Released
+        )
+        || reservation.liability != Micros::ZERO;
+    Ok(Some(AccountingSnapshot {
+        charged_micros: reservation_available.then_some(attempt.charged.get()),
+        liability_micros: reservation_available.then_some(reservation.liability.get()),
+        unknown_remainder,
+        complete,
+        settlement: charge,
+    }))
 }
 
 fn metadata_matches(metadata: &EventMetadata, attempt: &Attempt) -> bool {
@@ -952,6 +1212,7 @@ fn phase_matches(kind: &EventKind, attempt: &Attempt, event: &EventId) -> bool {
 fn identity_matches(a: &AttemptIdentity, b: &AttemptIdentity) -> bool {
     a.scope == b.scope
         && a.root == b.root
+        && a.reservation == b.reservation
         && a.role == b.role
         && a.agent == b.agent
         && a.previous == b.previous
@@ -1104,11 +1365,30 @@ fn finalize_attempts(store: &Store, access: &Access, build: &mut Build) -> Resul
         let Some((identity, trace)) = build.attempts.get_mut(&id) else {
             return Err("attempt observation disappeared during finalization".into());
         };
-        let incomplete = build.tainted.contains(&trace.task) || trace.left_censored;
+        let incomplete =
+            build.tainted.contains(&trace.task) || trace.left_censored || !trace.gaps.is_empty();
         trace.cohort.retry_depth = (!incomplete).then_some(depth).flatten();
         if incomplete {
             trace.cohort.prior_attempts = None;
             trace.cohort.prior_failed_checks = None;
+        }
+        trace.charge.complete &= !incomplete;
+        if !trace.charge.complete {
+            trace.charge.charged_micros = None;
+            trace.charge.final_charge_micros = None;
+            trace.charge.unknown_remainder = true;
+        } else {
+            trace.charge.final_charge_micros =
+                trace
+                    .observations
+                    .last()
+                    .and_then(|observation| match observation.phase {
+                        ReservationState::Settled if !trace.charge.unknown_remainder => {
+                            trace.charge.charged_micros
+                        }
+                        ReservationState::Released if !trace.charge.unknown_remainder => Some(0),
+                        _ => None,
+                    });
         }
         trace.cohort.decomposition_depth = task_depth(
             store,
