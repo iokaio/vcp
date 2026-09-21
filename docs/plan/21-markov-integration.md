@@ -1,9 +1,10 @@
 # 21 — Markov analysis and integration sequence
 
-Status: M1–M3 construction implemented; M4 qualification next, September 20, 2026. This execution supplement adopts the useful
+Status: M1–M4 construction implemented; M4 recorded rejection keeps serving disabled, September 20, 2026. This execution supplement adopts the useful
 directions from [the research note](../research/markov.md) into existing work.
 The M1 foundation and M2 frozen local shadow path are implemented but unqualified;
-M3 provides read-only action forecasts and saved diagnostics. M4–M10 remain unimplemented or
+M3 provides read-only action forecasts and saved diagnostics. M4's four-arm offline
+comparison records insufficient evidence; M5–M10 remain unimplemented or
 unqualified. This creates no new product
 task IDs, changes no architecture dependencies and enables no runtime feature.
 The [owning task sections](20-traceability.md#work-item-ownership-and-readiness)
@@ -297,6 +298,16 @@ rebuild, late settlement and a read-only CLI trace with no model request or poli
 mutation.
 
 ## M4 — Qualification and routing estimates
+
+**Implemented through recorded rejection:** the [frozen four-arm comparison](../evaluations/p6-markov-qualification.md)
+executes the production rules and local statistical producer on separate synthetic
+project/time splits, with actual Jev and conventional remote arms explicitly
+not-run. The [source-bound result](../evaluations/p6-markov-qualification-result.json)
+rejects behavioral enablement for insufficient samples, error floors, serious
+misses, unknown liabilities and unavailable calibration/live trials. No qualified
+`CostEstimate` is installed. Independent forecast calibration, live outcome trials
+and consumer enablement remain evidence-gated follow-up; M4's permitted disabled
+candidate outcome is satisfied. No HMM is promoted from unidentifiable observations.
 
 Extend P6-04's declared comparison to four arms: rules only, local statistical
 signals, actual Jev through OpenRouter, and the conventional OpenRouter comparator

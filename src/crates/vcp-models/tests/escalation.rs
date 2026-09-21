@@ -14,6 +14,18 @@ use vcp_models::{
     routing::*,
 };
 
+#[test]
+fn repeated_strategy_comparison_uses_the_production_predicate() {
+    let same = vcp_protocol::digest_bytes(b"same progress");
+    let different = vcp_protocol::digest_bytes(b"changed progress");
+    assert!(escalation::repeated_strategy_signal(&same, &same, 3, 3).unwrap());
+    assert!(!escalation::repeated_strategy_signal(&same, &same, 2, 3).unwrap());
+    assert!(!escalation::repeated_strategy_signal(&same, &different, 3, 3).unwrap());
+    assert!(escalation::repeated_strategy_signal("invalid", &same, 3, 3).is_err());
+    assert!(escalation::repeated_strategy_signal(&same, &same, 3, 0).is_err());
+    assert!(escalation::repeated_strategy_signal(&same, &same, 64, 65).is_err());
+}
+
 fn money(amount: u64) -> Money {
     Money {
         currency: "USD".to_string().try_into().unwrap(),
