@@ -8,6 +8,7 @@ pub mod markov;
 pub mod request;
 pub mod retry;
 pub mod routing;
+pub mod stall;
 pub mod stream;
 
 pub type Result<T> = std::result::Result<T, Error>;
