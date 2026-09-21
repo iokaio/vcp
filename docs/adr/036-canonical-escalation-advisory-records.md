@@ -47,8 +47,8 @@ Caller-owned scheduling can now deduplicate before transport and classify a late
 decoded response without discarding audit evidence. Files and SQLite reopen the
 same immutable records. A task-scoped reader cannot inspect another task's advice.
 
-The next P6-03 increment wires caller-owned bounded async scheduling, pause/cancel
-handling and ordinary reservation/unknown-charge settlement through this seam.
-Exact-cycle evidence and the local shadow producer follow only after that lifecycle
-is complete. Verification is recorded in the
+The subsequent [caller-owned scheduling lease](037-caller-owned-advisory-scheduling-lease.md)
+adds a single claim, pause/stale/deadline cancellation and interruption-safe reopen.
+Ordinary reservation/unknown-charge settlement still precedes exact-cycle evidence
+and the local shadow producer. Verification is recorded in the
 [increment evidence](../evaluations/p6-advisory-records.md).

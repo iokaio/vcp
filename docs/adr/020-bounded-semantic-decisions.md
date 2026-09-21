@@ -111,3 +111,8 @@ The P6-03/M2 [canonical advisory record increment](036-canonical-escalation-advi
 implements immutable escalation request/result persistence, exact deduplication,
 task revision revalidation and historical classification for late results. Async
 scheduling, pause/cancel integration and live qualification remain open.
+
+The subsequent [caller-owned scheduling lease](037-caller-owned-advisory-scheduling-lease.md)
+adds a single persistent claim, dispatch revalidation, pause/interruption closure
+and reopen without replay. Remote accounting/transport and live qualification
+remain open.

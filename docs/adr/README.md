@@ -42,6 +42,7 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-034 — Exact attempt-visit reward mapping](034-exact-attempt-reward-mapping.md) | P6-02/M1 exact cost samples and unknown-liability mean abstention |
 | [ADR-035 — Consumed statistical value retention and replay](035-consumed-statistical-value-replay.md) | P6-02/M1 immutable selected scalar, input identity and historical replay |
 | [ADR-036 — Canonical escalation-advisory request and result records](036-canonical-escalation-advisory-records.md) | P6-03/M2 immutable deduplicated inputs, outputs and stale disposition |
+| [ADR-037 — Caller-owned escalation-advisory scheduling lease](037-caller-owned-advisory-scheduling-lease.md) | P6-03/M2 single claim, dispatch revalidation and interruption-safe reopen |
 
 ## Maintaining a decision
 
