@@ -28,6 +28,13 @@ pub enum Command {
         #[arg(long)]
         until: Option<u64>,
     },
+    /// Inspect exact repeated action patterns without inferring stalls or changing routing.
+    Cycles {
+        #[arg(long)]
+        from: Option<u64>,
+        #[arg(long)]
+        until: Option<u64>,
+    },
     Report {
         /// Inclusive Unix milliseconds; omitted means all retained history.
         #[arg(long)]
@@ -81,6 +88,10 @@ impl Command {
             | Self::Observations {
                 from: Some(from),
                 until: Some(until),
+            }
+            | Self::Cycles {
+                from: Some(from),
+                until: Some(until),
             } if from >= until => Err("optimization window must have from < until".into()),
             Self::Answer { value, .. }
                 if value.trim().is_empty()
@@ -103,14 +114,20 @@ impl Command {
             Self::Status => Request::Status,
             Self::Report { from, until }
             | Self::Transitions { from, until }
-            | Self::Observations { from, until } => {
+            | Self::Observations { from, until }
+            | Self::Cycles { from, until } => {
                 let until = until.map(Timestamp::new).unwrap_or(now);
                 if from.is_some_and(|from| from >= until.get()) {
                     return Err("optimization window must have from < until".into());
                 }
-                if matches!(self, Self::Transitions { .. } | Self::Observations { .. }) {
+                if matches!(
+                    self,
+                    Self::Transitions { .. } | Self::Observations { .. } | Self::Cycles { .. }
+                ) {
                     let from = from.map(Timestamp::new);
-                    if matches!(self, Self::Observations { .. }) {
+                    if matches!(self, Self::Cycles { .. }) {
+                        Request::Cycles { from, until }
+                    } else if matches!(self, Self::Observations { .. }) {
                         Request::Observations { from, until }
                     } else {
                         Request::Transitions { from, until }
@@ -261,6 +278,42 @@ mod tests {
     use super::*;
     use clap::Parser;
     use vcp_domain::Revision;
+    #[test]
+    fn cycles_is_read_only_with_explicit_or_current_window() {
+        let cli = crate::args::Cli::try_parse_from([
+            "vcp", "optimize", "cycles", "--from", "10", "--until", "20",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(crate::args::Command::Optimize {
+                command: Command::Cycles {
+                    from: Some(10),
+                    until: Some(20)
+                },
+                ..
+            })
+        ));
+        assert!(
+            matches!(Command::Cycles { from: Some(10), until: Some(20) }.request(None, Timestamp::new(50)).unwrap(),
+            Request::Cycles { from: Some(from), until } if from == Timestamp::new(10) && until == Timestamp::new(20))
+        );
+        assert!(
+            matches!(Command::Cycles { from: None, until: None }.request(None, Timestamp::new(50)).unwrap(),
+            Request::Cycles { from: None, until } if until == Timestamp::new(50))
+        );
+        for (from, until) in [(20, Some(20)), (21, Some(20)), (20, None)] {
+            assert!(Command::Cycles {
+                from: Some(from),
+                until
+            }
+            .request(None, Timestamp::new(20))
+            .is_err());
+        }
+        assert!(
+            crate::args::Cli::try_parse_from(["vcp", "optimize", "cycles", "--apply"]).is_err()
+        );
+    }
     #[test]
     fn local_optimizer_is_parsed_without_objective_budget_or_provider() {
         for words in [

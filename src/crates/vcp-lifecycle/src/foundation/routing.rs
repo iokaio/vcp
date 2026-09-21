@@ -21,6 +21,10 @@ pub enum Request {
         from: Option<Timestamp>,
         until: Timestamp,
     },
+    Cycles {
+        from: Option<Timestamp>,
+        until: Timestamp,
+    },
     Compare {
         baseline: String,
         current: String,
@@ -74,6 +78,12 @@ pub async fn execute(
             )?)
             .map_err(|e| e.to_string())?
         }
+        Request::Cycles { from, until } => serde_json::to_value(routing_state::cycles::observe(
+            store,
+            access,
+            routing_state::HistoryWindow { from, until },
+        )?)
+        .map_err(|e| e.to_string())?,
         Request::Compare { baseline, current } => serde_json::to_value(
             routing_state::compare_reports(store, access, &baseline, &current)?,
         )

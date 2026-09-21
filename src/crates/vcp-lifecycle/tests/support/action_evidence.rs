@@ -18,6 +18,151 @@ use vcp_store::artifact::ArtifactWriter;
 
 struct LegacyAccounting<'a>(&'a mut Store);
 
+#[tokio::test]
+async fn exact_cycles_rebuild_read_only_and_disappear_after_source_purge() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_lifecycle::foundation::routing_state::cycles;
+    use vcp_memory::retention::{self, Action};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let task = create_task(&mut store, &access, TaskState::Running).await;
+        let output = capture(&mut store, &task, Channel::Stdout).await;
+        let mut engine = vcp_engine::Engine::new(store).unwrap();
+        let actor = engine_access(&access, &task);
+        for index in 0..3 {
+            let verification = Verification {
+                redaction: None,
+                id: VerificationId::new(),
+                scope: task.scope.clone(),
+                steering: task.steering,
+                fingerprint: task.fingerprint.clone(),
+                outputs: vec![output.spec.id.clone()],
+                checks: vec![Check {
+                    specification: "private check command".into(),
+                    outcome: CheckOutcome::Failed {
+                        reason: "private repeated diagnostic".into(),
+                    },
+                    output: output.spec.id.clone(),
+                    exit_code: Some(1),
+                }],
+                unresolved_effects: vec![],
+                outstanding_issues: vec![],
+                cost: CostCertainty::Known,
+            };
+            engine
+                .handle(
+                    command(
+                        &engine,
+                        &access,
+                        &task,
+                        Revision::ZERO,
+                        Command::RecordVerification { verification },
+                    ),
+                    &actor,
+                    &vcp_engine::HostFacts::inspect(Timestamp::new(10 + index)),
+                )
+                .await
+                .unwrap();
+        }
+        let mut store = engine.into_store();
+        let before = store.state().clone();
+        let read = Access {
+            workspace: access.workspace.clone(),
+            actor: access.actor.clone(),
+            authority: access.authority,
+            read: true,
+            write: false,
+            tasks: None,
+        };
+        let evidence = cycles::observe(&store, &read, window()).unwrap();
+        assert!(!evidence.repetitions.is_empty());
+        assert!(!evidence.serving_qualified);
+        let encoded = serde_json::to_string(&evidence).unwrap();
+        assert!(!encoded.contains("private check") && !encoded.contains("private repeated"));
+        let value = routing::execute(
+            &mut store,
+            &read,
+            routing::Request::Cycles {
+                from: None,
+                until: window().until,
+            },
+            None,
+            window().until,
+        )
+        .await
+        .unwrap();
+        assert_eq!(value, serde_json::to_value(&evidence).unwrap());
+        assert_eq!(*store.state(), before);
+        let denied = Access {
+            workspace: access.workspace.clone(),
+            actor: access.actor.clone(),
+            authority: access.authority,
+            read: true,
+            write: false,
+            tasks: Some(BTreeSet::new()),
+        };
+        assert!(cycles::observe(&store, &denied, window())
+            .unwrap()
+            .repetitions
+            .is_empty());
+        let no_read = Access {
+            read: false,
+            ..read
+        };
+        assert!(cycles::observe(&store, &no_read, window()).is_err());
+        drop(store);
+        let store = Store::open(temp.path(), backend, &[]).await.unwrap();
+        assert_eq!(
+            cycles::observe(&store, &access, window()).unwrap(),
+            evidence
+        );
+        let mut engine = vcp_engine::Engine::new(store).unwrap();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    &access,
+                    &task,
+                    Revision::ZERO,
+                    Command::Transition {
+                        next: TaskState::Cancelled,
+                        reason: "retention fixture complete".into(),
+                        verification: None,
+                    },
+                ),
+                &actor,
+                &vcp_engine::HostFacts::inspect(Timestamp::new(20)),
+            )
+            .await
+            .unwrap();
+        let mut store = engine.into_store();
+        let plan = retention::preview(
+            &store,
+            &access,
+            Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Event("verification_recorded".into())),
+            },
+            Action::Purge,
+            Timestamp::new(1001),
+        )
+        .unwrap();
+        assert!(!plan.selected.is_empty());
+        retention::apply(&mut store, &access, &plan, Timestamp::new(1001))
+            .await
+            .unwrap();
+        let purged = cycles::observe(&store, &access, window()).unwrap();
+        assert!(purged.repetitions.is_empty());
+        drop(store);
+        let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
+        assert_eq!(
+            cycles::observe(&reopened, &access, window()).unwrap(),
+            purged
+        );
+    }
+}
+
 impl CanonicalStore for LegacyAccounting<'_> {
     fn state(&self) -> &State {
         self.0.state()

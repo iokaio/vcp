@@ -35,7 +35,7 @@ tests and evaluation results; do not infer completion from this document.
 | Order / increment | Owning work | Prerequisites and placement | Deliverable and gate |
 |---|---|---|---|
 | M1 — Retained evidence and analysis foundation | P6-02; P1-06/P5-07/P5-10 supporting refactors | Next P6 foundation work, before more advisory integration; use existing canonical capture/storage and retention | Versioned transition/action projection, reward accounting, pure bounded numerical routines, rebuild/replay/privacy tests |
-| M2 — Escalation integration and local stall comparison | P6-03 | M1 and existing typed advisory contract; canonical records, scheduling lease and helper accounting binding are implemented, with transport/response next | Exact cycle evidence and bounded local shadow producer alongside remote advice; no unqualified transition influence |
+| M2 — Escalation integration and local stall comparison | P6-03 | M1, canonical advisory runtime and exact repetition evidence implemented; local shadow producer next | Exact cycle evidence and bounded local shadow producer alongside remote advice; no unqualified transition influence |
 | M3 — Read-only forecasts in `/optimize` | P6-05 | M1 and P6-03 implementation prerequisite, including M2's safe baseline/shadow paths | Inspectable forecasts, loops, uncertainty and drift reports; no dispatch or automatic policy change |
 | M4 — Qualification and routing estimates | P6-04, P6-02/03 | M2/M3, P5-08 and existing P6-04 prerequisites | Frozen four-arm comparison, calibrated forecasts, opt-in qualified estimate/advice consumption or recorded rejection |
 | M5 — Context and retrieval follow-up | P2-01/08, P5-06/08 | Existing completed context/retrieval baseline; independent of M2–M4; compaction diagnostics reuse M1 | Bounded graph/co-change candidates, context comparison, compaction regression analysis; optional memory-graph arm |
@@ -222,7 +222,9 @@ source changes before consumption, late usage settlement, and interruption/reope
 without replay. These are runtime acceptance conditions, not properties established
 by the standalone record APIs alone.
 
-Start with exact repeated n-grams from M1's symbols and input/failure identities.
+The [exact repetition evidence increment](../evaluations/p6-exact-cycle-evidence.md)
+implements bounded verification n-grams and read-only inspection using M1's
+symbols and input/failure identities. Other action mappings remain unavailable.
 Record observed repetition as a deterministic fact; repeated reading or a
 productive repair is not automatically a stall. Add a closed rule only with
 explicit thresholds, reset conditions, bounded history and false-trigger tests.
