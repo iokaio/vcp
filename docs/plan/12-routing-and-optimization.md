@@ -285,8 +285,11 @@ deterministic gate. Its finite qualification capability,
 [canonical request/result record seam](../evaluations/p6-advisory-records.md) and
 [caller-owned scheduling lease](../evaluations/p6-advisory-scheduling.md) are
 implemented. The [helper accounting binding](../evaluations/p6-advisory-accounting.md)
-reuses the canonical budget ledger. Caller-owned transport/response integration and
-live qualification remain open.
+reuses the canonical budget ledger. The
+[canonical shadow runtime](../evaluations/p6-advisory-runtime.md) connects the
+caller-owned transport and response path for admitted invalid-output and
+failed-verification escalations. Unsupported trigger evidence mappings abstain;
+live qualification remains open.
 Supply bounded observed actions, errors, diffs and checks with source revisions;
 do not invent access to full provider reasoning. Rust evaluates fixed trigger,
 attempt, budget and authority constraints before and after advice. A low risk

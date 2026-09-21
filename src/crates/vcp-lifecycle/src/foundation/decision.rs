@@ -121,6 +121,15 @@ impl CanonicalHost {
         &self,
         thread: ThreadId,
     ) -> Result<ShadowOutcome, String> {
+        self.evaluate_pending_decision_shadow(thread).await
+    }
+    /// Evaluate the installed purpose against the admitted canonical seed.
+    /// Escalation-purpose advice is retained for comparison only; it never
+    /// changes routing, required checks or escalation limits.
+    pub async fn evaluate_pending_decision_shadow(
+        &self,
+        thread: ThreadId,
+    ) -> Result<ShadowOutcome, String> {
         let binding = self.binding(thread)?;
         let scoped = binding.clone();
         let selected = self
@@ -159,8 +168,7 @@ impl CanonicalHost {
         let mut guard = ShadowGuard {
             worker: self.worker.clone(),
             runtime,
-            binding: binding.clone(),
-            attempt: admitted.attempt.clone(),
+            admitted: admitted.clone(),
             finished: false,
         };
         let sent = admitted.clone();
@@ -179,7 +187,7 @@ impl CanonicalHost {
                 ),
             );
         let check = self.worker.clone();
-        let checked = candidate.clone();
+        let checked = admitted.clone();
         let response = transport::send(
             self.runtime.clone(),
             thread,
@@ -194,8 +202,8 @@ impl CanonicalHost {
             candidate.destination.clone(),
             move || {
                 check.run({
-                    let candidate = checked.clone();
-                    move |context| context.validate_decision_candidate(&candidate)
+                    let admitted = checked.clone();
+                    move |context| context.validate_admitted_decision(&admitted)
                 })
             },
         )
@@ -229,18 +237,16 @@ impl CanonicalHost {
 struct ShadowGuard {
     worker: worker::Worker,
     runtime: Box<dyn HostWorkPermit>,
-    binding: ThreadBinding,
-    attempt: AttemptId,
+    admitted: std::sync::Arc<worker::decision::Admitted>,
     finished: bool,
 }
 impl Drop for ShadowGuard {
     fn drop(&mut self) {
         if !self.finished {
-            let binding = self.binding.clone();
-            let attempt = self.attempt.clone();
+            let admitted = self.admitted.clone();
             if self
                 .worker
-                .run_cleanup(move |context| context.cancel_decision(&binding, &attempt))
+                .run_cleanup(move |context| context.cancel_admitted_decision(&admitted))
                 .and_then(|()| self.runtime.complete())
                 .is_err()
             {

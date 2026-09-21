@@ -59,16 +59,16 @@ impl Driver {
             if let Some(task) = self.running.take() {
                 notice = Some(match task.await {
                     Ok(Ok(outcome)) if outcome.evaluator_attempt.is_none() =>
-                        "Routing shadow skipped; no evaluator request admitted. Coding selection unchanged.",
-                    Ok(Ok(_)) => "Routing shadow recorded; coding selection unchanged. Inspect history for advice and cost.",
-                    _ => "Routing shadow unavailable; inspect history for retained costs and evidence.",
+                        "Decision shadow skipped; no evaluator request admitted. Coding selection unchanged.",
+                    Ok(Ok(_)) => "Decision shadow recorded; coding selection unchanged. Inspect history for advice and cost.",
+                    _ => "Decision shadow unavailable; inspect history for retained costs and evidence.",
                 });
             }
         }
         if self.running.is_none() && host.decision_shadow_pending(thread).unwrap_or(false) {
             let host = host.clone();
             self.running = Some(tokio::spawn(async move {
-                host.evaluate_pending_routing_shadow(thread).await
+                host.evaluate_pending_decision_shadow(thread).await
             }));
         }
         notice

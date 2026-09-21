@@ -979,6 +979,83 @@ async fn advisory_accounting_rejects_other_request_and_evaluator_on_bind_and_rea
 }
 
 #[tokio::test]
+async fn advisory_reads_respect_logical_purge_before_cleanup_and_after_reopen() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_memory::retention::{self, Action};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let task =
+            super::action_evidence::create_task(&mut store, &access, TaskState::Running).await;
+        let prepared = prepare(binding(&task, &access), "private-purged-advisory");
+        let current = &prepared.request().binding;
+        let request = advisory::record_request(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &prepared,
+            current,
+            Timestamp::new(10),
+        )
+        .await
+        .unwrap();
+        advisory::record_result(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &request.id,
+            &advice(&prepared, "stop"),
+            current,
+            Timestamp::new(11),
+        )
+        .await
+        .unwrap();
+        advisory::schedule(
+            &mut store,
+            &access,
+            CommandId::new(),
+            &request.id,
+            current,
+            Timestamp::new(12),
+        )
+        .await
+        .unwrap();
+        set_task_state(&mut store, &access, &task, TaskState::Failed).await;
+        let preview = retention::preview(
+            &store,
+            &access,
+            Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Task(task.scope.task.clone())),
+            },
+            Action::Purge,
+            Timestamp::new(20),
+        )
+        .unwrap();
+        assert!(preview.protected.is_empty());
+        retention::apply(&mut store, &access, &preview, Timestamp::new(21))
+            .await
+            .unwrap();
+        // Prove the denial applies during logical purge, before physical rewrite.
+        assert!(
+            store.state().records[&key(Collection::Projection, &request.id)]
+                .value
+                .to_string()
+                .contains("private-purged-advisory")
+        );
+        assert!(advisory::load_request(&store, &access, &request.id).is_err());
+        assert!(advisory::load_result(&store, &access, &request.id).is_err());
+        assert!(advisory::load_schedule(&store, &access, &request.id).is_err());
+        store.close().await.unwrap();
+        let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
+        assert!(advisory::load_request(&reopened, &access, &request.id).is_err());
+        assert!(advisory::load_result(&reopened, &access, &request.id).is_err());
+        assert!(advisory::load_schedule(&reopened, &access, &request.id).is_err());
+        reopened.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn advisory_claim_binds_existing_helper_accounting_and_tracks_uncertain_charge() {
     use advisory::Claim;
     use vcp_domain::accounting::ReservationState;

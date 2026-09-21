@@ -11,6 +11,8 @@ use vcp_models::{
     decision::{Mode, Operation, Purpose, QualifiedEvaluator},
     routing::Profile,
 };
+use vcp_protocol::event::EventKind;
+use vcp_store::contract::key;
 use wiremock::{
     matchers::{method, path},
     Mock, ResponseTemplate,
@@ -53,6 +55,10 @@ fn response(body: &Value) -> Value {
     let answers = if let Some(questions) = body.get("questions") {
         let mut answers = serde_json::Map::new();
         for (id, question) in questions.as_object().unwrap() {
+            if question["type"] == "noul" {
+                answers.insert(id.clone(), json!({"type":"noul","noul":0.9}));
+                continue;
+            }
             assert_eq!(question["type"], "choice");
             let choice = question["criteria"]
                 .as_object()
@@ -67,6 +73,13 @@ fn response(body: &Value) -> Value {
         let schema = &body["response_format"]["json_schema"]["schema"];
         let mut answers = serde_json::Map::new();
         for (id, property) in schema["properties"].as_object().unwrap() {
+            if property["type"]
+                .as_array()
+                .is_some_and(|types| types.contains(&json!("boolean")))
+            {
+                answers.insert(id.clone(), json!(true));
+                continue;
+            }
             answers.insert(
                 id.clone(),
                 property["enum"]
@@ -103,6 +116,14 @@ impl Fixture {
         Self::with_limits(backend, 1000, true).await
     }
     async fn with_limits(backend: BackendKind, cap: u64, permit_evaluator: bool) -> Self {
+        Self::with_escalation(backend, cap, permit_evaluator, false).await
+    }
+    async fn with_escalation(
+        backend: BackendKind,
+        cap: u64,
+        permit_evaluator: bool,
+        escalation: bool,
+    ) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let workspace = temp.path().join("workspace");
         std::fs::create_dir(&workspace).unwrap();
@@ -151,6 +172,16 @@ impl Fixture {
         let (snapshot, raw) = provider_snapshot();
         host.configure_provider(snapshot, raw).unwrap();
         let mut routing = super::routing::routing_configuration(Profile::Low, false);
+        if escalation {
+            routing.escalation = Some(vcp_models::escalation::Policy {
+                max_transport_retries: 2,
+                max_quality_switches: 1,
+                max_decompositions: 0,
+                max_total_attempts: 3,
+                minimum_repeated_failures: 1,
+                deadline: Timestamp::new(now().get() + 300_000),
+            });
+        }
         // Trusted configuration explicitly permits helper egress; it does not add
         // either evaluator to the main routing candidate catalog.
         if permit_evaluator {
@@ -170,10 +201,21 @@ impl Fixture {
         let observed = main_bodies.clone();
         Mock::given(method("POST")).and(path("/v1/responses")).respond_with(move |request: &wiremock::Request| {
             let body: Value = serde_json::from_slice(&request.body).unwrap();
-            assert_eq!(body["model"], "fixture/economical");
-            observed.lock().unwrap().push(body);
-            let completed: Value = serde_json::from_str(r#"{"type":"response.completed","response":{"id":"shadow-main-response","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}}"#).unwrap();
-            ResponseTemplate::new(200).insert_header("content-type", "text/event-stream").set_body_string(sse(vec![ev_assistant_message("main-done", "Observed synthetic source."), completed]))
+            let mut captured = observed.lock().unwrap();
+            let index = captured.len();
+            assert_eq!(body["model"], if escalation && index > 0 { "fixture/stronger" } else { "fixture/economical" });
+            captured.push(body);
+            let mut events = Vec::new();
+            let mut output = Vec::new();
+            if escalation && index == 0 {
+                let call = json!({"type":"function_call","id":"missing-read","call_id":"missing-read","name":"vcp_read","arguments":"{\"path\":\"missing-file.txt\",\"max_bytes\":1024}","status":"completed"});
+                events.push(json!({"type":"response.output_item.done","output_index":0,"item":call}));
+                output.push(call);
+            } else {
+                events.push(ev_assistant_message("main-done", "Observed synthetic source."));
+            }
+            events.push(json!({"type":"response.completed","response":{"id":format!("shadow-main-response-{index}"),"status":"completed","output":output,"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":if escalation && index > 0 { 0.0002 } else { 0.0001 }}}}));
+            ResponseTemplate::new(200).insert_header("content-type", "text/event-stream").set_body_string(sse(events))
         }).mount(&server).await;
         let mut registry = ExtensionRegistryBuilder::new();
         registry.turn_start_admission(Arc::new(host.clone()));
@@ -205,7 +247,7 @@ impl Fixture {
             CodingConfig {
                 operating: "Report the observed fixture only.".into(),
                 affected_paths: vec!["file.txt".into()],
-                max_requests: 1,
+                max_requests: if escalation { 2 } else { 1 },
                 deadline: Timestamp::new(now().get() + 300_000),
             },
         )
@@ -286,6 +328,609 @@ impl Fixture {
 }
 fn configure(f: &Fixture, peer: &Peer, operation: Operation) {
     configure_rate(f, peer, operation, 10);
+}
+fn configure_escalation(f: &Fixture, peer: &Peer, operation: Operation) {
+    let mut configuration = configuration(peer, operation, 10);
+    configuration.evaluator.purpose = Purpose::Escalation;
+    configuration.evaluator.mode = Mode::Advisory;
+    f.host
+        .qualification_configure_decisions(configuration)
+        .unwrap();
+}
+
+fn advisory_document(f: &Fixture, kind: &str) -> Value {
+    let records: Vec<_> = f
+        .host
+        .snapshot()
+        .unwrap()
+        .records
+        .values()
+        .filter(|record| record.value["document_type"] == kind)
+        .map(|record| record.value.clone())
+        .collect();
+    assert_eq!(records.len(), 1, "{kind}: {records:?}");
+    records.into_iter().next().unwrap()
+}
+
+fn retention_instant(timestamp: Timestamp) -> vcp_domain::retention_selector::InstantSpec {
+    let mut days = timestamp.get() / 86_400_000;
+    let mut year = 1970u64;
+    let leap = |year| year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    while days >= if leap(year) { 366 } else { 365 } {
+        days -= if leap(year) { 366 } else { 365 };
+        year += 1;
+    }
+    let months = [
+        31,
+        if leap(year) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut month = 0;
+    while days >= months[month] {
+        days -= months[month];
+        month += 1;
+    }
+    let millis = timestamp.get() % 86_400_000;
+    let text = format!(
+        "{year:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        month + 1,
+        days + 1,
+        millis / 3_600_000,
+        millis / 60_000 % 60,
+        millis / 1000 % 60,
+        millis % 1000
+    );
+    let instant = vcp_domain::retention_selector::InstantSpec::parse(&text, None).unwrap();
+    assert_eq!(instant.utc, timestamp);
+    instant
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn escalation_shadow_requires_advisory_qualification_and_admitted_escalation() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for escalation in [false, true] {
+            let f = Fixture::with_escalation(backend, 1000, true, escalation).await;
+            let peer = Peer::start(Behavior::Reply, response).await;
+            let mut configuration = configuration(&peer, Operation::JevDecisions, 10);
+            configuration.evaluator.purpose = Purpose::Escalation;
+            configuration.evaluator.mode = if escalation {
+                Mode::Shadow
+            } else {
+                Mode::Advisory
+            };
+            f.host
+                .qualification_configure_decisions(configuration)
+                .unwrap();
+            f.start().await;
+            f.main_complete().await;
+            let attempts = f.attempts();
+            assert_eq!(attempts.len(), if escalation { 2 } else { 1 });
+            let baseline = f.decisions();
+            let outcome = f
+                .host
+                .evaluate_pending_decision_shadow(f.thread)
+                .await
+                .unwrap();
+            assert!(outcome.evaluator_attempt.is_none(), "{}", outcome.outcome);
+            assert!(peer.observations().is_empty());
+            assert_eq!(f.attempts(), attempts);
+            assert_eq!(f.decisions(), baseline);
+            assert!(f
+                .host
+                .snapshot()
+                .unwrap()
+                .records
+                .values()
+                .all(
+                    |record| record.value["document_type"] != "vcp_escalation_advisory_request_v1"
+                ));
+            f.close().await;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn escalation_shadow_retains_canonical_advice_without_changing_admitted_handoff() {
+    use vcp_domain::retention_selector::{Bound, Criterion, Selector, TimeWindow, Tree};
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for operation in [Operation::JevDecisions, Operation::ConventionalChat] {
+            let f = Fixture::with_escalation(backend, 1000, true, true).await;
+            let peer = Peer::start(Behavior::Reply, response).await;
+            configure_escalation(&f, &peer, operation);
+            f.start().await;
+            f.main_complete().await;
+            assert_eq!(f.main_bodies.lock().unwrap().len(), 2);
+            let baseline = f.decisions();
+            tokio::time::sleep(Duration::from_millis(2)).await;
+            let outcome = f
+                .host
+                .evaluate_pending_decision_shadow(f.thread)
+                .await
+                .unwrap();
+            assert_eq!(
+                outcome.outcome["result"]["outcome"], "advice",
+                "{}",
+                outcome.outcome
+            );
+            assert_eq!(
+                outcome.outcome["result"]["answers"]["next_action"]["choice"],
+                "stop"
+            );
+            let attempts = f.attempts();
+            assert_eq!(attempts.len(), 3);
+            let helper = attempts
+                .iter()
+                .find(|attempt| attempt.role == RequestRole::Helper)
+                .unwrap();
+            assert_eq!(helper.phase, ReservationState::Settled);
+            assert_eq!(helper.charged, Micros::new(10));
+            assert_eq!(outcome.evaluator_attempt.as_ref(), Some(&helper.id));
+            assert_eq!(f.decisions(), baseline);
+            let request = advisory_document(&f, "vcp_escalation_advisory_request_v1");
+            assert_eq!(request["request"]["purpose"], "escalation");
+            assert_eq!(request["request"]["state"]["checks_complete"], false);
+            assert_eq!(request["request"]["state"]["required_review"], true);
+            assert_eq!(request["request"]["state"]["hard_failure"], true);
+            assert!(request["request"]["state"]["observations"][0]["summary"]
+                .as_str()
+                .unwrap()
+                .contains("missing-file.txt"));
+            let result = advisory_document(&f, "vcp_escalation_advisory_result_v1");
+            assert_eq!(result["request_id"], request["id"]);
+            assert_eq!(result["disposition"], "accepted_current");
+            let schedule = advisory_document(&f, "vcp_escalation_advisory_schedule_v1");
+            assert_eq!(schedule["state"]["state"], "completed");
+            let accounting = advisory_document(&f, "vcp_escalation_advisory_accounting_v1");
+            assert_eq!(
+                accounting["attempt"],
+                serde_json::to_value(&helper.id).unwrap()
+            );
+            let evidence = ArtifactId::parse(
+                request["request"]["state"]["trigger"]["evidence"][0]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap();
+            let retained = f.host.snapshot().unwrap();
+            let source_event = retained
+                .events
+                .iter()
+                .find(|event| {
+                    event.event.kind == EventKind::ArtifactAttached
+                        && event.event.artifacts.contains(&evidence)
+                })
+                .unwrap();
+            let instant = retention_instant(source_event.event.timestamp);
+            let preview = f
+                .host
+                .history_retention(
+                    vcp_lifecycle::foundation::history_retention::Request::Preview {
+                        selector: Selector {
+                            schema_version: 1,
+                            tree: Tree::All(vec![
+                                Tree::Match(Criterion::Event("artifact_attached".into())),
+                                Tree::Match(Criterion::Date(TimeWindow {
+                                    lower: Some(Bound {
+                                        instant: instant.clone(),
+                                        inclusive: true,
+                                    }),
+                                    upper: Some(Bound {
+                                        instant,
+                                        inclusive: true,
+                                    }),
+                                })),
+                            ]),
+                        },
+                        action: vcp_memory::retention::Action::Purge,
+                    },
+                )
+                .unwrap();
+            let selected = preview["selected"].as_array().unwrap();
+            let dependent = preview["dependent"].as_array().unwrap();
+            assert_eq!(preview["selected_truncated"], false);
+            assert_eq!(preview["dependent_truncated"], false);
+            let source_target =
+                json!({"kind":"record","id":key(Collection::Artifact, evidence.as_str())});
+            let request_key = key(Collection::Projection, request["id"].as_str().unwrap());
+            assert!(retained.records[&request_key]
+                .references
+                .contains(&key(Collection::Artifact, evidence.as_str())));
+            assert!(
+                selected.contains(&source_target) || dependent.contains(&source_target),
+                "source missing: {preview}"
+            );
+            for artifact in &outcome.artifacts {
+                let attached = retained
+                    .events
+                    .iter()
+                    // Request capture is attached by the budget admission
+                    // event; response and receipt use ArtifactAttached.
+                    .find(|event| event.event.artifacts.contains(artifact))
+                    .unwrap();
+                assert!(attached.event.timestamp > source_event.event.timestamp);
+                assert!(
+                    retained.records[&key(Collection::Artifact, artifact.as_str())]
+                        .references
+                        .contains(&request_key)
+                );
+                let target =
+                    json!({"kind":"record","id":key(Collection::Artifact, artifact.as_str())});
+                assert!(dependent.contains(&target), "advisory copied artifact missing from dependency closure: {artifact}: {preview}");
+            }
+            assert_eq!(peer.observations().len(), 1);
+            assert!(f
+                .host
+                .evaluate_pending_decision_shadow(f.thread)
+                .await
+                .unwrap()
+                .evaluator_attempt
+                .is_none());
+            assert_eq!(peer.observations().len(), 1);
+            assert_eq!(f.attempts().len(), 3);
+            assert_eq!(
+                f.host
+                    .lifecycle()
+                    .inspect(f.thread)
+                    .unwrap()
+                    .unresolved_work,
+                0
+            );
+            let task: Task = f
+                .host
+                .snapshot()
+                .unwrap()
+                .record(
+                    Collection::Task,
+                    f.config.root_task.as_str(),
+                    &f.config.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            f.host
+                .command(
+                    Command::Transition {
+                        next: TaskState::Failed,
+                        reason: "terminal fixture permits exact retained-evidence purge".into(),
+                        verification: None,
+                    },
+                    Some(f.config.root_task.clone()),
+                    task.revision,
+                )
+                .unwrap();
+            let turns: Vec<Turn> = f
+                .host
+                .snapshot()
+                .unwrap()
+                .records
+                .values()
+                .filter(|record| record.collection == Collection::Turn)
+                .map(|record| record.decode().unwrap())
+                .collect();
+            for turn in turns {
+                if !matches!(
+                    turn.state,
+                    TurnState::Completed | TurnState::Failed | TurnState::Cancelled
+                ) {
+                    f.host
+                        .command(
+                            Command::AdvanceTurn {
+                                id: turn.id,
+                                next: TurnState::Failed,
+                                reason: "terminal fixture closes canonical turn before purge"
+                                    .into(),
+                            },
+                            Some(turn.scope.task),
+                            turn.revision,
+                        )
+                        .unwrap();
+                }
+            }
+            let purge = f
+                .host
+                .history_retention(
+                    vcp_lifecycle::foundation::history_retention::Request::Preview {
+                        selector: serde_json::from_value(preview["selector"].clone()).unwrap(),
+                        action: vcp_memory::retention::Action::Purge,
+                    },
+                )
+                .unwrap();
+            assert_eq!(purge["protected_count"], 0, "{purge}");
+            let applied = f
+                .host
+                .history_retention(
+                    vcp_lifecycle::foundation::history_retention::Request::Apply {
+                        preview: purge["id"].as_str().unwrap().into(),
+                    },
+                )
+                .unwrap();
+            assert_eq!(applied["logical_unavailable"], true);
+            let cleaned = f
+                .host
+                .history_retention(
+                    vcp_lifecycle::foundation::history_retention::Request::Cleanup {
+                        receipt: applied["id"].as_str().unwrap().into(),
+                    },
+                )
+                .unwrap();
+            assert_eq!(cleaned["rewrite_complete"], true, "{cleaned}");
+            let purged = f.host.snapshot().unwrap();
+            for original in [&request, &result, &schedule, &accounting] {
+                let record =
+                    &purged.records[&key(Collection::Projection, original["id"].as_str().unwrap())];
+                let tombstone: vcp_domain::redaction::RedactedAdvisory = record.decode().unwrap();
+                tombstone.validate().unwrap();
+                assert_eq!(
+                    record.value["document_type"],
+                    "vcp_escalation_redacted_advisory_v1"
+                );
+                assert!(record.value.get("request").is_none());
+                assert!(record.value.get("outcome").is_none());
+                assert!(!record.value.to_string().contains("missing-file.txt"));
+            }
+            for artifact in &outcome.artifacts {
+                let descriptor: ArtifactDescriptor = purged.records
+                    [&key(Collection::Artifact, artifact.as_str())]
+                    .decode()
+                    .unwrap();
+                assert_eq!(descriptor.state, CaptureState::Purged);
+                let page = f
+                    .host
+                    .inspect(vcp_audit::inspection::InspectionQuery {
+                        id: artifact.to_string(),
+                        view: vcp_audit::inspection::View::Outputs,
+                        limit: 1,
+                        cursor: None,
+                        range: Some(vcp_audit::inspection::RangeRequest {
+                            offset: 0,
+                            length: 1024,
+                        }),
+                    })
+                    .unwrap();
+                assert!(page.items.is_empty());
+                assert!(page.gaps.iter().any(|gap| gap["visibility"] == "pruned"));
+            }
+            f.close().await;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn escalation_shadow_late_response_settles_usage_and_retains_historical_advice() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let f = Fixture::with_escalation(backend, 1000, true, true).await;
+        let peer = Peer::start(Behavior::Delayed, response).await;
+        configure_escalation(&f, &peer, Operation::JevDecisions);
+        f.start().await;
+        f.main_complete().await;
+        let baseline = f.decisions();
+        let host = f.host.clone();
+        let thread = f.thread;
+        let waiter =
+            tokio::spawn(async move { host.evaluate_pending_decision_shadow(thread).await });
+        peer.wait_request().await;
+        std::fs::write(
+            f.workspace.join("AGENTS.md"),
+            "Source changed after evaluator received request.",
+        )
+        .unwrap();
+        peer.release();
+        let outcome = tokio::time::timeout(Duration::from_secs(10), waiter)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(outcome.outcome["outcome"], "recorded");
+        let helper = f
+            .attempts()
+            .into_iter()
+            .find(|attempt| attempt.role == RequestRole::Helper)
+            .unwrap();
+        assert_eq!(helper.phase, ReservationState::Settled);
+        assert_eq!(helper.charged, Micros::new(10));
+        let result = advisory_document(&f, "vcp_escalation_advisory_result_v1");
+        assert_eq!(result["disposition"], "historical_stale");
+        assert_eq!(result["outcome"]["outcome"], "advice");
+        assert_eq!(
+            advisory_document(&f, "vcp_escalation_advisory_schedule_v1")["state"]["state"],
+            "cancelled"
+        );
+        assert_eq!(f.decisions(), baseline);
+        assert!(f
+            .host
+            .evaluate_pending_decision_shadow(f.thread)
+            .await
+            .unwrap()
+            .evaluator_attempt
+            .is_none());
+        assert_eq!(peer.observations().len(), 1);
+        assert_eq!(f.attempts().len(), 3);
+        assert_eq!(
+            f.host
+                .lifecycle()
+                .inspect(f.thread)
+                .unwrap()
+                .unresolved_work,
+            0
+        );
+        f.close().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn escalation_shadow_pause_before_payload_and_interruption_close_claim_without_replay() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for interrupt in [false, true] {
+            let f = Fixture::with_escalation(backend, 1000, true, true).await;
+            let peer = Peer::start(
+                if interrupt {
+                    Behavior::Delayed
+                } else {
+                    Behavior::Reply
+                },
+                response,
+            )
+            .await;
+            configure_escalation(&f, &peer, Operation::JevDecisions);
+            let arrived = Arc::new(tokio::sync::Notify::new());
+            let release = Arc::new(tokio::sync::Notify::new());
+            if !interrupt {
+                f.host
+                    .qualification_block_decision_after_tls(arrived.clone(), release.clone())
+                    .unwrap();
+            }
+            f.start().await;
+            f.main_complete().await;
+            let baseline = f.decisions();
+            let host = f.host.clone();
+            let thread = f.thread;
+            let waiter =
+                tokio::spawn(async move { host.evaluate_pending_decision_shadow(thread).await });
+            if interrupt {
+                peer.wait_request().await;
+                waiter.abort();
+                assert!(waiter.await.unwrap_err().is_cancelled());
+            } else {
+                tokio::time::timeout(Duration::from_secs(10), arrived.notified())
+                    .await
+                    .unwrap();
+                let task: Task = f
+                    .host
+                    .snapshot()
+                    .unwrap()
+                    .record(
+                        Collection::Task,
+                        f.config.root_task.as_str(),
+                        &f.config.workspace,
+                    )
+                    .unwrap()
+                    .decode()
+                    .unwrap();
+                let command = f
+                    .host
+                    .control_envelope(
+                        CommandId::new(),
+                        f.config.root_task.clone(),
+                        task.revision,
+                        Command::Transition {
+                            next: TaskState::Paused,
+                            reason: "pause advisory before payload".into(),
+                            verification: None,
+                        },
+                    )
+                    .unwrap();
+                f.host.stop(command).unwrap();
+                release.notify_one();
+                let outcome = tokio::time::timeout(Duration::from_secs(5), waiter)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(outcome.outcome["outcome"], "unknown");
+                assert!(peer.observations().is_empty());
+                let result = advisory_document(&f, "vcp_escalation_advisory_result_v1");
+                assert_eq!(result["disposition"], "historical_stale");
+            }
+            let helper = f
+                .attempts()
+                .into_iter()
+                .find(|attempt| attempt.role == RequestRole::Helper)
+                .unwrap();
+            assert_eq!(helper.phase, ReservationState::ReconciliationPending);
+            assert_eq!(
+                advisory_document(&f, "vcp_escalation_advisory_schedule_v1")["state"]["state"],
+                "cancelled"
+            );
+            assert_eq!(f.decisions(), baseline);
+            assert!(f
+                .host
+                .evaluate_pending_decision_shadow(f.thread)
+                .await
+                .unwrap()
+                .evaluator_attempt
+                .is_none());
+            assert_eq!(peer.observations().len(), usize::from(interrupt));
+            assert_eq!(f.attempts().len(), 3);
+            assert_eq!(
+                f.host
+                    .lifecycle()
+                    .inspect(f.thread)
+                    .unwrap()
+                    .unresolved_work,
+                0
+            );
+            peer.release();
+            if interrupt {
+                let schedule = advisory_document(&f, "vcp_escalation_advisory_schedule_v1");
+                let accounting = advisory_document(&f, "vcp_escalation_advisory_accounting_v1");
+                let Fixture {
+                    _temp,
+                    host,
+                    owner,
+                    test,
+                    config,
+                    thread,
+                    ..
+                } = f;
+                owner.close().await.unwrap();
+                test.codex.shutdown_and_wait().await.unwrap();
+                drop(test);
+                drop(host);
+                let (restored, owner) = CanonicalHost::open(config.clone()).unwrap();
+                let snapshot = restored.snapshot().unwrap();
+                let retained: Attempt = snapshot
+                    .record(Collection::Attempt, helper.id.as_str(), &config.workspace)
+                    .unwrap()
+                    .decode()
+                    .unwrap();
+                assert_eq!(retained, helper);
+                assert_eq!(
+                    snapshot.records
+                        [&key(Collection::Projection, schedule["id"].as_str().unwrap())]
+                        .value,
+                    schedule
+                );
+                assert_eq!(
+                    snapshot.records
+                        [&key(Collection::Projection, accounting["id"].as_str().unwrap())]
+                        .value,
+                    accounting
+                );
+                restored
+                    .register(
+                        thread,
+                        ThreadBinding {
+                            scope: helper.scope.clone(),
+                            agent: helper.agent.clone(),
+                            role: RequestRole::Main,
+                        },
+                    )
+                    .unwrap();
+                assert!(!restored.decision_shadow_pending(thread).unwrap());
+                assert!(restored
+                    .evaluate_pending_decision_shadow(thread)
+                    .await
+                    .unwrap()
+                    .evaluator_attempt
+                    .is_none());
+                assert_eq!(peer.observations().len(), 1);
+                owner.close().await.unwrap();
+                drop(restored);
+                drop(_temp);
+            } else {
+                f.close().await;
+            }
+        }
+    }
 }
 fn configure_rate(f: &Fixture, peer: &Peer, operation: Operation, charge: u64) {
     f.host

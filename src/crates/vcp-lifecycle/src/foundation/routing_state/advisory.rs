@@ -2,7 +2,7 @@
 //! Immutable canonical records for bounded escalation-advisory requests/results.
 //! A stale result remains inspectable historical evidence and is never accepted
 //! as current advice.
-use super::{commit, read, row, Result};
+use super::{commit, row, Result};
 use serde::{Deserialize, Serialize};
 use vcp_domain::{
     accounting::{Attempt, CostQuote, RequestRole, ReservationState},
@@ -23,6 +23,24 @@ const REQUEST_DOCUMENT: &str = "vcp_escalation_advisory_request_v1";
 const RESULT_DOCUMENT: &str = "vcp_escalation_advisory_result_v1";
 const SCHEDULE_DOCUMENT: &str = "vcp_escalation_advisory_schedule_v1";
 const ACCOUNTING_DOCUMENT: &str = "vcp_escalation_advisory_accounting_v1";
+
+fn read<T: serde::de::DeserializeOwned>(
+    store: &Store,
+    access: &Access,
+    id: &str,
+) -> Result<Option<T>> {
+    super::authorize(store, access, false)?;
+    if vcp_memory::retention::purged(
+        store.state(),
+        &access.workspace,
+        &vcp_memory::retention::Target::Record(key(Collection::Projection, id)),
+    )
+    .map_err(super::err)?
+    {
+        return Err("canonical advisory record was purged".into());
+    }
+    super::read(store, access, id)
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -191,6 +209,19 @@ pub async fn record_request(
     stored
         .references
         .insert(key(Collection::Task, record.task.as_str()));
+    // Runtime escalation observations embed bounded artifact content. Preserve
+    // dependency links so retention/deletion can follow the original evidence.
+    for (source, digest) in &record.request.binding.evidence {
+        let source_key = key(Collection::Artifact, source);
+        if let Some(source) = store.state().records.get(&source_key) {
+            let descriptor: ArtifactDescriptor = source.decode().map_err(super::err)?;
+            if descriptor.spec.scope != record.request.binding.scope || descriptor.sha256 != *digest
+            {
+                return Err("advisory evidence artifact identity changed".into());
+            }
+            stored.references.insert(source_key);
+        }
+    }
     commit(
         store,
         access,
@@ -217,12 +248,48 @@ pub async fn record_result(
     current: &Binding,
     now: Timestamp,
 ) -> Result<ResultRecord> {
-    validate_current(store, access, current)?;
+    record_result_inner(
+        store,
+        access,
+        command,
+        request_id,
+        outcome,
+        Some(current),
+        now,
+    )
+    .await
+}
+
+/// Host cleanup retains decoded late responses without granting current advice.
+pub(crate) async fn retain_historical_result(
+    store: &mut Store,
+    access: &Access,
+    command: CommandId,
+    request_id: &str,
+    outcome: &Outcome,
+    now: Timestamp,
+) -> Result<ResultRecord> {
+    record_result_inner(store, access, command, request_id, outcome, None, now).await
+}
+
+async fn record_result_inner(
+    store: &mut Store,
+    access: &Access,
+    command: CommandId,
+    request_id: &str,
+    outcome: &Outcome,
+    current: Option<&Binding>,
+    now: Timestamp,
+) -> Result<ResultRecord> {
+    if let Some(current) = current {
+        validate_current(store, access, current)?;
+    }
     let request = load_request(store, access, request_id)?;
     let outcome_value = serde_json::to_value(outcome).map_err(super::err)?;
     let outcome_digest = digest_bytes(&canonical_bytes(&outcome_value).map_err(super::err)?);
     validate_outcome(&request, outcome)?;
-    let disposition = if current == &request.request.binding && now < request.request.deadline {
+    let disposition = if current == Some(&request.request.binding) && now < request.request.deadline
+    {
         Disposition::AcceptedCurrent
     } else {
         Disposition::HistoricalStale

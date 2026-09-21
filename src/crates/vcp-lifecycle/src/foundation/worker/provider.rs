@@ -54,6 +54,10 @@ impl Context {
             context: ready.context.clone(),
             roots: ready.roots.clone(),
             memory: ready.memory.clone(),
+            escalation: ready
+                .escalation
+                .as_ref()
+                .map(|pending| pending.plan.clone()),
             baseline: ready
                 .routing
                 .clone()
