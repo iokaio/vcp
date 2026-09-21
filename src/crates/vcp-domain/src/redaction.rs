@@ -6,6 +6,46 @@ use serde::{Deserialize, Serialize};
 pub const PROPOSAL: &str = "vcp_memory_redacted_proposal_v1";
 pub const VERSION: &str = "vcp_memory_redacted_version_v1";
 pub const RESULT: &str = "vcp_memory_redacted_result_v1";
+pub const ADVISORY: &str = "vcp_escalation_redacted_advisory_v1";
+
+/// Content-free identity for the four canonical escalation advisory records.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedactedAdvisory {
+    pub document_type: String,
+    pub schema_version: u32,
+    pub original_document_type: String,
+    pub id: String,
+    pub scope: Scope,
+    pub revision: Revision,
+    pub deletion: DeletionEpoch,
+    pub original_digest: String,
+}
+pub fn advisory_document(tag: &str) -> bool {
+    matches!(
+        tag,
+        "vcp_escalation_advisory_request_v1"
+            | "vcp_escalation_advisory_result_v1"
+            | "vcp_escalation_advisory_schedule_v1"
+            | "vcp_escalation_advisory_accounting_v1"
+    )
+}
+impl RedactedAdvisory {
+    pub fn validate(&self) -> Result<()> {
+        if self.document_type != ADVISORY
+            || self.schema_version != 1
+            || !advisory_document(&self.original_document_type)
+            || self.id.is_empty()
+        {
+            return Err(Error::Invalid("redacted advisory identity"));
+        }
+        ContentRedaction {
+            deletion: self.deletion,
+            original_digest: self.original_digest.clone(),
+        }
+        .validate()
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContentRedaction {
