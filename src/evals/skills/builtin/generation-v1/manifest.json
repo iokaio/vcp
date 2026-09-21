@@ -1,0 +1,37 @@
+{
+  "revision": "p7-02-u03-generation-v1",
+  "case_id": "cart-discount-feature-v1",
+  "task": "U03",
+  "skill": "javascript-typescript",
+  "editable": [
+    "src/cart.cjs"
+  ],
+  "prompt": "Implement the basis-point discount feature in src/cart.cjs, preserving its CommonJS quoteCart export and all other files exactly. quoteCart(items, options = {}) returns subtotalCents, discountCents and totalCents as numbers. Each item has nonnegative safe-integer unitCents and quantity; options must be a non-null, non-array object and discountBps defaults to 0, otherwise an integer from 0 through 10000. Reject malformed items/options, invalid numbers, and subtotals above Number.MAX_SAFE_INTEGER with TypeError, without mutating any input. Calculate the discount on the combined subtotal and round the discount to the nearest cent, with exact halves rounding up. Preserve exact integer results up to Number.MAX_SAFE_INTEGER. Empty carts and zero quantities are valid. Do not add dependencies, files, scripts or install tools. Read existing project conventions and checks. Report changed source, checks actually run and any checks not run with reasons. Final completion still requires current parent verification; do not claim unrun tests passed.\n",
+  "files": [
+    {
+      "path": "notes.txt",
+      "bytes": 74,
+      "sha256": "6dd4421812e23e5914d4e2d374c5e55299f09bc30c4d052b4b985c1d51e5940a"
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 181,
+      "sha256": "dbfc338cf25ccf865864857d51eb0c13defa69296d977cd19894a53ce8585b7b"
+    },
+    {
+      "path": "package.json",
+      "bytes": 137,
+      "sha256": "a79001e6dff1224bf2da861c91c272a2b09a456ec19254b181ca355a3a68c23c"
+    },
+    {
+      "path": "src/cart.cjs",
+      "bytes": 282,
+      "sha256": "661f5f517bad50e0c119118ac79b8fb700bf0ef18abd3b095938dcc6af84a1f6"
+    },
+    {
+      "path": "test/cart.test.cjs",
+      "bytes": 581,
+      "sha256": "f6446fde73800c63a6aaa1d99bd64c16a9d5cc7d7a387683273004d8b692856b"
+    }
+  ]
+}

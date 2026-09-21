@@ -27,6 +27,10 @@ node_modules/
 __pycache__/
 *.pyc
 
+# Generated .NET fixture restore/build output
+/src/evals/skills/builtin/projects/dotnet-powershell-normal-v1/**/obj/
+/src/evals/skills/builtin/projects/dotnet-powershell-normal-v1/**/bin/
+
 # Local environment files; only synthetic examples belong in the repository
 .env
 .env.*
