@@ -38,3 +38,27 @@ Run `scripts/evals/markov-qualification.ps1` to reproduce the offline result.
 The run manifest binds source content before/after, the frozen input, toolchain,
 commands, logs and result hashes. A passing runner means the evaluation executed
 successfully; it does not mean the candidate qualified.
+
+The [recorded result](p6-markov-qualification-result.json) comes from run
+`4d2ead2a-a26e-4805-b0af-4e547c3035ca`, with unchanged committed source and input
+hashes. Both local arms evaluated all 12 fixtures, four per split. On the four
+held-out fixtures, each had precision and recall of 0.5 and one serious missed
+stall; local statistics abstained once (coverage 0.75), while rules covered all
+four. These tiny synthetic samples fail the frozen floors and do not establish
+relative model quality. The local evaluator's largest measured wall time across
+all fixtures was 20 microseconds on this run; CPU and peak memory were not measured.
+
+Both local arms received a recorded rejection for serving qualification. Actual
+Jev and the conventional remote arm remain not-run. The M4 construction is
+complete through its specified recorded-rejection path; calibrated live outcome
+qualification and any qualified routing estimate remain explicitly unimplemented
+until suitable evidence and an authorized trial cap exist.
+
+Twelve escalation tests and three qualification tests passed, including project
+and training-window leakage, weakened floors, serious abstention, unknown cost,
+identical observations with contradictory labels, and the production predicate.
+Runner syntax checks and source/log/result binding passed. No provider requests
+or paid trials were made.
+
+Formatting and diff checks passed. All nine fast-suite cases passed in run
+`38f097be-302d-4342-ad46-7a967bbf4dca`.

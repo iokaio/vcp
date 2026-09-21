@@ -310,7 +310,7 @@ observer agents remain P10-03 deferred scope.
 expose supported episode/cohort expectations and exclusions. [Saved forecast
 artifacts and matched drift/compaction diagnostics](../evaluations/p6-saved-forecast-diagnostics.md)
 preserve exact evidence with source access and retention checks. Forecast serving
-remains unqualified pending M4; this does not complete deferred M7 policy proposals.
+remains disabled after M4's recorded rejection; this does not complete deferred M7 policy proposals.
 
 **Planned Markov increments:** after the P6-03 implementation prerequisite,
 [M3](21-markov-integration.md#m3--read-only-forecasts-in-the-optimizer) adds read-only
@@ -377,8 +377,14 @@ comparisons rather than silently inheriting an earlier recommendation.
 
 ## P6-04 — Profile qualification
 
-**Planned Markov increment:** [M4](21-markov-integration.md#m4--qualification-and-routing-estimates)
-adds local statistical advice as a fourth comparison arm, forecast/interval
+**M4 construction implemented through recorded rejection:** the
+[four-arm offline qualification](../evaluations/p6-markov-qualification.md)
+ran rules/local statistics under frozen synthetic project/time splits. Remote
+arms and calibrated forecast/outcome trials remain not-run; the source-bound
+result leaves serving disabled and configured cost assumptions unchanged.
+
+[M4](21-markov-integration.md#m4--qualification-and-routing-estimates)
+defines local statistical advice as a fourth comparison arm, forecast/interval
 validation and per-purpose activation/rollback gates. Freeze selected context and
 verification refactors before final comparison; later changes invalidate affected
 evidence. No probability bypasses deterministic quality or completion gates.

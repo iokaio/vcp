@@ -1,0 +1,271 @@
+{
+  "schema": "p6-markov-recorded-qualification/1",
+  "run_id": "4d2ead2a-a26e-4805-b0af-4e547c3035ca",
+  "run_status": "passed",
+  "source_commit": "f1cbe2a48a6dabee06f06fcda3da84f3e61e89bb",
+  "source_content_sha256": "76d59e53f10b3b60fde936b36a0791b1db79231d89a0bb8b7f462454d6ced5e2",
+  "source_unchanged": true,
+  "source_dirty": false,
+  "manifest_sha256": "51bedc59eae56aba4340f730c7164eedc7e3981b4c914783e1c4b2414d520dd1",
+  "runner_sha256": "5da45c57d865210539203ea263f2c596401b1c4104a782e06c004a548ae4d451",
+  "full_result_sha256": "d01eefd178f97d4f37044503dfe6e7f96356cc91697acc86c04c0ebdc7da21c5",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "os": "Microsoft Windows 10.0.26200",
+  "architecture": "X64",
+  "comparison": {
+    "algorithm": "second-order-laplace-entropy/1",
+    "arms": [
+      {
+        "all_splits": {
+          "abstained": 0,
+          "cases": 12,
+          "coverage": {
+            "denominator": 12,
+            "lower95": 0.7575059933447592,
+            "numerator": 12,
+            "point": 1.0,
+            "upper95": 1.0
+          },
+          "covered": 12,
+          "false_negative": 3,
+          "false_positive": 3,
+          "maximum_evaluation_wall_micros": 34,
+          "precision": {
+            "denominator": 6,
+            "lower95": 0.18761630648265054,
+            "numerator": 3,
+            "point": 0.5,
+            "upper95": 0.8123836935173494
+          },
+          "recall": {
+            "denominator": 6,
+            "lower95": 0.18761630648265054,
+            "numerator": 3,
+            "point": 0.5,
+            "upper95": 0.8123836935173494
+          },
+          "serious_misses_including_abstention": 3,
+          "true_negative": 3,
+          "true_positive": 3,
+          "uncertainty": "Wilson95% descriptive bounds on synthetic fixtures; correlated fixture families are not population evidence",
+          "unknown_costs": 3
+        },
+        "arm": "rules_only",
+        "held_out": {
+          "abstained": 0,
+          "cases": 4,
+          "coverage": {
+            "denominator": 4,
+            "lower95": 0.5101091635454027,
+            "numerator": 4,
+            "point": 1.0,
+            "upper95": 1.0
+          },
+          "covered": 4,
+          "false_negative": 1,
+          "false_positive": 1,
+          "maximum_evaluation_wall_micros": 12,
+          "precision": {
+            "denominator": 2,
+            "lower95": 0.09453120573423074,
+            "numerator": 1,
+            "point": 0.5,
+            "upper95": 0.9054687942657693
+          },
+          "recall": {
+            "denominator": 2,
+            "lower95": 0.09453120573423074,
+            "numerator": 1,
+            "point": 0.5,
+            "upper95": 0.9054687942657693
+          },
+          "serious_misses_including_abstention": 1,
+          "true_negative": 1,
+          "true_positive": 1,
+          "uncertainty": "Wilson95% descriptive bounds on synthetic fixtures; correlated fixture families are not population evidence",
+          "unknown_costs": 1
+        },
+        "qualification": {
+          "enabled": false,
+          "reasons": [
+            "synthetic_only_no_live_outcome_trials",
+            "no_calibrated_forecast_intervals",
+            "no_authorized_live_cap",
+            "unqualified_source_and_config",
+            "insufficient_held_out_projects_or_cases",
+            "precision_floor",
+            "recall_floor",
+            "coverage_floor",
+            "serious_miss",
+            "unknown_liability"
+          ],
+          "status": "rejected"
+        },
+        "status": "ran_synthetic",
+        "supported_purpose": "repeated_strategy_suspicion"
+      },
+      {
+        "all_splits": {
+          "abstained": 3,
+          "cases": 12,
+          "coverage": {
+            "denominator": 12,
+            "lower95": 0.46769466506643426,
+            "numerator": 9,
+            "point": 0.75,
+            "upper95": 0.9110583316059453
+          },
+          "covered": 9,
+          "false_negative": 0,
+          "false_positive": 3,
+          "maximum_evaluation_wall_micros": 20,
+          "precision": {
+            "denominator": 6,
+            "lower95": 0.18761630648265054,
+            "numerator": 3,
+            "point": 0.5,
+            "upper95": 0.8123836935173494
+          },
+          "recall": {
+            "denominator": 6,
+            "lower95": 0.18761630648265054,
+            "numerator": 3,
+            "point": 0.5,
+            "upper95": 0.8123836935173494
+          },
+          "serious_misses_including_abstention": 3,
+          "true_negative": 3,
+          "true_positive": 3,
+          "uncertainty": "Wilson95% descriptive bounds on synthetic fixtures; correlated fixture families are not population evidence",
+          "unknown_costs": 3
+        },
+        "arm": "local_statistics",
+        "held_out": {
+          "abstained": 1,
+          "cases": 4,
+          "coverage": {
+            "denominator": 4,
+            "lower95": 0.30064184258240184,
+            "numerator": 3,
+            "point": 0.75,
+            "upper95": 0.9544127391902995
+          },
+          "covered": 3,
+          "false_negative": 0,
+          "false_positive": 1,
+          "maximum_evaluation_wall_micros": 6,
+          "precision": {
+            "denominator": 2,
+            "lower95": 0.09453120573423074,
+            "numerator": 1,
+            "point": 0.5,
+            "upper95": 0.9054687942657693
+          },
+          "recall": {
+            "denominator": 2,
+            "lower95": 0.09453120573423074,
+            "numerator": 1,
+            "point": 0.5,
+            "upper95": 0.9054687942657693
+          },
+          "serious_misses_including_abstention": 1,
+          "true_negative": 1,
+          "true_positive": 1,
+          "uncertainty": "Wilson95% descriptive bounds on synthetic fixtures; correlated fixture families are not population evidence",
+          "unknown_costs": 1
+        },
+        "qualification": {
+          "enabled": false,
+          "reasons": [
+            "synthetic_only_no_live_outcome_trials",
+            "no_calibrated_forecast_intervals",
+            "no_authorized_live_cap",
+            "unqualified_source_and_config",
+            "insufficient_held_out_projects_or_cases",
+            "precision_floor",
+            "recall_floor",
+            "coverage_floor",
+            "serious_miss",
+            "unknown_liability"
+          ],
+          "status": "rejected"
+        },
+        "status": "ran_synthetic",
+        "supported_purpose": "repeated_strategy_suspicion"
+      },
+      {
+        "arm": "actual_jev_openrouter",
+        "known_spend_micros": 0,
+        "qualification": {
+          "enabled": false,
+          "status": "not_run"
+        },
+        "reason": "No authorized live cap and outcome trial evidence. No substitute endpoint or fixture result is attributed to this arm.",
+        "requests": 0,
+        "status": "not_run"
+      },
+      {
+        "arm": "conventional_openrouter",
+        "known_spend_micros": 0,
+        "qualification": {
+          "enabled": false,
+          "status": "not_run"
+        },
+        "reason": "No authorized live cap and outcome trial evidence. No substitute endpoint or fixture result is attributed to this arm.",
+        "requests": 0,
+        "status": "not_run"
+      }
+    ],
+    "forecast_validation": {
+      "reason": "M3 arithmetic fixtures are contract tests; independent forecast outcome and interval coverage datasets are absent.",
+      "status": "not_run"
+    },
+    "hidden_state": {
+      "reason": "Identical observed symbols and fingerprints have opposite synthetic labels. Hidden causes are not identifiable from this input; no evidence supports HMM deployment.",
+      "status": "not_promoted"
+    },
+    "manifest_revision": "frozen-v1",
+    "manifest_sha256": "51bedc59eae56aba4340f730c7164eedc7e3981b4c914783e1c4b2414d520dd1",
+    "overhead": {
+      "cpu_time": "unavailable; only local wall timing measured",
+      "inspection": "not_run; covered by separate M3 contract tests",
+      "peak_memory": "unavailable; no process memory sampler"
+    },
+    "probability_scores": {
+      "reason": "Transition probability and entropy suspicion are not stall probabilities; no Brier or calibration score is computed.",
+      "status": "unavailable"
+    },
+    "purpose": "repeated_strategy_suspicion",
+    "rollback_triggers": [
+      "source_pruned",
+      "policy_or_catalog_drift",
+      "sparse_evidence",
+      "missing_calibration",
+      "serious_miss",
+      "unknown_liability",
+      "numerical_failure"
+    ],
+    "schema": "p6-markov-four-arm-result/1",
+    "serving": {
+      "baseline": "unchanged",
+      "enabled": false,
+      "live_provider_requests": 0,
+      "qualified_cost_estimate": "not_installed"
+    },
+    "splits": {
+      "calibration": "distinct projects, evaluation times210..220",
+      "held_out": "distinct projects, evaluation times310..320",
+      "tuning": "projects unique to tuning, evaluation times110..120"
+    },
+    "task_benefit": {
+      "reason": "Synthetic oracle labels/costs are not completed live task cost, quality, intervention or latency measurements.",
+      "status": "not_run"
+    },
+    "uncertainty": "Wilson 95% bounds for observed classification proportions; no stall-probability calibration claim",
+    "unsupported_purposes": [
+      "routing",
+      "review",
+      "policy_proposal"
+    ]
+  }
+}
