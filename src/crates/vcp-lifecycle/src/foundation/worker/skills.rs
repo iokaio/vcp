@@ -264,7 +264,7 @@ impl Context {
         if self.verification.contains_key(task) {
             tools.insert("vcp_verify".into());
         }
-        let root = self.tool_root()?;
+        let root = self.task_root(task)?;
         self.tool_read_access(&root.identity.root, "vcp_skill")?;
         crate::foundation::skills::actual_match_context(&root, tools).map_err(|e| e.into())
     }

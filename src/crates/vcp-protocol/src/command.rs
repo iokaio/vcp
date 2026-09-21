@@ -58,6 +58,26 @@ pub enum Command {
         editing: bool,
         required_checks: Vec<String>,
     },
+    CreateChild {
+        id: TaskId,
+        objective: Objective,
+        fingerprint: Fingerprint,
+        required_checks: Vec<String>,
+        spec: vcp_domain::agents::ChildSpec,
+        limits: vcp_domain::agents::GraphLimits,
+        expected_graph: Option<Revision>,
+        expected_ledger: Revision,
+    },
+    SetChildDependencies {
+        child: TaskId,
+        dependencies: std::collections::BTreeSet<TaskId>,
+        expected_graph: Revision,
+    },
+    SubmitChildResult {
+        child: TaskId,
+        result: vcp_domain::agents::ChildResultRef,
+        expected_graph: Revision,
+    },
     Transition {
         next: TaskState,
         reason: String,

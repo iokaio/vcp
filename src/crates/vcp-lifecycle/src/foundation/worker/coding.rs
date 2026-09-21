@@ -130,9 +130,27 @@ impl Context {
         binding: &ThreadBinding,
         config: CodingConfig,
     ) -> Result<()> {
-        self.can_start(binding)?;
+        self.configure_coding_setup(binding, config, false)
+    }
+    pub(super) fn parent_coding_config(&self, binding: &ThreadBinding) -> Result<CodingConfig> {
+        self.coding
+            .get(&binding.scope.task)
+            .map(|state| state.config.clone())
+            .ok_or_else(|| "parent coding is not configured".into())
+    }
+    pub(super) fn configure_coding_setup(
+        &mut self,
+        binding: &ThreadBinding,
+        config: CodingConfig,
+        held: bool,
+    ) -> Result<()> {
+        if held {
+            self.child_held_setup_access(binding)?;
+        } else {
+            self.can_start(binding)?;
+        }
         if self.provider.is_none()
-            || !self.streams.is_empty()
+            || self.task_has_streams(binding)?
             || self.coding.contains_key(&binding.scope.task)
         {
             return Err(
@@ -267,7 +285,8 @@ impl Context {
         ] {
             self.tool_identity(binding, name)?;
         }
-        let root = self.tool_root()?;
+        self.child_context_scope(binding)?;
+        let root = self.task_root(&binding.scope.task)?;
         let parents = self.instruction_parents(binding)?;
         let instructions = root.instructions(&affected, &parents, 256 * 1024)?;
         let task: Task = self
@@ -642,7 +661,7 @@ impl Context {
             .get(&binding.scope.task)
             .ok_or("coding setup missing")?;
         let mut roots = self.instruction_parents(binding)?;
-        roots.push(self.tool_root()?);
+        roots.push(self.task_root(&binding.scope.task)?);
         vcp_repository::instructions::revalidate_probes(&state.probes, &roots)?;
         Ok(())
     }
@@ -672,6 +691,30 @@ impl Context {
         )
     }
     pub fn select_coding_paths(&mut self, binding: &ThreadBinding, call: &Call) -> Result<bool> {
+        match call.name.as_str() {
+            "vcp_read" => self.child_tool_request(
+                binding,
+                &vcp_tools::Request::Read {
+                    path: call.arguments["path"]
+                        .as_str()
+                        .ok_or("read path missing")?
+                        .into(),
+                    max_bytes: 1,
+                },
+            )?,
+            "vcp_patch" => self.child_tool_request(
+                binding,
+                &vcp_tools::Request::Patch {
+                    patch: call.arguments["patch"]
+                        .as_str()
+                        .ok_or("patch missing")?
+                        .into(),
+                },
+            )?,
+            "vcp_list" | "vcp_search" | "vcp_verify" => self.child_context_scope(binding)?,
+            "vcp_exec" => self.child_process_scope(binding)?,
+            _ => {}
+        }
         let paths = match call.name.as_str() {
             "vcp_verify" => self.verification_paths(binding)?,
             "vcp_read" => vec![std::path::PathBuf::from(
@@ -704,7 +747,7 @@ impl Context {
             _ => return Ok(true),
         };
         self.validate_coding_sources(binding)?;
-        let instructions = self.tool_root()?.instructions(
+        let instructions = self.task_root(&binding.scope.task)?.instructions(
             &paths,
             &self.instruction_parents(binding)?,
             256 * 1024,

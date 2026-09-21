@@ -18,6 +18,13 @@ require canonical host integration and recovery/lifecycle qualification.
 
 `test-integration.ps1` runs native host/port contracts, retained process regressions and the private coding CLI on Rust 1.98.0 (1.95.0 is an explicit comparison option). See [the integration guide](../docs/development/p0-integration.md). `upstream/compare-gemini-ports.cjs` and `upstream/rehearse-codex-fix.cjs` run explicit pinned-source maintenance experiments; neither is an ordinary build dependency.
 
+`test-delegation.ps1` runs the P7 graph, isolated workspace, integration, recovery
+and native terminal delegation fixtures on Rust 1.95.0. It records immutable
+source hashes and rejects a run if its inputs change. These mock-provider native
+checks do not replace live usefulness or packaged release qualification; see
+[child workspaces](../docs/development/p7-child-workspaces.md).
+Use `-FullHost` for the broader, slower canonical-host regression suite.
+
 `test-storage.ps1` runs the local P0 SQLite/files, encrypted handoff and native
 crash qualification. Supply the pinned independent age binary and optionally the
 public handoff fixture; see [the guide](../docs/development/portable-storage-spike.md).

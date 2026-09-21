@@ -69,6 +69,14 @@ pub use tools::{ToolOutcome, ToolProposal};
 use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, workspace::*};
 use vcp_protocol::command::{Command, CommandReceipt};
 use vcp_store::{contract::State, BackendKind};
+#[cfg(windows)]
+pub use worker::agents_delegate::DelegationRequest;
+#[cfg(windows)]
+pub use worker::agents_integration::ChildIntegration;
+#[cfg(windows)]
+pub use worker::agents_owner::{ChildStart, ChildWorkspaceInputs};
+#[cfg(windows)]
+pub use worker::agents_recovery::{ChildRecovery, ChildRecoveryTicket};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]

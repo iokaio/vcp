@@ -117,6 +117,27 @@ impl Scheduler {
         operation: &Operation,
     ) -> Result<EffectLease, String> {
         let claim = Claim::from_operation(operation);
+        self.try_claim(claim)
+    }
+    /// Snapshot capture excludes engine-owned writes while native before/after
+    /// observations detect human writes outside this process.
+    pub(super) fn snapshot(
+        self: &Arc<Self>,
+        task: TaskId,
+        root: RootId,
+    ) -> Result<EffectLease, String> {
+        self.try_claim(Claim {
+            task,
+            resources: vec![Resource {
+                root,
+                path: String::new(),
+                write: true,
+                version: "snapshot-owner".into(),
+            }],
+            opaque: false,
+        })
+    }
+    fn try_claim(self: &Arc<Self>, claim: Claim) -> Result<EffectLease, String> {
         let mut queue = self.queue.lock().map_err(|_| "scheduler poisoned")?;
         if !queue.eligible(&claim) || queue.waiting.iter().any(|(_, c)| c.conflicts(&claim)) {
             return Err("workspace has an active conflicting operation or scheduler limit".into());

@@ -26,8 +26,11 @@ impl Context {
         self.validate_instruction_roots(binding, &parents)?;
         // The existing loader rejects duplicate identities and non-ancestors,
         // checks native directory identity, and reads only AGENTS.md.
-        self.tool_root()?
-            .instructions(&state.config.affected_paths, &parents, 256 * 1024)?;
+        self.task_root(&binding.scope.task)?.instructions(
+            &state.config.affected_paths,
+            &parents,
+            256 * 1024,
+        )?;
         let grants: Vec<_> = parents.iter().map(|root| {
             serde_json::json!({"identity":root.identity,"path":root.path(),"access":"AGENTS.md only"})
         }).collect();

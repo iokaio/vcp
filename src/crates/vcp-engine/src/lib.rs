@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Canonical command orchestration. Execution stays in the retained controller;
 //! handlers record decisions and effects through an injected canonical store.
+pub mod agents;
 pub mod capture;
 pub mod command_handler;
 pub mod policy;

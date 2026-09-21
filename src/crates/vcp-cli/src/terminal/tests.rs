@@ -328,6 +328,116 @@ fn fixture_task(id: &str) -> Task {
         reason: "user paused".into(),
     }
 }
+
+#[test]
+fn agents_pages_preserve_all_children_and_canonical_node_cost_without_resuming() {
+    use vcp_domain::accounting::{Currency, Money, RequestRole, Reservation, ReservationState};
+    let mut state = State::default();
+    let root = fixture_task("root");
+    insert_task(&mut state, &root);
+    for index in 0..19 {
+        let mut child = fixture_task(&format!("child-{index:02}"));
+        child.root = root.root.clone();
+        child.parent = Some(root.root.clone());
+        insert_task(&mut state, &child);
+        if index == 0 {
+            let reservation = Reservation {
+                schema_version: 1,
+                id: ReservationId::new(),
+                scope: child.scope,
+                root: root.root.clone(),
+                attempt: AttemptId::new(),
+                revision: Revision::ZERO,
+                phase: ReservationState::ReconciliationPending,
+                amount: Money {
+                    currency: Currency::try_from("USD".to_owned()).unwrap(),
+                    micros: Micros::new(30),
+                },
+                charged: Micros::new(10),
+                liability: Micros::new(20),
+                protected_draw: Micros::ZERO,
+                protected_returned: Micros::ZERO,
+                day: 0,
+                role: RequestRole::Child,
+            };
+            let row = Record::typed(
+                Collection::Reservation,
+                reservation.id.as_str(),
+                root.scope.workspace.clone(),
+                Revision::ZERO,
+                &reservation,
+            )
+            .unwrap();
+            state.records.insert(row.key(), row);
+        }
+    }
+    insert_task(&mut state, &fixture_task("unrelated"));
+    let before = state.clone();
+    let mut ids = std::collections::BTreeSet::new();
+    for (offset, count) in [(0, 8), (8, 8), (16, 3)] {
+        let page =
+            crate::agents_view::page(&state, &root.scope, Timestamp::new(1000), offset).unwrap();
+        assert_eq!(page["total"], 19);
+        assert_eq!(page["items"].as_array().unwrap().len(), count);
+        for item in page["items"].as_array().unwrap() {
+            assert!(ids.insert(item["task"].as_str().unwrap().to_owned()));
+            assert_eq!(item["state"], "paused");
+            assert!(!item["objective"].as_str().unwrap().contains('\x1b'));
+        }
+        if offset == 0 {
+            assert_eq!(page["items"][0]["cost"]["known"], 10);
+            assert_eq!(page["items"][0]["cost"]["reserved"], 0);
+            assert_eq!(page["items"][0]["cost"]["uncertain"], 20);
+        }
+        if offset == 16 {
+            assert!(page["next_offset"].is_null());
+        }
+    }
+    assert_eq!(ids.len(), 19);
+    assert_eq!(state, before);
+    assert!(crate::agents_view::page(&state, &root.scope, Timestamp::new(1000), 20).is_err());
+    assert_eq!(parse("/agents 8"), Ok(Some(Input::AgentsPage(8))));
+    assert!(parse("/agents -1").is_err());
+    let selected = TaskId::parse("child-18").unwrap();
+    assert_eq!(
+        crate::agents_view::detail(&state, &root.scope, &selected, Timestamp::new(1000)).unwrap()
+            ["task"],
+        "child-18"
+    );
+    assert!(
+        crate::agents_view::child(&state, &root.scope, &TaskId::parse("unrelated").unwrap())
+            .is_err()
+    );
+    assert!(crate::agents_view::child(&state, &root.scope, &root.root).is_err());
+    for (text, action) in [
+        ("focus", AgentAction::Focus),
+        ("follow", AgentAction::Follow),
+        ("pause", AgentAction::Pause),
+        ("cancel", AgentAction::Cancel),
+        ("resume", AgentAction::Resume),
+    ] {
+        assert_eq!(
+            parse(&format!("/agents {text} child-18")),
+            Ok(Some(Input::Agent {
+                task: selected.clone(),
+                action
+            }))
+        );
+    }
+    assert!(parse("/agents pause child-18 extra").is_err());
+    assert_eq!(
+        parse("/agents delegate \"C:/owner files/child.json\""),
+        Ok(Some(Input::Delegate("C:/owner files/child.json".into())))
+    );
+    assert_eq!(
+        parse("/agents recover child-18 \"C:/Program Files/Git/cmd/git.exe\""),
+        Ok(Some(Input::RecoverChild {
+            task: selected,
+            git: "C:/Program Files/Git/cmd/git.exe".into()
+        }))
+    );
+    assert!(parse("/agents delegate \"unclosed").is_err());
+}
 fn insert_task(state: &mut State, task: &Task) {
     let record = Record::typed(
         Collection::Task,

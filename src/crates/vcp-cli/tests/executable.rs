@@ -572,6 +572,192 @@ fn response(index: usize, mode: &str) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_terminal_delegates_real_child_with_canonical_transcript() {
+    terminal_delegation_case(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_terminal_delegates_real_child_and_pause_fences_both_requests() {
+    terminal_delegation_case(true).await;
+}
+
+async fn terminal_delegation_case(pause_active: bool) {
+    use std::{sync::Mutex, time::Duration};
+    let server = MockServer::start().await;
+    let fixture = Fixture::new(&server.uri(), "complete");
+    let git = PathBuf::from(std::env::var_os("VCP_TEST_GIT").expect("native Git required"));
+    for args in [
+        vec!["init", "--quiet"],
+        vec!["add", "value.txt", "package.json", "acceptance.cjs"],
+    ] {
+        assert!(Command::new(&git)
+            .args(args)
+            .current_dir(&fixture.workspace)
+            .status()
+            .unwrap()
+            .success());
+    }
+    let disposable = fixture._temp.path().join("children");
+    assert!(Command::new(&git)
+        .args([
+            "-c",
+            "user.name=VCP fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture base"
+        ])
+        .current_dir(&fixture.workspace)
+        .status()
+        .unwrap()
+        .success());
+    fs::create_dir(&disposable).unwrap();
+    let spec = fixture._temp.path().join("delegate.json");
+    fs::write(&spec, serde_json::to_vec(&json!({"version":1,"git":git,"disposable_parent":disposable,
+        "objective":"Inspect the isolated child source and report observations", "acceptance":["Report source observations"],
+        "mode":"read_only","write_paths":[],"untracked_inputs":[],"allocation_usd":"0.1","seconds":120,"required_checks":[]})).unwrap()).unwrap();
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(response(3, "complete"))
+                .set_delay(Duration::from_secs(if pause_active { 30 } else { 8 })),
+        )
+        .expect(2)
+        .mount(&server)
+        .await;
+    let mut child = fixture
+        .terminal("Inspect the project while independent review runs")
+        .await;
+    let writer = child.session.writer_sender();
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let output = captured.clone();
+    let reader = tokio::spawn(async move {
+        while let Some(bytes) = child.stdout_rx.recv().await {
+            let mut output = output.lock().unwrap();
+            assert!(output.len() + bytes.len() < 4 * 1024 * 1024);
+            output.extend(bytes);
+        }
+    });
+    let exercise = async {
+        loop {
+            if String::from_utf8_lossy(&captured.lock().unwrap()).contains("/skills") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        writer
+            .send(format!("/agents delegate \"{}\"\r", spec.display()).into_bytes())
+            .await
+            .unwrap();
+        loop {
+            let text = String::from_utf8_lossy(&captured.lock().unwrap()).into_owned();
+            assert!(
+                !text.contains("preparation failed") && !text.contains("Command rejected"),
+                "{text}"
+            );
+            if pause_active && server.received_requests().await.unwrap().len() == 2 {
+                writer.send(b"/pause\r/agents\r".to_vec()).await.unwrap();
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let queried = fixture
+                    .run(&["tasks", "agents", &fixture.task_id(), "--offset", "0"])
+                    .await;
+                assert!(
+                    queried.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&queried.stderr)
+                );
+                let values = records(&queried);
+                let page = &values[0]["data"];
+                assert_eq!(page["total"], 1);
+                assert_eq!(page["items"][0]["state"], "paused");
+                assert!(!page["items"][0]["registration"].is_null());
+                assert_eq!(page["items"][0]["cost"]["scope"], "this node only");
+                assert_eq!(server.received_requests().await.unwrap().len(), 2);
+                break;
+            }
+            if text.contains("turn ended; canonical status") || text.contains("stopped:") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        writer.send(b"/exit\r".to_vec()).await.unwrap();
+        (&mut child.exit_rx).await.unwrap()
+    };
+    if tokio::time::timeout(Duration::from_secs(60), exercise)
+        .await
+        .is_err()
+    {
+        child.session.terminate();
+        panic!(
+            "delegation timeout: {}",
+            String::from_utf8_lossy(&captured.lock().unwrap())
+        );
+    }
+    reader.await.unwrap();
+    let output = String::from_utf8_lossy(&captured.lock().unwrap()).into_owned();
+    assert!(
+        output.contains("started in its registered isolated workspace"),
+        "{output}"
+    );
+    let directory = fs::read_dir(fixture.data.join("workspaces"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.join("workspace.json").is_file())
+        .unwrap();
+    let entry: vcp_cli::settings::WorkspaceEntry =
+        serde_json::from_slice(&fs::read(directory.join("workspace.json")).unwrap()).unwrap();
+    let store = vcp_store::Store::open(
+        &entry.config.canonical_root,
+        entry.config.backend,
+        &[fixture.workspace.canonicalize().unwrap()],
+    )
+    .await
+    .unwrap();
+    let state = store.state();
+    let children: Vec<_> = state
+        .records
+        .values()
+        .filter(|r| {
+            r.collection == vcp_store::contract::Collection::Task
+                && r.value["scope"]["task"] != entry.config.root_task.as_str()
+        })
+        .collect();
+    assert_eq!(children.len(), 1);
+    if pause_active {
+        for record in state
+            .records
+            .values()
+            .filter(|r| r.collection == vcp_store::contract::Collection::Task)
+        {
+            assert_eq!(
+                record.value["state"], "paused",
+                "root and child must retain the explicit pause: {}",
+                record.value
+            );
+        }
+    } else {
+        assert!(
+            state.records.values().any(|r| r.collection
+                == vcp_store::contract::Collection::Artifact
+                && r.value.to_string().contains("child_transcript")),
+            "child transcript must survive terminal exit"
+        );
+    }
+    store.close().await.unwrap();
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    assert_eq!(
+        fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
+        "41\n"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn executable_plan_final_answer_observes_unchanged_analysis_without_waiving_checks() {
     for (required_check, external_change) in [(false, false), (true, false), (false, true)] {
         let server = MockServer::start().await;

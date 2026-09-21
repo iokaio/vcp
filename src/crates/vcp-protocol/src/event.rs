@@ -8,6 +8,7 @@ pub enum EventKind {
     WorkspaceBound,
     SessionStarted,
     TaskCreated,
+    ChildGraphChanged,
     TaskTransition,
     ObjectiveChanged,
     FingerprintObserved,

@@ -214,6 +214,13 @@ pub enum Sessions {
 }
 #[derive(Debug, Subcommand)]
 pub enum Tasks {
+    /// Inspect attributed child progress without starting or resuming work.
+    Agents {
+        #[arg(value_parser = task_id)]
+        task: TaskId,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+    },
     Status {
         #[arg(value_parser = task_id)]
         task: TaskId,

@@ -367,13 +367,29 @@ impl Context {
         &self,
         binding: &ThreadBinding,
     ) -> Result<(Root, Observation)> {
+        self.verification_observe_setup(binding, false)
+    }
+    fn verification_observe_setup(
+        &self,
+        binding: &ThreadBinding,
+        held: bool,
+    ) -> Result<(Root, Observation)> {
+        self.child_context_scope(binding)?;
         // Match every native coding read ceiling before opening the root.
-        self.tool_identity(binding, "vcp_exec")?;
+        if held {
+            self.child_held_setup_access(binding)?;
+            self.tool_read_access(
+                &RootId::parse(binding.scope.workspace.as_str())?,
+                "vcp_exec",
+            )?;
+        } else {
+            self.tool_identity(binding, "vcp_exec")?;
+        }
         let root_id = RootId::parse(binding.scope.workspace.as_str())?;
         for tool in ["vcp_read", "vcp_list", "vcp_search", "vcp_patch"] {
             self.tool_read_access(&root_id, tool)?;
         }
-        let root = self.tool_root()?;
+        let root = self.task_root(&binding.scope.task)?;
         let mut observed = self
             .runtime
             .block_on(root.observe(None, &vcp_repository::discovery::Limits::default()))?;
@@ -460,15 +476,36 @@ impl Context {
         binding: &ThreadBinding,
         config: VerificationConfig,
     ) -> Result<()> {
-        self.can_start(binding)?;
+        self.configure_verification_setup(binding, config, false)
+    }
+    pub(super) fn parent_verification_config(
+        &self,
+        binding: &ThreadBinding,
+    ) -> Result<VerificationConfig> {
+        self.verification
+            .get(&binding.scope.task)
+            .map(|state| state.config.clone())
+            .ok_or_else(|| "parent verification is not configured".into())
+    }
+    pub(super) fn configure_verification_setup(
+        &mut self,
+        binding: &ThreadBinding,
+        config: VerificationConfig,
+        held: bool,
+    ) -> Result<()> {
+        if held {
+            self.child_held_setup_access(binding)?;
+        } else {
+            self.can_start(binding)?;
+        }
         if self.verification.contains_key(&binding.scope.task)
-            || !self.streams.is_empty()
+            || self.task_has_streams(binding)?
             || config.rationale.trim().is_empty()
             || config.rationale.len() > 4096
         {
             return Err("verification setup must be bounded, fresh and idle".into());
         }
-        let (_, observed) = self.verification_observe(binding)?;
+        let (_, observed) = self.verification_observe_setup(binding, held)?;
         vcp_tools::verification::discover(&observed, &config.requirements)?;
         for requirement in &config.requirements {
             if let Some(profile) = self.process_profiles.get(&requirement.profile) {

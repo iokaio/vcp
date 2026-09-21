@@ -19,6 +19,15 @@ mod authority_stream;
 #[cfg(windows)]
 #[path = "support/backup_checkpoint.rs"]
 mod backup_checkpoint;
+#[cfg(windows)]
+#[path = "support/child_agents.rs"]
+mod child_agents;
+#[cfg(windows)]
+#[path = "support/child_integration_fault.rs"]
+mod child_integration_fault;
+#[cfg(windows)]
+#[path = "support/child_recovery.rs"]
+mod child_recovery;
 #[path = "support/cli_control.rs"]
 mod cli_control;
 #[cfg(windows)]

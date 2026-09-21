@@ -218,6 +218,8 @@ impl Context {
     }
     fn validate_ready_context(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
         #[cfg(windows)]
+        self.child_model_scope(binding, &ready.snapshot.compatibility.model)?;
+        #[cfg(windows)]
         self.validate_skills(binding)?;
         if let Some(decision) = &ready.routing {
             let current_catalog = crate::foundation::routing_state::current_registry(
@@ -394,6 +396,9 @@ impl Context {
         if roots.len() > 33 {
             return Err("too many registered source roots".into());
         }
+        #[cfg(windows)]
+        let canonical_root = self.task_root(&binding.scope.task)?.path().to_owned();
+        #[cfg(not(windows))]
         let canonical_root = std::path::Path::new(&self.config.binding.root).canonicalize()?;
         let mut seen = std::collections::BTreeSet::new();
         for root in &roots {
@@ -564,6 +569,7 @@ impl Context {
             .as_ref()
             .and_then(|p| p.active.get(&binding.scope.task))
         {
+            self.child_model_scope(binding, &ready.snapshot.compatibility.model)?;
             self.require_configured_routing()?;
             if let Some(decision) = &ready.routing {
                 let policy = self

@@ -1,6 +1,6 @@
 # 14 — Task graphs, isolated child work and visible progress
 
-Status: planned. Owns P7-04, P7-05 and P7-06. Requires grouped escalation P6-03 and P2-07 recovery; integration needs current-result verification, and visible progress needs P3-02/P3-04. Architecture section 16 governs delegation.
+Status: implementation and qualification in progress; see [the implemented owner path and remaining gates](../development/p7-child-workspaces.md). Owns P7-04, P7-05 and P7-06. Requires grouped escalation P6-03 and P2-07 recovery; integration needs current-result verification, and visible progress needs P3-02/P3-04. Architecture section 16 governs delegation.
 
 ## Code organization
 

@@ -17,6 +17,8 @@ use vcp_protocol::{
     digest_bytes,
     event::{EventEnvelope, EventInput},
 };
+#[path = "agents_contract.rs"]
+mod agents_contract;
 #[path = "ingestion_contract.rs"]
 mod ingestion_contract;
 #[path = "search_contract.rs"]
@@ -174,6 +176,9 @@ impl Record {
         }
         if search_contract::kind(self)?.is_some() {
             return search_contract::shape(self);
+        }
+        if agents_contract::kind(self)? {
+            return agents_contract::shape(self);
         }
         let scope = |workspace: &WorkspaceId, id: &str, revision: Revision| -> Result<()> {
             if workspace != &self.workspace || id != self.id || revision != self.revision {
@@ -395,6 +400,10 @@ impl Record {
             refs.extend(search_contract::references(self)?);
             return Ok(refs);
         }
+        if agents_contract::kind(self)? {
+            refs.extend(agents_contract::references(self)?);
+            return Ok(refs);
+        }
         if let Some(kind) = self.memory_kind()? {
             use vcp_domain::memory::*;
             if let Some(scope) = self.task_scope()? {
@@ -589,6 +598,9 @@ impl Record {
         Ok(refs)
     }
     pub(crate) fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
+        if agents_contract::kind(self)? {
+            return Ok(Some(self.decode::<vcp_domain::agents::TaskGraph>()?.scope));
+        }
         if self.value["document_type"] == vcp_domain::forecast::REDACTED {
             return Ok(None);
         }
@@ -949,6 +961,7 @@ impl State {
                     if record.memory_kind()?.is_none()
                         && ingestion_contract::kind(record)?.is_none()
                         && search_contract::kind(record)?.is_none()
+                        && !agents_contract::kind(record)?
                         && record.collection != Collection::Task
                         && record.collection != Collection::Ledger
                         && reference.split(':').next() != Some("ledger")
@@ -1067,6 +1080,7 @@ impl State {
         crate::accounting_contract::validate(self)?;
         ingestion_contract::validate(self)?;
         search_contract::validate(self)?;
+        agents_contract::validate(self)?;
         Ok(())
     }
     pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {
@@ -1166,6 +1180,7 @@ impl State {
                             crate::accounting_contract::transition(previous, record)?;
                             ingestion_contract::transition(previous, record)?;
                             search_contract::transition(previous, record)?;
+                            agents_contract::transition(previous, record)?;
                             crate::snapshot_jobs::transition(previous, record)?;
                             if previous.immutable_memory()? {
                                 return Err(Error::Conflict("immutable memory evidence"));
@@ -1219,6 +1234,15 @@ impl State {
                 }
                 Mutation::DropProjection { id, expected } => {
                     let key = key(Collection::Projection, id);
+                    if self
+                        .records
+                        .get(&key)
+                        .map(agents_contract::kind)
+                        .transpose()?
+                        .unwrap_or(false)
+                    {
+                        return Err(Error::Conflict("durable graph cannot be dropped"));
+                    }
                     if self
                         .records
                         .get(&key)
@@ -1321,6 +1345,7 @@ impl State {
         result.validate()?;
         crate::accounting_contract::admission(self, &result, transaction)?;
         search_contract::publication(self, &result, transaction)?;
+        agents_contract::publication(self, &result)?;
         Ok((
             result,
             Commit {

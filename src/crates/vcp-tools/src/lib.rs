@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Side-effect-free native tool preparation. A plan is data, not authority.
+pub mod integration;
 pub mod patch;
 pub mod process;
 pub mod read;
@@ -61,8 +62,14 @@ pub struct Prepared {
     probes: Vec<Probe>,
     result: serde_json::Value,
     changes: Vec<patch::Change>,
+    integration_index: Option<(Root, vcp_repository::FileVersion)>,
+    integration_parent: Option<(vcp_repository::observation::Manifest, Vec<Probe>)>,
+    integration_child: Option<TaskId>,
 }
 impl Prepared {
+    pub fn integration_child(&self) -> Option<&TaskId> {
+        self.integration_child.as_ref()
+    }
     pub fn authority(&self) -> &vcp_policy::Prepared {
         &self.authority
     }
@@ -76,6 +83,10 @@ impl Prepared {
         &self.result
     }
     pub fn revalidate(&self) -> Result<()> {
+        self.revalidate_index()?;
+        if let Some((manifest, probes)) = &self.integration_parent {
+            vcp_repository::merge::revalidate_parent(&self.root, manifest, probes)?;
+        }
         vcp_repository::instructions::revalidate_probes(
             &self.probes,
             std::slice::from_ref(&self.root),
@@ -94,6 +105,23 @@ impl Prepared {
             _ => (),
         }
         Ok(())
+    }
+    /// Integration never writes the index, but each mutation still depends on
+    /// the index version shown in its preview.
+    pub fn revalidate_index(&self) -> Result<()> {
+        if let Some((root, version)) = &self.integration_index {
+            root.revalidate(version)?;
+        }
+        Ok(())
+    }
+    pub fn hold_index(&self) -> Result<Option<vcp_repository::path::HeldPath>> {
+        let held = self
+            .integration_index
+            .as_ref()
+            .map(|(root, version)| root.hold(Some(Path::new(&version.path)), false))
+            .transpose()?;
+        self.revalidate_index()?;
+        Ok(held)
     }
     /// Complete proposed bytes for canonical artifact capture before dispatch.
     pub fn evidence(&self) -> Result<Vec<u8>> {
@@ -202,6 +230,9 @@ pub fn prepare(
         probes,
         result,
         changes,
+        integration_index: None,
+        integration_parent: None,
+        integration_child: None,
     })
 }
 pub(crate) fn checked_path(path: &str, empty: bool) -> Result<()> {

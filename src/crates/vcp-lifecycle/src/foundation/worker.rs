@@ -1,4 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
+#[cfg(windows)]
+mod agents;
+#[cfg(windows)]
+pub(super) mod agents_delegate;
+#[cfg(windows)]
+pub(super) mod agents_integration;
+#[cfg(windows)]
+pub(super) mod agents_owner;
+#[cfg(windows)]
+pub(super) mod agents_recovery;
+#[cfg(windows)]
+mod agents_setup;
 mod authority;
 #[cfg(windows)]
 mod backup_checkpoint;
@@ -477,6 +489,40 @@ impl Context {
             return Err("canonical owner is closed".into());
         }
         self.validate_binding(binding)?;
+        #[cfg(windows)]
+        if binding.scope.task != self.config.root_task
+            && vcp_engine::agents::graph(
+                self.engine.store().state(),
+                &binding.scope,
+                &self.config.root_task,
+            )?
+            .is_some()
+        {
+            let child: Task = self
+                .engine
+                .store()
+                .state()
+                .record(
+                    Collection::Task,
+                    binding.scope.task.as_str(),
+                    &binding.scope.workspace,
+                )?
+                .decode()?;
+            if !vcp_engine::agents::eligibility(
+                self.engine.store().state(),
+                &child,
+                now(),
+                self.owner_alive,
+            )?
+            .is_empty()
+            {
+                return Err(
+                    "child graph blocks dispatch; inspect current assignment and dependencies"
+                        .into(),
+                );
+            }
+            self.task_root(&binding.scope.task)?;
+        }
         let mut id = Some(binding.scope.task.clone());
         while let Some(current) = id {
             let task: Task = self
@@ -540,6 +586,35 @@ impl Context {
                         < ledger.cap.get()
             })
             .unwrap_or(true);
+        let tasks = self
+            .engine
+            .store()
+            .state()
+            .records
+            .values()
+            .filter(|row| {
+                row.collection == Collection::Task && row.workspace == task.scope.workspace
+            })
+            .map(Record::decode::<Task>)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut subtree = std::collections::BTreeSet::from([task.scope.task.clone()]);
+        loop {
+            let count = subtree.len();
+            for candidate in &tasks {
+                if candidate.root == task.root
+                    && candidate.scope.session == task.scope.session
+                    && candidate
+                        .parent
+                        .as_ref()
+                        .is_some_and(|parent| subtree.contains(parent))
+                {
+                    subtree.insert(candidate.scope.task.clone());
+                }
+            }
+            if subtree.len() == count {
+                break;
+            }
+        }
         let effects_reconciled = !self
             .engine
             .store()
@@ -551,6 +626,12 @@ impl Context {
             .collect::<std::result::Result<Vec<_>, _>>()?
             .iter()
             .any(|effect| {
+                if effect.scope.workspace != task.scope.workspace
+                    || effect.scope.session != task.scope.session
+                    || !subtree.contains(&effect.scope.task)
+                {
+                    return false;
+                }
                 if effect.state == vcp_domain::effect::EffectState::Running
                     && idle_owned.iter().any(|(id, execution)| {
                         id == &effect.id && effect.execution.as_ref() == Some(execution)
@@ -717,6 +798,8 @@ impl Context {
         if body["model"].as_str() != Some(&price.model) {
             return Err("request model differs from admitted price/capability".into());
         }
+        #[cfg(windows)]
+        self.child_model_scope(binding, &price.model)?;
         if !body.is_object() {
             return Err("request body must be an object".into());
         }
