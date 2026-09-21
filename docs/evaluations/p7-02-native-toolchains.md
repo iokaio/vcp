@@ -127,3 +127,25 @@ Native coverage remains limited to the checks above. No broad ecosystem support,
 model command-selection quality, .NET test success, or fresh-machine packaging
 qualification is implied. Live usefulness, remaining toolchain recipes/provisioned
 environments and P8 acceptance remain open.
+
+## Data contract extension
+
+The completion increment adds an isolated Python-standard-library recipe for
+the frozen data fixture. Python 3.13 checks exact decimal/null aggregation for
+unique keys, then supplies all original rows to test the declared duplicate-key
+rejection policy. The original fixture incorrectly accepts duplicates, so that
+case remains a seeded failure. A corrected disposable copy passes both checks;
+an implementation that rejects every input fails the positive control.
+
+All seven native-toolchain contract tests passed. The combined Visual Studio
+developer-environment run records **6 passed, 3 seeded failures, 33 not-run,
+0 runner errors**, with unchanged fixture and runner inputs:
+`artifacts/p7-builtin-toolchain/run-Kh0ckr/manifest.json` (SHA-256
+`954daadc1d0cb07992b7f884bc089512f8f18c00bdf10043b8d4f718327efab4`).
+The three failures are review/debug, SQL migration and duplicate-key handling;
+they are expected application defects, not passing checks. No tools or packages
+were installed, and the recipe makes no network calls or source edits.
+
+This evidence qualifies the bounded data checks only. It does not qualify the
+separate pinned Python 3.12/pytest fixture. Unavailable host/toolchain rows remain
+unvalidated as required by P7-02; they do not justify broader execution claims.

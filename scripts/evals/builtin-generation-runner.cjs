@@ -20,7 +20,7 @@ function validate(plan,file){
   if(plan.fixture_sha256!==sha(manifestBytes)||plan.fixture_revision!==manifest.revision||plan.executable_sha256!==sha(read(plan.executable,1024*1024*1024))||plan.profile_sha256!==sha(read(plan.profile_source))||plan.catalog_sha256!==sha(read(plan.catalog)))throw Error('Prepared fixture, executable or provider changed');
   if(JSON.stringify(prep.inventory(path.join(path.dirname(plan.executable),'skills/builtin')))!==JSON.stringify(plan.assets)||JSON.stringify(prep.inventory(path.join(repo,'src/skills/builtin')))!==JSON.stringify(plan.assets))throw Error('Packaged skills changed');
   const source=JSON.parse(read(plan.profile_source));
-  if(prior.profileReasons(source,'fixed_economical').length||source.routing||source.maximum_autonomy!=='workspace'||JSON.stringify([...source.automatic_effects].sort())!==JSON.stringify(['read','write']))throw Error('Source profile qualification expired or changed');
+  if(paired.fixedProfileReasons(source).length||source.maximum_autonomy!=='workspace'||JSON.stringify([...source.automatic_effects].sort())!==JSON.stringify(['read','write']))throw Error('Source profile qualification expired or changed');
   const allocation=Math.floor(plan.aggregate_cap_micros/2),files=Object.fromEntries(manifest.files.map(f=>[f.path,f.sha256]));
   if(!Number.isSafeInteger(plan.aggregate_cap_micros)||allocation<1||plan.allocated_cap_micros!==allocation*2||plan.runs.length!==2)throw Error('Paired cap allocation changed');
   for(const [index,arm]of ['baseline','skill'].entries()){

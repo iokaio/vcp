@@ -3,6 +3,7 @@
 // Preparation only. No command in this module dispatches a model or candidate.
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const prior=require('./p6-live-runner.cjs');
+const paired=require('./builtin-live-runner.cjs');
 const {plain,read,write,within,safeChild,filesUnder,noParentInstructions,privateDirectory,noSecrets,usd}=prior.boundaries;
 const repo=path.resolve(__dirname,'../..'),fixtures=path.join(repo,'src/evals/skills/builtin/generation-v1');
 const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
@@ -51,7 +52,7 @@ function prepare(specFile,destination){
   const executable=plain(path.resolve(spec.executable)),assets=inventory(path.join(path.dirname(executable),'skills/builtin'));
   if(JSON.stringify(assets)!==JSON.stringify(inventory(path.join(repo,'src/skills/builtin'))))throw Error('Exact current packaged skill assets required');
   const profileBytes=read(plain(path.resolve(spec.profile))),profile=JSON.parse(profileBytes);noSecrets(profile);
-  const reasons=prior.profileReasons(profile,'fixed_economical');
+  const reasons=paired.fixedProfileReasons(profile);
   if(profile.routing||profile.maximum_autonomy!=='workspace'||JSON.stringify([...profile.automatic_effects||[]].sort())!==JSON.stringify(['read','write']))reasons.push('Fixed workspace read/write profile required; no execution authority');
   if(runtime&&proposeOpaque&&profile.deadline_seconds<=120)reasons.push('Generation verification requires a task deadline above the default 120-second check duration');
   if(reasons.length)throw Error(reasons.join('; '));

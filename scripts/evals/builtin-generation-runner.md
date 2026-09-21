@@ -13,6 +13,13 @@ The executable needs the exact current bundled skill assets alongside it. The
 source profile must satisfy the fixed-provider requirements of the
 [read-only runner](builtin-live-runner.md), except that it grants workspace
 read/write authority. It must contain no executable checks or process authority.
+P7 profiles explicitly request at most 8,192 output tokens within the qualified
+provider maximum, at most sixteen requests and a 1,800-second deadline, with
+zero retries. A 4,096-token, sixteen-request, 900-second profile is the initial
+coding recommendation; the earlier P6-derived 512-token profile truncated both
+live generation arms. These new bounds do not change P6 or authorize a new run.
+Any new campaign uses its own exact-plan approved cap; original allocations and
+unresolved liabilities remain held, with no recycling or replay of old attempts.
 Runnable generation profiles need a deadline above the default 120-second
 verification duration; 600 seconds leaves time for model work and verification.
 The preparer rejects shorter profiles before creating trial state.
@@ -39,7 +46,11 @@ binds the exact executable, catalog, profile, fixture, scripts, runtime and skil
 assets. Changing any of these requires a fresh plan. The cap is divided equally
 between the two attempts without recycling unused allocations. An immutable
 execution claim prevents replay. An interrupted attempt or uncertain accounting
-stops dispatch; its liability must be reconciled before any new trial.
+stops dispatch under that plan; it cannot be continued or retried by replaying
+the claim. Preserve its canonical liability and full allocation until reliable
+accounting resolves them. A fresh, separately approved campaign can run within
+its own cap without reusing any original allocation or claiming those historical
+liabilities are settled.
 
 The optional runtime currently requires Windows and the exact pinned portable
 Node 26.9.0 bytes. Its qualification-only launcher is restricted to the fixture's

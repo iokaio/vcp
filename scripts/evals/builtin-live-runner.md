@@ -10,10 +10,21 @@ Preparation makes no model calls. Supply a private spec containing only
 `executable`, `profile` and `aggregate_cap_usd` (an exact USD decimal string).
 The executable must have the exact current bundled assets beside it and support
 `run --skill`. The fixed-provider profile must already be qualified, disable
-retries, allow at most eight requests and 600 seconds per run, bound each output
-to 512 tokens, and use plan authority with no processes, executable checks,
+retries, allow at most sixteen requests and 1,800 seconds per run, explicitly
+request 1–8,192 output tokens within the qualified provider maximum, and use plan authority with no processes, executable checks,
 MCP, routing, evaluator or custom skill sources. The existing credential
 environment boundary is unchanged; embedded credentials are rejected.
+
+These are P7-specific coding limits. The frozen P6 smoke runner retains its
+eight-request, 600-second and 512-token limits. A fresh P7 trial should normally
+use 4,096 output tokens, sixteen requests and 900 seconds: the previous 512-token
+generation attempts truncated patch arguments. Changing these bounds, the
+executable or any other bound input invalidates an old plan and requires a fresh
+exact-plan authorization. Historical failures and their allocated liabilities
+remain retained; unused allocations are not recycled.
+The new campaign needs a separately approved exact-plan cap. All original
+allocations and unresolved liabilities remain held; the new plan cannot replay
+old attempts or fund itself from their unused allocations.
 
 ```powershell
 node scripts/evals/builtin-live-runner.cjs prepare C:/private/spec.json C:/private/new-p7-trial

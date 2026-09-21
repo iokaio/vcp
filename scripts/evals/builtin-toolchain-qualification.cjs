@@ -94,6 +94,10 @@ function plan(fixture, inventory) {
       return installed.length ? { steps: [{ command: 'rustup', args: ['run', installed[0], 'cargo', 'test', '--locked', '--offline', '-p', 'fixture-math', '--features', 'checked', '--test', 'checked'], cwd: '.' }] } : { reason: 'Pinned Rust 1.95.0 is not installed; automatic installation prohibited.' };
     }
     case 'python': return { reason: 'Requires a provisioned Python 3.12 project environment and pytest; no environment is supplied to this bounded runner.' };
+    case 'data': return available('python') && /^Python 3\./.test(inventory.python.stdout.trim()) ? {
+      steps: ['valid', 'duplicates'].map(stage => command('python', ['-I', '-B', path.join(__dirname, 'builtin-toolchain-data.py'), stage])),
+      limitations: ['Python standard-library checks of the declared decimal/null and duplicate-key contracts only. Seeded duplicate acceptance remains a failure; this does not qualify the separate Python 3.12 project or external data tooling.'],
+    } : { reason: 'Python 3 is unavailable; no interpreter or package installation attempted.' };
     case 'jvm': return { reason: 'Declared Maven wrapper is an intentionally unavailable stub; Java availability alone cannot run the fixture.' };
     case 'cpp': return available('cmake') && available('ninja') && available('ctest') ? {
       steps: [command('cmake', ['-S', '.', '-B', 'build', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Debug']),
@@ -117,7 +121,7 @@ function run(outputRoot = path.join(repository, 'artifacts/p7-builtin-toolchain'
   const filename = path.join(directory, 'manifest.json');
   const record = { schema: 'p7-builtin-toolchain-qualification/1', started_at: new Date().toISOString(),
     status: 'running', host: { platform: process.platform, release: os.release(), architecture: process.arch },
-    runner_sha256: hash(fs.readFileSync(__filename)), helper_sha256: hash(fs.readFileSync(path.join(__dirname, 'builtin-toolchain-sql.cjs'))), model_calls: 0, live_usefulness: 'not_run', inventory: {}, cases: [] };
+    runner_sha256: hash(fs.readFileSync(__filename)), helper_sha256: hash(fs.readFileSync(path.join(__dirname, 'builtin-toolchain-sql.cjs'))), data_helper_sha256: hash(fs.readFileSync(path.join(__dirname, 'builtin-toolchain-data.py'))), model_calls: 0, live_usefulness: 'not_run', inventory: {}, cases: [] };
   const save = () => fs.writeFileSync(filename, JSON.stringify(record, null, 2) + '\n');
   save();
   try {
@@ -158,7 +162,8 @@ function run(outputRoot = path.join(repository, 'artifacts/p7-builtin-toolchain'
       record.source_after = snapshot(fixtures);
       record.runner_sha256_after = hash(fs.readFileSync(__filename));
       record.helper_sha256_after = hash(fs.readFileSync(path.join(__dirname, 'builtin-toolchain-sql.cjs')));
-      record.source_unchanged = record.source_before?.sha256 === record.source_after.sha256 && record.runner_sha256 === record.runner_sha256_after && record.helper_sha256 === record.helper_sha256_after;
+      record.data_helper_sha256_after = hash(fs.readFileSync(path.join(__dirname, 'builtin-toolchain-data.py')));
+      record.source_unchanged = record.source_before?.sha256 === record.source_after.sha256 && record.runner_sha256 === record.runner_sha256_after && record.helper_sha256 === record.helper_sha256_after && record.data_helper_sha256 === record.data_helper_sha256_after;
       if (!record.source_unchanged) { record.status = 'error'; record.source_error = 'Fixture or runner bytes changed, or initial identity unavailable'; }
     } catch (error) { record.status = 'error'; record.source_error = error.message; }
     record.finished_at = new Date().toISOString(); save();

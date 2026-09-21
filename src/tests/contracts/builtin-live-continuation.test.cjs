@@ -8,9 +8,18 @@ function fixture(t){
   t.after(()=>{const resolved=fs.realpathSync(root);assert.equal(path.dirname(resolved),fs.realpathSync(os.tmpdir()));assert.ok(path.basename(resolved).startsWith('vcp-live-continuation-'));fs.rmSync(resolved,{recursive:true,force:true});});
   const executable=path.join(root,'vcp.exe');fs.writeFileSync(executable,'never execute');fs.cpSync(path.resolve(__dirname,'../../skills/builtin'),path.join(root,'skills/builtin'),{recursive:true});
   const catalog=path.join(root,'catalog.json');put(catalog,{});
-  const profile={version:1,trust_workspace:true,maximum_autonomy:'plan',automatic_effects:[],workspace:'rebound',sync_roots:[],provider:{valid_until:String(Date.now()+3600000),max_output:'512',price:{currency:'USD'},compatibility:{valid_until:String(Date.now()+3600000),responses_text_tools:true,provider_preferences_qualified:true}},catalog,routing:null,skills:null,decisions:null,processes:[],checks:[],mcp:[],mcp_http:[],output_tokens:'512',max_transport_retries:0,max_requests:8,deadline_seconds:60};
+  const profile={version:1,trust_workspace:true,maximum_autonomy:'plan',automatic_effects:[],workspace:'rebound',sync_roots:[],provider:{valid_until:String(Date.now()+3600000),max_output:'512',price:{currency:'USD',valid_until:String(Date.now()+3600000)},compatibility:{valid_until:String(Date.now()+3600000),responses_text_tools:true,provider_preferences_qualified:true}},catalog,routing:null,skills:null,decisions:null,processes:[],checks:[],mcp:[],mcp_http:[],output_tokens:'512',max_transport_retries:0,max_requests:8,deadline_seconds:60};
   const profileFile=path.join(root,'profile.json');put(profileFile,profile);const spec=path.join(root,'spec.json');put(spec,{executable,profile:profileFile,aggregate_cap_usd:'40.000000'});
   const prepared=original.prepare(spec,path.join(root,'original')),plan=JSON.parse(fs.readFileSync(prepared.plan));
+  // Continuation is frozen to the historical prompt, even when a fresh P7
+  // preparer has improved its output instructions. Construct that old receipt
+  // before any synthetic attempt or authorization is recorded.
+  for(const row of plan.runs){
+    const task=original.pool().cases.find(c=>c.id===row.case_id);
+    const prompt=task.prompt+'\nRead the relevant project files. Give a concise JSON final answer with fields findings (array), evidence (array of file paths and observations), recommended_checks (array), not_run (array with reasons), and recommendation (string). Do not change files. Do not claim any check ran without a receipt. Run vcp_verify as required by the host.\n';
+    fs.writeFileSync(path.join(plan.directory,row.id,'prompt.txt'),prompt);row.prompt_sha256=sha(Buffer.from(prompt));
+  }
+  put(prepared.plan,plan);prepared.sha256=sha(fs.readFileSync(prepared.plan));
   const scope={workspace:'workspace',session:'session',task:'task'},first={case_id:plan.runs[0].case_id,arm:'baseline',status:'failed',actual_cost_micros:null,answer:null,scope};
   const result={schema:'p7-builtin-live-result/1',plan_sha256:prepared.sha256,fixture_sha256:plan.fixture_sha256,stopped:true,actual_cost_micros:null,runs:plan.runs.map((r,i)=>i?{case_id:r.case_id,arm:r.arm,status:'not_run',actual_cost_micros:null}:first)};
   put(path.join(plan.directory,'execution-claim.json'),{plan_sha256:prepared.sha256});put(path.join(plan.directory,'result.json'),result);

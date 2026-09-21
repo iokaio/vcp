@@ -4,6 +4,10 @@ Status: implementation and qualification in progress. Ownership inventory from a
 
 Use this ledger with [the segment index](README.md) and [the shared test guide](16-test-fixtures-and-acceptance.md). Dependencies below retain the architecture's exact IDs; slash suffixes share the preceding phase, and an ellipsis denotes an inclusive range. A whole segment is not an additional dependency.
 
+The current [P7-02 completion qualification](../evaluations/p7-02-completion.md)
+records corrected trial bounds, tool guidance and additional debug/data controls.
+Fresh live acceptance is pending; the task remains in progress.
+
 ## Work-item ownership and readiness
 
 Each linked task supplies code organization, implementation increments and testing instructions. Evidence IDs refer to current architecture/workbook cases with the release scoping below. Update status with actual evidence links during implementation; P0/P1 evidence qualifies their stated boundaries while full product acceptance remains outstanding.

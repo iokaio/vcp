@@ -15,8 +15,8 @@ function setup(t) {
   fs.cpSync(path.resolve(__dirname,'../../skills/builtin'),path.join(root,'skills/builtin'),{recursive:true});
   const catalog=path.join(root,'catalog.json');fs.writeFileSync(catalog,'{}');
   const profile={version:1,trust_workspace:true,maximum_autonomy:'plan',automatic_effects:[],workspace:'rebound',sync_roots:[],
-    provider:{valid_until:String(Date.now()+3600000),max_output:'512',price:{currency:'USD'},compatibility:{valid_until:String(Date.now()+3600000),responses_text_tools:true,provider_preferences_qualified:true}},
-    catalog,routing:null,skills:null,decisions:null,processes:[],checks:[],mcp:[],mcp_http:[],output_tokens:'512',max_transport_retries:0,max_requests:8,deadline_seconds:60};
+    provider:{valid_until:String(Date.now()+3600000),max_output:'8192',price:{currency:'USD',valid_until:String(Date.now()+3600000)},compatibility:{valid_until:String(Date.now()+3600000),responses_text_tools:true,provider_preferences_qualified:true}},
+    catalog,routing:null,skills:null,decisions:null,processes:[],checks:[],mcp:[],mcp_http:[],output_tokens:'4096',max_transport_retries:0,max_requests:16,deadline_seconds:900};
   const profileFile=path.join(root,'profile.json');fs.writeFileSync(profileFile,JSON.stringify(profile));
   const spec=path.join(root,'spec.json');fs.writeFileSync(spec,JSON.stringify({executable,profile:profileFile,aggregate_cap_usd:'1.600000'}));
   return {root,executable,profile,profileFile,spec,prepare:()=>runner.prepare(spec,path.join(root,'trial'))};
@@ -60,6 +60,50 @@ test('unknown first-run liability stops dispatch, retains denominator and preven
 test('unsafe provider profiles are rejected without creating trial state',t=>{
   const f=setup(t);f.profile.processes=[{name:'unauthorized'}];fs.writeFileSync(f.profileFile,JSON.stringify(f.profile));
   assert.throws(f.prepare,/external tools/);assert.equal(fs.existsSync(path.join(f.root,'trial')),false);
+});
+
+test('P7 coding bounds are independent of frozen P6 and reject invalid capacity before preparation',t=>{
+  const f=setup(t),now=Date.now(),valid=f.profile;
+  assert.deepEqual(runner.fixedProfileReasons(valid,now),[]);
+  assert.deepEqual(runner.profileReasons(valid,now),[]);
+  const p6=require('../../../scripts/evals/p6-live-runner.cjs');
+  assert.ok(p6.profileReasons(valid,'fixed_economical',now).some(reason=>reason.includes('512-token')));
+  assert.deepEqual(p6.profileReasons({...valid,output_tokens:'512',max_requests:8,deadline_seconds:600},'fixed_economical',now),[]);
+  for(const overrides of [
+    {max_requests:0},{max_requests:17},{max_requests:1.5},
+    {deadline_seconds:0},{deadline_seconds:1801},{deadline_seconds:NaN},
+    {output_tokens:undefined},{output_tokens:'0'},{output_tokens:'8193'},
+    {output_tokens:'04096'},{output_tokens:4096},{output_tokens:'Infinity'},
+    {output_tokens:'9007199254740992'},
+    {provider:{...valid.provider,max_output:'4095'}},
+    {provider:{...valid.provider,valid_until:undefined}},
+    {provider:{...valid.provider,valid_until:'NaN'}},
+    {provider:{...valid.provider,valid_until:String(now)}},
+    {provider:{...valid.provider,compatibility:{...valid.provider.compatibility,valid_until:String(now)}}},
+    {provider:{...valid.provider,price:{...valid.provider.price,valid_until:String(now)}}},
+    {provider:{...valid.provider,price:{currency:'USD'}}},
+    {provider:{...valid.provider,price:{currency:'EUR'}}},
+    {provider:{...valid.provider,compatibility:{...valid.provider.compatibility,responses_text_tools:false}}},
+    {provider:{...valid.provider,compatibility:{...valid.provider.compatibility,provider_preferences_qualified:false}}},
+    {max_requests:1,max_transport_retries:undefined},{max_transport_retries:1},
+    {routing:{}},{checks:[{}]},{processes:[{}]},{mcp:[{}]},{mcp_http:[{}]},
+    {skills:{}},{decisions:{}},{qualification_endpoint:'https://not-authorized.invalid'},
+    {maximum_autonomy:'workspace'},{automatic_effects:['read','write']},
+  ]) {
+    const changed={...valid,...overrides};
+    assert.ok(runner.profileReasons(changed,now).length,JSON.stringify(overrides));
+    fs.writeFileSync(f.profileFile,JSON.stringify(changed));
+    assert.throws(f.prepare);
+    assert.equal(fs.existsSync(path.join(f.root,'trial')),false);
+  }
+  for(const [max_requests,deadline_seconds,output_tokens]of [[1,1,'1'],[16,1800,'8192']])assert.deepEqual(runner.profileReasons({...valid,max_requests,deadline_seconds,output_tokens},now),[]);
+});
+
+test('runner revision changes require a fresh exact plan before any dispatch',t=>{
+  const f=setup(t),prepared=f.prepare(),plan=JSON.parse(fs.readFileSync(prepared.plan));
+  plan.runner_sha256='0'.repeat(64);fs.writeFileSync(prepared.plan,JSON.stringify(plan));
+  assert.throws(()=>runner.run(prepared.plan,sha(fs.readFileSync(prepared.plan)),()=>assert.fail('must not dispatch historical plan')),/Prepared source/);
+  assert.equal(fs.existsSync(path.join(plan.directory,'execution-claim.json')),false);
 });
 test('all allocated attempts have frozen identities even if a new plan hash is supplied',t=>{
   const f=setup(t), prepared=f.prepare(), plan=JSON.parse(fs.readFileSync(prepared.plan));

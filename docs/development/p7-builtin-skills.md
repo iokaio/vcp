@@ -97,9 +97,11 @@ infrastructure currently require explicit selection. Root marker detection also
 does not cover every Python, .NET or JVM project layout. The skill procedures read
 actual manifests and repository guidance before suggesting commands.
 
-Shipped coverage declares guidance present but unqualified. Live U01–U03/U08
-usefulness and unsupported toolchain execution remain separate P7-02 gates. Static
-lint, fake model outputs and successful packaging do not complete those gates.
+Shipped coverage declares guidance present but unqualified. Selected live
+U01–U03/U08 usefulness remains a P7-02 gate. Per the owning task, unavailable
+host/toolchains remain explicitly unvalidated in the coverage matrix; they must
+not acquire execution-support claims from guidance or another family's checks.
+Static lint, fake model outputs and successful packaging do not qualify usefulness.
 
 The [native toolchain report](../evaluations/p7-02-native-toolchains.md) records
 actual isolated-copy checks, including the seeded failing regression and all
@@ -107,3 +109,8 @@ not-run cases. The [paired live runner](../../scripts/evals/builtin-live-runner.
 prepares selected U01/U02/U08 guidance observations with explicit activation,
 canonical context/cost evidence and a one-shot spend cap. Its preparation and
 contract tests do not qualify live usefulness; U03 generation remains separate.
+
+The [completion qualification](../evaluations/p7-02-completion.md) records the
+fresh P7 trial bounds and current evidence. Read and patch tool descriptions now
+clarify relative paths, nullable line arguments and literal patch syntax without
+changing source-version or authority checks.

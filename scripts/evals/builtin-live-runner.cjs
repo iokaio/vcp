@@ -10,7 +10,7 @@ const repo=path.resolve(__dirname,'../..');
 const fixtures=path.join(repo,'src/evals/skills/builtin');
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const families=['architecture','review-debug','testing','javascript-typescript'];
-const promptFor=task=>task.prompt+'\nRead the relevant project files. Give a concise JSON final answer with fields findings (array), evidence (array of file paths and observations), recommended_checks (array), not_run (array with reasons), and recommendation (string). Do not change files. Do not claim any check ran without a receipt. Run vcp_verify as required by the host.\n';
+const promptFor=task=>task.prompt+'\nRead the relevant project files. Return only a concise JSON object as the final answer, without XML, Markdown fences or surrounding prose, with fields findings (array), evidence (array of file paths and observations), recommended_checks (array), not_run (array with reasons), and recommendation (string). Do not change files. Do not claim any check ran without a receipt. Run vcp_verify as required by the host.\n';
 function pool() {
   const bytes=read(path.join(fixtures,'manifest.json'));
   const manifest=JSON.parse(bytes);
@@ -27,9 +27,23 @@ function packaged(executable) {
   if(JSON.stringify(observed)!==JSON.stringify(expected)) throw Error('Exact current packaged skill assets required beside executable');
   return observed;
 }
-function profileReasons(profile) {
-  const reasons=prior.profileReasons(profile,'fixed_economical');
-  if(profile.routing) reasons.push('Use one fixed qualified provider, without routing or retries');
+// P7 coding observations need enough output for complete edits. Keep this gate
+// separate from P6's immutable 512-token smoke cohort; plan hashes bind it.
+function fixedProfileReasons(profile,now=Date.now()) {
+  const reasons=[];
+  const decimal=value=>typeof value==='string'&&/^(0|[1-9][0-9]*)$/.test(value)&&Number.isSafeInteger(Number(value))?Number(value):NaN;
+  if(profile.version!==1||profile.trust_workspace!==true)reasons.push('explicit trusted profile required');
+  if(!Number.isSafeInteger(profile.max_requests)||profile.max_requests<1||profile.max_requests>16||!Number.isSafeInteger(profile.deadline_seconds)||profile.deadline_seconds<1||profile.deadline_seconds>1800)reasons.push('P7 trial needs 1..16 requests and 1..1800 second deadline');
+  if(profile.processes?.length||profile.checks?.length||profile.mcp?.length||profile.mcp_http?.length||profile.skills||profile.decisions||profile.qualification_endpoint)reasons.push('external tools, skills, evaluators, executable checks and endpoint overrides are outside the source profile');
+  if(profile.routing||profile.max_transport_retries!==0)reasons.push('Use one fixed qualified provider, without routing or retries');
+  const snapshot=profile.provider;
+  if(!snapshot||!(decimal(snapshot.valid_until)>now)||!(decimal(snapshot.compatibility?.valid_until)>now)||!(decimal(snapshot.price?.valid_until)>now)||snapshot.price?.currency!=='USD'||snapshot.compatibility?.responses_text_tools!==true||snapshot.compatibility?.provider_preferences_qualified!==true)reasons.push('current qualified USD provider snapshot and price required');
+  const requested=decimal(profile.output_tokens),available=decimal(snapshot?.max_output);
+  if(!(requested>=1&&requested<=8192&&available>=requested))reasons.push('P7 profile must explicitly request 1..8192 output tokens within the qualified provider maximum');
+  return reasons;
+}
+function profileReasons(profile,now=Date.now()) {
+  const reasons=fixedProfileReasons(profile,now);
   if(profile.maximum_autonomy!=='plan'||profile.automatic_effects?.length) reasons.push('Read-only plan authority required');
   return reasons;
 }
@@ -163,7 +177,7 @@ function run(planFile,authorization,call=invoke) {
   }
   write(path.join(plan.directory,'result.json'),result);return result;
 }
-module.exports={prepare,run,pool,profileReasons,validate,skillEvidence};
+module.exports={prepare,run,pool,fixedProfileReasons,profileReasons,validate,skillEvidence};
 if(require.main===module) {
   try {
     const [command,file,extra,...rest]=process.argv.slice(2);
