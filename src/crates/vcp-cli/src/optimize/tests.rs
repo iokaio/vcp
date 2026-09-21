@@ -17,6 +17,21 @@ fn transitions_uses_only_the_read_only_evidence_request() {
     assert!(text.contains("canonical-task-state/1"));
 }
 
+#[test]
+fn observations_uses_only_the_read_only_evidence_request() {
+    assert_eq!(parse(&["observations"]), Ok(Command::Observations));
+    let mut calls = 0;
+    let text = Session::default()
+        .execute(Command::Observations, Timestamp::new(20), |request| {
+            calls += 1;
+            assert!(matches!(request, Request::Observations { from: None, until } if until == Timestamp::new(20)));
+            Ok(serde_json::json!({"alphabet":"canonical-action-observation/1","attempts":[]}))
+        })
+        .unwrap();
+    assert_eq!(calls, 1);
+    assert!(text.contains("canonical-action-observation/1"));
+}
+
 fn policy(profile: Profile, quality: u16) -> Policy {
     Policy {
         schema_version: 1,

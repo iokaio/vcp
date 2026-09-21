@@ -21,6 +21,13 @@ pub enum Command {
         #[arg(long)]
         until: Option<u64>,
     },
+    /// Inspect retained causal turn, effect, attempt and verification observations.
+    Observations {
+        #[arg(long)]
+        from: Option<u64>,
+        #[arg(long)]
+        until: Option<u64>,
+    },
     Report {
         /// Inclusive Unix milliseconds; omitted means all retained history.
         #[arg(long)]
@@ -70,6 +77,10 @@ impl Command {
             | Self::Transitions {
                 from: Some(from),
                 until: Some(until),
+            }
+            | Self::Observations {
+                from: Some(from),
+                until: Some(until),
             } if from >= until => Err("optimization window must have from < until".into()),
             Self::Answer { value, .. }
                 if value.trim().is_empty()
@@ -90,15 +101,19 @@ impl Command {
         self.validate()?;
         Ok(match self {
             Self::Status => Request::Status,
-            Self::Report { from, until } | Self::Transitions { from, until } => {
+            Self::Report { from, until }
+            | Self::Transitions { from, until }
+            | Self::Observations { from, until } => {
                 let until = until.map(Timestamp::new).unwrap_or(now);
                 if from.is_some_and(|from| from >= until.get()) {
                     return Err("optimization window must have from < until".into());
                 }
-                if matches!(self, Self::Transitions { .. }) {
-                    Request::Transitions {
-                        from: from.map(Timestamp::new),
-                        until,
+                if matches!(self, Self::Transitions { .. } | Self::Observations { .. }) {
+                    let from = from.map(Timestamp::new);
+                    if matches!(self, Self::Observations { .. }) {
+                        Request::Observations { from, until }
+                    } else {
+                        Request::Transitions { from, until }
                     }
                 } else {
                     Request::Report {
@@ -259,6 +274,15 @@ mod tests {
                 "--until",
                 "20",
             ],
+            vec![
+                "vcp",
+                "optimize",
+                "observations",
+                "--from",
+                "10",
+                "--until",
+                "20",
+            ],
             vec!["vcp", "optimize", "report", "--from", "10", "--until", "20"],
             vec!["vcp", "optimize", "answer", "priority", "spend"],
             vec!["vcp", "optimize", "compare", "baseline", "current"],
@@ -276,6 +300,10 @@ mod tests {
         assert!(
             matches!(Command::Transitions { from: Some(10), until: Some(20) }.request(None, Timestamp::new(50)).unwrap(),
             Request::Transitions { from: Some(from), until } if from == Timestamp::new(10) && until == Timestamp::new(20))
+        );
+        assert!(
+            matches!(Command::Observations { from: Some(10), until: Some(20) }.request(None, Timestamp::new(50)).unwrap(),
+            Request::Observations { from: Some(from), until } if from == Timestamp::new(10) && until == Timestamp::new(20))
         );
         assert!(Command::Transitions {
             from: Some(20),

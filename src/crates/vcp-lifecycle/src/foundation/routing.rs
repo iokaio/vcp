@@ -17,6 +17,10 @@ pub enum Request {
         from: Option<Timestamp>,
         until: Timestamp,
     },
+    Observations {
+        from: Option<Timestamp>,
+        until: Timestamp,
+    },
     Compare {
         baseline: String,
         current: String,
@@ -56,6 +60,14 @@ pub async fn execute(
     let value = match request {
         Request::Transitions { from, until } => {
             serde_json::to_value(routing_state::transitions::observe(
+                store,
+                access,
+                routing_state::HistoryWindow { from, until },
+            )?)
+            .map_err(|e| e.to_string())?
+        }
+        Request::Observations { from, until } => {
+            serde_json::to_value(routing_state::observations::observe(
                 store,
                 access,
                 routing_state::HistoryWindow { from, until },
