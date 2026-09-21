@@ -260,3 +260,9 @@ grammar, adaptive interview, requested/effective preview, explicit apply, retry
 identity and paged group display. Native owner tests verify real dispatch/admission
 integration separately; parser tests alone do not qualify a live model or native
 console workflow.
+
+The first P6-03/M2 lifecycle increment adds
+[canonical escalation-advisory records](../evaluations/p6-advisory-records.md).
+Prepared requests and decoded results are immutable, deduplicated and task scoped;
+late input/deadline results remain historical evidence. Caller-owned scheduling,
+pause/cancel and remote accounting remain the next increment.

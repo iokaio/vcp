@@ -50,7 +50,8 @@ planning can follow explicit canonical references; any retained receipt is bound
 historical metadata, not a resurrected fit or source payload.
 
 This completes the M1 retained evidence and analysis foundation. All statistical
-artifacts and receipts remain unqualified and outside runtime routing. M2 owns the
-next P6-03 local stall-shadow integration; M3/M4 own forecasts, qualification and
+artifacts and receipts remain unqualified and outside runtime routing. M2 first
+completes the P6-03 advisory lifecycle, then owns local stall-shadow integration;
+M3/M4 own forecasts, qualification and
 any enabled consumption. Verification is recorded in the
 [increment evidence](../evaluations/p6-consumed-value-replay.md).

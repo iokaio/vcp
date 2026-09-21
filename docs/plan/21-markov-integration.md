@@ -1,8 +1,9 @@
 # 21 — Markov analysis and integration sequence
 
-Status: M1 implemented, September 20, 2026; M2 is next. This execution supplement adopts the useful
+Status: M1 implemented and M2 in progress, September 20, 2026. This execution supplement adopts the useful
 directions from [the research note](../research/markov.md) into existing work.
-The M1 foundation described below is implemented; M2–M10 remain unimplemented or
+The M1 foundation described below is implemented; M2 has begun with canonical
+advisory request/result records; M3–M10 remain unimplemented or
 unqualified. This creates no new product
 task IDs, changes no architecture dependencies and enables no runtime feature.
 The [owning task sections](20-traceability.md#work-item-ownership-and-readiness)
@@ -34,7 +35,7 @@ tests and evaluation results; do not infer completion from this document.
 | Order / increment | Owning work | Prerequisites and placement | Deliverable and gate |
 |---|---|---|---|
 | M1 — Retained evidence and analysis foundation | P6-02; P1-06/P5-07/P5-10 supporting refactors | Next P6 foundation work, before more advisory integration; use existing canonical capture/storage and retention | Versioned transition/action projection, reward accounting, pure bounded numerical routines, rebuild/replay/privacy tests |
-| M2 — Escalation integration and local stall comparison | P6-03 | M1 and existing typed advisory contract; finish canonical persistence, scheduling and revalidation first | Exact cycle evidence and bounded local shadow producer alongside remote advice; no unqualified transition influence |
+| M2 — Escalation integration and local stall comparison | P6-03 | M1 and existing typed advisory contract; canonical request/result persistence is implemented, with scheduling/pause/recovery next | Exact cycle evidence and bounded local shadow producer alongside remote advice; no unqualified transition influence |
 | M3 — Read-only forecasts in `/optimize` | P6-05 | M1 and P6-03 implementation prerequisite, including M2's safe baseline/shadow paths | Inspectable forecasts, loops, uncertainty and drift reports; no dispatch or automatic policy change |
 | M4 — Qualification and routing estimates | P6-04, P6-02/03 | M2/M3, P5-08 and existing P6-04 prerequisites | Frozen four-arm comparison, calibrated forecasts, opt-in qualified estimate/advice consumption or recorded rejection |
 | M5 — Context and retrieval follow-up | P2-01/08, P5-06/08 | Existing completed context/retrieval baseline; independent of M2–M4; compaction diagnostics reuse M1 | Bounded graph/co-change candidates, context comparison, compaction regression analysis; optional memory-graph arm |
@@ -177,6 +178,13 @@ helper retains its ordinary reservation and unknown-charge handling. Local
 arithmetic needs CPU/deadline limits and lifecycle ownership, but no fictitious
 provider attempt or model charge. Neither path may block the canonical owner from
 processing pause/steering. Treat discarded late results as historical evidence.
+
+The first slice is implemented by
+[canonical escalation-advisory records](../evaluations/p6-advisory-records.md):
+prepared remote inputs and decoded outputs are immutable and exactly deduplicated,
+canonical task revisions are revalidated, and changed/deadline-late results receive
+a historical-only disposition. Scheduling, pause/cancel and remote accounting still
+precede exact-cycle and local-producer work.
 
 Start with exact repeated n-grams from M1's symbols and input/failure identities.
 Record observed repetition as a deterministic fact; repeated reading or a

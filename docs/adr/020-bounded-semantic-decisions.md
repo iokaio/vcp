@@ -104,3 +104,10 @@ without improving decisions. Retain abstention and a no-helper path. Question/mo
 changes invalidate relevant qualification; regressions or insufficient evidence
 keep or restore the deterministic policy. Thresholds, cohorts, exact defaults,
 probability tolerances and any upstream import remain open engineering decisions.
+
+## Subsequent implementation evidence
+
+The P6-03/M2 [canonical advisory record increment](036-canonical-escalation-advisory-records.md)
+implements immutable escalation request/result persistence, exact deduplication,
+task revision revalidation and historical classification for late results. Async
+scheduling, pause/cancel integration and live qualification remain open.
