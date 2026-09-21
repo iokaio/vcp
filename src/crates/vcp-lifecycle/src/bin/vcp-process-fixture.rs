@@ -12,6 +12,25 @@ fn main() -> std::io::Result<()> {
             .ok_or_else(|| std::io::Error::other("missing fixture directory"))?,
     );
     match mode.to_str() {
+        Some("encoded-output-utf8" | "encoded-output-utf16") => {
+            use std::io::Read;
+            if std::io::stdin().read(&mut [0; 1])? != 0 {
+                return Err(std::io::Error::other("pipe stdin was not null"));
+            }
+            let text = format!("raw-prefix{}\u{1b}[31mé終", "😀".repeat(20_000));
+            let mut bytes = if mode == "encoded-output-utf16" {
+                text.encode_utf16()
+                    .flat_map(u16::to_le_bytes)
+                    .collect::<Vec<_>>()
+            } else {
+                text.into_bytes()
+            };
+            bytes.push(0xff);
+            std::io::stdout().write_all(&bytes)?;
+            std::io::stdout().flush()?;
+            std::process::exit(7);
+        }
+
         Some("duplex-echo") => {
             use std::io::BufRead;
             let mut output = std::io::stdout().lock();

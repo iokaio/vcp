@@ -1471,6 +1471,139 @@ async fn executable_closed_consumer_pauses_before_send_and_resume_keeps_its_cap(
     assert_eq!(ledger["record"]["cap"], "10000");
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_inspector_reopens_declared_output_without_passing_failed_check() {
+    let server = MockServer::start().await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    Mock::given(method("POST")).and(path("/v1/responses"))
+        .respond_with(move |_: &wiremock::Request| {
+            let index = calls.fetch_add(1, Ordering::SeqCst);
+            let body = if index == 0 {
+                let item = json!({"type":"function_call","id":"encoded-item","call_id":"encoded-call","name":"vcp_exec","arguments":json!({"profile":"encoded","arguments":["-e","process.stdout.write(Buffer.concat([Buffer.from('é終\\u001b[31m','utf16le'),Buffer.from([255])]),()=>process.exit(7))"],"directory":"","timeout_ms":10000,"output_bytes":65536,"input":null}).to_string(),"status":"completed"});
+                [json!({"type":"response.output_item.done","output_index":0,"item":item}),json!({"type":"response.completed","response":{"id":"encoded-response","status":"completed","output":[item],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}})].into_iter().map(|event|format!("data: {event}\n\n")).collect::<String>()
+            } else { response(index.min(2), "complete") };
+            ResponseTemplate::new(200).insert_header("content-type", "text/event-stream").set_body_string(body)
+        }).mount(&server).await;
+    let fixture = Fixture::new(&server.uri(), "complete");
+    let mut profile: Value = serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+    let mut encoded = profile["processes"][0].clone();
+    encoded["name"] = json!("encoded");
+    encoded["output_encoding"] = json!("utf16_le");
+    profile["processes"].as_array_mut().unwrap().push(encoded);
+    fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+    let result = fixture
+        .run(&[
+            "run",
+            "Observe the configured encoded output and run verification",
+            "--autonomy",
+            "autonomous",
+        ])
+        .await;
+    assert_eq!(
+        result.status.code(),
+        Some(3),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let values = records(&result);
+    let task = values.last().unwrap()["scope"]["task"].as_str().unwrap();
+    // Select the two exact process receipts from the run's canonical facts.
+    // Inspecting unrelated evidence would launch one extra CLI per artifact.
+    let facts: Vec<_> = values
+        .iter()
+        .flat_map(|value| {
+            value
+                .pointer("/event/event/data/facts")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .collect();
+    let failed = facts
+        .iter()
+        .find(|fact| {
+            fact["collection"] == "effect"
+                && fact["value"]["exit_code"] == 7
+                && fact["value"]["state"] == "failed"
+        })
+        .expect("observed failing process effect");
+    let receipts: BTreeSet<_> = failed["value"]["observed_changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap())
+        .collect();
+    let artifacts: BTreeSet<_> = facts
+        .iter()
+        .filter(|fact| {
+            fact["collection"] == "artifact"
+                && receipts.contains(fact["id"].as_str().unwrap())
+                && (fact.pointer("/value/spec/channel") == Some(&json!("stdout"))
+                    || fact.pointer("/value/spec/schema") == Some(&json!("vcp-process-outcome-v1")))
+        })
+        .map(|fact| fact["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        artifacts.len(),
+        2,
+        "stdout and process outcome receipts required"
+    );
+    let mut expected: Vec<u8> = "é終\u{1b}[31m"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    expected.push(255);
+    let mut raw_found = false;
+    let mut decision_found = false;
+    for artifact in artifacts {
+        let output = fixture
+            .run(&[
+                "inspect", artifact, "--view", "tools", "--offset", "0", "--length", "65536",
+            ])
+            .await;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let bytes: Vec<u8> =
+            serde_json::from_value(records(&output)[0]["data"]["items"][0]["bytes"].clone())
+                .unwrap();
+        raw_found |= bytes == expected;
+        if let Ok(evidence) = serde_json::from_slice::<Value>(&bytes) {
+            if evidence.pointer("/presentation/stdout/encoding") == Some(&json!("utf16_le")) {
+                assert_eq!(evidence["exit_code"], 7);
+                assert_eq!(
+                    evidence["presentation"]["stdout"]["decision"],
+                    "trusted_profile"
+                );
+                assert_eq!(
+                    evidence["presentation"]["stdout"]["replacement_characters"],
+                    1
+                );
+                assert_eq!(
+                    evidence["presentation"]["stdout"]["tail"],
+                    "é終\u{1b}[31m\u{fffd}"
+                );
+                decision_found = true;
+            }
+        }
+    }
+    assert!(
+        raw_found && decision_found,
+        "fresh inspectors must recover raw bytes and decoding evidence"
+    );
+    let verification = fixture
+        .run(&["inspect", task, "--view", "verification"])
+        .await;
+    assert!(verification.status.success());
+    assert!(String::from_utf8_lossy(&verification.stdout).contains("failed"));
+    assert_eq!(
+        fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
+        "41\n"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn executable_runs_verifies_lists_inspects_and_forks() {
     let server = MockServer::start().await;
     let count = Arc::new(AtomicUsize::new(0));

@@ -174,8 +174,17 @@ async fn capture(
             }
         }
         result.total += count as u64;
-        let keep = count.min(limit.saturating_sub(result.bytes.len()));
-        result.bytes.extend_from_slice(&buffer[..keep]);
+        // Keep the end of the stream; raw observers retain all observed bytes.
+        if count >= limit {
+            result.bytes.clear();
+            result
+                .bytes
+                .extend_from_slice(&buffer[count - limit..count]);
+        } else {
+            let discard = (result.bytes.len() + count).saturating_sub(limit);
+            result.bytes.drain(..discard);
+            result.bytes.extend_from_slice(&buffer[..count]);
+        }
         let exceeded = {
             let mut state = control
                 .lock()
@@ -297,7 +306,7 @@ impl Lifecycle {
     ) -> io::Result<Process> {
         if limits.is_some_and(|l| {
             l.timeout.is_zero()
-                || l.timeout > Duration::from_secs(120)
+                || l.timeout > Duration::from_millis(vcp_tools::process::MAX_TIMEOUT_MS)
                 || l.output_bytes == 0
                 || l.output_bytes > 8 * 1024 * 1024
                 || !(1..=128).contains(&l.process_count)

@@ -387,7 +387,7 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                             steering: task.steering, declaration: if mode == "escalate-owner-capability" { Kind::UnsupportedCapability { capability: "owner_required".into() } } else { Kind::DeclaredComplexity }, evidence: vec![attempt.request] };
                         declaring_host.routing_control(Request::DeclareEscalation { declaration }).unwrap();
                     }
-                    let arguments = serde_json::json!({"path": if mode.contains("owner") { "file.txt" } else { "missing-file.txt" }, "max_bytes":1024}).to_string();
+                    let arguments = serde_json::json!({"path": if mode.contains("owner") { "file.txt" } else { "missing-file.txt" }, "max_bytes":1024,"start_line":null,"end_line":null}).to_string();
                     let call_id = format!("routing-read-{index}");
                     let call=serde_json::json!({"type":"function_call","id":call_id,"call_id":call_id,"name":"vcp_read","arguments":arguments,"status":"completed"});
                     events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":call}));output.push(call);

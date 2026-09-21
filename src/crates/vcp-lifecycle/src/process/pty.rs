@@ -69,7 +69,7 @@ impl Lifecycle {
         generation: Option<u64>,
     ) -> io::Result<Process> {
         if limits.timeout.is_zero()
-            || limits.timeout > Duration::from_secs(120)
+            || limits.timeout > Duration::from_millis(vcp_tools::process::MAX_TIMEOUT_MS)
             || limits.output_bytes == 0
             || limits.output_bytes > 8 * 1024 * 1024
             || !(1..=128).contains(&limits.process_count)

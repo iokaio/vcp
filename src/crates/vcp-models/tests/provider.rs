@@ -30,6 +30,31 @@ fn nullable_tool_input_accepts_only_explicit_string_or_null() {
         assert!(Tools::parse(&schema).is_err());
     }
 }
+#[test]
+fn nullable_integer_tool_limits_reject_other_types_and_general_unions() {
+    let mut schema = tools();
+    schema[0]["parameters"]["properties"]["path"]["type"] = json!(["integer", "null"]);
+    let parsed = Tools::parse(&schema).unwrap();
+    for valid in [r#"{"path":null}"#, r#"{"path":1}"#, r#"{"path":-1}"#] {
+        assert!(parsed.validate_call("read_file", valid).is_ok());
+    }
+    for invalid in [
+        r#"{"path":1.5}"#,
+        r#"{"path":"1"}"#,
+        r#"{"path":true}"#,
+        r#"{}"#,
+    ] {
+        assert!(parsed.validate_call("read_file", invalid).is_err());
+    }
+    for unsupported in [
+        json!(["integer", "number"]),
+        json!(["integer", "null", "string"]),
+        json!(["boolean", "null"]),
+    ] {
+        schema[0]["parameters"]["properties"]["path"]["type"] = unsupported;
+        assert!(Tools::parse(&schema).is_err());
+    }
+}
 fn stream() -> Stream {
     Stream::new(Tools::parse(&tools()).unwrap())
 }
@@ -677,6 +702,51 @@ fn malformed_truncated_duplicate_and_oversize_events_cannot_create_second_settle
     assert!(parser.push(b"x").is_err());
 }
 #[test]
+fn incomplete_terminal_argument_placeholder_preserves_usage_without_eligible_calls() {
+    for status in ["incomplete", "failed", "completed"] {
+        for change in ["arguments", "name", "call_id", "usage"] {
+            let mut parser = stream();
+            let mut item = call("truncated", "unused");
+            item["arguments"] = json!("");
+            parser
+                .push(&sse(
+                    json!({"type":"response.output_item.added","item":item}),
+                ))
+                .unwrap();
+            parser.push(&sse(json!({"type":"response.function_call_arguments.done","item_id":"item_truncated","arguments":""}))).unwrap();
+            item["arguments"] = json!("{}");
+            if matches!(change, "name" | "call_id") {
+                item[change] = json!("changed");
+            }
+            let mut end = terminal(json!([item]));
+            end["type"] = json!(format!("response.{status}"));
+            end["response"]["status"] = json!(status);
+            end["response"]["usage"] = json!({"input_tokens":5950,"output_tokens":512,"total_tokens":6462,"cost":0.0021275});
+            if change == "usage" {
+                end["response"]["usage"]["total_tokens"] = json!(1);
+            }
+            if status == "completed" || change != "arguments" {
+                assert!(parser.push(&sse(end)).is_err());
+                assert!(parser.terminal_identity().is_none());
+                continue;
+            }
+            parser.push(&sse(end)).unwrap();
+            assert!(parser.terminal_identity().is_some());
+            let result = parser.finish().unwrap();
+            assert!(result.calls.is_empty());
+            assert_eq!(result.usage.unwrap().cost.unwrap().micros.get(), 2128);
+            assert_eq!(
+                result.status,
+                if status == "incomplete" {
+                    Status::Incomplete
+                } else {
+                    Status::Failed
+                }
+            );
+        }
+    }
+}
+#[test]
 fn unknown_tool_invalid_arguments_and_terminal_fragment_mismatch_fail_closed() {
     let mut item = call("one", "x");
     item["name"] = json!("unregistered");
@@ -697,6 +767,95 @@ fn unknown_tool_invalid_arguments_and_terminal_fragment_mismatch_fail_closed() {
     schemas[0]["parameters"]["$ref"] = json!("https://untrusted/schema");
     assert!(Tools::parse(&schemas).is_err());
     assert!(Tools::parse(&json!([{"type":"web_search"}])).is_err());
+}
+#[test]
+fn invalid_tool_arguments_keep_only_validated_final_accounting_evidence() {
+    let parser = || {
+        let mut schema = tools();
+        for field in ["start_line", "end_line"] {
+            schema[0]["parameters"]["properties"][field] = json!({"type":["integer","null"]});
+            schema[0]["parameters"]["required"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!(field));
+        }
+        Stream::new(Tools::parse(&schema).unwrap())
+    };
+    let invalid = call("bad", "file.txt"); // Missing required nullable fields.
+    let mut valid = call("good", "file.txt");
+    valid["arguments"] = json!(r#"{"path":"file.txt","start_line":null,"end_line":null}"#);
+    let mut end = terminal(json!([valid, invalid]));
+    end["response"]["usage"] =
+        json!({"input_tokens":4354,"output_tokens":97,"total_tokens":4451,"cost":0.00120975});
+    let bytes = sse(end.clone());
+    for split in [1, bytes.len() / 2, bytes.len() - 2] {
+        let mut stream = parser();
+        stream.push(&bytes[..split]).unwrap();
+        assert!(stream.push(&bytes[split..]).is_err());
+        assert!(stream.terminal_identity().is_none());
+        let accounting = stream.rejected_usage().unwrap();
+        assert_eq!(accounting.response_id, "synthetic_response");
+        assert_eq!(accounting.usage.cost.as_ref().unwrap().micros.get(), 1210);
+        assert_eq!(
+            accounting.raw_terminal_sha256,
+            vcp_protocol::digest_bytes(end.to_string().as_bytes())
+        );
+        let record = serde_json::to_value(accounting).unwrap();
+        assert!(record.get("calls").is_none());
+        assert!(record.get("completed_messages").is_none());
+        assert!(stream.finish().is_err());
+    }
+    for fault in [
+        "missing_usage",
+        "missing_cost",
+        "invalid_usage",
+        "status",
+        "duplicate_call",
+        "fragment_mismatch",
+    ] {
+        let mut stream = parser();
+        let mut bad = end.clone();
+        match fault {
+            "missing_usage" => {
+                bad["response"]["usage"] = Value::Null;
+            }
+            "missing_cost" => {
+                bad["response"]["usage"]["cost"] = Value::Null;
+            }
+            "invalid_usage" => {
+                bad["response"]["usage"]["total_tokens"] = json!(1);
+            }
+            "status" => {
+                bad["response"]["status"] = json!("incomplete");
+            }
+            "duplicate_call" => {
+                bad["response"]["output"][0] = bad["response"]["output"][1].clone();
+            }
+            "fragment_mismatch" => {
+                stream.push(&sse(json!({"type":"response.output_item.added","item":call("bad","different.txt")}))).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(stream.push(&sse(bad)).is_err(), "{fault}");
+        assert!(stream.rejected_usage().is_none(), "{fault}");
+    }
+    for suffix in [
+        b"data: {oops}\n\n".to_vec(),
+        sse(terminal(json!([]))),
+        b"data: unfinished".to_vec(),
+        b"event: unfinished\n".to_vec(),
+    ] {
+        let mut stream = parser();
+        assert!(stream.push(&[bytes.clone(), suffix].concat()).is_err());
+        assert!(stream.rejected_usage().is_none());
+    }
+    let mut stream = parser();
+    assert!(stream
+        .push(&[bytes, b"data: [DONE]\n\n".to_vec()].concat())
+        .is_err());
+    assert!(stream.rejected_usage().is_some());
+    assert!(stream.push(b"data: conflicting later chunk\n\n").is_err());
+    assert!(stream.rejected_usage().is_none());
 }
 #[test]
 fn cumulative_usage_preserves_unknown_cost_and_rejects_double_counted_subtotals() {

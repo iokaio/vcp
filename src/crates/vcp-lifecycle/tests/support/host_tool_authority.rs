@@ -129,6 +129,8 @@ async fn host_tool_denials_survive_user_policy_and_grants_without_native_dispatc
                 Request::Read {
                     path: "file.txt".into(),
                     max_bytes: 1024,
+                    start_line: None,
+                    end_line: None,
                 },
             )
             .unwrap();
@@ -213,7 +215,11 @@ async fn host_tool_denials_survive_user_policy_and_grants_without_native_dispatc
                 id,
                 Request::Search {
                     query: "original".into(),
-                    max_hits: 10
+                    max_hits: 10,
+                    mode: None,
+                    path_pattern: None,
+                    max_files: None,
+                    max_scan_bytes: None,
                 }
             )
             .err()

@@ -1,10 +1,12 @@
 # Architecture and module organization
 
-Original VCP guidance, version 1.0.0. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance, version 1.1.0. This package supplies instructions, not a tool executor or authority.
 
 ## Establish the existing design
 
 Read the task contract, scoped instructions, directly relevant ADRs, module entry points, and nearby tests. Draw a small dependency map from actual imports or project references. Identify which layer owns I/O, orchestration, domain rules, configuration, and errors; do not assume the repository follows a named architecture.
+
+Search within relevant paths before reading large files. Use literal search by default, explicit regex when useful, then read the relevant line ranges and nearby contract. Retain source-version evidence, follow an incomplete result when needed, and reread changed source before making a finding. A bounded scan or range does not establish that the whole repository was examined.
 
 For analysis, cite the files that establish each boundary and distinguish documented intent from observed coupling. For review, trace one concrete call path across the proposed change. Demonstrate a dependency-direction violation or incompatible error contract before calling it a defect.
 

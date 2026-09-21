@@ -388,6 +388,8 @@ pub(super) async fn child_case(
     let read = || Request::Read {
         path: "file.txt".into(),
         max_bytes: 1024,
+        start_line: None,
+        end_line: None,
     };
     let captured = host.prepare_tool(thread, read()).unwrap();
     assert_eq!(

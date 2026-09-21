@@ -56,6 +56,9 @@ mod history_retention;
 #[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;
+#[cfg(windows)]
+#[path = "support/long_verification.rs"]
+mod long_verification;
 #[cfg(all(windows, feature = "qualification"))]
 #[path = "support/mcp.rs"]
 mod mcp;
@@ -238,6 +241,8 @@ async fn native_file_broker_enforces_current_policy_approvals_and_source_version
                 Request::Read {
                     path: "file.txt".into(),
                     max_bytes: 1024,
+                    start_line: None,
+                    end_line: None,
                 },
             )
             .unwrap();

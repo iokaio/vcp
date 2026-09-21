@@ -528,7 +528,14 @@ fn setup_policy(
                 denials: vec![],
                 workspace_roots: roots,
                 automatic_effects: prepared.profile.automatic_effects.clone(),
-                timeout_ceiling_ms: Units::new(120000),
+                timeout_ceiling_ms: Units::new(
+                    prepared
+                        .processes
+                        .iter()
+                        .map(vcp_tools::process::Profile::max_timeout_ms)
+                        .max()
+                        .unwrap_or(vcp_tools::process::DEFAULT_TIMEOUT_MS),
+                ),
                 output_ceiling_bytes: ByteCount::new(1024 * 1024),
             },
         },

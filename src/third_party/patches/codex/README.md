@@ -156,6 +156,12 @@ already include these changes; normal builds never apply patches.
     conformance requests. Only the local workspace dependency edge changes;
     no external package version or retained upstream implementation changes.
 
+35. `0035-p7-integration-merge-workspace.patch` records the repository crate's
+    dependency on the already locked diffy package for integration merge previews.
+36. `0036-p7-navigation-workspace.patch` records the tools crate's dependency on
+    the already locked regex package for bounded source and path searches. No
+    external package versions or retained upstream implementation changes.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

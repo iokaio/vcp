@@ -54,6 +54,10 @@ pub struct Profile {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessProfile {
+    #[serde(default)]
+    pub max_timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub output_encoding: Option<vcp_tools::process::output::Encoding>,
     pub name: String,
     pub executable: PathBuf,
     pub environment: BTreeMap<String, String>,
@@ -227,6 +231,43 @@ mod request_limit_tests {
     use super::*;
 
     #[test]
+    fn trusted_process_and_check_duration_defaults_and_bounds() {
+        let old = serde_json::json!({"name":"check","executable":"C:/fixture/tool.exe","environment":{},"required_isolation":[],"reduced_isolation":true,"inputs":[]});
+        let old: ProcessProfile = serde_json::from_value(old).unwrap();
+        assert_eq!(old.max_timeout_ms, None);
+        assert_eq!(old.output_encoding, None);
+        let profile = vcp_tools::process::Profile::new(
+            "check".into(),
+            std::path::absolute("fixture.exe").unwrap(),
+            vcp_tools::process::Mode::Direct,
+            BTreeMap::new(),
+            BTreeSet::new(),
+            true,
+        )
+        .unwrap();
+        let mut check: vcp_tools::verification::Requirement = serde_json::from_value(serde_json::json!({"manifest":"package.json","runner":"node","profile":"check","expected_tests":["acceptance"],"rationale":"Configured check"})).unwrap();
+        assert_eq!(check.timeout_ms, None);
+        assert!(validate_check_durations(&[check.clone()], &[profile.clone()], 600).is_ok());
+        check.timeout_ms = Some(120_001);
+        assert!(
+            validate_check_durations(&[check.clone()], &[profile.clone()], 600)
+                .unwrap_err()
+                .contains("profile check")
+        );
+        let extended = profile.with_max_timeout_ms(180_000).unwrap();
+        assert!(validate_check_durations(&[check.clone()], &[extended.clone()], 600).is_ok());
+        assert!(
+            validate_check_durations(&[check.clone()], &[extended.clone()], 120)
+                .unwrap_err()
+                .contains("task deadline")
+        );
+        for invalid in [0, vcp_tools::process::MAX_TIMEOUT_MS + 1, u64::MAX] {
+            check.timeout_ms = Some(invalid);
+            assert!(validate_check_durations(&[check.clone()], &[extended.clone()], 3600).is_err());
+        }
+    }
+
+    #[test]
     fn startup_output_is_bounded_and_legacy_default_is_preserved() {
         assert_eq!(
             startup_output_ceiling(None, Units::new(8000)).unwrap(),
@@ -366,6 +407,14 @@ impl Profile {
                     profile.reduced_isolation,
                 )
                 .and_then(|p| p.with_inputs(profile.inputs.clone()))
+                .and_then(|p| p.with_output_encoding(profile.output_encoding))
+                .and_then(|p| {
+                    p.with_max_timeout_ms(
+                        profile
+                            .max_timeout_ms
+                            .unwrap_or(vcp_tools::process::DEFAULT_TIMEOUT_MS),
+                    )
+                })
                 .map_err(|e| e.to_string())?,
             );
         }
@@ -376,6 +425,7 @@ impl Profile {
         {
             return Err("verification requires an explicit executable profile".into());
         }
+        validate_check_durations(&self.checks, &processes, self.deadline_seconds)?;
         crate::mcp::validate(&self.mcp, &names)?;
         crate::mcp::validate_http(&self.mcp_http, &self.mcp)?;
         Ok(PreparedProfile {
@@ -384,6 +434,38 @@ impl Profile {
             processes,
         })
     }
+}
+
+fn validate_check_durations(
+    checks: &[vcp_tools::verification::Requirement],
+    processes: &[vcp_tools::process::Profile],
+    deadline_seconds: u32,
+) -> Result<(), String> {
+    for check in checks {
+        check
+            .validate()
+            .map_err(|e| format!("check {}: {e}", check.manifest))?;
+        let profile = processes
+            .iter()
+            .find(|p| p.name() == check.profile)
+            .ok_or("verification process profile missing")?;
+        let requested = check
+            .timeout_ms
+            .unwrap_or(vcp_tools::process::DEFAULT_TIMEOUT_MS);
+        if requested > profile.max_timeout_ms() {
+            return Err(format!(
+                "check {} duration exceeds profile {} ceiling",
+                check.manifest, check.profile
+            ));
+        }
+        if requested > u64::from(deadline_seconds) * 1000 {
+            return Err(format!(
+                "check {} duration exceeds configured task deadline",
+                check.manifest
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Serialize, Deserialize)]

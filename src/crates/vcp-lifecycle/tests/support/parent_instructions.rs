@@ -4,19 +4,19 @@ use std::{
     collections::BTreeSet,
     fs,
     sync::{
-        Mutex,
         atomic::{AtomicUsize, Ordering},
+        Mutex,
     },
 };
 use vcp_domain::policy::*;
 use vcp_lifecycle::foundation::{
-    coding::{CodingConfig, allowed_tools},
+    coding::{allowed_tools, CodingConfig},
     verification::VerificationConfig,
 };
 use vcp_repository::{Root, RootIdentity};
 use wiremock::{
-    Mock, ResponseTemplate,
     matchers::{method, path},
+    Mock, ResponseTemplate,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -123,7 +123,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
                 fs::write(changed_parent.join("AGENTS.md"), "New parent guidance after request").unwrap();
             }
             let item = serde_json::json!({"type":"function_call","id":"item-read","call_id":"call-read","name":"vcp_read",
-                "arguments":serde_json::json!({"path":if mode=="escape" {"../private.txt"} else {"file.txt"},"max_bytes":1024}).to_string(),"status":"completed"});
+                "arguments":serde_json::json!({"path":if mode=="escape" {"../private.txt"} else {"file.txt"},"max_bytes":1024,"start_line":null,"end_line":null}).to_string(),"status":"completed"});
             events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item}));
             output.push(item);
         } else { events.push(ev_assistant_message("done", "Observed current context.")); }
@@ -179,25 +179,21 @@ async fn run(backend: BackendKind, mode: &'static str) {
         &workspace,
     )
     .unwrap();
-    assert!(
-        host.configure_instruction_roots(thread, vec![unrelated])
-            .is_err()
-    );
+    assert!(host
+        .configure_instruction_roots(thread, vec![unrelated])
+        .is_err());
     let mut foreign = parent_root.clone();
     foreign.identity.workspace = WorkspaceId::new();
-    assert!(
-        host.configure_instruction_roots(thread, vec![foreign])
-            .is_err()
-    );
-    assert!(
-        host.configure_instruction_roots(thread, vec![parent_root.clone(); 2])
-            .is_err()
-    );
+    assert!(host
+        .configure_instruction_roots(thread, vec![foreign])
+        .is_err());
+    assert!(host
+        .configure_instruction_roots(thread, vec![parent_root.clone(); 2])
+        .is_err());
     if mode == "denied" {
-        assert!(
-            host.configure_instruction_roots(thread, vec![parent_root])
-                .is_err()
-        );
+        assert!(host
+            .configure_instruction_roots(thread, vec![parent_root])
+            .is_err());
         assert_eq!(count.load(Ordering::SeqCst), 0);
     } else {
         if mode != "ungranted" {
@@ -256,11 +252,9 @@ async fn run(backend: BackendKind, mode: &'static str) {
                 effects.is_empty(),
                 "{backend:?}/{mode}: no stale or outside-root read effect"
             );
-            assert!(
-                requests
-                    .iter()
-                    .all(|r| !r.to_string().contains("Outside ordinary workspace access"))
-            );
+            assert!(requests
+                .iter()
+                .all(|r| !r.to_string().contains("Outside ordinary workspace access")));
         } else {
             assert_eq!(count.load(Ordering::SeqCst), 2, "{backend:?}/{mode}");
             assert_eq!(effects.len(), 1);

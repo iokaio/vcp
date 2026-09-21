@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Qualification-only executable; never install as a general tool. The prepared
-// plan pins the owner-supplied binary, reference source, and portable Node bytes
-// independently. It does not attest that the binary was built from this source
-// or embeds the declared Node path: that remains the owner's build review.
+// plan pins the binary, reference source, and portable Node bytes. The optional
+// local build receipt binds the observed compiler invocation and embedded paths;
+// without that receipt, binary build provenance remains unverified.
 use std::{
     env,
     process::{Command, ExitCode, Stdio},

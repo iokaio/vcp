@@ -764,6 +764,73 @@ impl Context {
         }
         Ok(())
     }
+    pub(super) fn settle_rejected_provider(
+        &mut self,
+        binding: &ThreadBinding,
+        attempt: &AttemptId,
+    ) -> Result<()> {
+        let provider = self
+            .provider
+            .as_mut()
+            .ok_or("provider configuration missing")?;
+        let parser = provider
+            .streams
+            .remove(attempt)
+            .ok_or("provider response missing")?;
+        let rejected = parser
+            .rejected_usage()
+            .cloned()
+            .ok_or("rejected usage missing")?;
+        provider.active.remove(&binding.scope.task);
+        let amount = rejected
+            .usage
+            .cost
+            .clone()
+            .ok_or("rejected usage omitted observed cost")?;
+        let mut writer = self
+            .streams
+            .remove(attempt)
+            .ok_or("response capture missing")?;
+        // The captured prefix contains a complete, structurally validated
+        // terminal. Rejected tool arguments do not make those bytes partial.
+        let descriptor = writer.finalize()?;
+        drop(writer);
+        self.command(
+            Command::AttachArtifact {
+                descriptor: descriptor.clone(),
+            },
+            Some(binding.scope.task.clone()),
+            Revision::ZERO,
+        )?;
+        self.capture(
+            &binding.scope,
+            Channel::Evidence,
+            &canonical_bytes(&rejected)?,
+            "openrouter-rejected-response-usage/1",
+        )?;
+        let actor = self.actor();
+        self.runtime.block_on(vcp_budget::observe(
+            self.engine.store_mut(),
+            UsageObservation {
+                id: ObservationId::new(),
+                scope: binding.scope.clone(),
+                attempt: attempt.clone(),
+                provider_request: rejected.response_id,
+                mode: UsageMode::Cumulative {
+                    version: Units::new(1),
+                },
+                amount,
+                final_usage: true,
+                raw: descriptor.spec.id,
+                correction: None,
+            },
+            &actor,
+        ))?;
+        // No normalized answer or tool proposals cross this accounting-only
+        // boundary, even when other output items were individually valid.
+        self.pause_root("provider tool arguments rejected; final observed cost retained")?;
+        Ok(())
+    }
     pub(super) fn complete_provider(
         &mut self,
         binding: &ThreadBinding,

@@ -43,6 +43,47 @@ an upstream baseline builder and is not a VCP installer.
 
 ## Qualification boundaries
 
+### P7-02 developer workflow revision
+
+Catalog 1.1.0 revises `architecture`, `review-debug` and `testing` to 1.1.0.
+Their descriptor/body identities and coverage versions change together. Guidance
+now uses bounded search followed by relevant source ranges, records review scope
+and causal uncertainty, and preserves owned-instrumentation evidence across
+interruption and concurrent human edits. Testing guidance distinguishes trusted
+long-check configuration, raw outcomes and decoded previews. These instructions
+do not themselves qualify live usefulness or grant additional authority.
+
+`vcp_search` keeps literal matching by default. Optional `mode: "regex"` enables
+bounded regex matching; `path_pattern` is a regex over normalized root-relative
+paths. Optional `max_files` and `max_scan_bytes` can lower discovery ceilings.
+Incomplete scans and hit limits remain explicit, and pause/steering invalidation
+cancels preparation through the existing scheduler generation. No separate index
+or filename discovery service is introduced.
+
+`vcp_read` accepts optional one-based inclusive `start_line`/`end_line` bounds.
+Ranged results retain a full-source version and expose `returned_range`,
+`next_line` and `total_lines`; `complete` describes whole-file coverage. The
+existing byte ceiling applies to returned text; a line too large for it is an
+error. Source capture remains bounded at 64 MiB. Omitted ranges preserve the
+existing whole-file contract. Source changes between pages must be treated as
+changed evidence. The advertised tool schemas change, invalidating preparations
+bound to earlier schema identities.
+
+Trusted process profiles may set `max_timeout_ms` up to 3,600,000 milliseconds;
+omission retains 120,000. Explicit verification requirements may set `timeout_ms`
+within that profile ceiling and the remaining task deadline. Model requests,
+project manifests and skill bodies cannot raise the profile ceiling. Execution
+stays in the foreground with existing authority, output and owned-tree controls.
+
+Profiles may explicitly declare `output_encoding` as `utf8` or `utf16_le`.
+Without a declaration the existing UTF-8 interpretation remains. Presentation
+records the decoding decision, replacement count, omitted bytes and split-prefix
+bytes. The preview is an actual bounded tail; raw artifacts, stop reasons, exit
+codes and verification pass rules remain authoritative. Qualification evidence
+must identify the host/toolchain actually tested before claiming encoding support.
+
+### Existing fixture and live gates
+
 The [frozen projects](../../src/evals/skills/builtin/README.md) provide one normal
 and one negative/missing-prerequisite case per family. Run
 `scripts/evals/builtin-skill-qualification.ps1` in the provisioned native Rust

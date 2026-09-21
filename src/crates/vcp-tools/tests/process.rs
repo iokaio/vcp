@@ -10,6 +10,12 @@ use vcp_tools::{process::*, Identity};
 #[test]
 fn profiles_reject_model_authority_environment_credentials_and_implicit_shells() {
     assert!(Request::from_arguments(r#"{"profile":"p","arguments":[],"directory":"","timeout_ms":1000,"output_bytes":100,"environment":{}}"#).is_err());
+    for field in ["max_timeout_ms", "output_encoding"] {
+        let mut request = serde_json::json!({"profile":"p","arguments":[],"directory":"","timeout_ms":1000,"output_bytes":100});
+        request[field] = serde_json::json!(180000);
+        assert!(Request::from_arguments(&request.to_string()).is_err());
+    }
+
     assert!(Profile::new(
         "p".into(),
         "cmd.exe".into(),
@@ -84,6 +90,58 @@ fn prepared_process_pins_executable_and_rejects_changed_script_or_directory() {
     )
     .unwrap();
     let profile = profile.with_inputs(vec!["script.ps1".into()]).unwrap();
+    let duration_probe = |profile: Profile, duration| {
+        prepare(
+            Root::open(root.identity.clone(), &workspace).unwrap(),
+            Identity {
+                scope: identity.scope.clone(),
+                actor: identity.actor.clone(),
+                host: identity.host.clone(),
+                binding: identity.binding,
+                authority: identity.authority,
+                steering: identity.steering,
+                policy: identity.policy,
+            },
+            profile,
+            Request {
+                profile: "fixture".into(),
+                arguments: vec![],
+                directory: String::new(),
+                timeout_ms: duration,
+                output_bytes: 1024,
+                input: None,
+            },
+        )
+    };
+    // Reproduce the former direct-profile ceiling without waiting two minutes.
+    assert!(duration_probe(profile.clone(), 120_001).is_err());
+    assert!(duration_probe(profile.clone(), 120_000).is_ok());
+    assert!(profile.clone().with_max_timeout_ms(0).is_err());
+    assert!(profile
+        .clone()
+        .with_max_timeout_ms(MAX_TIMEOUT_MS + 1)
+        .is_err());
+    let extended = profile.clone().with_max_timeout_ms(180_000).unwrap();
+    let prepared = duration_probe(extended.clone(), 120_001).unwrap();
+    assert!(duration_probe(extended.clone(), 180_001).is_err());
+    assert_ne!(profile.digest().unwrap(), extended.digest().unwrap());
+    assert_ne!(
+        prepared.authority().digest(),
+        duration_probe(extended, 120_002)
+            .unwrap()
+            .authority()
+            .digest()
+    );
+    assert_ne!(
+        profile.digest().unwrap(),
+        profile
+            .clone()
+            .with_output_encoding(Some(output::Encoding::Utf16Le))
+            .unwrap()
+            .digest()
+            .unwrap()
+    );
+
     let mut collision_identity = root.identity.clone();
     collision_identity.root = profile.executable_root_id().unwrap();
     let collision = prepare(

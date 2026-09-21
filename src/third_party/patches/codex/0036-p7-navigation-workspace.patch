@@ -1,0 +1,12 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 50510fa..2f03eb4 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17763,6 +17763,7 @@ name = "vcp-tools"
+ version = "0.1.0"
+ dependencies = [
+  "codex-apply-patch",
++ "regex",
+  "serde",
+  "serde_json",
+  "tempfile",

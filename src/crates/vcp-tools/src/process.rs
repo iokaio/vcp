@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Explicit host profiles prepare opaque native process operations. A profile
 //! or serialized operation is not permission to execute it.
+pub mod output;
 use crate::*;
 use std::{collections::BTreeMap, path::PathBuf};
 use vcp_repository::{path::HeldPath, FileVersion, RootIdentity};
+
+/// Foreground processes share the coding task's finite one-hour host bound.
+pub const MAX_TIMEOUT_MS: u64 = 3_600_000;
+pub const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -30,6 +35,8 @@ pub struct Profile {
     inputs: Vec<String>,
     terminal: Option<Terminal>,
     process_count: u32,
+    max_timeout_ms: u64,
+    output_encoding: Option<output::Encoding>,
 }
 impl Profile {
     pub fn new(
@@ -96,6 +103,8 @@ impl Profile {
             inputs: vec![],
             terminal: None,
             process_count: 32,
+            max_timeout_ms: DEFAULT_TIMEOUT_MS,
+            output_encoding: None,
         })
     }
     /// Trusted read-only script/config dependencies stay pinned for the entire
@@ -125,11 +134,38 @@ impl Profile {
         self.process_count = count;
         Ok(self)
     }
+    /// Trusted profile ceiling. Serialized model requests cannot change it.
+    pub fn with_max_timeout_ms(mut self, maximum: u64) -> Result<Self> {
+        if !(1..=MAX_TIMEOUT_MS).contains(&maximum) {
+            return Err(Error::Invalid(
+                "profile duration exceeds finite host ceiling",
+            ));
+        }
+        self.max_timeout_ms = maximum;
+        Ok(self)
+    }
+    pub fn with_output_encoding(mut self, encoding: Option<output::Encoding>) -> Result<Self> {
+        if self.terminal.is_some() && encoding == Some(output::Encoding::Utf16Le) {
+            return Err(Error::Invalid("UTF-16LE output requires a pipe profile"));
+        }
+        self.output_encoding = encoding;
+        Ok(self)
+    }
+    pub fn output_encoding(&self) -> Option<output::Encoding> {
+        self.output_encoding
+    }
+    pub fn max_timeout_ms(&self) -> u64 {
+        self.max_timeout_ms
+    }
     pub fn process_count(&self) -> u32 {
         self.process_count
     }
     pub fn with_terminal(mut self, rows: u16, cols: u16) -> Result<Self> {
-        if !(1..=500).contains(&rows) || !(1..=500).contains(&cols) || self.mode == Mode::Cmd {
+        if !(1..=500).contains(&rows)
+            || !(1..=500).contains(&cols)
+            || self.mode == Mode::Cmd
+            || self.output_encoding == Some(output::Encoding::Utf16Le)
+        {
             return Err(Error::Invalid(
                 "terminal dimensions or unsupported cmd PTY conversion",
             ));
@@ -280,14 +316,17 @@ pub fn prepare(
         ));
     }
     checked_path(&request.directory, true)?;
+    if request.timeout_ms == 0 || request.timeout_ms > profile.max_timeout_ms {
+        return Err(Error::Invalid(
+            "requested process duration exceeds trusted profile ceiling",
+        ));
+    }
     if request.profile != profile.name
         || root.identity.workspace != identity.scope.workspace
         || root.identity.binding != identity.binding
         || request.arguments.len() > 256
         || request.arguments.iter().any(|s| s.contains('\0'))
         || request.arguments.iter().map(String::len).sum::<usize>() > 24 * 1024
-        || request.timeout_ms == 0
-        || request.timeout_ms > 120_000
         || request.output_bytes == 0
         || request.output_bytes > 8 * 1024 * 1024
         || request

@@ -700,6 +700,8 @@ impl Context {
                         .ok_or("read path missing")?
                         .into(),
                     max_bytes: 1,
+                    start_line: None,
+                    end_line: None,
                 },
             )?,
             "vcp_patch" => self.child_tool_request(

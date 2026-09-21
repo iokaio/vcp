@@ -136,14 +136,15 @@ fn schema_kind(schema: &Value) -> Result<(&str, bool)> {
     if let Some(kind) = schema["type"].as_str() {
         return Ok((kind, false));
     }
-    // Explicit nullable strings cover bounded terminal input. General unions
-    // require their own compatibility qualification.
+    // Explicit nullable strings cover terminal input; nullable integers cover
+    // optional bounded source-navigation limits. General unions remain unsupported.
     if let Some(kinds) = schema["type"].as_array() {
-        if kinds.len() == 2
-            && kinds.contains(&Value::String("string".into()))
-            && kinds.contains(&Value::String("null".into()))
-        {
-            return Ok(("string", true));
+        if kinds.len() == 2 && kinds.contains(&Value::String("null".into())) {
+            for kind in ["string", "integer"] {
+                if kinds.contains(&Value::String(kind.into())) {
+                    return Ok((kind, true));
+                }
+            }
         }
     }
     Err(Error::Capability("explicit supported schema type"))

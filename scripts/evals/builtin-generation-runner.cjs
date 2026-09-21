@@ -10,7 +10,12 @@ function validate(plan,file){
   if(plan.schema!=='p7-u03-generation-preparation/1'||!plan.runnable||plan.blockers.length||!plan.runtime||plain(path.dirname(path.resolve(file)))!==plan.directory)throw Error('Runnable qualified generation plan required');
   const bindings={runner_sha256:'builtin-generation-prepare.cjs',oracle_sha256:'builtin-generation-oracle.cjs',live_runner_sha256:'builtin-generation-runner.cjs',shared_runner_sha256:'p6-live-runner.cjs',skill_runner_sha256:'builtin-live-runner.cjs'};
   for(const [field,name]of Object.entries(bindings))if(plan[field]!==sha(read(path.join(__dirname,name))))throw Error('Prepared runner source changed');
-  if(JSON.stringify(prep.qualifyRuntime({node:plan.runtime.node,launcher:plan.runtime.launcher}))!==JSON.stringify(plan.runtime))throw Error('Qualified runtime changed');
+  const runtimeInput={node:plan.runtime.node,launcher:plan.runtime.launcher};if(plan.runtime.build_receipt)runtimeInput.build_receipt=plan.runtime.build_receipt;
+  if(JSON.stringify(prep.qualifyRuntime(runtimeInput))!==JSON.stringify(plan.runtime))throw Error('Qualified runtime changed');
+  const specBytes=read(plan.spec_source);
+  const spec=JSON.parse(specBytes);
+  if(sha(specBytes)!==plan.spec_sha256||spec.propose_opaque_launcher_effects!==true||JSON.stringify(plan.permission_review)!==JSON.stringify(prep.permissionReview(plan.runtime,true)))throw Error('Exact opaque launcher permission proposal changed');
+  if(plain(path.resolve(spec.executable))!==plan.executable||plain(path.resolve(spec.profile))!==plan.profile_source||prior.micros(spec.aggregate_cap_usd)!==plan.aggregate_cap_micros||JSON.stringify(prep.qualifyRuntime(spec.runtime))!==JSON.stringify(plan.runtime))throw Error('Prepared plan differs from exact owner spec');
   const manifestBytes=read(path.join(fixture,'manifest.json')),manifest=JSON.parse(manifestBytes);
   if(plan.fixture_sha256!==sha(manifestBytes)||plan.fixture_revision!==manifest.revision||plan.executable_sha256!==sha(read(plan.executable,1024*1024*1024))||plan.profile_sha256!==sha(read(plan.profile_source))||plan.catalog_sha256!==sha(read(plan.catalog)))throw Error('Prepared fixture, executable or provider changed');
   if(JSON.stringify(prep.inventory(path.join(path.dirname(plan.executable),'skills/builtin')))!==JSON.stringify(plan.assets)||JSON.stringify(prep.inventory(path.join(repo,'src/skills/builtin')))!==JSON.stringify(plan.assets))throw Error('Packaged skills changed');
@@ -23,7 +28,7 @@ function validate(plan,file){
     if(row.arm!==arm||row.cap_micros!==allocation||row.skill!==(arm==='skill'?'vcp-builtin::javascript-typescript::javascript-typescript':null)||JSON.stringify(row.files)!==JSON.stringify(files)||JSON.stringify(row.editable)!==JSON.stringify(manifest.editable))throw Error('Frozen paired cohort changed');
     if(JSON.stringify(prep.inventory(workspace))!==JSON.stringify(files)||fs.readdirSync(path.join(base,'data')).length||row.prompt_sha256!==sha(Buffer.from(manifest.prompt))||sha(read(path.join(base,'prompt.txt')))!==row.prompt_sha256)throw Error('Prepared workspace, prompt or fresh store changed');
     const profileBytes=read(path.join(base,'profile.json'));
-    if(sha(profileBytes)!==row.profile_sha256||JSON.stringify(JSON.parse(profileBytes))!==JSON.stringify(prep.qualifiedProfile(source,workspace,plan.catalog,allocation,plan.runtime)))throw Error('Exact trusted verification profile changed');
+    if(sha(profileBytes)!==row.profile_sha256||JSON.stringify(JSON.parse(profileBytes))!==JSON.stringify(prep.qualifiedProfile(source,workspace,plan.catalog,allocation,plan.runtime,true)))throw Error('Exact trusted verification profile changed');
   }
 }
 function verificationEvidence(pages,task){

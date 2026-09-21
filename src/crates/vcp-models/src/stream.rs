@@ -20,6 +20,17 @@ pub struct ObservedUsage {
     pub tokens: Option<Usage>,
     pub cost: Option<Money>,
 }
+/// A final charge observed on a response whose tool arguments were rejected.
+/// This receipt deliberately carries no calls or completed-answer capability.
+#[derive(Clone, Debug, Serialize)]
+pub struct RejectedResponseUsage {
+    pub response_id: String,
+    pub served_model: Option<String>,
+    pub served_provider: Option<String>,
+    pub usage: ObservedUsage,
+    pub raw_terminal_sha256: String,
+    pub reason: String,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Status {
     Completed,
@@ -79,11 +90,22 @@ pub struct Stream {
     pending: BTreeMap<String, Pending>,
     messages: BTreeMap<String, String>,
     terminal: Option<ResultBody>,
+    rejected_usage: Option<RejectedResponseUsage>,
     terminal_data: Option<String>,
     done: bool,
     failed: bool,
 }
 impl Stream {
+    pub fn rejected_usage(&self) -> Option<&RejectedResponseUsage> {
+        // A partial or contradictory frame after the terminal cannot establish
+        // an accounting observation, even if tool validation already failed.
+        if self.failed && self.line.is_empty() && self.data.is_empty() && self.event_type.is_none()
+        {
+            self.rejected_usage.as_ref()
+        } else {
+            None
+        }
+    }
     pub fn terminal_identity(&self) -> Option<&str> {
         if self.failed {
             None
@@ -104,6 +126,7 @@ impl Stream {
             pending: BTreeMap::new(),
             messages: BTreeMap::new(),
             terminal: None,
+            rejected_usage: None,
             terminal_data: None,
             done: false,
             failed: false,
@@ -111,12 +134,18 @@ impl Stream {
     }
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<Event>> {
         if self.failed {
+            self.rejected_usage = None;
             return Err(Error::Protocol("stream already invalid"));
         }
         let result = self.push_inner(bytes);
         if result.is_err() {
             self.failed = true;
             self.terminal = None;
+            self.rejected_usage = None;
+        } else if self.rejected_usage.is_some() {
+            self.failed = true;
+            self.terminal = None;
+            return Err(Error::Protocol("terminal tool arguments rejected"));
         }
         result
     }
@@ -317,6 +346,7 @@ impl Stream {
                     return Err(Error::Protocol("terminal status mismatch"));
                 }
                 let mut calls = vec![];
+                let mut call_rejection = None;
                 let mut call_ids = BTreeSet::new();
                 let mut item_ids = BTreeSet::new();
                 let output = response["output"]
@@ -340,7 +370,12 @@ impl Stream {
                             if let Some(pending) = self.pending.get(&id) {
                                 if pending.call_id != call_id
                                     || pending.name != name
-                                    || pending.arguments != arguments
+                                    // Truncated terminal output can replace an
+                                    // unfinished argument string with a placeholder.
+                                    // Only completed responses may propose calls;
+                                    // failed/incomplete usage still records cost.
+                                    || (status == Status::Completed
+                                        && pending.arguments != arguments)
                                 {
                                     return Err(Error::Protocol(
                                         "terminal call differs from stream",
@@ -348,11 +383,16 @@ impl Stream {
                                 }
                             }
                             if status == Status::Completed {
-                                calls.push(Call {
-                                    id: call_id,
-                                    name: name.clone(),
-                                    arguments: self.tools.validate_call(&name, arguments)?,
-                                });
+                                match self.tools.validate_call(&name, arguments) {
+                                    Ok(arguments) => calls.push(Call {
+                                        id: call_id,
+                                        name,
+                                        arguments,
+                                    }),
+                                    Err(error) => {
+                                        call_rejection.get_or_insert_with(|| error.to_string());
+                                    }
+                                }
                             }
                         }
                         Some("message") => self.observe_message(item)?,
@@ -369,7 +409,7 @@ impl Stream {
                     Some(raw) => Some(normalize_usage(raw)?),
                     None => None,
                 };
-                self.terminal = Some(ResultBody {
+                let mut result = ResultBody {
                     response_id: identity(response, "id")?,
                     served_model: optional_identity(response, "model")?,
                     served_provider: optional_identity(response, "provider")?,
@@ -383,7 +423,29 @@ impl Stream {
                         .sum(),
                     raw_terminal_sha256: vcp_protocol::digest_bytes(text.as_bytes()),
                     completed_messages: self.messages.clone(),
-                });
+                };
+                if let Some(reason) = call_rejection {
+                    // Finish validating the terminal and the received chunk
+                    // before returning the schema error. Billing evidence is
+                    // independent of executable argument validity.
+                    result.calls.clear();
+                    let usage = result
+                        .usage
+                        .clone()
+                        .filter(|usage| usage.cost.is_some())
+                        .ok_or(Error::Protocol(
+                            "rejected tool response omitted observed cost",
+                        ))?;
+                    self.rejected_usage = Some(RejectedResponseUsage {
+                        response_id: result.response_id.clone(),
+                        served_model: result.served_model.clone(),
+                        served_provider: result.served_provider.clone(),
+                        usage,
+                        raw_terminal_sha256: result.raw_terminal_sha256.clone(),
+                        reason,
+                    });
+                }
+                self.terminal = Some(result);
                 self.terminal_data = Some(text.into());
                 Ok(Some(Event::TerminalObserved))
             }

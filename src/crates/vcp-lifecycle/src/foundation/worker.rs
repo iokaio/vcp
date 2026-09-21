@@ -1341,7 +1341,8 @@ impl Context {
     ) -> Result<()> {
         // Cancellation may arrive after raw final usage but before the retained
         // completion callback. Keep that observation rather than losing a known
-        // charge. Parsing failure still preserves an unknown liability.
+        // charge. Rejected tool arguments can retain validated final usage;
+        // malformed framing or usage still preserves an unknown liability.
         let terminal = self
             .provider
             .as_ref()
@@ -1350,6 +1351,14 @@ impl Context {
             .map(str::to_owned);
         if let Some(response_id) = terminal {
             return self.complete_provider(binding, attempt, &response_id);
+        }
+        if self.provider.as_ref().is_some_and(|provider| {
+            provider
+                .streams
+                .get(attempt)
+                .is_some_and(|stream| stream.rejected_usage().is_some())
+        }) {
+            return self.settle_rejected_provider(binding, attempt);
         }
         if let Some(provider) = &mut self.provider {
             provider.streams.remove(attempt);

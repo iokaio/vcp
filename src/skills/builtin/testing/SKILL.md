@@ -1,6 +1,6 @@
 # Targeted testing and verification
 
-Original VCP guidance, version 1.0.0. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance, version 1.1.0. This package supplies instructions, not a tool executor or authority.
 
 ## Discover the check contract
 
@@ -10,9 +10,13 @@ Choose the smallest check that exercises the changed boundary. A regression shou
 
 Broaden testing when shared contracts change, a focused failure exposes wider risk, or acceptance requires it. Do not repeatedly run an unchanged expensive suite without a reason. Treat skipped tests, timeouts, infrastructure failures, and missing services as distinct outcomes.
 
+For a long foreground check, use its explicitly configured duration within the trusted process profile and remaining task deadline. A manifest or skill cannot raise those limits. Report the limiting configuration if the check cannot run; do not split or relaunch it merely to evade a ceiling. A timeout, output-limit stop or cancellation is not a passing check.
+
 ## Preserve verification identity
 
 Record the exact command, working directory, exit status, result counts, and relevant source revision. Edits after a passing run invalidate checks that depend on those edits. Report not-run checks explicitly; a zero-test run is not coverage of the intended behavior.
+
+Keep raw process evidence distinct from the decoded output preview. Report declared encoding, omitted bytes or decoding loss when relevant; readable output cannot change the exit status or pass rule. After removing temporary instrumentation, rerun checks that depended on the edited files.
 
 ## Authority and evidence
 

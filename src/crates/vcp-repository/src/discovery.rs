@@ -26,6 +26,7 @@ impl Default for Limits {
 #[serde(rename_all = "snake_case")]
 pub enum ExclusionReason {
     Ignored,
+    PathFilter,
     Generated,
     Binary,
     Reparse,
@@ -48,6 +49,8 @@ pub struct Discovery {
 }
 struct Walker<'a> {
     root: &'a Root,
+    cancelled: &'a dyn Fn() -> bool,
+    include: &'a dyn Fn(&str) -> bool,
     limits: &'a Limits,
     visited: usize,
     bytes: u64,
@@ -55,6 +58,23 @@ struct Walker<'a> {
 }
 impl Root {
     pub fn discover(&self, limits: &Limits) -> Result<Discovery> {
+        self.discover_cancellable(limits, &|| false)
+    }
+    /// Check trusted cancellation between filesystem operations during bounded discovery.
+    pub fn discover_cancellable(
+        &self,
+        limits: &Limits,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Discovery> {
+        self.discover_filtered_cancellable(limits, cancelled, &|_| true)
+    }
+    /// Restrict source capture while retaining the same traversal, ignores and entry ceiling.
+    pub fn discover_filtered_cancellable(
+        &self,
+        limits: &Limits,
+        cancelled: &dyn Fn() -> bool,
+        include: &dyn Fn(&str) -> bool,
+    ) -> Result<Discovery> {
         if limits.entries == 0
             || limits.entries > 100_000
             || limits.depth == 0
@@ -67,6 +87,8 @@ impl Root {
         }
         let mut walker = Walker {
             root: self,
+            cancelled,
+            include,
             limits,
             visited: 0,
             bytes: 0,
@@ -87,6 +109,12 @@ impl Root {
     }
 }
 impl Walker<'_> {
+    fn check_cancelled(&self) -> Result<()> {
+        if (self.cancelled)() {
+            return Err(Error::Limit("discovery cancelled"));
+        }
+        Ok(())
+    }
     fn exclude(&mut self, path: &Path, reason: ExclusionReason) {
         self.result.exclusions.push(Exclusion {
             path: path.to_string_lossy().replace('\\', "/"),
@@ -94,6 +122,7 @@ impl Walker<'_> {
         });
     }
     fn visit(&mut self, relative: &Path, depth: usize, inherited: &[Gitignore]) -> Result<()> {
+        self.check_cancelled()?;
         if depth > self.limits.depth {
             self.result.complete = false;
             self.exclude(relative, ExclusionReason::Depth);
@@ -154,6 +183,7 @@ impl Walker<'_> {
         }
         let mut entries = Vec::new();
         for entry in std::fs::read_dir(self.root.path.join(relative))? {
+            self.check_cancelled()?;
             if self.visited == self.limits.entries {
                 self.result.complete = false;
                 self.exclude(relative, ExclusionReason::Entries);
@@ -171,6 +201,7 @@ impl Walker<'_> {
         }
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         for (name, kind) in entries {
+            self.check_cancelled()?;
             let path = relative.join(&name);
             if name == ".git" {
                 self.exclude(&path, ExclusionReason::Ignored);
@@ -210,6 +241,10 @@ impl Walker<'_> {
             }
             if !kind.is_file() {
                 self.exclude(&path, ExclusionReason::Unavailable);
+                continue;
+            }
+            if !(self.include)(&path::relative(&path)?) {
+                self.exclude(&path, ExclusionReason::PathFilter);
                 continue;
             }
             let remaining = self.limits.total_bytes.saturating_sub(self.bytes);

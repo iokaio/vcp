@@ -317,8 +317,8 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     let outcome = self.host.schedule_process(proposal).await?.wait().await?;
                     sources.extend([outcome.evidence.spec.id.clone(), outcome.stdout.spec.id.clone(), outcome.stderr.spec.id.clone()]);
                     return Ok(json!({"effect":outcome.effect,"evidence":outcome.evidence.spec.id,"exit_code":outcome.exit_code,"reason":outcome.reason,
-                        "stdout":{"artifact":outcome.stdout.spec.id,"bytes":outcome.stdout.length,"tail":String::from_utf8_lossy(&outcome.stdout_tail),"truncated":outcome.stdout.length.get()>outcome.stdout_tail.len() as u64},
-                        "stderr":{"artifact":outcome.stderr.spec.id,"bytes":outcome.stderr.length,"tail":String::from_utf8_lossy(&outcome.stderr_tail),"truncated":outcome.stderr.length.get()>outcome.stderr_tail.len() as u64}}));
+                        "stdout":{"artifact":outcome.stdout.spec.id,"bytes":outcome.stdout.length,"tail":outcome.stdout_presentation.tail,"decoding":outcome.stdout_presentation,"truncated":outcome.stdout.length.get()>outcome.stdout_tail.len() as u64},
+                        "stderr":{"artifact":outcome.stderr.spec.id,"bytes":outcome.stderr.length,"tail":outcome.stderr_presentation.tail,"decoding":outcome.stderr_presentation,"truncated":outcome.stderr.length.get()>outcome.stderr_tail.len() as u64}}));
                 }
                 let request = vcp_tools::Request::from_call(&self.name, &arguments).map_err(|e| e.to_string())?;
                 let proposal = self.host.prepare_tool(self.thread, request)?;

@@ -146,7 +146,7 @@ async fn coding_mcp_discovery_call_disconnect_retains_accounted_source_provenanc
                     },
                     _ => {
                         assert_eq!(result(&body,"mcp-2")["disconnected"],true);
-                        ("vcp_read",json!({"path":"value.txt","max_bytes":1024}))
+                        ("vcp_read",json!({"path":"value.txt","max_bytes":1024,"start_line":null,"end_line":null}))
                     },
                 };
                 let item=json!({"type":"function_call","id":format!("item-{index}"),"call_id":format!("mcp-{index}"),"name":name,"arguments":arguments.to_string(),"status":"completed"});
