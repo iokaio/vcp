@@ -232,7 +232,11 @@ Any new stop/escalate behavior still needs consumer regression and outcome
 qualification; the research's “no qualification” observation applies only to
 detecting an exact pattern, not to proving the action it should cause.
 
-Next compare a smoothed higher-order chain/entropy signal with that baseline.
+The [frozen local producer](../evaluations/p6-local-stall-producer.md) supplies
+explicit offline fitting and read-only second-order/entropy inference with
+separate exact-cycle evidence. Canonical owner selection, asynchronous inference
+and retained result receipts follow before M2 is complete.
+Compare that signal with the deterministic baseline in M4.
 Evaluate a small HMM if simpler signals leave material errors; retain it only
 with held-out gains. Exploring, converging, thrashing and environment-blocked are
 proposed labels. Offline fitting

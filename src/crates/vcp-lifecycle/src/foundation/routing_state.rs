@@ -4,6 +4,7 @@ pub mod advisory;
 pub mod consumption;
 pub mod cycles;
 pub mod fits;
+pub mod local_stall;
 pub mod observations;
 pub mod rewards;
 pub mod transitions;

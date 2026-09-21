@@ -18,6 +18,163 @@ use vcp_store::artifact::ArtifactWriter;
 
 struct LegacyAccounting<'a>(&'a mut Store);
 
+async fn repeated_verifications(
+    store: Store,
+    access: &Access,
+    task: &Task,
+    output: &ArtifactId,
+    from: u64,
+    count: u64,
+) -> Store {
+    let mut engine = vcp_engine::Engine::new(store).unwrap();
+    let actor = engine_access(access, task);
+    for index in 0..count {
+        let verification = Verification {
+            redaction: None,
+            id: VerificationId::new(),
+            scope: task.scope.clone(),
+            steering: task.steering,
+            fingerprint: task.fingerprint.clone(),
+            outputs: vec![output.clone()],
+            checks: vec![Check {
+                specification: "frozen fit check".into(),
+                outcome: CheckOutcome::Failed {
+                    reason: "same diagnostic".into(),
+                },
+                output: output.clone(),
+                exit_code: Some(1),
+            }],
+            unresolved_effects: vec![],
+            outstanding_issues: vec![],
+            cost: CostCertainty::Known,
+        };
+        engine
+            .handle(
+                command(
+                    &engine,
+                    access,
+                    task,
+                    task.revision,
+                    Command::RecordVerification { verification },
+                ),
+                &actor,
+                &vcp_engine::HostFacts::inspect(Timestamp::new(from + index)),
+            )
+            .await
+            .unwrap();
+    }
+    engine.into_store()
+}
+
+#[tokio::test]
+async fn local_stall_frozen_fit_survives_append_and_reopen_but_denies_pruned_sources() {
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    use vcp_lifecycle::foundation::routing_state::local_stall;
+    use vcp_memory::retention::{self, Action};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut store, access) = setup(temp.path(), backend).await;
+        let task = create_task(&mut store, &access, TaskState::Running).await;
+        let output = capture(&mut store, &task, Channel::Stdout).await;
+        let store = repeated_verifications(store, &access, &task, &output.spec.id, 10, 12).await;
+        let training = HistoryWindow {
+            from: None,
+            until: Timestamp::new(30),
+        };
+        let fit = local_stall::fit(&store, &access, training, 3).unwrap();
+        local_stall::validate_install(&store, &access, &fit).unwrap();
+        let mut forged = fit.clone();
+        forged.model = vcp_models::stall::fit(1, &[vec![0; 4]], 3).unwrap();
+        forged.id.clear();
+        forged.id = format!(
+            "local-stall-fit-{}",
+            digest_bytes(&vcp_protocol::canonical_bytes(&forged).unwrap())
+        );
+        assert!(local_stall::validate_install(&store, &access, &forged).is_err());
+        let fit_bytes = serde_json::to_vec(&fit).unwrap();
+        let store = repeated_verifications(store, &access, &task, &output.spec.id, 40, 3).await;
+        let before = store.state().clone();
+        let inference = HistoryWindow {
+            from: Some(Timestamp::new(30)),
+            until: Timestamp::new(50),
+        };
+        let result =
+            local_stall::evaluate(&store, &access, &fit, &task.scope.task, inference.clone())
+                .unwrap();
+        assert!(result.abstention.is_none());
+        assert!(result.signal.as_ref().unwrap().repeated_strategy_suspected);
+        assert!(!result.exact_cycles.repetitions.is_empty());
+        assert!(!result.serving_qualified && !fit.serving_qualified);
+        assert_eq!(serde_json::to_vec(&fit).unwrap(), fit_bytes);
+        assert_eq!(*store.state(), before);
+        assert!(local_stall::evaluate(
+            &store,
+            &access,
+            &fit,
+            &task.scope.task,
+            HistoryWindow {
+                from: None,
+                until: Timestamp::new(50)
+            }
+        )
+        .is_err());
+        let denied = Access {
+            workspace: access.workspace.clone(),
+            actor: access.actor.clone(),
+            authority: access.authority,
+            read: true,
+            write: false,
+            tasks: Some(BTreeSet::new()),
+        };
+        assert!(local_stall::validate(&store, &denied, &fit).is_err());
+        drop(store);
+        let store = Store::open(temp.path(), backend, &[]).await.unwrap();
+        let restored: local_stall::Fit = serde_json::from_slice(&fit_bytes).unwrap();
+        let replay =
+            local_stall::evaluate(&store, &access, &restored, &task.scope.task, inference).unwrap();
+        assert_eq!(
+            serde_json::to_value(&replay).unwrap(),
+            serde_json::to_value(&result).unwrap()
+        );
+        let actor = engine_access(&access, &task);
+        let mut engine = vcp_engine::Engine::new(store).unwrap();
+        engine
+            .handle(
+                command(
+                    &engine,
+                    &access,
+                    &task,
+                    task.revision,
+                    Command::Transition {
+                        next: TaskState::Cancelled,
+                        reason: "retention fixture complete".into(),
+                        verification: None,
+                    },
+                ),
+                &actor,
+                &vcp_engine::HostFacts::inspect(Timestamp::new(60)),
+            )
+            .await
+            .unwrap();
+        let mut store = engine.into_store();
+        let plan = retention::preview(
+            &store,
+            &access,
+            Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Event("verification_recorded".into())),
+            },
+            Action::Purge,
+            Timestamp::new(1001),
+        )
+        .unwrap();
+        retention::apply(&mut store, &access, &plan, Timestamp::new(1001))
+            .await
+            .unwrap();
+        assert!(local_stall::validate(&store, &access, &restored).is_err());
+    }
+}
+
 #[tokio::test]
 async fn exact_cycles_rebuild_read_only_and_disappear_after_source_purge() {
     use vcp_domain::retention_selector::{Criterion, Selector, Tree};
