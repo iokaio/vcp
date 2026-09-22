@@ -9,6 +9,188 @@ use wiremock::{
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn coding_context_lists_only_public_process_invocation_metadata() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for configured in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let workspace = temp.path().join("workspace");
+            std::fs::create_dir(&workspace).unwrap();
+            let workspace = workspace.canonicalize().unwrap();
+            std::fs::write(workspace.join("file.txt"), "observed source").unwrap();
+            let config = config(&temp.path().join("canonical"), &workspace, backend);
+            let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+            let binding = task(&host, &config, config.root_task.clone(), None);
+            host.command(
+                Command::SetWorkspaceTrust {
+                    trust: Trust::Trusted,
+                },
+                None,
+                Revision::ZERO,
+            )
+            .unwrap();
+            host.command(
+                Command::SetPolicy {
+                    policy: Policy {
+                        workspace: config.workspace.clone(),
+                        revision: PolicyRevision::ZERO,
+                        mode: Autonomy::Plan,
+                        denials: vec![],
+                        workspace_roots: std::collections::BTreeSet::from([RootId::parse(
+                            config.workspace.as_str(),
+                        )
+                        .unwrap()]),
+                        automatic_effects: std::collections::BTreeSet::from([EffectClass::Read]),
+                        timeout_ceiling_ms: Units::new(30_000),
+                        output_ceiling_bytes: ByteCount::new(1024 * 1024),
+                    },
+                },
+                None,
+                Revision::ZERO,
+            )
+            .unwrap();
+            if configured {
+                // Reverse insertion order exercises deterministic discovery. These
+                // unavailable executable/input paths must never reach the model.
+                for (name, mode, terminal, maximum) in [
+                    (
+                        "z-terminal",
+                        vcp_tools::process::Mode::PowerShell,
+                        true,
+                        90_000,
+                    ),
+                    ("a-direct", vcp_tools::process::Mode::Direct, false, 120_000),
+                ] {
+                    let mut profile = vcp_tools::process::Profile::new(
+                        name.into(),
+                        temp.path().join("private-profile-executable.exe"),
+                        mode,
+                        std::collections::BTreeMap::from([(
+                            "LANG".into(),
+                            "private-profile-environment".into(),
+                        )]),
+                        Default::default(),
+                        true,
+                    )
+                    .unwrap()
+                    .with_inputs(vec!["private-profile-input.cfg".into()])
+                    .unwrap()
+                    .with_max_timeout_ms(maximum)
+                    .unwrap();
+                    if terminal {
+                        profile = profile.with_terminal(24, 80).unwrap();
+                    }
+                    host.configure_process_profile(profile).unwrap();
+                }
+            }
+            let (snapshot, raw) = provider_snapshot();
+            host.configure_provider(snapshot, raw).unwrap();
+            let observed = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+            let requests = observed.clone();
+            let server = start_mock_server().await;
+            Mock::given(method("POST")).and(path("/v1/responses")).respond_with(move |request: &wiremock::Request| {
+                requests.lock().unwrap().push(serde_json::from_slice(&request.body).unwrap());
+                ResponseTemplate::new(200).insert_header("content-type", "text/event-stream").set_body_string(sse(vec![
+                    ev_assistant_message("observed", "Profile metadata observed; no process was executed."),
+                    serde_json::json!({"type":"response.completed","response":{"id":"profile-metadata","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}}),
+                ]))
+            }).mount(&server).await;
+            let mut registry = ExtensionRegistryBuilder::new();
+            registry.turn_start_admission(Arc::new(host.clone()));
+            registry.work_admission(Arc::new(host.clone()));
+            registry.tool_contributor(Arc::new(host.clone()));
+            let starter = host.clone();
+            let cwd = workspace.clone();
+            let test = test_codex()
+                .with_extensions(Arc::new(registry.build()))
+                .with_auth(codex_login::CodexAuth::from_api_key(
+                    "synthetic-profile-metadata",
+                ))
+                .with_allowed_tools(allowed_tools())
+                .with_config(move |config| {
+                    config.cwd = cwd.try_into().unwrap();
+                    configure_provider_fixture(config);
+                    starter
+                        .lifecycle()
+                        .authorize_startup(config.cwd.as_path(), None)
+                        .unwrap();
+                })
+                .build_with_auto_env(&server)
+                .await
+                .unwrap();
+            let thread = host.lifecycle().attach_root(test.codex.clone()).unwrap();
+            host.register(thread, binding).unwrap();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            host.configure_coding(
+                thread,
+                CodingConfig {
+                    operating: "Observe configured tools; do not execute processes.".into(),
+                    affected_paths: vec!["file.txt".into()],
+                    max_requests: 2,
+                    deadline: Timestamp::new(now + 300_000),
+                },
+            )
+            .unwrap();
+            coding_turn(&test, backend, "public-process-metadata").await;
+            let requests = observed.lock().unwrap().clone();
+            assert_eq!(requests.len(), 1);
+            let operating = requests[0]["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["type"] == "message")
+                .filter_map(|item| {
+                    serde_json::from_str::<serde_json::Value>(item["content"][0]["text"].as_str()?)
+                        .ok()
+                })
+                .find(|part| part["kind"] == "operating")
+                .unwrap();
+            let text = operating["text"].as_str().unwrap();
+            let public = text
+                .lines()
+                .find_map(|line| line.strip_prefix("Configured process profiles: "));
+            if configured {
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(public.unwrap()).unwrap(),
+                    serde_json::json!([
+                        {"name":"a-direct","mode":"direct","terminal":false,"max_timeout_ms":120000},
+                        {"name":"z-terminal","mode":"power_shell","terminal":true,"max_timeout_ms":90000},
+                    ])
+                );
+            } else {
+                assert!(
+                    public.is_none(),
+                    "empty profiles do not expand unrelated context"
+                );
+            }
+            let body = requests[0].to_string();
+            for private in [
+                "private-profile-executable",
+                "private-profile-environment",
+                "private-profile-input",
+            ] {
+                assert!(!body.contains(private), "private profile metadata leaked");
+            }
+            let snapshot = host.snapshot().unwrap();
+            assert!(!snapshot
+                .records
+                .values()
+                .any(|record| record.collection == Collection::Effect));
+            let policy = vcp_engine::policy::current(&snapshot, &config.workspace).unwrap();
+            assert_eq!(policy.mode, Autonomy::Plan);
+            assert_eq!(
+                policy.automatic_effects,
+                std::collections::BTreeSet::from([EffectClass::Read])
+            );
+            owner.close().await.unwrap();
+            test.codex.shutdown_and_wait().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared_files() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         for mode in [

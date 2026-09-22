@@ -2,6 +2,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {spawnSync}=require('node:child_process');
+const crypto=require('node:crypto');
 const prep=require('../../../scripts/evals/builtin-debug-prepare.cjs'),runner=require('../../../scripts/evals/builtin-debug-runner.cjs'),oracle=require('../../../scripts/evals/builtin-debug-v2-oracle.cjs');
 const {ownedRoot}=require('../support/experiments.cjs');
 function sourceProfile(catalog){const expiry=String(Date.now()+3600000);return {version:1,trust_workspace:true,maximum_autonomy:'workspace',automatic_effects:['read','write'],workspace:'rebound',sync_roots:[],provider:{valid_until:expiry,max_output:'8192',price:{currency:'USD',valid_until:expiry},compatibility:{valid_until:expiry,responses_text_tools:true,provider_preferences_qualified:true}},catalog,routing:null,skills:null,decisions:null,processes:[],checks:[],mcp:[],mcp_http:[],output_tokens:'4096',max_transport_retries:0,max_requests:16,deadline_seconds:600};}
@@ -36,6 +37,48 @@ test('native debug evidence requires canonical original failure and current-sour
 test('analysis verification cannot substitute for available native parent checks',()=>{
   const pages=[{gaps:[],items:[{id:'analysis',collection:'verification',visibility:'available',record:{scope:{task:'task'}}}]}];assert.equal(runner.verificationEvidence(pages,'task',false).records[0],'analysis');assert.throws(()=>runner.verificationEvidence(pages,'task',true),/No canonical successful/);
   pages[0].items[0].record.checks=[{outcome:{status:'passed'}}];assert.throws(()=>runner.verificationEvidence(pages,'task',false),/unexpectedly claims/);
+});
+function fileEvidence(){
+  const scope={session:'session',task:'task',workspace:'workspace'},items=[],retained=[];
+  const canonical=value=>JSON.stringify(value,(_,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item);
+  for(const tool of ['vcp_search','vcp_list','vcp_read','vcp_patch']){
+    const id=tool+'-effect',execution=tool+'-execution',write=tool==='vcp_patch',operation={scope,tool,invocation:{kind:'local'},effects:write?['read','write']:['read']};
+    const effect={id,scope,execution,state:'succeeded',exit_code:null,operation_digest:crypto.createHash('sha256').update(canonical(operation)).digest('hex'),observed_changes:[]};
+    items.push({id,collection:'effect',visibility:'available',record:effect});
+    const add=(schema,suffix,receipt)=>{const artifact=tool+'-'+suffix;effect.observed_changes.push(artifact);items.push({id:artifact,collection:'artifact',visibility:'available',record:{state:'complete',spec:{schema,scope}}});retained.push({artifact,scope,receipt});};
+    add('vcp-prepared-tool-v2','plan',{schema:'vcp-prepared-tool/2',prepared:{operation,changes:write?[{path:'shipping.cjs'}]:[]}});
+    add('vcp-tool-result-v1','result',{complete:true});
+    if(write)add('vcp-file-outcome-v1','outcome',{schema_version:1,effect:id,execution,observation:{complete:true,error:null}});
+  }
+  return {pages:[{gaps:[],items}],retained};
+}
+test('missing reproduction classifies actual local read and patch execution IDs without inventing native execution',()=>{
+  const f=fileEvidence(),result=runner.processEvidence(f.pages,[],{reproduction:'unavailable'},'task','current',f.retained);
+  assert.equal(result.status,'not_run');assert.equal(result.verification_complete,false);assert.deepEqual(result.file_effects.map(e=>e.tool),['vcp_search','vcp_list','vcp_read','vcp_patch']);
+  for(const capture of f.retained.filter(c=>['vcp_read-result','vcp_list-result','vcp_search-result'].includes(c.artifact)))capture.receipt.complete=false;
+  assert.equal(runner.processEvidence(f.pages,[],{reproduction:'unavailable'},'task','current',f.retained).status,'not_run');
+});
+test('missing reproduction rejects native starts without outcomes and unclassified or unavailable execution',()=>{
+  const mutations=[
+    f=>f.pages[0].items.push({collection:'artifact',visibility:'available',record:{state:'incomplete',spec:{schema:'vcp-process-start-v1'}}}),
+    f=>f.pages[0].items.push({collection:'artifact',visibility:'available',record:{state:'incomplete',spec:{schema:'vcp-process-outcome-v1'}}}),
+    f=>f.pages[0].items[0].record.state='dispatch_recorded',
+    f=>f.pages[0].items[0].record.exit_code=0,
+    f=>f.pages[0].items[0].visibility='redacted',
+    f=>f.pages[0].items[1].record.redaction={reason:'unavailable'},
+    f=>f.pages[0].items[1].record.state='incomplete',
+    f=>f.pages[0].items[0].record.observed_changes=[],
+    f=>f.retained[0].receipt.prepared.operation.invocation.kind='process',
+    f=>f.retained[0].receipt.prepared.operation.tool='vcp_unknown',
+    f=>f.retained[0].scope={task:'another'},
+    f=>f.retained.splice(0,1),
+    f=>f.retained[1].receipt.complete=undefined,
+    f=>f.retained.find(c=>c.artifact==='vcp_patch-result').receipt.complete=false,
+    f=>f.retained.at(-1).receipt.execution='unrelated',
+    f=>f.retained.at(-1).receipt.observation.complete=false,
+    f=>f.pages[0].gaps.push({kind:'unavailable',reason:'missing records'}),
+  ];
+  for(const mutate of mutations){const f=fileEvidence();mutate(f);assert.throws(()=>runner.processEvidence(f.pages,[],{reproduction:'unavailable'},'task','current',f.retained),/Missing-access|Canonical debug/);}
 });
 test('qualified debug runtime executes frozen checks and exact plans remain one shot',t=>{
   const receiptPath=process.env.VCP_CR06_BUILD_RECEIPT;if(!receiptPath)return t.skip('Requires recorded native CR06 launcher build');

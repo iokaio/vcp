@@ -1,6 +1,6 @@
 # JavaScript, TypeScript, and web projects
 
-Original VCP guidance, version 1.0.0. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance, version 1.1.0. This package supplies instructions, not a tool executor or authority.
 
 ## Resolve the project contract
 
@@ -9,6 +9,12 @@ Read package.json, its packageManager/engines fields, the applicable lockfile, w
 Use the project's declared scripts and pinned toolchain. For example, a test script may be invoked with the selected manager's run form, but inspect the script and filter behavior first. Do not assume npm test, a global TypeScript compiler, npx downloads, or a framework CLI is appropriate. A script can perform network or lifecycle effects and still needs current authority.
 
 Review async error handling, input validation, browser/server boundaries, and public API behavior against nearby tests. Generate changes that preserve existing rendering, module, lint, and formatting conventions. Avoid opportunistic lockfile churn.
+
+## Exact numeric contracts
+
+When a contract requires exact integer results, bound intermediate arithmetic as well as inputs and outputs. Multiplying safe integers can exceed Number's exact range before a later division or range check. When Number intermediates cannot be proven exact, use native BigInt if the pinned runtime and TypeScript target support it, or the project's existing numeric representation appropriate to the contract. Preserve decimal semantics when required. Apply the specified rounding rule before converting a proven bounded result back to Number. Do not add a dependency when the runtime already supplies the required arithmetic.
+
+Distinguish an omitted option from an explicitly invalid value; a nullish default must not silently accept null when the contract requires an integer. Check boundary, extreme and invalid inputs alongside the project's declared checks. Passing a small existing suite does not establish the full numeric contract; report the actual coverage and any remaining uncertainty.
 
 ## Verify
 

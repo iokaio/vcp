@@ -53,6 +53,12 @@ interruption and concurrent human edits. Testing guidance distinguishes trusted
 long-check configuration, raw outcomes and decoded previews. These instructions
 do not themselves qualify live usefulness or grant additional authority.
 
+Catalog 1.2.0 additionally revises `javascript-typescript` to 1.1.0 after live
+generation exposed inexact intermediate arithmetic. It covers numeric bounds,
+runtime-compatible exact arithmetic, omitted versus invalid options and honest
+test coverage. Existing frozen fixtures and oracle requirements are unchanged;
+the revised body still needs a fresh generation comparison.
+
 `vcp_search` keeps literal matching by default. Optional `mode: "regex"` enables
 bounded regex matching; `path_pattern` is a regex over normalized root-relative
 paths. Optional `max_files` and `max_scan_bytes` can lower discovery ceilings.
@@ -74,6 +80,13 @@ omission retains 120,000. Explicit verification requirements may set `timeout_ms
 within that profile ceiling and the remaining task deadline. Model requests,
 project manifests and skill bodies cannot raise the profile ceiling. Execution
 stays in the foreground with existing authority, output and owned-tree controls.
+
+Coding context lists configured process names, modes, terminal availability and
+timeout ceilings. It omits executable, environment and pinned input paths, and
+listing a profile grants no authority. `vcp_exec` uses an empty directory string
+for the workspace root. `vcp_verify` runs configured acceptance checks itself;
+unchanged analysis supplies relevant artifact IDs from tool-result `evidence`
+fields, rather than file paths or check selectors.
 
 Profiles may explicitly declare `output_encoding` as `utf8` or `utf16_le`.
 Without a declaration the existing UTF-8 interpretation remains. Presentation
@@ -114,3 +127,7 @@ The [completion qualification](../evaluations/p7-02-completion.md) records the
 fresh P7 trial bounds and current evidence. Read and patch tool descriptions now
 clarify relative paths, nullable line arguments and literal patch syntax without
 changing source-version or authority checks.
+It now records selected read-only usefulness observations and reviewed CR-06
+scenarios, preserving every strict failure and the offline runner correction.
+The remaining live gate is exact-arithmetic generation against the unchanged
+44-check oracle; the new JavaScript body is not yet qualified by a passing run.

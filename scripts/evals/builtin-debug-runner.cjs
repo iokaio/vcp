@@ -38,12 +38,40 @@ function capturedJson(plan,base,item,call){
   }
   const bytes=Buffer.concat(chunks);if(sha(bytes)!==descriptor.sha256)throw Error('Debug receipt digest mismatch');return JSON.parse(bytes);
 }
-function processEvidence(pages,captures,row,task,currentHash){
+function canonical(value){return JSON.stringify(value,(_,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item);}
+function fileOnlyEvidence(items,effects,task,retained){
+  if(items.some(i=>['effect','artifact'].includes(i.collection)&&(i.visibility!=='available'||!i.record||i.record.redaction)))throw Error('Missing-access execution evidence unavailable or redacted');
+  const artifacts=items.filter(i=>i.collection==='artifact');
+  if(artifacts.some(i=>/^vcp-process-/.test(i.record.spec?.schema)))throw Error('Missing-access case executed or started a native process');
+  const matched=[];
+  for(const effect of effects){
+    if(effect.scope?.task!==task||effect.state!=='succeeded'||!effect.execution||effect.exit_code!==null)throw Error('Missing-access effect is not a settled local file operation');
+    const linked=schema=>artifacts.filter(i=>i.record.spec?.schema===schema&&i.record.state==='complete'&&canonical(i.record.spec.scope)===canonical(effect.scope)&&effect.observed_changes?.includes(i.id)).map(i=>{
+      const capture=retained.find(c=>c.artifact===i.id&&canonical(c.scope)===canonical(effect.scope));
+      if(!capture)throw Error('Missing-access local file receipt unavailable');
+      return capture;
+    });
+    const plans=linked('vcp-prepared-tool-v2');
+    if(plans.length!==1)throw Error('Missing-access effect has no unique prepared local file operation');
+    const prepared=plans[0].receipt.prepared,operation=prepared?.operation;
+    if(plans[0].receipt.schema!=='vcp-prepared-tool/2'||!operation||sha(Buffer.from(canonical(operation)))!==effect.operation_digest||canonical(operation.scope)!==canonical(effect.scope)||operation.invocation?.kind!=='local'||!['vcp_read','vcp_list','vcp_search','vcp_patch'].includes(operation.tool)||!Array.isArray(operation.effects)||!operation.effects.length||operation.effects.some(e=>!['read','write'].includes(e)))throw Error('Missing-access effect is not a qualified local file operation');
+    const results=linked('vcp-tool-result-v1');
+    // Read/list/search completeness describes bounded coverage, not dispatch kind.
+    if(results.length!==1||typeof results[0].receipt.complete!=='boolean'||operation.tool==='vcp_patch'&&results[0].receipt.complete!==true||!Array.isArray(prepared.changes))throw Error('Missing-access local file result incomplete');
+    const outcomes=linked('vcp-file-outcome-v1');
+    if(outcomes.length!==prepared.changes.length||outcomes.some(c=>c.receipt.effect!==effect.id||c.receipt.execution!==effect.execution||c.receipt.observation?.complete!==true||c.receipt.observation.error!==null))throw Error('Missing-access file mutation receipt incomplete');
+    if(operation.effects.includes('write')&&(!prepared.changes.length||operation.tool!=='vcp_patch'))throw Error('Missing-access write lacks classified file mutation');
+    matched.push({effect:effect.id,execution:effect.execution,tool:operation.tool,plan:plans[0].artifact,result:results[0].artifact,outcomes:outcomes.map(c=>c.artifact)});
+  }
+  return matched;
+}
+function processEvidence(pages,captures,row,task,currentHash,retained=[]){
   if(pages.some(p=>p.gaps.some(g=>!prior.privacyGap(g,g.artifact))))throw Error('Canonical debug tool evidence incomplete');
   const effects=pages.flatMap(p=>p.items).filter(i=>i.collection==='effect'&&i.visibility==='available').map(i=>i.record);
   if(row.reproduction==='unavailable'){
-    if(captures.length||effects.some(e=>e.execution))throw Error('Missing-access case executed a native process');
-    return {status:'not_run',reason:'required reproduction environment and execution grant unavailable',verification_complete:false};
+    if(captures.length)throw Error('Missing-access case executed a native process');
+    const file_effects=fileOnlyEvidence(pages.flatMap(p=>p.items),effects,task,retained);
+    return {status:'not_run',reason:'required reproduction environment and execution grant unavailable',verification_complete:false,file_effects};
   }
   const receipts=captures.filter(({artifact,scope,receipt:r})=>{
     const e=effects.find(e=>e.id===r.effect&&e.execution===r.execution&&e.scope?.task===task&&!e.redaction&&e.observed_changes?.includes(artifact));
@@ -83,7 +111,8 @@ function run(file,authorization,call=invoke){
       const missing=row.reproduction==='unavailable';
       if(missing||execution.status===0&&final.conditions.completed===true){
         report.verification=verificationEvidence(evidence.verification,accepted.scope.task,!missing);
-        report.native_checks=processEvidence(evidence.tools,captures,row,accepted.scope.task,sha(read(path.join(workspace,'shipping.cjs'))));
+        const retained=missing?evidence.tools.flatMap(p=>p.items).filter(i=>i.collection==='artifact'&&['vcp-prepared-tool-v2','vcp-tool-result-v1','vcp-file-outcome-v1'].includes(i.record?.spec?.schema)).map(item=>({artifact:item.id,scope:item.record.spec.scope,receipt:capturedJson(plan,base,item,call)})):[];
+        report.native_checks=processEvidence(evidence.tools,captures,row,accepted.scope.task,sha(read(path.join(workspace,'shipping.cjs'))),retained);
         const observed=spawnSync(plan.runtime.node,[path.join(__dirname,'builtin-debug-v2-oracle.cjs'),'grade',row.id,workspace],{env:process.platform==='win32'?{SystemRoot:process.env.SystemRoot}:{},encoding:'utf8',timeout:15000,maxBuffer:65536,windowsHide:true});
         if(observed.error||![0,1].includes(observed.status))throw Error('Independent debug oracle unavailable');
         report.oracle=JSON.parse(observed.stdout);report.live_usefulness='pending_independent_review';report.cli_completed=final.conditions.completed===true;
