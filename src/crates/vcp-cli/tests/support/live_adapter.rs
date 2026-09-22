@@ -26,6 +26,7 @@ async fn retained_child_adapter_accounts_once_and_verifies_integrated_parent() {
         .unwrap();
         let mut profile: Value =
             serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+        profile["max_transport_retries"] = json!(0);
         if !generation {
             profile["checks"] = json!([]);
             profile["processes"] = json!([]);

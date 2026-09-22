@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #requires -Version 7.0
 [CmdletBinding()]
-param([string]$OutputRoot, [string]$TargetRoot, [ValidateRange(1,16)][int]$Jobs=2, [switch]$FullHost)
+param([string]$OutputRoot, [string]$TargetRoot, [ValidateRange(1,16)][int]$Jobs=2, [switch]$FullHost,
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$RustToolchain='1.95.0')
 $ErrorActionPreference='Stop'
 $repository=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if(-not $IsWindows){Write-Output '{"status":"not_run","reason":"Native Windows required"}';exit 3}
@@ -32,7 +33,7 @@ function Stage([string]$Name,[string[]]$Arguments,[string[]]$Required){
 Save-Record
 try{
     $installed=& rustup toolchain list
-    if($LASTEXITCODE -ne 0 -or -not($installed -match '^1\.95\.0')){throw 'Native Rust 1.95.0 required'}
+    if($LASTEXITCODE -ne 0 -or -not($installed -match ('^'+[regex]::Escape($RustToolchain)+'(?:-|\s|$)'))){throw "Native Rust $RustToolchain required"}
     $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     if(-not(Test-Path -LiteralPath $vswhere)){throw 'Visual Studio discovery tool missing'}
     $vsRoot=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -43,14 +44,14 @@ try{
     $env:RUST_MIN_STACK='16777216';$env:CODEX_TEST_ENVIRONMENT='local';$env:CARGO_TARGET_DIR=$paths.target
     $env:VCP_TEST_NODE=(Get-Command node -CommandType Application).Source
     $env:VCP_TEST_GIT=(Get-Command git -CommandType Application).Source
-    $env:VCP_TEST_CARGO=& rustup which --toolchain '1.95.0' cargo
+    $env:VCP_TEST_CARGO=& rustup which --toolchain $RustToolchain cargo
     if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $env:VCP_TEST_CARGO)){throw 'Real native Cargo executable unavailable'}
     $env:VCP_TEST_COMPILER_PATH=(Split-Path -Parent $env:VCP_TEST_CARGO)+';'+$env:PATH
     foreach($name in @('LIB','INCLUDE','LIBPATH')){
         [Environment]::SetEnvironmentVariable("VCP_TEST_COMPILER_$name",[Environment]::GetEnvironmentVariable($name),'Process')
     }
     $record.platform=[Runtime.InteropServices.RuntimeInformation]::OSDescription
-    $record.rustc=& rustc +1.95.0 --version
+    $record.rustc=& rustc "+$RustToolchain" --version
     $record.msvc=$env:VCToolsVersion
     $gitSafeRoot=$repository.Replace('\','/')
     $record.commit=& git -c "safe.directory=$gitSafeRoot" -C $repository rev-parse HEAD
@@ -58,7 +59,7 @@ try{
     $inputs=@(Get-ChildItem -LiteralPath (Join-Path $repository 'src/crates') -Recurse -File|Where-Object {$_.Extension -eq '.rs' -or $_.Name -eq 'Cargo.toml'}|ForEach-Object FullName)
     $inputs+=@($PSCommandPath,(Join-Path $repository 'src/third_party/codex/codex-rs/Cargo.lock'),(Join-Path $repository 'src/third_party/components/codex-files.json'))
     $record.inputs=@($inputs|Sort-Object|ForEach-Object {@{path=[IO.Path]::GetRelativePath($repository,$_).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()}})
-    $common=@('+1.95.0','test','--locked','--offline','-j',"$Jobs")
+    $common=@("+$RustToolchain",'test','--locked','--offline','-j',"$Jobs")
     $hostTests=@('-p','vcp-lifecycle','--features','qualification','--test','canonical_host')
     if(-not $FullHost){$hostTests+=@('child_')}
     $record.full_host=[bool]$FullHost

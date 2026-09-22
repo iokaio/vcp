@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Deliberate cleanup under an irreversible canonical lease and retained results.
 use super::super::*;
+use std::collections::BTreeSet;
 use vcp_domain::{
     agents::{ChildCleanup, ChildSpec, TaskGraph},
     task::Task,
@@ -14,6 +15,203 @@ use vcp_repository::{
     Root, RootIdentity,
 };
 use vcp_store::contract::Collection;
+
+fn reaches_target(
+    graph: &TaskGraph,
+    start: &TaskId,
+    target: &TaskId,
+    seen: &mut BTreeSet<TaskId>,
+) -> bool {
+    if start == target {
+        return true;
+    }
+    if !seen.insert(start.clone()) {
+        return false;
+    }
+    let Some(spec) = graph.children.get(start) else {
+        return false;
+    };
+    reaches_target(graph, &spec.parent, target, seen)
+        || spec
+            .dependencies
+            .iter()
+            .any(|dependency| reaches_target(graph, dependency, target, seen))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use vcp_domain::{agents::*, policy::EffectClass};
+
+    fn child(parent: TaskId, dependencies: BTreeSet<TaskId>) -> ChildSpec {
+        ChildSpec {
+            parent,
+            actor: ActorId::new(),
+            parent_steering: SteeringRevision::ZERO,
+            dependencies,
+            mode: ChildMode::ReadOnly,
+            role: "test".into(),
+            model_policy: "test-model".into(),
+            paths: vec![ChildPath {
+                root: RootId::new(),
+                path: String::new(),
+                write: false,
+            }],
+            effects: BTreeSet::from([EffectClass::Read]),
+            authority: AuthorityRevision::ZERO,
+            policy: PolicyRevision::ZERO,
+            binding: Revision::ZERO,
+            grants: BTreeMap::new(),
+            allocation: Micros::new(1),
+            deadline: Timestamp::new(10),
+            snapshot: ArtifactId::new(),
+            snapshot_digest: "x".repeat(64),
+            registration: None,
+            registration_digest: None,
+            isolated_root: None,
+        }
+    }
+
+    fn graph(root: TaskId, children: BTreeMap<TaskId, ChildSpec>) -> TaskGraph {
+        TaskGraph {
+            document_type: GRAPH.into(),
+            schema_version: 1,
+            scope: Scope {
+                workspace: WorkspaceId::new(),
+                session: SessionId::new(),
+                task: root,
+            },
+            revision: Revision::ZERO,
+            limits: GraphLimits::default(),
+            children,
+            ready: BTreeMap::new(),
+            results: BTreeMap::new(),
+            cleanup: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn nested_descendant_stays_pending_after_intermediate_cleanup() {
+        let root = TaskId::new();
+        let target = TaskId::new();
+        let middle = TaskId::new();
+        let grandchild = TaskId::new();
+        let mut children = BTreeMap::new();
+        children.insert(target.clone(), child(root.clone(), BTreeSet::new()));
+        children.insert(middle.clone(), child(target.clone(), BTreeSet::new()));
+        children.insert(grandchild.clone(), child(middle.clone(), BTreeSet::new()));
+        let mut graph = graph(root, children);
+        graph.cleanup.insert(
+            middle,
+            ChildCleanup {
+                intent: ArtifactId::new(),
+                retained_result: ArtifactId::new(),
+                rejected_edits: false,
+                receipt: Some(ArtifactId::new()),
+                diagnostics: vec![],
+            },
+        );
+        assert!(has_pending_descendant(&graph, &target));
+        assert!(graph.children.contains_key(&grandchild));
+        graph.cleanup.insert(
+            grandchild,
+            ChildCleanup {
+                intent: ArtifactId::new(),
+                retained_result: ArtifactId::new(),
+                rejected_edits: false,
+                receipt: Some(ArtifactId::new()),
+                diagnostics: vec![],
+            },
+        );
+        assert!(!has_pending_descendant(&graph, &target));
+    }
+
+    #[test]
+    fn direct_descendant_and_dependency_block_until_their_receipts_exist() {
+        let root = TaskId::new();
+        let target = TaskId::new();
+        let direct = TaskId::new();
+        let dependent = TaskId::new();
+        let mut children = BTreeMap::new();
+        children.insert(target.clone(), child(root.clone(), BTreeSet::new()));
+        children.insert(direct.clone(), child(target.clone(), BTreeSet::new()));
+        children.insert(
+            dependent.clone(),
+            child(root, BTreeSet::from([direct.clone()])),
+        );
+        let mut graph = graph(TaskId::new(), children);
+        assert!(has_pending_descendant(&graph, &target));
+        assert!(has_pending_descendant(&graph, &direct));
+        graph.cleanup.insert(
+            dependent.clone(),
+            ChildCleanup {
+                intent: ArtifactId::new(),
+                retained_result: ArtifactId::new(),
+                rejected_edits: false,
+                receipt: Some(ArtifactId::new()),
+                diagnostics: vec![],
+            },
+        );
+        graph.cleanup.insert(
+            direct.clone(),
+            ChildCleanup {
+                intent: ArtifactId::new(),
+                retained_result: ArtifactId::new(),
+                rejected_edits: false,
+                receipt: Some(ArtifactId::new()),
+                diagnostics: vec![],
+            },
+        );
+        assert!(!has_pending_descendant(&graph, &target));
+        assert!(!has_pending_descendant(&graph, &direct));
+    }
+
+    #[test]
+    fn transitive_dependency_stays_pending_through_cleaned_parent() {
+        let root = TaskId::new();
+        let target = TaskId::new();
+        let middle = TaskId::new();
+        let descendant = TaskId::new();
+        let mut children = BTreeMap::new();
+        children.insert(target.clone(), child(root.clone(), BTreeSet::new()));
+        children.insert(
+            middle.clone(),
+            child(root.clone(), BTreeSet::from([target.clone()])),
+        );
+        children.insert(descendant.clone(), child(middle.clone(), BTreeSet::new()));
+        let mut graph = graph(root, children);
+        graph.cleanup.insert(
+            middle,
+            ChildCleanup {
+                intent: ArtifactId::new(),
+                retained_result: ArtifactId::new(),
+                rejected_edits: false,
+                receipt: Some(ArtifactId::new()),
+                diagnostics: vec![],
+            },
+        );
+        assert!(has_pending_descendant(&graph, &target));
+        assert!(graph.children.contains_key(&descendant));
+    }
+}
+
+/// A child can retain the target's source/metadata through a nested parent or
+/// a transitive dependency. Direct-edge checks are insufficient when an
+/// intermediate child has already been cleaned while its own descendant is
+/// still live.
+fn has_pending_descendant(graph: &TaskGraph, target: &TaskId) -> bool {
+    graph.children.iter().any(|(candidate, _)| {
+        if candidate == target {
+            return false;
+        }
+        graph
+            .cleanup
+            .get(candidate)
+            .is_none_or(|cleanup| cleanup.receipt.is_none())
+            && reaches_target(graph, candidate, target, &mut BTreeSet::new())
+    })
+}
 
 pub struct ChildCleanupPreview {
     parent: ThreadId,
@@ -92,10 +290,7 @@ impl worker::Context {
             return Err("cleanup requires a completed, failed or cancelled child; preserve paused recovery work".into());
         }
         // A descendant still refers to the original native source/metadata owner.
-        if graph.children.iter().any(|(id, other)| {
-            (other.parent == *child || other.dependencies.contains(child))
-                && graph.cleanup.get(id).is_none_or(|c| c.receipt.is_none())
-        }) {
+        if has_pending_descendant(&graph, child) {
             return Err("cleanup is retained by a dependent child or recovery workspace".into());
         }
         for row in state
@@ -375,9 +570,25 @@ impl CanonicalHost {
         &self,
         preview: ChildCleanupPreview,
     ) -> Result<CleanupReceipt, String> {
+        self.apply_child_cleanup_inner(preview, || Ok(()))
+    }
+    #[cfg(feature = "qualification")]
+    pub fn qualification_apply_child_cleanup(
+        &self,
+        preview: ChildCleanupPreview,
+        after_removal: impl FnOnce() -> Result<(), String>,
+    ) -> Result<CleanupReceipt, String> {
+        self.apply_child_cleanup_inner(preview, after_removal)
+    }
+    fn apply_child_cleanup_inner(
+        &self,
+        preview: ChildCleanupPreview,
+        after_removal: impl FnOnce() -> Result<(), String>,
+    ) -> Result<CleanupReceipt, String> {
         scheduler::check_generation(&self.runtime, preview.parent, preview.generation)?;
         self.cleanup_unbound(&preview.child)?;
         let binding = self.binding(preview.parent)?;
+        let parent = preview.parent;
         let child = preview.child.clone();
         let selected = child.clone();
         self.worker.run(move |context| {
@@ -413,14 +624,14 @@ impl CanonicalHost {
                 },
             )
         })?;
-        self.reconcile_child_cleanup(preview.parent, child)
+        self.reconcile_child_cleanup_inner(parent, child, || {}, after_removal)
     }
     pub fn reconcile_child_cleanup(
         &self,
         parent: ThreadId,
         child: TaskId,
     ) -> Result<CleanupReceipt, String> {
-        self.reconcile_child_cleanup_inner(parent, child, || {})
+        self.reconcile_child_cleanup_inner(parent, child, || {}, || Ok(()))
     }
     #[cfg(feature = "qualification")]
     pub fn qualification_cleanup_before_claim(
@@ -429,13 +640,14 @@ impl CanonicalHost {
         child: TaskId,
         before_claim: impl FnOnce(),
     ) -> Result<CleanupReceipt, String> {
-        self.reconcile_child_cleanup_inner(parent, child, before_claim)
+        self.reconcile_child_cleanup_inner(parent, child, before_claim, || Ok(()))
     }
     fn reconcile_child_cleanup_inner(
         &self,
         parent: ThreadId,
         child: TaskId,
         before_claim: impl FnOnce(),
+        after_removal: impl FnOnce() -> Result<(), String>,
     ) -> Result<CleanupReceipt, String> {
         self.cleanup_unbound(&child)?;
         let generation = scheduler::generation(&self.runtime, parent)?;
@@ -521,6 +733,11 @@ impl CanonicalHost {
                 return Err(reason);
             }
         };
+        after_removal().map_err(|reason| {
+            format!(
+                "cleanup receipt publication interrupted after native removal; durable intent retained: {reason}"
+            )
+        })?;
         let result = receipt.clone();
         // Publishing a receipt is reconciliation only; a late pause may prevent
         // this acknowledgement, but it cannot discard or replace the intent.

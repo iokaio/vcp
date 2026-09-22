@@ -83,17 +83,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     emit(serde_json::json!({"type":"started"}))?;
     let mut total = 0usize;
+    let mut controls_open = true;
+    let mut output_open = true;
     loop {
         tokio::select! {
-            control=controls.recv()=>match control.flatten() {
+            control=controls.recv(), if controls_open => match control.flatten() {
                 Some(Control::Write { text }) if text.len()<=8192 => { writer.send(text.into_bytes()).await?; }
-                _ => {child.session.terminate();}
+                _ => {controls_open=false;child.session.terminate();}
             },
-            bytes=child.stdout_rx.recv()=>if let Some(bytes)=bytes {
+            bytes=child.stdout_rx.recv(), if output_open => if let Some(bytes)=bytes {
                 total=total.checked_add(bytes.len()).ok_or("output overflow")?;
                 if total>16*1024*1024 {child.session.terminate();return Err("PTY transcript exceeds qualification bound".into());}
                 if emit(serde_json::json!({"type":"output","text":String::from_utf8_lossy(&bytes)})).is_err() { child.session.terminate();return Err("qualification consumer lost".into()); }
-            },
+            } else { output_open=false; },
             code=&mut child.exit_rx=>{
                 emit(serde_json::json!({"type":"exit","code":code?}))?;
                 break;
