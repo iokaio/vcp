@@ -5,6 +5,11 @@ review/child guidance with `openai/gpt-5.6-luna` and `qwen/qwen3-coder-next`.
 The [earlier paired campaign](p7-live-qualification-2026-09-22.md) remains intact,
 including its failed reviews, Qwen request-limit failure and unresolved charges.
 
+The subsequent [Qwen 3.8 follow-up](p7-qwen38-reasoning-budget-2026-09-22.md)
+passes generation at 44/44 checks in 14 requests. Its paired review gate remains
+open after retesting with 16384 output tokens and a 180-second response timeout.
+The Qwen3 Coder observations below remain historical and unchanged.
+
 ## Evidence grading and guidance
 
 The review adapter exports canonical tool evidence for the examined task. The

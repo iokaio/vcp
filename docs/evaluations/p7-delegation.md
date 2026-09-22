@@ -12,6 +12,9 @@ The [P7-05 quality retest](p7-review-generation-quality-2026-09-22.md) corrects
 evidence-reference grading and qualifies Luna's revised review guidance. Qwen's
 paired usefulness gate remains open; provider failures and invalid tool arguments
 are retained separately from review quality findings.
+The [Qwen 3.8 follow-up](p7-qwen38-reasoning-budget-2026-09-22.md) passes generation
+at 44/44 checks in 14 requests. Its paired review gate remains open after explicit
+16384-token and 180-second response allowances.
 
 The native campaign uses `scripts/test-delegation.ps1` with Rust 1.95.0 and the
 installed Visual Studio x64 tools. Its manifest binds source inputs and stage

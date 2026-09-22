@@ -29,6 +29,25 @@ test('independent review rubric detects introduced and pre-existing bugs, reject
  alternate[1].reproduction.actual=0;assert.equal(runner.gradeReview({findings:alternate}).pass,false);
  alternate[1].reproduction={arguments:[20,10],expected:2,actual:2};assert.equal(runner.gradeReview({findings:alternate}).pass,false);
 });
+test('review reproductions accept bounded explicit integer annotations without inferring prose',()=>{
+ const historical=answer=>runner.gradeReview(answer,runner.rubric,null,{historical_annotations:true});
+ for(const delimiter of ['—','–','-']){
+  const answer={findings:findings()};
+  answer.findings[0].reproduction={arguments:[100],expected:`0 ${delimiter} the documented threshold is free`,actual:`5 ${delimiter} the current comparison excludes equality`};
+  answer.findings[1].reproduction={arguments:[150,5],expected:`8 ${delimiter} the exact half rounds up`,actual:`7 ${delimiter} floor rounds down`};
+  assert.equal(historical(answer).pass,true);assert.equal(runner.gradeReview(answer).pass,false);
+ }
+ for(const invalid of ['0','zero — expected','0 or 5','0/5','0 —','0 —   ','0— explanation','00 — explanation','+0 — explanation','-0 — explanation','0.0 — explanation','0e0 — explanation','9007199254740992 — unsafe','0 — first\nsecond','0 — explanation\n','0 — '+'x'.repeat(2048)]){
+  const answer={findings:findings()};answer.findings[0].reproduction={arguments:[100],expected:invalid,actual:5};
+  assert.equal(historical(answer).pass,false,invalid);
+ }
+ const answer={findings:findings()};answer.findings[0].reproduction={arguments:[100],expected:'1 — wrong value',actual:'5 — current value'};assert.equal(historical(answer).pass,false);
+ answer.findings[0].reproduction={arguments:[100],expected:'0 — correct expectation',actual:'0 — falsely equal result'};assert.equal(historical(answer).pass,false);
+ answer.findings[0].reproduction={arguments:['100'],expected:'0 — expected',actual:'5 — actual'};assert.equal(historical(answer).pass,false);
+ answer.findings[0].reproduction={arguments:[101],expected:'0 — expected',actual:'0 — actual'};assert.equal(historical(answer).pass,false);
+ answer.findings[0].reproduction={arguments:[100],expected:'0 — expected',actual:'5 — actual'};answer.findings[0].introduced_by_change='unknown';assert.equal(historical(answer).pass,false);
+ answer.findings[0].introduced_by_change='introduced';answer.findings[0].evidence=['shipping.cjs:1'];assert.equal(historical(answer).pass,false);
+});
 function reviewEvidenceFixture(child=false){
  const sha=bytes=>require('node:crypto').createHash('sha256').update(bytes).digest('hex');
  const scope={workspace:'workspace',session:'session',task:child?'child':'root'},sourceRoot=child?'isolated':'workspace';

@@ -23,7 +23,7 @@ const rubric={schema:'p7-review-rubric/1',minimum_seeded:2,maximum_false_positiv
  {path:'shipping.cjs',line:1,reproduction:{arguments:[100],expected:0,actual:5},introduced_by_change:'introduced'},
  {path:'tax.cjs',line:1,reproduction:{arguments:[5,10],expected:1,actual:0},introduced_by_change:'pre_existing'},
 ]};
-const reviewPrompt='Review current shipping.cjs, tax.cjs and receipt.cjs against contract.md and the corresponding base/ files. Report supported correctness defects and distinguish pre-existing defects from defects introduced by the diff. Check the contract and relevant surrounding source. Never infer causality from a changed line alone. Do not modify files or run processes. Return only one JSON object with findings array. Each finding has kind (defect or suggestion), path, line, trigger, consequence, evidence (array of source references), uncertainty (nonempty string), introduced_by_change (introduced, pre_existing, or unknown), reproduction (arguments array, expected, actual). Use concrete reproducible boundary values. Invoke canonical vcp_verify with observed read evidence as needed; do not claim executable checks ran.\n';
+const reviewPrompt='Review current shipping.cjs, tax.cjs and receipt.cjs against contract.md and the corresponding base/ files. Report supported correctness defects and distinguish pre-existing defects from defects introduced by the diff. Check the contract and relevant surrounding source. Never infer causality from a changed line alone. Do not modify files or run processes. Return only one JSON object with findings array. Each finding has kind (defect or suggestion), path, line, trigger, consequence, evidence (array of source references), uncertainty (nonempty string), introduced_by_change (introduced, pre_existing, or unknown), reproduction (arguments array, expected, actual). Use concrete reproducible boundary values. Keep reproduction arguments, expected and actual as the actual JSON values: numeric results must be JSON numbers, not explanatory strings. Put explanations in trigger or consequence. The final response must begin with { and end with }; do not use Markdown code fences or surrounding prose. Invoke canonical vcp_verify with observed read evidence as needed; do not claim executable checks ran.\n';
 const humanNote='Human edit after child snapshot: preserve this exact note during integration.\n';
 function put(dir,files){for(const [name,bytes]of Object.entries(files)){const target=safeChild(dir,name);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,bytes,{flag:'wx'});}}
 function modelFiles(dir){return filesUnder(dir).filter(p=>p!=='.git'&&!p.startsWith('.git/'));}
@@ -60,13 +60,23 @@ function prepareWorkspaceGit(root,files,git){
 }
 function fixtureFiles(root,manifestFile){const manifest=JSON.parse(read(manifestFile)),files={};if(manifest.revision!=='p7-05-delegation-generation-v1'||JSON.stringify(manifest.editable)!=='["src/cart.cjs","src/cents.cjs"]'||!manifest.files.some(file=>file.path==='src/cart.cjs')||!manifest.files.some(file=>file.path==='src/cents.cjs'))throw Error('Frozen delegation fixture manifest changed');for(const file of manifest.files){const bytes=read(safeChild(root,file.path));if(bytes.length!==file.bytes||sha(bytes)!==file.sha256)throw Error('Frozen delegation fixture changed: '+file.path);files[file.path]=bytes;}return {manifest,files};}
 function exactCounter(v){if(typeof v!=='string'||!/^\d+$/.test(v)||!Number.isSafeInteger(Number(v)))throw Error('Invalid canonical counter');return Number(v);}
-function demonstrated(reproduction,defect){
+function reproductionValue(value){
+ if(typeof value==='number')return value;
+ // Historical prompts did not specify numeric scalar types for expected/actual.
+ // Recognize only an explicit integer annotation, never infer a value from prose.
+ if(typeof value!=='string'||value.length>2048)return null;
+ const match=/^(0|[1-9][0-9]*)[ \t]+[—–-][ \t]+(\S[^\r\n]*)(?![\s\S])/.exec(value);
+ if(!match)return null;
+ const number=Number(match[1]);return Number.isSafeInteger(number)?number:null;
+}
+function demonstrated(reproduction,defect,allowAnnotations=false){
  if(!reproduction||!Array.isArray(reproduction.arguments)||!reproduction.arguments.every(n=>Number.isSafeInteger(n)&&n>=0))return false;
  const args=reproduction.arguments;let expected,actual;
  if(defect.path==='shipping.cjs'&&args.length===1){expected=args[0]>=100?0:5;actual=args[0]>100?0:5;}
  else if(defect.path==='tax.cjs'&&args.length===2&&args[1]<=100){expected=Number((BigInt(args[0])*BigInt(args[1])+50n)/100n);actual=Math.floor(args[0]*args[1]/100);}
  else return false;
- return expected!==actual&&reproduction.expected===expected&&reproduction.actual===actual;
+ const scalar=value=>allowAnnotations?reproductionValue(value):value;
+ return expected!==actual&&scalar(reproduction.expected)===expected&&scalar(reproduction.actual)===actual;
 }
 // Resolve citations only from retained canonical artifacts. Model-authored maps
 // and path-looking substrings are not authority for an opaque evidence ID.
@@ -98,7 +108,7 @@ function reviewEvidence(state,transcript,evidence,files,taskId){
  }
  return {references,files};
 }
-function gradeReview(answer,expected=rubric,context=null){
+function gradeReview(answer,expected=rubric,context=null,options={}){
  if(!answer||!Array.isArray(answer.findings)||answer.findings.length>64)throw Error('Bounded JSON review answer required');
  const valid=f=>f&&['defect','suggestion'].includes(f.kind)&&typeof f.path==='string'&&Number.isInteger(f.line)&&['trigger','consequence','uncertainty'].every(k=>typeof f[k]==='string'&&f[k].trim().length>0&&f[k].length<=2048)&&Array.isArray(f.evidence)&&f.evidence.length>0&&f.evidence.every(x=>typeof x==='string'&&x.length<=1024);
  const defects=answer.findings.filter(f=>f?.kind==='defect');
@@ -110,7 +120,9 @@ function gradeReview(answer,expected=rubric,context=null){
   const start=Number(match[2]),end=Number(match[3]??match[2]);
   return start===1&&end===1?{path:match[1],start,end}:null;
  };
- const detected=(f,d)=>valid(f)&&f.path===d.path&&f.line===d.line&&demonstrated(f.reproduction,d);
+ // Annotation compatibility is opt-in for offline regrading of historical prompts.
+ // New live prompts explicitly require typed values and retain strict comparison.
+ const detected=(f,d)=>valid(f)&&f.path===d.path&&f.line===d.line&&demonstrated(f.reproduction,d,options.historical_annotations===true);
  const matching=(f,d)=>detected(f,d)&&f.introduced_by_change===d.introduced_by_change&&f.evidence.some(e=>reference(e)?.path==='base/'+d.path);
  const hits=expected.defects.filter(d=>defects.some(f=>matching(f,d))).length;
  const noticed=expected.defects.filter(d=>defects.some(f=>detected(f,d))).length;
