@@ -1,5 +1,12 @@
 # Reviewed evaluation summaries
 
+- [P8 release-readiness scorecard](p8-release-scorecard-2026-09-22.md): 46 passing
+  executable matrix cases, one owner-skipped handoff, 56-task closure and FR/I/U
+  evidence dispositions; final release acceptance remains open.
+- [P8 acceptance gaps](p8-acceptance-gaps-2026-09-22.md) and
+  [owner acceptance packet](p8-owner-acceptance-package-2026-09-22.md): remaining
+  P8-01–04 requirements, operating procedure and uncompleted human review form.
+
 - [P6 completion](p6-completion.md): deterministic routing/escalation/optimizer,
   actual provider and evaluator observations, rejected automatic defaults/advice,
   canonical cost evidence and separate P7/P8 release gates.

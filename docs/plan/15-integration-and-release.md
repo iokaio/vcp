@@ -146,6 +146,13 @@ Keep pre-existing upstream failures distinct from new regressions and intentiona
 
 ## P8-05 — Owner acceptance and release evaluation
 
+Preparation is in progress: the [release scorecard](../evaluations/p8-release-scorecard-2026-09-22.md)
+joins the 56-task closure, FR/I/U dispositions and 46 passing executable matrix
+cases. The [gap reconciliation](../evaluations/p8-acceptance-gaps-2026-09-22.md)
+and [owner packet](../evaluations/p8-owner-acceptance-package-2026-09-22.md)
+preserve missing final acceptance and the owner-skipped machine handoff. No
+owner sign-off or release publication is recorded.
+
 Join the [workflow follow-up ledger](20-traceability.md#developer-workflow-follow-up-readiness)
 to the existing release evidence. Selected refinements require implementation
 and their stated acceptance; deferred candidates in plans 22/23 are not release
