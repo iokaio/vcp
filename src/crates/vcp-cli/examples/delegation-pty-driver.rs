@@ -46,6 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "TMP",
         "LOCALAPPDATA",
         "USERPROFILE",
+        "RUST_MIN_STACK",
         "OPENROUTER_API_KEY",
     ] {
         if let Ok(value) = std::env::var(key) {

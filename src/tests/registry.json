@@ -15,7 +15,8 @@
       "p6-live-runner",
       "p6-profile-qualification",
       "p6-bootstrap-profiles",
-      "p6-decision-comparison"
+      "p6-decision-comparison",
+      "p7-delegation"
     ],
     "repository": [
       "repository"
@@ -35,6 +36,14 @@
     ]
   },
   "cases": {
+    "p7-delegation": {
+      "task_ids": ["P7-04", "P7-05", "P7-06"],
+      "args": ["--test", "src/tests/contracts/delegation-live.test.cjs", "src/tests/contracts/delegation-terminal-runner.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
     "p6-decision-comparison": {
       "task_ids": ["P6-04"],
       "args": ["--test", "src/tests/contracts/p6-decision-comparison.test.cjs"],
