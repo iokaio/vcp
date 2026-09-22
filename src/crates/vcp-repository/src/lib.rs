@@ -2,9 +2,9 @@
 //! Scoped observations and native file primitives. Mutations require authority
 //! from the trusted broker; repository contents cannot grant it. Git index
 //! changes are not performed by these file primitives.
-pub mod dirty_snapshot;
 #[cfg(windows)]
 pub mod cleanup;
+pub mod dirty_snapshot;
 pub mod discovery;
 pub mod git;
 pub mod instructions;
@@ -12,10 +12,10 @@ pub mod merge;
 #[cfg(windows)]
 pub mod mutation;
 pub mod observation;
-pub mod review_findings;
 pub mod path;
 #[cfg(windows)]
 pub mod restore;
+pub mod review_findings;
 pub mod worktree;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

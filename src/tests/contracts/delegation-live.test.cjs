@@ -6,7 +6,8 @@ const runner=require('../../../scripts/evals/delegation-live-runner.cjs');
 const oracle=require('../../../scripts/evals/delegation-generation-oracle.cjs');
 const fixture=path.resolve(__dirname,'../../evals/delegation/generation-v1');
 function pinnedTestGit(){
- const candidates=[process.env.VCP_DELEGATION_TEST_GIT,process.platform==='win32'&&process.env.ProgramFiles?path.join(process.env.ProgramFiles,'Git','cmd','git.exe'):null,'/usr/bin/git','/usr/local/bin/git'].filter(Boolean);
+ const searchPath=Object.entries(process.env).find(([key])=>key.toUpperCase()==='PATH')?.[1]||'';
+ const candidates=[process.env.VCP_DELEGATION_TEST_GIT,...searchPath.split(path.delimiter).filter(Boolean).map(directory=>path.join(directory,process.platform==='win32'?'git.exe':'git')),'/usr/bin/git','/usr/local/bin/git'].filter(Boolean);
  const git=candidates.find(file=>fs.existsSync(file)&&fs.statSync(file).isFile());assert.ok(git,'A real, explicitly located Git executable is required for delegation Git contracts');return path.resolve(git);
 }
 function supportsPermissionRuntime(runtime){const help=spawnSync(runtime,['--help'],{env:{},encoding:'utf8',timeout:3000,windowsHide:true});return !help.error&&help.status===0&&help.stdout.includes('--allow-net');}

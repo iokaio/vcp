@@ -154,6 +154,23 @@ function workspaceInputs(workspace) {
     .map(relative => [relative.replaceAll('\\', '/'), sha(read(path.join(workspace, relative)))]));
 }
 
+function delegationSpec(base, gitExecutable, childCapMicros) {
+  return {
+    version: 1,
+    git: gitExecutable,
+    disposable_parent: path.join(base, 'children'),
+    objective: 'Read observations/source.txt in the bounded synthetic U06 workspace and report observations without edits.',
+    acceptance: ['Report observations from observations/source.txt and any limitations without modifying the workspace.'],
+    mode: 'read_only',
+    read_paths: [''],
+    write_paths: [],
+    untracked_inputs: [],
+    allocation_usd: capUsd(childCapMicros),
+    seconds: 120,
+    required_checks: [],
+  };
+}
+
 function prepare(specFile, destination) {
   const specBytes = read(specFile, 1024 * 1024);
   const spec = JSON.parse(specBytes);
@@ -213,24 +230,15 @@ function prepare(specFile, destination) {
     fs.mkdirSync(children);
     initializeWorkspace(workspace, sources.git.path);
     const derivedProfile = {
-      ...profile, workspace, catalog: sources.catalog.path, budget_usd: capUsd(micros(item.cap_usd)),
+      ...profile,
+      workspace,
+      catalog: sources.catalog.path,
+      budget_usd: capUsd(micros(item.cap_usd)),
+      affected_paths: Object.keys(SYNTHETIC),
     };
     writeExclusive(path.join(base, 'profile.json'), derivedProfile);
     writeExclusive(path.join(base, 'prompt.txt'), sources.task_file.bytes);
-    const childSpec = {
-      version: 1,
-      git: sources.git.path,
-      disposable_parent: children,
-      objective: 'Read observations/source.txt in the bounded synthetic U06 workspace and report observations without edits.',
-      acceptance: ['Report observations from observations/source.txt and any limitations without modifying the workspace.'],
-      mode: 'read_only',
-      read_paths: ['.'],
-      write_paths: [],
-      untracked_inputs: [],
-      allocation_usd: capUsd(micros(item.child_cap_usd)),
-      seconds: 120,
-      required_checks: [],
-    };
+    const childSpec = delegationSpec(base, sources.git.path, micros(item.child_cap_usd));
     writeExclusive(path.join(base, 'delegation.json'), childSpec);
     const cliArguments = [
       '--workspace', workspace,
@@ -278,7 +286,11 @@ function expectedPrepared(plan, item) {
   const workspace = path.join(base, 'workspace');
   const sourceProfile = JSON.parse(read(item.source.profile, 4 * 1024 * 1024));
   const derivedProfile = {
-    ...sourceProfile, workspace, catalog: item.source.catalog, budget_usd: capUsd(item.cap_micros),
+    ...sourceProfile,
+    workspace,
+    catalog: item.source.catalog,
+    budget_usd: capUsd(item.cap_micros),
+    affected_paths: Object.keys(SYNTHETIC),
   };
   const cliArguments = [
     '--workspace', workspace,
@@ -288,6 +300,7 @@ function expectedPrepared(plan, item) {
   ];
   return {
     base, workspace, derivedProfile,
+    childSpec: delegationSpec(base, item.source.git, item.child_cap_micros),
     driver: {executable: item.source.executable, workspace, arguments: cliArguments},
   };
 }
@@ -339,6 +352,10 @@ function validatePlan(file, authorization) {
     const driver = JSON.parse(read(path.join(expected.base, 'driver-spec.json')));
     exactKeys(driver, ['executable', 'workspace', 'arguments'], 'PTY driver spec');
     if (JSON.stringify(driver) !== JSON.stringify(expected.driver)) throw Error(`PTY driver spec changed for ${item.id}`);
+    const childSpec = JSON.parse(read(path.join(expected.base, 'delegation.json')));
+    if (JSON.stringify(childSpec) !== JSON.stringify(expected.childSpec)) {
+      throw Error(`delegation spec changed for ${item.id}`);
+    }
     if (JSON.stringify(workspaceInputs(expected.workspace)) !== JSON.stringify(item.frozen.workspace)) {
       throw Error(`synthetic workspace changed for ${item.id}`);
     }
@@ -359,6 +376,95 @@ function invokeCanonical(executable, args, cwd, timeout = 15000) {
     error: result.error ? String(result.error.message || result.error) : null,
     stdout: result.stdout || '', stderr: result.stderr || '',
   };
+}
+
+function withoutProviderCredential() {
+  const env = {...process.env, RUST_MIN_STACK};
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === 'OPENROUTER_API_KEY') delete env[key];
+  }
+  return env;
+}
+
+function preflight(file, authorization, call = spawnSync) {
+  const plan = validatePlan(file, authorization);
+  const outputFile = path.join(plan.directory, 'preflight-result.json');
+  if (fs.existsSync(outputFile)) throw Error('offline CLI preflight already attempted');
+  const report = {
+    schema: 'p7-delegation-terminal-preflight/1',
+    plan_sha256: authorization,
+    runner_sha256: plan.runner_sha256,
+    status: 'passed',
+    model_calls: 0,
+    cases: [],
+  };
+  for (const item of plan.cases) {
+    const base = path.join(plan.directory, item.id);
+    const driver = JSON.parse(read(path.join(base, 'driver-spec.json')));
+    const preflightData = path.join(base, 'preflight-data');
+    fs.mkdirSync(preflightData, {recursive: false});
+    const args = ['--format', 'jsonl', ...driver.arguments];
+    args[args.indexOf('--data-dir') + 1] = preflightData;
+    const execution = call(item.source.executable, args, {
+      cwd: driver.workspace,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      maxBuffer: 4 * 1024 * 1024,
+      env: withoutProviderCredential(),
+    });
+    const result = {
+      id: item.id,
+      status: execution.status,
+      error: execution.error ? String(execution.error.message || execution.error) : null,
+      stdout: execution.stdout || '',
+      stderr: execution.stderr || '',
+      profile_sha256: item.frozen.generated['profile.json'],
+    };
+    const frames = [];
+    try {
+      for (const line of result.stdout.trim().split(/\r?\n/).filter(Boolean)) frames.push(JSON.parse(line));
+    } catch (_) { /* reported as a failed preflight below */ }
+    const final = frames.findLast(frame => frame.type === 'result');
+    const text = `${result.stdout}\n${result.stderr}`;
+    const preflightFiles = filesUnder(preflightData);
+    const inert = preflightFiles.length === 0 || (preflightFiles.length === 1
+      && /^workspaces[\\/][0-9a-f]{64}[\\/]selection\.lock$/.test(preflightFiles[0])
+      && fs.statSync(path.join(preflightData, preflightFiles[0])).size === 0);
+    if (!preflightFiles.length) fs.rmdirSync(preflightData);
+    result.preflight_files = preflightFiles;
+    result.accepted_profile = execution.status === 2
+      && !result.error
+      && inert
+      && text.includes('OPENROUTER_API_KEY is required')
+      && !text.includes('profile resource or acceptance bounds rejected')
+      && final?.scope == null
+      && final?.exit_code === 2
+      && final?.conditions?.invalid_configuration === true;
+    if (!result.accepted_profile) report.status = 'failed';
+    report.cases.push(result);
+  }
+  writeExclusive(outputFile, report);
+  return report;
+}
+
+function requirePreflight(plan, authorization) {
+  const file = path.join(plan.directory, 'preflight-result.json');
+  if (!fs.existsSync(file)) throw Error('exact offline CLI preflight is required before run');
+  const report = JSON.parse(read(file, 8 * 1024 * 1024));
+  if (report.schema !== 'p7-delegation-terminal-preflight/1'
+      || report.plan_sha256 !== authorization
+      || report.runner_sha256 !== plan.runner_sha256
+      || report.status !== 'passed'
+      || report.model_calls !== 0
+      || !Array.isArray(report.cases)
+      || report.cases.length !== plan.cases.length
+      || report.cases.some((row, index) => row.id !== plan.cases[index].id
+        || row.profile_sha256 !== plan.cases[index].frozen.generated['profile.json']
+        || row.accepted_profile !== true)) {
+    throw Error('offline CLI preflight evidence is missing, failed, or changed');
+  }
+  return report;
 }
 
 function commandData(execution) {
@@ -398,6 +504,16 @@ function inspectAgents(item, driverSpec, discovered, call) {
   return {execution, data};
 }
 
+function positiveCost(value) {
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0;
+  return typeof value === 'string' && /^[1-9][0-9]*$/.test(value);
+}
+
+function childAttemptObserved(data) {
+  return data.items.every(row => row.registration != null
+    && ['known', 'reserved', 'uncertain'].some(field => positiveCost(row.cost?.[field])));
+}
+
 function runCase(plan, item, base, operations = {}) {
   const spawnProcess = operations.spawn || spawn;
   const call = operations.invokeCanonical || invokeCanonical;
@@ -419,6 +535,7 @@ function runCase(plan, item, base, operations = {}) {
     let deadline;
     let killTimer;
     let forceFinishTimer;
+    let readinessTimer;
     let finished = false;
     let driverStarted = false;
     let sentDelegate = false;
@@ -432,6 +549,9 @@ function runCase(plan, item, base, operations = {}) {
     let structuredExit = false;
     let structuredExitCode = null;
     let discovered = null;
+    let readinessStartedAt = null;
+    let readinessPolls = 0;
+    let readinessError = null;
     const stderr = [];
     let outputBytes = 0;
 
@@ -479,6 +599,40 @@ function runCase(plan, item, base, operations = {}) {
       if (requirePaused && inspected.data.items.some(row => row.state !== 'paused')) {
         throw Error('canonical child is not paused');
       }
+      return inspected.data;
+    };
+    const beginTerminalAction = () => {
+      if (item.id === 'pause-resume') {
+        sentPause = true;
+        send('/pause\r');
+      } else {
+        terminate(null);
+      }
+    };
+    const pollAttemptReadiness = () => {
+      if (finished || sentPause || terminationRequested) return;
+      readinessPolls += 1;
+      try {
+        const data = canonicalAgents(false);
+        if (childAttemptObserved(data)) {
+          result.readiness = {
+            polls: readinessPolls,
+            elapsed_ms: Date.now() - readinessStartedAt,
+            basis: 'canonical child cost is known, reserved, or uncertain',
+          };
+          beginTerminalAction();
+          return;
+        }
+        readinessError = 'canonical child has no observed attempt cost';
+        result.canonical.pop();
+      } catch (error) {
+        readinessError = error.message || String(error);
+      }
+      if (Date.now() - readinessStartedAt >= Math.min(20000, Math.max(1000, maxRunMs / 2))) {
+        terminate(`child attempt readiness deadline exceeded: ${readinessError}`);
+        return;
+      }
+      readinessTimer = setTimeout(pollAttemptReadiness, 100);
     };
     const finish = (code, error = null) => {
       if (finished) return;
@@ -486,6 +640,7 @@ function runCase(plan, item, base, operations = {}) {
       clearTimeout(deadline);
       clearTimeout(killTimer);
       clearTimeout(forceFinishTimer);
+      clearTimeout(readinessTimer);
       rl?.close();
       if (error) addFailure(error);
       const text = output.join('');
@@ -563,13 +718,8 @@ function runCase(plan, item, base, operations = {}) {
         if (sentDelegate && !childObserved && markerSeen(text, item.markers.child)) {
           childObserved = true;
           captureWorkspace();
-          if (item.id === 'pause-resume') {
-            send('/pause\r');
-            sentPause = true;
-          } else {
-            canonicalAgents(false);
-            terminate(null);
-          }
+          readinessStartedAt = Date.now();
+          pollAttemptReadiness();
         }
         if (item.id === 'pause-resume' && sentPause && !pauseObserved
             && text.includes(item.markers.paused)) {
@@ -676,8 +826,15 @@ function gradeSnapshots(first, second, item, rootTaskId) {
   return {failures, projection: right, accounting};
 }
 
+function modelCallCount(results) {
+  return results.every(item => Number.isSafeInteger(item.actual_cost_micros))
+    ? results.reduce((sum, item) => sum + item.final_projection.attempts.length, 0)
+    : null;
+}
+
 async function run(file, authorization) {
   const plan = validatePlan(file, authorization);
+  requirePreflight(plan, authorization);
   writeExclusive(path.join(plan.directory, 'execution-claim.json'), {
     schema: 'p7-delegation-terminal-claim/1', plan_sha256: authorization,
     overall_cap_micros: plan.overall_cap_micros,
@@ -689,6 +846,7 @@ async function run(file, authorization) {
   for (const item of plan.cases) {
     const base = path.join(plan.directory, item.id);
     const result = await runCase(plan, item, base);
+    result.discovered ||= discoverWorkspace(item.data_dir);
     const exportA = path.join(base, 'snapshot-a.json');
     const exportB = path.join(base, 'snapshot-b.json');
     const unavailable = {
@@ -734,9 +892,7 @@ async function run(file, authorization) {
     schema: 'p7-delegation-terminal-result/1', plan_sha256: authorization,
     status: output.every(item => item.status === 'observed') ? 'observed' : 'failed',
     cases: output,
-    model_calls: output.reduce(
-      (sum, item) => sum + (item.final_projection?.attempts.length || 0), 0,
-    ),
+    model_calls: modelCallCount(output),
     actual_cost_micros: allCanonical
       ? output.reduce((sum, item) => sum + item.actual_cost_micros, 0)
       : null,
@@ -756,15 +912,16 @@ async function run(file, authorization) {
 
 function parseArgs(argv) {
   const [command, file, extra, ...rest] = argv;
-  if (rest.length || !command || !file || !extra || !['prepare', 'run'].includes(command)) {
-    throw Error('Usage: delegation-terminal-runner.cjs prepare <spec.json> <new-private-dir> | run <plan.json> <authorized-plan-sha256>');
+  if (rest.length || !command || !file || !extra || !['prepare', 'preflight', 'run'].includes(command)) {
+    throw Error('Usage: delegation-terminal-runner.cjs prepare <spec.json> <new-private-dir> | preflight|run <plan.json> <authorized-plan-sha256>');
   }
   return {command, file, extra};
 }
 
 module.exports = {
   micros, profileReasons, validateSpec, prepare, validatePlan, discoverWorkspace,
-  runCase, snapshotProjection, gradeSnapshots, run,
+  preflight, requirePreflight, childAttemptObserved, runCase, snapshotProjection, gradeSnapshots,
+  modelCallCount, run,
 };
 
 if (require.main === module) {
@@ -773,9 +930,11 @@ if (require.main === module) {
       const args = parseArgs(process.argv.slice(2));
       const value = args.command === 'prepare'
         ? prepare(args.file, args.extra)
-        : await run(args.file, args.extra);
+        : args.command === 'preflight'
+          ? preflight(args.file, args.extra)
+          : await run(args.file, args.extra);
       console.log(JSON.stringify(value, null, 2));
-      if (args.command === 'run' && value.status !== 'observed') process.exitCode = 1;
+      if (args.command !== 'prepare' && !['passed', 'observed'].includes(value.status)) process.exitCode = 1;
     } catch (error) {
       console.error(error.message || String(error));
       process.exitCode = 1;

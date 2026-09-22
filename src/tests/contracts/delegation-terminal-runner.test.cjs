@@ -124,17 +124,46 @@ test('preparation creates fresh Git workspaces and freezes exact PTY controls be
     assert.equal(prepared.prior_exposure_micros, 500000);
     const plan = runner.validatePlan(prepared.plan, prepared.plan_sha256);
     assert.equal(plan.cases.length, 2);
+    assert.throws(
+      () => runner.requirePreflight(plan, prepared.plan_sha256),
+      /preflight is required/,
+    );
+    let preflightCalls = 0;
+    const preflight = runner.preflight(prepared.plan, prepared.plan_sha256, (executable, args, options) => {
+      preflightCalls += 1;
+      assert.equal(executable, files.executable);
+      assert.equal(args[0], '--format');
+      assert.equal(args[1], 'jsonl');
+      assert.match(args[args.indexOf('--data-dir') + 1], /preflight-data$/);
+      assert.equal(Object.keys(options.env).some(key => key.toUpperCase() === 'OPENROUTER_API_KEY'), false);
+      return {
+        status: 2, error: null,
+        stdout: `${JSON.stringify({
+          type: 'result', scope: null, exit_code: 2,
+          conditions: {invalid_configuration: true},
+        })}\n`,
+        stderr: 'vcp: OPENROUTER_API_KEY is required\n',
+      };
+    });
+    assert.equal(preflight.status, 'passed');
+    assert.equal(preflightCalls, 2);
+    assert.equal(runner.requirePreflight(plan, prepared.plan_sha256).status, 'passed');
     const base = path.join(destination, 'pause-resume');
     const driver = JSON.parse(fs.readFileSync(path.join(base, 'driver-spec.json')));
     assert.deepEqual(Object.keys(driver).sort(), ['arguments', 'executable', 'workspace']);
     assert.deepEqual(driver.arguments.slice(0, 2), ['--workspace', path.join(base, 'workspace')]);
     assert.equal(driver.arguments[driver.arguments.indexOf('--file') + 1], path.join(base, 'prompt.txt'));
     assert.equal(fs.readFileSync(path.join(base, 'prompt.txt'), 'utf8'), fs.readFileSync(files.prompt, 'utf8'));
+    const derivedProfile = JSON.parse(fs.readFileSync(path.join(base, 'profile.json')));
+    assert.deepEqual(derivedProfile.affected_paths, [
+      'README.synthetic.txt', 'observations/source.txt',
+    ]);
     const child = JSON.parse(fs.readFileSync(path.join(base, 'delegation.json')));
     for (const field of [
       'git', 'disposable_parent', 'objective', 'acceptance', 'mode', 'read_paths',
       'write_paths', 'untracked_inputs', 'allocation_usd', 'seconds',
     ]) assert.ok(Object.hasOwn(child, field), field);
+    assert.deepEqual(child.read_paths, ['']);
     assert.equal(spawnSync(files.git, ['status', '--porcelain'], {
       cwd: path.join(base, 'workspace'), encoding: 'utf8',
     }).stdout, '');
@@ -202,6 +231,12 @@ test('snapshot grading ignores reopen revisions but requires stable tasks, attem
   assert.match(active.failures.join('; '), /active liability/);
   const invented = runner.gradeSnapshots(first, snapshot({settled: '6'}), {cap_micros: 1000000}, 'root');
   assert.match(invented.failures.join('; '), /charges do not match/);
+  assert.equal(runner.modelCallCount([
+    {actual_cost_micros: null, final_projection: {attempts: [{id: 'partial'}]}},
+  ]), null);
+  assert.equal(runner.modelCallCount([
+    {actual_cost_micros: 5, final_projection: {attempts: [{id: 'main'}, {id: 'child'}]}},
+  ]), 2);
 });
 
 test('runCase spawns the frozen PTY driver and completes the pause protocol with a mock transport', async () => {
@@ -252,19 +287,28 @@ test('runCase spawns the frozen PTY driver and completes the pause protocol with
         paused: 'U06-PAUSED-ACK', resumed: 'U06-RESUMED-ACK',
       },
     };
+    let canonicalCalls = 0;
     const result = await runner.runCase({}, item, root, {
       spawn,
       discoverWorkspace: () => ({path: 'workspace.json', root_task_id: 'root'}),
-      invokeCanonical: () => ({
-        status: 0, error: null, stderr: '',
-        stdout: `${JSON.stringify({
-          type: 'result', exit_code: 0,
-          data: {items: [{state: 'paused', registration: {workspace: root}}]},
-        })}\n`,
-      }),
+      invokeCanonical: () => {
+        canonicalCalls += 1;
+        return {
+          status: 0, error: null, stderr: '',
+          stdout: `${JSON.stringify({
+            type: 'result', exit_code: 0,
+            data: {items: [{
+              state: 'paused', registration: {workspace: root},
+              cost: {known: 0, reserved: canonicalCalls === 1 ? 0 : 1, uncertain: 0},
+            }]},
+          })}\n`,
+        };
+      },
       maxRunMs: 2000,
     });
     assert.equal(spawned, true);
+    assert.ok(canonicalCalls >= 3);
+    assert.equal(result.readiness.polls, 2);
     assert.deepEqual(result.failures, []);
     assert.equal(result.status, 'transport_observed');
   } finally {
@@ -311,7 +355,7 @@ test('runCase sends terminate first and returns a bounded failure when a driver 
 });
 
 const packagedDriver = process.env.VCP_DELEGATION_PTY_DRIVER
-  || path.resolve(__dirname, '../../../artifacts/p7-owner-native-package/delegation-pty-driver.exe');
+  || path.resolve(__dirname, '../../../artifacts/p7-owner-native-package-v2/delegation-pty-driver.exe');
 
 test('runCase uses the actual PTY driver for pause/resume and hard-close transports', {
   skip: process.platform !== 'win32' || !fs.existsSync(packagedDriver),
@@ -353,7 +397,11 @@ test('runCase uses the actual PTY driver for pause/resume and hard-close transpo
           status: 0, error: null, stderr: '',
           stdout: JSON.stringify({
             type: 'result', exit_code: 0,
-            data: {items: [{state: id === 'pause-resume' ? 'paused' : 'running', registration: {workspace: root}}]},
+            data: {items: [{
+              state: id === 'pause-resume' ? 'paused' : 'running',
+              registration: {workspace: root},
+              cost: {known: 0, reserved: 1, uncertain: 0},
+            }]},
           }) + '\n',
         });
         const result = await runner.runCase({}, item, root, {
