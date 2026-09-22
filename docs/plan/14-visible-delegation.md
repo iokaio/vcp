@@ -4,8 +4,9 @@ Status: implementation and qualification in progress; see [the implemented owner
 
 The [2026-09-22 qualification checkpoint](../evaluations/p7-live-qualification-2026-09-22.md)
 records delivered helper/cleanup/review/control refinements and paired Luna/Qwen
-results. Useful generation has current-parent evidence; formal live review and
-the broader interruption schedule remain open. Delivery of the implemented
+results. The subsequent [quality retest](../evaluations/p7-qwen38-reasoning-budget-2026-09-22.md)
+qualifies paired Luna/Qwen review and generation, with current-parent generation
+evidence. The broader interruption schedule remains open. Delivery of this quality
 increment does not mark all three work items complete.
 
 ## Code organization

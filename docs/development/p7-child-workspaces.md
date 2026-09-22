@@ -153,8 +153,8 @@ installation or model switch is implied by selecting a helper.
 child process verification, lists declared checks not run and retains the setup
 reason. A recorded readiness receipt still requires native identity revalidation
 before dispatch. [Luna's revised review comparison passes](../evaluations/p7-review-generation-quality-2026-09-22.md);
-The [Qwen 3.8 generation retest passes](../evaluations/p7-qwen38-reasoning-budget-2026-09-22.md),
-while paired Qwen review usefulness qualification remains open.
+The [Qwen 3.8 review pair and generation retest pass](../evaluations/p7-qwen38-reasoning-budget-2026-09-22.md),
+with manual-usefulness caveats recorded separately from the strict grade.
 
 Deliberate cleanup uses `/agents cleanup preview <task> <absolute-git.exe>`,
 then `/agents cleanup apply <task>`. The child must be terminal and have no

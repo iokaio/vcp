@@ -6,6 +6,11 @@ adjusting token budgets for reasoning models. This follow-up preserves the
 Luna's passing results and every failed Qwen3 Coder attempt. It does not qualify
 the old model by substituting results from a different model.
 
+Final checkpoint: the [360-second review pair](#360-second-review-pair) passes
+strict live grading in both arms. Together with the 44/44 current-parent generation
+result below, this closes the selected Qwen quality retest. Broader P7 interruption
+and recovery qualification remains open.
+
 ## Exact provider and initial results
 
 A fresh catalog selected `qwen/qwen3.8-max-0902` at `alibaba`. Two fixed synthetic
@@ -76,7 +81,7 @@ timeout. Request eight hit that timeout after seven settled requests costing
 USD 0.053864. Its USD 6.492808 unknown-charge bound remains reserved; there was no
 completed answer, and the child arm was not dispatched. The plan remains intact.
 
-The owner then selected **180 seconds per response**. Trusted profiles now accept
+The owner then selected **180 seconds per response**. That change accepted
 an explicit `provider_timeout_seconds` of 1..180, no greater than the task
 deadline. Omitted values remain 120 seconds. The existing lifecycle also clamps
 each request to the remaining configured coding deadline and preserves it
@@ -136,9 +141,9 @@ Its SHA-256 is
 `ef062044b7e1a7e4c51920c2082452c395044962246ed807c97b4948e077312b`.
 It confirms unchanged fixture bytes and the absence of a gradable final answer.
 
-Qwen 3.8 generation is qualified for this fixture, but its paired review gate
-remains open. Further live trials stopped at the owner's selected 180-second
-response limit. P7-05 is not complete, and the PR remains draft; neither useful
+At this 180-second checkpoint, Qwen 3.8 generation was qualified for this fixture,
+but its paired review gate remained open. Trials stopped at the owner's selected
+response limit, and the PR remained draft; neither useful
 manual findings nor a historical baseline regrade substitutes for a passing pair.
 
 The Qwen 3.8 follow-up has USD **0.860910** in known settled charges and USD
@@ -162,3 +167,61 @@ After the final historical-mode restriction, the repository fast gate passed all
 The 16 focused grader contracts also passed after that restriction. Independent
 final review found no material issues in the strict grading boundary, reported
 results, accounting totals or retained artifact hashes.
+
+## 360-second review pair
+
+The owner requested a fresh pair at **360 seconds per response**. CLI settings,
+lifecycle admission and the preparation gate now accept explicit values in
+1..360; the default remains 120 seconds. Explicit values cannot exceed the task
+deadline, and each admitted response is still clamped to the remaining configured
+coding deadline. This trial retained 16384 total output tokens, 16 requests per
+arm, 900 seconds per task and zero transport retries. The prompt, strict grader,
+fixtures, source-evidence requirements and numeric oracle did not change.
+
+The fresh plan SHA-256 is
+`66589dc230119c22ba8ee3f29162286ef26fc7cb94cceac7f2d0eef10cd76af6`,
+using adapter
+`8348224682453ffa9e6b83748309fe957c27f534623373d83a90762536d2505c`.
+
+| Arm | Strict grade | Requests | Seconds | Settled USD |
+| --- | --- | ---: | ---: | ---: |
+| Baseline | 2/2 defects, zero false positives | 9 | 312.297 | 0.140654 |
+| Review child | 2/2 defects, zero false positives | 7 | 222.027 | 0.105532 |
+
+Both answered with plain JSON and numeric reproduction values. No historical
+annotation normalization or fence removal was applied. Both have zero unqualified
+or duplicate findings. All USD **0.246186** settled, with no new unresolved charge.
+
+Manual review independently confirms actionable triggers, consequences and
+introduced/pre-existing causality. Both arms read all seven source/reference
+files; all 18 readable citations resolve to observed canonical reads and frozen
+source hashes. Static review is disclosed honestly without claiming executable
+checks. Each arm clearly separates one advisory suggestion from its two defects.
+The baseline overstates the tax defect as affecting every fractional result,
+although fractions below 0.5 already agree with half-up rounding. The child states
+the correct affected range but mistakenly calls 77.5 a non-half example. Their
+primary numeric reproductions are correct; these wording limitations are retained
+and do not invalidate the supported, actionable findings.
+
+The metadata-only audit `artifacts/p705-qwen38-360-review-audit.json` binds the
+strict grader, raw answer digests, canonical evidence, source integrity and
+accounting. Its SHA-256 is
+`d7cbfc86ef635eddeb1c3403eeebb6bfe890e742764de243222cfca75577ab91`.
+Independent final review agrees with the quality disposition. This closes the
+selected review/generation refinement, not broader P7-05 interruption/recovery
+acceptance. A small passing pair does not establish a population-level model
+ranking or guarantee future completion at this timeout.
+
+The Qwen 3.8 follow-up now totals USD **1.107096** known settled and USD
+**12.985616** reserved for earlier unresolved requests. Whole-campaign totals are
+USD **1.247562** settled and USD **34.127269** reserved, within the USD 100 cap.
+Earlier failures and reservations remain intact. The new summary
+`artifacts/p705-qwen38-360-summary.json` has SHA-256
+`157c53cc06b07a1a3005d004a65531e91db3099e9110e37a9d5a34526b773cad`.
+
+For the 360-second change, nine profile-runner contracts, four native settings
+tests, three provider-timeout tests (both stores), one retry regression (both
+stores) and two adapter tests pass. Adapter build, affected Clippy (existing
+warnings), changed Rust formatting and diff checks pass. All 17 repository fast
+stages pass at
+`artifacts/p705-qwen38-360-fast/86db5e11-9979-4edd-9271-57a1b520bc9b/manifest.json`.

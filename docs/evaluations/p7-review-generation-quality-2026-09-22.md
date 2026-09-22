@@ -6,8 +6,8 @@ The [earlier paired campaign](p7-live-qualification-2026-09-22.md) remains intac
 including its failed reviews, Qwen request-limit failure and unresolved charges.
 
 The subsequent [Qwen 3.8 follow-up](p7-qwen38-reasoning-budget-2026-09-22.md)
-passes generation at 44/44 checks in 14 requests. Its paired review gate remains
-open after retesting with 16384 output tokens and a 180-second response timeout.
+passes generation at 44/44 checks in 14 requests. Both review arms pass after
+retesting with 16384 output tokens and a 360-second response timeout.
 The Qwen3 Coder observations below remain historical and unchanged.
 
 ## Evidence grading and guidance
@@ -102,7 +102,7 @@ remain correct. The frozen path-or-artifact rubric accepts those supported sourc
 citations, while `artifacts/p705-review-manual-audit-final.json` explicitly records
 the UUID defects. The passing gate does not certify every appended artifact ID.
 
-Qwen has no passing review pair in this increment. Rate-limited runs and malformed
+Qwen3 Coder had no passing review pair in this increment. Rate-limited runs and malformed
 tool calls are failures, not evidence of zero defects or a passing empty review.
 P7-05 remains in progress; these small samples do not establish population-level
 quality or speed rankings.
@@ -138,9 +138,10 @@ Private summary `artifacts/p705-live-summary.json` has SHA-256
 `5d0249b2e3ca673cdb35899990c3d5dd009012972d7b18e088eeee23410c4373`.
 Original plans/results and separate offline regrade receipts are retained.
 
-Remaining acceptance is a passing Qwen review pair and generation result under
-the same fixed limits. The code and evidence are reviewable, but this increment
-does not close that gate or justify merging it as completed P7-05 qualification.
+At this original checkpoint, a passing Qwen review pair and generation result
+under the fixed limits remained required. This checkpoint did not close that
+gate. The subsequent follow-up linked above records the owner-selected model,
+changed token/response allowances and passing results separately.
 
 ## Verification
 
