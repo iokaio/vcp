@@ -1,0 +1,230 @@
+{
+  "schema": "p8-qualification-manifest/1",
+  "revision": "p8-native-recovery-history-v2",
+  "description": "Bounded P8 readiness rows mapped to existing native Rust tests. A row without a command is an explicit qualification gap.",
+  "workspace": "src/third_party/codex/codex-rs",
+  "default_timeout_seconds": 1800,
+  "cases": [
+    {
+      "id": "p8-01-cli-child-pause",
+      "work_item": "P8-01",
+      "area": "native_process",
+      "title": "Native CLI child pause fences both requests",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "vcp-cli executable test exercises a real child and pause barrier",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "executable", "executable_terminal_delegates_real_child_and_pause_fences_both_requests", "--", "--exact"]
+    },
+    {
+      "id": "p8-01-cli-hard-close-recovery",
+      "work_item": "P8-01",
+      "area": "native_process",
+      "title": "Native CLI hard close reopens active children without dispatch",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "vcp-cli executable test exercises process close and reopen",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "executable", "executable_terminal_hard_close_reopens_two_active_children_without_dispatch", "--", "--exact"]
+    },
+    {
+      "id": "p8-01-cli-same-process-pause",
+      "work_item": "P8-01",
+      "area": "native_process",
+      "title": "Same-process pause, steering and resume",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "vcp-cli executable test keeps the terminal open across pause/resume",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "executable", "executable_terminal_pauses_steers_resizes_and_resumes_in_same_console", "--", "--exact"]
+    },
+    {
+      "id": "p8-01-native-policy-broker",
+      "work_item": "P8-01",
+      "area": "native_policy",
+      "title": "Native file broker revalidates policy and source versions",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "canonical_host native broker test",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "native_file_broker_enforces_current_policy_approvals_and_source_versions", "--", "--exact"]
+    },
+    {
+      "id": "p8-01-packaged-cli-assets",
+      "work_item": "P8-01",
+      "area": "packaged",
+      "title": "Packaged CLI skills are relocatable and integrity checked",
+      "required": true,
+      "requires": ["native_windows", "cargo", "packaged_artifact"],
+      "evidence": "VCP_TEST_SKILL_PACKAGE points to the exact extracted package used by the executable test; relocation, lazy reads and integrity tampering are observed",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "executable", "executable_packaged_skills_are_relocatable_lazy_and_integrity_checked", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-child-graph-both-backends",
+      "work_item": "P8-02",
+      "area": "recovery",
+      "title": "Child registration and cancellation remain durable",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "vcp-engine child graph fixture iterates files and SQLite backends",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-engine", "--test", "child_graph", "child_registration_is_atomic_bounded_and_durable_on_both_backends", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-fresh-process-history",
+      "work_item": "P8-02",
+      "area": "process_recovery",
+      "title": "Fresh process recovery preserves unknown process, child and late charge",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "canonical_host fresh-process recovery fixture",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "fresh_process_history_preserves_actual_unknown_process_paused_child_and_late_charge", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-store-process-kill",
+      "work_item": "P8-02",
+      "area": "process_recovery",
+      "title": "Independent store process kill recovers atomic receipt",
+      "required": true,
+      "requires": ["cargo"],
+      "evidence": "vcp-store process recovery fixture",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-store", "--features", "qualification", "--test", "process_recovery", "independent_process_kills_recover_atomic_receipt_and_release_real_owner_lock", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-snapshot-job-recovery",
+      "work_item": "P8-02",
+      "area": "recovery",
+      "title": "Snapshot job process kill retains restartable state",
+      "required": true,
+      "requires": ["cargo"],
+      "evidence": "vcp-store snapshot job fault schedule",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-store", "--test", "snapshot_jobs", "process_kill_job_recovery_at_durable_boundaries", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-restore-process-recovery",
+      "work_item": "P8-02",
+      "area": "recovery",
+      "title": "Restore process kill reconciles owned import",
+      "required": true,
+      "requires": ["cargo"],
+      "evidence": "vcp-store restore stage process recovery fixture",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-store", "--test", "restore_stage", "process_kill_restore_reconciles_owned_import_without_replaying_authority_reset", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-child-cleanup-faults",
+      "work_item": "P8-02",
+      "area": "cleanup",
+      "title": "Child cleanup retains intent across lock and partial failure",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "vcp-repository child workspace cleanup fixtures",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-repository", "--test", "child_workspaces", "cleanup_native_partial_failure_retains_intent_and_marker_for_retry", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-child-cleanup-retention-references",
+      "work_item": "P8-02",
+      "area": "cleanup",
+      "title": "Cleanup references retain child artifacts on both stores",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "canonical_host child cleanup fixture iterates files and SQLite backends and checks intent/result/diagnostic references after failure and reopen",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "child_cleanup::child_cleanup_retains_durable_intent_and_results_and_reconciles_only_original_root", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-child-cleanup-receipt-publish-interruption",
+      "work_item": "P8-02",
+      "area": "cleanup",
+      "title": "Cleanup receipt publication interruption reconciles after native deletion",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "supervisor kills a child process after native removal and before receipt publication, then reopens both stores and publishes the retained cleanup receipt",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "child_cleanup_receipt_fault::child_cleanup_receipt_publication_process_kill_reopens_and_reconciles_both_stores", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-history-binary-inspection",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "History inspection preserves binary bytes and scope",
+      "required": true,
+      "requires": ["cargo"],
+      "evidence": "vcp-audit history inspection fixture",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-audit", "--test", "history", "inspection_ranges_preserve_binary_bytes_and_enforce_current_scope", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-history-compaction-reopen",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "Compaction remains presentation-only and raw history survives",
+      "required": true,
+      "requires": ["cargo"],
+      "evidence": "vcp-audit history compaction fixture",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-audit", "--test", "history", "browser_compaction_is_presentation_and_exclusion_keeps_raw_history", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-vault-crypto-tamper",
+      "work_item": "P8-03",
+      "area": "encryption",
+      "title": "Vault rejects wrong key, tampering and truncation",
+      "required": true,
+      "requires": ["cargo"],
+      "evidence": "vcp-store vault crypto fixture",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-store", "--test", "vault_crypto", "wrong_key_header_payload_tamper_and_truncated_final_chunk_reject", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-vault-writer-enrollment",
+      "work_item": "P8-03",
+      "area": "encryption",
+      "title": "Public recipient cannot enroll an unauthorized writer",
+      "required": true,
+      "requires": ["cargo"],
+      "evidence": "vcp-store vault writer trust fixture",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-store", "--test", "vault_crypto", "public_recipient_cannot_enroll_writer_or_bypass_signature_or_payload_inventory", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-review-findings",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "Structured review findings retain revision and uncertainty",
+      "required": true,
+      "requires": ["cargo"],
+      "evidence": "vcp-repository review finding contract tests",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-repository", "--test", "review_findings", "structured_roundtrip_keeps_scope_uncertainty_and_revision", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-key-publication-exclusion",
+      "work_item": "P8-03",
+      "area": "encryption",
+      "title": "Publication requires an independently read recovery copy and public configuration excludes secrets",
+      "required": true,
+      "requires": ["cargo"],
+      "evidence": "vcp-store recovery-copy and public configuration boundary",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-store", "--test", "key_publication", "only_an_independently_read_recovery_copy_enables_publication_and_public_config_contains_no_secret", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-key-rotation",
+      "work_item": "P8-03",
+      "area": "encryption",
+      "title": "Rotation preserves recovery while revocation and deletion floors reject stale replay",
+      "required": true,
+      "requires": ["cargo"],
+      "evidence": "vcp-store key rotation and revocation fixture",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-store", "--test", "key_publication", "rotation_preserves_old_recovery_but_revocation_replay_forks_and_deletion_floors_reject", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-native-key-handoff",
+      "work_item": "P8-03",
+      "area": "encryption",
+      "title": "Independent local recovery copies rotate and import without serializing secrets",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Native CLI key-store fixture with separate local directories; not a second machine",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "backup_keys", "independent_key_copies_rotate_without_serializing_secrets_and_import_on_fresh_host", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-packaged-encrypted-recovery",
+      "work_item": "P8-03",
+      "area": "packaged_encryption",
+      "title": "Exact package performs second-machine encrypted recovery",
+      "required": true,
+      "requires": ["native_windows", "packaged_artifact", "age_binary", "second_machine_fixture"],
+      "evidence": "requires packaged distribution and independent recovery environment; no checkout command can establish this row",
+      "command": null,
+      "gap": true
+    }
+  ]
+}

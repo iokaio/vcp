@@ -16,7 +16,9 @@
       "p6-profile-qualification",
       "p6-bootstrap-profiles",
       "p6-decision-comparison",
-      "p7-delegation"
+      "p7-delegation",
+      "p8-qualification",
+      "p8-distribution"
     ],
     "repository": [
       "repository"
@@ -36,6 +38,22 @@
     ]
   },
   "cases": {
+    "p8-qualification": {
+      "task_ids": ["P8-01", "P8-02", "P8-03"],
+      "args": ["--test", "src/tests/contracts/p8-qualification-runner.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
+    "p8-distribution": {
+      "task_ids": ["P8-04"],
+      "args": ["--test", "src/tests/contracts/package-inventory.test.cjs", "src/tests/contracts/package-install.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
     "p7-delegation": {
       "task_ids": ["P7-04", "P7-05", "P7-06"],
       "args": ["--test", "src/tests/contracts/delegation-live.test.cjs", "src/tests/contracts/delegation-terminal-runner.test.cjs"],
