@@ -250,7 +250,30 @@ test('snapshot grading ignores reopen revisions but requires stable tasks, attem
   ]), 2);
 });
 
-test('runCase spawns the frozen PTY driver and completes the pause protocol with a mock transport', async () => {
+test('terminal result decoding accepts only a non-failing durable pause', () => {
+  const frame = {
+    conditions: {internal_failure: false, durably_paused: true, unresolved_effect: false},
+    exit_code: 8, scope: {task: 'root'}, type: 'result',
+  };
+  const wrapped = `${JSON.stringify(frame).replace(
+    'false', 'fals\r\n\x1b[39;140Hse',
+  )}\r\n`;
+  assert.deepEqual(runner.finalTerminalResult(wrapped, 0), frame);
+  assert.equal(runner.terminalResultReason(frame, 8, 'root'), null);
+  assert.equal(runner.terminalResultReason({
+    ...frame,
+    conditions: {...frame.conditions, unresolved_effect: true},
+    exit_code: 7,
+  }, 7, 'root'), null);
+  assert.match(runner.terminalResultReason({
+    ...frame,
+    conditions: {...frame.conditions, internal_failure: true, unresolved_effect: true},
+    exit_code: 7,
+  }, 7, 'root'), /not a non-failing durable pause/);
+  assert.match(runner.terminalResultReason({...frame, exit_code: 1}, 1, 'root'), /not a non-failing durable pause/);
+});
+
+test('runCase bounds resume readiness probes through parent and producer drain', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-u06-mock-'));
   try {
     fs.writeFileSync(path.join(root, 'driver-spec.json'), JSON.stringify({
@@ -259,7 +282,9 @@ test('runCase spawns the frozen PTY driver and completes the pause protocol with
     fs.writeFileSync(path.join(root, 'delegation.json'), '{}');
     let spawned = false;
     let parentDrained = false;
-    let resumedBeforeDrain = false;
+    let resumeAttempts = 0;
+    let quiescenceRejections = 0;
+    let acceptedBeforeDrain = false;
     const spawn = (executable, args, options) => {
       spawned = true;
       assert.equal(executable, 'frozen-driver.exe');
@@ -284,11 +309,32 @@ test('runCase spawns the frozen PTY driver and completes the pause protocol with
               })}\n`);
             });
           } else if (control.action === 'write' && control.text.includes('/resume')) {
-            resumedBeforeDrain = !parentDrained;
-            child.stdout.write(`${JSON.stringify({type: 'output', text: 'U06-RESUMED-ACK\n'})}\n`);
+            resumeAttempts += 1;
+            if (!parentDrained) {
+              child.stdout.write(`${JSON.stringify({
+                type: 'output',
+                text: 'Command rejected: wait for the current turn, steering, shadow evaluation and MCP control to drain before /resume\n',
+              })}\n`);
+            } else if (quiescenceRejections < 2) {
+              quiescenceRejections += 1;
+              child.stdout.write(`${JSON.stringify({
+                type: 'output',
+                text: 'Command rejected: recovery waits for scheduler and result producers to become quiescent\n',
+              })}\n`);
+            } else {
+              acceptedBeforeDrain = !parentDrained;
+              child.stdout.write(`${JSON.stringify({type: 'output', text: 'U06-RESUMED-ACK\n'})}\n`);
+            }
           } else if (control.action === 'write' && control.text.includes('/exit')) {
-            child.stdout.write(`${JSON.stringify({type: 'exit', code: 0})}\n`);
-            setImmediate(() => child.emit('close', 0));
+            child.stdout.write(`${JSON.stringify({
+              type: 'output',
+              text: `${JSON.stringify({
+                conditions: {internal_failure: false, durably_paused: true, unresolved_effect: false},
+                exit_code: 8, scope: {task: 'root'}, type: 'result',
+              })}\n`,
+            })}\n`);
+            child.stdout.write(`${JSON.stringify({type: 'exit', code: 8})}\n`);
+            setImmediate(() => child.emit('close', 8));
           }
           done();
         },
@@ -328,9 +374,10 @@ test('runCase spawns the frozen PTY driver and completes the pause protocol with
       maxRunMs: 2000,
     });
     assert.equal(spawned, true);
-    assert.ok(canonicalCalls >= 3);
+    assert.equal(canonicalCalls, 6);
     assert.equal(result.readiness.polls, 2);
-    assert.equal(resumedBeforeDrain, false);
+    assert.equal(resumeAttempts, 4);
+    assert.equal(acceptedBeforeDrain, false);
     assert.deepEqual(result.failures, []);
     assert.equal(result.status, 'transport_observed');
   } finally {
@@ -376,6 +423,77 @@ test('runCase sends terminate first and returns a bounded failure when a driver 
   }
 });
 
+test('runCase terminates promptly when resume is rejected for a non-drain reason', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-u06-resume-rejected-'));
+  try {
+    fs.writeFileSync(path.join(root, 'driver-spec.json'), JSON.stringify({
+      executable: 'synthetic-cli.exe', workspace: root, arguments: [],
+    }));
+    fs.writeFileSync(path.join(root, 'delegation.json'), '{}');
+    const spawn = () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = () => {};
+      child.stdin = new Writable({
+        write(bytes, _encoding, done) {
+          const control = JSON.parse(bytes.toString('utf8'));
+          if (control.action === 'write' && control.text.includes('/agents delegate')) {
+            child.stdout.write(`${JSON.stringify({type: 'output', text: 'U06-CHILD-STARTED\n'})}\n`);
+          } else if (control.action === 'write' && control.text.includes('/pause')) {
+            child.stdout.write(`${JSON.stringify({
+              type: 'output',
+              text: 'U06-PAUSED-ACK\nParent turn interrupted; inspect current state before explicit /resume.\n',
+            })}\n`);
+          } else if (control.action === 'write' && control.text.includes('/resume')) {
+            child.stdout.write(`${JSON.stringify({
+              type: 'output', text: 'Command rejected: canonical capture/admission fenced; reopen required\n',
+            })}\n`);
+          } else if (control.action === 'terminate') {
+            child.stdout.write(`${JSON.stringify({type: 'exit', code: 1})}\n`);
+            setImmediate(() => child.emit('close', 1));
+          }
+          done();
+        },
+      });
+      process.nextTick(() => {
+        child.stdout.write(`${JSON.stringify({type: 'started'})}\n`);
+        child.stdout.write(`${JSON.stringify({type: 'output', text: 'U06-READY\n'})}\n`);
+      });
+      return child;
+    };
+    const started = Date.now();
+    const result = await runner.runCase({}, {
+      id: 'pause-resume', cap_micros: 1000000, child_cap_micros: 250000,
+      data_dir: path.join(root, 'data'),
+      source: {pty_driver: 'driver.exe', executable: 'synthetic-cli.exe'},
+      markers: {
+        startup: ['U06-READY'], child: ['U06-CHILD-STARTED'],
+        paused: 'U06-PAUSED-ACK', resumed: 'U06-RESUMED-ACK',
+      },
+    }, root, {
+      spawn,
+      discoverWorkspace: () => ({path: 'workspace.json', root_task_id: 'root'}),
+      invokeCanonical: () => ({
+        status: 0, error: null, stderr: '',
+        stdout: `${JSON.stringify({
+          type: 'result', exit_code: 0,
+          data: {items: [{
+            state: 'paused', registration: {workspace: root},
+            cost: {known: 0, reserved: 1, uncertain: 0},
+          }]},
+        })}\n`,
+      }),
+      maxRunMs: 2000,
+    });
+    assert.ok(Date.now() - started < 1000);
+    assert.match(result.failures.join('; '), /reason other than bounded transient readiness/);
+    assert.doesNotMatch(result.failures.join('; '), /deadline exceeded/);
+  } finally {
+    fs.rmSync(root, {recursive: true, force: true});
+  }
+});
+
 const packagedDriver = process.env.VCP_DELEGATION_PTY_DRIVER
   || path.resolve(__dirname, '../../../artifacts/p7-owner-native-package-v2/delegation-pty-driver.exe');
 
@@ -397,7 +515,7 @@ test('runCase uses the actual PTY driver for pause/resume and hard-close transpo
           " if (!delegated && input.includes('/agents delegate')) { delegated = true; process.stdout.write('U06-CHILD-STARTED\\n'); }",
           " if (!paused && input.includes('/pause')) { paused = true; process.stdout.write('U06-PAUSED-ACK\\nParent turn interrupted; inspect current state before explicit /resume.\\n'); }",
           " if (!resumed && input.includes('/resume')) { resumed = true; process.stdout.write('U06-RESUMED-ACK\\n'); }",
-          " if (input.includes('/exit')) process.exit(0);",
+          " if (input.includes('/exit')) { process.stdout.write(JSON.stringify({conditions:{internal_failure:false,durably_paused:true,unresolved_effect:false},exit_code:8,scope:{task:'root'},type:'result'})+'\\n'); process.exit(8); }",
           '});',
           'setInterval(() => {}, 1000);',
         ].join('\n'));
@@ -435,6 +553,9 @@ test('runCase uses the actual PTY driver for pause/resume and hard-close transpo
         assert.equal(result.status, 'transport_observed');
         assert.ok(result.transcript.some(row => row.event?.type === 'started'));
         assert.ok(result.transcript.some(row => row.event?.type === 'exit'));
+        if (id === 'pause-resume') {
+          assert.equal(result.transcript.filter(row => row.control?.text === '/resume\r').length, 1);
+        }
       } finally {
         fs.rmSync(root, {recursive: true, force: true});
       }

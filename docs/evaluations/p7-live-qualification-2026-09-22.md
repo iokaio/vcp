@@ -88,6 +88,33 @@ failure. Its separate hard-close case passed in 5.538 seconds. The original
 grader failure is retained with USD 0.001505 settled and USD 5.310284 unresolved;
 the exit-contract correction does not rewrite that result.
 
+The final exit grader checks post-`/exit` public JSON against the native driver
+code and discovered root, requiring durable pause and no internal failure. It
+accepts only the documented 7/8 outcomes with matching uncertainty conditions.
+The corrected Luna run passed both cases. The matched Qwen run passed hard-close
+but encountered the separate, valid producer-quiescence resume barrier after the
+parent had drained. Its failed pause case is retained (USD 0.001018 settled and
+USD 0.295953 unresolved across both cases).
+
+Only the two exact transient readiness rejections are now retryable, with a fresh
+canonical child-paused inspection after each rejection, at most eight probes and
+a five-second deadline. Every other rejection fails immediately. A fresh Qwen
+diagnostic passed both cases. No native behavior or authority check changed for
+that harness correction, and the original matched failure was not overwritten.
+
+| Passing terminal observation | Pause/resume | Hard-close/reopen | Known settled USD | Unresolved upper bound USD |
+| --- | ---: | ---: | ---: | ---: |
+| Luna final paired run | 6.783 s | 5.118 s | 0.001454 | 5.310284 |
+| Qwen follow-up after readiness correction | 6.129 s | 4.430 s | 0.000490 | 0.295953 |
+
+Each case retained exact workspace bytes, paused root/child state, stable recovery
+exports and zero active liability. These are control/recovery observations, not
+task completion, an aggregate latency ranking or proof that interrupted requests
+were free. Final campaign totals are USD **0.066773 known settled** and
+**20.604122 reserved for unresolved outcomes**, with no prepared run remaining.
+Earlier campaigns' charges are recorded separately; no additional spend is
+needed for this checkpoint.
+
 Earlier setup failures remain accounted for: profile/startup failures before any
 attempt reconciled to zero; an invalid child-scope fixture cost USD 0.005292 with
 all attempts settled. Claimed plans are never replayed. Harness corrections get
@@ -102,6 +129,14 @@ transitive cleanup dependency regressions. A separate two-case cleanup fault
 increment qualifies graceful failure and real process termination before receipt
 publication on both stores. Clippy passed for the affected CLI/lifecycle/repository/
 engine targets with warnings; no warning-free claim is made.
+
+After the correction, all seven native CLI terminal cases passed again and the
+P8 recovery/history matrix passed all 21 executable rows on the rebuilt package.
+The final repository fast suite passed all 17 stages; the affected delegation
+stage passed again after the last readiness adjustment. Final changed-file
+formatting and affected CLI/lifecycle Clippy checks passed. The original failed
+upstream inventory check is retained: generated Cargo output was preserved under
+ignored artifacts, and the pinned source check then passed.
 
 Private full artifacts remain under `artifacts/` and owner temporary directories.
 The owner campaign ledger is `artifacts/p7-p8-owner-campaign.json`; manual review

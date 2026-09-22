@@ -21,6 +21,11 @@ const CASES = new Set(['pause-resume', 'hard-close-reopen']);
 const MAX_RUN_MS = 115000;
 const RUST_MIN_STACK = '16777216';
 const PARENT_DRAINED = 'Parent turn interrupted; inspect current state before explicit /resume.';
+const PARENT_COMPLETED = 'Parent turn ended while children remain active or paused. Inspect /agents; parent completion still requires integrated verification.';
+const RESUME_DRAIN_REJECTION = 'Command rejected: wait for the current turn, steering, shadow evaluation and MCP control to drain before /resume';
+const RESUME_QUIESCENCE_REJECTION = 'Command rejected: recovery waits for scheduler and result producers to become quiescent';
+const MAX_RESUME_ATTEMPTS = 8;
+const MAX_RESUME_WAIT_MS = 5000;
 const SYNTHETIC = Object.freeze({
   'README.synthetic.txt': 'U06 synthetic read-only delegation workspace.\n',
   'observations/source.txt': 'The child should report this bounded synthetic input without editing it.\n',
@@ -71,6 +76,30 @@ function profileReasons(profile, now = Date.now()) {
 
 function markerSeen(text, markers) {
   return markers.every(marker => text.includes(marker));
+}
+
+function finalTerminalResult(text, offset) {
+  const normalized = text.slice(offset)
+    .replace(/(.)\r?\n\x1b\[\d+;140H\1/g, '$1')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+  return normalized.split(/\r?\n/).flatMap(line => {
+    const value = line.trim();
+    if (!value.startsWith('{"conditions":')) return [];
+    try { return [JSON.parse(value)]; } catch (_) { return []; }
+  }).findLast(frame => frame.type === 'result') || null;
+}
+
+function terminalResultReason(frame, exitCode, rootTaskId) {
+  if (!frame || frame.type !== 'result' || frame.exit_code !== exitCode
+      || frame.scope?.task !== rootTaskId) {
+    return 'final terminal result is missing or differs from the structured exit/root task';
+  }
+  if (![7, 8].includes(exitCode) || frame.conditions?.internal_failure !== false
+      || frame.conditions?.durably_paused !== true
+      || frame.conditions?.unresolved_effect !== (exitCode === 7)) {
+    return 'final terminal result is not a non-failing durable pause';
+  }
+  return null;
 }
 
 function validateSpec(spec) {
@@ -129,6 +158,7 @@ function validateSpec(spec) {
 function git(workspace, executable, args) {
   const result = spawnSync(executable, args, {
     cwd: workspace, encoding: 'utf8', windowsHide: true, timeout: 15000,
+    env: withoutProviderCredential(),
   });
   if (result.error || result.status !== 0) {
     throw Error(`synthetic Git preparation failed: ${result.error?.message || result.stderr || result.status}`);
@@ -370,7 +400,7 @@ function validatePlan(file, authorization) {
 function invokeCanonical(executable, args, cwd, timeout = 15000) {
   const result = spawnSync(executable, args, {
     cwd, encoding: 'utf8', windowsHide: true, timeout, maxBuffer: 4 * 1024 * 1024,
-    env: {...process.env, RUST_MIN_STACK},
+    env: withoutProviderCredential(),
   });
   return {
     status: result.status,
@@ -553,6 +583,7 @@ function runCase(plan, item, base, operations = {}) {
     let killTimer;
     let forceFinishTimer;
     let readinessTimer;
+    let resumeTimer;
     let finished = false;
     let driverStarted = false;
     let sentDelegate = false;
@@ -561,8 +592,14 @@ function runCase(plan, item, base, operations = {}) {
     let pauseObserved = false;
     let parentDrained = false;
     let sentResume = false;
+    let resumeAttempts = 0;
+    let resumeOffset = 0;
+    let rejectedAttempt = 0;
+    let rejectionOffset = null;
+    let resumeRejection = null;
     let resumeObserved = false;
     let sentExit = false;
+    let exitOutputOffset = null;
     let terminationRequested = false;
     let structuredExit = false;
     let structuredExitCode = null;
@@ -599,6 +636,18 @@ function runCase(plan, item, base, operations = {}) {
       }, Math.min(3000, Math.max(250, maxRunMs / 4)));
     };
     const send = text => control({action: 'write', text});
+    const attemptResume = textLength => {
+      if (resumeAttempts === 0) {
+        resumeTimer = setTimeout(
+          () => terminate('resume readiness deadline exceeded'),
+          Math.min(MAX_RESUME_WAIT_MS, maxRunMs),
+        );
+      }
+      resumeAttempts += 1;
+      resumeOffset = textLength;
+      sentResume = true;
+      send('/resume\r');
+    };
     const captureWorkspace = () => {
       discovered ||= discover(item.data_dir);
       if (!discovered) throw Error('workspace descriptor/root task not discovered');
@@ -659,6 +708,7 @@ function runCase(plan, item, base, operations = {}) {
       clearTimeout(killTimer);
       clearTimeout(forceFinishTimer);
       clearTimeout(readinessTimer);
+      clearTimeout(resumeTimer);
       rl?.close();
       if (error) addFailure(error);
       const text = output.join('');
@@ -673,8 +723,13 @@ function runCase(plan, item, base, operations = {}) {
       if (item.id === 'hard-close-reopen' && !terminationRequested) {
         addFailure('hard close was not requested');
       }
-      if (item.id === 'pause-resume' && (!structuredExit || structuredExitCode !== 0)) {
-        addFailure('pause-resume requires a structured zero exit');
+      if (item.id === 'pause-resume') {
+        const terminal = exitOutputOffset == null ? null : finalTerminalResult(text, exitOutputOffset);
+        result.final_terminal_result = terminal;
+        const reason = terminalResultReason(terminal, structuredExitCode, discovered?.root_task_id);
+        if (!structuredExit || reason) {
+          addFailure(reason || 'pause-resume requires a structured terminal exit');
+        }
       }
       if (item.id === 'hard-close-reopen'
           && (!structuredExit || !Number.isInteger(structuredExitCode) || structuredExitCode === 0)) {
@@ -754,16 +809,48 @@ function runCase(plan, item, base, operations = {}) {
           pauseObserved = true;
         }
         if (item.id === 'pause-resume' && pauseObserved && !parentDrained
-            && text.includes(PARENT_DRAINED)) {
+            && (text.includes(PARENT_DRAINED) || text.includes(PARENT_COMPLETED))) {
           parentDrained = true;
         }
-        if (item.id === 'pause-resume' && parentDrained && !sentResume) {
-          sentResume = true;
-          send('/resume\r');
+        if (item.id === 'pause-resume' && pauseObserved && resumeAttempts === 0) {
+          attemptResume(text.length);
+        }
+        if (item.id === 'pause-resume' && resumeAttempts > rejectedAttempt && !resumeObserved) {
+          const anyRejection = text.indexOf('Command rejected:', resumeOffset);
+          const drainIndex = text.indexOf(RESUME_DRAIN_REJECTION, resumeOffset);
+          const quiescenceIndex = text.indexOf(RESUME_QUIESCENCE_REJECTION, resumeOffset);
+          const transientIndex = drainIndex >= resumeOffset ? drainIndex : quiescenceIndex;
+          if (anyRejection >= resumeOffset && anyRejection !== transientIndex) {
+            terminate('resume rejected for a reason other than bounded transient readiness');
+            return;
+          }
+          if (transientIndex >= resumeOffset) {
+            rejectedAttempt = resumeAttempts;
+            rejectionOffset = transientIndex;
+            resumeRejection = transientIndex === drainIndex ? 'drain' : 'quiescence';
+            canonicalAgents(true);
+            if (resumeAttempts >= MAX_RESUME_ATTEMPTS) {
+              terminate('resume rejected after bounded readiness retries');
+              return;
+            }
+            if (resumeRejection === 'quiescence') attemptResume(text.length);
+          }
+        }
+        if (item.id === 'pause-resume' && resumeRejection === 'drain'
+            && rejectedAttempt === resumeAttempts) {
+          const drainedAt = Math.max(text.lastIndexOf(PARENT_DRAINED), text.lastIndexOf(PARENT_COMPLETED));
+          if (drainedAt > rejectionOffset) {
+            parentDrained = true;
+            resumeRejection = null;
+            attemptResume(text.length);
+          }
         }
         if (item.id === 'pause-resume' && sentResume && !resumeObserved
             && text.includes(item.markers.resumed)) {
           resumeObserved = true;
+          parentDrained = true;
+          clearTimeout(resumeTimer);
+          exitOutputOffset = text.length;
           send('/exit\r');
           sentExit = true;
         }
@@ -958,7 +1045,8 @@ function parseArgs(argv) {
 
 module.exports = {
   micros, profileReasons, validateSpec, prepare, validatePlan, discoverWorkspace,
-  preflight, requirePreflight, childAttemptObserved, runCase, snapshotProjection, gradeSnapshots,
+  preflight, requirePreflight, finalTerminalResult, terminalResultReason,
+  childAttemptObserved, runCase, snapshotProjection, gradeSnapshots,
   verifyFrozenWorkspace, modelCallCount, run,
 };
 
