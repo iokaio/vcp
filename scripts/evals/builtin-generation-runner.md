@@ -18,7 +18,7 @@ relying on help/version output or archive hashes alone. The
 source profile must satisfy the fixed-provider requirements of the
 [read-only runner](builtin-live-runner.md), except that it grants workspace
 read/write authority. It must contain no executable checks or process authority.
-P7 profiles explicitly request at most 8,192 output tokens within the qualified
+P7 profiles explicitly request at most 4,096 output tokens within the CLI startup ceiling and qualified
 provider maximum, at most sixteen requests and a 1,800-second deadline, with
 zero retries. A 4,096-token, sixteen-request, 900-second profile is the initial
 coding recommendation; the earlier P6-derived 512-token profile truncated both
