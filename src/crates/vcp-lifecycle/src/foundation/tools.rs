@@ -3,6 +3,21 @@
 //! content. One canonical worker owns policy, dispatch intents and receipts.
 use super::*;
 use vcp_domain::effect::EffectState;
+/// Native qualification boundaries; no hook is installed by normal dispatch.
+#[cfg(feature = "qualification")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileDispatchPoint {
+    BeforeWrite(usize),
+    BeforeReceipt(usize),
+    AfterReceipt(usize),
+}
+#[cfg(feature = "qualification")]
+type FileDispatchCallback = dyn Fn(FileDispatchPoint) -> Result<(), String> + Send + Sync;
+#[derive(Clone, Default)]
+struct FileDispatchObserver {
+    #[cfg(feature = "qualification")]
+    callback: Option<Arc<FileDispatchCallback>>,
+}
 pub struct ToolProposal {
     thread: ThreadId,
     binding: ThreadBinding,
@@ -160,7 +175,7 @@ impl CanonicalHost {
         ticket: ToolProposal,
         _lease: EffectLease,
     ) -> Result<ToolOutcome, String> {
-        self.dispatch_tool_observed(ticket, _lease, &mut |_| {})
+        self.dispatch_tool_observed(ticket, _lease, &mut |_| {}, FileDispatchObserver::default())
     }
 
     /// Qualification-only interruption at a durable per-file receipt boundary.
@@ -176,7 +191,37 @@ impl CanonicalHost {
         let lease = self
             .scheduler
             .try_acquire(ticket.prepared.authority().operation())?;
-        self.dispatch_tool_observed(ticket, lease, &mut observed)
+        self.dispatch_tool_observed(
+            ticket,
+            lease,
+            &mut observed,
+            FileDispatchObserver::default(),
+        )
+    }
+
+    /// Qualification-only fault/control injection. BeforeReceipt runs on the
+    /// canonical worker after native apply, so it must not call host APIs. It is
+    /// intended for a supervised process-termination barrier, not model control.
+    #[cfg(feature = "qualification")]
+    pub fn qualification_dispatch_tool_with_file_observer(
+        &self,
+        ticket: ToolProposal,
+        observer: impl Fn(FileDispatchPoint) -> Result<(), String> + Send + Sync + 'static,
+    ) -> Result<ToolOutcome, String> {
+        if self.mcp_connections_present() {
+            return Err("disconnect MCP processes before dispatching native tools".into());
+        }
+        let lease = self
+            .scheduler
+            .try_acquire(ticket.prepared.authority().operation())?;
+        self.dispatch_tool_observed(
+            ticket,
+            lease,
+            &mut |_| {},
+            FileDispatchObserver {
+                callback: Some(Arc::new(observer)),
+            },
+        )
     }
 
     fn dispatch_tool_observed(
@@ -184,6 +229,7 @@ impl CanonicalHost {
         ticket: ToolProposal,
         _lease: EffectLease,
         observed: &mut dyn FnMut(usize),
+        _observer: FileDispatchObserver,
     ) -> Result<ToolOutcome, String> {
         scheduler::check_generation(&self.runtime, ticket.thread, ticket.generation)?;
         let mut permit = HostWorkAdmission::admit(
@@ -296,12 +342,20 @@ impl CanonicalHost {
         let mut failure = None;
         let mut unknown = false;
         let started = std::time::Instant::now();
-        for change in ticket.prepared.changes() {
+        for (_file_index, change) in ticket.prepared.changes().iter().enumerate() {
             if started.elapsed()
                 > Duration::from_millis(ticket.prepared.authority().operation().timeout_ms.get())
             {
                 failure = Some("prepared operation deadline elapsed".to_owned());
                 break;
+            }
+            #[cfg(feature = "qualification")]
+            if let Some(callback) = &_observer.callback {
+                if let Err(error) = callback(FileDispatchPoint::BeforeWrite(_file_index)) {
+                    failure = Some(error);
+                    unknown = true;
+                    break;
+                }
             }
             let prepared = ticket.prepared.clone();
             let binding = ticket.binding.clone();
@@ -311,6 +365,8 @@ impl CanonicalHost {
             let generation = ticket.generation;
             let effect = ticket.effect.clone();
             let execution = execution.clone();
+            #[cfg(feature = "qualification")]
+            let observer = _observer.clone();
             let outcome=self.worker.run(move|context|{
                 let state=runtime.0.state.lock().map_err(|_|"poisoned lifecycle")?;
                 if !state.attached || state.held(thread) || !state.admission_current(thread, generation) {return Err("file dispatch is paused, superseded or unowned".into());}
@@ -322,6 +378,8 @@ impl CanonicalHost {
                 let intent=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"schema_version":1,"kind":"file_dispatch","effect":effect,"execution":execution,"change":change}))?,"vcp-file-intent-v1")?;
                 let observation=target.apply(change.after.as_deref(),change.rename_to.as_deref());
                 drop(state);
+                #[cfg(feature = "qualification")]
+                if let Some(callback) = &observer.callback { callback(FileDispatchPoint::BeforeReceipt(_file_index))?; }
                 let receipt=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"schema_version":1,"effect":effect,"execution":execution,"observation":observation}))?,"vcp-file-outcome-v1")?;
                 Ok((observation,intent.spec.id,receipt.spec.id))
             });
@@ -334,6 +392,13 @@ impl CanonicalHost {
                     }
                     observations.push(observation);
                     observed(observations.len());
+                    #[cfg(feature = "qualification")]
+                    if let Some(callback) = &_observer.callback {
+                        if let Err(error) = callback(FileDispatchPoint::AfterReceipt(_file_index)) {
+                            failure = Some(error);
+                            unknown = true;
+                        }
+                    }
                     if failure.is_some() {
                         break;
                     }

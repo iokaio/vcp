@@ -20,6 +20,8 @@ struct Spec {
     delegation: Option<PathBuf>,
     git: PathBuf,
     generation: bool,
+    #[serde(default)]
+    helper: Option<vcp_lifecycle::foundation::HelperTemplate>,
     /// Exact planned concurrent human edit, applied after the child snapshot.
     human_note: Option<String>,
 }
@@ -184,10 +186,10 @@ async fn main() -> Result<()> {
         if !spec.generation {
             // Both review arms receive the same production guidance. The task,
             // independent rubric and request ceiling stay fixed across models.
-            let helper = vcp_lifecycle::foundation::HelperTemplate {
+            let helper = spec.helper.clone().unwrap_or(vcp_lifecycle::foundation::HelperTemplate {
                 name: "review".into(),
                 revision: vcp_lifecycle::foundation::HelperTemplate::REVISION,
-            };
+            });
             operating.push('\n');
             operating.push_str(helper.guidance()?);
         }
@@ -233,7 +235,15 @@ async fn main() -> Result<()> {
                 evidence.push(json!({"artifact":artifact.spec.id,"sha256":digest_bytes(&bytes),"text":String::from_utf8(bytes)?}));
             }
         }
-        Ok(json!({"scope":scope,"child":spec.delegation.as_ref().map(|_|child.task),"pump_error":pump_result.err(),"diagnostics":diagnostics,"transcripts":transcripts,"evidence":evidence,"integration":integration,"verification":verification}))
+        let mut usage_evidence=Vec::new();
+        for row in state.records.values().filter(|row|row.collection==Collection::Artifact && row.value["spec"]["schema"]=="openrouter-normalized-response/1") {
+            let artifact:vcp_domain::artifact::ArtifactDescriptor=row.decode()?;
+            if artifact.spec.scope.task!=scope.task && artifact.spec.scope.task!=child.task {continue;}
+            if artifact.length.get()>1024*1024 || usage_evidence.len()>=32{return Err("usage evidence bound exceeded".into());}
+            let bytes=host.read_artifact(artifact.spec.id.clone())?;
+            usage_evidence.push(json!({"artifact":artifact.spec.id,"sha256":digest_bytes(&bytes),"text":String::from_utf8(bytes)?}));
+        }
+        Ok(json!({"scope":scope,"child":spec.delegation.as_ref().map(|_|child.task),"pump_error":pump_result.err(),"diagnostics":diagnostics,"transcripts":transcripts,"evidence":evidence,"usage_evidence":usage_evidence,"integration":integration,"verification":verification}))
     }.await;
     // Authority closure must interrupt attached retained threads while their
     // control channels are alive, as in the ordinary CLI output owner.

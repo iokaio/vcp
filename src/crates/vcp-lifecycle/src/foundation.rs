@@ -64,6 +64,8 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+#[cfg(all(windows, feature = "qualification"))]
+pub use tools::FileDispatchPoint;
 #[cfg(windows)]
 pub use tools::{ToolOutcome, ToolProposal};
 use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, workspace::*};
@@ -596,10 +598,18 @@ impl Drop for ModelPermit {
         if !self.finished {
             let attempt = self.attempt.clone();
             let binding = self.binding.clone();
+            let runtime = self.host.runtime.clone();
+            let thread = self.thread;
             if self
                 .worker
                 .run_cleanup(move |context| {
-                    context.unknown(&binding, &attempt, "retained response did not complete")
+                    // Only an independently held, still-owned child may keep
+                    // this expected interruption local. Canonical stop and root
+                    // state are checked again on the accounting worker.
+                    let independently_held = runtime.inspect(thread).is_ok_and(|view| {
+                        view.owner_attached && view.local_hold && !view.inherited_hold
+                    });
+                    context.incomplete_retained_response(&binding, &attempt, independently_held)
                 })
                 // Dropping the response permit terminates this local producer.
                 // Its missing provider receipt remains an uncertain canonical

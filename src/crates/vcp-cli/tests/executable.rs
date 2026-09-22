@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(all(windows, feature = "qualification"))]
+#[path = "support/child_output_owner.rs"]
+mod child_output_owner;
 #[path = "support/live_adapter.rs"]
 mod live_adapter;
 use serde_json::{json, Value};

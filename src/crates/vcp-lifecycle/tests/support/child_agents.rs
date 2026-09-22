@@ -114,9 +114,38 @@ pub(super) async fn child_case_with_helper(
     helper_name: Option<&str>,
     integration_pause: bool,
 ) {
+    child_case_with_schedule(
+        backend,
+        mode,
+        pause_before_materialize,
+        integration_case,
+        model_mismatch,
+        integration_fault,
+        helper_name,
+        integration_pause,
+        None,
+    )
+    .await;
+}
+
+pub(super) async fn child_case_with_schedule(
+    backend: BackendKind,
+    mode: ChildMode,
+    pause_before_materialize: bool,
+    integration_case: Option<bool>,
+    model_mismatch: bool,
+    integration_fault: bool,
+    helper_name: Option<&str>,
+    integration_pause: bool,
+    schedule: Option<super::child_integration_fault::Schedule>,
+) {
     let temp = tempfile::tempdir().unwrap();
-    let workspace = temp.path().join("workspace");
-    let disposable = temp.path().join("children");
+    let fixture = schedule
+        .as_ref()
+        .and_then(|schedule| schedule.process_root())
+        .unwrap_or(temp.path());
+    let workspace = fixture.join("workspace");
+    let disposable = fixture.join("children");
     fs::create_dir(&workspace).unwrap();
     fs::create_dir(&disposable).unwrap();
     let workspace = workspace.canonicalize().unwrap();
@@ -124,13 +153,26 @@ pub(super) async fn child_case_with_helper(
     if integration_fault {
         fs::write(workspace.join("second.txt"), "second base\n").unwrap();
     }
-    let snapshot_inputs = if integration_fault {
+    let mut snapshot_inputs = if integration_fault {
         BTreeSet::from(["file.txt".into(), "second.txt".into()])
     } else {
         BTreeSet::from(["file.txt".into()])
     };
+    let verification_schedule = matches!(
+        schedule,
+        Some(super::child_integration_fault::Schedule::Verification { .. })
+    );
+    if verification_schedule {
+        fs::write(
+            workspace.join("package.json"),
+            br#"{"scripts":{"test":"node --test acceptance.cjs"}}"#,
+        )
+        .unwrap();
+        fs::write(workspace.join("acceptance.cjs"), "const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');test('integrated_parent',()=>assert.equal(fs.readFileSync('file.txt','utf8'),'child changed\\n'));\n").unwrap();
+        snapshot_inputs.extend(["package.json".into(), "acceptance.cjs".into()]);
+    }
     fs::write(workspace.join(".env"), "excluded fixture data").unwrap();
-    let config = config(&temp.path().join("canonical"), &workspace, backend);
+    let config = config(&fixture.join("canonical"), &workspace, backend);
     let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
     let objective = Objective {
         text: "Observe isolated child work".into(),
@@ -184,10 +226,30 @@ pub(super) async fn child_case_with_helper(
                 revision: PolicyRevision::ZERO,
                 mode: Autonomy::Autonomous,
                 denials: vec![],
-                workspace_roots: BTreeSet::from([source_root.clone()]),
-                automatic_effects: BTreeSet::from([EffectClass::Read, EffectClass::Write]),
-                timeout_ceiling_ms: Units::new(30000),
-                output_ceiling_bytes: ByteCount::new(1024 * 1024),
+                workspace_roots: if verification_schedule {
+                    BTreeSet::from([source_root.clone(), RootId::parse("exec-node").unwrap()])
+                } else {
+                    BTreeSet::from([source_root.clone()])
+                },
+                automatic_effects: if verification_schedule {
+                    BTreeSet::from([
+                        EffectClass::Read,
+                        EffectClass::Write,
+                        EffectClass::Execute,
+                        EffectClass::Network,
+                        EffectClass::Install,
+                        EffectClass::Publish,
+                        EffectClass::Opaque,
+                    ])
+                } else {
+                    BTreeSet::from([EffectClass::Read, EffectClass::Write])
+                },
+                timeout_ceiling_ms: Units::new(if verification_schedule { 120000 } else { 30000 }),
+                output_ceiling_bytes: ByteCount::new(if verification_schedule {
+                    8 * 1024 * 1024
+                } else {
+                    1024 * 1024
+                }),
             },
         },
         None,
@@ -798,6 +860,14 @@ pub(super) async fn child_case_with_helper(
         // The parent returns to the shared base before considering the child's
         // independent change, then may race after preview to invalidate it.
         fs::write(workspace.join("file.txt"), "captured\n").unwrap();
+        #[cfg(feature = "qualification")]
+        if verification_schedule {
+            super::child_integration_fault::configure_parent_verification(
+                &host,
+                root_thread,
+                fixture,
+            );
+        }
         let prepared = if mode == ChildMode::ReadOnly {
             host.prepare_child_integration(root_thread, child_id.clone(), &snapshotter, packet)
                 .await
@@ -839,7 +909,16 @@ pub(super) async fn child_case_with_helper(
                 .expect("isolated change must reach the ordinary parent broker");
             if integration_fault {
                 #[cfg(feature = "qualification")]
-                if integration_pause {
+                if let Some(schedule) = &schedule {
+                    partial_effect = Some(super::child_integration_fault::apply_scheduled(
+                        &host,
+                        proposal,
+                        &workspace,
+                        &root_binding.scope,
+                        &child_id,
+                        schedule,
+                    ));
+                } else if integration_pause {
                     partial_effect = Some(super::child_integration_fault::apply_paused(
                         &host,
                         proposal,
@@ -878,12 +957,29 @@ pub(super) async fn child_case_with_helper(
                     fs::read_to_string(workspace.join("file.txt")).unwrap(),
                     "child changed\n"
                 );
+                #[cfg(feature = "qualification")]
+                if let Some(super::child_integration_fault::Schedule::Verification { state }) =
+                    &schedule
+                {
+                    super::child_integration_fault::interrupt_parent_verification(
+                        &host,
+                        root_thread,
+                        &root_binding.scope,
+                        *state,
+                    )
+                    .await;
+                }
             }
         }
         let parent = current_task(&host, &config, &config.root_task);
+        let interrupted_state = schedule
+            .as_ref()
+            .and_then(|schedule| schedule.control_state());
         assert_eq!(
             parent.state,
-            if integration_pause {
+            if let Some(state) = interrupted_state {
+                state
+            } else if integration_pause {
                 TaskState::Paused
             } else {
                 TaskState::Running
@@ -900,10 +996,15 @@ pub(super) async fn child_case_with_helper(
                 parent.revision
             )
             .is_err());
-        assert_eq!(
-            current_task(&host, &config, &child_id).state,
-            TaskState::Paused
-        );
+        let child_state = current_task(&host, &config, &child_id).state;
+        if interrupted_state == Some(TaskState::Cancelled) {
+            assert!(matches!(
+                child_state,
+                TaskState::Paused | TaskState::Cancelled
+            ));
+        } else {
+            assert_eq!(child_state, TaskState::Paused);
+        }
         let graph = vcp_engine::agents::graph(
             &host.snapshot().unwrap(),
             &root_binding.scope,
@@ -916,6 +1017,12 @@ pub(super) async fn child_case_with_helper(
             2,
             "rejected and accepted result packets remain inspectable"
         );
+        if verification_schedule {
+            owner.close().await.unwrap();
+            child.shutdown_and_wait().await.unwrap();
+            test.codex.shutdown_and_wait().await.unwrap();
+            return;
+        }
         if let Some(effect) = partial_effect {
             super::child_integration_fault::reconcile_preserves_edits(
                 &host,

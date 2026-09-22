@@ -1,7 +1,9 @@
 # P7 delegation qualification
 
-P7-04, P7-05 and P7-06 remain in progress. The implemented owner path is described
-in [child workspaces](../development/p7-child-workspaces.md). M7 remains deferred.
+P7-04, P7-05 and P7-06 are complete. The final source-bound native gate passed
+as recorded in the [interruption and exploration follow-up](p7-interruption-exploration-2026-09-22.md).
+The implemented owner path is described in [child workspaces](../development/p7-child-workspaces.md).
+M7 remains deferred; packaged P8 acceptance is separate.
 
 The [2026-09-22 paired campaign](p7-live-qualification-2026-09-22.md) adds current
 native regression, actual Luna/Qwen review and generation observations, and live
@@ -50,10 +52,15 @@ optional provider capability. The fixture now declares the capability and retain
 the original assertions; its separate 16-case matrix passed in
 `artifacts/p7-coding-capability-retry.log`. No production capability gate changed.
 
-The selected paired U02/U03 quality refinement is qualified above. Remaining
-acceptance includes the U06 multi-child
-progress/consumer-loss campaign, control cancellation between integration writes,
-and packaged P8 checks. Executable child processes remain blocked without a
+The selected paired U02/U03 quality refinement is qualified above. The
+[follow-up](p7-interruption-exploration-2026-09-22.md) records multi-child
+progress/consumer loss, child and integration write interruption, independent
+child controls and parent-verification publication boundaries. It preserves the
+failed full-host result, separately passing focused repairs and the passing
+final source-bound native gate. CR-03's broad exploration
+comparison prefers the simpler baseline because the helper added cost without
+material usefulness. CR-08's P7 cleanup scope is qualified; broader packaged
+P8 checks remain open. Executable child processes remain blocked without a
 qualified filesystem sandbox. Post-attachment setup failure requires owner
 close/reopen recovery; it does not discard the workspace, history or allocation.
 No automatic worktree deletion or release publication is included.

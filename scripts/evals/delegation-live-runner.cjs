@@ -6,6 +6,7 @@ const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypt
 const {spawnSync}=require('node:child_process');
 const {isDeepStrictEqual}=require('node:util');
 const prior=require('./p6-live-runner.cjs'),skills=require('./builtin-live-runner.cjs'),generation=require('./builtin-generation-prepare.cjs');
+const exploration=require('./delegation-exploration.cjs');
 const {plain,read,write,within,safeChild,filesUnder,noParentInstructions,privateDirectory,noSecrets,usd}=prior.boundaries;
 const repo=path.resolve(__dirname,'../..'),sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const delegationFixture=path.join(repo,'src/evals/delegation/generation-v1'),delegationProject=path.join(delegationFixture,'project');
@@ -80,7 +81,7 @@ function demonstrated(reproduction,defect,allowAnnotations=false){
 }
 // Resolve citations only from retained canonical artifacts. Model-authored maps
 // and path-looking substrings are not authority for an opaque evidence ID.
-function reviewEvidence(state,transcript,evidence,files,taskId){
+function reviewEvidence(state,transcript,evidence,files,taskId,sourceFiles=sources){
  const rows=Object.values(state.records),one=(collection,id)=>{const matches=rows.filter(row=>row.collection===collection&&row.id===id);return matches.length===1?matches[0].value:null;};
  const task=one('task',taskId),scope=task?.scope;
  if(!scope||scope.task!==taskId)throw Error('Canonical review task missing');
@@ -97,14 +98,14 @@ function reviewEvidence(state,transcript,evidence,files,taskId){
   if(references.has(item?.artifact)||duplicates.has(item?.artifact)){references.delete(item.artifact);duplicates.add(item.artifact);continue;}
   if(!retained(item,'evidence','vcp-tool-result-v1'))continue;
   let value;try{value=JSON.parse(item.text);}catch{continue;}
-  const version=value.version,source=version&&sources[version.path];
+  const version=value.version,source=version&&sourceFiles[version.path];
   if(typeof source!=='string'||version.root!==root||version.binding!==binding||version.sha256!==files[version.path]||version.bytes!==String(Buffer.byteLength(source))||sha(Buffer.from(source))!==version.sha256||typeof value.text!=='string')continue;
   const range=value.returned_range;
-  // This fixed review fixture has one relevant line per source. Partial reads
-  // must prove that line was actually returned, not merely hash the whole file.
-  if(range){if(range.start_line!==1||range.end_line!==1||value.text!==source)continue;}
+  const lines=source.match(/[^\n]*\n|[^\n]+$/g)??[];
+  let start=1,end=lines.length;
+  if(range){start=range.start_line;end=range.end_line;if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<1||end<start||end>lines.length||value.text!==lines.slice(start-1,end).join(''))continue;}
   else if(value.complete!==true||value.text!==source)continue;
-  references.set(item.artifact,{path:version.path,start:1,end:1});
+  references.set(item.artifact,{path:version.path,start,end});
  }
  return {references,files};
 }
@@ -139,9 +140,26 @@ function accounting(state,cap,root,child){
  if(!Number.isSafeInteger(total)||total!==exactCounter(ledgers[0].settled)||total>cap)throw Error('Root total does not reconcile all model work');
  return {actual_cost_micros:total,attempts:attempts.length,child_attempts:attempts.filter(a=>a.role==='child').length,input_units:attempts.map(a=>a.usage??null)};
 }
+function usageAccounting(state,evidence,root,child){
+ const rows=Object.values(state.records),attempts=rows.filter(row=>row.collection==='attempt').map(row=>row.value).filter(a=>a.phase==='settled');
+ const receipts=new Map();
+ for(const item of evidence??[]){
+  const matches=rows.filter(row=>row.collection==='artifact'&&row.id===item.artifact),descriptor=matches.length===1?matches[0].value:null,bytes=typeof item.text==='string'?Buffer.from(item.text):null;
+  if(!descriptor||!bytes||bytes.length>1024*1024||descriptor.spec.id!==item.artifact||descriptor.spec.channel!=='evidence'||descriptor.spec.schema!=='openrouter-normalized-response/1'||descriptor.state!=='complete'||descriptor.sha256!==sha(bytes)||item.sha256!==descriptor.sha256||descriptor.length!==String(bytes.length)||!isDeepStrictEqual(descriptor.retained,[{start:'0',end:String(bytes.length)}]))throw Error('Canonical usage evidence identity mismatch');
+  const value=JSON.parse(item.text),attempt=attempts.find(a=>a.provider_request===value.response_id&&isDeepStrictEqual(a.scope,descriptor.spec.scope));
+  if(!attempt||![root,child].includes(attempt.scope.task)||receipts.has(attempt.id)||value.usage?.cost?.currency!=='USD'||value.usage.cost.micros!==attempt.charged)throw Error('Usage does not bind uniquely to a settled scoped attempt');
+  const tokens=value.usage.tokens;if(!tokens)throw Error('Provider token usage unavailable');
+  const input=exactCounter(tokens.input),output=exactCounter(tokens.output),reasoning=exactCounter(tokens.reasoning);
+  if(reasoning>output)throw Error('Reasoning exceeds inclusive output');
+  receipts.set(attempt.id,{attempt:attempt.id,artifact:item.artifact,sha256:item.sha256,role:attempt.role,input,output,reasoning});
+ }
+ if(receipts.size!==attempts.length)throw Error('Every settled attempt requires observed token usage');
+ const values=[...receipts.values()],sum=select=>{const n=values.reduce((s,r)=>s+select(r),0);if(!Number.isSafeInteger(n))throw Error('Usage total overflow');return n;};
+ return {input_tokens:sum(r=>r.input),output_tokens:sum(r=>r.output),reasoning_tokens:sum(r=>r.reasoning),parent_input_tokens:sum(r=>r.role==='main'?r.input:0),child_input_tokens:sum(r=>r.role==='child'?r.input:0),attempts:values};
+}
 function prepare(specFile,destination){
  const bytes=read(specFile),spec=JSON.parse(bytes);noSecrets(spec);
- if(!['review','generation'].includes(spec.stage))throw Error('Stage must be review or generation');
+ if(!['review','generation','exploration'].includes(spec.stage))throw Error('Stage must be review, generation or exploration');
  if(typeof spec.stage_cap_usd!=='string'||typeof spec.overall_cap_usd!=='string'||!Number.isSafeInteger(spec.prior_exposure_micros)||spec.prior_exposure_micros<0)throw Error('Explicit positive stage/overall ceiling and prior exposure are required');
  const cap=prior.micros(spec.stage_cap_usd),overall=prior.micros(spec.overall_cap_usd);
  if(overall>100000000||BigInt(spec.prior_exposure_micros)+BigInt(cap)>BigInt(overall))throw Error('Stage allocation exceeds remaining explicit campaign ceiling');
@@ -157,21 +175,23 @@ function prepare(specFile,destination){
  privateDirectory(destination);noParentInstructions(path.dirname(destination));
  const catalog=plain(profile.catalog),git=plain(spec.git);read(git,128*1024*1024);
  const delegation=spec.stage==='generation'?fixtureFiles(delegationProject,path.join(delegationFixture,'manifest.json')):null;
- const files=spec.stage==='review'?sources:delegation.files;
- const prompt=spec.stage==='review'?reviewPrompt:delegation.manifest.prompt;
- const arms=spec.stage==='review'?['baseline','review_child']:['generation_child'];
+ const files=spec.stage==='exploration'?exploration.sources:spec.stage==='review'?sources:delegation.files;
+ const prompt=spec.stage==='exploration'?exploration.prompt:spec.stage==='review'?reviewPrompt:delegation.manifest.prompt;
+ const arms=spec.stage==='exploration'?['baseline','explore_child']:spec.stage==='review'?['baseline','review_child']:['generation_child'];
  const allocation=Math.floor(cap/arms.length);if(allocation<1||arms.some(arm=>arm!=='baseline'&&Math.floor(allocation*3/4)<1))throw Error('Positive per-arm allocations required');
  fs.mkdirSync(destination,{mode:0o700});
- write(path.join(destination,'private-rubric.json'),rubric);
+ write(path.join(destination,'private-rubric.json'),spec.stage==='exploration'?exploration.rubric:rubric);
  const dependencies=spec.stage==='generation'?['scripts/evals/p6-live-runner.cjs','scripts/evals/builtin-live-runner.cjs','scripts/evals/builtin-generation-prepare.cjs','scripts/evals/delegation-generation-oracle.cjs','src/evals/delegation/generation-v1/manifest.json']:['scripts/evals/p6-live-runner.cjs','scripts/evals/builtin-live-runner.cjs','scripts/evals/builtin-generation-prepare.cjs','scripts/evals/builtin-generation-oracle.cjs','src/evals/skills/builtin/generation-v1/manifest.json'];
+ dependencies.push('scripts/evals/delegation-exploration.cjs');
  const plan={schema:'p7-delegation-live-plan/1',stage:spec.stage,directory:destination,adapter,adapter_sha256:sha(adapterBytes),adapter_source_sha256:sha(read(path.join(repo,'src/crates/vcp-cli/examples/delegation-live-adapter.rs'))),runner_sha256:sha(read(__filename)),dependencies:Object.fromEntries(dependencies.map(f=>[f,sha(read(path.join(repo,f)))])),adapter_environment:{...adapterEnvironmentPin},generation_fixture:spec.stage==='generation'?inventory(delegationProject):null,generation_manifest:spec.stage==='generation'?path.join(delegationFixture,'manifest.json'):null,assets,profile_source:plain(spec.profile),profile_sha256:sha(profileBytes),catalog,catalog_sha256:sha(read(catalog)),git,git_sha256:sha(read(git,128*1024*1024)),runtime,stage_cap_micros:cap,prior_exposure_micros:spec.prior_exposure_micros,overall_cap_micros:overall,permission_review:spec.stage==='generation'?generation.permissionReview(runtime,true):{automatic_effects:[],mode:'plan'},arms:[]};
  for(const arm of arms){
    const base=path.join(destination,arm),workspace=path.join(base,'workspace');fs.mkdirSync(workspace,{recursive:true});fs.mkdirSync(path.join(base,'children'));put(workspace,files);const armGit=spec.stage==='generation'?prepareWorkspaceGit(workspace,files,git):null;
    const derived=spec.stage==='generation'?{...generation.qualifiedProfile(profile,workspace,catalog,allocation,runtime,true),affected_paths:['src/cart.cjs','src/cents.cjs']}:{...profile,workspace,catalog,budget_usd:usd(allocation),maximum_autonomy:'plan',automatic_effects:[],affected_paths:Object.keys(files),checks:[],processes:[]};
   write(path.join(base,'profile.json'),derived);write(path.join(base,'prompt.txt'),prompt);
   const delegated=arm!=='baseline';
-  if(delegated)write(path.join(base,'delegation.json'),{version:1,git,disposable_parent:path.join(base,'children'),objective:prompt,acceptance:['Meet the frozen independent acceptance rubric; report check limitations'],mode:spec.stage==='review'?'read_only':'isolated_write',write_paths:spec.stage==='review'?[]:['src/cart.cjs','src/cents.cjs'],read_paths:[''],untracked_inputs:Object.keys(files),allocation_usd:usd(Math.floor(allocation*3/4)),seconds:derived.deadline_seconds,required_checks:[],role:spec.stage==='review'?'review':'generation'});
-  const driver={profile:path.join(base,'profile.json'),workspace,directory:base,prompt:path.join(base,'prompt.txt'),delegation:delegated?path.join(base,'delegation.json'):null,git,generation:spec.stage==='generation',human_note:spec.stage==='generation'?humanNote:null};
+  const helper=spec.stage==='exploration'?{name:'explore',revision:2}:null;
+  if(delegated)write(path.join(base,'delegation.json'),{version:1,git,disposable_parent:path.join(base,'children'),objective:prompt,acceptance:['Meet the frozen independent acceptance rubric; report check limitations'],mode:spec.stage!=='generation'?'read_only':'isolated_write',write_paths:spec.stage!=='generation'?[]:['src/cart.cjs','src/cents.cjs'],read_paths:[''],untracked_inputs:Object.keys(files),allocation_usd:usd(Math.floor(allocation*3/4)),seconds:derived.deadline_seconds,required_checks:[],role:helper?.name??(spec.stage==='review'?'review':'generation'),...(helper?{helper}:{})});
+  const driver={profile:path.join(base,'profile.json'),workspace,directory:base,prompt:path.join(base,'prompt.txt'),delegation:delegated?path.join(base,'delegation.json'):null,git,generation:spec.stage==='generation',human_note:spec.stage==='generation'?humanNote:null,...(helper?{helper}:{})};
   write(path.join(base,'adapter-spec.json'),driver);
    plan.arms.push({name:arm,cap_micros:allocation,files:inventory(workspace),git:armGit,frozen:Object.fromEntries(['profile.json','prompt.txt','adapter-spec.json',...(delegated?['delegation.json']:[])].map(f=>[f,sha(read(path.join(base,f)))]))});
  }
@@ -179,7 +199,7 @@ function prepare(specFile,destination){
  return {plan:path.join(destination,'plan.json'),sha256:sha(read(path.join(destination,'plan.json'))),stage_cap_micros:cap,model_calls:0,qualification:'adapter build and offline controls required before execution; not terminal U06'};
 }
 function validate(plan,file){
- if(plan.schema!=='p7-delegation-live-plan/1'||!['review','generation'].includes(plan.stage)||plain(path.dirname(file))!==plan.directory||plan.runner_sha256!==sha(read(__filename))||plan.adapter_sha256!==sha(read(plan.adapter,1024*1024*1024))||plan.adapter_source_sha256!==sha(read(path.join(repo,'src/crates/vcp-cli/examples/delegation-live-adapter.rs')))||plan.profile_sha256!==sha(read(plan.profile_source))||plan.catalog_sha256!==sha(read(plan.catalog))||plan.git_sha256!==sha(read(plan.git,128*1024*1024))||!isDeepStrictEqual(plan.adapter_environment,adapterEnvironmentPin))throw Error('Frozen stage identity changed');
+ if(plan.schema!=='p7-delegation-live-plan/1'||!['review','generation','exploration'].includes(plan.stage)||plain(path.dirname(file))!==plan.directory||plan.runner_sha256!==sha(read(__filename))||plan.adapter_sha256!==sha(read(plan.adapter,1024*1024*1024))||plan.adapter_source_sha256!==sha(read(path.join(repo,'src/crates/vcp-cli/examples/delegation-live-adapter.rs')))||plan.profile_sha256!==sha(read(plan.profile_source))||plan.catalog_sha256!==sha(read(plan.catalog))||plan.git_sha256!==sha(read(plan.git,128*1024*1024))||!isDeepStrictEqual(plan.adapter_environment,adapterEnvironmentPin))throw Error('Frozen stage identity changed');
  noParentInstructions(plan.directory);privateDirectory(plan.directory);
  for(const [name,digest]of Object.entries(plan.dependencies))if(sha(read(safeChild(repo,name)))!==digest)throw Error('Qualification dependency changed');
  if(!Number.isSafeInteger(plan.prior_exposure_micros)||plan.prior_exposure_micros<0||!Number.isSafeInteger(plan.stage_cap_micros)||plan.stage_cap_micros<=0||!Number.isSafeInteger(plan.overall_cap_micros)||plan.overall_cap_micros<=0||plan.overall_cap_micros>100000000||plan.prior_exposure_micros+plan.stage_cap_micros>plan.overall_cap_micros||!Array.isArray(plan.arms)||!plan.arms.length||plan.arms.some(a=>!Number.isSafeInteger(a.cap_micros)||a.cap_micros<=0)||plan.arms.reduce((s,a)=>s+a.cap_micros,0)>plan.stage_cap_micros)throw Error('Stage exposure exceeds approved campaign ceiling');
@@ -220,11 +240,14 @@ function run(file,authorization){
    report.actual_cost_micros+=record.actual_cost_micros;
    if(adapter.status!=='observed'||adapter.owner_close_error)throw Error(adapter.reason||'Owner did not close cleanly');
    if(arm.name!=='baseline'&&!record.accounting.child_attempts)throw Error('No actual retained provider child was observed');
-   if(plan.stage==='review'){
+   if(plan.stage!=='generation'){
     if(JSON.stringify(inventory(path.join(base,'workspace')))!==JSON.stringify(arm.files))throw Error('Read-only review changed parent source or index');
     if(adapter.result.child){const child=path.join(base,'children',adapter.result.child),observed=inventory(child);delete observed['.vcp-child-owner'];if(!isDeepStrictEqual(observed,arm.files))throw Error('Read-only review changed isolated source or index');}
-    const answers=adapter.result.transcripts.flatMap(transcript=>{try{return [{answer:JSON.parse(transcript.text),transcript}];}catch{return [];}}).filter(x=>Array.isArray(x.answer.findings));
-    record.quality=answers.length===1?gradeReview(answers[0].answer,JSON.parse(read(path.join(plan.directory,'private-rubric.json'))),reviewEvidence(state,answers[0].transcript,adapter.result.evidence,arm.files,adapter.result.child??config.root_task)):{pass:false,reason:'Expected one unambiguous retained JSON review answer'};
+    const explore=plan.stage==='exploration';
+    const answers=adapter.result.transcripts.flatMap(transcript=>{try{return [{answer:JSON.parse(transcript.text),transcript}];}catch{return [];}}).filter(x=>Array.isArray(explore?x.answer.flow:x.answer.findings));
+    const context=answers.length===1?reviewEvidence(state,answers[0].transcript,adapter.result.evidence,arm.files,adapter.result.child??config.root_task,explore?exploration.sources:sources):null;
+    record.quality=answers.length===1?(explore?exploration.grade(answers[0].answer,context):gradeReview(answers[0].answer,JSON.parse(read(path.join(plan.directory,'private-rubric.json'))),context)):{pass:false,reason:'Expected one unambiguous retained JSON answer'};
+    if(explore){record.usage=usageAccounting(state,adapter.result.usage_evidence,config.root_task,adapter.result.child);record.returned_answer_bytes=answers.length===1?Buffer.byteLength(answers[0].transcript.text):null;}
    }else record.quality=generationGrade(plan,base,arm,adapter,state);
    record.status=record.quality.pass?'passed':'failed';
   }catch(error){record.reason=error.message;report.stopped=true;if(record.actual_cost_micros===null)report.actual_cost_micros=null;}
@@ -232,5 +255,5 @@ function run(file,authorization){
  }
  write(path.join(plan.directory,'result.json'),report);return report;
 }
-module.exports={prepare,validate,run,gradeReview,reviewEvidence,accounting,sources,rubric,workspaceGitState,prepareWorkspaceGit,gitEnvironment,gitRun,adapterEnvironment,invokeAdapter,stderrSummary,humanNote};
+module.exports={prepare,validate,run,gradeReview,reviewEvidence,accounting,usageAccounting,sources,rubric,workspaceGitState,prepareWorkspaceGit,gitEnvironment,gitRun,adapterEnvironment,invokeAdapter,stderrSummary,humanNote};
 if(require.main===module){try{const [command,file,extra,...rest]=process.argv.slice(2);if(rest.length||!file||!extra||!['prepare','run'].includes(command))throw Error('Usage: delegation-live-runner.cjs prepare <spec> <new-private-dir> | run <plan> <authorized-sha256>');const output=command==='prepare'?prepare(file,extra):run(file,extra);console.log(JSON.stringify(output));if(command==='run'&&(output.stopped||output.arms.some(arm=>arm.status!=='passed')))process.exitCode=1;}catch(error){console.error(error.message);process.exitCode=1;}}

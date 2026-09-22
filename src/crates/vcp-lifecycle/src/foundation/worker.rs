@@ -1364,6 +1364,57 @@ impl Context {
     ) -> Result<()> {
         self.retain_unknown(binding, attempt, reason, true)
     }
+    pub fn incomplete_retained_response(
+        &mut self,
+        binding: &ThreadBinding,
+        attempt: &AttemptId,
+        independently_held: bool,
+    ) -> Result<()> {
+        let mut pause_root = true;
+        if independently_held
+            && self.owner_alive
+            && !self.authority_pending
+            && binding.scope.task != self.config.root_task
+        {
+            let task: Task = self
+                .engine
+                .store()
+                .state()
+                .record(
+                    Collection::Task,
+                    binding.scope.task.as_str(),
+                    &binding.scope.workspace,
+                )?
+                .decode()?;
+            let root: Task = self
+                .engine
+                .store()
+                .state()
+                .record(
+                    Collection::Task,
+                    self.config.root_task.as_str(),
+                    &binding.scope.workspace,
+                )?
+                .decode()?;
+            if task.scope == binding.scope
+                && task.root == root.scope.task
+                && task.parent.is_some()
+                && matches!(task.state, TaskState::Paused | TaskState::Cancelled)
+                && root.state == TaskState::Running
+            {
+                // Deliberately stopping one child must not stop unrelated
+                // siblings. Its full unknown charge still consumes the same
+                // root budget and allocation through ordinary atomic admission.
+                pause_root = false;
+            }
+        }
+        self.retain_unknown(
+            binding,
+            attempt,
+            "retained response did not complete",
+            pause_root,
+        )
+    }
     pub(super) fn retain_unknown(
         &mut self,
         binding: &ThreadBinding,
