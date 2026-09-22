@@ -7,6 +7,12 @@ cross-backend restore are reported as such; independent-machine recovery and a
 clean Windows installation are not run. This is an unsigned qualification
 candidate, not owner release acceptance or publication.
 
+Follow-up: the [release-readiness scorecard](p8-release-scorecard-2026-09-22.md)
+closes the two missing executable receipts in a supervised 72.728-second run.
+The superseding aggregate records **46 passing executable cases and one
+owner-skipped independent-machine case**. The 44-pass disposition, failures and
+interruptions below remain the historical record; full P8 acceptance stays open.
+
 ## Host and execution scope
 
 The host is Windows 11 Pro, build 26200, x64, NTFS, with an AMD Ryzen Threadripper
