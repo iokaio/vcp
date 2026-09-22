@@ -1,7 +1,8 @@
 # P7-02 completion qualification
 
-Status: in progress; both arms of the authorized $10 generation follow-up failed
-acceptance, as recorded below. No completion or merge is justified by these runs.
+Status: complete for the selected P7-02 workflow and live generation acceptance.
+The final corrected pair passed 44/44 checks in both arms, with independent
+review as recorded below. Earlier failed runs retain their original outcomes.
 This increment addresses the failed September 21 live
 campaign without changing its results, denominators or canonical liabilities.
 The original eighteen attempts remain ten failures and eight not-run cases;
@@ -11,8 +12,9 @@ not available to fund replacement trials.
 ## Corrected evaluation and tool guidance
 
 The P7 runners now have their own finite limits: at most sixteen requests,
-1,800 seconds and 8,192 explicitly requested output tokens, within the current
-qualified provider maximum. P6's frozen 512-token smoke limit is unchanged.
+1,800 seconds and 4,096 explicitly requested output tokens, within the CLI
+startup ceiling and current qualified provider maximum. The initial 8,192-token
+proposal was corrected as recorded below. P6's frozen 512-token smoke limit is unchanged.
 The old generation attempts exhausted 512 output tokens with incomplete patch
 arguments; a fresh coding trial can request 4,096 tokens. Every plan still binds
 the exact executable, catalog, fixtures, profile and runner sources, with zero
@@ -147,11 +149,10 @@ the final explanation; preservation alone does not establish fix correctness.
 Prepared instrumented and human-edited states qualify those skill scenarios,
 not actual process interruption or concurrent writes.
 
-Read-only usefulness and CR-06 observations are recorded below; generation
-acceptance remains open. Passing runner controls do not establish model quality.
-P7-02 must remain
-`in_progress` until current live evidence and independent review close those
-gates; P8 packaged release acceptance remains separate.
+Read-only usefulness and CR-06 observations are recorded below; the final
+generation pair and independent review close the remaining selected live gate.
+Passing runner controls alone do not establish model quality.
+P8 packaged release acceptance remains separate.
 
 ## Approved follow-up: read-only observations
 
@@ -292,8 +293,8 @@ Catalog SHA-256:
 `49d565e2661815558639a07719112e81e5fea37258c114438ed02911c85ba8a7`.
 The 48-entry archive verified and its version smoke check passed. Current
 provider qualification expires September 22, 2026 at 14:35:26 UTC; dispatch
-revalidates freshness and all exact inputs. P7-02 remains `in_progress` until
-the skill arm satisfies generation acceptance.
+revalidates freshness and all exact inputs. At this checkpoint P7-02 remained
+`in_progress` pending the successful generation evidence recorded below.
 
 All fourteen fast gates passed after the process-discovery, catalog and runner
 corrections. Receipt:
@@ -373,7 +374,8 @@ native toolchain matrix remains six passes, three seeded application failures
 and 33 not-run cases. Prepared debug interruption/human-edit scenarios are not
 real interruption/concurrency proofs. No statistical skill superiority,
 measured source-byte efficiency improvement or general toolchain support is
-claimed. The live generation gate remains open.
+claimed. At this checkpoint the live generation gate remained open; the final
+corrected pair below subsequently closed it.
 
 A replacement-model proposal is prepared, with no calls: qualify
 `openai/gpt-5.6-luna` on its exact `openai` endpoint under $1.50, then run a fresh
@@ -391,3 +393,108 @@ recorded launchers, zero skips and no model calls:
 `artifacts/p7-02-acceptance-contracts.log`. All fourteen fast delivery gates
 passed at
 `artifacts/p7-02-acceptance-fast/e593bcd9-2619-4206-a07b-6c96897e31f0/manifest.json`.
+
+### Approved replacement and terminal-boundary correction
+
+The owner subsequently approved the replacement campaign, its exact external
+transfer and continued P7 testing within the existing $10 total ceiling.
+The `openai` provider slug was ambiguous and rejected before model dispatch.
+The separately approved exact `amazon-bedrock/us-east-1` endpoint qualified with
+two probes totaling $0.000115 and zero unresolved liability; snapshot
+`f1167735ac1528963af9f300a4be858bf9eca4196e0b6b1811e25991f507181d`.
+This qualifies provider preferences, not the optional byte-derived ceiling.
+
+The 8,192-token generation plan was rejected before model dispatch because
+the CLI startup ceiling is 4,096. P7 profile preparation now enforces that same
+ceiling; all eight focused runner contracts pass. A fresh 4,096-token plan
+`aa618e14272eaf51499534a80c3b2d049f9666a62a08f057e5423805fc697c6f`
+then stopped after two baseline requests, leaving the skill arm unattempted.
+Its original ledger records $0.000929 settled and $1.327571 unresolved.
+
+The second response retained a fully framed completed terminal followed by
+the partial optional sentinel `data: [DON`. Offline replay of its exact hashed
+bytes reproduces strict EOF rejection. The retained client deliberately stops
+at the terminal event after capturing its HTTP chunk, so the provider boundary
+now accepts only an optional DONE-sentinel prefix after a validated terminal.
+General EOF parsing remains strict; contradictory suffixes, partial JSON,
+duplicate DONE and changed terminals remain rejected. The complete captured
+bytes normalize to a $0.001007 final charge. That observation alone does not
+change the historical ledger or make the failed run pass. Canonical settlement
+and a newly qualified package/run are recorded separately when performed.
+
+Frozen failed plans, stopped results and the original aborted artifact remain
+retained. No retry replays either old baseline, and no original failure is
+removed from the campaign denominator.
+
+Canonical accounting reconciliation subsequently settled that second request at
+$0.001007, bringing the stopped baseline to $0.001936 with zero active or
+unresolved liability. The separate accounting evidence references the original
+aborted response and exact submitted request; no tool call was replayed and the
+task remains paused with its original capture/admission fence. Two unsuccessful
+helper attempts (missing runtime context, then the preserved admission fence)
+remain logged. The successful recovery uses authenticated canonical Engine
+attachment and the ordinary budget settlement service, without changing the
+fence or raw records. Receipt:
+`artifacts/p7-02-terminal-reconciliation-applied-v3.log`.
+
+The corrected isolated executable has SHA-256
+`babb091053cc3c1b8392eb854504be732914321c3c25707f1b61e7110acb534a`.
+Its exact archived package passed native relocation, lazy activation and
+integrity qualification (`artifacts/p7-02-terminal-package-native.log`). All
+20 provider contracts pass, including every optional-sentinel split and strict
+contradiction cases. The real retained HTTP/canonical test passes its six modes,
+including the reproduced prefix on both stores
+(`artifacts/p7-02-terminal-provider-native.log`). All 35 workflow/runner
+contracts pass with zero skips (`artifacts/p7-02-terminal-bound-contracts.log`).
+An earlier cross-checkout contract invocation correctly rejected the original
+launcher's source-path binding; its failed log remains separate.
+
+The new pair is frozen under plan
+`48357445c0c0412500aab054b36890ae48825b2e99c6dea3bb437a59e8a55688`
+with $2.50 per arm, 16 requests, 4,096 output tokens, 900 seconds and zero retries.
+It retains the original fixture, oracle, skill bodies and verification launcher.
+The entire $5 allocation fits the existing $10 authorization even before the
+older reservation was reconciled; it does not add $5 to the owner's ceiling.
+
+### Final generation acceptance
+
+The corrected pair completed on the qualified `openai/gpt-5.6-luna` endpoint:
+
+| Arm | Canonical task | Independent oracle | Settled cost | Latency |
+|---|---|---|---:|---:|
+| Baseline | Completed with current-source verification | 44/44 | $0.010890 | 42.848 s |
+| Skill | Completed with current-source verification | 44/44 | $0.013246 | 44.969 s |
+
+Both preserve every protected file and modify only `src/cart.cjs`. Both implement
+exact discount arithmetic using BigInt and reject invalid inputs. The baseline
+has seven dispatched context manifests without the skill; all eight skill-arm
+manifests retain the selected JavaScript guidance. Canonical accounting reports
+15 settled requests, **$0.024136** total, no active reservation and no unresolved
+liability. The historical failed pairs remain unchanged. Including the $0.413547
+failed pair, $0.000115 qualification and $0.001936 reconciled stopped baseline,
+this replacement campaign has spent **$0.439734** of its existing $10 ceiling.
+The earlier campaign's $0.806560 unresolved liability remains separate.
+
+Receipt: `artifacts/p7-02-terminal-pair.log`, plan SHA-256
+`48357445c0c0412500aab054b36890ae48825b2e99c6dea3bb437a59e8a55688`.
+The independent offline source, preservation, verification and arithmetic review
+is retained at `artifacts/p7-02-terminal-independent-review.json`. It makes no
+provider calls and does not replay or alter any historical trial.
+Its SHA-256 is
+`b37774cabf6931b21a41a252546932dda30062ab9971529be6ed86e70967ed89`.
+
+This closes P7-02's selected workflow and generation increment alongside the
+read-only semantic observations and reviewed debug scenarios above. It does not
+reclassify strict runner failures, claim statistical skill superiority, qualify
+unavailable toolchains, or close P7 delegation and P8 release work. The native
+toolchain matrix remains six passes, three seeded failures and 33 not-run cases.
+
+After recovery from the interrupted editor session, all 20 provider tests passed
+again, and the retained HTTP/canonical fixture passed all six modes on the
+isolated source (`artifacts/p7-02-resumed-provider.log`,
+`artifacts/p7-02-resumed-retained-http.log`). Changed Rust formatting and diff
+whitespace checks passed. All 14 repository fast gates passed at
+`artifacts/p7-02-resumed-fast/6ccdca66-5593-4a3c-9ae9-e8da2c63a5da/manifest.json`.
+Locked offline Clippy passed for the changed model/lifecycle libraries with
+existing warnings (`artifacts/p7-02-resumed-clippy.log`). The final repository
+contract check found no errors across 372 Markdown files and 2,170 relative links.

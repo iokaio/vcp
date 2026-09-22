@@ -90,6 +90,12 @@ observation of unseen trailing network bytes. Codec rejection preserves captured
 evidence and fences continuation. A response from a different observed model is
 accounted for and pauses the task.
 
+The terminal event can share its captured HTTP chunk with a partial optional
+`data: [DONE]` sentinel. Only the retained-client finalizer permits that exact
+sentinel prefix after a validated terminal; general EOF finalization remains
+strict. Captured contradictory bytes, partial JSON, duplicate DONE and payloads
+after DONE still fail closed. The prefix is not evidence about any unseen suffix.
+
 ## Primary compatibility inputs
 
 Reviewed September 18, 2026:

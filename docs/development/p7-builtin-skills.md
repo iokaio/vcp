@@ -57,7 +57,8 @@ Catalog 1.2.0 additionally revises `javascript-typescript` to 1.1.0 after live
 generation exposed inexact intermediate arithmetic. It covers numeric bounds,
 runtime-compatible exact arithmetic, omitted versus invalid options and honest
 test coverage. Existing frozen fixtures and oracle requirements are unchanged;
-the revised body still needs a fresh generation comparison.
+the revised body passed the final selected generation comparison recorded in
+[the completion qualification](../evaluations/p7-02-completion.md#final-generation-acceptance).
 
 `vcp_search` keeps literal matching by default. Optional `mode: "regex"` enables
 bounded regex matching; `path_pattern` is a regex over normalized root-relative
@@ -110,8 +111,9 @@ infrastructure currently require explicit selection. Root marker detection also
 does not cover every Python, .NET or JVM project layout. The skill procedures read
 actual manifests and repository guidance before suggesting commands.
 
-Shipped coverage declares guidance present but unqualified. Selected live
-U01–U03/U08 usefulness remains a P7-02 gate. Per the owning task, unavailable
+Shipped coverage declares guidance present without general toolchain qualification.
+Selected live U01–U03/U08 observations and their limits are recorded in the
+[completion qualification](../evaluations/p7-02-completion.md). Per the owning task, unavailable
 host/toolchains remain explicitly unvalidated in the coverage matrix; they must
 not acquire execution-support claims from guidance or another family's checks.
 Static lint, fake model outputs and successful packaging do not qualify usefulness.
@@ -121,7 +123,7 @@ actual isolated-copy checks, including the seeded failing regression and all
 not-run cases. The [paired live runner](../../scripts/evals/builtin-live-runner.md)
 prepares selected U01/U02/U08 guidance observations with explicit activation,
 canonical context/cost evidence and a one-shot spend cap. Its preparation and
-contract tests do not qualify live usefulness; U03 generation remains separate.
+contract tests do not qualify live usefulness; U03 generation has separate live evidence.
 
 The [completion qualification](../evaluations/p7-02-completion.md) records the
 fresh P7 trial bounds and current evidence. Read and patch tool descriptions now
@@ -129,5 +131,7 @@ clarify relative paths, nullable line arguments and literal patch syntax without
 changing source-version or authority checks.
 It now records selected read-only usefulness observations and reviewed CR-06
 scenarios, preserving every strict failure and the offline runner correction.
-The remaining live gate is exact-arithmetic generation against the unchanged
-44-check oracle; the new JavaScript body is not yet qualified by a passing run.
+The final baseline and skill generation arms both completed with canonical
+verification and all 44 independent oracle checks, including exact arithmetic.
+These selected observations complete P7-02 without claiming general toolchain
+support or statistical skill superiority.

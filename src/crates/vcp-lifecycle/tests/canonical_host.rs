@@ -541,6 +541,8 @@ async fn sealed_openrouter_context_reaches_retained_http_after_manifest_and_rese
     for (backend, mode) in [
         (BackendKind::Sqlite, "cost"),
         (BackendKind::Files, "cost"),
+        (BackendKind::Sqlite, "cost_done_prefix"),
+        (BackendKind::Files, "cost_done_prefix"),
         (BackendKind::Sqlite, "missing_cost"),
         (BackendKind::Sqlite, "deadline"),
     ] {
@@ -577,7 +579,9 @@ async fn sealed_openrouter_context_reaches_retained_http_after_manifest_and_rese
             assert_eq!(attempt.quote.bounds.cache_read.get(),request.body.len() as u64);
             calls.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
             let cost=if mode=="missing_cost"{serde_json::Value::Null}else{serde_json::json!(0.0001)};
-            let response=ResponseTemplate::new(200).insert_header("content-type","text/event-stream").set_body_string(sse(vec![ev_assistant_message("msg","Observed sealed request."),serde_json::json!({"type":"response.completed","response":{"id":"openrouter-synthetic","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0},"cost":cost}}})]));
+            let mut payload=sse(vec![ev_assistant_message("msg","Observed sealed request."),serde_json::json!({"type":"response.completed","response":{"id":"openrouter-synthetic","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0},"cost":cost}}})]);
+            if mode=="cost_done_prefix"{payload.push_str("data: [DON");}
+            let response=ResponseTemplate::new(200).insert_header("content-type","text/event-stream").set_body_string(payload);
             if mode=="deadline"{response.set_delay(Duration::from_secs(2))}else{response}
         }).mount(&server).await;
         let mut registry = ExtensionRegistryBuilder::new();
@@ -615,11 +619,11 @@ async fn sealed_openrouter_context_reaches_retained_http_after_manifest_and_rese
         let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
         assert_eq!(
             ledger.settled,
-            Micros::new(if mode == "cost" { 100 } else { 0 })
+            Micros::new(if mode.starts_with("cost") { 100 } else { 0 })
         );
         assert_eq!(
             ledger.unresolved,
-            Micros::new(if mode == "cost" { 0 } else { 100 })
+            Micros::new(if mode.starts_with("cost") { 0 } else { 100 })
         );
         if mode == "deadline" {
             owner.close().await.unwrap();

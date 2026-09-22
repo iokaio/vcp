@@ -501,6 +501,29 @@ impl Stream {
         }
         Ok(())
     }
+    /// The retained client stops at the provider terminal event, after capturing
+    /// its entire transport chunk. That chunk may also contain an incomplete
+    /// prefix of the optional DONE sentinel. Accept only that exact prefix;
+    /// contradictory observed bytes still invalidate the response. This says
+    /// nothing about unseen trailing bytes and is not an EOF validation policy.
+    /// General transports must continue to use strict `finish`.
+    pub fn finish_observed_terminal(mut self) -> Result<ResultBody> {
+        if self.terminal.is_some()
+            && !self.failed
+            && !self.done
+            && self.event_type.is_none()
+            && ((self.data.is_empty()
+                && [b"data: [DONE]".as_slice(), b"data:[DONE]".as_slice()]
+                    .iter()
+                    .any(|sentinel| sentinel.starts_with(&self.line)))
+                || (self.line.is_empty() && self.data == b"[DONE]\n"))
+        {
+            self.line.clear();
+            self.data.clear();
+        }
+        self.finish()
+    }
+
     /// No executable proposal is exposed until the captured prefix ends on a
     /// frame boundary and a qualified terminal agrees with observed fragments.
     /// The retained client observes through terminal, not unseen trailing bytes.

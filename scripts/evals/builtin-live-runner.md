@@ -11,7 +11,7 @@ Preparation makes no model calls. Supply a private spec containing only
 The executable must have the exact current bundled assets beside it and support
 `run --skill`. The fixed-provider profile must already be qualified, disable
 retries, allow at most sixteen requests and 1,800 seconds per run, explicitly
-request 1–8,192 output tokens within the qualified provider maximum, and use plan authority with no processes, executable checks,
+request 1–4,096 output tokens within the CLI startup ceiling and qualified provider maximum, and use plan authority with no processes, executable checks,
 MCP, routing, evaluator or custom skill sources. The existing credential
 environment boundary is unchanged; embedded credentials are rejected.
 
