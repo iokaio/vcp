@@ -20,6 +20,7 @@ const json = value => JSON.stringify(value, null, 2) + '\n';
 const CASES = new Set(['pause-resume', 'hard-close-reopen']);
 const MAX_RUN_MS = 115000;
 const RUST_MIN_STACK = '16777216';
+const PARENT_DRAINED = 'Parent turn interrupted; inspect current state before explicit /resume.';
 const SYNTHETIC = Object.freeze({
   'README.synthetic.txt': 'U06 synthetic read-only delegation workspace.\n',
   'observations/source.txt': 'The child should report this bounded synthetic input without editing it.\n',
@@ -514,6 +515,22 @@ function childAttemptObserved(data) {
     && ['known', 'reserved', 'uncertain'].some(field => positiveCost(row.cost?.[field])));
 }
 
+function verifyFrozenWorkspace(item, base) {
+  try {
+    const observed = workspaceInputs(path.join(base, 'workspace'));
+    return {
+      status: JSON.stringify(observed) === JSON.stringify(item.frozen.workspace) ? 'passed' : 'failed',
+      expected: item.frozen.workspace,
+      observed,
+    };
+  } catch (error) {
+    return {
+      status: 'failed', expected: item.frozen.workspace, observed: null,
+      error: error.message || String(error),
+    };
+  }
+}
+
 function runCase(plan, item, base, operations = {}) {
   const spawnProcess = operations.spawn || spawn;
   const call = operations.invokeCanonical || invokeCanonical;
@@ -542,6 +559,7 @@ function runCase(plan, item, base, operations = {}) {
     let childObserved = false;
     let sentPause = false;
     let pauseObserved = false;
+    let parentDrained = false;
     let sentResume = false;
     let resumeObserved = false;
     let sentExit = false;
@@ -648,12 +666,21 @@ function runCase(plan, item, base, operations = {}) {
       if (!markerSeen(text, item.markers.startup)) addFailure('startup marker not observed');
       if (!sentDelegate || !childObserved) addFailure('child start was not observed');
       if (item.id === 'pause-resume'
-          && (!sentPause || !pauseObserved || !sentResume || !resumeObserved || !sentExit)) {
-        addFailure('pause, canonical paused inspection, resume acknowledgement, and exit are required');
+          && (!sentPause || !pauseObserved || !parentDrained
+            || !sentResume || !resumeObserved || !sentExit)) {
+        addFailure('pause, canonical paused inspection, parent drain, resume acknowledgement, and exit are required');
       }
       if (item.id === 'hard-close-reopen' && !terminationRequested) {
         addFailure('hard close was not requested');
       }
+      if (item.id === 'pause-resume' && (!structuredExit || structuredExitCode !== 0)) {
+        addFailure('pause-resume requires a structured zero exit');
+      }
+      if (item.id === 'hard-close-reopen'
+          && (!structuredExit || !Number.isInteger(structuredExitCode) || structuredExitCode === 0)) {
+        addFailure('hard-close requires a structured nonzero exit');
+      }
+      result.structured_exit = structuredExit;
       result.exit_code = code;
       result.stderr = stderr.join('');
       result.transcript = transcript;
@@ -725,8 +752,14 @@ function runCase(plan, item, base, operations = {}) {
             && text.includes(item.markers.paused)) {
           canonicalAgents(true);
           pauseObserved = true;
-          send('/resume\r');
+        }
+        if (item.id === 'pause-resume' && pauseObserved && !parentDrained
+            && text.includes(PARENT_DRAINED)) {
+          parentDrained = true;
+        }
+        if (item.id === 'pause-resume' && parentDrained && !sentResume) {
           sentResume = true;
+          send('/resume\r');
         }
         if (item.id === 'pause-resume' && sentResume && !resumeObserved
             && text.includes(item.markers.resumed)) {
@@ -796,10 +829,11 @@ function gradeSnapshots(first, second, item, rootTaskId) {
       || !right.attempts.some(attempt => childTasks.some(task => task.id === attempt.task))) {
     failures.push('retained attempts do not include both the main task and a child task');
   }
-  const ledger = right.ledgers.find(row => row.id === rootTaskId) || right.ledgers[0];
+  const rootLedgers = right.ledgers.filter(row => row.id === rootTaskId);
+  const ledger = rootLedgers.length === 1 ? rootLedgers[0] : null;
   let accounting = null;
   if (!ledger) {
-    failures.push('root ledger missing from recovery snapshot');
+    failures.push('exact root ledger missing or ambiguous in recovery snapshot');
   } else {
     try {
       const cap = decimalMicros(ledger.cap, 'cap');
@@ -880,6 +914,10 @@ async function run(file, authorization) {
         result.unresolved_upper_bound_micros = item.cap_micros;
       }
     }
+    result.workspace_verification = verifyFrozenWorkspace(item, base);
+    if (result.workspace_verification.status !== 'passed') {
+      result.failures.push('post-run workspace differs from frozen synthetic inputs');
+    }
     result.held_upper_bound_micros = result.failures.length
       ? item.cap_micros
       : result.actual_cost_micros + result.unresolved_upper_bound_micros;
@@ -921,7 +959,7 @@ function parseArgs(argv) {
 module.exports = {
   micros, profileReasons, validateSpec, prepare, validatePlan, discoverWorkspace,
   preflight, requirePreflight, childAttemptObserved, runCase, snapshotProjection, gradeSnapshots,
-  modelCallCount, run,
+  verifyFrozenWorkspace, modelCallCount, run,
 };
 
 if (require.main === module) {

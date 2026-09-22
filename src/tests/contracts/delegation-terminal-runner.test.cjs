@@ -164,6 +164,11 @@ test('preparation creates fresh Git workspaces and freezes exact PTY controls be
       'write_paths', 'untracked_inputs', 'allocation_usd', 'seconds',
     ]) assert.ok(Object.hasOwn(child, field), field);
     assert.deepEqual(child.read_paths, ['']);
+    assert.equal(runner.verifyFrozenWorkspace(plan.cases[0], base).status, 'passed');
+    const unexpected = path.join(base, 'workspace', 'unexpected.txt');
+    fs.writeFileSync(unexpected, 'post-run mutation');
+    assert.equal(runner.verifyFrozenWorkspace(plan.cases[0], base).status, 'failed');
+    fs.rmSync(unexpected);
     assert.equal(spawnSync(files.git, ['status', '--porcelain'], {
       cwd: path.join(base, 'workspace'), encoding: 'utf8',
     }).stdout, '');
@@ -231,6 +236,12 @@ test('snapshot grading ignores reopen revisions but requires stable tasks, attem
   assert.match(active.failures.join('; '), /active liability/);
   const invented = runner.gradeSnapshots(first, snapshot({settled: '6'}), {cap_micros: 1000000}, 'root');
   assert.match(invented.failures.join('; '), /charges do not match/);
+  const wrongLedger = snapshot();
+  wrongLedger.records.ledger.id = 'not-root';
+  assert.match(
+    runner.gradeSnapshots(first, wrongLedger, {cap_micros: 1000000}, 'root').failures.join('; '),
+    /exact root ledger missing/,
+  );
   assert.equal(runner.modelCallCount([
     {actual_cost_micros: null, final_projection: {attempts: [{id: 'partial'}]}},
   ]), null);
@@ -247,6 +258,8 @@ test('runCase spawns the frozen PTY driver and completes the pause protocol with
     }));
     fs.writeFileSync(path.join(root, 'delegation.json'), '{}');
     let spawned = false;
+    let parentDrained = false;
+    let resumedBeforeDrain = false;
     const spawn = (executable, args, options) => {
       spawned = true;
       assert.equal(executable, 'frozen-driver.exe');
@@ -263,7 +276,15 @@ test('runCase spawns the frozen PTY driver and completes the pause protocol with
             child.stdout.write(`${JSON.stringify({type: 'output', text: 'U06-CHILD-STARTED\n'})}\n`);
           } else if (control.action === 'write' && control.text.includes('/pause')) {
             child.stdout.write(`${JSON.stringify({type: 'output', text: 'U06-PAUSED-ACK\n'})}\n`);
+            setImmediate(() => {
+              parentDrained = true;
+              child.stdout.write(`${JSON.stringify({
+                type: 'output',
+                text: 'Parent turn interrupted; inspect current state before explicit /resume.\n',
+              })}\n`);
+            });
           } else if (control.action === 'write' && control.text.includes('/resume')) {
+            resumedBeforeDrain = !parentDrained;
             child.stdout.write(`${JSON.stringify({type: 'output', text: 'U06-RESUMED-ACK\n'})}\n`);
           } else if (control.action === 'write' && control.text.includes('/exit')) {
             child.stdout.write(`${JSON.stringify({type: 'exit', code: 0})}\n`);
@@ -309,6 +330,7 @@ test('runCase spawns the frozen PTY driver and completes the pause protocol with
     assert.equal(spawned, true);
     assert.ok(canonicalCalls >= 3);
     assert.equal(result.readiness.polls, 2);
+    assert.equal(resumedBeforeDrain, false);
     assert.deepEqual(result.failures, []);
     assert.equal(result.status, 'transport_observed');
   } finally {
@@ -373,7 +395,7 @@ test('runCase uses the actual PTY driver for pause/resume and hard-close transpo
           "process.stdin.on('data', bytes => {",
           " input += bytes.toString('utf8');",
           " if (!delegated && input.includes('/agents delegate')) { delegated = true; process.stdout.write('U06-CHILD-STARTED\\n'); }",
-          " if (!paused && input.includes('/pause')) { paused = true; process.stdout.write('U06-PAUSED-ACK\\n'); }",
+          " if (!paused && input.includes('/pause')) { paused = true; process.stdout.write('U06-PAUSED-ACK\\nParent turn interrupted; inspect current state before explicit /resume.\\n'); }",
           " if (!resumed && input.includes('/resume')) { resumed = true; process.stdout.write('U06-RESUMED-ACK\\n'); }",
           " if (input.includes('/exit')) process.exit(0);",
           '});',

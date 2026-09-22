@@ -3,6 +3,11 @@
 P7-04, P7-05 and P7-06 remain in progress. The implemented owner path is described
 in [child workspaces](../development/p7-child-workspaces.md). M7 remains deferred.
 
+The [2026-09-22 paired campaign](p7-live-qualification-2026-09-22.md) adds current
+native regression, actual Luna/Qwen review and generation observations, and live
+terminal evidence. The earlier mock-provider results below remain historical
+component evidence, not substitutes for that campaign's failed or open gates.
+
 The native campaign uses `scripts/test-delegation.ps1` with Rust 1.95.0 and the
 installed Visual Studio x64 tools. Its manifest binds source inputs and stage
 logs, and refuses a passing result when inputs change during the run. All model

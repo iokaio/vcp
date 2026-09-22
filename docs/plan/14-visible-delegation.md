@@ -2,6 +2,12 @@
 
 Status: implementation and qualification in progress; see [the implemented owner path and remaining gates](../development/p7-child-workspaces.md). Owns P7-04, P7-05 and P7-06. Requires grouped escalation P6-03 and P2-07 recovery; integration needs current-result verification, and visible progress needs P3-02/P3-04. Architecture section 16 governs delegation.
 
+The [2026-09-22 qualification checkpoint](../evaluations/p7-live-qualification-2026-09-22.md)
+records delivered helper/cleanup/review/control refinements and paired Luna/Qwen
+results. Useful generation has current-parent evidence; formal live review and
+the broader interruption schedule remain open. Delivery of the implemented
+increment does not mark all three work items complete.
+
 ## Code organization
 
 Use `vcp-engine/agents/{graph,scheduler,scope,result,integration,progress,recovery}` with `vcp-repository/{worktree,dirty_snapshot,merge}` and existing root ledger/services. The CLI adds child list/follow/focus views to the same event stream. A child is a bounded task node, not an independent process with its own uncontrolled provider access or memory store.
