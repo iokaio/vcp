@@ -25,6 +25,9 @@ mod child_agents;
 #[cfg(windows)]
 #[path = "support/child_cleanup.rs"]
 mod child_cleanup;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/child_cleanup_receipt_fault.rs"]
+mod child_cleanup_receipt_fault;
 #[cfg(windows)]
 #[path = "support/child_integration_fault.rs"]
 mod child_integration_fault;
