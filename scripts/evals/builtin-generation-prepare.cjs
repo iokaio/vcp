@@ -39,6 +39,11 @@ function qualifyRuntime(input){
   return runtime;
 }
 function inventory(directory){return Object.fromEntries(filesUnder(directory).map(file=>[file,sha(read(safeChild(directory,file)))]));}
+function requireEmbeddedCatalog(executableBytes,catalogBytes){
+  // VCP embeds the exact catalog bytes. Absence detects a stale/mismatched build;
+  // presence is not build attestation and does not replace native package tests.
+  if(!catalogBytes.length||!executableBytes.includes(catalogBytes))throw Error('Executable does not embed the exact packaged builtin catalog; rebuild and qualify the package before live preparation or dispatch');
+}
 function prepare(specFile,destination){
   const specBytes=read(specFile),spec=JSON.parse(specBytes);noSecrets(spec);
   if(!['aggregate_cap_usd,executable,profile','aggregate_cap_usd,executable,profile,runtime','aggregate_cap_usd,executable,profile,propose_opaque_launcher_effects,runtime'].includes(Object.keys(spec).sort().join(',')))throw Error('Spec requires executable, profile, aggregate_cap_usd, optional runtime and explicit opaque-launcher proposal');
@@ -51,6 +56,8 @@ function prepare(specFile,destination){
   noParentInstructions(path.dirname(destination));privateDirectory(destination);
   const executable=plain(path.resolve(spec.executable)),assets=inventory(path.join(path.dirname(executable),'skills/builtin'));
   if(JSON.stringify(assets)!==JSON.stringify(inventory(path.join(repo,'src/skills/builtin'))))throw Error('Exact current packaged skill assets required');
+  const executableBytes=read(executable,1024*1024*1024);
+  requireEmbeddedCatalog(executableBytes,read(path.join(path.dirname(executable),'skills/builtin/catalog.json')));
   const profileBytes=read(plain(path.resolve(spec.profile))),profile=JSON.parse(profileBytes);noSecrets(profile);
   const reasons=paired.fixedProfileReasons(profile);
   if(profile.routing||profile.maximum_autonomy!=='workspace'||JSON.stringify([...profile.automatic_effects||[]].sort())!==JSON.stringify(['read','write']))reasons.push('Fixed workspace read/write profile required; no execution authority');
@@ -65,7 +72,7 @@ function prepare(specFile,destination){
   const plan={schema:'p7-u03-generation-preparation/1',runnable,authorization:false,runtime,
     permission_review:permissionReview(runtime,proposeOpaque),
     blockers:runtime?(proposeOpaque?[]:['explicit_opaque_launcher_permission_proposal_required']):['qualified_parent_verification_profile','generation_live_executor','network_denying_oracle_runtime'],
-    directory:destination,executable,executable_sha256:sha(read(executable,1024*1024*1024)),assets,
+    directory:destination,executable,executable_sha256:sha(executableBytes),assets,
     fixture_revision:manifest.revision,fixture_sha256:sha(manifestBytes),runner_sha256:sha(read(__filename)),oracle_sha256:sha(read(path.join(__dirname,'builtin-generation-oracle.cjs'))),
     shared_runner_sha256:sha(read(path.join(__dirname,'p6-live-runner.cjs'))),live_runner_sha256:sha(read(path.join(__dirname,'builtin-generation-runner.cjs'))),skill_runner_sha256:sha(read(path.join(__dirname,'builtin-live-runner.cjs'))),spec_source:plain(path.resolve(specFile)),spec_sha256:sha(specBytes),profile_source:plain(path.resolve(spec.profile)),profile_sha256:sha(profileBytes),catalog,catalog_sha256:sha(read(catalog)),
     aggregate_cap_micros:cap,allocated_cap_micros:allocation*2,model_calls:0,runs:[]};
@@ -81,5 +88,5 @@ function prepare(specFile,destination){
   write(path.join(destination,'plan.json'),plan);
   return {plan:path.join(destination,'plan.json'),sha256:sha(read(path.join(destination,'plan.json'))),runnable,launcher_build_provenance:runtime?.launcher_build_provenance??null,runs:2,model_calls:0,aggregate_cap_micros:cap};
 }
-module.exports={prepare,qualifiedProfile,qualifyRuntime,inventory,opaqueEffects,permissionReview};
+module.exports={prepare,qualifiedProfile,qualifyRuntime,inventory,opaqueEffects,permissionReview,requireEmbeddedCatalog};
 if(require.main===module){try{const [command,spec,destination,...rest]=process.argv.slice(2);if(command!=='prepare'||!spec||!destination||rest.length)throw Error('Usage: builtin-generation-prepare.cjs prepare <spec.json> <new-private-directory>');console.log(JSON.stringify(prepare(spec,destination)));}catch(error){console.error(error.message);process.exitCode=1;}}

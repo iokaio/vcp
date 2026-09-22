@@ -80,12 +80,13 @@ The focused test passed all four store/oversized combinations in 190.72 seconds.
 
 ## Remaining acceptance
 
-P7-02 remains in progress until the live U01–U03/U08 usefulness and remaining
-toolchain requirements have current evidence. No P6-specific spending authority
-is reused for P7 trials. Live plans bind the final executable, catalog, profile,
-fixtures and aggregate spend cap before dispatch. Missing environments and
-seeded failing application checks retain their previous status; they are not
-converted into passes by this increment.
+The [completion qualification](p7-02-completion.md) records subsequent selected
+read-only usefulness, generation and reviewed debug evidence. The native workflow
+checks above qualify bounded navigation, declared long-check ceilings, responsive
+cancellation and Windows output handling. Unavailable toolchains remain explicitly
+unvalidated; they are not prerequisites to install or implicit execution claims.
+Live plans bind the executable, catalog, profile, fixtures and approved spend cap.
+Missing environments and seeded application failures retain their actual status.
 
 U03 preparation now exposes the broker's conservative seven-effect process
 classification in an explicit permission proposal. Only the pinned,
@@ -101,8 +102,8 @@ continuations, ten failed attempts and eight not-run cases. Known settled charge
 total $0.051188, with $0.806560 canonical unresolved liability. Independent
 semantic review preserves useful partial observations without overriding strict
 failures; neither generation arm implemented its feature. Approval and credentials
-are resolved. Accounting fixes apply to future execution, and live usefulness,
-the remaining eight cases and toolchain acceptance remain open.
+are resolved. These are historical outcomes; the subsequent completion record
+retains them alongside its fresh campaign rather than replaying those attempts.
 
 The debug oracle's interrupted case starts from a frozen instrumented state;
 it is not evidence of a real interrupted model session. Its process permissions

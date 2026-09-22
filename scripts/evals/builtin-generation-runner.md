@@ -9,7 +9,12 @@ independent oracle checks every other file and the complete file inventory.
 Preparation makes zero model calls. Supply a private JSON spec with `executable`,
 `profile`, `aggregate_cap_usd` (an exact USD decimal string), and optionally
 `runtime: {"node": "absolute node.exe path", "launcher": "absolute launcher.exe path", "build_receipt": "absolute build-receipt.json path"}`.
-The executable needs the exact current bundled skill assets alongside it. The
+The executable needs the exact current bundled skill assets alongside it.
+Preparation and dispatch reject an executable that lacks the exact packaged
+catalog bytes embedded by VCP. This catches a stale binary paired with newer
+sidecars; byte presence is not build attestation. Qualify the rebuilt archive
+with the native packaged-skill integrity test before live use, rather than
+relying on help/version output or archive hashes alone. The
 source profile must satisfy the fixed-provider requirements of the
 [read-only runner](builtin-live-runner.md), except that it grants workspace
 read/write authority. It must contain no executable checks or process authority.

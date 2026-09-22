@@ -17,8 +17,10 @@ function validate(plan,file){
   if(sha(specBytes)!==plan.spec_sha256||spec.propose_opaque_launcher_effects!==true||JSON.stringify(plan.permission_review)!==JSON.stringify(prep.permissionReview(plan.runtime,true)))throw Error('Exact opaque launcher permission proposal changed');
   if(plain(path.resolve(spec.executable))!==plan.executable||plain(path.resolve(spec.profile))!==plan.profile_source||prior.micros(spec.aggregate_cap_usd)!==plan.aggregate_cap_micros||JSON.stringify(prep.qualifyRuntime(spec.runtime))!==JSON.stringify(plan.runtime))throw Error('Prepared plan differs from exact owner spec');
   const manifestBytes=read(path.join(fixture,'manifest.json')),manifest=JSON.parse(manifestBytes);
-  if(plan.fixture_sha256!==sha(manifestBytes)||plan.fixture_revision!==manifest.revision||plan.executable_sha256!==sha(read(plan.executable,1024*1024*1024))||plan.profile_sha256!==sha(read(plan.profile_source))||plan.catalog_sha256!==sha(read(plan.catalog)))throw Error('Prepared fixture, executable or provider changed');
+  const executableBytes=read(plan.executable,1024*1024*1024);
+  if(plan.fixture_sha256!==sha(manifestBytes)||plan.fixture_revision!==manifest.revision||plan.executable_sha256!==sha(executableBytes)||plan.profile_sha256!==sha(read(plan.profile_source))||plan.catalog_sha256!==sha(read(plan.catalog)))throw Error('Prepared fixture, executable or provider changed');
   if(JSON.stringify(prep.inventory(path.join(path.dirname(plan.executable),'skills/builtin')))!==JSON.stringify(plan.assets)||JSON.stringify(prep.inventory(path.join(repo,'src/skills/builtin')))!==JSON.stringify(plan.assets))throw Error('Packaged skills changed');
+  prep.requireEmbeddedCatalog(executableBytes,read(path.join(path.dirname(plan.executable),'skills/builtin/catalog.json')));
   const source=JSON.parse(read(plan.profile_source));
   if(paired.fixedProfileReasons(source).length||source.maximum_autonomy!=='workspace'||JSON.stringify([...source.automatic_effects].sort())!==JSON.stringify(['read','write']))throw Error('Source profile qualification expired or changed');
   const allocation=Math.floor(plan.aggregate_cap_micros/2),files=Object.fromEntries(manifest.files.map(f=>[f.path,f.sha256]));

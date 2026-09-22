@@ -1,6 +1,8 @@
 # P7-02 completion qualification
 
-Status: in progress. This increment addresses the failed September 21 live
+Status: in progress; both arms of the authorized $10 generation follow-up failed
+acceptance, as recorded below. No completion or merge is justified by these runs.
+This increment addresses the failed September 21 live
 campaign without changing its results, denominators or canonical liabilities.
 The original eighteen attempts remain ten failures and eight not-run cases;
 $0.051188 is settled and $0.806560 remains unresolved. Original allocations are
@@ -296,3 +298,96 @@ the skill arm satisfies generation acceptance.
 All fourteen fast gates passed after the process-discovery, catalog and runner
 corrections. Receipt:
 `artifacts/p7-02-final-followup-fast/8e1190c1-dafb-4635-833e-d4e42ee97b72/manifest.json`.
+
+## Authorized $10 generation follow-up
+
+The owner authorized the fresh pair under a $10 aggregate cap, including the
+transfer of the synthetic fixture, prompt and packaged guidance to OpenRouter.
+The fixture, 44-check oracle, sixteen-request/4,096-token/900-second bounds and
+restricted launcher remain unchanged. Historical paid allocations and the
+original $0.806560 unresolved liability remain separate.
+
+Initial plan `6ef846d4967df3fcf252e3648f1e1777d0e009b3acb015c356cd9705c9cba083`
+failed during setup: its binary embedded catalog 1.1.0, while the sidecars were
+catalog 1.2.0. Canonical integrity correctly rejected the mismatch. The baseline
+workspace remained unchanged and the skill arm was not run. The stopped result
+is preserved; separate gap-checked canonical reconciliation proves zero model
+attempts and zero settled, active or unresolved cost:
+`artifacts/p7-02-setup-reconciliation.json`.
+
+Generation preparation and dispatch now reject a binary lacking the exact
+embedded sidecar catalog bytes. This is a mismatch detector, not build
+attestation. The exact rebuilt archive passed the existing native relocated
+package/discovery/tamper test with a localhost mock and no model calls:
+`artifacts/p7-02-acceptance-tested-native-configured.log` (one test, 13.96 seconds).
+The archive is
+`artifacts/p7-02-acceptance-tested-package/b88c5e44-f42f-4d52-8064-f4c9b686d80e`;
+its executable SHA-256 is
+`f3e7293464b137f6d4fb774670ce7f2a9d156a91ba8e15d75cc2a1b320d0153c`.
+The earlier zero-test invocation, mismatched test-build archive and missing
+fixture-runtime attempt remain failed/not-qualifying evidence.
+
+The exact live plan is
+`2bcd4695234ff127f2a9c0c0888e043ec6ada2be55e2576d254f6f07c9d8f108`,
+with separate $5 arm allocations. The baseline exhausted sixteen requests and
+paused without completion. Independent review found 37/44 oracle checks passed;
+per-item validation and exact arithmetic remained defective. All protected
+files were preserved. Its runner stopped when canonical inspection exceeded
+the existing 30-second limit. Read-only recovery completed with exit zero and
+gap-free accounting: **$0.176075** settled, no active reservation or unresolved
+liability. Neither the stopped runner result nor baseline was replayed or edited.
+Receipts: `artifacts/p7-02-finalpair-cost-inspection.log`,
+`artifacts/p7-02-finalpair-baseline-accounting.json` and
+`artifacts/p7-02-finalpair-independent-review.json`.
+
+A reviewed one-shot continuation admits only the pristine original skill arm
+under its unchanged $5 allocation. It pins the original plan, scripts, package,
+profile, runtime, prompt and recovered baseline accounting, compares canonical
+scope IDs, and preserves the baseline inventory. Exclusive continuation and
+attempt markers prevent replay. The skill arm exhausted sixteen requests and
+paused with exit 8. Its final source had duplicate `subtotalCents` declarations,
+so the independent oracle could not load it (0/44); negative-quantity validation
+and exact arithmetic were also defective. Protected files and the entire
+baseline inventory remained unchanged. No native verification was requested.
+
+Independent inspection of all sixteen SHA-verified context manifests confirms
+that each included the current JavaScript 1.1.0 body and its BigInt guidance.
+Of ten patch calls, nine failed: most supplied literal backslash-n characters
+instead of newlines; subsequent repair attempts had malformed termination or
+tried to add an existing destination. The successful patch retained the syntax
+error. This is evidence of model patch-construction/instruction-adherence
+failure, not missing skill activation or a verification pass.
+Cause receipt: `artifacts/p7-02-finalpair-skill-cause-review.json`.
+
+Read-only skill accounting recovery completed successfully with sixteen settled
+requests totaling **$0.237472**, zero active reservations and zero unresolved
+liability. The pair therefore settled **$0.413547** across 32 requests. Receipts:
+`artifacts/p7-02-finalpair-skill-cost-inspection.log` and
+`artifacts/p7-02-finalpair-skill-accounting.json`. The runner's original stopped
+result remains unchanged; these independently reconciled costs do not turn
+either failed attempt into acceptance or automatically authorize another pair.
+
+Workflow qualification retains the native navigation, long-check, cancellation
+and output proofs and the earlier bounded read-only/debug observations. The
+native toolchain matrix remains six passes, three seeded application failures
+and 33 not-run cases. Prepared debug interruption/human-edit scenarios are not
+real interruption/concurrency proofs. No statistical skill superiority,
+measured source-byte efficiency improvement or general toolchain support is
+claimed. The live generation gate remains open.
+
+A replacement-model proposal is prepared, with no calls: qualify
+`openai/gpt-5.6-luna` on its exact `openai` endpoint under $1.50, then run a fresh
+pair under $8 ($4 per arm), only after successful provider qualification. The
+pair retains the fixture/oracle and launcher, with sixteen requests, 8,192
+output tokens and 900 seconds per arm. Maximum cumulative spend including the
+failed pair is $9.913547. Reallocation of the unspent original budget requires
+explicit approval; it is not another $9.50 on top of $10. Proposal receipt:
+`artifacts/p7-02-alternative-proposal.json`, SHA-256 of its private proposal
+`06ea320908c114f4c3328751b44aa69831e0c3f0ce065b1aa6a9bcc4ac474261`.
+
+After the preflight correction, all 35 generation, continuation, debug,
+read-only-runner and toolchain contracts passed with the pinned runtime and
+recorded launchers, zero skips and no model calls:
+`artifacts/p7-02-acceptance-contracts.log`. All fourteen fast delivery gates
+passed at
+`artifacts/p7-02-acceptance-fast/e593bcd9-2619-4206-a07b-6c96897e31f0/manifest.json`.
