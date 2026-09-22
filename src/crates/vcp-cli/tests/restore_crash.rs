@@ -5,8 +5,9 @@
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
-    process::{Command, Output, Stdio},
+    process::{Child, Command, ExitStatus, Output, Stdio},
     time::{Duration, Instant},
 };
 use vcp_cli::settings::WorkspaceEntry;
@@ -17,6 +18,41 @@ use vcp_domain::{
     *,
 };
 use vcp_store::{contract::*, BackendKind, Store};
+
+/// A failed supervisor assertion must not leave a product process parked at
+/// its qualification barrier. Drop is bounded and never panics during unwind.
+struct GuardedChild(Child);
+impl std::ops::Deref for GuardedChild {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for GuardedChild {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+impl Drop for GuardedChild {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        let _ = self.0.kill();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            match self.0.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) => std::thread::sleep(Duration::from_millis(25)),
+                Err(_) => break,
+            }
+        }
+        eprintln!(
+            "supervisor could not confirm termination of PID {}",
+            self.0.id()
+        );
+    }
+}
 
 struct Case {
     _temp: tempfile::TempDir,
@@ -32,12 +68,20 @@ struct Case {
 }
 impl Case {
     fn new(seed: &Path, backend: BackendKind, backend_name: &'static str) -> Self {
+        Self::with_temp(seed, backend, backend_name, tempfile::tempdir().unwrap())
+    }
+    fn with_temp(
+        seed: &Path,
+        backend: BackendKind,
+        backend_name: &'static str,
+        temp: tempfile::TempDir,
+    ) -> Self {
         let fixture: Value =
             serde_json::from_slice(&fs::read(seed.join("fixture.json")).unwrap()).unwrap();
-        let temp = tempfile::tempdir().unwrap();
-        let data = temp.path().join("data");
-        let enrollment = temp.path().join("enrollment");
-        let staging = temp.path().join("staging");
+        let base = temp.path().canonicalize().unwrap();
+        let data = base.join("data");
+        let enrollment = base.join("enrollment");
+        let staging = base.join("staging");
         for path in [&data, &enrollment, &staging] {
             fs::create_dir(path).unwrap();
         }
@@ -127,12 +171,13 @@ impl Case {
         let id = CommandId::new();
         let stdout = self._temp.path().join(format!("{id}.stdout"));
         let stderr = self._temp.path().join(format!("{id}.stderr"));
-        let mut child = self
-            .command(work, args)
-            .stdout(fs::File::create(&stdout).unwrap())
-            .stderr(fs::File::create(&stderr).unwrap())
-            .spawn()
-            .unwrap();
+        let mut child = GuardedChild(
+            self.command(work, args)
+                .stdout(fs::File::create(&stdout).unwrap())
+                .stderr(fs::File::create(&stderr).unwrap())
+                .spawn()
+                .unwrap(),
+        );
         let deadline = Instant::now() + Duration::from_secs(180);
         let status = loop {
             if let Some(status) = child.try_wait().unwrap() {
@@ -140,7 +185,7 @@ impl Case {
             }
             if Instant::now() >= deadline {
                 child.kill().unwrap();
-                child.wait().unwrap();
+                wait_for_exit(&mut child);
                 panic!("bounded CLI command timed out");
             }
             std::thread::sleep(Duration::from_millis(25));
@@ -187,7 +232,6 @@ impl Case {
         let mut args = self.restore_args();
         args.push("--preview".into());
         let preview = self.ok(&self.destination, &args);
-        assert!(preview["expected_descriptor"].is_null());
         let operation = preview["operation"].as_str().unwrap().to_owned();
         let mut args = self.restore_args();
         args.extend([
@@ -198,20 +242,24 @@ impl Case {
             "--bytes".into(),
             preview["bytes"].as_u64().unwrap().to_string(),
         ]);
+        if let Some(expected) = preview["expected_descriptor"].as_str() {
+            args.extend(["--expected-descriptor".into(), expected.into()]);
+        }
         (operation, args)
     }
     fn kill_at(&self, args: &[String], phase: &str) {
         let marker = self._temp.path().join("kill-ready");
         let stdout = self._temp.path().join("killed-stdout.jsonl");
         let stderr = self._temp.path().join("killed-stderr.log");
-        let mut child = self
-            .command(&self.destination, args)
-            .env("VCP_TEST_RESTORE_BARRIER", phase)
-            .env("VCP_TEST_RESTORE_MARKER", &marker)
-            .stdout(fs::File::create(stdout).unwrap())
-            .stderr(fs::File::create(&stderr).unwrap())
-            .spawn()
-            .unwrap();
+        let mut child = GuardedChild(
+            self.command(&self.destination, args)
+                .env("VCP_TEST_RESTORE_BARRIER", phase)
+                .env("VCP_TEST_RESTORE_MARKER", &marker)
+                .stdout(fs::File::create(&stdout).unwrap())
+                .stderr(fs::File::create(&stderr).unwrap())
+                .spawn()
+                .unwrap(),
+        );
         let deadline = Instant::now() + Duration::from_secs(180);
         loop {
             if fs::read_to_string(&marker).ok().as_deref() == Some(phase) {
@@ -225,14 +273,45 @@ impl Case {
             }
             if Instant::now() >= deadline {
                 child.kill().unwrap();
-                child.wait().unwrap();
+                wait_for_exit(&mut child);
                 panic!("CLI barrier {phase} timed out");
             }
             std::thread::sleep(Duration::from_millis(25));
         }
-        assert_eq!(fs::read_to_string(marker).unwrap(), phase);
+        assert_eq!(fs::read_to_string(&marker).unwrap(), phase);
+        assert!(
+            !fs::read_to_string(&stdout).unwrap().lines().any(|line| {
+                serde_json::from_str::<Value>(line)
+                    .is_ok_and(|row| row["type"] == "result" && row["data"]["activated"] == true)
+            }),
+            "restore success was acknowledged before the selected crash boundary"
+        );
+        // The test supervisor persists its observation outside canonical state
+        // before terminating the product process. A timeout never reaches here.
+        self.receipt(
+            "supervisor-observed.json",
+            &json!({
+                "barrier": phase, "observed": true, "pid": child.id(),
+                "acknowledged": false, "marker": marker,
+                "barrier_deadline_seconds": 180,
+            }),
+        );
         child.kill().unwrap();
-        assert!(!child.wait().unwrap().success());
+        let status = wait_for_exit(&mut child);
+        assert!(!status.success());
+        self.receipt(
+            "supervisor-killed.json",
+            &json!({
+                "barrier": phase, "termination_observed": true,
+                "exit_code": status.code(), "acknowledged": false,
+            }),
+        );
+    }
+    fn receipt(&self, name: &str, value: &Value) {
+        let mut file = fs::File::create(self._temp.path().join(name)).unwrap();
+        file.write_all(&serde_json::to_vec_pretty(value).unwrap())
+            .unwrap();
+        file.sync_all().unwrap();
     }
     fn registry(&self) -> PathBuf {
         self.data
@@ -313,11 +392,358 @@ impl Case {
         state
     }
 }
+fn wait_for_exit(child: &mut Child) -> ExitStatus {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return status;
+        }
+        assert!(Instant::now() < deadline, "killed CLI did not exit");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
 fn fixture_root() -> PathBuf {
     PathBuf::from(
         std::env::var_os("VCP_TEST_PORTABILITY_FIXTURES")
             .expect("explicit native encrypted fixture root required"),
     )
+}
+
+/// Retain every case, including failed roots, under an explicit local evidence
+/// directory. This is a local activation test, not a new capture/cloud campaign.
+#[tokio::test]
+#[ignore = "requires native encrypted fixtures and VCP_TEST_RECOVERY_EVIDENCE"]
+async fn interrupted_restore_with_competing_roots_uses_validated_selection() {
+    use vcp_store::{
+        keys::{LocalKeys, RecoveryDirectory},
+        trust_store::TrustStore,
+        vault_crypto::{Limits, PrivateStaging},
+    };
+    let fixtures = fixture_root();
+    let evidence = PathBuf::from(
+        std::env::var_os("VCP_TEST_RECOVERY_EVIDENCE")
+            .expect("explicit retained supervisor evidence directory required"),
+    );
+    fs::create_dir_all(&evidence).unwrap();
+    assert!(
+        !evidence
+            .canonicalize()
+            .unwrap()
+            .ancestors()
+            .any(|path| path.join(".git").exists()),
+        "retained CLI plaintext evidence must be outside repositories"
+    );
+    for (seed, backend, name) in [
+        ("files", BackendKind::Sqlite, "sqlite"),
+        ("sqlite", BackendKind::Files, "files"),
+    ] {
+        for (phase, corrupt) in [
+            ("activation_receipt", false),
+            ("descriptor", false),
+            ("activation_receipt", true),
+        ] {
+            let mut temp = tempfile::Builder::new()
+                .prefix(&format!("restore-{name}-{phase}-{corrupt}-"))
+                .tempdir_in(&evidence)
+                .unwrap();
+            temp.disable_cleanup(true);
+            let mut case = Case::with_temp(&fixtures.join(seed), backend, name, temp);
+            println!("retained restore case: {}", case._temp.path().display());
+
+            // Decode before advancing independent trust; after the predecessor
+            // is selected, encrypt the same captured payloads as its descendant.
+            let recovery = RecoveryDirectory::open(
+                case.key.parent().unwrap(),
+                std::slice::from_ref(&case.enrollment),
+            )
+            .unwrap()
+            .open_copy(case.key.file_stem().unwrap().to_str().unwrap())
+            .unwrap();
+            let (mut manifest, payloads) = {
+                let trust = TrustStore::open(
+                    &vcp_cli::backup::trust_path(&case.data, &case.workspace()),
+                    std::slice::from_ref(&case.enrollment),
+                )
+                .unwrap();
+                let proof = trust
+                    .trust()
+                    .verify_restore(&case.source, &recovery, Limits::default())
+                    .unwrap();
+                (
+                    proof.restored().manifest.clone(),
+                    proof.restored().payloads.clone(),
+                )
+            };
+            let (_, initial) = case.preview();
+            assert_eq!(case.ok(&case.destination, &initial)["activated"], true);
+            let previous = case.descriptor().unwrap();
+            let old_root = previous.config.canonical_root.clone();
+            let old_workspace = case.destination.clone();
+            fs::write(
+                old_workspace.join("preserve-local.txt"),
+                b"acknowledged local edits",
+            )
+            .unwrap();
+            let prior = case.verified_state().await;
+            let prior_digest =
+                vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&prior).unwrap());
+            let previous_descriptor = fs::read(case.registry().join("workspace.json")).unwrap();
+            let stage_path = case._temp.path().join("descendant-encryption");
+            fs::create_dir(&stage_path).unwrap();
+            let stage =
+                PrivateStaging::open(&stage_path, std::slice::from_ref(&case.data)).unwrap();
+            {
+                let trust = TrustStore::open(
+                    &vcp_cli::backup::trust_path(&case.data, &case.workspace()),
+                    std::slice::from_ref(&case.enrollment),
+                )
+                .unwrap();
+                manifest.parent = trust.trust().configuration().checkpoint.parent.clone();
+                manifest.sequence += 1;
+                let keys = LocalKeys::import(&recovery)
+                    .unwrap()
+                    .verify_recovery(&recovery)
+                    .unwrap();
+                let mut encrypted = trust
+                    .trust()
+                    .encrypt(
+                        &keys,
+                        &stage,
+                        manifest,
+                        payloads,
+                        trust.trust().configuration().revision,
+                        Limits::default(),
+                    )
+                    .unwrap();
+                case.source = case._temp.path().join("descendant.age");
+                let mut file = fs::File::create(&case.source).unwrap();
+                encrypted.copy_ciphertext(&mut file).unwrap();
+                file.sync_all().unwrap();
+                case.fixture["ciphertext_sha256"] = json!(encrypted.sha256());
+            }
+            case.destination = case._temp.path().join("descendant-workspace");
+            let (operation, args) = case.preview();
+            let candidate = case.registry().join("canonical-roots").join(&operation);
+            case.receipt(
+                "acknowledged-predecessor.json",
+                &json!({
+                    "old_root": old_root, "state_sha256": prior_digest,
+                    "events": prior.events.len(), "records": prior.records.len(),
+                    "commands": prior.commands.len(), "watermark": prior.watermark,
+                    "descendant_operation": operation, "backend": name,
+                    "barrier": phase, "corrupt_candidate": corrupt,
+                }),
+            );
+            case.kill_at(&args, phase);
+            assert!(old_root.is_dir() && candidate.is_dir());
+            let selected = case.descriptor().unwrap().config.canonical_root;
+            assert_eq!(
+                selected,
+                if phase == "descriptor" {
+                    candidate.clone()
+                } else {
+                    old_root.clone()
+                }
+            );
+            let imported = Store::open(&candidate, backend, &[]).await.unwrap();
+            let imported_state = imported.state().clone();
+            imported.close().await.unwrap();
+            case.receipt(
+                "candidate-state-before-recovery.json",
+                &serde_json::to_value(&imported_state).unwrap(),
+            );
+
+            if corrupt {
+                // A validly framed append still invalidates the imported exact
+                // state receipt. It must not win selection by being newer.
+                let mut store = Store::open(&candidate, backend, &[]).await.unwrap();
+                let mut event = store.state().events.last().unwrap().event.clone();
+                event.id = EventId::new();
+                event.correlation = CommandId::new();
+                event.kind = vcp_protocol::event::EventKind::Diagnostic;
+                event.data = json!({"qualification":"candidate changed after validation"});
+                store
+                    .transact(Transaction {
+                        id: TransactionId::new(),
+                        expected_watermark: store.state().watermark,
+                        mutations: vec![],
+                        events: vec![event],
+                        command: None,
+                    })
+                    .await
+                    .unwrap();
+                store.close().await.unwrap();
+            }
+            let (newer, older) = if corrupt {
+                (&candidate, &old_root)
+            } else {
+                (&old_root, &candidate)
+            };
+            set_root_modified(
+                older,
+                std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000),
+            );
+            set_root_modified(
+                newer,
+                std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+            );
+            assert!(
+                fs::metadata(newer).unwrap().modified().unwrap()
+                    > fs::metadata(older).unwrap().modified().unwrap()
+            );
+            case.receipt(
+                "recovery-inputs.json",
+                &json!({
+                    "selected_root_before_retry": selected,
+                    "newer_root": newer, "newer_mtime_seconds": 1_700_000_000u64,
+                    "older_root": older, "older_mtime_seconds": 1_600_000_000u64,
+                    "candidate_changed_after_validation": corrupt,
+                    "old_and_candidate_roots_present": true,
+                }),
+            );
+            let result = case.output(&case.destination, &args);
+            if corrupt {
+                assert!(!result.status.success(), "invalid newer candidate selected");
+                assert_eq!(
+                    fs::read(case.registry().join("workspace.json")).unwrap(),
+                    previous_descriptor
+                );
+            } else {
+                assert!(
+                    result.status.success(),
+                    "restore recovery failed: {}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+                assert_eq!(case.descriptor().unwrap().config.canonical_root, candidate);
+                let recovered = case.verified_state().await;
+                assert_retained_import(&imported_state, &recovered);
+                let repeated = case.ok(&case.destination, &args);
+                assert_eq!(repeated["activated"], true);
+                assert_eq!(repeated["tasks_resumed"], false);
+                assert_eq!(
+                    vcp_protocol::canonical_bytes(&case.verified_state().await).unwrap(),
+                    vcp_protocol::canonical_bytes(&recovered).unwrap()
+                );
+            }
+            let old = Store::open(&old_root, backend, &[]).await.unwrap();
+            assert_eq!(
+                vcp_protocol::canonical_bytes(old.state()).unwrap(),
+                vcp_protocol::canonical_bytes(&prior).unwrap()
+            );
+            for record in old
+                .state()
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Artifact)
+            {
+                let artifact: vcp_domain::artifact::ArtifactDescriptor = record.decode().unwrap();
+                if artifact.state != CaptureState::Purged {
+                    old.spool().verify(&artifact).unwrap();
+                }
+            }
+            old.close().await.unwrap();
+            assert_eq!(
+                fs::read(old_workspace.join("preserve-local.txt")).unwrap(),
+                b"acknowledged local edits"
+            );
+            case.receipt(
+                "recovery-result.json",
+                &json!({
+                    "pass": true, "barrier": phase, "backend": name,
+                    "candidate_corrupted": corrupt, "candidate_selected": !corrupt,
+                    "newer_root": newer, "old_root": old_root, "candidate": candidate,
+                    "predecessor_state_sha256": prior_digest,
+                    "predecessor_records_and_artifacts_unchanged": true,
+                    "imported_history_accounting_and_child_state_unchanged": !corrupt,
+                    "exact_retry_state_unchanged": !corrupt,
+                    "selected_root": case.descriptor().unwrap().config.canonical_root,
+                }),
+            );
+        }
+    }
+}
+
+fn assert_retained_import(imported: &State, recovered: &State) {
+    // Rebind changes workspace authority/binding; the model-free search rebuild
+    // changes only its generation, index/projection and local-resource records.
+    // Captured history, liabilities, child graph and effect state must remain
+    // byte-identical, with no new attempts or effects introduced by recovery.
+    let stable = |record: &&Record| {
+        !matches!(
+            record.collection,
+            Collection::Workspace
+                | Collection::Generation
+                | Collection::IndexIntent
+                | Collection::Projection
+                | Collection::LocalResources
+        )
+    };
+    let before: std::collections::BTreeMap<_, _> = imported
+        .records
+        .iter()
+        .filter(|(_, row)| stable(row))
+        .collect();
+    let after: std::collections::BTreeMap<_, _> = recovered
+        .records
+        .iter()
+        .filter(|(_, row)| stable(row))
+        .collect();
+    assert_eq!(before, after, "restore changed retained canonical facts");
+    for collection in [
+        Collection::Ledger,
+        Collection::Reservation,
+        Collection::Attempt,
+        Collection::Settlement,
+    ] {
+        assert!(
+            before.values().any(|row| row.collection == collection),
+            "rich restore fixture is missing {} evidence",
+            collection.name()
+        );
+    }
+    assert!(
+        before
+            .values()
+            .filter(|row| row.collection == Collection::Task)
+            .count()
+            >= 2,
+        "rich restore fixture must retain a root and child task"
+    );
+    assert!(
+        !imported.events.is_empty()
+            && !imported.commands.is_empty()
+            && !imported.transactions.is_empty()
+    );
+    assert!(
+        recovered.events.starts_with(&imported.events),
+        "imported event prefix changed"
+    );
+    for (key, receipt) in &imported.commands {
+        assert_eq!(
+            recovered.commands.get(key),
+            Some(receipt),
+            "imported command receipt changed"
+        );
+    }
+    for (key, receipt) in &imported.transactions {
+        assert_eq!(
+            recovered.transactions.get(key),
+            Some(receipt),
+            "imported transaction receipt changed"
+        );
+    }
+}
+
+fn set_root_modified(path: &Path, modified: std::time::SystemTime) {
+    use std::os::windows::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .write(true)
+        .access_mode(0x0100) // FILE_WRITE_ATTRIBUTES, without directory data access.
+        .custom_flags(0x0200_0000)
+        .open(path)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(modified))
+        .unwrap();
 }
 
 #[tokio::test]

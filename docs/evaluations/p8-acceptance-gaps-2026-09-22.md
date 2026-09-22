@@ -5,6 +5,11 @@ the [work-item contracts](../plan/15-integration-and-release.md) to committed
 evidence. It does not add implementation requirements or waive existing ones.
 P8-06 maintenance completion is separate from these release gates.
 
+The subsequent [P8-02 boundary audit](p8-local-recovery-boundary-map-2026-09-22.md)
+and [bounded local increment](p8-local-recovery-increment-2026-09-22.md) refine the
+recovery gaps below with retained receipt mapping and selected new evidence.
+Their explicit fault-surface limits apply; neither completes P8-02.
+
 The [current-machine report](p8-local-qualification-2026-09-22.md) originally
 recorded 44 passing matrix rows and two missing executable receipts. The
 [bounded follow-up](p8-release-scorecard-2026-09-22.md#complete-receipts-for-the-two-remaining-executable-cases)

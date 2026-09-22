@@ -16,6 +16,9 @@ use std::{
 };
 use vcp_domain::{artifact::ArtifactDescriptor, *};
 use vcp_protocol::{canonical_bytes, digest_bytes};
+#[cfg(test)]
+#[path = "disk_exhaustion_tests.rs"]
+mod disk_exhaustion_tests;
 #[path = "snapshot_pin.rs"]
 pub(crate) mod snapshot_pin;
 

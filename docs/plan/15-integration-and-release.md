@@ -69,6 +69,12 @@ For each supported environment run explicit `/pause`, inspect state while the CL
 
 ## P8-02 — Recovery and portability campaign
 
+The [local boundary audit](../evaluations/p8-local-recovery-boundary-map-2026-09-22.md)
+maps retained receipts before selecting the
+[bounded recovery increment](../evaluations/p8-local-recovery-increment-2026-09-22.md).
+Its limited native fault evidence supplements the existing matrix; broader
+recovery and production-package acceptance remain open.
+
 Apply [CR-10a / CC-08](22-cursor-improvements.md#cr-10a--qualify-existing-trust-boundaries)
 to the integrated native-tool, MCP and child paths. Exercise unsafe outside-root
 and execution-configuration writes, junctions, destructive cleanup and ordinary
