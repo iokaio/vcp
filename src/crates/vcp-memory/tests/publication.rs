@@ -13,6 +13,197 @@ use vcp_protocol::{
 };
 use vcp_store::{contract::CanonicalStore, BackendKind, Store};
 
+/// P8-02: derived bytes may be rebuilt; damaged acknowledged canonical bytes
+/// must fail closed without falling back to the still-valid derived generation.
+#[tokio::test]
+async fn canonical_and_derived_corruption_have_distinct_reopen_outcomes() {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        // Retain the failing fixture as well as successful evidence for review.
+        let root = temp.keep();
+        println!("P8-02 corruption fixture {backend:?}: {}", root.display());
+        let canonical = root.join("canonical");
+        let (engine, scope, access, _) = fixture(&canonical, backend).await;
+        let mut store = engine.into_store();
+        for tick in 0..8 {
+            if runner::step(&mut store, &access, &scope, Timestamp::new(1000 + tick))
+                .await
+                .unwrap()
+                .caught_up
+            {
+                break;
+            }
+        }
+        assert!(!inventory(&store, &access).records.is_empty());
+        let query = vcp_memory::lexical::Query {
+            workspace: scope.workspace.clone(),
+            tasks: None,
+            roots: None,
+            paths: None,
+            symbols: None,
+            kind: None,
+            claim_kind: None,
+            status: None,
+            text: "concise".into(),
+            phrase: false,
+            limit: 10,
+        };
+        let components = root.join("components");
+        let publisher = Publisher::new(&components).unwrap();
+        let prepare = |store: &Store| {
+            publisher
+                .prepare(
+                    publication::capture(store, &access, &scope, inventory(store, &access))
+                        .unwrap(),
+                    None,
+                    &AtomicBool::new(false),
+                    &|_| {},
+                )
+                .unwrap()
+        };
+        let first = prepare(&store);
+        publisher
+            .publish(&mut store, &access, &first, Timestamp::new(2000), &|_| {})
+            .await
+            .unwrap();
+        let acknowledged = store.state().clone();
+        let original_hits = publisher
+            .recover(&store, &access)
+            .unwrap()
+            .view
+            .unwrap()
+            .lexical
+            .search(&query)
+            .unwrap();
+        assert!(
+            !original_hits.is_empty(),
+            "fixture must contain searchable retained content"
+        );
+        std::fs::write(
+            root.join("acknowledged.json"),
+            vcp_protocol::canonical_bytes(&acknowledged).unwrap(),
+        )
+        .unwrap();
+        store.close().await.unwrap();
+        let damaged = components
+            .join(first.manifest().id.as_str())
+            .join("lexical/vcp-lexical.json");
+        std::fs::write(&damaged, b"P8-02 corrupt derived bytes").unwrap();
+
+        let mut reopened = Store::open(&canonical, backend, &[]).await.unwrap();
+        assert_eq!(reopened.state(), &acknowledged);
+        let recovered = publisher.recover(&reopened, &access).unwrap();
+        assert!(recovered.rebuild_required);
+        assert!(
+            recovered.view.is_none(),
+            "corrupt derived data must never yield a reader"
+        );
+        assert_eq!(
+            recovered.failed_components,
+            vec![first.manifest().id.clone()]
+        );
+        assert_eq!(
+            reopened.state(),
+            &acknowledged,
+            "recovery cannot repair canonical facts from an index"
+        );
+        let replacement = prepare(&reopened);
+        publisher
+            .publish(
+                &mut reopened,
+                &access,
+                &replacement,
+                Timestamp::new(3000),
+                &|_| {},
+            )
+            .await
+            .unwrap();
+        for (id, receipt) in &acknowledged.transactions {
+            assert_eq!(reopened.state().transactions.get(id), Some(receipt));
+        }
+        assert_eq!(
+            &reopened.state().events[..acknowledged.events.len()],
+            acknowledged.events.as_slice()
+        );
+        assert_eq!(
+            publisher
+                .recover(&reopened, &access)
+                .unwrap()
+                .view
+                .unwrap()
+                .manifest
+                .id,
+            replacement.manifest().id
+        );
+        let rebuilt_hits = publisher
+            .recover(&reopened, &access)
+            .unwrap()
+            .view
+            .unwrap()
+            .lexical
+            .search(&query)
+            .unwrap();
+        assert_eq!(
+            rebuilt_hits, original_hits,
+            "rebuild must recover the same ranked source hits"
+        );
+        reopened.close().await.unwrap();
+
+        // Damage the actual acknowledged backend, leaving the replacement index
+        // intact. Byte-level corruption needs no SQL mutation/test-only API.
+        let file = canonical.join(match backend {
+            BackendKind::Files => "canonical.frames",
+            BackendKind::Sqlite => "canonical.sqlite",
+        });
+        let offset = if backend == BackendKind::Files {
+            100
+        } else {
+            0
+        };
+        let mut handle = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&file)
+            .unwrap();
+        handle.seek(SeekFrom::Start(offset)).unwrap();
+        let mut byte = [0];
+        handle.read_exact(&mut byte).unwrap();
+        byte[0] ^= 1;
+        handle.seek(SeekFrom::Start(offset)).unwrap();
+        handle.write_all(&byte).unwrap();
+        handle.sync_all().unwrap();
+        drop(handle);
+        let corrupt_hash = vcp_protocol::digest_bytes(&std::fs::read(&file).unwrap());
+        let error = match Store::open(&canonical, backend, &[]).await {
+            Ok(_) => panic!("corrupt canonical backend reopened as healthy"),
+            Err(error) => error,
+        };
+        assert!(
+            matches!(
+                error,
+                vcp_store::Error::Corruption(_) | vcp_store::Error::Database(_)
+            ),
+            "{error}"
+        );
+        assert_eq!(
+            vcp_protocol::digest_bytes(&std::fs::read(&file).unwrap()),
+            corrupt_hash
+        );
+        std::fs::write(
+            root.join("outcome.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "backend": backend, "derived": "rebuild_without_canonical_loss",
+                "canonical": "refused", "damaged_canonical_sha256": corrupt_hash,
+                "acknowledged_watermark": acknowledged.watermark,
+                "scope": "native component; no packaged or physical media claim"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+}
+
 async fn issue(engine: &mut Engine<Store>, scope: &Scope, payload: Command) {
     let access = vcp_engine::Access {
         actor: ActorId::parse("owner").unwrap(),

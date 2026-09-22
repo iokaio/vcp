@@ -65,6 +65,9 @@ pub(crate) struct Journal {
     chain: String,
     base: State,
     initial_chain: String,
+    // Unit-test fault injection only; never a runtime capacity or policy setting.
+    #[cfg(test)]
+    pub(crate) write_budget: Option<usize>,
 }
 fn sql_error(error: sqlx::Error) -> Error {
     if let sqlx::Error::Database(database) = &error {
@@ -190,6 +193,8 @@ impl Backend {
                     chain: initial_chain.clone(),
                     initial_chain,
                     base: seed,
+                    #[cfg(test)]
+                    write_budget: None,
                 };
                 let (state, commits) = journal.replay()?;
                 journal.verify_checkpoint(&state, &commits)?;
@@ -518,11 +523,11 @@ impl Journal {
         header.extend_from_slice(&(!(payload.len() as u32)).to_le_bytes());
         header.extend_from_slice(self.chain.as_bytes());
         let hash = digest_bytes(&[header.as_slice(), payload].concat());
-        self.file.write_all(&header)?;
-        self.file.write_all(payload)?;
-        self.file.write_all(hash.as_bytes())?;
+        self.write_bytes(&header)?;
+        self.write_bytes(payload)?;
+        self.write_bytes(hash.as_bytes())?;
         observe(Barrier::BeforeCommit);
-        self.file.write_all(COMMITTED)?;
+        self.write_bytes(COMMITTED)?;
         self.file.sync_all()?;
         self.chain = hash;
         let tip = serde_json::json!({"version":1,"watermark":watermark,"end":self.file.stream_position()?.to_string(),"chain":self.chain});
@@ -534,6 +539,19 @@ impl Journal {
         )?;
         observe(Barrier::AfterCommit);
         Ok(())
+    }
+    fn write_bytes(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        #[cfg(test)]
+        if let Some(remaining) = &mut self.write_budget {
+            let written = bytes.len().min(*remaining);
+            self.file.write_all(&bytes[..written])?;
+            *remaining -= written;
+            if written < bytes.len() {
+                return Err(std::io::ErrorKind::StorageFull.into());
+            }
+            return Ok(());
+        }
+        self.file.write_all(bytes)
     }
     fn verify_checkpoint(&self, state: &State, commits: &[Commit]) -> Result<()> {
         let mut pointers = Vec::new();
