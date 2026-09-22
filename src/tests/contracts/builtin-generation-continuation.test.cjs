@@ -34,9 +34,10 @@ function original(t){
   const write=(file,value)=>fs.writeFileSync(file,typeof value==='string'?value:JSON.stringify(value));
   const executable=path.join(root,'vcp.exe');write(executable,'synthetic executable; injected dispatch only');
   fs.cpSync(path.resolve(__dirname,'../../skills/builtin'),path.join(root,'skills/builtin'),{recursive:true});
+  fs.appendFileSync(executable,fs.readFileSync(path.join(root,'skills/builtin/catalog.json')));
   const catalog=path.join(root,'catalog.json');write(catalog,{});
   const profileFile=path.join(root,'source-profile.json');
-  write(profileFile,{version:1,trust_workspace:true,maximum_autonomy:'workspace',automatic_effects:['read','write'],workspace:'rebound',sync_roots:[],provider:{valid_until:String(Date.now()+3600000),max_output:'512',price:{currency:'USD'},compatibility:{valid_until:String(Date.now()+3600000),responses_text_tools:true,provider_preferences_qualified:true}},catalog,routing:null,skills:null,decisions:null,processes:[],checks:[],mcp:[],mcp_http:[],output_tokens:'512',max_transport_retries:0,max_requests:8,deadline_seconds:300});
+  write(profileFile,{version:1,trust_workspace:true,maximum_autonomy:'workspace',automatic_effects:['read','write'],workspace:'rebound',sync_roots:[],provider:{valid_until:String(Date.now()+3600000),max_output:'512',price:{currency:'USD',valid_until:String(Date.now()+3600000)},compatibility:{valid_until:String(Date.now()+3600000),responses_text_tools:true,provider_preferences_qualified:true}},catalog,routing:null,skills:null,decisions:null,processes:[],checks:[],mcp:[],mcp_http:[],output_tokens:'512',max_transport_retries:0,max_requests:8,deadline_seconds:300});
   const spec=path.join(root,'spec.json');write(spec,{executable,profile:profileFile,aggregate_cap_usd:'5.000000',propose_opaque_launcher_effects:true,runtime:{node:process.execPath,launcher:process.env.VCP_U03_LAUNCHER,build_receipt:process.env.VCP_U03_BUILD_RECEIPT}});
   const prepared=prep.prepare(spec,path.join(root,'original')),plan=JSON.parse(fs.readFileSync(prepared.plan)),base=path.join(plan.directory,'baseline');
   const baseline={arm:'baseline',status:'failed',actual_cost_micros:null,scope,reason:'retained incomplete response'};

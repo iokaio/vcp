@@ -35,9 +35,14 @@ test('preparation freezes matched arms without executable authority, expected an
   const executable=path.join(root,'vcp.exe');fs.writeFileSync(executable,'fixture; never executed');
   fs.cpSync(path.resolve(__dirname,'../../skills/builtin'),path.join(root,'skills/builtin'),{recursive:true});
   const catalog=path.join(root,'catalog.json');fs.writeFileSync(catalog,'{}');
-  const profile={version:1,trust_workspace:true,maximum_autonomy:'workspace',automatic_effects:['read','write'],workspace:'rebound',sync_roots:[],provider:{valid_until:String(Date.now()+3600000),max_output:'512',price:{currency:'USD'},compatibility:{valid_until:String(Date.now()+3600000),responses_text_tools:true,provider_preferences_qualified:true}},catalog,routing:null,skills:null,decisions:null,processes:[],checks:[],mcp:[],mcp_http:[],output_tokens:'512',max_transport_retries:0,max_requests:8,deadline_seconds:60};
+  const profile={version:1,trust_workspace:true,maximum_autonomy:'workspace',automatic_effects:['read','write'],workspace:'rebound',sync_roots:[],provider:{valid_until:String(Date.now()+3600000),max_output:'8192',price:{currency:'USD',valid_until:String(Date.now()+3600000)},compatibility:{valid_until:String(Date.now()+3600000),responses_text_tools:true,provider_preferences_qualified:true}},catalog,routing:null,skills:null,decisions:null,processes:[],checks:[],mcp:[],mcp_http:[],output_tokens:'4096',max_transport_retries:0,max_requests:16,deadline_seconds:60};
   const profileFile=path.join(root,'profile.json');fs.writeFileSync(profileFile,JSON.stringify(profile));
   const spec=path.join(root,'spec.json');fs.writeFileSync(spec,JSON.stringify({executable,profile:profileFile,aggregate_cap_usd:'0.200001'}));
+  const staleDestination=path.join(root,'stale-package');
+  assert.throws(()=>prepare(spec,staleDestination),/does not embed the exact packaged builtin catalog/);
+  assert.equal(fs.existsSync(staleDestination),false);
+  const fixtureExecutable=Buffer.concat([Buffer.from('fixture; never executed'),fs.readFileSync(path.join(root,'skills/builtin/catalog.json'))]);
+  fs.writeFileSync(executable,fixtureExecutable);
   const result=prepare(spec,path.join(root,'trial')),plan=JSON.parse(fs.readFileSync(result.plan));
   assert.equal(result.model_calls,0);assert.equal(result.runnable,false);assert.equal(plan.allocated_cap_micros,200000);
   assert.equal(plan.authorization,false);assert.equal(plan.blockers.length,3);assert.equal(plan.runs.length,2);
@@ -64,6 +69,16 @@ test('preparation freezes matched arms without executable authority, expected an
     profile.deadline_seconds=600;fs.writeFileSync(profileFile,JSON.stringify(profile));
     const qualified=prepare(spec,path.join(root,'qualified')),qualifiedPlan=JSON.parse(fs.readFileSync(qualified.plan));
     assert.equal(qualified.runnable,true);generation.validate(qualifiedPlan,qualified.plan);
+    // Even a newly bound executable digest cannot bless mismatched embedded assets.
+    const originalPlanBytes=fs.readFileSync(qualified.plan),staleExecutable=Buffer.from('stale embedded catalog');
+    fs.writeFileSync(executable,staleExecutable);
+    const stalePlan={...qualifiedPlan,executable_sha256:require('node:crypto').createHash('sha256').update(staleExecutable).digest('hex')};
+    const staleBytes=Buffer.from(JSON.stringify(stalePlan));fs.writeFileSync(qualified.plan,staleBytes);
+    let staleCalls=0;
+    assert.throws(()=>generation.run(qualified.plan,require('node:crypto').createHash('sha256').update(staleBytes).digest('hex'),()=>{staleCalls++;}),/does not embed the exact packaged builtin catalog/);
+    assert.equal(staleCalls,0);assert.equal(fs.existsSync(path.join(qualifiedPlan.directory,'execution-claim.json')),false);
+    fs.writeFileSync(executable,fixtureExecutable);
+    fs.writeFileSync(qualified.plan,originalPlanBytes);
     const provenance=runtime.build_receipt?'recorded_local_build':'owner_supplied_unverified';
     assert.equal(qualified.launcher_build_provenance,provenance);
     assert.equal(qualifiedPlan.runtime.launcher_build_provenance,provenance);

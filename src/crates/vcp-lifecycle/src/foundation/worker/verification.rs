@@ -758,7 +758,7 @@ impl Context {
             issues.push("changed work requires discovered checks; an initial analysis flag cannot bypass verification".into());
         }
         if !editing && run.citations.is_empty() {
-            issues.push("analysis completion requires cited evidence".into());
+            issues.push("analysis completion requires cited evidence; call vcp_verify again with relevant artifact IDs from the evidence field of successful read, list or search results".into());
         }
         for path in &changed {
             if !run.plans.iter().any(|plan| {

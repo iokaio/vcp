@@ -572,6 +572,127 @@ fn response(index: usize, mode: &str) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_debug_v2_discovers_native_check_and_preserves_missing_access() {
+    let manifest: Value = serde_json::from_str(include_str!(
+        "../../../evals/skills/builtin/debug-v2/manifest.json"
+    ))
+    .unwrap();
+    for available in [true, false] {
+        let server = MockServer::start().await;
+        let fixture = Fixture::new(&server.uri(), "complete");
+        for file in ["value.txt", "acceptance.cjs"] {
+            fs::remove_file(fixture.workspace.join(file)).unwrap();
+        }
+        for (file, bytes) in manifest["files"].as_object().unwrap() {
+            fs::write(fixture.workspace.join(file), bytes.as_str().unwrap()).unwrap();
+        }
+        let source = manifest["cases"][0]["source"].as_str().unwrap();
+        fs::write(fixture.workspace.join("shipping.cjs"), source).unwrap();
+        let mut profile: Value =
+            serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+        // Project check discovery must still observe package.json/test inputs
+        // when the task's directly affected source is only shipping.cjs.
+        profile["affected_paths"] = json!(["shipping.cjs"]);
+        if available {
+            profile["processes"][0]["name"] = json!("cr06-check");
+            if let Some(receipt) = std::env::var_os("VCP_CR06_BUILD_RECEIPT") {
+                let receipt: Value = serde_json::from_slice(&fs::read(receipt).unwrap()).unwrap();
+                profile["processes"][0]["executable"] = receipt["launcher"].clone();
+            }
+            profile["checks"] = json!([{"manifest":"package.json","runner":"node",
+                "profile":"cr06-check","timeout_ms":10000,
+                "expected_tests":["shipping fee threshold includes 50"],
+                "rationale":"Frozen CR06 v2 current-source verification"}]);
+        } else {
+            profile["maximum_autonomy"] = json!("workspace");
+            profile["automatic_effects"] = json!(["read", "write"]);
+            profile["processes"] = json!([]);
+            profile["checks"] = json!([]);
+        }
+        fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let responses = calls.clone();
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(move |_: &wiremock::Request| {
+                let index = responses.fetch_add(1, Ordering::SeqCst);
+                let step = if available { index } else { index + 1 };
+                let call = match step {
+                    0 => Some(("vcp_exec", json!({"profile":"cr06-check",
+                        "arguments":["--test","--test-reporter=tap","--test-concurrency=1","shipping.test.cjs"],
+                        "directory":"","timeout_ms":10000,"output_bytes":65536,"input":null}))),
+                    1 => Some(("vcp_patch", json!({"patch":"*** Begin Patch\n*** Update File: shipping.cjs\n@@\n-exports.shippingFee = subtotal => subtotal > 50 ? 0 : 5;\n+exports.shippingFee = subtotal => subtotal >= 50 ? 0 : 5;\n*** End Patch"}))),
+                    // A first verification can refresh instruction scope. The
+                    // second explicit call checks that current revision.
+                    2 | 3 => Some(("vcp_verify", json!({"citations":[]}))),
+                    _ => None,
+                };
+                let item = match call {
+                    Some((name, args)) => json!({"type":"function_call","id":format!("debug-item-{index}"),"call_id":format!("debug-call-{index}"),"name":name,"arguments":args.to_string(),"status":"completed"}),
+                    None => json!({"type":"message","id":format!("debug-final-{index}"),"role":"assistant","status":"completed","content":[{"type":"output_text","text":if available {"Threshold fixed and native check observed."} else {"Threshold edited; execution not-run because reproduction access is unavailable; acceptance remains incomplete."},"annotations":[]}]}),
+                };
+                let body = [json!({"type":"response.output_item.done","output_index":0,"item":item}),json!({"type":"response.completed","response":{"id":format!("debug-response-{index}"),"status":"completed","output":[item],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}})].into_iter().map(|event|format!("data: {event}\n\n")).collect::<String>();
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(body)
+            })
+            .mount(&server)
+            .await;
+        let output = fixture
+            .run(&[
+                "run",
+                "Fix shipping threshold and verify current evidence",
+                "--autonomy",
+                if available { "autonomous" } else { "workspace" },
+            ])
+            .await;
+        let values = records(&output);
+        assert_eq!(
+            output.status.code(),
+            Some(if available { 0 } else { 3 }),
+            "available={available}: {values:?} stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(values.last().unwrap()["conditions"]["completed"], available);
+        assert_eq!(
+            fs::read_to_string(fixture.workspace.join("shipping.cjs")).unwrap(),
+            source.replace("subtotal > 50", "subtotal >= 50")
+        );
+        for (file, bytes) in manifest["files"].as_object().unwrap() {
+            assert_eq!(
+                fs::read_to_string(fixture.workspace.join(file)).unwrap(),
+                bytes.as_str().unwrap()
+            );
+        }
+        let task = values.last().unwrap()["scope"]["task"].as_str().unwrap();
+        let inspected = fixture
+            .run(&["inspect", task, "--view", "verification"])
+            .await;
+        let observed = records(&inspected);
+        let rows = observed[0]["data"]["items"].as_array().unwrap();
+        if available {
+            assert!(rows
+                .iter()
+                .any(|row| row["record"]["checks"]
+                    .as_array()
+                    .is_some_and(|checks| checks
+                        .iter()
+                        .any(|check| check["specification"] == "package.json#test"
+                            && check["outcome"]["status"] == "passed"
+                            && check["exit_code"] == 0))));
+        } else {
+            assert!(rows.iter().any(|row| row["record"]["outstanding_issues"]
+                .to_string()
+                .contains("changed work requires discovered checks")));
+            assert!(rows.iter().all(|row| row["record"]["checks"]
+                .as_array()
+                .is_some_and(Vec::is_empty)));
+        }
+        assert!(calls.load(Ordering::SeqCst) <= 5);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn executable_terminal_delegates_real_child_with_canonical_transcript() {
     terminal_delegation_case(false).await;
 }

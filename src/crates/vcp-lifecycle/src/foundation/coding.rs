@@ -61,7 +61,7 @@ pub fn schemas() -> Value {
         .push(vcp_tools::process::definition());
     schemas.as_array_mut().unwrap().push(json!({
         "type":"function","name":"vcp_verify","strict":true,
-        "description":"Run the owner's configured acceptance checks against current sources. For unchanged analysis, cite complete same-task artifact IDs. This records evidence; it cannot declare completion.",
+        "description":"Automatically run the owner's configured acceptance checks against current sources; no separate vcp_exec call is needed to run those checks. For unchanged analysis, citations must contain at least one relevant complete same-task artifact ID, such as the top-level evidence UUID from a successful vcp_read, vcp_list or vcp_search result. Use artifact IDs, not paths, effect IDs or check selectors such as package.json#test. Resolve verification.outstanding_issues and rerun before the final answer. complete:false means this tool records evidence without finalizing the task; the host decides completion.",
         "parameters":{"type":"object","properties":{"citations":{"type":"array","items":{"type":"string"}}},"required":["citations"],"additionalProperties":false}
     }));
     schemas.as_array_mut().unwrap().push(json!({
