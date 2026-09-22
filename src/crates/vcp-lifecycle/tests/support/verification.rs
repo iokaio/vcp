@@ -42,6 +42,14 @@ async fn native_verification_marks_concurrent_edit_stale() {
         verification_case(backend, "during", &node).await;
     }
 }
+#[cfg(feature = "qualification")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_verification_pause_before_publish_retains_checks_without_completion() {
+    let node = std::env::var_os("VCP_TEST_NODE").expect("native Node dependency");
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        verification_case(backend, "pause_publish", &node).await;
+    }
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_verification_preserves_uncertain_dispatch_intent() {
     let node =
@@ -231,7 +239,46 @@ async fn verification_case(backend: BackendKind, mode: &str, node: &std::ffi::Os
         assert!(host.complete_verified(thread, uncited.id).is_err());
     }
     let actor = host.clone();
+    let pause_publish = mode == "pause_publish";
+    let pause_scope = binding.scope.clone();
     let mut verification = tokio::spawn(async move {
+        #[cfg(feature = "qualification")]
+        if pause_publish {
+            return actor
+                .verify_with_publish_observer(thread, vec![], || {
+                    let state = actor.snapshot().unwrap();
+                    let task: Task = state
+                        .record(
+                            Collection::Task,
+                            pause_scope.task.as_str(),
+                            &pause_scope.workspace,
+                        )
+                        .unwrap()
+                        .decode()
+                        .unwrap();
+                    actor
+                        .stop(
+                            actor
+                                .control_envelope(
+                                    CommandId::new(),
+                                    pause_scope.task.clone(),
+                                    task.revision,
+                                    Command::Transition {
+                                        next: TaskState::Paused,
+                                        reason:
+                                            "qualification pause before verification publication"
+                                                .into(),
+                                        verification: None,
+                                    },
+                                )
+                                .unwrap(),
+                        )
+                        .unwrap();
+                })
+                .await;
+        }
+        #[cfg(not(feature = "qualification"))]
+        let _ = (pause_publish, pause_scope);
         actor
             .verify(thread, if analysis { vec![citation] } else { vec![] })
             .await
@@ -318,7 +365,7 @@ async fn verification_case(backend: BackendKind, mode: &str, node: &std::ffi::Os
             CheckOutcome::Passed,
             "{mode}: {verification:?}"
         ),
-        "during" => {
+        "during" | "pause_publish" => {
             assert_eq!(verification.checks[0].outcome, CheckOutcome::Passed);
             assert!(verification
                 .outstanding_issues

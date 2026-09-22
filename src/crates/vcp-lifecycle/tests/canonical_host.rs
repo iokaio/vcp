@@ -23,11 +23,17 @@ mod backup_checkpoint;
 #[path = "support/child_agents.rs"]
 mod child_agents;
 #[cfg(windows)]
+#[path = "support/child_cleanup.rs"]
+mod child_cleanup;
+#[cfg(windows)]
 #[path = "support/child_integration_fault.rs"]
 mod child_integration_fault;
 #[cfg(windows)]
 #[path = "support/child_recovery.rs"]
 mod child_recovery;
+#[cfg(windows)]
+#[path = "support/child_visibility.rs"]
+mod child_visibility;
 #[path = "support/cli_control.rs"]
 mod cli_control;
 #[cfg(windows)]

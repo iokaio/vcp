@@ -72,6 +72,48 @@ pub(super) async fn child_case(
     model_mismatch: bool,
     integration_fault: bool,
 ) {
+    child_case_with_helper(
+        backend,
+        mode,
+        pause_before_materialize,
+        integration_case,
+        model_mismatch,
+        integration_fault,
+        None,
+        false,
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn helper_templates_admit_current_read_only_assignments_and_fence_parent_pause() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for name in ["explore", "review"] {
+            child_case_with_helper(
+                backend,
+                ChildMode::ReadOnly,
+                false,
+                None,
+                false,
+                false,
+                Some(name),
+                false,
+            )
+            .await;
+        }
+    }
+}
+
+pub(super) async fn child_case_with_helper(
+    backend: BackendKind,
+    mode: ChildMode,
+    pause_before_materialize: bool,
+    integration_case: Option<bool>,
+    model_mismatch: bool,
+    integration_fault: bool,
+    helper_name: Option<&str>,
+    integration_pause: bool,
+) {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     let disposable = temp.path().join("children");
@@ -174,11 +216,13 @@ pub(super) async fn child_case(
                     ev_completed_with_tokens("graph-child", 7),
                 ])),
         )
-        .expect(if pause_before_materialize || model_mismatch {
-            0
-        } else {
-            1
-        })
+        .expect(
+            if pause_before_materialize || model_mismatch || helper_name.is_some() {
+                0
+            } else {
+                1
+            },
+        )
         .mount(&server)
         .await;
     let mut registry = ExtensionRegistryBuilder::new();
@@ -230,81 +274,137 @@ pub(super) async fn child_case(
         8 * 1024 * 1024,
     )
     .unwrap();
-    let child_id = TaskId::new();
-    let inputs = host
-        .capture_child_workspace(
-            root_thread,
-            child_id.clone(),
-            &snapshotter,
-            &CapturePolicy {
-                untracked: snapshot_inputs.clone(),
-                required: snapshot_inputs.clone(),
-                ..Default::default()
-            },
-            &disposable,
-        )
-        .await
-        .unwrap();
-    let state = host.snapshot().unwrap();
-    let current: Workspace = state
-        .record(
-            Collection::Workspace,
-            config.workspace.as_str(),
-            &config.workspace,
+    let helper_request = || vcp_lifecycle::foundation::DelegationRequest {
+        role: helper_name.unwrap_or("review").into(),
+        read_paths: BTreeSet::from([String::new()]),
+        helper: Some(vcp_lifecycle::foundation::HelperTemplate {
+            name: helper_name.unwrap_or("review").into(),
+            revision: 1,
+        }),
+        objective: "Review file.txt with evidence".into(),
+        acceptance: vec!["Report supported findings with source locations".into()],
+        mode: ChildMode::ReadOnly,
+        write_paths: BTreeSet::new(),
+        untracked_inputs: snapshot_inputs.clone(),
+        allocation: Micros::new(400),
+        deadline: Timestamp::new(u64::MAX),
+        required_checks: vec![],
+    };
+    let template_case = helper_name.is_some();
+    let child_id = if template_case {
+        let (snapshot, raw) = provider_snapshot();
+        host.configure_provider(snapshot, raw).unwrap();
+        let mut stale = helper_request();
+        stale.helper.as_mut().unwrap().revision = 0;
+        assert!(host
+            .delegate_child(root_thread, stale, &snapshotter, &disposable)
+            .await
+            .is_err());
+        assert!(vcp_engine::agents::graph(
+            &host.snapshot().unwrap(),
+            &root_binding.scope,
+            &config.root_task
         )
         .unwrap()
-        .decode()
-        .unwrap();
-    let ledger = vcp_budget::ledger(&state, &root_binding.scope).unwrap();
-    let parent = current_task(&host, &config, &config.root_task);
-    host.command(
-        Command::CreateChild {
-            id: child_id.clone(),
-            objective,
-            fingerprint,
-            required_checks: vec![],
-            spec: ChildSpec {
-                parent: config.root_task.clone(),
-                actor: config.actor.clone(),
-                parent_steering: parent.steering,
-                dependencies: BTreeSet::new(),
-                mode,
-                role: "reviewer".into(),
-                model_policy: if model_mismatch {
-                    "different-qualified-model".into()
-                } else {
-                    config.price.model.clone()
+        .is_none());
+        let id = host
+            .delegate_child(root_thread, helper_request(), &snapshotter, &disposable)
+            .await
+            .unwrap();
+        let state = host.snapshot().unwrap();
+        let graph = vcp_engine::agents::graph(&state, &root_binding.scope, &config.root_task)
+            .unwrap()
+            .unwrap();
+        let spec = &graph.children[&id];
+        assert_eq!(spec.role, helper_name.unwrap());
+        assert_eq!(spec.model_policy, config.price.model);
+        assert_eq!(spec.effects, BTreeSet::from([EffectClass::Read]));
+        assert_eq!(spec.paths.len(), 1);
+        assert_eq!(spec.paths[0].path, "");
+        assert!(graph.ready.contains_key(&id));
+        assert!(current_task(&host, &config, &id).objectives[0]
+            .constraints
+            .iter()
+            .any(|c| c.starts_with(&format!("helper-template:{}@1:", helper_name.unwrap()))));
+        id
+    } else {
+        let child_id = TaskId::new();
+        let inputs = host
+            .capture_child_workspace(
+                root_thread,
+                child_id.clone(),
+                &snapshotter,
+                &CapturePolicy {
+                    untracked: snapshot_inputs.clone(),
+                    required: snapshot_inputs.clone(),
+                    ..Default::default()
                 },
-                paths: vec![ChildPath {
-                    root: source_root,
-                    path: "".into(),
-                    write: mode == ChildMode::IsolatedWrite,
-                }],
-                effects: if mode == ChildMode::ReadOnly {
-                    BTreeSet::from([EffectClass::Read])
-                } else {
-                    BTreeSet::from([EffectClass::Read, EffectClass::Write])
+                &disposable,
+            )
+            .await
+            .unwrap();
+        let state = host.snapshot().unwrap();
+        let current: Workspace = state
+            .record(
+                Collection::Workspace,
+                config.workspace.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let ledger = vcp_budget::ledger(&state, &root_binding.scope).unwrap();
+        let parent = current_task(&host, &config, &config.root_task);
+        host.command(
+            Command::CreateChild {
+                id: child_id.clone(),
+                objective,
+                fingerprint,
+                required_checks: vec![],
+                spec: ChildSpec {
+                    parent: config.root_task.clone(),
+                    actor: config.actor.clone(),
+                    parent_steering: parent.steering,
+                    dependencies: BTreeSet::new(),
+                    mode,
+                    role: "reviewer".into(),
+                    model_policy: if model_mismatch {
+                        "different-qualified-model".into()
+                    } else {
+                        config.price.model.clone()
+                    },
+                    paths: vec![ChildPath {
+                        root: source_root,
+                        path: "".into(),
+                        write: mode == ChildMode::IsolatedWrite,
+                    }],
+                    effects: if mode == ChildMode::ReadOnly {
+                        BTreeSet::from([EffectClass::Read])
+                    } else {
+                        BTreeSet::from([EffectClass::Read, EffectClass::Write])
+                    },
+                    authority: current.authority,
+                    policy: PolicyRevision::ZERO,
+                    binding: current.binding.revision,
+                    grants: BTreeMap::new(),
+                    allocation: Micros::new(400),
+                    deadline: Timestamp::new(u64::MAX),
+                    snapshot: inputs.snapshot,
+                    snapshot_digest: inputs.snapshot_digest,
+                    registration: Some(inputs.registration),
+                    registration_digest: Some(inputs.registration_digest),
+                    isolated_root: Some(inputs.isolated_root),
                 },
-                authority: current.authority,
-                policy: PolicyRevision::ZERO,
-                binding: current.binding.revision,
-                grants: BTreeMap::new(),
-                allocation: Micros::new(400),
-                deadline: Timestamp::new(u64::MAX),
-                snapshot: inputs.snapshot,
-                snapshot_digest: inputs.snapshot_digest,
-                registration: Some(inputs.registration),
-                registration_digest: Some(inputs.registration_digest),
-                isolated_root: Some(inputs.isolated_root),
+                limits: GraphLimits::default(),
+                expected_graph: None,
+                expected_ledger: ledger.revision,
             },
-            limits: GraphLimits::default(),
-            expected_graph: None,
-            expected_ledger: ledger.revision,
-        },
-        Some(config.root_task.clone()),
-        parent.revision,
-    )
-    .unwrap();
+            Some(config.root_task.clone()),
+            parent.revision,
+        )
+        .unwrap();
+        child_id
+    };
     if pause_before_materialize {
         let parent = current_task(&host, &config, &config.root_task);
         host.stop(
@@ -322,6 +422,10 @@ pub(super) async fn child_case(
         )
         .unwrap();
         assert!(host
+            .delegate_child(root_thread, helper_request(), &snapshotter, &disposable)
+            .await
+            .is_err());
+        assert!(host
             .materialize_child_workspace(root_thread, child_id.clone(), &snapshotter, &disposable)
             .await
             .is_err());
@@ -331,9 +435,11 @@ pub(super) async fn child_case(
         test.codex.shutdown_and_wait().await.unwrap();
         return;
     }
-    host.materialize_child_workspace(root_thread, child_id.clone(), &snapshotter, &disposable)
-        .await
-        .unwrap();
+    if !template_case {
+        host.materialize_child_workspace(root_thread, child_id.clone(), &snapshotter, &disposable)
+            .await
+            .unwrap();
+    }
     let child_path = disposable.path().join(child_id.as_str());
     assert!(!child_path.join(".env").exists());
     fs::write(
@@ -426,6 +532,72 @@ pub(super) async fn child_case(
             }
         )
         .is_err());
+    if template_case {
+        let denied = host
+            .prepare_process(
+                thread,
+                vcp_tools::process::Request {
+                    profile: "not-a-grant".into(),
+                    arguments: vec![],
+                    directory: String::new(),
+                    timeout_ms: 1000,
+                    output_bytes: 1024,
+                    input: None,
+                },
+            )
+            .err()
+            .unwrap();
+        assert!(denied.contains("whole isolated-workspace write scope"));
+        let current = current_task(&host, &config, &child_id);
+        host.stop(
+            host.control_envelope(
+                CommandId::new(),
+                child_id.clone(),
+                current.revision,
+                Command::Transition {
+                    next: TaskState::Cancelled,
+                    reason: "cancel helper without discarding evidence".into(),
+                    verification: None,
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            current_task(&host, &config, &child_id).state,
+            TaskState::Cancelled
+        );
+        assert!(host.prepare_tool(thread, read()).is_err());
+        let parent = current_task(&host, &config, &config.root_task);
+        host.stop(
+            host.control_envelope(
+                CommandId::new(),
+                config.root_task.clone(),
+                parent.revision,
+                Command::Transition {
+                    next: TaskState::Paused,
+                    reason: "pause helper owner".into(),
+                    verification: None,
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(host
+            .delegate_child(root_thread, helper_request(), &snapshotter, &disposable)
+            .await
+            .is_err());
+        assert!(host.prepare_tool(thread, read()).is_err());
+        assert!(server.received_requests().await.unwrap().is_empty());
+        assert_eq!(
+            fs::read_to_string(child_path.join("file.txt")).unwrap(),
+            "captured\n"
+        );
+        owner.close().await.unwrap();
+        child.shutdown_and_wait().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+        return;
+    }
     child
         .start_or_steer_turn(
             TurnInputRequest::user_input(vec![UserInput::Text {
@@ -523,6 +695,35 @@ pub(super) async fn child_case(
         .unwrap();
     assert_eq!(captured.sha256, packet_hash);
     assert_eq!(captured.state, CaptureState::Complete);
+    let transcript = host
+        .open_output(thread, vcp_domain::artifact::Channel::ChildTranscript)
+        .unwrap();
+    transcript
+        .write(b"Review observation with no declared examined revision")
+        .unwrap();
+    let transcript = transcript.finish().unwrap();
+    let before_review_read = host.snapshot().unwrap().events.len();
+    let review = host
+        .child_review_findings(root_thread, child_id.clone())
+        .unwrap();
+    assert_eq!(review["packet"], integration.packet.as_str());
+    assert_eq!(
+        review["findings"][0],
+        "Untrusted finding survives rejected running-child integration"
+    );
+    assert!(review["transcripts"][0]
+        .as_str()
+        .unwrap()
+        .contains(transcript.spec.id.as_str()));
+    assert!(review["transcripts"][0]
+        .as_str()
+        .unwrap()
+        .contains("Untrusted unstamped"));
+    assert_eq!(
+        host.snapshot().unwrap().events.len(),
+        before_review_read,
+        "reading findings must not schedule or mutate state"
+    );
     let plan: ArtifactDescriptor = state
         .record(
             Collection::Artifact,
@@ -569,7 +770,7 @@ pub(super) async fn child_case(
             )
             .await
             .unwrap();
-        let packet = vcp_repository::merge::ChildPacket {
+        let mut packet = vcp_repository::merge::ChildPacket {
             base_fingerprint: registration.snapshot,
             result_fingerprint: result.fingerprint,
             changed_paths: if mode == ChildMode::ReadOnly {
@@ -579,6 +780,17 @@ pub(super) async fn child_case(
             },
             findings: vec!["Observed child result requires independent parent verification".into()],
         };
+        if mode == ChildMode::ReadOnly {
+            packet.findings = vec![serde_json::from_value(serde_json::json!({
+                "schema_version":1,"base_fingerprint":packet.base_fingerprint,
+                "current_fingerprint":packet.result_fingerprint,"examined_paths":["file.txt"],
+                "location":{"path":"file.txt","start_line":1,"end_line":1},
+                "kind":"suggestion","trigger":"Reading the fixture label",
+                "consequence":"A clearer label could help readers",
+                "evidence":[{"kind":"source","reference":"file.txt:1","explanation":"Captured source text"}],
+                "uncertainty":"Subjective readability suggestion"
+            })).unwrap()];
+        }
         // The parent returns to the shared base before considering the child's
         // independent change, then may race after preview to invalidate it.
         fs::write(workspace.join("file.txt"), "captured\n").unwrap();
@@ -597,6 +809,21 @@ pub(super) async fn child_case(
                 .unwrap()
                 .contains("read-only findings retained"));
             assert!(prepared.proposal.is_none());
+            let review = host
+                .child_review_findings(root_thread, child_id.clone())
+                .unwrap();
+            assert_eq!(review["findings"][0]["location"]["path"], "file.txt");
+            assert_eq!(
+                review["findings"][0]["introduced_by_change"]["status"],
+                "unknown"
+            );
+            let observed_plan: serde_json::Value =
+                serde_json::from_slice(&host.read_artifact(prepared.plan.clone()).unwrap())
+                    .unwrap();
+            assert!(
+                observed_plan["plan"]["child_fingerprint"].is_string(),
+                "read-only result must be observed, not skipped before validation"
+            );
             assert_eq!(
                 fs::read_to_string(workspace.join("file.txt")).unwrap(),
                 "captured\n"
@@ -607,12 +834,32 @@ pub(super) async fn child_case(
                 .proposal
                 .expect("isolated change must reach the ordinary parent broker");
             if integration_fault {
-                partial_effect = Some(super::child_integration_fault::apply_partial(
-                    &host,
-                    proposal,
-                    &workspace,
-                    &root_binding.scope,
-                ));
+                #[cfg(feature = "qualification")]
+                if integration_pause {
+                    partial_effect = Some(super::child_integration_fault::apply_paused(
+                        &host,
+                        proposal,
+                        &workspace,
+                        &root_binding.scope,
+                    ));
+                } else {
+                    partial_effect = Some(super::child_integration_fault::apply_partial(
+                        &host,
+                        proposal,
+                        &workspace,
+                        &root_binding.scope,
+                    ));
+                }
+                #[cfg(not(feature = "qualification"))]
+                {
+                    assert!(!integration_pause);
+                    partial_effect = Some(super::child_integration_fault::apply_partial(
+                        &host,
+                        proposal,
+                        &workspace,
+                        &root_binding.scope,
+                    ));
+                }
             } else if concurrent_parent_change {
                 fs::write(workspace.join("file.txt"), "concurrent parent edit\n").unwrap();
                 assert!(host.dispatch_tool(proposal).is_err());
@@ -630,7 +877,14 @@ pub(super) async fn child_case(
             }
         }
         let parent = current_task(&host, &config, &config.root_task);
-        assert_eq!(parent.state, TaskState::Running);
+        assert_eq!(
+            parent.state,
+            if integration_pause {
+                TaskState::Paused
+            } else {
+                TaskState::Running
+            }
+        );
         assert!(host
             .command(
                 Command::Transition {

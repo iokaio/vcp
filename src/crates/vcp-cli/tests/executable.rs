@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(all(windows, feature = "qualification"))]
+#[path = "support/live_adapter.rs"]
+mod live_adapter;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
@@ -702,7 +704,21 @@ async fn executable_terminal_delegates_real_child_and_pause_fences_both_requests
     terminal_delegation_case(true).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_terminal_hard_close_reopens_two_active_children_without_dispatch() {
+    terminal_delegation_variant(true, 2, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_terminal_pause_fences_two_children_and_preserves_quiet_status() {
+    terminal_delegation_variant(true, 2, false).await;
+}
+
 async fn terminal_delegation_case(pause_active: bool) {
+    terminal_delegation_variant(pause_active, 1, false).await;
+}
+
+async fn terminal_delegation_variant(pause_active: bool, child_count: usize, hard_close: bool) {
     use std::{sync::Mutex, time::Duration};
     let server = MockServer::start().await;
     let fixture = Fixture::new(&server.uri(), "complete");
@@ -749,7 +765,7 @@ async fn terminal_delegation_case(pause_active: bool) {
                 .set_body_string(response(3, "complete"))
                 .set_delay(Duration::from_secs(if pause_active { 30 } else { 8 })),
         )
-        .expect(2)
+        .expect((child_count + 1) as u64)
         .mount(&server)
         .await;
     let mut child = fixture
@@ -772,17 +788,34 @@ async fn terminal_delegation_case(pause_active: bool) {
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        writer
-            .send(format!("/agents delegate \"{}\"\r", spec.display()).into_bytes())
-            .await
-            .unwrap();
+        for index in 0..child_count {
+            writer
+                .send(format!("/agents delegate \"{}\"\r", spec.display()).into_bytes())
+                .await
+                .unwrap();
+            if child_count > 1 {
+                // Child preparation is deliberately serialized by the owner.
+                // Wait for actual admitted provider work before asking for the
+                // next child, rather than racing two setup requests.
+                while server.received_requests().await.unwrap().len() < index + 2 {
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+            }
+        }
         loop {
             let text = String::from_utf8_lossy(&captured.lock().unwrap()).into_owned();
             assert!(
                 !text.contains("preparation failed") && !text.contains("Command rejected"),
                 "{text}"
             );
-            if pause_active && server.received_requests().await.unwrap().len() == 2 {
+            if pause_active && server.received_requests().await.unwrap().len() == child_count + 1 {
+                if hard_close {
+                    // All root/child provider requests are active at actual PTY
+                    // process termination. This is an offline provider fixture,
+                    // not qualification of child process execution/isolation.
+                    child.session.terminate();
+                    break;
+                }
                 writer.send(b"/pause\r/agents\r".to_vec()).await.unwrap();
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 let queried = fixture
@@ -795,11 +828,19 @@ async fn terminal_delegation_case(pause_active: bool) {
                 );
                 let values = records(&queried);
                 let page = &values[0]["data"];
-                assert_eq!(page["total"], 1);
-                assert_eq!(page["items"][0]["state"], "paused");
-                assert!(!page["items"][0]["registration"].is_null());
-                assert_eq!(page["items"][0]["cost"]["scope"], "this node only");
-                assert_eq!(server.received_requests().await.unwrap().len(), 2);
+                assert_eq!(page["total"], child_count);
+                for item in page["items"].as_array().unwrap() {
+                    assert_eq!(item["state"], "paused");
+                    assert!(!item["registration"].is_null());
+                    assert_eq!(item["cost"]["scope"], "this node only");
+                    assert!(item["reason"]
+                        .as_str()
+                        .is_some_and(|reason| !reason.is_empty()));
+                }
+                assert_eq!(
+                    server.received_requests().await.unwrap().len(),
+                    child_count + 1
+                );
                 break;
             }
             if text.contains("turn ended; canonical status") || text.contains("stopped:") {
@@ -807,7 +848,9 @@ async fn terminal_delegation_case(pause_active: bool) {
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        writer.send(b"/exit\r".to_vec()).await.unwrap();
+        if !hard_close {
+            writer.send(b"/exit\r".to_vec()).await.unwrap();
+        }
         (&mut child.exit_rx).await.unwrap()
     };
     if tokio::time::timeout(Duration::from_secs(60), exercise)
@@ -833,6 +876,36 @@ async fn terminal_delegation_case(pause_active: bool) {
         .unwrap();
     let entry: vcp_cli::settings::WorkspaceEntry =
         serde_json::from_slice(&fs::read(directory.join("workspace.json")).unwrap()).unwrap();
+    if hard_close {
+        let (recovered, owner) =
+            vcp_lifecycle::foundation::CanonicalHost::open(entry.config.clone()).unwrap();
+        let state = recovered.snapshot().unwrap();
+        let attempts = state
+            .records
+            .values()
+            .filter(|record| record.collection == vcp_store::contract::Collection::Attempt)
+            .collect::<Vec<_>>();
+        assert_eq!(attempts.len(), child_count + 1);
+        assert!(attempts
+            .iter()
+            .all(|record| record.value["phase"] == "reconciliation_pending"));
+        let ledger: vcp_domain::accounting::Ledger = state
+            .record(
+                vcp_store::contract::Collection::Ledger,
+                entry.config.root_task.as_str(),
+                &entry.config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert!(ledger.unresolved > vcp_domain::Micros::ZERO);
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            child_count + 1,
+            "reopening must not redispatch unresolved work"
+        );
+        owner.close().await.unwrap();
+    }
     let store = vcp_store::Store::open(
         &entry.config.canonical_root,
         entry.config.backend,
@@ -849,7 +922,7 @@ async fn terminal_delegation_case(pause_active: bool) {
                 && r.value["scope"]["task"] != entry.config.root_task.as_str()
         })
         .collect();
-    assert_eq!(children.len(), 1);
+    assert_eq!(children.len(), child_count);
     if pause_active {
         for record in state
             .records
@@ -871,7 +944,10 @@ async fn terminal_delegation_case(pause_active: bool) {
         );
     }
     store.close().await.unwrap();
-    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        child_count + 1
+    );
     assert_eq!(
         fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
         "41\n"

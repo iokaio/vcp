@@ -160,6 +160,31 @@ impl CanonicalHost {
         ticket: ToolProposal,
         _lease: EffectLease,
     ) -> Result<ToolOutcome, String> {
+        self.dispatch_tool_observed(ticket, _lease, &mut |_| {})
+    }
+
+    /// Qualification-only interruption at a durable per-file receipt boundary.
+    #[cfg(feature = "qualification")]
+    pub fn dispatch_tool_with_receipt_observer(
+        &self,
+        ticket: ToolProposal,
+        mut observed: impl FnMut(usize),
+    ) -> Result<ToolOutcome, String> {
+        if self.mcp_connections_present() {
+            return Err("disconnect MCP processes before dispatching native tools".into());
+        }
+        let lease = self
+            .scheduler
+            .try_acquire(ticket.prepared.authority().operation())?;
+        self.dispatch_tool_observed(ticket, lease, &mut observed)
+    }
+
+    fn dispatch_tool_observed(
+        &self,
+        ticket: ToolProposal,
+        _lease: EffectLease,
+        observed: &mut dyn FnMut(usize),
+    ) -> Result<ToolOutcome, String> {
         scheduler::check_generation(&self.runtime, ticket.thread, ticket.generation)?;
         let mut permit = HostWorkAdmission::admit(
             &self.runtime,
@@ -308,6 +333,7 @@ impl CanonicalHost {
                         failure = observation.error.clone();
                     }
                     observations.push(observation);
+                    observed(observations.len());
                     if failure.is_some() {
                         break;
                     }

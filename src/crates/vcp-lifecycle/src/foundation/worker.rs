@@ -2,6 +2,8 @@
 #[cfg(windows)]
 mod agents;
 #[cfg(windows)]
+pub(super) mod agents_cleanup;
+#[cfg(windows)]
 pub(super) mod agents_delegate;
 #[cfg(windows)]
 pub(super) mod agents_integration;
@@ -1078,6 +1080,9 @@ impl Context {
         Ok((attempt.id, body, deadline, retries))
     }
     pub fn response_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {
+        if !self.streams.contains_key(attempt) && self.response_was_retained_unknown(attempt)? {
+            return Ok(());
+        }
         self.response_error_chunk(attempt, bytes)?;
         if self.provider_required {
             self.provider
@@ -1091,6 +1096,9 @@ impl Context {
         Ok(())
     }
     pub fn response_error_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {
+        if !self.streams.contains_key(attempt) && self.response_was_retained_unknown(attempt)? {
+            return Ok(());
+        }
         for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
             if let Err(error) = self
                 .streams
@@ -1103,6 +1111,30 @@ impl Context {
             }
         }
         Ok(())
+    }
+    fn response_was_retained_unknown(&self, id: &AttemptId) -> Result<bool> {
+        let attempt: Attempt = self
+            .engine
+            .store()
+            .state()
+            .record(Collection::Attempt, id.as_str(), &self.config.workspace)?
+            .decode()?;
+        // retain_unknown aborts and attaches the exact captured prefix before
+        // it records this state. A producer callback already queued at normal
+        // cancellation may therefore arrive after its writer was removed. It
+        // cannot add trusted evidence or settle usage, but the full quote is
+        // still held for reconciliation, so acknowledging that callback is
+        // idempotent. Every other missing or failed capture remains an error.
+        let provider_parser_absent = if self.provider_required {
+            self.provider
+                .as_ref()
+                .is_some_and(|provider| !provider.streams.contains_key(id))
+        } else {
+            true
+        };
+        Ok(attempt.phase == ReservationState::ReconciliationPending
+            && attempt.uncertain.is_some()
+            && provider_parser_absent)
     }
     fn pause_root(&mut self, reason: &str) -> Result<()> {
         let task: Task = self

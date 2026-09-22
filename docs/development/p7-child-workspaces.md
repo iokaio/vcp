@@ -65,6 +65,24 @@ revalidated before application; current parent verification is still required
 after application. Submitted packet/plan/effect references remain in the graph
 when the child is cancelled or its proposed edits are rejected.
 
+Review packets accept historical string findings and version-1 structured
+findings. Structured findings carry examined base/current fingerprints and paths,
+a bounded line location, trigger, consequence, evidence references, uncertainty,
+and a defect-versus-suggestion classification. Change causality defaults to
+unknown; claiming introduction or a pre-existing defect requires indexed
+comparison/reproduction evidence, not merely a source location on a changed line.
+These remain untrusted claims. Preparation checks their shape, read scope and
+revision attribution; it does not certify their truth. Read-only results undergo
+the same native observation before their findings are retained without an edit.
+
+The owner API can explicitly attach typed findings to a fresh observation. Plain
+helper output remains unstamped legacy evidence with its canonical transcript
+artifact ID and digest; it is never automatically converted into demonstrated
+defects or invented examined revisions. Owner inspection reads up to eight
+transcripts in canonical record order, with 4 KiB previews and explicit truncation;
+full artifacts retain the evidence. Historical findings are labeled as not
+re-examined against current files, even when the diff text is unchanged.
+
 ## Owner controls
 
 `/agents` pages eight children at a time; `/agents 8` selects the next page.
@@ -103,6 +121,54 @@ the inherited root deadline remains an additional execution ceiling. For
 write paths and applicable check IDs. Process-based child checks remain
 unsupported without qualified filesystem enforcement; this limitation cannot be
 converted into a successful child verification claim.
+
+Read-only helper defaults can be selected without authoring a specification:
+
+```text
+/agents explore . 0.10 120 "C:/Program Files/Git/cmd/git.exe" "C:/vcp-child-workspaces" Locate parser entry points and explain the error flow
+/agents review . 0.10 120 "C:/Program Files/Git/cmd/git.exe" "C:/vcp-child-workspaces" Review the current parser changes for supported defects
+```
+
+The arguments are read scope, USD allocation, seconds, native Git executable,
+existing disposable parent, and objective. Both templates inherit the current
+qualified model and permit reads only. The canonical initial objective retains
+the template name, revision and exact guidance. A stale template revision fails
+before graph creation. Explicit JSON specifications remain supported, including
+optional free-form `role`, `read_paths` and versioned `helper` fields.
+
+Currently `.` (the captured snapshot) is the supported helper read scope. Narrower
+scopes fail explicitly because context assembly requires whole-snapshot read
+authority; a requested narrow scope is never silently broadened. Untracked inputs
+still require the explicit specification path. No setup recipe, process, dependency
+installation or model switch is implied by selecting a helper.
+
+`/agents` reports recorded materialization readiness separately from unavailable
+child process verification, lists declared checks not run and retains the setup
+reason. A recorded readiness receipt still requires native identity revalidation
+before dispatch. Helper comparison and live usefulness qualification remain open.
+
+Deliberate cleanup uses `/agents cleanup preview <task> <absolute-git.exe>`,
+then `/agents cleanup apply <task>`. The child must be terminal and have no
+retained runtime owner, dependent workspaces, unsettled root costs or active/
+unknown effects. Cancelled children attached to the current owner require
+close/reopen before cleanup. Root write authority and a running, current owner
+are required; pause and owner loss fence each native removal.
+
+Changed child content requires explicit `--reject-edits` on the preview. The
+observed result bytes are retained before deletion, along with an immutable
+cleanup intent and graph lease. Even integrated content is treated conservatively
+as changed until explicitly rejected for disposable storage removal. The graph
+keeps history/cost and references the retained result, intent and receipt; these
+references protect their artifact retention. Cleanup does not prune Git metadata.
+
+If removal is interrupted, locked or observes new edits, use
+`/agents cleanup reconcile <task>` after resolving the diagnostic. Reconciliation
+uses the original inventory and identities, never silently prepares a different
+root. A completed receipt never deletes a new directory at the old pathname.
+Bounded exact failure reasons are retained as append-only graph-linked evidence;
+`/agents` shows the latest diagnostic after reopening without starting deletion.
+Inspection, startup and reopening cannot initiate cleanup. Missing native paths
+are reconciled only against a previously published cleanup intent.
 
 After explicit root pause, `/agents recover <task> <absolute-git.exe>` observes
 the registered native workspace and attaches a held child. It preserves edits

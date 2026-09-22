@@ -1,0 +1,21 @@
+{
+  "revision": "p7-05-delegation-generation-v1",
+  "case_id": "delegation-cart-discount-feature-v1",
+  "task": "P7-05",
+  "skill": "javascript-typescript",
+  "editable": [
+    "src/cart.cjs",
+    "src/cents.cjs"
+  ],
+  "prompt": "Implement the basis-point discount feature across src/cart.cjs and src/cents.cjs, preserving the CommonJS module boundary. cents.cjs must export subtotalCents(items), validate an array of items with nonnegative safe-integer unitCents and quantity, reject malformed items and subtotals above Number.MAX_SAFE_INTEGER with TypeError, and return an exact safe integer. cart.cjs must retain its require('./cents.cjs') dependency and quoteCart(items, options = {}) must validate a non-null non-array options object, default discountBps to 0, accept only integer discountBps values from 0 through 10000, calculate the combined discount with BigInt and round exact halves up, and return subtotalCents, discountCents and totalCents as numbers without mutating input. Empty carts and zero quantities are valid. Change only src/cart.cjs and src/cents.cjs; preserve notes.txt, staged-note.txt, unstaged-note.txt and all other fixture files. Read existing project conventions and checks. Report changed source, checks actually run and any checks not run with reasons. Final completion still requires current parent verification; do not claim unrun tests passed.\n",
+  "files": [
+    { "path": "notes.txt", "bytes": 79, "sha256": "134318e41dee607e139c022a373ee9383be0a79726f6667d9a77a870435bebbd" },
+    { "path": "package-lock.json", "bytes": 181, "sha256": "dbfc338cf25ccf865864857d51eb0c13defa69296d977cd19894a53ce8585b7b" },
+    { "path": "package.json", "bytes": 137, "sha256": "a79001e6dff1224bf2da861c91c272a2b09a456ec19254b181ca355a3a68c23c" },
+    { "path": "staged-note.txt", "bytes": 32, "sha256": "6f12b3fae209271e063f6e6b94723fd12889c781319e8d086856bf21008b40fc" },
+    { "path": "unstaged-note.txt", "bytes": 34, "sha256": "2894ed38d1b1c27ed0c64a9c865bb7b6a43684251dc91d11296b5f24f6be51ee" },
+    { "path": "src/cart.cjs", "bytes": 284, "sha256": "5213e73a423fed0eda280aec6afdc986c0401dabcb9d8c410f1c6ec3f2a9698a" },
+    { "path": "src/cents.cjs", "bytes": 202, "sha256": "7924388a19357d32e4d570dc7d5e1c03011f3179ab72d8f3f596aaa63220f18c" },
+    { "path": "test/cart.test.cjs", "bytes": 581, "sha256": "f6446fde73800c63a6aaa1d99bd64c16a9d5cc7d7a387683273004d8b692856b" }
+  ]
+}

@@ -170,6 +170,25 @@ pub struct TaskGraph {
     /// Append-only result evidence; a child report cannot complete its parent.
     #[serde(default)]
     pub results: BTreeMap<TaskId, Vec<ChildResultRef>>,
+    /// Irreversible cleanup lease; the same intent survives interruption.
+    #[serde(default)]
+    pub cleanup: BTreeMap<TaskId, ChildCleanup>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChildCleanup {
+    pub intent: ArtifactId,
+    pub retained_result: ArtifactId,
+    pub rejected_edits: bool,
+    pub receipt: Option<ArtifactId>,
+    #[serde(default)]
+    pub diagnostics: Vec<ChildCleanupDiagnostic>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChildCleanupDiagnostic {
+    pub artifact: ArtifactId,
+    pub reason: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -187,6 +206,21 @@ pub struct WorkspaceReady {
 }
 impl TaskGraph {
     pub fn validate(&self) -> Result<()> {
+        if self
+            .cleanup
+            .keys()
+            .any(|id| !self.children.contains_key(id) || !self.ready.contains_key(id))
+        {
+            return Err(Error::Invalid("cleanup requires registered ready child"));
+        }
+        if self.cleanup.values().any(|c| {
+            c.diagnostics.len() > 128
+                || c.diagnostics
+                    .iter()
+                    .any(|d| d.reason.is_empty() || d.reason.len() > 2048)
+        }) {
+            return Err(Error::Invalid("cleanup diagnostic bounds"));
+        }
         if self.document_type != GRAPH
             || self.schema_version != 1
             || !(1..=8).contains(&self.limits.depth)

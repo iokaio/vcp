@@ -70,7 +70,9 @@ use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, workspace::*};
 use vcp_protocol::command::{Command, CommandReceipt};
 use vcp_store::{contract::State, BackendKind};
 #[cfg(windows)]
-pub use worker::agents_delegate::DelegationRequest;
+pub use worker::agents_cleanup::ChildCleanupPreview;
+#[cfg(windows)]
+pub use worker::agents_delegate::{DelegationRequest, HelperTemplate};
 #[cfg(windows)]
 pub use worker::agents_integration::ChildIntegration;
 #[cfg(windows)]

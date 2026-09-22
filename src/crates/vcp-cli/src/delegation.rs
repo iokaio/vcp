@@ -31,6 +31,12 @@ pub struct Specification {
     pub allocation_usd: String,
     pub seconds: u32,
     pub required_checks: Vec<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub read_paths: Option<BTreeSet<String>>,
+    #[serde(default)]
+    pub helper: Option<vcp_lifecycle::foundation::HelperTemplate>,
 }
 
 pub struct Child {
@@ -49,7 +55,7 @@ fn event_for_turn(event: &codex_protocol::protocol::Event, turn: &str) -> bool {
             _ => true,
         }
 }
-fn native_snapshotter(git: PathBuf) -> Result<Arc<Snapshotter>, String> {
+pub(crate) fn native_snapshotter(git: PathBuf) -> Result<Arc<Snapshotter>, String> {
     Ok(Arc::new(
         Snapshotter::new(
             git,
@@ -284,6 +290,39 @@ pub async fn prepare(
     }
     let spec: Specification =
         serde_json::from_slice(&bytes).map_err(|e| format!("delegation specification: {e}"))?;
+    prepare_specification(host, parent, scope, spec).await
+}
+
+pub async fn prepare_helper(
+    host: &CanonicalHost,
+    parent: &crate::session::Session,
+    scope: &Scope,
+    helper: crate::terminal::Helper,
+) -> Result<Child, String> {
+    prepare_specification(host, parent, scope, Specification {
+        version: 1,
+        git: helper.git,
+        disposable_parent: helper.disposable_parent,
+        objective: helper.objective,
+        acceptance: vec!["Return useful evidence and source references within the assigned scope; state limitations.".into()],
+        mode: ChildMode::ReadOnly,
+        write_paths: BTreeSet::new(),
+        untracked_inputs: BTreeSet::new(),
+        allocation_usd: helper.allocation_usd,
+        seconds: helper.seconds,
+        required_checks: vec![],
+        role: Some(helper.name.clone()),
+        read_paths: Some(BTreeSet::from([if helper.scope == "." { String::new() } else { helper.scope }])),
+        helper: Some(vcp_lifecycle::foundation::HelperTemplate { name: helper.name, revision: vcp_lifecycle::foundation::HelperTemplate::REVISION }),
+    }).await
+}
+
+async fn prepare_specification(
+    host: &CanonicalHost,
+    parent: &crate::session::Session,
+    scope: &Scope,
+    spec: Specification,
+) -> Result<Child, String> {
     if spec.version != 1
         || !(1..=3600).contains(&spec.seconds)
         || !spec.git.is_absolute()
@@ -315,6 +354,13 @@ pub async fn prepare(
     )
     .map_err(|e| e.to_string())?;
     let request = DelegationRequest {
+        role: spec
+            .role
+            .unwrap_or_else(|| "bounded development child".into()),
+        read_paths: spec
+            .read_paths
+            .unwrap_or_else(|| BTreeSet::from([String::new()])),
+        helper: spec.helper,
         objective: spec.objective,
         acceptance: spec.acceptance,
         mode: spec.mode,

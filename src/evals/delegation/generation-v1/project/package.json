@@ -1,0 +1,6 @@
+{
+  "name": "vcp-u03-cart-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": { "test": "node --test test/cart.test.cjs" }
+}

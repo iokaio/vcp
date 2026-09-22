@@ -8,6 +8,88 @@ use vcp_domain::{
 };
 use vcp_lifecycle::foundation::ToolProposal;
 
+#[cfg(feature = "qualification")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn child_integration_pause_between_writes_retains_receipts_and_human_edits() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        super::child_agents::child_case_with_helper(
+            backend,
+            ChildMode::IsolatedWrite,
+            false,
+            Some(false),
+            false,
+            true,
+            None,
+            true,
+        )
+        .await;
+    }
+}
+
+#[cfg(feature = "qualification")]
+pub(super) fn apply_paused(
+    host: &CanonicalHost,
+    proposal: ToolProposal,
+    workspace: &Path,
+    scope: &Scope,
+) -> ToolRunId {
+    let mut boundaries = 0;
+    let output = host
+        .dispatch_tool_with_receipt_observer(proposal, |count| {
+            boundaries += 1;
+            assert_eq!(count, 1);
+            let state = host.snapshot().unwrap();
+            let task: Task = state
+                .record(Collection::Task, scope.task.as_str(), &scope.workspace)
+                .unwrap()
+                .decode()
+                .unwrap();
+            host.stop(
+                host.control_envelope(
+                    CommandId::new(),
+                    scope.task.clone(),
+                    task.revision,
+                    Command::Transition {
+                        next: TaskState::Paused,
+                        reason: "qualification pause after first durable file receipt".into(),
+                        verification: None,
+                    },
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        })
+        .unwrap();
+    assert_eq!(boundaries, 1);
+    assert_eq!(output.result["complete"], false);
+    assert_eq!(output.result["files"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        fs::read(workspace.join("file.txt")).unwrap(),
+        b"child changed\n"
+    );
+    assert_eq!(
+        fs::read(workspace.join("second.txt")).unwrap(),
+        b"second base\n"
+    );
+    let state = host.snapshot().unwrap();
+    let effect: Effect = state
+        .record(Collection::Effect, output.effect.as_str(), &scope.workspace)
+        .unwrap()
+        .decode()
+        .unwrap();
+    assert_eq!(effect.state, EffectState::OutcomeUnknown);
+    assert!(effect.observed_changes.iter().any(|id| {
+        let descriptor: ArtifactDescriptor = state
+            .record(Collection::Artifact, id.as_str(), &scope.workspace)
+            .unwrap()
+            .decode()
+            .unwrap();
+        descriptor.spec.schema == "vcp-file-outcome-v1"
+            && descriptor.state == CaptureState::Complete
+    }));
+    output.effect
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn child_integration_partial_native_failure_retains_receipts_and_human_edits() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {

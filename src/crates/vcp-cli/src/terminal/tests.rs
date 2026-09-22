@@ -382,6 +382,15 @@ fn agents_pages_preserve_all_children_and_canonical_node_cost_without_resuming()
         for item in page["items"].as_array().unwrap() {
             assert!(ids.insert(item["task"].as_str().unwrap().to_owned()));
             assert_eq!(item["state"], "paused");
+            assert!(item["readiness"]["materialization"]
+                .as_str()
+                .unwrap()
+                .starts_with("not_ready"));
+            assert!(item["readiness"]["process_checks"]
+                .as_str()
+                .unwrap()
+                .contains("not qualified"));
+            assert_eq!(item["readiness"]["checks_not_run"], serde_json::json!([]));
             assert!(!item["objective"].as_str().unwrap().contains('\x1b'));
         }
         if offset == 0 {
@@ -437,6 +446,33 @@ fn agents_pages_preserve_all_children_and_canonical_node_cost_without_resuming()
         }))
     );
     assert!(parse("/agents delegate \"unclosed").is_err());
+    let helper = parse("/agents review src 0.25 120 \"C:/Program Files/Git/cmd/git.exe\" \"C:/child roots\" Review parser errors").unwrap();
+    assert!(
+        matches!(helper, Some(Input::Helper(Helper { name, scope, objective, .. })) if name == "review" && scope == "src" && objective == "Review parser errors")
+    );
+    assert!(parse("/agents explore src 0.25 0 git children objective").is_err());
+    assert!(parse("/agents review src 0.25 120 \"unclosed").is_err());
+    assert!(matches!(
+        parse(
+            "/agents cleanup preview child-18 \"C:/Program Files/Git/cmd/git.exe\" --reject-edits"
+        )
+        .unwrap(),
+        Some(Input::Cleanup {
+            action: CleanupAction::Preview {
+                reject_edits: true,
+                ..
+            },
+            ..
+        })
+    ));
+    assert!(matches!(
+        parse("/agents cleanup apply child-18").unwrap(),
+        Some(Input::Cleanup {
+            action: CleanupAction::Apply,
+            ..
+        })
+    ));
+    assert!(parse("/agents cleanup apply child-18 extra").is_err());
 }
 fn insert_task(state: &mut State, task: &Task) {
     let record = Record::typed(

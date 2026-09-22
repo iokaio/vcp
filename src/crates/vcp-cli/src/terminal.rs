@@ -37,6 +37,11 @@ pub enum Input {
     Agents,
     AgentsPage(usize),
     Delegate(std::path::PathBuf),
+    Helper(Helper),
+    Cleanup {
+        task: vcp_domain::TaskId,
+        action: CleanupAction,
+    },
     RecoverChild {
         task: vcp_domain::TaskId,
         git: std::path::PathBuf,
@@ -59,6 +64,49 @@ pub enum Input {
     Steer(String),
 }
 #[derive(Debug, PartialEq, Eq)]
+pub enum CleanupAction {
+    Preview {
+        git: std::path::PathBuf,
+        reject_edits: bool,
+    },
+    Apply,
+    Reconcile,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub struct Helper {
+    pub name: String,
+    pub scope: String,
+    pub allocation_usd: String,
+    pub seconds: u32,
+    pub git: std::path::PathBuf,
+    pub disposable_parent: std::path::PathBuf,
+    pub objective: String,
+}
+/// Literal double quotes group paths/objectives; no shell expansion or escapes.
+fn helper_words(input: &str) -> Result<Vec<String>, String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut quoted = false;
+    for c in input.chars() {
+        if c == '"' {
+            quoted = !quoted;
+        } else if c.is_whitespace() && !quoted {
+            if !word.is_empty() {
+                words.push(std::mem::take(&mut word));
+            }
+        } else {
+            word.push(c);
+        }
+    }
+    if quoted {
+        return Err("unclosed helper argument quote".into());
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    Ok(words)
+}
+#[derive(Debug, PartialEq, Eq)]
 pub enum AgentAction {
     Focus,
     Follow,
@@ -76,6 +124,44 @@ pub fn parse(line: &str) -> Result<Option<Input>, String> {
     }
     if line.len() > INPUT_LIMIT {
         return Err("input exceeds 64 KiB".into());
+    }
+    if let Some(rest) = line.strip_prefix("/agents cleanup ") {
+        let words = helper_words(rest)?;
+        let action=match words.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+            ["preview",_,git]=>CleanupAction::Preview {git:(*git).into(),reject_edits:false},
+            ["preview",_,git,"--reject-edits"]=>CleanupAction::Preview {git:(*git).into(),reject_edits:true},
+            ["apply",_]=>CleanupAction::Apply,
+            ["reconcile",_]=>CleanupAction::Reconcile,
+            _=>return Err("/agents cleanup preview <task> <git.exe> [--reject-edits] | apply|reconcile <task>".into()),
+        };
+        return Ok(Some(Input::Cleanup {
+            task: vcp_domain::TaskId::parse(&words[1]).map_err(|e| e.to_string())?,
+            action,
+        }));
+    }
+    if let Some(rest) = line.strip_prefix("/agents ") {
+        if matches!(rest.split_whitespace().next(), Some("explore" | "review")) {
+            let words = helper_words(rest)?;
+            if words.len() < 7 {
+                return Err("/agents explore|review <scope|.> <USD> <seconds> <git.exe> <disposable-parent> <objective>; quote paths containing spaces".into());
+            }
+            crate::args::parse_usd(&words[2])?;
+            let seconds = words[3]
+                .parse::<u32>()
+                .map_err(|_| "helper seconds must be 1–3600")?;
+            if !(1..=3600).contains(&seconds) {
+                return Err("helper seconds must be 1–3600".into());
+            }
+            return Ok(Some(Input::Helper(Helper {
+                name: words[0].clone(),
+                scope: words[1].clone(),
+                allocation_usd: words[2].clone(),
+                seconds,
+                git: words[4].clone().into(),
+                disposable_parent: words[5].clone().into(),
+                objective: words[6..].join(" "),
+            })));
+        }
     }
     if let Some(path) = line.strip_prefix("/agents delegate ") {
         let path = path.trim();

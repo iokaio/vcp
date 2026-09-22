@@ -36,6 +36,27 @@ impl CanonicalHost {
         thread: ThreadId,
         citations: Vec<ArtifactId>,
     ) -> Result<Verification, String> {
+        self.verify_before_publish(thread, citations, || {}).await
+    }
+
+    /// Qualification-only control injection after checks, before publication.
+    #[cfg(feature = "qualification")]
+    pub async fn verify_with_publish_observer(
+        &self,
+        thread: ThreadId,
+        citations: Vec<ArtifactId>,
+        before_publish: impl FnOnce(),
+    ) -> Result<Verification, String> {
+        self.verify_before_publish(thread, citations, before_publish)
+            .await
+    }
+
+    async fn verify_before_publish(
+        &self,
+        thread: ThreadId,
+        citations: Vec<ArtifactId>,
+        before_publish: impl FnOnce(),
+    ) -> Result<Verification, String> {
         if self.mcp_connections_present() {
             return Err("disconnect MCP processes before verification".into());
         }
@@ -135,6 +156,7 @@ impl CanonicalHost {
             }
             checks.push(check);
         }
+        before_publish();
         self.worker
             .run_cleanup(move |context| context.finish_verification(&binding, run, checks))
     }

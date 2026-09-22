@@ -350,3 +350,83 @@ async fn read_only_findings_are_retained_but_observed_writes_are_rejected() {
     assert!(plan.changes.is_empty());
     assert_eq!(plan.findings, packet.findings);
 }
+
+fn structured_finding(packet: &ChildPacket) -> merge::ReviewFinding {
+    serde_json::from_value(serde_json::json!({
+        "schema_version": 1,
+        "base_fingerprint": packet.base_fingerprint,
+        "current_fingerprint": packet.result_fingerprint,
+        "examined_paths": ["file.txt"],
+        "location": {"path":"file.txt", "start_line":1, "end_line":1},
+        "kind":"suggestion", "trigger":"Reading the first line",
+        "consequence":"Consider a clearer label",
+        "evidence":[{"kind":"source", "reference":"file.txt:1", "explanation":"Current label"}],
+        "uncertainty":"Readability is subjective"
+    }))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn structured_review_retains_revision_scope_and_rejected_edit_evidence() {
+    let mut fixture = Fixture::new().await;
+    fixture.assignment.mode = ChildMode::ReadOnly;
+    fixture.assignment.paths[0].write = false;
+    fixture.assignment.effects = [EffectClass::Read].into();
+    let before = fs::read(fixture.source.path().join("file.txt")).unwrap();
+    let index = fs::read(fixture.source.path().join(".git/index")).unwrap();
+    let mut packet = fixture.packet(&[]).await;
+    packet.findings = vec![structured_finding(&packet)];
+    let plan = merge::prepare(&fixture.service, fixture.inputs(), &packet)
+        .await
+        .unwrap();
+    assert!(plan.ready());
+    assert!(plan.changes.is_empty());
+    assert_eq!(plan.findings, packet.findings);
+    assert_eq!(
+        fs::read(fixture.source.path().join("file.txt")).unwrap(),
+        before
+    );
+    assert_eq!(
+        fs::read(fixture.source.path().join(".git/index")).unwrap(),
+        index
+    );
+
+    fs::write(fixture.child.path().join("file.txt"), b"unauthorized write").unwrap();
+    packet = fixture.packet(&["file.txt"]).await;
+    packet.findings = vec![structured_finding(&packet)];
+    let plan = merge::prepare(&fixture.service, fixture.inputs(), &packet)
+        .await
+        .unwrap();
+    assert!(plan.rejection.as_deref().unwrap().contains("write scope"));
+    assert_eq!(plan.findings, packet.findings);
+    assert!(plan.changes.is_empty());
+}
+
+#[tokio::test]
+async fn stale_or_unassigned_review_findings_cannot_admit_edits() {
+    let fixture = Fixture::new().await;
+    let mut packet = fixture.packet(&[]).await;
+    packet.findings = vec![structured_finding(&packet)];
+    if let merge::ReviewFinding::Structured(finding) = &mut packet.findings[0] {
+        finding.current_fingerprint = "previous-workspace-with-identical-diff".into();
+    }
+    let plan = merge::prepare(&fixture.service, fixture.inputs(), &packet)
+        .await
+        .unwrap();
+    assert!(plan
+        .rejection
+        .as_deref()
+        .unwrap()
+        .contains("examined revision"));
+    assert_eq!(plan.findings, packet.findings);
+    assert!(plan.changes.is_empty());
+    packet.findings = vec![structured_finding(&packet)];
+    if let merge::ReviewFinding::Structured(finding) = &mut packet.findings[0] {
+        finding.examined_paths.insert("outside.txt".into());
+    }
+    let plan = merge::prepare(&fixture.service, fixture.inputs(), &packet)
+        .await
+        .unwrap();
+    assert!(plan.rejection.as_deref().unwrap().contains("read scope"));
+    assert_eq!(plan.findings, packet.findings);
+}
