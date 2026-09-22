@@ -236,8 +236,8 @@ fn startup_provider_timeout(
     deadline_seconds: u32,
 ) -> Result<Duration, String> {
     match selected {
-        Some(seconds) if seconds == 0 || seconds > 180 || seconds > deadline_seconds => Err(
-            "explicit provider timeout must be 1..180 seconds and not exceed the task deadline"
+        Some(seconds) if seconds == 0 || seconds > 360 || seconds > deadline_seconds => Err(
+            "explicit provider timeout must be 1..360 seconds and not exceed the task deadline"
                 .into(),
         ),
         Some(seconds) => Ok(Duration::from_secs(u64::from(seconds))),
@@ -331,7 +331,7 @@ mod request_limit_tests {
                 Duration::from_secs(120)
             );
         }
-        for seconds in [1, 60, 120, 180] {
+        for seconds in [1, 60, 120, 180, 360] {
             assert_eq!(
                 startup_provider_timeout(Some(seconds), 900).unwrap(),
                 Duration::from_secs(u64::from(seconds))
@@ -341,11 +341,12 @@ mod request_limit_tests {
             startup_provider_timeout(Some(60), 60).unwrap(),
             Duration::from_secs(60)
         );
-        for seconds in [0, 181, u32::MAX] {
+        for seconds in [0, 361, u32::MAX] {
             assert!(startup_provider_timeout(Some(seconds), 3600).is_err());
         }
         assert!(startup_provider_timeout(Some(61), 60).is_err());
         assert!(startup_provider_timeout(Some(180), 179).is_err());
+        assert!(startup_provider_timeout(Some(360), 359).is_err());
         assert!(startup_provider_timeout(Some(1), 0).is_err());
     }
 
@@ -386,7 +387,7 @@ mod request_limit_tests {
         let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
         assert_eq!(configured.output_ceiling().unwrap(), Units::new(16384));
         assert_eq!(configured.max_transport_retries, 0);
-        selected["provider_timeout_seconds"] = serde_json::json!(180);
+        selected["provider_timeout_seconds"] = serde_json::json!(360);
         let invalid: Profile = serde_json::from_value(selected.clone()).unwrap();
         assert!(invalid.provider_timeout().is_err());
         assert!(
@@ -394,10 +395,10 @@ mod request_limit_tests {
         );
         selected["deadline_seconds"] = serde_json::json!(900);
         let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
-        assert_eq!(configured.provider_timeout_seconds, Some(180));
+        assert_eq!(configured.provider_timeout_seconds, Some(360));
         assert_eq!(
             configured.provider_timeout().unwrap(),
-            Duration::from_secs(180)
+            Duration::from_secs(360)
         );
         selected["max_transport_retries"] = serde_json::json!(3);
         let invalid: Profile = serde_json::from_value(selected).unwrap();

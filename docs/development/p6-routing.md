@@ -286,8 +286,8 @@ freeze their explicit allowance; changing it requires a fresh plan and does not
 change historical results.
 
 Reasoning-heavy fixed-provider trials can also explicitly set
-`"provider_timeout_seconds":180`. Omitting it preserves the 120-second response
-timeout. Explicit values must be 1..180 and no greater than `deadline_seconds`;
+`"provider_timeout_seconds":360`. Omitting it preserves the 120-second response
+timeout. Explicit values must be 1..360 and no greater than `deadline_seconds`;
 every in-flight response is also bounded by the remaining configured coding deadline.
 This does not extend the overall task deadline, enable retries or change process,
 MCP or decision-service timeouts. An interrupted submitted response retains its

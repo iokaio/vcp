@@ -35,7 +35,7 @@ function fixedProfileReasons(profile,now=Date.now()) {
   const decimal=value=>typeof value==='string'&&/^(0|[1-9][0-9]*)$/.test(value)&&Number.isSafeInteger(Number(value))?Number(value):NaN;
   if(profile.version!==1||profile.trust_workspace!==true)reasons.push('explicit trusted profile required');
   if(!Number.isSafeInteger(profile.max_requests)||profile.max_requests<1||profile.max_requests>16||!Number.isSafeInteger(profile.deadline_seconds)||profile.deadline_seconds<1||profile.deadline_seconds>1800)reasons.push('P7 trial needs 1..16 requests and 1..1800 second deadline');
-  if(profile.provider_timeout_seconds!==undefined&&(!Number.isSafeInteger(profile.provider_timeout_seconds)||profile.provider_timeout_seconds<1||profile.provider_timeout_seconds>180||profile.provider_timeout_seconds>profile.deadline_seconds))reasons.push('Explicit provider timeout must be 1..180 seconds within the task deadline');
+  if(profile.provider_timeout_seconds!==undefined&&(!Number.isSafeInteger(profile.provider_timeout_seconds)||profile.provider_timeout_seconds<1||profile.provider_timeout_seconds>360||profile.provider_timeout_seconds>profile.deadline_seconds))reasons.push('Explicit provider timeout must be 1..360 seconds within the task deadline');
   if(profile.processes?.length||profile.checks?.length||profile.mcp?.length||profile.mcp_http?.length||profile.skills||profile.decisions||profile.qualification_endpoint)reasons.push('external tools, skills, evaluators, executable checks and endpoint overrides are outside the source profile');
   if(profile.routing||profile.max_transport_retries!==0)reasons.push('Use one fixed qualified provider, without routing or retries');
   const snapshot=profile.provider;

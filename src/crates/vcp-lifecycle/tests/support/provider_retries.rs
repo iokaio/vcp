@@ -323,7 +323,7 @@ async fn provider_response_timeout_defaults_and_explicit_bounds_are_retained() {
             .unwrap();
         for timeout in [
             Duration::ZERO,
-            Duration::from_secs(180) + Duration::from_nanos(1),
+            Duration::from_secs(360) + Duration::from_nanos(1),
         ] {
             let before = host.snapshot().unwrap();
             assert!(host
@@ -335,7 +335,7 @@ async fn provider_response_timeout_defaults_and_explicit_bounds_are_retained() {
                 "invalid timeout cannot publish configuration"
             );
         }
-        host.configure_provider_with_timeout(snapshot, raw, Duration::from_secs(180))
+        host.configure_provider_with_timeout(snapshot, raw, Duration::from_secs(360))
             .unwrap();
         let mut timeouts: Vec<u64> = host
             .snapshot()
@@ -353,7 +353,7 @@ async fn provider_response_timeout_defaults_and_explicit_bounds_are_retained() {
             })
             .collect();
         timeouts.sort_unstable();
-        assert_eq!(timeouts, vec![120_000, 180_000]);
+        assert_eq!(timeouts, vec![120_000, 360_000]);
         owner.close().await.unwrap();
     }
 }
@@ -366,7 +366,7 @@ async fn explicit_provider_response_timeout_reaches_admission_without_retries() 
         let (host, owner, _, test, server) = setup_with_retries(
             &temp,
             backend,
-            Duration::from_secs(180),
+            Duration::from_secs(360),
             1000,
             false,
             0,
@@ -383,8 +383,8 @@ async fn explicit_provider_response_timeout_reaches_admission_without_retries() 
             )
             .unwrap();
         let deadline = ticket.response_deadline().unwrap();
-        assert!(deadline >= started + Duration::from_secs(180));
-        assert!(deadline <= std::time::Instant::now() + Duration::from_secs(180));
+        assert!(deadline >= started + Duration::from_secs(360));
+        assert!(deadline <= std::time::Instant::now() + Duration::from_secs(360));
         assert_eq!(server.received_requests().await.unwrap().len(), 0);
         drop(ticket);
         owner.close().await.unwrap();
@@ -402,7 +402,7 @@ async fn extended_provider_response_timeout_is_clamped_to_coding_deadline() {
         let (host, owner, _, test, server) = setup_with_retries(
             &temp,
             backend,
-            Duration::from_secs(180),
+            Duration::from_secs(360),
             1000,
             true,
             0,
