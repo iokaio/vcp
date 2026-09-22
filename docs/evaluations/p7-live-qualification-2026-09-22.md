@@ -48,7 +48,7 @@ Known charges and unknown exposure remain separate in the campaign ledger.
 
 ## Terminal controls
 
-The live terminal cases use the exact packaged CLI SHA-256
+The initial live terminal cases used the packaged CLI SHA-256
 `0a6285bc130914ed38ed50ed0508f7f2d3b7cdbe1919cf8b0c287aa467436a4d`,
 a native ConPTY driver and read-only synthetic two-file workspaces. They preserve
 the claimed plan, full terminal output, canonical inspections and two recovery
@@ -66,8 +66,27 @@ A fresh run with corrected drain sequencing reached `/resume`, which then
 reported `canonical capture/admission fenced; reopen required`. This exposed a
 separate lifecycle failure under actual provider interruption. Its hard-close
 case passed; the campaign retains USD 0.000739 settled and USD 5.310284 unresolved
-across those two cases. This failure requires diagnosis before same-process live
-resume can be claimed.
+across those two cases. Diagnosis found a response callback arriving after pause
+had durably aborted the capture and retained its uncertain liability. The absent
+writer then unnecessarily fenced the owner.
+
+The correction ignores late bytes only when the exact attempt is already pending
+reconciliation with uncertainty, its writer is absent and its provider parser is
+absent. It cannot accept new evidence or settle cost. Unknown attempts, current
+or settled attempts and real capture failures still error. The native regression
+invokes retained normal/error callbacks after cancellation, verifies unchanged
+canonical evidence, then resumes paused cases through the same owner and completes a fresh request.
+It passed on both stores for pause and cancellation; the separate real request/
+response capacity-failure regression also passed and still fences admission.
+
+The rebuilt CLI (`50fef9aa0d598cd3a94c98bfbb2f7b25a07d917e30d9fd10fea50cd73ef07166`)
+then completed live pause, explicit resume acknowledgement and ordinary exit in
+6.913 seconds. The harness incorrectly expected zero; the CLI's documented exit
+7 means unresolved effects, while 8 means durable pause without higher-priority
+conditions. The final public result confirmed durable pause and no internal
+failure. Its separate hard-close case passed in 5.538 seconds. The original
+grader failure is retained with USD 0.001505 settled and USD 5.310284 unresolved;
+the exit-contract correction does not rewrite that result.
 
 Earlier setup failures remain accounted for: profile/startup failures before any
 attempt reconciled to zero; an invalid child-scope fixture cost USD 0.005292 with
@@ -76,7 +95,7 @@ new frozen plans and do not overwrite failed evidence.
 
 ## Native regression and evidence
 
-Current-source native checks passed: 159 core tests (two existing ignores),
+Before the final callback correction, native checks passed: 159 core tests (two existing ignores),
 67 CLI library tests (one existing ignore), seven native PTY cases, four
 current-parent verification cases, two adapter queue/deadline tests, and three
 transitive cleanup dependency regressions. A separate two-case cleanup fault

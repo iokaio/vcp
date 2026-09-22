@@ -1,6 +1,68 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
+use codex_extension_api::{
+    HostModelPurpose, HostResponseCapture, HostWorkAdmission, HostWorkKind, HostWorkPermit,
+    ToolName,
+};
 use core_test_support::streaming_sse::{start_streaming_sse_server, StreamingSseChunk};
+use std::sync::Mutex;
+
+struct CaptureGate {
+    host: CanonicalHost,
+    captures: Arc<Mutex<Vec<HostResponseCapture>>>,
+}
+impl std::fmt::Debug for CaptureGate {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output.debug_struct("CaptureGate").finish_non_exhaustive()
+    }
+}
+impl HostWorkAdmission for CaptureGate {
+    fn requires_completed_response(&self) -> bool {
+        self.host.requires_completed_response()
+    }
+    fn admit_startup(
+        &self,
+        workspace: &std::path::Path,
+        resumed: Option<codex_protocol::ThreadId>,
+    ) -> Result<Box<dyn Send>, String> {
+        self.host.admit_startup(workspace, resumed)
+    }
+    fn admit(
+        &self,
+        thread: codex_protocol::ThreadId,
+        kind: HostWorkKind,
+        label: &str,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        self.host.admit(thread, kind, label)
+    }
+    fn admit_model(
+        &self,
+        thread: codex_protocol::ThreadId,
+        body: &mut serde_json::Value,
+        purpose: HostModelPurpose,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        let permit = self.host.admit_model(thread, body, purpose)?;
+        self.captures.lock().unwrap().push(
+            permit
+                .response_capture()
+                .ok_or("response capture missing")?,
+        );
+        self.captures.lock().unwrap().push(
+            permit
+                .response_error_capture()
+                .ok_or("error capture missing")?,
+        );
+        Ok(permit)
+    }
+    fn admit_tool(
+        &self,
+        thread: codex_protocol::ThreadId,
+        call_id: &str,
+        name: &ToolName,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        self.host.admit_tool(thread, call_id, name)
+    }
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cli_control_authenticates_before_stopping_and_retries_without_another_effect() {
@@ -22,24 +84,37 @@ async fn cli_control_authenticates_before_stopping_and_retries_without_another_e
             )
             .unwrap();
             let (release, gate) = tokio::sync::oneshot::channel();
-            let (server, _) = start_streaming_sse_server(vec![vec![
-                StreamingSseChunk {
+            let (server, _) = start_streaming_sse_server(vec![
+                vec![
+                    StreamingSseChunk {
+                        gate: None,
+                        body: sse(vec![
+                            ev_response_created("cli"),
+                            ev_message_item_added("partial", ""),
+                            ev_output_text_delta("still running"),
+                        ]),
+                    },
+                    StreamingSseChunk {
+                        gate: Some(gate),
+                        body: sse(vec![ev_completed_with_tokens("cli", 7)]),
+                    },
+                ],
+                vec![StreamingSseChunk {
                     gate: None,
                     body: sse(vec![
-                        ev_response_created("cli"),
-                        ev_message_item_added("partial", ""),
-                        ev_output_text_delta("still running"),
+                        ev_assistant_message("resumed", "resumed safely"),
+                        ev_completed_with_tokens("resumed", 7),
                     ]),
-                },
-                StreamingSseChunk {
-                    gate: Some(gate),
-                    body: sse(vec![ev_completed_with_tokens("cli", 7)]),
-                },
-            ]])
+                }],
+            ])
             .await;
+            let captures = Arc::new(Mutex::new(Vec::new()));
             let mut registry = ExtensionRegistryBuilder::new();
             registry.turn_start_admission(Arc::new(host.clone()));
-            registry.work_admission(Arc::new(host.clone()));
+            registry.work_admission(Arc::new(CaptureGate {
+                host: host.clone(),
+                captures: captures.clone(),
+            }));
             let starter = host.clone();
             let cwd = workspace.clone();
             let model = config.price.model.clone();
@@ -179,6 +254,11 @@ async fn cli_control_authenticates_before_stopping_and_retries_without_another_e
                 .collect();
             assert_eq!(attempts.len(), 1);
             assert_eq!(attempts[0].phase, ReservationState::ReconciliationPending);
+            let before_late = host.snapshot().unwrap();
+            for capture in captures.lock().unwrap().drain(..) {
+                capture(b"late bytes after retained cancellation").unwrap();
+            }
+            assert_eq!(host.snapshot().unwrap(), before_late);
             if next == TaskState::Paused {
                 host.lifecycle().resume(thread, &retained.revision).unwrap();
                 assert!(!host.lifecycle().inspect(thread).unwrap().local_hold);
@@ -196,6 +276,10 @@ async fn cli_control_authenticates_before_stopping_and_retries_without_another_e
                 let after = host.snapshot().unwrap();
                 assert_eq!(vcp_budget::ledger(&after, &task.scope).unwrap(), before);
                 assert_eq!(server.requests().await.len(), 1);
+                host.resume(thread, task.revision, task.fingerprint.clone())
+                    .unwrap();
+                turn(&test).await;
+                assert_eq!(server.requests().await.len(), 2);
             }
             let _ = release.send(());
             owner.close().await.unwrap();
