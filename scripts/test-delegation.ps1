@@ -16,7 +16,7 @@ $paths=$paths|ConvertFrom-Json
 $directory=Join-Path $paths.output ([guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $directory -Force|Out-Null
 $manifest=Join-Path $directory 'manifest.json'
-$record=[ordered]@{schema_version=1;task_id='P7-04/P7-05/P7-06';status='prepared';started_at=[DateTime]::UtcNow.ToString('o');stages=@();limits=@('Mock provider fixtures; not live usefulness or release acceptance','No qualified child process filesystem sandbox','Control cancellation between integration writes is a separate fault case')}
+$record=[ordered]@{schema_version=1;task_id='P7-04/P7-05/P7-06';status='prepared';started_at=[DateTime]::UtcNow.ToString('o');stages=@();limits=@('Mock provider fixtures; not live usefulness or release acceptance','No qualified child process filesystem sandbox')}
 function Save-Record {$record|ConvertTo-Json -Depth 12|Set-Content -LiteralPath $manifest -Encoding utf8}
 function Stage([string]$Name,[string[]]$Arguments,[string[]]$Required){
     $log=Join-Path $directory ($Name+'.log')
@@ -65,11 +65,12 @@ try{
     $record.status='running';Save-Record
     Push-Location -LiteralPath (Join-Path $repository 'src/third_party/codex/codex-rs')
     try{
-        Stage 'repository-tools' ($common+@('-p','vcp-repository','-p','vcp-tools','--','--test-threads=1')) @('owner_preparation_keeps_binary_bytes_and_pins_index_through_native_effect')
+        Stage 'repository-tools' ($common+@('-p','vcp-repository','-p','vcp-tools','--','--test-threads=1')) @('owner_preparation_keeps_binary_bytes_and_pins_index_through_native_effect','cleanup_admission_gate_stops_between_native_removals_and_reuses_same_intent')
         Stage 'canonical-contracts' ($common+@('-p','vcp-domain','-p','vcp-protocol','-p','vcp-store','-p','vcp-engine','--tests','--','--test-threads=1')) @('child_registration_is_atomic_bounded_and_durable_on_both_backends','dependencies_scope_pause_and_cancellation_are_canonical','eligibility_blocks_zero_remaining_capacity_without_charging_unused_allocations')
-        Stage 'connected' ($common+$hostTests+@('--','--test-threads=1')) @('graph_child_dispatch_uses_isolated_bytes_root_budget_and_parent_pause_gate','child_result_integration_uses_parent_broker_and_rejects_concurrent_parent_changes','child_fixed_model_mismatch_never_sends_or_reserves_budget','fresh_owner_recovers_registered_child_edits_and_keeps_sibling_paused','child_integration_partial_native_failure_retains_receipts_and_human_edits')
+        Stage 'connected' ($common+$hostTests+@('--','--test-threads=1')) @('graph_child_dispatch_uses_isolated_bytes_root_budget_and_parent_pause_gate','child_result_integration_uses_parent_broker_and_rejects_concurrent_parent_changes','child_fixed_model_mismatch_never_sends_or_reserves_budget','fresh_owner_recovers_registered_child_edits_and_keeps_sibling_paused','child_integration_partial_native_failure_retains_receipts_and_human_edits','child_integration_pause_between_writes_retains_receipts_and_human_edits','child_cleanup_retains_durable_intent_and_results_and_reconciles_only_original_root','helper_templates_admit_current_read_only_assignments_and_fence_parent_pause')
+        Stage 'verification-pause' ($common+@('-p','vcp-lifecycle','--features','qualification','--test','canonical_host','native_verification_pause_before_publish','--','--test-threads=1')) @('native_verification_pause_before_publish_retains_checks_without_completion')
         Stage 'terminal' ($common+@('-p','vcp-cli','--features','qualification','--lib','--','--test-threads=1')) @('agents_pages_preserve_all_children_and_canonical_node_cost_without_resuming','resumed_child_ignores_terminal_events_queued_by_failed_previous_turn')
-        Stage 'native-cli' ($common+@('-p','vcp-cli','--features','qualification','--test','executable','executable_terminal_delegates_real_child','--','--test-threads=1')) @('executable_terminal_delegates_real_child_with_canonical_transcript','executable_terminal_delegates_real_child_and_pause_fences_both_requests')
+        Stage 'native-cli' ($common+@('-p','vcp-cli','--features','qualification','--test','executable','executable_terminal_','--','--test-threads=1')) @('executable_terminal_delegates_real_child_with_canonical_transcript','executable_terminal_delegates_real_child_and_pause_fences_both_requests','executable_terminal_hard_close_reopens_two_active_children_without_dispatch','executable_terminal_pause_fences_two_children_and_preserves_quiet_status')
     }finally{Pop-Location}
     foreach($inputRecord in $record.inputs){if((Get-FileHash -LiteralPath (Join-Path $repository $inputRecord.path)).Hash.ToLowerInvariant() -ne $inputRecord.sha256){throw 'Source changed during qualification; rerun with stable inputs'}}
     $record.status='pass';$record.exit_code=0

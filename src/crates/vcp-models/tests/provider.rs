@@ -701,6 +701,65 @@ fn malformed_truncated_duplicate_and_oversize_events_cannot_create_second_settle
     }
     assert!(parser.push(b"x").is_err());
 }
+
+#[test]
+fn retained_terminal_boundary_accepts_only_optional_done_prefix_at_every_split() {
+    let mut end = terminal(json!([call("retained", "fixture.txt")]));
+    end["response"]["usage"] =
+        json!({"input_tokens":3470,"output_tokens":40,"total_tokens":3510,"cost":0.00100694});
+    for sentinel in [
+        b"data: [DONE]\n\n".as_slice(),
+        b"data:[DONE]\r\n\r\n".as_slice(),
+    ] {
+        for split in 0..=sentinel.len() {
+            let mut observed = sse(end.clone());
+            observed.extend_from_slice(&sentinel[..split]);
+            let mut parser = stream();
+            // Arbitrary transport byte boundaries cannot alter normalization.
+            for chunk in observed.chunks(7) {
+                parser.push(chunk).unwrap();
+            }
+            let result = parser.finish_observed_terminal().unwrap();
+            assert_eq!(result.calls.len(), 1, "split={split}");
+            assert_eq!(result.usage.unwrap().cost.unwrap().micros.get(), 1007);
+        }
+    }
+    let mut parser = stream();
+    parser.push(&sse(end)).unwrap();
+    parser.push(b"data: [DON").unwrap();
+    assert!(
+        parser.finish().is_err(),
+        "general EOF framing remains strict"
+    );
+}
+
+#[test]
+fn retained_terminal_boundary_rejects_contradictions_truncated_payloads_and_duplicate_done() {
+    for suffix in [
+        b"data: {".as_slice(),
+        b"data: [DONX",
+        b"data: [DONE]garbage",
+        b"event: response.completed\ndata: [DON",
+        b"data: [DONE]\n\ndata: [DON",
+        b"data: [DONE]\n\ndata: [DONE]\n\n",
+        b"data: [DONE]\n\nx",
+        b"data: [DONE]\ndata: [DON",
+    ] {
+        let mut parser = stream();
+        parser.push(&sse(terminal(json!([])))).unwrap();
+        let _ = parser.push(suffix);
+        assert!(parser.finish_observed_terminal().is_err(), "{suffix:?}");
+    }
+    let mut parser = stream();
+    parser.push(b"data: [DON").unwrap();
+    assert!(parser.finish_observed_terminal().is_err());
+    let mut parser = stream();
+    parser.push(&sse(terminal(json!([])))).unwrap();
+    let mut changed = terminal(json!([]));
+    changed["response"]["id"] = json!("different");
+    assert!(parser.push(&sse(changed)).is_err());
+    assert!(parser.finish_observed_terminal().is_err());
+}
 #[test]
 fn incomplete_terminal_argument_placeholder_preserves_usage_without_eligible_calls() {
     for status in ["incomplete", "failed", "completed"] {

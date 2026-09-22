@@ -858,7 +858,7 @@ impl Context {
             .streams
             .remove(attempt)
             .ok_or("provider response missing")?;
-        let normalized = parser.finish()?;
+        let normalized = parser.finish_observed_terminal()?;
         if normalized.response_id != response_id {
             return Err("retained/normalized response identity differs".into());
         }

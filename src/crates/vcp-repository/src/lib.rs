@@ -3,6 +3,8 @@
 //! from the trusted broker; repository contents cannot grant it. Git index
 //! changes are not performed by these file primitives.
 pub mod dirty_snapshot;
+#[cfg(windows)]
+pub mod cleanup;
 pub mod discovery;
 pub mod git;
 pub mod instructions;
@@ -10,6 +12,7 @@ pub mod merge;
 #[cfg(windows)]
 pub mod mutation;
 pub mod observation;
+pub mod review_findings;
 pub mod path;
 #[cfg(windows)]
 pub mod restore;

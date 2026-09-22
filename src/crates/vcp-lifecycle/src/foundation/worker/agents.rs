@@ -81,6 +81,9 @@ impl Context {
         let Some((graph, spec)) = self.child_assignment_record(task)? else {
             return Ok(None);
         };
+        if graph.cleanup.contains_key(task) {
+            return Err("child workspace is leased for cleanup; only cleanup reconciliation and retained history are available".into());
+        }
         let workspace: Workspace = self
             .engine
             .store()

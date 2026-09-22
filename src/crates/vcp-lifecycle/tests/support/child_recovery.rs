@@ -418,6 +418,15 @@ async fn fresh_owner_recovers_registered_child_edits_and_keeps_sibling_paused() 
             TaskState::Paused
         );
         assert!(host.lifecycle().inspect(attached[1].0).unwrap().local_hold);
+        super::child_visibility::flood_and_recover_cursor(
+            &host,
+            &config,
+            root_thread,
+            *first_id,
+            &children[0],
+            &children[1],
+        )
+        .await;
         // A canonical running sibling effect is not this child's resume debt.
         // Root resume must still include that same effect in its subtree.
         let effect = ToolRunId::new();

@@ -3,6 +3,7 @@
 //! Proposed bytes are not authority. The parent broker must revalidate every
 //! probe and the index precondition, apply through its ordinary effect path,
 //! and verify the resulting parent state before accepting completion.
+pub use crate::review_findings::ReviewFinding;
 use crate::{
     dirty_snapshot::{CapturePolicy, SnapshotFile, WorkspaceSnapshot},
     instructions::Probe,
@@ -22,7 +23,18 @@ pub struct ChildPacket {
     pub result_fingerprint: String,
     pub changed_paths: BTreeSet<String>,
     /// Untrusted findings remain separately inspectable when the patch fails.
-    pub findings: Vec<String>,
+    pub findings: Vec<ReviewFinding>,
+}
+impl ChildPacket {
+    pub fn validate_findings(&self) -> Result<()> {
+        if self.findings.len() > 64 || self.changed_paths.len() > 128 {
+            return Err(Error::Limit("child result packet"));
+        }
+        for finding in &self.findings {
+            finding.validate()?;
+        }
+        Ok(())
+    }
 }
 pub struct Inputs<'a> {
     pub parent: &'a Root,
@@ -69,7 +81,7 @@ pub struct IntegrationPlan {
     pub changes: Vec<ProposedChange>,
     pub conflicts: Vec<Conflict>,
     pub rejection: Option<String>,
-    pub findings: Vec<String>,
+    pub findings: Vec<ReviewFinding>,
 }
 impl IntegrationPlan {
     pub fn ready(&self) -> bool {
@@ -311,12 +323,7 @@ pub async fn prepare(
     inputs: Inputs<'_>,
     packet: &ChildPacket,
 ) -> Result<IntegrationPlan> {
-    if packet.findings.len() > 64
-        || packet.findings.iter().any(|finding| finding.len() > 8192)
-        || packet.changed_paths.len() > 128
-    {
-        return Err(Error::Limit("child result packet"));
-    }
+    packet.validate_findings()?;
     let mut plan = IntegrationPlan {
         base_fingerprint: inputs.base.fingerprint.clone(),
         child_fingerprint: None,
@@ -334,6 +341,22 @@ pub async fn prepare(
     }
     if packet.base_fingerprint != inputs.base.fingerprint {
         return Ok(plan.reject("stale child base fingerprint"));
+    }
+    for finding in &packet.findings {
+        if let ReviewFinding::Structured(finding) = finding {
+            if !finding.matches_revision(&packet.base_fingerprint, &packet.result_fingerprint) {
+                return Ok(plan.reject("review finding describes a different examined revision"));
+            }
+            if finding.examined_paths.iter().any(|path| {
+                !inputs.assignment.paths.iter().any(|scope| {
+                    (scope.root == inputs.parent.identity.root
+                        || scope.root == inputs.metadata_owner.identity.root)
+                        && vcp_domain::agents::prefix(&scope.path, path)
+                })
+            }) {
+                return Ok(plan.reject("review finding exceeds assignment read scope"));
+            }
+        }
     }
     let result = match observe_result(snapshotter, &inputs).await {
         Ok(result) => result,

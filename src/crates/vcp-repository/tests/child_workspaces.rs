@@ -99,6 +99,271 @@ fn registration(
     }
 }
 
+struct CleanupFixture {
+    _temp: tempfile::TempDir,
+    source: Root,
+    parent: Root,
+    child: Root,
+    registration: WorkspaceRegistration,
+    service: Snapshotter,
+    intent: cleanup::CleanupIntent,
+}
+impl CleanupFixture {
+    async fn new() -> Self {
+        let temp = tempfile::tempdir().unwrap();
+        let source_path = temp.path().join("source");
+        let parent_path = temp.path().join("disposables");
+        fs::create_dir(&source_path).unwrap();
+        fs::create_dir(&parent_path).unwrap();
+        fs::create_dir(source_path.join("nested")).unwrap();
+        fs::write(source_path.join("nested/file.txt"), b"retained result").unwrap();
+        let source = root(&source_path, "source");
+        let parent = root(&parent_path, "disposables");
+        let service = snapshotter();
+        let snapshot = service
+            .capture(
+                &source,
+                &CapturePolicy {
+                    untracked: ["nested/file.txt".into()].into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let registration = registration(&source, &parent, &snapshot, "owned-child");
+        let child = service
+            .materialize(&source, &parent, &snapshot, &registration)
+            .await
+            .unwrap()
+            .root;
+        assert!(child
+            .path()
+            .starts_with(fs::canonicalize(temp.path()).unwrap()));
+        let native = child.hold(None, true).unwrap().native_identity;
+        let intent = service
+            .prepare_cleanup(&parent, &child, None, &registration, &native)
+            .unwrap();
+        Self {
+            _temp: temp,
+            source,
+            parent,
+            child,
+            registration,
+            service,
+            intent,
+        }
+    }
+}
+
+#[tokio::test]
+async fn cleanup_exact_owned_root_preserves_parent_and_reconciles_removed_root() {
+    let fixture = CleanupFixture::new().await;
+    fs::write(fixture.parent.path().join("unrelated.txt"), b"human").unwrap();
+    let receipt = cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).unwrap();
+    assert!(receipt.removed);
+    assert!(!fixture.child.path().exists());
+    assert_eq!(
+        fs::read(fixture.parent.path().join("unrelated.txt")).unwrap(),
+        b"human"
+    );
+    assert_eq!(
+        fs::read(fixture.source.path().join("nested/file.txt")).unwrap(),
+        b"retained result"
+    );
+    assert_eq!(
+        cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).unwrap(),
+        receipt
+    );
+}
+
+#[tokio::test]
+async fn cleanup_admission_gate_stops_between_native_removals_and_reuses_same_intent() {
+    let fixture = CleanupFixture::new().await;
+    let calls = std::cell::Cell::new(0usize);
+    let result = cleanup::remove_cleanup_with_gate(&fixture.parent, None, &fixture.intent, || {
+        calls.set(calls.get() + 1);
+        if calls.get() >= 3 {
+            Err(vcp_repository::Error::Scope("owner paused".into()))
+        } else {
+            Ok(())
+        }
+    });
+    assert!(result.is_err());
+    assert!(!fixture.child.path().join("nested/file.txt").exists());
+    assert!(fixture.child.path().join("nested").exists());
+    assert!(fixture.child.path().join(".vcp-child-owner").exists());
+    cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).unwrap();
+    assert!(!fixture.child.path().exists());
+}
+
+#[tokio::test]
+async fn cleanup_rejects_changed_unlisted_and_replaced_entries_without_removing_other_files() {
+    for change in ["changed", "unlisted", "replaced-marker", "replaced-file"] {
+        let fixture = CleanupFixture::new().await;
+        let child = fixture.child.path();
+        match change {
+            "changed" => fs::write(child.join("nested/file.txt"), b"new human edit").unwrap(),
+            "unlisted" => fs::write(child.join("human.txt"), b"new human file").unwrap(),
+            "replaced-marker" => fs::write(child.join(".vcp-child-owner"), b"other owner").unwrap(),
+            "replaced-file" => {
+                fs::rename(
+                    child.join("nested/file.txt"),
+                    fixture.parent.path().join("retained-original"),
+                )
+                .unwrap();
+                fs::write(child.join("nested/file.txt"), b"retained result").unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).is_err(),
+            "{change}"
+        );
+        assert!(child.join("nested/file.txt").exists(), "{change}");
+        assert!(child.join(".vcp-child-owner").exists(), "{change}");
+    }
+}
+
+#[tokio::test]
+async fn cleanup_rejects_moved_replaced_root_even_with_identical_marker() {
+    let fixture = CleanupFixture::new().await;
+    let moved = fixture.parent.path().join("moved-child");
+    fs::rename(fixture.child.path(), &moved).unwrap();
+    fs::create_dir(fixture.child.path()).unwrap();
+    fs::copy(
+        moved.join(".vcp-child-owner"),
+        fixture.child.path().join(".vcp-child-owner"),
+    )
+    .unwrap();
+    assert!(matches!(
+        cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent),
+        Err(Error::Stale)
+    ));
+    let replacement = Root::open(fixture.child.identity.clone(), fixture.child.path()).unwrap();
+    assert!(fixture
+        .service
+        .prepare_cleanup(
+            &fixture.parent,
+            &replacement,
+            None,
+            &fixture.registration,
+            &fixture.intent.native_identity
+        )
+        .is_err());
+    assert!(moved.join("nested/file.txt").exists());
+    assert!(fixture.child.path().join(".vcp-child-owner").exists());
+}
+
+#[tokio::test]
+async fn cleanup_locked_native_file_blocks_before_any_removal_then_retries() {
+    let fixture = CleanupFixture::new().await;
+    let locked = fixture
+        .child
+        .hold(Some(Path::new("nested/file.txt")), false)
+        .unwrap();
+    assert!(cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).is_err());
+    assert!(fixture.child.path().join(".vcp-child-owner").exists());
+    assert!(fixture.child.path().join("nested/file.txt").exists());
+    drop(locked);
+    cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).unwrap();
+}
+
+#[tokio::test]
+async fn cleanup_partial_removal_and_final_marker_gap_reconcile_same_intent() {
+    let fixture = CleanupFixture::new().await;
+    // Simulate process exit after one exact entry, before canonical receipt.
+    fs::remove_file(fixture.child.path().join("nested/file.txt")).unwrap();
+    cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).unwrap();
+    let fixture = CleanupFixture::new().await;
+    fs::remove_file(fixture.child.path().join("nested/file.txt")).unwrap();
+    fs::remove_dir(fixture.child.path().join("nested")).unwrap();
+    fs::remove_file(fixture.child.path().join(".vcp-child-owner")).unwrap();
+    cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).unwrap();
+    assert!(!fixture.child.path().exists());
+}
+
+#[tokio::test]
+async fn cleanup_native_partial_failure_retains_intent_and_marker_for_retry() {
+    let fixture = CleanupFixture::new().await;
+    let marker = fixture.child.path().join(".vcp-child-owner");
+    let original = fs::metadata(&marker).unwrap().permissions();
+    let mut readonly = original.clone();
+    readonly.set_readonly(true);
+    fs::set_permissions(&marker, readonly).unwrap();
+    // Actual native deletion proceeds through the content, then fails at the
+    // protected marker. The error must not discard the committed intent.
+    assert!(cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).is_err());
+    assert!(!fixture.child.path().join("nested/file.txt").exists());
+    assert!(marker.exists());
+    fs::set_permissions(&marker, original).unwrap();
+    cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).unwrap();
+    assert!(!fixture.child.path().exists());
+}
+
+#[tokio::test]
+async fn cleanup_refuses_wrong_parent_and_junction_escape() {
+    let fixture = CleanupFixture::new().await;
+    assert!(cleanup::remove_cleanup(&fixture.source, None, &fixture.intent).is_err());
+    let link = fixture.child.path().join("escape");
+    let result = Command::new("cmd.exe")
+        .args(["/d", "/c", "mklink", "/J"])
+        .arg(&link)
+        .arg(fixture.source.path())
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).is_err());
+    assert!(fixture.source.path().join("nested/file.txt").exists());
+    // Remove only the freshly created junction, not its destination.
+    fs::remove_dir(&link).unwrap();
+    cleanup::remove_cleanup(&fixture.parent, None, &fixture.intent).unwrap();
+}
+
+#[tokio::test]
+async fn cleanup_git_child_preserves_registered_common_metadata_and_history() {
+    let temp = tempfile::tempdir().unwrap();
+    let source_path = temp.path().join("source");
+    let parent_path = temp.path().join("children");
+    fs::create_dir(&source_path).unwrap();
+    fs::create_dir(&parent_path).unwrap();
+    initialize(&source_path);
+    let source = root(&source_path, "source");
+    let parent = root(&parent_path, "children");
+    let service = snapshotter();
+    let snapshot = service
+        .capture(&source, &CapturePolicy::default())
+        .await
+        .unwrap();
+    let registration = registration(&source, &parent, &snapshot, "child");
+    let child = service
+        .materialize(&source, &parent, &snapshot, &registration)
+        .await
+        .unwrap()
+        .root;
+    assert!(child
+        .path()
+        .starts_with(fs::canonicalize(temp.path()).unwrap()));
+    let index = fs::read(source.path().join(".git/index")).unwrap();
+    let native = child.hold(None, true).unwrap().native_identity;
+    assert!(service
+        .prepare_cleanup(&parent, &child, None, &registration, &native)
+        .is_err());
+    let intent = service
+        .prepare_cleanup(&parent, &child, Some(&source), &registration, &native)
+        .unwrap();
+    assert!(cleanup::remove_cleanup(&parent, None, &intent).is_err());
+    let receipt = cleanup::remove_cleanup(&parent, Some(&source), &intent).unwrap();
+    assert!(receipt.git_metadata_retained);
+    assert!(!child.path().exists());
+    assert_eq!(fs::read(source.path().join(".git/index")).unwrap(), index);
+    assert!(source.path().join(".git/worktrees/child/HEAD").exists());
+    assert!(source.path().join("tracked.txt").exists());
+}
+
 #[tokio::test]
 async fn materialization_preserves_dirty_index_working_binary_deletions_and_scoped_untracked() {
     let temp = tempfile::tempdir().unwrap();

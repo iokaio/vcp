@@ -9,6 +9,24 @@ use vcp_domain::{
 };
 use vcp_store::contract::{Collection, State};
 
+#[cfg(windows)]
+pub fn live_detail(
+    host: &vcp_lifecycle::foundation::CanonicalHost,
+    parent: codex_protocol::ThreadId,
+    scope: &Scope,
+    id: &vcp_domain::TaskId,
+    now: Timestamp,
+) -> Result<Value, String> {
+    let mut value = detail(&host.snapshot()?, scope, id, now)?;
+    value["review_evidence"] = match host.child_review_findings(parent, id.clone()) {
+        Ok(evidence) => evidence,
+        Err(reason) => {
+            json!({"status":"unavailable","reason":crate::terminal::sanitize(&reason,512),"observation":"inspect retained result references through an authorized owner"})
+        }
+    };
+    Ok(value)
+}
+
 pub fn child(state: &State, scope: &Scope, id: &vcp_domain::TaskId) -> Result<Task, String> {
     let parent: Task = state
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
@@ -146,10 +164,21 @@ pub fn page(state: &State, scope: &Scope, now: Timestamp, offset: usize) -> Resu
             "model_policy":spec.map(|s|crate::terminal::sanitize(&s.model_policy,256)),
             "workspace":spec.and_then(|s|s.isolated_root.as_ref()),
             "registration":spec.and_then(|s|s.registration.as_ref()),
+            "cleanup":graph.as_ref().and_then(|g|g.cleanup.get(&task.scope.task)).map(|c|json!({"intent":c.intent,"retained_result":c.retained_result,"rejected_edits":c.rejected_edits,"receipt":c.receipt,"status":if c.receipt.is_some(){"removed; history retained"}else{"pending or failed; only deliberate reconciliation may remove remaining entries"},"last_diagnostic":c.diagnostics.last().map(|d|json!({"artifact":d.artifact,"reason":crate::terminal::sanitize(&d.reason,2048)})),"diagnostic_count":c.diagnostics.len()})),
+            "read_scope":spec.map(|s|s.paths.iter().filter(|p| !p.write).collect::<Vec<_>>()),
+            "helper_template":task.objectives.first().map(|o|o.constraints.iter().filter(|c|c.starts_with("helper-template:")).map(|c|crate::terminal::sanitize(c,2048)).collect::<Vec<_>>()),
+            "readiness":{
+                "materialization":if graph.as_ref().is_some_and(|g|g.ready.contains_key(&task.scope.task)) {"recorded_ready; current native identity is rechecked before dispatch"} else {"not_ready; inspect setup reason and required inputs before explicit recovery"},
+                "process_checks":"unavailable: child process filesystem isolation is not qualified; applicable checks must run on the integrated parent",
+                "checks_not_run":task.required_checks,
+                "setup_reason":crate::terminal::sanitize(&task.reason,256)
+            },
             "allocation":spec.map(|s|s.allocation),
             "cost":{"known":known,"reserved":reserved,"uncertain":uncertain,"units":"micros","scope":"this node only"},
             "canonical_constraints":constraints,"active_effects":active_effects,
             "last_activity":latest.map(|e|json!({"event":e.event.id,"watermark":e.watermark,"timestamp":e.event.timestamp,"kind":e.event.kind})),
+            "latest_result":graph.as_ref().and_then(|g|g.results.get(&task.scope.task)).and_then(|r|r.last()),
+            "result_evidence_status":"historical untrusted evidence at its examined revision; not current parent acceptance",
             "result_count":graph.as_ref().and_then(|g|g.results.get(&task.scope.task)).map_or(0,Vec::len)}));
     }
     Ok(

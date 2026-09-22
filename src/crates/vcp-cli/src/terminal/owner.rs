@@ -172,7 +172,7 @@ pub async fn run(
 ) -> Result<(), String> {
     let mut input = input(std::io::BufReader::new(std::io::stdin())).map_err(|e| e.to_string())?;
     let renderer = Renderer::new(std::io::stderr()).map_err(|e| e.to_string())?;
-    let mut notice = String::from("/pause /resume /status /cost /history /groups /optimize /escalate /skills /mcp /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents delegate <spec.json> /agents recover <task> <git.exe> /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task");
+    let mut notice = String::from("/pause /resume /status /cost /history /groups /optimize /escalate /skills /mcp /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents explore|review <scope> <USD> <seconds> <git.exe> <disposable-parent> <objective> /agents delegate <spec.json> /agents cleanup preview <task> <git.exe> [--reject-edits] | cleanup apply|reconcile <task> /agents recover <task> <git.exe> /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task");
     let mut page: Option<InspectionQuery> = None;
     let mut maintenance_page: Option<vcp_lifecycle::foundation::history_retention::Request> = None;
     let mut optimization = crate::optimize::Session::default();
@@ -203,6 +203,12 @@ pub async fn run(
         tokio::task::JoinHandle<Result<vcp_lifecycle::foundation::ToolOutcome, String>>,
     > = None;
     let mut integration_tickets = std::collections::BTreeMap::new();
+    enum CleanupOutcome {
+        Preview(TaskId, vcp_lifecycle::foundation::ChildCleanupPreview),
+        Receipt(serde_json::Value),
+    }
+    let mut cleanup_pending: Option<tokio::task::JoinHandle<Result<CleanupOutcome, String>>> = None;
+    let mut cleanup_previews = std::collections::BTreeMap::new();
     let result = async {
     submit(host, session, scope).await?;
     let mut tick = tokio::time::interval(Duration::from_millis(200));
@@ -335,10 +341,34 @@ pub async fn run(
                             },
                             AgentAction::Focus | AgentAction::Follow => {
                                 if action==AgentAction::Follow {followed=Some(task.clone());}
-                                page_text=super::sanitize(&serde_json::to_string(&crate::agents_view::detail(&state,scope,&task,crate::settings::now())?).map_err(|e|e.to_string())?,1024*1024);
+                                page_text=super::sanitize(&serde_json::to_string(&crate::agents_view::live_detail(host,session.id,scope,&task,crate::settings::now())?).map_err(|e|e.to_string())?,1024*1024);
                                 display_page(&mut page_text)
                             }
                         }
+                    },
+                    Input::Cleanup {task,action} => {
+                        crate::agents_view::child(&host.snapshot()?,scope,&task)?;
+                        if cleanup_pending.is_some() {return Err("cleanup operation is pending; pause remains available".into());}
+                        let host=host.clone();let parent=session.id;
+                        cleanup_pending=Some(match action {
+                            super::CleanupAction::Preview {git,reject_edits}=>tokio::spawn(async move {
+                                let snapshotter=crate::delegation::native_snapshotter(git)?;
+                                host.prepare_child_cleanup(parent,task.clone(),&snapshotter,reject_edits).await.map(|preview|CleanupOutcome::Preview(task,preview))
+                            }),
+                            super::CleanupAction::Apply=>{
+                                let preview=cleanup_previews.remove(&task).ok_or("preview this child cleanup first")?;
+                                tokio::task::spawn_blocking(move||host.apply_child_cleanup(preview).and_then(|r|serde_json::to_value(r).map(CleanupOutcome::Receipt).map_err(|e|e.to_string())))
+                            },
+                            super::CleanupAction::Reconcile=>tokio::task::spawn_blocking(move||host.reconcile_child_cleanup(parent,task).and_then(|r|serde_json::to_value(r).map(CleanupOutcome::Receipt).map_err(|e|e.to_string()))),
+                        });
+                        "Deliberate cleanup requested; registered identity, retained evidence and current references are checked before removal.".into()
+                    },
+                    Input::Helper(helper) => {
+                        if delegation_pending.is_some() {return Err("child preparation is already pending; pause remains available".into());}
+                        let host=host.clone();let parent=session.clone();let scope=scope.clone();
+                        delegation_pending=Some(tokio::spawn(async move {crate::delegation::prepare_helper(&host,&parent,&scope,helper).await.map(|child|(child,true))}));
+                        child_review_pending=true;
+                        "Read-only helper requested; current model, source scope and shared budget admission are pending.".into()
                     },
                     Input::Delegate(path) => {
                         if delegation_pending.is_some() {return Err("child preparation is already pending; pause remains available".into());}
@@ -362,7 +392,7 @@ pub async fn run(
                         display_page(&mut page_text)
                     },
                     Input::Status => serde_json::to_string(&view(&host.snapshot()?,scope,model)?).map_err(|e|e.to_string())?,
-                    Input::Help => format!("/pause /resume /status /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /groups [exact-model] [--offset <candidate-number>] /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents delegate <spec.json> /agents recover <task> <git.exe> /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /cancel /exit; {} ; {} ; {} ; {} ; plain text queues durable guidance",crate::optimize::HELP,super::escalation::HELP,crate::skills::HELP,crate::mcp::HELP),
+                    Input::Help => format!("/pause /resume /status /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /groups [exact-model] [--offset <candidate-number>] /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents explore|review <scope> <USD> <seconds> <git.exe> <disposable-parent> <objective> /agents delegate <spec.json> /agents cleanup preview <task> <git.exe> [--reject-edits] | cleanup apply|reconcile <task> /agents recover <task> <git.exe> /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /cancel /exit; {} ; {} ; {} ; {} ; plain text queues durable guidance",crate::optimize::HELP,super::escalation::HELP,crate::skills::HELP,crate::mcp::HELP),
                 }) }.await;
                 match result { Ok(message) if message=="exit"=>return Ok(()), Ok(message)=>notice=message, Err(error)=>notice=format!("Command rejected: {error}") }
             }
@@ -402,6 +432,16 @@ pub async fn run(
             }
             update=child_updates.recv()=>{if let Some(update)=update {notice=update;}}
             _ = tick.tick() => {
+                if cleanup_pending.as_ref().is_some_and(|job|job.is_finished()) {
+                    notice=match cleanup_pending.take().ok_or("cleanup operation missing")?.await.map_err(|e|e.to_string())? {
+                        Ok(CleanupOutcome::Preview(task,preview))=>{
+                            let summary=preview.summary();cleanup_previews.insert(task.clone(),preview);
+                            format!("Cleanup preview: {}; use /agents cleanup apply {task} after inspecting retained-result scope.",super::sanitize(&summary.to_string(),8192))
+                        },
+                        Ok(CleanupOutcome::Receipt(receipt))=>format!("Cleanup receipt: {}; history and cost remain retained.",super::sanitize(&receipt.to_string(),8192)),
+                        Err(error)=>format!("Cleanup blocked: {}; an existing intent must be reconciled, never replaced.",super::sanitize(&error,4096)),
+                    };
+                }
                 if integration_pending.as_ref().is_some_and(|job|job.is_finished()) {
                     match integration_pending.take().ok_or("integration preparation missing")?.await.map_err(|e|e.to_string())? {
                         Ok((task,result))=>{
@@ -496,7 +536,7 @@ pub async fn run(
             "Pause fences admission; effects can still be stopping or unknown. /history /next /inspect for full evidence.".into(),
         ];
         if let Some(task)=&followed {
-            lines.push(format!("Following: {}",crate::agents_view::detail(&host.snapshot()?,scope,task,crate::settings::now())?));
+            lines.push(format!("Following: {}",super::sanitize(&crate::agents_view::live_detail(host,session.id,scope,task,crate::settings::now())?.to_string(),16384)));
         }
         let display = lines.join("\n");
         if display != last {
@@ -512,6 +552,7 @@ pub async fn run(
     // Fence descendant and integration admission before dropping observers.
     // An already dispatched blocking edit can outlive its async waiter.
     if delegation_pending.is_some()
+        || cleanup_pending.is_some()
         || !children.is_empty()
         || integration_pending.is_some()
         || integration_apply.is_some()
@@ -521,6 +562,10 @@ pub async fn run(
         }
     }
     if let Some(job) = integration_pending {
+        job.abort();
+        let _ = job.await;
+    }
+    if let Some(job) = cleanup_pending {
         job.abort();
         let _ = job.await;
     }

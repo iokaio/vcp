@@ -72,7 +72,7 @@ test('P7 coding bounds are independent of frozen P6 and reject invalid capacity 
   for(const overrides of [
     {max_requests:0},{max_requests:17},{max_requests:1.5},
     {deadline_seconds:0},{deadline_seconds:1801},{deadline_seconds:NaN},
-    {output_tokens:undefined},{output_tokens:'0'},{output_tokens:'8193'},
+    {output_tokens:undefined},{output_tokens:'0'},{output_tokens:'4097'},{output_tokens:'8192'},
     {output_tokens:'04096'},{output_tokens:4096},{output_tokens:'Infinity'},
     {output_tokens:'9007199254740992'},
     {provider:{...valid.provider,max_output:'4095'}},
@@ -96,7 +96,7 @@ test('P7 coding bounds are independent of frozen P6 and reject invalid capacity 
     assert.throws(f.prepare);
     assert.equal(fs.existsSync(path.join(f.root,'trial')),false);
   }
-  for(const [max_requests,deadline_seconds,output_tokens]of [[1,1,'1'],[16,1800,'8192']])assert.deepEqual(runner.profileReasons({...valid,max_requests,deadline_seconds,output_tokens},now),[]);
+  for(const [max_requests,deadline_seconds,output_tokens]of [[1,1,'1'],[16,1800,'4096']])assert.deepEqual(runner.profileReasons({...valid,max_requests,deadline_seconds,output_tokens},now),[]);
 });
 
 test('runner revision changes require a fresh exact plan before any dispatch',t=>{

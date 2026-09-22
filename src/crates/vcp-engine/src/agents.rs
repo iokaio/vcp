@@ -159,6 +159,7 @@ pub enum Blocker {
     Concurrency,
     ResourceConflict,
     Budget,
+    Cleanup,
 }
 pub fn eligibility(
     state: &State,
@@ -195,6 +196,9 @@ fn eligibility_for_state(
     let Some(child) = graph.children.get(&child_task.scope.task) else {
         return Ok(vec![Blocker::Scope]);
     };
+    if graph.cleanup.contains_key(&child_task.scope.task) {
+        blockers.push(Blocker::Cleanup);
+    }
     let admissible = if resume {
         matches!(
             child_task.state,
@@ -400,6 +404,7 @@ pub(crate) fn create(
             children: BTreeMap::new(),
             ready: BTreeMap::new(),
             results: BTreeMap::new(),
+            cleanup: BTreeMap::new(),
         }
     };
     if graph
@@ -440,7 +445,84 @@ pub struct NativeWorkspaceEvidence {
     pub expected_graph: Revision,
     pub ready: WorkspaceReady,
 }
+/// Host-only publication, never a model-authored deletion instruction.
+pub struct NativeCleanupEvidence {
+    pub child: TaskId,
+    pub expected_graph: Revision,
+    pub cleanup: ChildCleanup,
+}
 impl<S: CanonicalStore> crate::Engine<S> {
+    pub async fn record_child_cleanup(
+        &mut self,
+        scope: &Scope,
+        evidence: NativeCleanupEvidence,
+        access: &crate::Access,
+        host: &crate::HostFacts,
+    ) -> Result<Receipt> {
+        self.authorize(access)?;
+        if !access.write
+            || access.workspace != scope.workspace
+            || access.session != scope.session
+            || !host.may_execute
+        {
+            return Err(Error::Access);
+        }
+        let parent = task(self.store().state(), scope, &scope.task)?;
+        let child = task(self.store().state(), scope, &evidence.child)?;
+        let mut graph = graph(self.store().state(), scope, &parent.root)?.ok_or(Error::Target)?;
+        if graph.revision != evidence.expected_graph {
+            return Err(vcp_domain::Error::Stale.into());
+        }
+        let spec = graph.children.get(&evidence.child).ok_or(Error::Target)?;
+        if (!graph.cleanup.contains_key(&evidence.child) && parent.state != TaskState::Running)
+            || !child.state.terminal()
+            || spec.parent != scope.task
+            || spec.actor != access.actor
+        {
+            return Err(Error::Access);
+        }
+        graph
+            .cleanup
+            .insert(evidence.child.clone(), evidence.cleanup.clone());
+        graph.revision = graph.revision.next()?;
+        graph.validate()?;
+        let event = vcp_protocol::event::EventInput {
+            id: EventId::new(),
+            workspace: scope.workspace.clone(),
+            session: scope.session.clone(),
+            task: Some(evidence.child),
+            actor: access.actor.clone(),
+            correlation: CommandId::new(),
+            causation: None,
+            timestamp: host.now,
+            kind: vcp_protocol::event::EventKind::ChildGraphChanged,
+            artifacts: [&evidence.cleanup.intent, &evidence.cleanup.retained_result]
+                .into_iter()
+                .chain(evidence.cleanup.receipt.iter())
+                .chain(evidence.cleanup.diagnostics.iter().map(|d| &d.artifact))
+                .cloned()
+                .collect(),
+            data: serde_json::json!({"schema_version":1,"cleanup":evidence.cleanup}),
+            metadata: None,
+        };
+        let transaction = Transaction {
+            id: TransactionId::new(),
+            expected_watermark: self.store().state().watermark,
+            mutations: vec![Mutation::Put {
+                expected: Some(evidence.expected_graph),
+                record: Record::typed(
+                    Collection::Projection,
+                    graph_id(&graph.scope.task),
+                    scope.workspace.clone(),
+                    graph.revision,
+                    &graph,
+                )?,
+            }],
+            events: vec![event],
+            command: None,
+        };
+        Ok(self.store_mut().transact(transaction).await?)
+    }
     pub async fn record_child_workspace(
         &mut self,
         scope: &Scope,

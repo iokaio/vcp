@@ -22,6 +22,56 @@ pub struct ChildIntegration {
 }
 
 impl worker::Context {
+    fn child_transcript_findings(
+        &self,
+        child: &TaskId,
+    ) -> worker::Result<Vec<merge::ReviewFinding>> {
+        let mut findings = Vec::new();
+        // Canonical record order is deterministic, not a claim of recency. Keep
+        // artifact references when full text exceeds the bounded preview.
+        for row in self
+            .engine
+            .store()
+            .state()
+            .records
+            .values()
+            .filter(|row| {
+                row.workspace == self.config.workspace
+                    && row.collection == Collection::Artifact
+                    && row.value["spec"]["scope"]["task"] == child.as_str()
+                    && row.value["spec"]["channel"] == "child_transcript"
+            })
+            .take(8)
+        {
+            let descriptor: ArtifactDescriptor = row.decode()?;
+            let mut note = format!("Untrusted unstamped child transcript; artifact={} sha256={}. No examined revision or defect is inferred. ", descriptor.spec.id, descriptor.sha256);
+            if descriptor.state == CaptureState::Complete && descriptor.length.get() <= 64 * 1024 {
+                let mut bytes = Vec::new();
+                vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    &descriptor.spec.id,
+                    &mut bytes,
+                )?;
+                if let Ok(text) = std::str::from_utf8(&bytes) {
+                    let mut end = text.len().min(4096);
+                    while !text.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    note.push_str(&text[..end]);
+                    if end < text.len() {
+                        note.push_str(" [preview truncated; inspect retained artifact]");
+                    }
+                } else {
+                    note.push_str("Non-UTF-8 content; inspect retained artifact.");
+                }
+            } else {
+                note.push_str("Preview unavailable or exceeds read bound; inspect artifact retention metadata.");
+            }
+            findings.push(note.into());
+        }
+        Ok(findings)
+    }
     pub(super) fn integration_child_quiescent(&self, child: &TaskId) -> worker::Result<()> {
         let task: Task = self
             .engine
@@ -107,6 +157,40 @@ impl worker::Context {
 }
 
 impl CanonicalHost {
+    /// Read the latest retained review evidence under current artifact access.
+    /// This is historical, untrusted evidence; it never dispatches or verifies.
+    pub fn child_review_findings(
+        &self,
+        parent: ThreadId,
+        child: TaskId,
+    ) -> Result<serde_json::Value, String> {
+        let binding = self.binding(parent)?;
+        self.worker.run_cleanup(move |context| {
+            let (graph, spec) = context.child_assignment_record(&child)?
+                .ok_or("child assignment missing")?;
+            if spec.parent != binding.scope.task {
+                return Err("child belongs to a different parent".into());
+            }
+            let transcripts = context.child_transcript_findings(&child)?;
+            let Some(result) = graph.results.get(&child).and_then(|results| results.last()) else {
+                return Ok(serde_json::json!({"child":child,"findings":transcripts,"observation":"up to eight untrusted unstamped transcript previews in canonical record order; no retained review packet or correctness claim"}));
+            };
+            let descriptor: ArtifactDescriptor = context.engine.store().state()
+                .record(Collection::Artifact, result.packet.as_str(), &binding.scope.workspace)?.decode()?;
+            if descriptor.state != CaptureState::Complete || descriptor.length.get() > 1024 * 1024 {
+                return Err("retained child review packet is unavailable or exceeds bounds".into());
+            }
+            let mut bytes = Vec::new();
+            vcp_audit::history::History::read_artifact(context.engine.store(), &context.history_access(), &result.packet, &mut bytes)?;
+            let packet: ChildPacket = serde_json::from_slice(&bytes)?;
+            packet.validate_findings()?;
+            Ok(serde_json::json!({"child":child,"packet":result.packet,"plan":result.plan,
+                "base_fingerprint":packet.base_fingerprint,"current_fingerprint":packet.result_fingerprint,
+                "findings":packet.findings,"transcripts":transcripts,
+                "observation":"historical untrusted review evidence; current workspace not re-examined; no findings means no supported findings in examined scope, not guaranteed correctness"}))
+        })
+    }
+
     /// Observe the registered, quiescent child itself; users need not manufacture
     /// result fingerprints. The normal preparation and broker path still decide
     /// whether any proposal is admissible, and this method never applies it.
@@ -115,6 +199,31 @@ impl CanonicalHost {
         parent: ThreadId,
         child: TaskId,
         snapshotter: &Snapshotter,
+    ) -> Result<ChildIntegration, String> {
+        let binding = self.binding(parent)?;
+        let selected = child.clone();
+        let findings = self.worker.run(move |context| {
+            let (_, spec) = context
+                .child_assignment_record(&selected)?
+                .ok_or("child assignment missing")?;
+            if spec.parent != binding.scope.task {
+                return Err("child belongs to a different parent".into());
+            }
+            context.child_transcript_findings(&selected)
+        })?;
+        self.prepare_observed_child_review(parent, child, snapshotter, findings)
+            .await
+    }
+
+    /// Explicitly attach bounded untrusted findings to a fresh owner observation.
+    /// The caller supplies examined revisions; the owner never invents provenance
+    /// for model prose and preparation rejects stale or out-of-scope claims.
+    pub async fn prepare_observed_child_review(
+        &self,
+        parent: ThreadId,
+        child: TaskId,
+        snapshotter: &Snapshotter,
+        findings: Vec<merge::ReviewFinding>,
     ) -> Result<ChildIntegration, String> {
         let generation = scheduler::generation(&self.runtime, parent)?;
         let binding = self.binding(parent)?;
@@ -185,7 +294,7 @@ impl CanonicalHost {
                 graph.revision,
             ))
         })?;
-        let packet = {
+        let mut packet = {
             let _parent_claim = self
                 .scheduler
                 .snapshot(binding.scope.task.clone(), source.identity.root.clone())?;
@@ -223,6 +332,7 @@ impl CanonicalHost {
             Ok(())
         })?;
         scheduler::check_generation(&self.runtime, parent, generation)?;
+        packet.findings = findings;
         self.prepare_child_integration(parent, child, snapshotter, packet)
             .await
     }
@@ -261,10 +371,8 @@ impl CanonicalHost {
                 .id)
         })?;
         let prepared = async {
-            if packet.findings.len() > 64
-                || packet.findings.iter().any(|f| f.len() > 8192)
-                || packet.changed_paths.len() > 128
-            {
+            packet.validate_findings().map_err(|e| e.to_string())?;
+            if packet.changed_paths.len() > 128 {
                 return Err("child result packet exceeds field limits".to_owned());
             }
             let generation = scheduler::generation(&self.runtime, parent)?;
@@ -279,12 +387,14 @@ impl CanonicalHost {
                     return Err("child parent changed".into());
                 }
                 context.integration_child_quiescent(&selected)?;
-                if spec.mode == ChildMode::ReadOnly {
-                    return Err(
-                        "read-only findings retained as untrusted evidence; no edit plan".into(),
-                    );
+                if spec.mode == ChildMode::IsolatedWrite {
+                    context.tool_identity(&scoped, "vcp_patch")?;
+                } else {
+                    context.tool_read_access(
+                        &RootId::parse(context.config.workspace.as_str())?,
+                        "vcp_read",
+                    )?;
                 }
-                context.tool_identity(&scoped, "vcp_patch")?;
                 context.child_context_scope(&scoped)?;
                 // Current read policy and immutable native registration are both
                 // required; expired execution stamps never enable a recovery write.
@@ -350,7 +460,7 @@ impl CanonicalHost {
             let _child_claim = self
                 .scheduler
                 .snapshot(child.clone(), isolated.identity.root.clone())?;
-            let plan = self
+            let mut plan = self
                 .child_preparation(parent, generation, async {
                     merge::prepare(
                         snapshotter,
@@ -369,6 +479,15 @@ impl CanonicalHost {
                     .map_err(|e| e.to_string())
                 })
                 .await?;
+            if spec.mode == ChildMode::ReadOnly {
+                if plan.rejection.is_none() {
+                    plan.rejection = Some(
+                        "read-only findings retained as untrusted evidence; no edit plan".into(),
+                    );
+                }
+                plan.changes.clear();
+                return Ok((Some(plan), None));
+            }
             if !plan.ready() || plan.changes.is_empty() {
                 return Ok((Some(plan), None));
             }

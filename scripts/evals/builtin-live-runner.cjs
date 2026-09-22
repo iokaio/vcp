@@ -39,7 +39,7 @@ function fixedProfileReasons(profile,now=Date.now()) {
   const snapshot=profile.provider;
   if(!snapshot||!(decimal(snapshot.valid_until)>now)||!(decimal(snapshot.compatibility?.valid_until)>now)||!(decimal(snapshot.price?.valid_until)>now)||snapshot.price?.currency!=='USD'||snapshot.compatibility?.responses_text_tools!==true||snapshot.compatibility?.provider_preferences_qualified!==true)reasons.push('current qualified USD provider snapshot and price required');
   const requested=decimal(profile.output_tokens),available=decimal(snapshot?.max_output);
-  if(!(requested>=1&&requested<=8192&&available>=requested))reasons.push('P7 profile must explicitly request 1..8192 output tokens within the qualified provider maximum');
+  if(!(requested>=1&&requested<=4096&&available>=requested))reasons.push('P7 profile must explicitly request 1..4096 output tokens within the CLI startup ceiling and qualified provider maximum');
   return reasons;
 }
 function profileReasons(profile,now=Date.now()) {

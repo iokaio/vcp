@@ -51,6 +51,16 @@ pub(super) fn references(record: &Record) -> Result<BTreeSet<String>> {
             refs.insert(key(Collection::Effect, effect.as_str()));
         }
     }
+    for cleanup in graph.cleanup.values() {
+        for diagnostic in &cleanup.diagnostics {
+            refs.insert(key(Collection::Artifact, diagnostic.artifact.as_str()));
+        }
+        refs.insert(key(Collection::Artifact, cleanup.intent.as_str()));
+        refs.insert(key(Collection::Artifact, cleanup.retained_result.as_str()));
+        if let Some(receipt) = &cleanup.receipt {
+            refs.insert(key(Collection::Artifact, receipt.as_str()));
+        }
+    }
     Ok(refs)
 }
 pub(super) fn transition(previous: &Record, next: &Record) -> Result<()> {
@@ -92,6 +102,23 @@ pub(super) fn transition(previous: &Record, next: &Record) -> Result<()> {
             return Err(Error::Conflict("append-only child result history"));
         }
     }
+    for (id, prior) in &before.cleanup {
+        let current = after
+            .cleanup
+            .get(id)
+            .ok_or(Error::Conflict("cleanup lease cannot be removed"))?;
+        if prior.intent != current.intent
+            || prior.retained_result != current.retained_result
+            || prior.rejected_edits != current.rejected_edits
+            || !current.diagnostics.starts_with(&prior.diagnostics)
+            || prior
+                .receipt
+                .as_ref()
+                .is_some_and(|receipt| current.receipt.as_ref() != Some(receipt))
+        {
+            return Err(Error::Conflict("cleanup intent and receipt are immutable"));
+        }
+    }
     Ok(())
 }
 pub(super) fn validate(state: &State) -> Result<()> {
@@ -100,6 +127,34 @@ pub(super) fn validate(state: &State) -> Result<()> {
             continue;
         }
         let graph: TaskGraph = record.decode()?;
+        for (id, cleanup) in &graph.cleanup {
+            let child: Task = state
+                .record(Collection::Task, id.as_str(), &graph.scope.workspace)?
+                .decode()?;
+            if !child.state.terminal() {
+                return Err(Error::Corruption("cleanup child must remain terminal"));
+            }
+            for artifact in [&cleanup.intent, &cleanup.retained_result]
+                .into_iter()
+                .chain(cleanup.receipt.iter())
+                .chain(cleanup.diagnostics.iter().map(|d| &d.artifact))
+            {
+                let descriptor: ArtifactDescriptor = state
+                    .record(
+                        Collection::Artifact,
+                        artifact.as_str(),
+                        &graph.scope.workspace,
+                    )?
+                    .decode()?;
+                if descriptor.state != vcp_domain::artifact::CaptureState::Complete
+                    || descriptor.spec.scope != child.scope
+                {
+                    return Err(Error::Corruption(
+                        "cleanup evidence must be retained in child scope",
+                    ));
+                }
+            }
+        }
         let root: Task = state
             .record(
                 Collection::Task,

@@ -2,6 +2,8 @@
 #[cfg(windows)]
 mod agents;
 #[cfg(windows)]
+pub(super) mod agents_cleanup;
+#[cfg(windows)]
 pub(super) mod agents_delegate;
 #[cfg(windows)]
 pub(super) mod agents_integration;
