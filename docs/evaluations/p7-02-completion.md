@@ -498,3 +498,43 @@ whitespace checks passed. All 14 repository fast gates passed at
 Locked offline Clippy passed for the changed model/lifecycle libraries with
 existing warnings (`artifacts/p7-02-resumed-clippy.log`). The final repository
 contract check found no errors across 372 Markdown files and 2,170 relative links.
+
+### Requested Qwen comparison
+
+The owner requested faster, less expensive models and then explicitly requested
+Qwen trials. Two fresh public echo-tool/continuation probes used exact endpoints,
+zero retries and $0.50 per-model ceilings within the same $10 campaign:
+
+| Model | Endpoint | Observed result | Settled cost |
+|---|---|---|---:|
+| `qwen/qwen3-coder-next` | `parasail/bf16` | Both probes passed; billing receipts qualified the served endpoint | $0.000117 |
+| `qwen/qwen3-coder-30b-a3b-instruct` | `novita/fp8` | Continuation failed the required final marker; not qualified | $0.000064 |
+
+Both ledgers have zero active or unresolved liability. The Next snapshot is
+`bc8419cbfd1d4b01f6c38ad77f9ed3273cdd5c7f56d7a3b2deb04992a234ddc7`;
+it does not qualify a byte-derived input ceiling. Probe plan:
+`artifacts/p7-qwen-v3-plan.json`. An earlier setup attempt rejected repository-local
+plaintext storage before dispatch; the successful probes used fresh private
+temporary roots. Original unsuccessful preparation records remain retained.
+
+Next's fresh baseline/skill plan is
+`99943339b6bd8520fe4f6f04b10a1d85608b95b92939151a3b6e24a86bf3bba5`,
+with $0.75 per arm, 16 requests, 4,096 output tokens and zero retries. It uses the
+same archived executable, synthetic fixture, skill assets, restricted launcher
+and independent oracle as the passing Luna pair. This is a separate comparison;
+the passing Luna acceptance and all earlier failures remain unchanged.
+
+| Next arm | Native task | Independent oracle | Settled cost |
+|---|---|---|---:|
+| Baseline | Completed | 43/44; primitive options object contract failed | $0.007843 |
+| Skill | Completed | 44/44 | $0.009456 |
+
+The baseline accepts string options because it checks only for null and arrays;
+oracle case 37 rejects that behavior. The skill arm validates object type and uses
+BigInt arithmetic. Both preserve protected files and change only `src/cart.cjs`.
+The pair's 20 requests settle **$0.017299** with no active or unresolved liability.
+Including both public Qwen probes, the comparison costs **$0.017480** and the
+replacement campaign has spent **$0.457214** of its existing $10 ceiling.
+These two selected tasks do not establish statistical model or skill superiority.
+Repeated file-store reopening during canonical evidence inspection takes several
+minutes beyond the native generation time; it is not additional model latency.
