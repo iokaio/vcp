@@ -1,9 +1,9 @@
 # P7-04 child graph and workspace ownership
 
-Status: implementation and connected native qualification in progress. P7-05
-integration and P7-06 user controls/recovery retain their separate acceptance
-gates. No optional M8 forecast is required for baseline child admission; M7 remains
-deferred.
+Status: P7-04, P7-05 and P7-06 are complete. The final source-bound native gate
+passed as recorded in the [interruption and exploration report](../evaluations/p7-interruption-exploration-2026-09-22.md).
+Packaged P8 acceptance remains separate. No optional M8 forecast is required for baseline
+child admission; M7 remains deferred.
 
 The controller's `CreateChild` command records a pending canonical task, graph
 assignment and root-ledger allocation in one transaction. Graph revisions protect
@@ -95,6 +95,12 @@ last durable activity and scheduling constraints. Viewing does not start work.
 The same projection is available through
 `vcp --format jsonl tasks agents <root-task> --offset 0`; existing
 `tasks pause|cancel <child-task>` use the owning controller's stop path.
+
+An individually paused/cancelled child's unfinished provider response retains
+its full uncertain charge without pausing unrelated siblings while the root and
+owner remain active. This exception requires the current independent child hold
+and canonical stopped state. Unexpected provider failure, inherited root holds,
+owner loss and pending authority changes retain the root stop behavior.
 
 `/agents delegate <spec.json>` reads an explicit owner-authored JSON file, limited
 to 64 KiB. The specification supplies no credentials or grants. Example:
@@ -208,6 +214,14 @@ tests, connected child and integration matrices on both stores, exact-model
 rejection before dispatch, fresh-owner recovery, and real PTY delegation with a
 mock provider. Repository delivery checks passed at
 `artifacts/p7-delegation-fast/5d466093-e771-42bb-9e9e-4265a372dcbd/manifest.json`.
-These are component and connected-fixture results, not live U02/U03/U06 or P8
-release qualification. Final regression checks, integration interruption cases,
-multi-child terminal/recovery coverage and live usefulness remain separate gates.
+These earlier results remain component and connected-fixture evidence.
+[Live terminal controls](../evaluations/p7-live-qualification-2026-09-22.md),
+[paired review/generation](../evaluations/p7-qwen38-reasoning-budget-2026-09-22.md)
+and the [interruption/exploration follow-up](../evaluations/p7-interruption-exploration-2026-09-22.md)
+record the subsequent acceptance. The follow-up retains its failed full-host
+run, separately passing fixture repairs and the final source-bound gate.
+It covers child and integration write/receipt interruption, independent sibling
+controls, noisy/quiet output loss and cursor recovery on both stores.
+CR-03 is qualified with the simpler exploration baseline preferred; CR-08's P7
+readiness/cleanup scope is qualified, with broader packaged recovery still in P8.
+No result here qualifies arbitrary child-process execution or a release.

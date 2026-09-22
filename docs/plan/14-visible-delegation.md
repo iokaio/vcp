@@ -1,13 +1,21 @@
 # 14 — Task graphs, isolated child work and visible progress
 
-Status: implementation and qualification in progress; see [the implemented owner path and remaining gates](../development/p7-child-workspaces.md). Owns P7-04, P7-05 and P7-06. Requires grouped escalation P6-03 and P2-07 recovery; integration needs current-result verification, and visible progress needs P3-02/P3-04. Architecture section 16 governs delegation.
+Status: P7-04, P7-05 and P7-06 are complete. The final source-bound native gate
+passed as recorded in the [interruption and exploration qualification](../evaluations/p7-interruption-exploration-2026-09-22.md).
+The [implemented owner path](../development/p7-child-workspaces.md) retains the
+existing P6-03, P2-07, P2-06 and P3-02/P3-04 contracts. Architecture section 16
+governs delegation; packaged P8 acceptance remains separate.
 
 The [2026-09-22 qualification checkpoint](../evaluations/p7-live-qualification-2026-09-22.md)
 records delivered helper/cleanup/review/control refinements and paired Luna/Qwen
 results. The subsequent [quality retest](../evaluations/p7-qwen38-reasoning-budget-2026-09-22.md)
 qualifies paired Luna/Qwen review and generation, with current-parent generation
-evidence. The broader interruption schedule remains open. Delivery of this quality
-increment does not mark all three work items complete.
+evidence. The subsequent interruption/exploration report adds connected write,
+verification, child-control and consumer-loss schedules, plus the CR-03 broad
+exploration comparison. Keep the simpler baseline for that exploration: helper
+cost and latency increased without material useful evidence. Earlier failures,
+unknown charges and the failed full-host run remain preserved; focused repairs
+and the final native gate supply separate evidence.
 
 ## Code organization
 

@@ -3,6 +3,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {spawnSync}=require('node:child_process');
 const runner=require('../../../scripts/evals/delegation-live-runner.cjs');
+const exploration=require('../../../scripts/evals/delegation-exploration.cjs');
 const oracle=require('../../../scripts/evals/delegation-generation-oracle.cjs');
 const fixture=path.resolve(__dirname,'../../evals/delegation/generation-v1');
 function pinnedTestGit(){
@@ -106,6 +107,45 @@ test('root accounting includes retained child and rejects unknown, missing or fo
   const s=state();mutate(s);assert.throws(()=>runner.accounting(s,1000,'root','child'));
  }
 });
+
+test('exploration requires observed source ranges, complete active flow and exact failure locations',()=>{
+ const f=reviewEvidenceFixture(true),sha=bytes=>require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+ const files=Object.fromEntries(Object.entries(exploration.sources).map(([name,text])=>[name,sha(text)]));
+ const evidence=Object.entries(exploration.sources).map(([name,text],index)=>f.capture('explore-'+index,JSON.stringify({complete:true,text,version:{root:'isolated',binding:'0',path:name,bytes:String(Buffer.byteLength(text)),sha256:files[name]}}),'evidence','vcp-tool-result-v1'));
+ const context=runner.reviewEvidence(f.state,f.transcript,evidence,files,f.task,exploration.sources);
+ const row=(path,line=1)=>({path,line,evidence:[`${path}:${line}`]});
+ const valid={summary:'Decode and authorize before storing an event and enqueuing one notification.',flow:exploration.rubric.flow.map((path,index)=>({...row(path,exploration.rubric.anchors[index]),start_line:exploration.rubric.anchors[index],end_line:exploration.rubric.anchors[index],reason:'Observed active dependency'})),errors:[{code:'INVALID',status:400,...row('src/decode.cjs',2)},{code:'DENIED',status:403,...row('src/policy.cjs',2)}],duplicate:{...row('src/submit.cjs',4),behavior:'Return original result before write or notify',result:'existing',writes:0,notifications:0},inactive:['legacy/entry.cjs','ui/status.cjs'].map(path=>({...row(path),reason:'Not reachable from the active entry',active:false})),checks:{executed:false,limitation:'Static inspection only; no processes run.'}};
+ assert.equal(exploration.grade(valid,context).pass,true);
+ const returned=structuredClone(valid);returned.flow.splice(5,0,{path:'src/submit.cjs',start_line:5,end_line:7,reason:'Return to caller to notify after storing',evidence:['src/submit.cjs:5-7']});assert.equal(exploration.grade(returned,context).pass,true);
+ for(const mutate of [a=>a.flow[5].path='ui/status.cjs',a=>a.flow[5].end_line=9,a=>a.flow[5].evidence=['src/submit.cjs:1-4'],a=>a.flow.push(...Array(30).fill(a.flow[5]))]){const bad=structuredClone(returned);mutate(bad);assert.equal(exploration.grade(bad,context).pass,false,String(mutate));}
+ const gap={...context,references:new Map([...context.references].filter(([,ref])=>ref.path!=='src/submit.cjs'))};
+ gap.references.set('branch',{path:'src/submit.cjs',start:4,end:5});gap.references.set('return',{path:'src/submit.cjs',start:7,end:7});
+ const unread=structuredClone(returned);unread.flow[5].evidence=['branch','return'];assert.equal(exploration.grade(unread,gap).pass,false,'Endpoint citations cannot establish the unread notification between them');
+ for(const mutate of [a=>a.flow.pop(),a=>a.flow.reverse(),a=>a.flow[0].path='legacy/entry.cjs',a=>a.flow[0].end_line=99,a=>a.errors[0].status=403,a=>a.errors[0].path='ui/status.cjs',a=>a.errors.push(a.errors[0]),a=>a.duplicate.line=5,a=>a.inactive[0].path='src/entry.cjs',a=>a.inactive.pop(),a=>a.checks.limitation='',a=>a.checks.executed=true,a=>a.duplicate.result='new',a=>a.duplicate.writes=1,a=>a.duplicate.notifications=1,a=>a.inactive[0].active=true,a=>{a.flow[0].start_line=1;a.flow[0].end_line=1;a.flow[0].evidence=['src/entry.cjs:1']},a=>a.flow[0].evidence=['not src/entry.cjs:1']]){
+  const answer=structuredClone(valid);mutate(answer);assert.equal(exploration.grade(answer,context).pass,false,String(mutate));
+ }
+ const partial=JSON.parse(evidence.find(item=>JSON.parse(item.text).version.path==='src/submit.cjs').text);partial.returned_range={start_line:1,end_line:2};partial.text=exploration.sources['src/submit.cjs'].split('\n').slice(0,2).join('\n')+'\n';
+ const replaced=evidence.map(item=>JSON.parse(item.text).version.path==='src/submit.cjs'?f.capture(item.artifact,JSON.stringify(partial),'evidence','vcp-tool-result-v1'):item);
+ const bounded=runner.reviewEvidence(f.state,f.transcript,replaced,files,f.task,exploration.sources);assert.equal(exploration.grade(valid,bounded).pass,false,'Unread duplicate branch cannot qualify');
+ partial.returned_range.end_line=4;
+ const forged=replaced.map(item=>JSON.parse(item.text).version.path==='src/submit.cjs'?f.capture(item.artifact,JSON.stringify(partial),'evidence','vcp-tool-result-v1'):item);
+ assert.equal(runner.reviewEvidence(f.state,f.transcript,forged,files,f.task,exploration.sources).references.size,evidence.length-1,'Claimed range must match actual returned bytes');
+});
+
+test('usage counts inclusive parent and child tokens only from exact canonical settled response receipts',()=>{
+ function fixture(){
+  const f=reviewEvidenceFixture(),evidence=[];
+  for(const [id,task,role,input] of [['a','root','main',100],['b','child','child',200]]){
+   const scope={workspace:'workspace',session:'session',task};f.state.records[id]={collection:'attempt',value:{id,scope,phase:'settled',role,provider_request:'response-'+id,charged:'10'}};
+   const item=f.capture('usage-'+id,JSON.stringify({response_id:'response-'+id,usage:{cost:{currency:'USD',micros:'10'},tokens:{input:String(input),output:'30',reasoning:'20'}}}),'evidence','openrouter-normalized-response/1');f.state.records[item.artifact].value.spec.scope=scope;evidence.push(item);
+  }
+  return {...f,evidence};
+ }
+ const f=fixture(),usage=runner.usageAccounting(f.state,f.evidence,'root','child');assert.equal(usage.input_tokens,300);assert.equal(usage.parent_input_tokens,100);assert.equal(usage.child_input_tokens,200);assert.equal(usage.output_tokens,60);assert.equal(usage.reasoning_tokens,40);
+ for(const mutate of [f=>f.evidence.pop(),f=>f.evidence.push(f.evidence[0]),f=>f.evidence[0].text+=' ',f=>f.state.records['usage-a'].value.spec.scope.task='foreign',f=>f.state.records.a.value.charged='11',f=>f.state.records.a.value.provider_request='different',f=>f.state.records['usage-a'].value.state='aborted',f=>f.state.records['usage-a'].value.retained=[]]){
+  const bad=fixture();mutate(bad);assert.throws(()=>runner.usageAccounting(bad.state,bad.evidence,'root','child'));
+ }
+});
 test('delegation adapter invocation pins the qualified Rust stack and forwards only the provider secret boundary',t=>{
  const oldProvider=process.env.OPENROUTER_API_KEY,oldUnrelated=process.env.VCP_UNRELATED_SECRET;process.env.OPENROUTER_API_KEY='provider-fixture';process.env.VCP_UNRELATED_SECRET='must-not-reach-adapter';
  t.after(()=>{if(oldProvider===undefined)delete process.env.OPENROUTER_API_KEY;else process.env.OPENROUTER_API_KEY=oldProvider;if(oldUnrelated===undefined)delete process.env.VCP_UNRELATED_SECRET;else process.env.VCP_UNRELATED_SECRET=oldUnrelated;});
@@ -169,6 +209,14 @@ test('new delegation campaign accepts an explicit $100 ceiling and rejects missi
  assert.throws(()=>runner.validate({...plan,adapter_environment:{RUST_MIN_STACK:'8388608'}},prepared.plan),/Frozen stage identity changed/);
  const missing=reviewPreparation(t);const missingSpec=JSON.parse(fs.readFileSync(missing.spec));delete missingSpec.prior_exposure_micros;fs.writeFileSync(missing.spec,JSON.stringify(missingSpec));assert.throws(()=>runner.prepare(missing.spec,missing.trial),/prior exposure/);
  const overspent=reviewPreparation(t,'100.000000','1.000000',99000001);assert.throws(()=>runner.prepare(overspent.spec,overspent.trial),/campaign ceiling/);
+});
+
+test('exploration freezes the real helper template, read-only source and identical baseline instructions',t=>{
+ const f=reviewPreparation(t),spec=JSON.parse(fs.readFileSync(f.spec));spec.stage='exploration';fs.writeFileSync(f.spec,JSON.stringify(spec));
+ const prepared=runner.prepare(f.spec,f.trial),plan=JSON.parse(fs.readFileSync(prepared.plan));runner.validate(plan,prepared.plan);
+ assert.deepEqual(plan.arms.map(arm=>arm.name),['baseline','explore_child']);
+ for(const arm of plan.arms){const dir=path.join(plan.directory,arm.name),driver=JSON.parse(fs.readFileSync(path.join(dir,'adapter-spec.json'))),profile=JSON.parse(fs.readFileSync(path.join(dir,'profile.json')));assert.deepEqual(driver.helper,{name:'explore',revision:2});assert.equal(driver.generation,false);assert.equal(profile.maximum_autonomy,'plan');assert.deepEqual(profile.automatic_effects,[]);assert.equal(fs.readFileSync(path.join(dir,'prompt.txt'),'utf8'),exploration.prompt);assert.equal(Object.keys(arm.files).length,11);}
+ const child=JSON.parse(fs.readFileSync(path.join(plan.directory,'explore_child','delegation.json')));assert.deepEqual(child.helper,{name:'explore',revision:2});assert.equal(child.role,'explore');assert.equal(child.mode,'read_only');assert.deepEqual(child.write_paths,[]);
 });
 
 test('dirty Git preparation preserves the index and permits only declared source edits during grading',t=>{

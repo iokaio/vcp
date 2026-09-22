@@ -23,6 +23,12 @@ mod backup_checkpoint;
 #[path = "support/child_agents.rs"]
 mod child_agents;
 #[cfg(windows)]
+#[path = "support/child_budget_race.rs"]
+mod child_budget_race;
+#[cfg(windows)]
+#[path = "support/child_graph_dispatch.rs"]
+mod child_graph_dispatch;
+#[cfg(windows)]
 #[path = "support/child_cleanup.rs"]
 mod child_cleanup;
 #[cfg(all(windows, feature = "qualification"))]

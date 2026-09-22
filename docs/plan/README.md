@@ -63,7 +63,12 @@ P5-08 now has [integrated memory acceptance](../evaluations/p5-08-integrated-mem
 frozen recall comparisons, bounded recent-memory visibility, native hybrid search,
 retention and authenticated cross-backend restore. [P6 completion](../evaluations/p6-completion.md)
 records routing/optimizer construction and explicit qualification rejections.
-Remaining P7 and P8 work still gates release.
+[P7 delegation completion](../evaluations/p7-interruption-exploration-2026-09-22.md)
+is qualified by its passing final source-bound native gate. The report
+combines prior live review/generation and terminal evidence with connected
+interruption, sibling-control and consumer-loss cases, preserving failed runs.
+CR-03's exploration comparison keeps the simpler baseline; CR-08's P7 cleanup
+scope is qualified. Broader packaged P8 acceptance still gates release.
 
 The [P0-04 storage milestone](../development/portable-storage-spike.md) now has
 local backend, crash, cryptographic interoperability and encrypted-transfer

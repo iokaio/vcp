@@ -62,7 +62,7 @@ increment reports are not current readiness ledgers.
 | Verification | [`vcp-tools::verification`](../../src/crates/vcp-tools/src/verification.rs) requests 120,000 ms and 1 MiB. [`worker::verification`](../../src/crates/vcp-lifecycle/src/foundation/worker/verification.rs) requires a direct, nonterminal profile. Shell/PTY execution is not evidence of a successful `vcp_verify` check |
 | Process presentation | [`foundation::coding`](../../src/crates/vcp-lifecycle/src/foundation/coding.rs) decodes stdout/stderr tails with lossy UTF-8 while retaining artifacts. Profile suppression (`-NoLogo -NoProfile -NonInteractive`) and null stdin for pipe processes already exist; CC-03 preserves them |
 | Source reading | [`vcp-tools::schema`](../../src/crates/vcp-tools/src/schema.rs) exposes whole-file UTF-8 reads with `max_bytes`; [`read`](../../src/crates/vcp-tools/src/read.rs) has bounded directory listing and literal search. Ranges and path-pattern discovery are new CR-02a support work |
-| Worktrees and review | [The P7 implementation record](../development/p7-child-workspaces.md) documents registered isolated roots, `.vcp-child-owner`, dirty/untracked snapshots, exact-model assignment, read-only restrictions, three-way integration and visible owner controls. Cleanup is not implemented by those APIs, and child process checks still need qualified filesystem enforcement. Final P7-04/05/06 qualification remains open |
+| Worktrees and review | [The current P7 implementation record](../development/p7-child-workspaces.md) supersedes this row's original snapshot: registered isolated roots, dirty/untracked snapshots, inherited authority, three-way integration, deliberate reference-checked cleanup and visible controls are implemented. [P7 completion](../evaluations/p7-interruption-exploration-2026-09-22.md) includes its passing final source-bound gate. Child process checks still need qualified filesystem enforcement; packaged P8 recovery remains separate |
 | Caching and cost | Captured requests, cache charge categories and read-only inspectors exist. The [P6 disposition](../evaluations/p6-completion.md) does not qualify new statistical/advisory defaults; observation must not silently enable cache-aware routing |
 
 ## Integration order and completion
@@ -74,9 +74,11 @@ increment reports are not current readiness ledgers.
    not a reopening of P2 acceptance. Preserve the frozen fixture expectations
    in [native toolchain evidence](../evaluations/p7-02-native-toolchains.md);
    seeded failures and unavailable checks cannot become passes by reinterpretation.
-2. Under [P7-04/05/06](14-visible-delegation.md), fold worktree and review
-   refinements into unfinished ownership, integration and recovery gates.
-   Finish normal delegation before considering recipes or another review pass.
+2. [P7-04/05/06](14-visible-delegation.md) are complete with the worktree, review
+   and connected interruption refinements and passing final native gate.
+   Keep the simpler broad-exploration baseline
+   where helpers add cost without useful evidence. Recipes and another review
+   pass are not required for this acceptance.
 3. [P8-01](15-integration-and-release.md#p8-01--native-windows-support-matrix)
    qualifies shipped process behavior on packaged native Windows;
    [P8-02](15-integration-and-release.md#p8-02--recovery-and-portability-campaign)
