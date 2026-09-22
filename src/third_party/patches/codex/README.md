@@ -1,6 +1,9 @@
 # Codex compatibility patch series
 
-Base: `openai/codex@3d3ae4965ab370217e871b3a7f0d15589557ee4b`.
+Original base: `openai/codex@3d3ae4965ab370217e871b3a7f0d15589557ee4b`.
+The current selection uses `openai/codex@8b78600dc85cc265d7e7e827f6aa903875405287`;
+all 36 patches replay unchanged, without conflicts, in the
+[P8-06 maintenance rehearsal](../../../../docs/evaluations/p8-upstream-maintenance-2026-09-22.md).
 The [selection manifest](../../components/codex-selection.json) is the authority
 for patch order and exact SHA-256 values. Files under `src/third_party/codex/`
 already include these changes; normal builds never apply patches.

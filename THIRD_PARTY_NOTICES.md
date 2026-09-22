@@ -53,7 +53,7 @@ for every optional feature.
 ## OpenAI Codex source baseline
 
 The source at `src/third_party/codex/` is selected from
-[openai/codex at 3d3ae4965ab370217e871b3a7f0d15589557ee4b](https://github.com/openai/codex/tree/3d3ae4965ab370217e871b3a7f0d15589557ee4b).
+[openai/codex at 8b78600dc85cc265d7e7e827f6aa903875405287](https://github.com/openai/codex/tree/8b78600dc85cc265d7e7e827f6aa903875405287).
 It retains the upstream [Apache-2.0 license](src/third_party/codex/LICENSE) and
 [NOTICE](src/third_party/codex/NOTICE): Copyright 2025 OpenAI, with Ratatui-derived
 code under MIT and the original Florian Dehau/Ratatui Developers attribution.

@@ -64,6 +64,7 @@ pub(super) async fn execute(
         }
     };
     let prepared = profile.prepare(requested)?;
+    let prepared_http = crate::mcp::prepare_http(&prepared.profile.mcp_http)?;
     let credential = vcp_engine::capture::ProviderCredential::from_config(
         std::env::var("OPENROUTER_API_KEY").map_err(|_| "OPENROUTER_API_KEY is required")?,
     );
@@ -394,7 +395,7 @@ pub(super) async fn execute(
         if task_from(&host.snapshot()?,&config.workspace,&config.root_task)?.state.terminal(){return Ok::<(),String>(());}
         for process in prepared.processes{host.configure_process_profile(process)?;}
         for server in &prepared.profile.mcp { host.configure_mcp(server.registration())?; }
-        crate::mcp::configure_http(&host, &config.workspace, &prepared.profile.mcp_http, prepared.profile.deadline_seconds)?;
+        crate::mcp::configure_http(&host, &config.workspace, prepared_http, prepared.profile.deadline_seconds)?;
         host.configure_provider_with_timeout(prepared.profile.provider.clone(),prepared.raw_catalog,prepared.profile.provider_timeout()?)?;
         if let Some(routing) = prepared.profile.routing.clone() { host.configure_routing(routing)?; }
         if let Some(decisions) = &prepared.profile.decisions { decisions.install(&host)?; }

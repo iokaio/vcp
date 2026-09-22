@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "component": "codex",
-  "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
-  "selection_sha256": "644cfc9a563276a3d23bc68d40933cc1fa1ddbb728462dfe14cbc0bf751c2a6d",
-  "files_sha256": "a44d30203b4955e4f27cf09fa13093b8bd7e1406c8a8ae738d7d489e1d18fc93",
+  "commit": "8b78600dc85cc265d7e7e827f6aa903875405287",
+  "selection_sha256": "644b2763e5791152aea922c68ea0537939a7c647061264038e723290c884d758",
+  "files_sha256": "54d0aaca87f5f142b4414fb0cacabfa8db4bc4bc8a86092020d9750b53acd986",
   "files": [
     {
       "path": ".bazelignore",
@@ -17803,12 +17803,12 @@
       "path": "codex-rs/app-server/README.md",
       "original": {
         "mode": "100644",
-        "bytes": 19897,
-        "sha256": "e27c6b71a7f37262b36a12481727518d14f85ea09f8b3037713653fa813e9e87"
+        "bytes": 19924,
+        "sha256": "6d33c1955ba7685953498b3c680f7278475b0345e1dc467bb5ba7eb89b401a8f"
       },
       "result": {
-        "bytes": 19897,
-        "sha256": "e27c6b71a7f37262b36a12481727518d14f85ea09f8b3037713653fa813e9e87",
+        "bytes": 19924,
+        "sha256": "6d33c1955ba7685953498b3c680f7278475b0345e1dc467bb5ba7eb89b401a8f",
         "mode": "100644"
       },
       "transformation": "none"
@@ -18741,12 +18741,12 @@
       "path": "codex-rs/app-server/src/request_processors/command_exec_processor.rs",
       "original": {
         "mode": "100644",
-        "bytes": 12385,
-        "sha256": "ad602bafeb0b36ce14fa632ab1aacf64abf24ea336b49fce16d1174229b0ad79"
+        "bytes": 12443,
+        "sha256": "4ad81dcd15edd5cf6443d188022e5b56263500f744e3262dd3a2c82189887a35"
       },
       "result": {
-        "bytes": 12385,
-        "sha256": "ad602bafeb0b36ce14fa632ab1aacf64abf24ea336b49fce16d1174229b0ad79",
+        "bytes": 12443,
+        "sha256": "4ad81dcd15edd5cf6443d188022e5b56263500f744e3262dd3a2c82189887a35",
         "mode": "100644"
       },
       "transformation": "none"
@@ -18769,12 +18769,12 @@
       "path": "codex-rs/app-server/src/request_processors/config_processor.rs",
       "original": {
         "mode": "100644",
-        "bytes": 46591,
-        "sha256": "030a0674895c9eeba46645c600af33398b7c4206a433fc7f6dcd58d069002df7"
+        "bytes": 46603,
+        "sha256": "d52fd97777ea074bd4d14b3cf51baa178c67da38e6ffaa005f6d35590955a12c"
       },
       "result": {
-        "bytes": 46591,
-        "sha256": "030a0674895c9eeba46645c600af33398b7c4206a433fc7f6dcd58d069002df7",
+        "bytes": 46603,
+        "sha256": "d52fd97777ea074bd4d14b3cf51baa178c67da38e6ffaa005f6d35590955a12c",
         "mode": "100644"
       },
       "transformation": "none"
@@ -19273,12 +19273,12 @@
       "path": "codex-rs/app-server/src/request_processors/thread_processor.rs",
       "original": {
         "mode": "100644",
-        "bytes": 250169,
-        "sha256": "c2a7c50315255ea82fd6d7b5c32405fd10bc6ec5a3bbfa32cc58cbd055c66bd2"
+        "bytes": 250268,
+        "sha256": "16bac8efc894164f088e473597104b86c7a46e9152311e915d02da0857f5df38"
       },
       "result": {
-        "bytes": 250169,
-        "sha256": "c2a7c50315255ea82fd6d7b5c32405fd10bc6ec5a3bbfa32cc58cbd055c66bd2",
+        "bytes": 250268,
+        "sha256": "16bac8efc894164f088e473597104b86c7a46e9152311e915d02da0857f5df38",
         "mode": "100644"
       },
       "transformation": "none"
@@ -19399,12 +19399,12 @@
       "path": "codex-rs/app-server/src/request_processors/windows_sandbox_processor.rs",
       "original": {
         "mode": "100644",
-        "bytes": 16903,
-        "sha256": "ca6cc4ab53163e7906530548a43f20480adfb35fe130cbb708c9aef6364057eb"
+        "bytes": 17140,
+        "sha256": "b12c9336092401f00d02a8488d5793ef505b9604d86118eb865a9840bff4322d"
       },
       "result": {
-        "bytes": 16903,
-        "sha256": "ca6cc4ab53163e7906530548a43f20480adfb35fe130cbb708c9aef6364057eb",
+        "bytes": 17140,
+        "sha256": "b12c9336092401f00d02a8488d5793ef505b9604d86118eb865a9840bff4322d",
         "mode": "100644"
       },
       "transformation": "none"
@@ -25013,12 +25013,12 @@
       "path": "codex-rs/cli/src/doctor/sandbox.rs",
       "original": {
         "mode": "100644",
-        "bytes": 16209,
-        "sha256": "0cd964d14d9f4ebe8e7e1c92997da88d5c7ff4c48fbf0b492c946e8bac4c98c3"
+        "bytes": 16430,
+        "sha256": "bac35672515af35cc84a1b578249a7997bc5069c0dfad0056e1c9615be88ee38"
       },
       "result": {
-        "bytes": 16209,
-        "sha256": "0cd964d14d9f4ebe8e7e1c92997da88d5c7ff4c48fbf0b492c946e8bac4c98c3",
+        "bytes": 16430,
+        "sha256": "bac35672515af35cc84a1b578249a7997bc5069c0dfad0056e1c9615be88ee38",
         "mode": "100644"
       },
       "transformation": "none"
@@ -30347,12 +30347,12 @@
       "path": "codex-rs/config/src/config_requirements.rs",
       "original": {
         "mode": "100644",
-        "bytes": 183896,
-        "sha256": "4806a1c246a0162fef7323fd2b9b260ff79bf2aed81dd810e893a2f56e5da793"
+        "bytes": 184964,
+        "sha256": "1f5bd1df9936d9109b71b32c83ea29b090bf976b24bfb9e83bbba0d715a264c2"
       },
       "result": {
-        "bytes": 183896,
-        "sha256": "4806a1c246a0162fef7323fd2b9b260ff79bf2aed81dd810e893a2f56e5da793",
+        "bytes": 184964,
+        "sha256": "1f5bd1df9936d9109b71b32c83ea29b090bf976b24bfb9e83bbba0d715a264c2",
         "mode": "100644"
       },
       "transformation": "none"
@@ -30543,12 +30543,12 @@
       "path": "codex-rs/config/src/lib.rs",
       "original": {
         "mode": "100644",
-        "bytes": 9737,
-        "sha256": "5e763dc6d8631cf048584ea4c7ef128b1adf2d8ab8dbfbe6a4f83c980bb535d4"
+        "bytes": 9800,
+        "sha256": "5d5cce109a860b1e86dbc8cba1cbc194b59cc4e69dd02eb5319ed85d7b17ab78"
       },
       "result": {
-        "bytes": 9737,
-        "sha256": "5e763dc6d8631cf048584ea4c7ef128b1adf2d8ab8dbfbe6a4f83c980bb535d4",
+        "bytes": 9800,
+        "sha256": "5d5cce109a860b1e86dbc8cba1cbc194b59cc4e69dd02eb5319ed85d7b17ab78",
         "mode": "100644"
       },
       "transformation": "none"
@@ -31341,12 +31341,12 @@
       "path": "codex-rs/config/src/types.rs",
       "original": {
         "mode": "100644",
-        "bytes": 40649,
-        "sha256": "0d78c620a74552249a5332c5f36d67fe3ac68401903f73a8597752c361af6e6f"
+        "bytes": 40670,
+        "sha256": "bc9465645dd7e98de6c7ae6f431562b94baada2b2e2f87e06a60e05c93dcd290"
       },
       "result": {
-        "bytes": 40649,
-        "sha256": "0d78c620a74552249a5332c5f36d67fe3ac68401903f73a8597752c361af6e6f",
+        "bytes": 40670,
+        "sha256": "bc9465645dd7e98de6c7ae6f431562b94baada2b2e2f87e06a60e05c93dcd290",
         "mode": "100644"
       },
       "transformation": "none"
@@ -33147,12 +33147,12 @@
       "path": "codex-rs/core/config.schema.json",
       "original": {
         "mode": "100644",
-        "bytes": 213676,
-        "sha256": "edb71e6100c17332fba5759e91ba20e10521b078665ad993aab04454b285d3b3"
+        "bytes": 213703,
+        "sha256": "4d322da9a4969c2441ad63efe982de9beb6528ef83d27e28d803ad1ff289ed34"
       },
       "result": {
-        "bytes": 213676,
-        "sha256": "edb71e6100c17332fba5759e91ba20e10521b078665ad993aab04454b285d3b3",
+        "bytes": 213703,
+        "sha256": "4d322da9a4969c2441ad63efe982de9beb6528ef83d27e28d803ad1ff289ed34",
         "mode": "100644"
       },
       "transformation": "none"
@@ -33567,12 +33567,12 @@
       "path": "codex-rs/core/src/agents_md_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 60228,
-        "sha256": "ec651434dd5281aa7d80f554574e064c0a7eb6e7b36804aacee2ceed64e2350e"
+        "bytes": 60322,
+        "sha256": "e827fd6cad6bc93c56f4eca1f4bfe090ee2c4674978409a16d6b3e1f1b2b98fe"
       },
       "result": {
-        "bytes": 60228,
-        "sha256": "ec651434dd5281aa7d80f554574e064c0a7eb6e7b36804aacee2ceed64e2350e",
+        "bytes": 60322,
+        "sha256": "e827fd6cad6bc93c56f4eca1f4bfe090ee2c4674978409a16d6b3e1f1b2b98fe",
         "mode": "100644"
       },
       "transformation": "none"
@@ -34057,12 +34057,12 @@
       "path": "codex-rs/core/src/config/mod.rs",
       "original": {
         "mode": "100644",
-        "bytes": 193816,
-        "sha256": "9ea294b1fa58c688107a24157a5f50d7501dea42a4c5c3b104389905bfe4bc7b"
+        "bytes": 194141,
+        "sha256": "3aa0d29d02a6c1d38c30a86b2552c160c4fed20e9ad39996621d1b6404babe14"
       },
       "result": {
-        "bytes": 193816,
-        "sha256": "9ea294b1fa58c688107a24157a5f50d7501dea42a4c5c3b104389905bfe4bc7b",
+        "bytes": 194141,
+        "sha256": "3aa0d29d02a6c1d38c30a86b2552c160c4fed20e9ad39996621d1b6404babe14",
         "mode": "100644"
       },
       "transformation": "none"
@@ -34323,12 +34323,12 @@
       "path": "codex-rs/core/src/config/windows_sandbox_config.rs",
       "original": {
         "mode": "100644",
-        "bytes": 2408,
-        "sha256": "54109ad0e66220ff2919681f6011640fa46ded0227dc9367424bd743ebfda63f"
+        "bytes": 2562,
+        "sha256": "7923d0f2789b44e478f334f7a2d6d6f9a097144e49122b72c302114803886c73"
       },
       "result": {
-        "bytes": 2408,
-        "sha256": "54109ad0e66220ff2919681f6011640fa46ded0227dc9367424bd743ebfda63f",
+        "bytes": 2562,
+        "sha256": "7923d0f2789b44e478f334f7a2d6d6f9a097144e49122b72c302114803886c73",
         "mode": "100644"
       },
       "transformation": "none"
@@ -34337,12 +34337,12 @@
       "path": "codex-rs/core/src/config/windows_sandbox_config_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 1187,
-        "sha256": "03efdd4bb096d965502319c5968872eda6a53d20e47ac2dcd347f298618729f6"
+        "bytes": 1479,
+        "sha256": "548b6ceabaca91a0b52a30f91ff028c17107a527050836b2c68b1af5f2e7dd6e"
       },
       "result": {
-        "bytes": 1187,
-        "sha256": "03efdd4bb096d965502319c5968872eda6a53d20e47ac2dcd347f298618729f6",
+        "bytes": 1479,
+        "sha256": "548b6ceabaca91a0b52a30f91ff028c17107a527050836b2c68b1af5f2e7dd6e",
         "mode": "100644"
       },
       "transformation": "none"
@@ -35849,12 +35849,12 @@
       "path": "codex-rs/core/src/environment_selection.rs",
       "original": {
         "mode": "100644",
-        "bytes": 87165,
-        "sha256": "9f8761bb763015e59430f05e0926fa0f54ebe0f9ae59e9b194affc5498e1b5bd"
+        "bytes": 87555,
+        "sha256": "dd7e27a99a83d991048790d1b7fc786cadbf5a4cc635487a51bd3cd9151aec39"
       },
       "result": {
-        "bytes": 87165,
-        "sha256": "9f8761bb763015e59430f05e0926fa0f54ebe0f9ae59e9b194affc5498e1b5bd",
+        "bytes": 87555,
+        "sha256": "dd7e27a99a83d991048790d1b7fc786cadbf5a4cc635487a51bd3cd9151aec39",
         "mode": "100644"
       },
       "transformation": "none"
@@ -35891,12 +35891,12 @@
       "path": "codex-rs/core/src/exec.rs",
       "original": {
         "mode": "100644",
-        "bytes": 45546,
-        "sha256": "4d4294958847e1e5dd624ca056f04bc0477a30b94ddddabceeaabfda23816ed6"
+        "bytes": 45841,
+        "sha256": "4b1f3036b9abbb0b4aa8aa62998009cc4397c004e97c9f1f4c39a75a46d7b442"
       },
       "result": {
-        "bytes": 45546,
-        "sha256": "4d4294958847e1e5dd624ca056f04bc0477a30b94ddddabceeaabfda23816ed6",
+        "bytes": 45841,
+        "sha256": "4b1f3036b9abbb0b4aa8aa62998009cc4397c004e97c9f1f4c39a75a46d7b442",
         "mode": "100644"
       },
       "transformation": "none"
@@ -36031,12 +36031,12 @@
       "path": "codex-rs/core/src/exec_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 55541,
-        "sha256": "d590c81b43225db5d13ee520fba131d0b5b5a050b6a635154e36bad2522b162f"
+        "bytes": 55548,
+        "sha256": "f848b6987754e68c9f79ddab8098419c7941e693421c9aa7a693da25a3ac0349"
       },
       "result": {
-        "bytes": 55541,
-        "sha256": "d590c81b43225db5d13ee520fba131d0b5b5a050b6a635154e36bad2522b162f",
+        "bytes": 55548,
+        "sha256": "f848b6987754e68c9f79ddab8098419c7941e693421c9aa7a693da25a3ac0349",
         "mode": "100644"
       },
       "transformation": "none"
@@ -36591,12 +36591,12 @@
       "path": "codex-rs/core/src/mcp_tool_call_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 128600,
-        "sha256": "3d24b4aa55e2a9d3571b7bdedb5c5cb8b6a32660226ccd060cc6d06d626e37a0"
+        "bytes": 128696,
+        "sha256": "d411767dac97a547483908ed5331a53ed8163f2c8a768209e618b502c143c672"
       },
       "result": {
-        "bytes": 128600,
-        "sha256": "3d24b4aa55e2a9d3571b7bdedb5c5cb8b6a32660226ccd060cc6d06d626e37a0",
+        "bytes": 128696,
+        "sha256": "d411767dac97a547483908ed5331a53ed8163f2c8a768209e618b502c143c672",
         "mode": "100644"
       },
       "transformation": "none"
@@ -37179,12 +37179,12 @@
       "path": "codex-rs/core/src/sandbox_tags.rs",
       "original": {
         "mode": "100644",
-        "bytes": 3898,
-        "sha256": "bf1b3e2169f9c4f97e48c4bdb3cf234163d2eb6868bc6bf6d972782ddc4f6bef"
+        "bytes": 4119,
+        "sha256": "55380002ca049922a8a64635d0e059b2802e18172febae267a689a8de36413bb"
       },
       "result": {
-        "bytes": 3898,
-        "sha256": "bf1b3e2169f9c4f97e48c4bdb3cf234163d2eb6868bc6bf6d972782ddc4f6bef",
+        "bytes": 4119,
+        "sha256": "55380002ca049922a8a64635d0e059b2802e18172febae267a689a8de36413bb",
         "mode": "100644"
       },
       "transformation": "none"
@@ -37571,12 +37571,12 @@
       "path": "codex-rs/core/src/session/review.rs",
       "original": {
         "mode": "100644",
-        "bytes": 9378,
-        "sha256": "f5fb061f26b918eb2acb6fb076212fe97b554c699405529a7fe44b6c1c5d8925"
+        "bytes": 9915,
+        "sha256": "1b6ba043ad47e0448ecaddd035a42213f124c8ebb2ac6eeae3125d315e194080"
       },
       "result": {
-        "bytes": 9378,
-        "sha256": "f5fb061f26b918eb2acb6fb076212fe97b554c699405529a7fe44b6c1c5d8925",
+        "bytes": 9915,
+        "sha256": "1b6ba043ad47e0448ecaddd035a42213f124c8ebb2ac6eeae3125d315e194080",
         "mode": "100644"
       },
       "transformation": "none"
@@ -37627,12 +37627,12 @@
       "path": "codex-rs/core/src/session/session.rs",
       "original": {
         "mode": "100644",
-        "bytes": 89999,
-        "sha256": "3ad7285cb5d324572b40c38f3ba5c9a1c903080863f6b64bd5707b3855ae99af"
+        "bytes": 90060,
+        "sha256": "f5f194079e1a102d50db1cedeff860e27e6d65208aea56e082c4d9d6a09914f1"
       },
       "result": {
-        "bytes": 90693,
-        "sha256": "7552c7c9d7cf65385b31e2aeb01cc0cfec18f6a5da64df892023dddd06de68aa",
+        "bytes": 90754,
+        "sha256": "05438debad069c8cccb9c9cbca626f91fd3585335b39395618c4291707538a24",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -37823,12 +37823,12 @@
       "path": "codex-rs/core/src/session/turn_context.rs",
       "original": {
         "mode": "100644",
-        "bytes": 51725,
-        "sha256": "f30662b200d76cfbb87ef38549911161593e68acc3548729107c98447e08cc5f"
+        "bytes": 52884,
+        "sha256": "a90f65eef5f0075b12356d83b48c681f65e39c12fa5050337c7f22d26c0408e4"
       },
       "result": {
-        "bytes": 51725,
-        "sha256": "f30662b200d76cfbb87ef38549911161593e68acc3548729107c98447e08cc5f",
+        "bytes": 52884,
+        "sha256": "a90f65eef5f0075b12356d83b48c681f65e39c12fa5050337c7f22d26c0408e4",
         "mode": "100644"
       },
       "transformation": "none"
@@ -38005,12 +38005,12 @@
       "path": "codex-rs/core/src/shell_snapshot_sandbox_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 5456,
-        "sha256": "dd1ab6ff3087f67826f3814e80e1ef5ce701eb958241029787e497b60d817534"
+        "bytes": 5505,
+        "sha256": "413febb1b26872af00e7d5aded03d83b70c0a504539fb17667e429c2ec8ed3c2"
       },
       "result": {
-        "bytes": 5456,
-        "sha256": "dd1ab6ff3087f67826f3814e80e1ef5ce701eb958241029787e497b60d817534",
+        "bytes": 5505,
+        "sha256": "413febb1b26872af00e7d5aded03d83b70c0a504539fb17667e429c2ec8ed3c2",
         "mode": "100644"
       },
       "transformation": "none"
@@ -38019,12 +38019,12 @@
       "path": "codex-rs/core/src/shell_snapshot_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 67490,
-        "sha256": "0c1723393271d1e69239cadce5ef5038a2fea052fe1774619b5099f595b1ab6b"
+        "bytes": 67588,
+        "sha256": "b81ac894c2939ccdb80092aec416a79e4ce12eb7e2ee08d226834f1a371813ff"
       },
       "result": {
-        "bytes": 67490,
-        "sha256": "0c1723393271d1e69239cadce5ef5038a2fea052fe1774619b5099f595b1ab6b",
+        "bytes": 67588,
+        "sha256": "b81ac894c2939ccdb80092aec416a79e4ce12eb7e2ee08d226834f1a371813ff",
         "mode": "100644"
       },
       "transformation": "none"
@@ -38383,12 +38383,12 @@
       "path": "codex-rs/core/src/thread_manager_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 117984,
-        "sha256": "a8bbfbbf8c7bb2c3dc3d017a160f2ae60b8a225b11eb70bf861e10eb2e4bdc81"
+        "bytes": 118059,
+        "sha256": "9090711788561de95663d1010606d77e931395dba8cc921a052e36a2071724b1"
       },
       "result": {
-        "bytes": 117984,
-        "sha256": "a8bbfbbf8c7bb2c3dc3d017a160f2ae60b8a225b11eb70bf861e10eb2e4bdc81",
+        "bytes": 118059,
+        "sha256": "9090711788561de95663d1010606d77e931395dba8cc921a052e36a2071724b1",
         "mode": "100644"
       },
       "transformation": "none"
@@ -38733,12 +38733,12 @@
       "path": "codex-rs/core/src/tools/handlers/apply_patch.rs",
       "original": {
         "mode": "100644",
-        "bytes": 22398,
-        "sha256": "26838ecc477eb0acc4d92370c147eb009fe857e9f8fd0d741bc03234845ded12"
+        "bytes": 22591,
+        "sha256": "10202d1c97057a9f08f59c0228e5f87771b909bf5b4bb59635d62dfb0ff2d38f"
       },
       "result": {
-        "bytes": 22398,
-        "sha256": "26838ecc477eb0acc4d92370c147eb009fe857e9f8fd0d741bc03234845ded12",
+        "bytes": 22591,
+        "sha256": "10202d1c97057a9f08f59c0228e5f87771b909bf5b4bb59635d62dfb0ff2d38f",
         "mode": "100644"
       },
       "transformation": "none"
@@ -39629,12 +39629,12 @@
       "path": "codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs",
       "original": {
         "mode": "100644",
-        "bytes": 22302,
-        "sha256": "fee2fb6f25c491ff6d693c48f6634bbce45a849ecc832672787107aa88e5f5fa"
+        "bytes": 22466,
+        "sha256": "2dd1d115e6b0d6c8c08c63fb7a747148148956b2e58cbf016396591dcd779178"
       },
       "result": {
-        "bytes": 22302,
-        "sha256": "fee2fb6f25c491ff6d693c48f6634bbce45a849ecc832672787107aa88e5f5fa",
+        "bytes": 22466,
+        "sha256": "2dd1d115e6b0d6c8c08c63fb7a747148148956b2e58cbf016396591dcd779178",
         "mode": "100644"
       },
       "transformation": "none"
@@ -39811,12 +39811,12 @@
       "path": "codex-rs/core/src/tools/orchestrator.rs",
       "original": {
         "mode": "100644",
-        "bytes": 24172,
-        "sha256": "824a1b318a718f69b5e0f3f0e3c7bc46bf66742c39f1a514e1ddb2cb2b64334f"
+        "bytes": 24482,
+        "sha256": "e28deae531d93f2621e7a2d0bc788f44892e08e5c6e2895aecb11a2758f5f54c"
       },
       "result": {
-        "bytes": 24172,
-        "sha256": "824a1b318a718f69b5e0f3f0e3c7bc46bf66742c39f1a514e1ddb2cb2b64334f",
+        "bytes": 24482,
+        "sha256": "e28deae531d93f2621e7a2d0bc788f44892e08e5c6e2895aecb11a2758f5f54c",
         "mode": "100644"
       },
       "transformation": "none"
@@ -39895,12 +39895,12 @@
       "path": "codex-rs/core/src/tools/runtimes/apply_patch.rs",
       "original": {
         "mode": "100644",
-        "bytes": 9064,
-        "sha256": "e0165f862cdb1920b3398c06ce6448956e2744fce5a12a9f6bd4a09bb4f08aff"
+        "bytes": 9110,
+        "sha256": "26f0e5cc95e49b8e15f89ebd49701880ee4d0ef61fb0861df68a70ae6a1aa79f"
       },
       "result": {
-        "bytes": 9064,
-        "sha256": "e0165f862cdb1920b3398c06ce6448956e2744fce5a12a9f6bd4a09bb4f08aff",
+        "bytes": 9110,
+        "sha256": "26f0e5cc95e49b8e15f89ebd49701880ee4d0ef61fb0861df68a70ae6a1aa79f",
         "mode": "100644"
       },
       "transformation": "none"
@@ -39909,12 +39909,12 @@
       "path": "codex-rs/core/src/tools/runtimes/apply_patch_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 13692,
-        "sha256": "9889fa9ae1e112568005950dcfd326f3d54883f16c08fd279fe79b4abb41bc69"
+        "bytes": 13865,
+        "sha256": "fdfbd9eda4e41f239dae5ad1a9d78e14b1dc204b9a25e420f1a773be1826daba"
       },
       "result": {
-        "bytes": 13692,
-        "sha256": "9889fa9ae1e112568005950dcfd326f3d54883f16c08fd279fe79b4abb41bc69",
+        "bytes": 13865,
+        "sha256": "fdfbd9eda4e41f239dae5ad1a9d78e14b1dc204b9a25e420f1a773be1826daba",
         "mode": "100644"
       },
       "transformation": "none"
@@ -39937,12 +39937,12 @@
       "path": "codex-rs/core/src/tools/runtimes/mod_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 73182,
-        "sha256": "c49ef8e28601ce10a705a87723e479a3a7e9f03a507236df65c09f009363c720"
+        "bytes": 73231,
+        "sha256": "9740bf9754795dc43be5fc3b5ba3baeb7072ddfe9c897d01e582b07be69248a6"
       },
       "result": {
-        "bytes": 73182,
-        "sha256": "c49ef8e28601ce10a705a87723e479a3a7e9f03a507236df65c09f009363c720",
+        "bytes": 73231,
+        "sha256": "9740bf9754795dc43be5fc3b5ba3baeb7072ddfe9c897d01e582b07be69248a6",
         "mode": "100644"
       },
       "transformation": "none"
@@ -39951,12 +39951,12 @@
       "path": "codex-rs/core/src/tools/runtimes/unified_exec.rs",
       "original": {
         "mode": "100644",
-        "bytes": 39018,
-        "sha256": "5abce3262259cc849a1b50000fbc37994c458c1e862f09a1ad8d88e2dde93dd2"
+        "bytes": 39097,
+        "sha256": "f81b1cad52105f1ea53ba629716375477fca364ae03f79059e6329013cec73ce"
       },
       "result": {
-        "bytes": 39018,
-        "sha256": "5abce3262259cc849a1b50000fbc37994c458c1e862f09a1ad8d88e2dde93dd2",
+        "bytes": 39097,
+        "sha256": "f81b1cad52105f1ea53ba629716375477fca364ae03f79059e6329013cec73ce",
         "mode": "100644"
       },
       "transformation": "none"
@@ -39979,12 +39979,12 @@
       "path": "codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs",
       "original": {
         "mode": "100644",
-        "bytes": 34254,
-        "sha256": "93ffb9f9e6ae1ba1fb7b7dd6c2cc76668a0de92dd68951fa8f4cf5823e0f416c"
+        "bytes": 34245,
+        "sha256": "3f84835a7455dc6f5b4489b854f0229d84d12fb2ab305fffb38da9ac3ad18b34"
       },
       "result": {
-        "bytes": 34254,
-        "sha256": "93ffb9f9e6ae1ba1fb7b7dd6c2cc76668a0de92dd68951fa8f4cf5823e0f416c",
+        "bytes": 34245,
+        "sha256": "3f84835a7455dc6f5b4489b854f0229d84d12fb2ab305fffb38da9ac3ad18b34",
         "mode": "100644"
       },
       "transformation": "none"
@@ -40007,12 +40007,12 @@
       "path": "codex-rs/core/src/tools/sandboxing.rs",
       "original": {
         "mode": "100644",
-        "bytes": 19300,
-        "sha256": "289fb3fd46db17553befbc3b6e2af2065d44e50b6e87ba7dcfa717fc6d86b0a1"
+        "bytes": 19972,
+        "sha256": "8b7b517058ef111fd24f19619cdde254454a3e1fe609a5b5caa259e5f19a0bc5"
       },
       "result": {
-        "bytes": 19300,
-        "sha256": "289fb3fd46db17553befbc3b6e2af2065d44e50b6e87ba7dcfa717fc6d86b0a1",
+        "bytes": 19972,
+        "sha256": "8b7b517058ef111fd24f19619cdde254454a3e1fe609a5b5caa259e5f19a0bc5",
         "mode": "100644"
       },
       "transformation": "none"
@@ -40021,12 +40021,12 @@
       "path": "codex-rs/core/src/tools/sandboxing_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 14408,
-        "sha256": "6ffe024a1ebf2563b6885a483c9bb9e436da618e0ee51a564cd3a2ecce0b0668"
+        "bytes": 15763,
+        "sha256": "8d3f3723f749598ad5cc1471e722160218c49f6f21d4b2e947d16f2691324225"
       },
       "result": {
-        "bytes": 14408,
-        "sha256": "6ffe024a1ebf2563b6885a483c9bb9e436da618e0ee51a564cd3a2ecce0b0668",
+        "bytes": 15763,
+        "sha256": "8d3f3723f749598ad5cc1471e722160218c49f6f21d4b2e947d16f2691324225",
         "mode": "100644"
       },
       "transformation": "none"
@@ -40049,12 +40049,12 @@
       "path": "codex-rs/core/src/tools/spec_plan_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 121153,
-        "sha256": "128160257c694f9a0ff861d9820f08032f874b7dac58ecb591211f9da7ac129a"
+        "bytes": 121253,
+        "sha256": "3ff5603172383511950a20c07cae71223a413c251b186f175b2912f360776895"
       },
       "result": {
-        "bytes": 121153,
-        "sha256": "128160257c694f9a0ff861d9820f08032f874b7dac58ecb591211f9da7ac129a",
+        "bytes": 121253,
+        "sha256": "3ff5603172383511950a20c07cae71223a413c251b186f175b2912f360776895",
         "mode": "100644"
       },
       "transformation": "none"
@@ -40133,12 +40133,12 @@
       "path": "codex-rs/core/src/turn_metadata.rs",
       "original": {
         "mode": "100644",
-        "bytes": 20643,
-        "sha256": "7b61a1b7a1c0f478f9a27a48b7d630f6e7666842ebd212864ddc387e7645df5f"
+        "bytes": 20666,
+        "sha256": "d3f03259b77ee9e1a9b2052da0c4d2c9ee47699f9a849cf7558ea32b5bc16700"
       },
       "result": {
-        "bytes": 20643,
-        "sha256": "7b61a1b7a1c0f478f9a27a48b7d630f6e7666842ebd212864ddc387e7645df5f",
+        "bytes": 20666,
+        "sha256": "d3f03259b77ee9e1a9b2052da0c4d2c9ee47699f9a849cf7558ea32b5bc16700",
         "mode": "100644"
       },
       "transformation": "none"
@@ -40147,12 +40147,12 @@
       "path": "codex-rs/core/src/turn_metadata_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 50471,
-        "sha256": "75d25ea52e9a4b8fe68cd1d9a2709452d78c199972766e96b6af5929e04972c2"
+        "bytes": 50526,
+        "sha256": "00fd874985254d5e15060e1b64e4e0184196b2a06eb6e864d851e945910e643d"
       },
       "result": {
-        "bytes": 50471,
-        "sha256": "75d25ea52e9a4b8fe68cd1d9a2709452d78c199972766e96b6af5929e04972c2",
+        "bytes": 50526,
+        "sha256": "00fd874985254d5e15060e1b64e4e0184196b2a06eb6e864d851e945910e643d",
         "mode": "100644"
       },
       "transformation": "none"
@@ -40315,12 +40315,12 @@
       "path": "codex-rs/core/src/unified_exec/process_manager.rs",
       "original": {
         "mode": "100644",
-        "bytes": 73276,
-        "sha256": "b602778201d04ea7261bb80792734b59242b5b4b920c10030e3697e5946ab19a"
+        "bytes": 73513,
+        "sha256": "b10365c08b941a296283039afbf35d95b6a046155f933995e65cbbdb6f476217"
       },
       "result": {
-        "bytes": 73276,
-        "sha256": "b602778201d04ea7261bb80792734b59242b5b4b920c10030e3697e5946ab19a",
+        "bytes": 73513,
+        "sha256": "b10365c08b941a296283039afbf35d95b6a046155f933995e65cbbdb6f476217",
         "mode": "100644"
       },
       "transformation": "none"
@@ -40371,12 +40371,12 @@
       "path": "codex-rs/core/src/unified_exec/shell_snapshot.rs",
       "original": {
         "mode": "100644",
-        "bytes": 8368,
-        "sha256": "ff038b96bbd2fa07e2687cef2dd6dd7b30515e92caa169387bd1c174fd421eba"
+        "bytes": 8439,
+        "sha256": "a25bcaaf829ca1bb0efc07f602fca0a0cfbdd8f4d68ff3958f8afd64ba20e8fd"
       },
       "result": {
-        "bytes": 8368,
-        "sha256": "ff038b96bbd2fa07e2687cef2dd6dd7b30515e92caa169387bd1c174fd421eba",
+        "bytes": 8439,
+        "sha256": "a25bcaaf829ca1bb0efc07f602fca0a0cfbdd8f4d68ff3958f8afd64ba20e8fd",
         "mode": "100644"
       },
       "transformation": "none"
@@ -40441,12 +40441,12 @@
       "path": "codex-rs/core/src/unified_exec/stdin_approval.rs",
       "original": {
         "mode": "100644",
-        "bytes": 10208,
-        "sha256": "6a44ff928246fbc581b70fa53950cd7c642709336769e876a64292e808ec413e"
+        "bytes": 10570,
+        "sha256": "f7556511bc230653d66baa04df70b353d176573347b94fbeddbf3c80bd9416e3"
       },
       "result": {
-        "bytes": 10208,
-        "sha256": "6a44ff928246fbc581b70fa53950cd7c642709336769e876a64292e808ec413e",
+        "bytes": 10570,
+        "sha256": "f7556511bc230653d66baa04df70b353d176573347b94fbeddbf3c80bd9416e3",
         "mode": "100644"
       },
       "transformation": "none"
@@ -40455,12 +40455,12 @@
       "path": "codex-rs/core/src/unified_exec/stdin_approval_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 10094,
-        "sha256": "254bbe8f88b767efc400eabe879739ce5868c6229fd401096ae18e9880c89dfc"
+        "bytes": 10714,
+        "sha256": "f4b90911a06cfa6b4f555149f0034e74398176eaa0e9a71e8092dfc1b0eedbce"
       },
       "result": {
-        "bytes": 10094,
-        "sha256": "254bbe8f88b767efc400eabe879739ce5868c6229fd401096ae18e9880c89dfc",
+        "bytes": 10714,
+        "sha256": "f4b90911a06cfa6b4f555149f0034e74398176eaa0e9a71e8092dfc1b0eedbce",
         "mode": "100644"
       },
       "transformation": "none"
@@ -40581,12 +40581,12 @@
       "path": "codex-rs/core/src/windows_sandbox.rs",
       "original": {
         "mode": "100644",
-        "bytes": 14184,
-        "sha256": "6bcf29f7e4672906ffd5fe22a9894a729239015788c9cdc97aa5639ab9d6761b"
+        "bytes": 14898,
+        "sha256": "8b0c28205d63b2b7fea5ac0fb2b9ca5b8606d56af506b6cbb29f3f2d4395edd5"
       },
       "result": {
-        "bytes": 14184,
-        "sha256": "6bcf29f7e4672906ffd5fe22a9894a729239015788c9cdc97aa5639ab9d6761b",
+        "bytes": 14898,
+        "sha256": "8b0c28205d63b2b7fea5ac0fb2b9ca5b8606d56af506b6cbb29f3f2d4395edd5",
         "mode": "100644"
       },
       "transformation": "none"
@@ -41169,12 +41169,12 @@
       "path": "codex-rs/core/tests/suite/agent_execution.rs",
       "original": {
         "mode": "100644",
-        "bytes": 20771,
-        "sha256": "f147221ddeacc46ff9ac9ea12c2eb112f2c1b2495081ceadd52c460e6d0c59ce"
+        "bytes": 20851,
+        "sha256": "f9574ac74fdf31aa7cf701af779eee4817f40b81d885d61e805c4aa96a56704f"
       },
       "result": {
-        "bytes": 20771,
-        "sha256": "f147221ddeacc46ff9ac9ea12c2eb112f2c1b2495081ceadd52c460e6d0c59ce",
+        "bytes": 20851,
+        "sha256": "f9574ac74fdf31aa7cf701af779eee4817f40b81d885d61e805c4aa96a56704f",
         "mode": "100644"
       },
       "transformation": "none"
@@ -41239,12 +41239,12 @@
       "path": "codex-rs/core/tests/suite/apply_patch_cli.rs",
       "original": {
         "mode": "100644",
-        "bytes": 92558,
-        "sha256": "7bf48ba82a26bc8afb86470c0fe7d32400ad2f8a8980d0efe99e8de9f80fd87f"
+        "bytes": 94633,
+        "sha256": "4f28b37a118e1ec38f72d0925a30624902c2445ff68ce93d41cf2aee623f9f36"
       },
       "result": {
-        "bytes": 92558,
-        "sha256": "7bf48ba82a26bc8afb86470c0fe7d32400ad2f8a8980d0efe99e8de9f80fd87f",
+        "bytes": 94633,
+        "sha256": "4f28b37a118e1ec38f72d0925a30624902c2445ff68ce93d41cf2aee623f9f36",
         "mode": "100644"
       },
       "transformation": "none"
@@ -41631,12 +41631,12 @@
       "path": "codex-rs/core/tests/suite/exec_policy.rs",
       "original": {
         "mode": "100644",
-        "bytes": 35632,
-        "sha256": "6074121ee4627a4a26ac6cdffd7d59929bc26ec5b51328693db52d1b6edfbb6b"
+        "bytes": 35892,
+        "sha256": "8401ecf2ea9b80676f593ca6e8c86a2dc519fd1fc2c65316d82d2a3f78596ac8"
       },
       "result": {
-        "bytes": 35632,
-        "sha256": "6074121ee4627a4a26ac6cdffd7d59929bc26ec5b51328693db52d1b6edfbb6b",
+        "bytes": 35892,
+        "sha256": "8401ecf2ea9b80676f593ca6e8c86a2dc519fd1fc2c65316d82d2a3f78596ac8",
         "mode": "100644"
       },
       "transformation": "none"
@@ -41813,12 +41813,12 @@
       "path": "codex-rs/core/tests/suite/guardian_review.rs",
       "original": {
         "mode": "100644",
-        "bytes": 109204,
-        "sha256": "99042e585e07377f2b7b6e67bd4fc367aaeaea2146e24a51ec3da8ec85f55730"
+        "bytes": 109280,
+        "sha256": "04f7d869390e187e071477f9f8808f75ead3d4078b84da5db9ad9cfe2b9730a5"
       },
       "result": {
-        "bytes": 109204,
-        "sha256": "99042e585e07377f2b7b6e67bd4fc367aaeaea2146e24a51ec3da8ec85f55730",
+        "bytes": 109280,
+        "sha256": "04f7d869390e187e071477f9f8808f75ead3d4078b84da5db9ad9cfe2b9730a5",
         "mode": "100644"
       },
       "transformation": "none"
@@ -41883,12 +41883,12 @@
       "path": "codex-rs/core/tests/suite/hooks_executor.rs",
       "original": {
         "mode": "100644",
-        "bytes": 31352,
-        "sha256": "e96cc851cb4baf85db388d6ecb8423905ecf510a9ddf07eb713944731a772afc"
+        "bytes": 31445,
+        "sha256": "bd524f434e4038903807f666e68727d4ed2d3883738f3d7e8509da10c6bf3aaa"
       },
       "result": {
-        "bytes": 31352,
-        "sha256": "e96cc851cb4baf85db388d6ecb8423905ecf510a9ddf07eb713944731a772afc",
+        "bytes": 31445,
+        "sha256": "bd524f434e4038903807f666e68727d4ed2d3883738f3d7e8509da10c6bf3aaa",
         "mode": "100644"
       },
       "transformation": "none"
@@ -42107,12 +42107,12 @@
       "path": "codex-rs/core/tests/suite/mcp_startup_refresh_http_proxy.rs",
       "original": {
         "mode": "100644",
-        "bytes": 18052,
-        "sha256": "0700dbff23d7a9e339aaab7b8b577d2affc9a7ed629c73e06fb442f94b1daf32"
+        "bytes": 18131,
+        "sha256": "bdc0158f1b91c98990bb6a14e38c430b783c54d82cb6b801868684a1ce509869"
       },
       "result": {
-        "bytes": 18052,
-        "sha256": "0700dbff23d7a9e339aaab7b8b577d2affc9a7ed629c73e06fb442f94b1daf32",
+        "bytes": 18131,
+        "sha256": "bdc0158f1b91c98990bb6a14e38c430b783c54d82cb6b801868684a1ce509869",
         "mode": "100644"
       },
       "transformation": "none"
@@ -42149,12 +42149,12 @@
       "path": "codex-rs/core/tests/suite/mcp_tool_exposure.rs",
       "original": {
         "mode": "100644",
-        "bytes": 57410,
-        "sha256": "5f4caec78c606be882f03a6e1a6657a1c37f35df6abd6a774965a31624d7c70c"
+        "bytes": 57494,
+        "sha256": "6c399f03cec9f3bf8dee5551ffe470abc1aa95ee47ca41dc0078cb55f220fd7b"
       },
       "result": {
-        "bytes": 57410,
-        "sha256": "5f4caec78c606be882f03a6e1a6657a1c37f35df6abd6a774965a31624d7c70c",
+        "bytes": 57494,
+        "sha256": "6c399f03cec9f3bf8dee5551ffe470abc1aa95ee47ca41dc0078cb55f220fd7b",
         "mode": "100644"
       },
       "transformation": "none"
@@ -42359,12 +42359,12 @@
       "path": "codex-rs/core/tests/suite/network_approval.rs",
       "original": {
         "mode": "100644",
-        "bytes": 116621,
-        "sha256": "840dfbaad5af1f107825c9e99eb916629ea66d0b881e37add6a9f75d0c21b864"
+        "bytes": 116705,
+        "sha256": "8b9f78b28db8f69768fdaeafa57d766b26ee1786ecca0aa09173ac602ec2fdf2"
       },
       "result": {
-        "bytes": 116621,
-        "sha256": "840dfbaad5af1f107825c9e99eb916629ea66d0b881e37add6a9f75d0c21b864",
+        "bytes": 116705,
+        "sha256": "8b9f78b28db8f69768fdaeafa57d766b26ee1786ecca0aa09173ac602ec2fdf2",
         "mode": "100644"
       },
       "transformation": "none"
@@ -42625,12 +42625,12 @@
       "path": "codex-rs/core/tests/suite/remote_env.rs",
       "original": {
         "mode": "100644",
-        "bytes": 153306,
-        "sha256": "4374e4d50f60e0f9fa34cabf9bf0512ccf7acff204ea371043a254827dc1f784"
+        "bytes": 153986,
+        "sha256": "69b92b800abd4ba274882f474c2067dbc043dc644dbd4f2f4eb395f76625fcbc"
       },
       "result": {
-        "bytes": 153306,
-        "sha256": "4374e4d50f60e0f9fa34cabf9bf0512ccf7acff204ea371043a254827dc1f784",
+        "bytes": 153986,
+        "sha256": "69b92b800abd4ba274882f474c2067dbc043dc644dbd4f2f4eb395f76625fcbc",
         "mode": "100644"
       },
       "transformation": "none"
@@ -42849,12 +42849,12 @@
       "path": "codex-rs/core/tests/suite/rmcp_client.rs",
       "original": {
         "mode": "100644",
-        "bytes": 164612,
-        "sha256": "5f26378125394fa0447e401a5ac0b3146069c7c6c3f5b76568812542af3380fa"
+        "bytes": 164790,
+        "sha256": "479f305f78745aa3994ab6eec348f1d7d8ae7c3b209975c5264af246a89a8a9a"
       },
       "result": {
-        "bytes": 164612,
-        "sha256": "5f26378125394fa0447e401a5ac0b3146069c7c6c3f5b76568812542af3380fa",
+        "bytes": 164790,
+        "sha256": "479f305f78745aa3994ab6eec348f1d7d8ae7c3b209975c5264af246a89a8a9a",
         "mode": "100644"
       },
       "transformation": "none"
@@ -43003,12 +43003,12 @@
       "path": "codex-rs/core/tests/suite/shell_snapshot.rs",
       "original": {
         "mode": "100644",
-        "bytes": 45607,
-        "sha256": "8bf8fe93fda5e3e7d99f7129fd53a0822f81808283c091eb2e07c24e01c5d6d1"
+        "bytes": 45683,
+        "sha256": "e755942547e95f8e6ffdec8306ec9916ff4d782c1c312b6cf53993442f67211b"
       },
       "result": {
-        "bytes": 45607,
-        "sha256": "8bf8fe93fda5e3e7d99f7129fd53a0822f81808283c091eb2e07c24e01c5d6d1",
+        "bytes": 45683,
+        "sha256": "e755942547e95f8e6ffdec8306ec9916ff4d782c1c312b6cf53993442f67211b",
         "mode": "100644"
       },
       "transformation": "none"
@@ -43829,12 +43829,12 @@
       "path": "codex-rs/core/tests/suite/unified_exec.rs",
       "original": {
         "mode": "100644",
-        "bytes": 134496,
-        "sha256": "adcb161ec91b5107e8f8a902ac3fd7764468c0eba41ecbbdc33c49d5727df342"
+        "bytes": 134590,
+        "sha256": "1f9b583e93abdceb7a068e435df4e295c2377470b9e584dfb66c014bd549f489"
       },
       "result": {
-        "bytes": 134496,
-        "sha256": "adcb161ec91b5107e8f8a902ac3fd7764468c0eba41ecbbdc33c49d5727df342",
+        "bytes": 134590,
+        "sha256": "1f9b583e93abdceb7a068e435df4e295c2377470b9e584dfb66c014bd549f489",
         "mode": "100644"
       },
       "transformation": "none"
@@ -44011,12 +44011,12 @@
       "path": "codex-rs/core/tests/suite/workspace_roots.rs",
       "original": {
         "mode": "100644",
-        "bytes": 18571,
-        "sha256": "a67e4ef09fe0f302db0e909900ac66c8b02f2bd8c731b3e8769eeb0e6ae66173"
+        "bytes": 18692,
+        "sha256": "913d55a03a728e6dbec7813c3de2f1f5b4c5f4f64b11944fc29b018313243fa4"
       },
       "result": {
-        "bytes": 18571,
-        "sha256": "a67e4ef09fe0f302db0e909900ac66c8b02f2bd8c731b3e8769eeb0e6ae66173",
+        "bytes": 18692,
+        "sha256": "913d55a03a728e6dbec7813c3de2f1f5b4c5f4f64b11944fc29b018313243fa4",
         "mode": "100644"
       },
       "transformation": "none"
@@ -45593,12 +45593,12 @@
       "path": "codex-rs/exec-server/src/sandbox_selection.rs",
       "original": {
         "mode": "100644",
-        "bytes": 1306,
-        "sha256": "544e86935c81b3edf4897cb5050ce3c28bc233166d9f093c29a143d659678733"
+        "bytes": 1573,
+        "sha256": "8f47668b6adc311ba52763270331eee3a1c772961b01fe4eb10c8c741bc1a713"
       },
       "result": {
-        "bytes": 1306,
-        "sha256": "544e86935c81b3edf4897cb5050ce3c28bc233166d9f093c29a143d659678733",
+        "bytes": 1573,
+        "sha256": "8f47668b6adc311ba52763270331eee3a1c772961b01fe4eb10c8c741bc1a713",
         "mode": "100644"
       },
       "transformation": "none"
@@ -46937,12 +46937,12 @@
       "path": "codex-rs/exec/tests/suite/sandbox.rs",
       "original": {
         "mode": "100644",
-        "bytes": 17993,
-        "sha256": "d40963d622d4538d17dced06d7e3811c91e44db1cf5a122203a7f33530a7b087"
+        "bytes": 18045,
+        "sha256": "5ad6feea5337a1a83532ac7fc166337f52bf03a78eecf8214da5661c9c5e195c"
       },
       "result": {
-        "bytes": 17993,
-        "sha256": "d40963d622d4538d17dced06d7e3811c91e44db1cf5a122203a7f33530a7b087",
+        "bytes": 18045,
+        "sha256": "5ad6feea5337a1a83532ac7fc166337f52bf03a78eecf8214da5661c9c5e195c",
         "mode": "100644"
       },
       "transformation": "none"
@@ -60695,12 +60695,12 @@
       "path": "codex-rs/protocol/src/environment.rs",
       "original": {
         "mode": "100644",
-        "bytes": 4839,
-        "sha256": "8acae3f9ad45b54f3e0bdd64f9f7c3d77e2bbeccc51264c76e899e777ab70633"
+        "bytes": 5082,
+        "sha256": "3113608436d27db2527e80ef59435f11f6668efe11e83c15c5f2b8f430a72d9e"
       },
       "result": {
-        "bytes": 4839,
-        "sha256": "8acae3f9ad45b54f3e0bdd64f9f7c3d77e2bbeccc51264c76e899e777ab70633",
+        "bytes": 5082,
+        "sha256": "3113608436d27db2527e80ef59435f11f6668efe11e83c15c5f2b8f430a72d9e",
         "mode": "100644"
       },
       "transformation": "none"
@@ -60793,12 +60793,12 @@
       "path": "codex-rs/protocol/src/lib.rs",
       "original": {
         "mode": "100644",
-        "bytes": 1400,
-        "sha256": "145dc5f42c5c8fce36923821d8489f488047163030d44b01d69f183d2b706d49"
+        "bytes": 1417,
+        "sha256": "a504b7271aa49676c7ce31e8f3a9a3e4123fbdc0b83712a93d2eed28898fbdb8"
       },
       "result": {
-        "bytes": 1400,
-        "sha256": "145dc5f42c5c8fce36923821d8489f488047163030d44b01d69f183d2b706d49",
+        "bytes": 1417,
+        "sha256": "a504b7271aa49676c7ce31e8f3a9a3e4123fbdc0b83712a93d2eed28898fbdb8",
         "mode": "100644"
       },
       "transformation": "none"
@@ -61415,6 +61415,20 @@
       "result": {
         "bytes": 2870,
         "sha256": "ebc890ca51ac67bd7f7b1bd43c05c5c690091485dac9db4ab89e574f855232a8",
+        "mode": "100644"
+      },
+      "transformation": "none"
+    },
+    {
+      "path": "codex-rs/protocol/src/sandbox.rs",
+      "original": {
+        "mode": "100644",
+        "bytes": 1271,
+        "sha256": "44f482ec2de0fa97339b7748c1c8b879c10ba45e122d7175b0dc08e2e18f0112"
+      },
+      "result": {
+        "bytes": 1271,
+        "sha256": "44f482ec2de0fa97339b7748c1c8b879c10ba45e122d7175b0dc08e2e18f0112",
         "mode": "100644"
       },
       "transformation": "none"
@@ -64531,12 +64545,12 @@
       "path": "codex-rs/sandboxing/src/manager.rs",
       "original": {
         "mode": "100644",
-        "bytes": 33820,
-        "sha256": "82365123841730b95c58c33a2677adee2851fa04361be5eaa8dfa2206ecc876b"
+        "bytes": 33422,
+        "sha256": "30fa3dc9f095422dbaf5b33e70bef4f759e67332f0ce2f3b917862d37f8f6b4d"
       },
       "result": {
-        "bytes": 33820,
-        "sha256": "82365123841730b95c58c33a2677adee2851fa04361be5eaa8dfa2206ecc876b",
+        "bytes": 33422,
+        "sha256": "30fa3dc9f095422dbaf5b33e70bef4f759e67332f0ce2f3b917862d37f8f6b4d",
         "mode": "100644"
       },
       "transformation": "none"
@@ -64545,12 +64559,12 @@
       "path": "codex-rs/sandboxing/src/manager_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 29562,
-        "sha256": "8e9ad31a3256d61ed55b0499791645fb2e9a469ec3e4754c85cfdb4c801217e9"
+        "bytes": 30063,
+        "sha256": "921c7f79e33392ce919e183628aeea43b4aa07c88a3e50615965ba4d255441b6"
       },
       "result": {
-        "bytes": 29562,
-        "sha256": "8e9ad31a3256d61ed55b0499791645fb2e9a469ec3e4754c85cfdb4c801217e9",
+        "bytes": 30063,
+        "sha256": "921c7f79e33392ce919e183628aeea43b4aa07c88a3e50615965ba4d255441b6",
         "mode": "100644"
       },
       "transformation": "none"
@@ -77733,12 +77747,12 @@
       "path": "codex-rs/tui/src/app/platform_actions.rs",
       "original": {
         "mode": "100644",
-        "bytes": 11615,
-        "sha256": "79cb9d29a122ddb8c48a80556167e1b6031900510e646c4311d978388318f120"
+        "bytes": 11614,
+        "sha256": "78f97757aa74c2a2f0816311827796129742ef8d33d92241be825c9d655dbba2"
       },
       "result": {
-        "bytes": 11615,
-        "sha256": "79cb9d29a122ddb8c48a80556167e1b6031900510e646c4311d978388318f120",
+        "bytes": 11614,
+        "sha256": "78f97757aa74c2a2f0816311827796129742ef8d33d92241be825c9d655dbba2",
         "mode": "100644"
       },
       "transformation": "none"
@@ -80029,12 +80043,12 @@
       "path": "codex-rs/tui/src/app/tests/startup.rs",
       "original": {
         "mode": "100644",
-        "bytes": 64745,
-        "sha256": "e0fa303fd4d41c1bbd5d8f939f3f638fbc6172b9d661320f77279ccc41ccea5b"
+        "bytes": 64774,
+        "sha256": "d08aa49ffe1a0a3bb932e1681eca156f33dec71c1143e09d5e94c922156982b8"
       },
       "result": {
-        "bytes": 64745,
-        "sha256": "e0fa303fd4d41c1bbd5d8f939f3f638fbc6172b9d661320f77279ccc41ccea5b",
+        "bytes": 64774,
+        "sha256": "d08aa49ffe1a0a3bb932e1681eca156f33dec71c1143e09d5e94c922156982b8",
         "mode": "100644"
       },
       "transformation": "none"
@@ -86987,12 +87001,12 @@
       "path": "codex-rs/tui/src/chatwidget/permission_popups.rs",
       "original": {
         "mode": "100644",
-        "bytes": 21541,
-        "sha256": "60aed009c6841c44405145dda388ac774816f273013343f7f02c6bc749db6d28"
+        "bytes": 21514,
+        "sha256": "c0cb7ad0c689ac41a837329541fc5a2b5d8aed996a33d8d1e28b47bda86f1d40"
       },
       "result": {
-        "bytes": 21541,
-        "sha256": "60aed009c6841c44405145dda388ac774816f273013343f7f02c6bc749db6d28",
+        "bytes": 21514,
+        "sha256": "c0cb7ad0c689ac41a837329541fc5a2b5d8aed996a33d8d1e28b47bda86f1d40",
         "mode": "100644"
       },
       "transformation": "none"
@@ -87001,12 +87015,12 @@
       "path": "codex-rs/tui/src/chatwidget/permission_shortcuts.rs",
       "original": {
         "mode": "100644",
-        "bytes": 5314,
-        "sha256": "ba8c416d9340f0c887ed78653bac43e9eee657ac12ba6ec566f6e707b928c297"
+        "bytes": 5287,
+        "sha256": "12af66e2be8a7ebe2e7eb0c986b467bb43c1db4ce8e5e5b3d70d552f31ac33cb"
       },
       "result": {
-        "bytes": 5314,
-        "sha256": "ba8c416d9340f0c887ed78653bac43e9eee657ac12ba6ec566f6e707b928c297",
+        "bytes": 5287,
+        "sha256": "12af66e2be8a7ebe2e7eb0c986b467bb43c1db4ce8e5e5b3d70d552f31ac33cb",
         "mode": "100644"
       },
       "transformation": "none"
@@ -93483,12 +93497,12 @@
       "path": "codex-rs/tui/src/chatwidget/windows_sandbox_prompts.rs",
       "original": {
         "mode": "100644",
-        "bytes": 12727,
-        "sha256": "48b9299d3f73eb966ed7da6f7715023189f54ce76c1547c8c6d8622a62cc386a"
+        "bytes": 12641,
+        "sha256": "4bae7a3ffc86db77e73b62a399ccb169cb9055dd9a250726018fa638856d91a5"
       },
       "result": {
-        "bytes": 12727,
-        "sha256": "48b9299d3f73eb966ed7da6f7715023189f54ce76c1547c8c6d8622a62cc386a",
+        "bytes": 12641,
+        "sha256": "4bae7a3ffc86db77e73b62a399ccb169cb9055dd9a250726018fa638856d91a5",
         "mode": "100644"
       },
       "transformation": "none"
@@ -97053,12 +97067,12 @@
       "path": "codex-rs/tui/src/onboarding/onboarding_screen.rs",
       "original": {
         "mode": "100644",
-        "bytes": 35459,
-        "sha256": "d9d1d355eee33173159de995e6e34c1adc5b051ef25c1d33dcd8abcba43fce43"
+        "bytes": 35347,
+        "sha256": "8bb60d9e2c35b4c4d668699fba52cabd8ad94597366864d70a25e9aaad7e84fc"
       },
       "result": {
-        "bytes": 35459,
-        "sha256": "d9d1d355eee33173159de995e6e34c1adc5b051ef25c1d33dcd8abcba43fce43",
+        "bytes": 35347,
+        "sha256": "8bb60d9e2c35b4c4d668699fba52cabd8ad94597366864d70a25e9aaad7e84fc",
         "mode": "100644"
       },
       "transformation": "none"
@@ -102345,12 +102359,12 @@
       "path": "codex-rs/tui/src/windows_sandbox.rs",
       "original": {
         "mode": "100644",
-        "bytes": 6285,
-        "sha256": "bdc2298fee3b5526cbecf7e04fe659edbb02a9d3e2eda5cd76e529b44c5b278f"
+        "bytes": 6811,
+        "sha256": "8e99b599bf9bddad7f62d505da09e4fd2c131921e7606df78d73892a7904186c"
       },
       "result": {
-        "bytes": 6285,
-        "sha256": "bdc2298fee3b5526cbecf7e04fe659edbb02a9d3e2eda5cd76e529b44c5b278f",
+        "bytes": 6811,
+        "sha256": "8e99b599bf9bddad7f62d505da09e4fd2c131921e7606df78d73892a7904186c",
         "mode": "100644"
       },
       "transformation": "none"
@@ -102359,12 +102373,12 @@
       "path": "codex-rs/tui/src/windows_sandbox_tests.rs",
       "original": {
         "mode": "100644",
-        "bytes": 2663,
-        "sha256": "b024980191807395f1b3dc9699e7bc8a905124dd9c6ea5abf32dbf28c431ed60"
+        "bytes": 2920,
+        "sha256": "35a2d4e68bb071a961dad53b66eac11c3988b127d970728af29d50777d739457"
       },
       "result": {
-        "bytes": 2663,
-        "sha256": "b024980191807395f1b3dc9699e7bc8a905124dd9c6ea5abf32dbf28c431ed60",
+        "bytes": 2920,
+        "sha256": "35a2d4e68bb071a961dad53b66eac11c3988b127d970728af29d50777d739457",
         "mode": "100644"
       },
       "transformation": "none"
@@ -108235,12 +108249,12 @@
       "path": "codex-rs/windows-sandbox-service/src/machine_policy.rs",
       "original": {
         "mode": "100644",
-        "bytes": 5566,
-        "sha256": "a1eb4d0a6fc94ddbcd0f41aaa239bb9b90a64fcfbb625cdb4e1b2f195fbfeb57"
+        "bytes": 5579,
+        "sha256": "a9625e79bab02a17142d43af5d7865267e6228711cc5feeb86616bbdc21e1483"
       },
       "result": {
-        "bytes": 5566,
-        "sha256": "a1eb4d0a6fc94ddbcd0f41aaa239bb9b90a64fcfbb625cdb4e1b2f195fbfeb57",
+        "bytes": 5579,
+        "sha256": "a9625e79bab02a17142d43af5d7865267e6228711cc5feeb86616bbdc21e1483",
         "mode": "100644"
       },
       "transformation": "none"

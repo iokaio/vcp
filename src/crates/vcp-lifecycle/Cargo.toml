@@ -47,7 +47,7 @@ zeroize = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util", "fs", "net"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Diagnostics_Debug"] }
 
 [dev-dependencies]
 rcgen = { workspace = true }

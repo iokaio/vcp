@@ -50,11 +50,11 @@ if ($ModelManifest) {
         if ($record -is [string] -or $record.digest -notmatch '^[a-f0-9]{64}$' -or -not $record.id) { throw 'Model records require id and SHA-256 digest' }
     }
 }
-$gitCommitRaw = & git -c safe.directory=$repository -C $repository rev-parse HEAD 2>$null
+$gitCommitRaw = & git -c safe.directory=$($repository.Replace('\', '/')) -C $repository rev-parse HEAD 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $gitCommitRaw) { throw 'Cannot identify the package source Git commit' }
 $gitCommit = ([string]$gitCommitRaw).Trim()
 if ($gitCommit -notmatch '^[a-f0-9]{40}$') { throw 'Package source Git commit is invalid' }
-$gitStatusRaw = & git -c safe.directory=$repository -C $repository status --porcelain=v1 --untracked-files=all 2>$null
+$gitStatusRaw = & git -c safe.directory=$($repository.Replace('\', '/')) -C $repository status --porcelain=v1 --untracked-files=all 2>$null
 if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the package source Git status' }
 $dirty = [bool]$gitStatusRaw
 $build = [ordered]@{ status = 'caller-supplied-unverified'; executable_sha256 = (Get-FileHash -LiteralPath $binary.FullName).Hash.ToLowerInvariant() }

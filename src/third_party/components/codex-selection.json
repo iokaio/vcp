@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "component": "codex",
-  "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
+  "commit": "8b78600dc85cc265d7e7e827f6aa903875405287",
   "owner_task": "P0-07",
   "destination": "src/third_party/codex",
   "result_inventory": "src/third_party/components/codex-files.json",

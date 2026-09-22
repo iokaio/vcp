@@ -94,15 +94,10 @@ impl Lifecycle {
         }
         let job = Arc::new(JobObject::create_with_process_limit(limits.process_count)?);
         let executable = application_path(executable)?;
-        let pty = codex_utils_pty::spawn_owned_pty(
-            &executable,
-            args,
-            cwd,
-            environment,
-            size,
-            job.clone(),
-        )
-        .map_err(|e| io::Error::other(e.to_string()))?;
+        let pty = launch::without_critical_error_dialog(|| {
+            codex_utils_pty::spawn_owned_pty(&executable, args, cwd, environment, size, job.clone())
+                .map_err(|e| io::Error::other(e.to_string()))
+        })?;
         let pid = pty.child.id();
         let done = Arc::new(AtomicBool::new(false));
         self.0

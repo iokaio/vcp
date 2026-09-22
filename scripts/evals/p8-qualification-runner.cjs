@@ -114,6 +114,11 @@ function packageRequirement(value) {
   } catch (_) { return false; }
 }
 
+function modelRequirement(value) {
+  if (!value || typeof value !== 'string') return false;
+  try { return fs.statSync(real(value)).isDirectory(); } catch (_) { return false; }
+}
+
 function requirementReasons(requirements, context = {}) {
   const reasons = [];
   for (const requirement of requirements) {
@@ -122,9 +127,10 @@ function requirementReasons(requirements, context = {}) {
     else if (requirement === 'cargo' && context.cargo_available === undefined && !commandAvailable('cargo')) reasons.push('cargo executable unavailable');
     else if (requirement === 'vcp_test_git' && !fileRequirement(context.vcp_test_git || process.env.VCP_TEST_GIT)) reasons.push('VCP_TEST_GIT must identify a native Git executable');
     else if (requirement === 'packaged_artifact' && !packageRequirement(context.packaged_artifact || process.env.VCP_TEST_SKILL_PACKAGE || process.env.P8_PACKAGE)) reasons.push('exact packaged artifact is unavailable');
-    else if (requirement === 'age_binary' && !fileRequirement(context.age_binary || process.env.P8_AGE)) reasons.push('independent age binary is unavailable');
+    else if (requirement === 'age_binary' && !fileRequirement(context.age_binary || process.env.VCP_TEST_AGE || process.env.P8_AGE)) reasons.push('independent age binary is unavailable');
+    else if (requirement === 'minilm_assets' && !modelRequirement(context.minilm_assets || process.env.VCP_MINILM_ASSETS)) reasons.push('VCP_MINILM_ASSETS must identify the local pinned model directory');
     else if (requirement === 'second_machine_fixture' && !fileRequirement(context.second_machine_fixture || process.env.P8_SECOND_MACHINE_FIXTURE)) reasons.push('second-machine recovery fixture is unavailable');
-    else if (!['native_windows', 'cargo', 'vcp_test_git', 'packaged_artifact', 'age_binary', 'second_machine_fixture'].includes(requirement)) reasons.push(`unknown prerequisite: ${requirement}`);
+    else if (!['native_windows', 'cargo', 'vcp_test_git', 'packaged_artifact', 'age_binary', 'minilm_assets', 'second_machine_fixture'].includes(requirement)) reasons.push(`unknown prerequisite: ${requirement}`);
   }
   return reasons;
 }
@@ -151,6 +157,9 @@ function parseArgs(argv) {
 function sourceIdentity() {
   const captured = captureSourceIdentity(repo, [
     'src/tests/contracts/p8-qualification-runner.test.cjs',
+    'src/tests/contracts/p8-envelope-oracle.test.cjs',
+    'src/third_party/components/age-qualification.json',
+    'src/third_party/components/minilm-assets.json',
     'src/third_party/upstreams.toml',
     'src/third_party/components/codex-selection.json',
     'src/third_party/components/munarium-selection.json',
@@ -197,13 +206,14 @@ function runCase(item, manifest, output, options, context) {
   const commandFile = path.join(directory, 'command.json');
   const stdoutFile = path.join(directory, 'stdout.log');
   const stderrFile = path.join(directory, 'stderr.log');
+  const cryptoReceipt = path.join(directory, 'packaged-crypto.json');
   const commandSpec = {schema: 'p8-command/1', case_id: item.id, cwd: command.cwd, program: command.program, args: command.args, environment: {VCP_TEST_GIT: process.env.VCP_TEST_GIT || null, VCP_TEST_SKILL_PACKAGE: process.env.VCP_TEST_SKILL_PACKAGE || null}};
   writeJson(commandFile, commandSpec);
   const launch = options.wrapper ? {program: options.wrapper, args: [...options.wrapperArgs, commandFile], cwd: repo} : {program: command.program, args: command.args, cwd: command.cwd};
   record.launcher = [launch.program, ...launch.args];
   const stdout = fs.openSync(stdoutFile, 'w');
   const stderr = fs.openSync(stderrFile, 'w');
-  const result = spawnSync(launch.program, launch.args, {cwd: launch.cwd, env: process.env, windowsHide: true, timeout: Math.max(1, item.timeout_seconds || manifest.default_timeout_seconds || 1800) * 1000, stdio: ['ignore', stdout, stderr]});
+  const result = spawnSync(launch.program, launch.args, {cwd: launch.cwd, env: {...process.env, VCP_TEST_P803_CRYPTO_REPORT: cryptoReceipt}, windowsHide: true, timeout: Math.max(1, item.timeout_seconds || manifest.default_timeout_seconds || 1800) * 1000, stdio: ['ignore', stdout, stderr]});
   fs.closeSync(stdout); fs.closeSync(stderr);
   record.exit_code = result.status;
   record.signal = result.signal;
@@ -214,7 +224,7 @@ function runCase(item, manifest, output, options, context) {
   record.test_observed = observedPassingTest(command, combinedOutput);
   record.status = result.error || result.status !== 0 || !record.test_observed ? 'fail' : 'pass';
   record.reasons = result.error ? [result.error.message || String(result.error)] : result.status !== 0 ? [`native command exited with status ${result.status}`] : record.test_observed ? [] : [`targeted test did not report an exact passing case: ${expected}`];
-  record.evidence_files = [commandFile, stdoutFile, stderrFile].map(file => ({path: path.relative(output, file).replaceAll(path.sep, '/'), bytes: fs.statSync(file).size, sha256: sha(read(file, MAX_LOG))}));
+  record.evidence_files = [commandFile, stdoutFile, stderrFile, ...(fs.existsSync(cryptoReceipt) ? [cryptoReceipt] : [])].map(file => ({path: path.relative(output, file).replaceAll(path.sep, '/'), bytes: fs.statSync(file).size, sha256: sha(read(file, MAX_LOG))}));
   record.ended_at = new Date().toISOString();
   return record;
 }

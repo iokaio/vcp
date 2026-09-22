@@ -1,9 +1,15 @@
 # Codex selection record
 
 Origin: OpenAI Codex, exact revision
-`3d3ae4965ab370217e871b3a7f0d15589557ee4b`, acquired 2026-09-17.
+`8b78600dc85cc265d7e7e827f6aa903875405287`, acquired 2026-09-22.
 Owner: P0-07 (selection/build) and P0-08 (integration/effect replacement).
 State: imported with bounded P0 integration; not a production VCP runtime.
+
+The [P8-06 maintenance rehearsal](../../../docs/evaluations/p8-upstream-maintenance-2026-09-22.md)
+updates the selected revision while preserving all 36 compatibility patches and
+upstream rights files. Its native results, initial manual dialog interventions and
+subsequent unattended launch-fix qualification are explicit; this does not qualify
+ordinary upstream entry points or enable MXC in VCP.
 
 P2-05 response-boundary adaptation: the same selected Apache-2.0 source in
 `codex-rs/ext/extension-api/src/work_admission.rs`,

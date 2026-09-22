@@ -60,6 +60,9 @@
 These reports describe executed checks with explicit scope and limitations.
 Raw evidence stays in ignored local artifact directories or CI artifacts.
 
+- [P8 current-machine qualification](p8-local-qualification-2026-09-22.md): exact unsigned Windows package, local recovery, encryption and native qualification; owner-directed machine-handoff omission remains explicit.
+- [P8-06 upstream maintenance](p8-upstream-maintenance-2026-09-22.md): independently reconstructed Codex update, unchanged patch series, native boundary checks and the corrected Windows launch-dialog finding.
+
 - [P0-03/P0-05 recovery and Windows execution](p0-03-recovery-execution.md): durable pause/reopen, private CLI controls, effect receipts, native process trees and observed isolation boundaries.
 - [P0-03 continuation admission](p0-03-continuation-admission.md): five new native gate regressions, retained drain compatibility and unfinished pause work.
 - [P0-03 scoped lifecycle](p0-03-scoped-lifecycle.md): local host and retained-controller qualification, with explicit recovery and effect-boundary limitations.

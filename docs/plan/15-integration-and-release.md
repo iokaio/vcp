@@ -1,8 +1,10 @@
 # 15 — Integrated qualification and native Windows release
 
-Status: P5-08 complete with [integrated native memory evidence](../evaluations/p5-08-integrated-memory.md). P8-01 through P8-04 now have an executable matrix, an unsigned Windows distribution candidate and [partial native qualification](../evaluations/p8-native-qualification-2026-09-22.md); clean-machine, second-machine recovery and full integrated acceptance remain open. P8-05 human acceptance and P8-06 maintenance rehearsal remain open. This file contains two stages: memory qualification before P6-04, then final integration after all required CLI features. Do not require the entire file to finish before routing development.
+Status: P5-08 complete with [integrated native memory evidence](../evaluations/p5-08-integrated-memory.md). P8-01 through P8-04 now have an executable matrix, an unsigned Windows distribution candidate and [partial native qualification](../evaluations/p8-native-qualification-2026-09-22.md); clean-machine, second-machine recovery and full integrated acceptance remain open. On September 22 the owner directed this continuation to skip machine handoff and validate on the current workstation; independent-machine and clean-OS evidence remain explicitly not run. P8-06 is complete with the [bounded upstream maintenance rehearsal](../evaluations/p8-upstream-maintenance-2026-09-22.md); P8-05 human acceptance remains open. This file contains two stages: memory qualification before P6-04, then final integration after all required CLI features. Do not require the entire file to finish before routing development.
 
 Use the [qualification and release design](../architecture/qualification-release-design.md) for executable harness, fault-oracle, package and evidence contracts. [ADR-012](../adr/012-clients-and-distribution.md) owns client/platform sequencing, [ADR-018](../adr/018-release-acceptance.md) records the complete usable-release gate, and [ADR-019](../adr/019-cloud-encryption-and-keys.md) retains the still-unqualified crypto choices. Architecture [section 20](../architecture/vcp-what.md#20-testing-evaluation-and-performance) supplies the quality and invariant authority.
+
+The [current-machine qualification report](../evaluations/p8-local-qualification-2026-09-22.md) records the later exact-package, encryption, local restore and native follow-up evidence, including failures and bounded-run limitations.
 
 ## Code and evidence organization
 
@@ -127,6 +129,8 @@ Record the final artifact digest after packaging/signing and install those exact
 Migration first prepares a recoverable snapshot, validates the target format in staging and only then changes the active root. Test old binaries against newer state and refuse unsafe rollback. Signing/certificate availability and artifact format are qualified choices; document missing prerequisites without fabricating signed-release evidence.
 
 ## P8-06 — Upstream maintenance rehearsal
+
+Status: complete. The [September 22 rehearsal](../evaluations/p8-upstream-maintenance-2026-09-22.md) reconstructed the adjacent immutable Codex revision with all 36 patches unchanged, reviewed the full 72-file delta and authority implications, and ran affected retained and VCP suites. The recorded native-launch dialog finding was fixed and closed by three fresh launch regressions plus the exact both-store verification case unattended. Original failures, manual interventions, maintenance effort and remaining P8 qualification limits are preserved in the report.
 
 Use the pinned component manifest to select a representative Codex/Gemini/Munarium update. Review selected code/dependency changes, reapply attributed ports/patches, rebuild and rerun affected upstream plus VCP R suites. Track patch size, failed assumptions and update effort.
 
