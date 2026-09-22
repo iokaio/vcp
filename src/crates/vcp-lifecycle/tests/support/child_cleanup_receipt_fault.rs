@@ -116,7 +116,7 @@ async fn child_cleanup_receipt_hook_error_retains_intent_and_reconciles_both_sto
                     read_paths: BTreeSet::from([String::new()]),
                     helper: Some(HelperTemplate {
                         name: "review".into(),
-                        revision: 1,
+                        revision: HelperTemplate::REVISION,
                     }),
                     objective: "Review retained source".into(),
                     acceptance: vec!["Report source evidence".into()],
@@ -362,7 +362,7 @@ async fn run_cleanup_receipt_fault_child(root: PathBuf, backend: BackendKind) {
                 read_paths: BTreeSet::from([String::new()]),
                 helper: Some(HelperTemplate {
                     name: "review".into(),
-                    revision: 1,
+                    revision: HelperTemplate::REVISION,
                 }),
                 objective: "Review retained source".into(),
                 acceptance: vec!["Report source evidence".into()],

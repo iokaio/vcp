@@ -1,5 +1,9 @@
 # P7 paired live qualification — 2026-09-22
 
+Follow-up: [P7-05 review and generation quality](p7-review-generation-quality-2026-09-22.md)
+records the corrected grader and fresh retests. The observations below remain the
+original campaign results.
+
 The owner authorized a new campaign capped at USD 100, with only necessary spend,
 checkpoint delivery and paired Luna/Qwen testing. Routine future live comparisons
 use both `openai/gpt-5.6-luna` and `qwen/qwen3-coder-next`, with independently

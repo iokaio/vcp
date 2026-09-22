@@ -68,14 +68,56 @@ function demonstrated(reproduction,defect){
  else return false;
  return expected!==actual&&reproduction.expected===expected&&reproduction.actual===actual;
 }
-function gradeReview(answer,expected=rubric){
+// Resolve citations only from retained canonical artifacts. Model-authored maps
+// and path-looking substrings are not authority for an opaque evidence ID.
+function reviewEvidence(state,transcript,evidence,files,taskId){
+ const rows=Object.values(state.records),one=(collection,id)=>{const matches=rows.filter(row=>row.collection===collection&&row.id===id);return matches.length===1?matches[0].value:null;};
+ const task=one('task',taskId),scope=task?.scope;
+ if(!scope||scope.task!==taskId)throw Error('Canonical review task missing');
+ const retained=(item,channel,schema)=>{
+  const descriptor=one('artifact',item?.artifact),bytes=typeof item?.text==='string'?Buffer.from(item.text):null;
+  return descriptor&&bytes&&bytes.length<=1024*1024&&descriptor.spec?.id===item.artifact&&descriptor.state==='complete'&&descriptor.spec.channel===channel&&descriptor.spec.schema===schema&&isDeepStrictEqual(descriptor.spec.scope,scope)&&descriptor.length===String(bytes.length)&&descriptor.sha256===sha(bytes)&&item.sha256===descriptor.sha256&&isDeepStrictEqual(descriptor.retained,[{start:'0',end:String(bytes.length)}]);
+ };
+ if(!retained(transcript,'child_transcript','retained-full-output/1'))throw Error('Canonical review transcript identity mismatch');
+ const workspace=one('workspace',scope.workspace),graph=one('projection',task.root),child=graph?.document_type==='vcp_task_graph_v1'?graph.children?.[taskId]:null;
+ const root=task.parent?child?.isolated_root:scope.workspace,binding=task.parent?child?.binding:workspace?.binding?.revision;
+ if(!root||typeof binding!=='string'||(task.parent&&child?.parent!==task.parent))throw Error('Canonical review source binding missing');
+ const references=new Map(),duplicates=new Set();
+ for(const item of evidence??[]){
+  if(references.has(item?.artifact)||duplicates.has(item?.artifact)){references.delete(item.artifact);duplicates.add(item.artifact);continue;}
+  if(!retained(item,'evidence','vcp-tool-result-v1'))continue;
+  let value;try{value=JSON.parse(item.text);}catch{continue;}
+  const version=value.version,source=version&&sources[version.path];
+  if(typeof source!=='string'||version.root!==root||version.binding!==binding||version.sha256!==files[version.path]||version.bytes!==String(Buffer.byteLength(source))||sha(Buffer.from(source))!==version.sha256||typeof value.text!=='string')continue;
+  const range=value.returned_range;
+  // This fixed review fixture has one relevant line per source. Partial reads
+  // must prove that line was actually returned, not merely hash the whole file.
+  if(range){if(range.start_line!==1||range.end_line!==1||value.text!==source)continue;}
+  else if(value.complete!==true||value.text!==source)continue;
+  references.set(item.artifact,{path:version.path,start:1,end:1});
+ }
+ return {references,files};
+}
+function gradeReview(answer,expected=rubric,context=null){
  if(!answer||!Array.isArray(answer.findings)||answer.findings.length>64)throw Error('Bounded JSON review answer required');
  const valid=f=>f&&['defect','suggestion'].includes(f.kind)&&typeof f.path==='string'&&Number.isInteger(f.line)&&['trigger','consequence','uncertainty'].every(k=>typeof f[k]==='string'&&f[k].trim().length>0&&f[k].length<=2048)&&Array.isArray(f.evidence)&&f.evidence.length>0&&f.evidence.every(x=>typeof x==='string'&&x.length<=1024);
- const defects=answer.findings.filter(f=>f.kind==='defect');
- const matching=(f,d)=>valid(f)&&f.path===d.path&&f.line===d.line&&demonstrated(f.reproduction,d)&&f.introduced_by_change===d.introduced_by_change&&f.evidence.some(e=>e.includes('base/'+d.path));
+ const defects=answer.findings.filter(f=>f?.kind==='defect');
+ const reference=e=>{
+  if(context?.references.has(e))return context.references.get(e);
+  if(Object.hasOwn(sources,e)&&(!context||Object.hasOwn(context.files,e)))return {path:e,start:1,end:1};
+  const match=/^([A-Za-z0-9_./-]+):([1-9][0-9]*)(?:-([1-9][0-9]*))?(?=$|\s|[,;])/.exec(e);
+  if(!match||!Object.hasOwn(sources,match[1])||(context&&!Object.hasOwn(context.files,match[1])))return null;
+  const start=Number(match[2]),end=Number(match[3]??match[2]);
+  return start===1&&end===1?{path:match[1],start,end}:null;
+ };
+ const detected=(f,d)=>valid(f)&&f.path===d.path&&f.line===d.line&&demonstrated(f.reproduction,d);
+ const matching=(f,d)=>detected(f,d)&&f.introduced_by_change===d.introduced_by_change&&f.evidence.some(e=>reference(e)?.path==='base/'+d.path);
  const hits=expected.defects.filter(d=>defects.some(f=>matching(f,d))).length;
- const falsePositives=defects.filter(f=>!expected.defects.some(d=>matching(f,d))).length;
- return {pass:answer.findings.every(valid)&&hits===expected.minimum_seeded&&falsePositives<=expected.maximum_false_positives,seeded_found:hits,seeded_total:expected.minimum_seeded,false_positives:falsePositives,manual_evidence_usefulness_review_required:true};
+ const noticed=expected.defects.filter(d=>defects.some(f=>detected(f,d))).length;
+ const falsePositives=defects.filter(f=>!expected.defects.some(d=>detected(f,d))).length;
+ const unqualified=defects.filter(f=>expected.defects.some(d=>detected(f,d))&&!expected.defects.some(d=>matching(f,d))).length;
+ const duplicates=expected.defects.reduce((count,d)=>count+Math.max(0,defects.filter(f=>detected(f,d)).length-1),0);
+ return {pass:answer.findings.every(valid)&&hits===expected.minimum_seeded&&falsePositives<=expected.maximum_false_positives&&unqualified===0&&duplicates===0,seeded_found:hits,seeded_detected:noticed,seeded_total:expected.minimum_seeded,false_positives:falsePositives,unqualified_findings:unqualified,duplicate_findings:duplicates,manual_evidence_usefulness_review_required:true};
 }
 function accounting(state,cap,root,child){
  const rows=Object.values(state.records),of=c=>rows.filter(r=>r.collection===c).map(r=>r.value),ledgers=of('ledger'),attempts=of('attempt'),settlements=of('settlement');
@@ -169,8 +211,8 @@ function run(file,authorization){
    if(plan.stage==='review'){
     if(JSON.stringify(inventory(path.join(base,'workspace')))!==JSON.stringify(arm.files))throw Error('Read-only review changed parent source or index');
     if(adapter.result.child){const child=path.join(base,'children',adapter.result.child),observed=inventory(child);delete observed['.vcp-child-owner'];if(!isDeepStrictEqual(observed,arm.files))throw Error('Read-only review changed isolated source or index');}
-    const answers=adapter.result.transcripts.flatMap(t=>{try{return [JSON.parse(t.text)];}catch{return [];}}).filter(x=>Array.isArray(x.findings));
-    record.quality=answers.length===1?gradeReview(answers[0],JSON.parse(read(path.join(plan.directory,'private-rubric.json')))):{pass:false,reason:'Expected one unambiguous retained JSON review answer'};
+    const answers=adapter.result.transcripts.flatMap(transcript=>{try{return [{answer:JSON.parse(transcript.text),transcript}];}catch{return [];}}).filter(x=>Array.isArray(x.answer.findings));
+    record.quality=answers.length===1?gradeReview(answers[0].answer,JSON.parse(read(path.join(plan.directory,'private-rubric.json'))),reviewEvidence(state,answers[0].transcript,adapter.result.evidence,arm.files,adapter.result.child??config.root_task)):{pass:false,reason:'Expected one unambiguous retained JSON review answer'};
    }else record.quality=generationGrade(plan,base,arm,adapter,state);
    record.status=record.quality.pass?'passed':'failed';
   }catch(error){record.reason=error.message;report.stopped=true;if(record.actual_cost_micros===null)report.actual_cost_micros=null;}
@@ -178,5 +220,5 @@ function run(file,authorization){
  }
  write(path.join(plan.directory,'result.json'),report);return report;
 }
-module.exports={prepare,validate,run,gradeReview,accounting,sources,rubric,workspaceGitState,prepareWorkspaceGit,gitEnvironment,gitRun,adapterEnvironment,invokeAdapter,stderrSummary,humanNote};
+module.exports={prepare,validate,run,gradeReview,reviewEvidence,accounting,sources,rubric,workspaceGitState,prepareWorkspaceGit,gitEnvironment,gitRun,adapterEnvironment,invokeAdapter,stderrSummary,humanNote};
 if(require.main===module){try{const [command,file,extra,...rest]=process.argv.slice(2);if(rest.length||!file||!extra||!['prepare','run'].includes(command))throw Error('Usage: delegation-live-runner.cjs prepare <spec> <new-private-dir> | run <plan> <authorized-sha256>');const output=command==='prepare'?prepare(file,extra):run(file,extra);console.log(JSON.stringify(output));if(command==='run'&&(output.stopped||output.arms.some(arm=>arm.status!=='passed')))process.exitCode=1;}catch(error){console.error(error.message);process.exitCode=1;}}

@@ -44,14 +44,24 @@ pub struct HelperTemplate {
     pub revision: u32,
 }
 impl HelperTemplate {
-    pub const REVISION: u32 = 1;
+    pub const REVISION: u32 = 2;
     pub fn guidance(&self) -> Result<&'static str, String> {
         if self.revision != Self::REVISION {
             return Err("helper template revision is stale; select the current template".into());
         }
         match self.name.as_str() {
             "explore" => Ok("Explore the assigned read scope. Return relevant source paths and line ranges, supporting evidence and a short synthesis. Report missing inputs and uncertainty. Do not execute processes or edit files."),
-            "review" => Ok("Review the assigned read scope. Report supported findings with location, trigger, consequence, evidence and uncertainty. Distinguish demonstrated defects from suggestions. Change causality is unknown without base comparison or other evidence. No findings means no supported findings in this scope, not guaranteed correctness. Do not execute processes or edit files."),
+            "review" => Ok(concat!(
+                "Review the assigned read scope. First read the affected contract and the supplied current/base sources. ",
+                "Trace each candidate trigger through both versions before assigning causality: introduced means the current version fails where the base did not; pre_existing means the same defect is present in both. ",
+                "Use unknown only when comparison evidence is unavailable or inconclusive, and explain the missing evidence. ",
+                "Check that each trigger belongs to the contract's supported input domain. Unspecified behavior for unsupported inputs is not a demonstrated defect; keep such suggestions separate from findings. ",
+                "Inspect benign neighboring behavior as a control and do not invent findings to fill a quota. ",
+                "Report supported findings with location, concrete input, expected and actual behavior, consequence, evidence and uncertainty. ",
+                "Cite the contract and both examined source versions using readable paths/ranges and retained evidence artifact IDs when available. ",
+                "Distinguish static reasoning from executed reproduction; do not claim checks ran without their results. ",
+                "State the examined scope and remaining uncertainty. No findings means no supported findings in this scope, not guaranteed correctness. Do not execute processes or edit files."
+            )),
             _ => Err("unknown helper template; choose explore or review".into()),
         }
     }
@@ -351,8 +361,10 @@ mod tests {
             child.read_paths = BTreeSet::from(["src".into()]);
             assert!(child.validate().is_err());
             child.read_paths = default_read_paths();
-            child.helper.as_mut().unwrap().revision = 0;
-            assert!(child.validate().is_err());
+            for stale in [0, 1] {
+                child.helper.as_mut().unwrap().revision = stale;
+                assert!(child.validate().is_err(), "stale helper revision {stale}");
+            }
             child.helper.as_mut().unwrap().revision = HelperTemplate::REVISION;
             child.required_checks.push("process#test".into());
             assert!(child.validate().is_err());

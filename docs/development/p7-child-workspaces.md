@@ -136,6 +136,13 @@ the template name, revision and exact guidance. A stale template revision fails
 before graph creation. Explicit JSON specifications remain supported, including
 optional free-form `role`, `read_paths` and versioned `helper` fields.
 
+Helper revision 2 asks reviewers to trace contract-valid inputs through both
+base and current source, cite the examined evidence, and separate unspecified
+out-of-domain behavior from demonstrated defects. A missing or inconclusive
+comparison remains unknown causality. Isolated children also receive the shared
+root request ceiling and their actual process-check limitations before dispatch,
+with guidance to reuse unchanged source and prepare correctly formatted patches.
+
 Currently `.` (the captured snapshot) is the supported helper read scope. Narrower
 scopes fail explicitly because context assembly requires whole-snapshot read
 authority; a requested narrow scope is never silently broadened. Untracked inputs
@@ -145,7 +152,8 @@ installation or model switch is implied by selecting a helper.
 `/agents` reports recorded materialization readiness separately from unavailable
 child process verification, lists declared checks not run and retains the setup
 reason. A recorded readiness receipt still requires native identity revalidation
-before dispatch. Helper comparison and live usefulness qualification remain open.
+before dispatch. [Luna's revised review comparison passes](../evaluations/p7-review-generation-quality-2026-09-22.md);
+paired Qwen usefulness qualification remains open.
 
 Deliberate cleanup uses `/agents cleanup preview <task> <absolute-git.exe>`,
 then `/agents cleanup apply <task>`. The child must be terminal and have no

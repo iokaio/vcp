@@ -23,9 +23,62 @@ test('independent review rubric detects introduced and pre-existing bugs, reject
  const falsePositive={...findings()[0],path:'receipt.cjs'};
  assert.equal(runner.gradeReview({findings:[...findings(),falsePositive]}).false_positives,1);
  const ungrounded=findings();ungrounded[0].evidence=['shipping.cjs:1'];assert.equal(runner.gradeReview({findings:ungrounded}).pass,false);
+ const duplicate=runner.gradeReview({findings:[...findings(),findings()[0]]});assert.equal(duplicate.pass,false);assert.equal(duplicate.duplicate_findings,1);assert.equal(duplicate.false_positives,0);
+ assert.equal(runner.gradeReview({findings:[...findings(),null]}).pass,false);
  const alternate=findings();alternate[1].reproduction={arguments:[15,10],expected:2,actual:1};assert.equal(runner.gradeReview({findings:alternate}).pass,true);
  alternate[1].reproduction.actual=0;assert.equal(runner.gradeReview({findings:alternate}).pass,false);
  alternate[1].reproduction={arguments:[20,10],expected:2,actual:2};assert.equal(runner.gradeReview({findings:alternate}).pass,false);
+});
+function reviewEvidenceFixture(child=false){
+ const sha=bytes=>require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+ const scope={workspace:'workspace',session:'session',task:child?'child':'root'},sourceRoot=child?'isolated':'workspace';
+ const records={task:{collection:'task',id:scope.task,value:{scope,root:'root',parent:child?'root':null}},workspace:{collection:'workspace',id:'workspace',value:{binding:{revision:'0'}}}};
+ if(child)records.graph={collection:'projection',id:'root',value:{document_type:'vcp_task_graph_v1',children:{child:{parent:'root',isolated_root:'isolated',binding:'0'}}}};
+ const capture=(id,text,channel,schema)=>{const digest=sha(text),length=String(Buffer.byteLength(text));records[id]={collection:'artifact',id,value:{state:'complete',length,retained:[{start:'0',end:length}],sha256:digest,spec:{id,scope:{...scope},channel,schema}}};return {artifact:id,sha256:digest,text};};
+ const answer={findings:findings()},files=Object.fromEntries(Object.entries(runner.sources).map(([name,text])=>[name,sha(text)]));
+ const evidence=Object.entries(runner.sources).map(([name,text],index)=>capture('evidence-'+index,JSON.stringify({complete:true,text,version:{root:sourceRoot,binding:'0',path:name,bytes:String(Buffer.byteLength(text)),sha256:files[name]}}),'evidence','vcp-tool-result-v1'));
+ for(const finding of answer.findings)finding.evidence=[evidence.find(item=>JSON.parse(item.text).version.path==='base/'+finding.path).artifact];
+ const transcript=capture('transcript',JSON.stringify(answer),'child_transcript','retained-full-output/1');
+ return {answer,state:{records},transcript,evidence,files,task:scope.task,capture};
+}
+const evidenceContext=f=>runner.reviewEvidence(f.state,f.transcript,f.evidence,f.files,f.task);
+test('canonical evidence IDs resolve for the exact baseline or isolated child source revision',()=>{
+ for(const child of [false,true]){
+  const f=reviewEvidenceFixture(child),quality=runner.gradeReview(f.answer,runner.rubric,evidenceContext(f));
+  assert.equal(quality.pass,true);assert.equal(quality.seeded_detected,2);assert.equal(quality.false_positives,0);
+  f.answer.findings[0].introduced_by_change='unknown';const unqualified=runner.gradeReview(f.answer,runner.rubric,evidenceContext(f));
+  assert.equal(unqualified.pass,false);assert.equal(unqualified.seeded_found,1);assert.equal(unqualified.seeded_detected,2);assert.equal(unqualified.unqualified_findings,1);assert.equal(unqualified.false_positives,0);
+ }
+});
+test('review evidence rejects forged, foreign, missing, partial and stale canonical citations',()=>{
+ const mutations=[
+  f=>f.answer.findings[0].evidence=['unknown-evidence'],
+  f=>f.evidence.splice(2,1),
+  f=>f.state.records['evidence-2'].value.spec.scope.task='foreign',
+  f=>f.state.records['evidence-2'].value.spec.scope.session='foreign',
+  f=>f.state.records['evidence-2'].value.spec.scope.workspace='foreign',
+  f=>f.state.records['evidence-2'].value.state='aborted',
+  f=>f.state.records['evidence-2'].value.retained=[{start:'1',end:f.state.records['evidence-2'].value.length}],
+  f=>f.state.records['evidence-2'].value.sha256='0'.repeat(64),
+  f=>f.evidence[2].text+=' ',
+  f=>f.evidence.push({...f.evidence[2]}),
+  f=>f.files['base/shipping.cjs']='0'.repeat(64),
+  ...[v=>v.version.root='foreign',v=>v.version.binding='1',v=>v.version.sha256='0'.repeat(64),v=>v.version.bytes='0',v=>v.complete=false,v=>v.text='unrelated',v=>v.returned_range={start_line:2,end_line:2}].map(mutate=>f=>{const value=JSON.parse(f.evidence[2].text);mutate(value);f.evidence[2]=f.capture('evidence-2',JSON.stringify(value),'evidence','vcp-tool-result-v1');}),
+ ];
+ for(const mutate of mutations){const f=reviewEvidenceFixture();mutate(f);const quality=runner.gradeReview(f.answer,runner.rubric,evidenceContext(f));assert.equal(quality.pass,false,String(mutate));assert.equal(quality.seeded_found,1);assert.equal(quality.unqualified_findings,1);assert.equal(quality.false_positives,0);}
+});
+test('review transcript must belong to the canonical grading task and retain exact bytes',()=>{
+ for(const mutate of [f=>f.transcript.text+=' ',f=>f.state.records.transcript.value.spec.scope.task='foreign',f=>f.state.records.transcript.value.spec.channel='evidence',f=>f.task='missing']){
+  const f=reviewEvidenceFixture();mutate(f);assert.throws(()=>evidenceContext(f),/Canonical review/);
+ }
+});
+test('literal review citations are exact bounded source references, never path substrings',()=>{
+ for(const ref of ['unrelated/base/shipping.cjs:1','not base/shipping.cjs:1','base/shipping.cjs:99','base/shipping.cjs:1fake','../base/shipping.cjs:1','base/shipping.cjs:1-2','base/shipping.cjs:1-2, artifact UUID','base/shipping.cjs:1fake; artifact UUID','base/shipping.cjs:1/elsewhere']){
+  const answer={findings:findings()};answer.findings[0].evidence=[ref];assert.equal(runner.gradeReview(answer).pass,false,ref);
+ }
+ const answer={findings:findings()};answer.findings[0].evidence=['base/shipping.cjs:1 uses the inclusive boundary'];assert.equal(runner.gradeReview(answer).pass,true);
+ for(const delimiter of [',',';']){answer.findings[0].evidence=[`base/shipping.cjs:1${delimiter} artifact UUID — uses the inclusive boundary`];assert.equal(runner.gradeReview(answer).pass,true);}
+ answer.findings[0].evidence=['base/shipping.cjs'];assert.equal(runner.gradeReview(answer).pass,true);
 });
 function state(){return {records:{ledger:{collection:'ledger',value:{currency:'USD',cap:'1000',active:'0',unresolved:'0',settled:'30',overrun:false}},root:{collection:'attempt',value:{id:'a',scope:{task:'root'},phase:'settled',role:'main',charged:'10'}},child:{collection:'attempt',value:{id:'b',scope:{task:'child'},phase:'settled',role:'child',charged:'20'}},sa:{collection:'settlement',value:{attempt:'a',applied:true,observation:{final_usage:true}}},sb:{collection:'settlement',value:{attempt:'b',applied:true,observation:{final_usage:true}}}}};}
 test('root accounting includes retained child and rejects unknown, missing or foreign support cost',()=>{

@@ -8,6 +8,11 @@ native regression, actual Luna/Qwen review and generation observations, and live
 terminal evidence. The earlier mock-provider results below remain historical
 component evidence, not substitutes for that campaign's failed or open gates.
 
+The [P7-05 quality retest](p7-review-generation-quality-2026-09-22.md) corrects
+evidence-reference grading and qualifies Luna's revised review guidance. Qwen's
+paired usefulness gate remains open; provider failures and invalid tool arguments
+are retained separately from review quality findings.
+
 The native campaign uses `scripts/test-delegation.ps1` with Rust 1.95.0 and the
 installed Visual Studio x64 tools. Its manifest binds source inputs and stage
 logs, and refuses a passing result when inputs change during the run. All model
