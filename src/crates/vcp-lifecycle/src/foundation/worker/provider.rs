@@ -79,8 +79,8 @@ impl Context {
         if !self.coding.is_empty() {
             return Err("provider refresh requires fresh coding owner setup".into());
         }
-        if timeout.is_zero() || timeout > Duration::from_secs(120) {
-            return Err("provider deadline must be within 120 seconds".into());
+        if timeout.is_zero() || timeout > Duration::from_secs(180) {
+            return Err("provider deadline must be within 180 seconds".into());
         }
         snapshot.current(now())?;
         if snapshot

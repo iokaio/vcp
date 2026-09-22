@@ -72,7 +72,10 @@ test('P7 coding bounds are independent of frozen P6 and reject invalid capacity 
   for(const overrides of [
     {max_requests:0},{max_requests:17},{max_requests:1.5},
     {deadline_seconds:0},{deadline_seconds:1801},{deadline_seconds:NaN},
-    {output_tokens:undefined},{output_tokens:'0'},{output_tokens:'4097'},{output_tokens:'8192'},
+    {provider_timeout_seconds:0},{provider_timeout_seconds:181},{provider_timeout_seconds:1.5},
+    {provider_timeout_seconds:'180'},{provider_timeout_seconds:null},{provider_timeout_seconds:NaN},
+    {provider_timeout_seconds:180,deadline_seconds:179},
+    {output_tokens:undefined},{output_tokens:'0'},{output_tokens:'16385'},{output_tokens:'16384'},
     {output_tokens:'04096'},{output_tokens:4096},{output_tokens:'Infinity'},
     {output_tokens:'9007199254740992'},
     {provider:{...valid.provider,max_output:'4095'}},
@@ -96,7 +99,24 @@ test('P7 coding bounds are independent of frozen P6 and reject invalid capacity 
     assert.throws(f.prepare);
     assert.equal(fs.existsSync(path.join(f.root,'trial')),false);
   }
-  for(const [max_requests,deadline_seconds,output_tokens]of [[1,1,'1'],[16,1800,'4096']])assert.deepEqual(runner.profileReasons({...valid,max_requests,deadline_seconds,output_tokens},now),[]);
+  for(const [max_requests,deadline_seconds,output_tokens]of [[1,1,'1'],[16,1800,'4096'],[16,900,'8192']])assert.deepEqual(runner.profileReasons({...valid,max_requests,deadline_seconds,output_tokens},now),[]);
+  assert.deepEqual(runner.profileReasons({...valid,output_tokens:'16384',provider:{...valid.provider,max_output:'16384'}},now),[]);
+  for(const provider_timeout_seconds of [1,120,180])assert.deepEqual(runner.profileReasons({...valid,provider_timeout_seconds},now),[]);
+});
+
+test('reasoning allowance is explicit, provider-bounded and frozen into every prepared arm',t=>{
+  const f=setup(t);f.profile.output_tokens='16384';f.profile.provider.max_output='32768';f.profile.provider_timeout_seconds=180;
+  fs.writeFileSync(f.profileFile,JSON.stringify(f.profile));
+  const prepared=f.prepare(),plan=JSON.parse(fs.readFileSync(prepared.plan));
+  runner.validate(plan,prepared.plan);
+  for(const row of plan.runs){
+    const profile=JSON.parse(fs.readFileSync(path.join(plan.directory,row.id,'profile.json')));
+    assert.equal(profile.output_tokens,'16384');assert.equal(profile.max_requests,16);assert.equal(profile.max_transport_retries,0);
+    assert.equal(profile.provider_timeout_seconds,180);assert.equal(profile.deadline_seconds,900);
+  }
+  const file=path.join(plan.directory,plan.runs[0].id,'profile.json');
+  const changed=JSON.parse(fs.readFileSync(file));changed.output_tokens='32768';fs.writeFileSync(file,JSON.stringify(changed));
+  assert.throws(()=>runner.run(prepared.plan,prepared.sha256,()=>assert.fail('changed allowance must not dispatch')),/profile|inputs changed/i);
 });
 
 test('runner revision changes require a fresh exact plan before any dispatch',t=>{

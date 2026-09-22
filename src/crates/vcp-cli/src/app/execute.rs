@@ -395,7 +395,7 @@ pub(super) async fn execute(
         for process in prepared.processes{host.configure_process_profile(process)?;}
         for server in &prepared.profile.mcp { host.configure_mcp(server.registration())?; }
         crate::mcp::configure_http(&host, &config.workspace, &prepared.profile.mcp_http, prepared.profile.deadline_seconds)?;
-        host.configure_provider(prepared.profile.provider.clone(),prepared.raw_catalog)?;
+        host.configure_provider_with_timeout(prepared.profile.provider.clone(),prepared.raw_catalog,prepared.profile.provider_timeout()?)?;
         if let Some(routing) = prepared.profile.routing.clone() { host.configure_routing(routing)?; }
         if let Some(decisions) = &prepared.profile.decisions { decisions.install(&host)?; }
         host.configure_skills(crate::skills::prepare(&prepared.profile,&config)?)?;

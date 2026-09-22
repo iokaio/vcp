@@ -276,9 +276,22 @@ parameter. This does not infer supported levels from a model name.
 
 Trusted startup profiles can also set `"output_tokens":"512"` and
 `"max_transport_retries":0` for fixed-provider trials. Omitting those fields
-preserves the existing 4096-token maximum (bounded by provider capacity) and two
-transport retries. Startup rejects zero or above-4096 output limits and more than
-two retries. A selected policy can only narrow these trusted limits.
+preserves the existing 4096-token output allowance (bounded by provider capacity)
+and two transport retries. An explicit output allowance can be 1..16384 tokens,
+clamped to the qualified provider maximum. This is total output, including any
+reasoning tokens; it does not reserve a separate answer quota or select reasoning
+effort. Startup rejects zero or above-16384 output limits and more than two
+retries. A selected policy can only narrow these trusted limits. Evaluation plans
+freeze their explicit allowance; changing it requires a fresh plan and does not
+change historical results.
+
+Reasoning-heavy fixed-provider trials can also explicitly set
+`"provider_timeout_seconds":180`. Omitting it preserves the 120-second response
+timeout. Explicit values must be 1..180 and no greater than `deadline_seconds`;
+every in-flight response is also bounded by the remaining configured coding deadline.
+This does not extend the overall task deadline, enable retries or change process,
+MCP or decision-service timeouts. An interrupted submitted response retains its
+unknown-charge reservation until reconciled.
 
 `--retrieval-limits RESULTS TOKENS BYTES` restricts explicit memory-context
 queries; `inherit` clears the project preference. Each bound is clamped to the

@@ -164,7 +164,7 @@ async fn main() -> Result<()> {
         host.command(Command::Transition{next:TaskState::Running,reason:"explicit frozen delegation qualification".into(),verification:None},Some(config.root_task.clone()),Revision::ZERO)?;
         host.initialize_root_budget()?;
         for process in prepared.processes {host.configure_process_profile(process)?;}
-        host.configure_provider(prepared.profile.provider.clone(),prepared.raw_catalog)?;
+        host.configure_provider_with_timeout(prepared.profile.provider.clone(),prepared.raw_catalog,prepared.profile.provider_timeout()?)?;
         host.configure_skills(vcp_cli::skills::prepare(&prepared.profile,&config)?)?;
         let credential=vcp_engine::capture::ProviderCredential::from_config(std::env::var("OPENROUTER_API_KEY")?);
         let mut retained=vcp_cli::session::configuration(&spec.directory.join("retained"),&workspace,&credential,&prepared.profile.provider.compatibility.model).await?;

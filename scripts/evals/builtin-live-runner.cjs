@@ -27,19 +27,21 @@ function packaged(executable) {
   if(JSON.stringify(observed)!==JSON.stringify(expected)) throw Error('Exact current packaged skill assets required beside executable');
   return observed;
 }
-// P7 coding observations need enough output for complete edits. Keep this gate
-// separate from P6's immutable 512-token smoke cohort; plan hashes bind it.
+// P7 coding observations need explicit room for reasoning and complete edits.
+// The allowance counts all output, including reasoning; it is not an answer quota.
+// Keep this separate from P6's immutable 512-token smoke cohort; plan hashes bind it.
 function fixedProfileReasons(profile,now=Date.now()) {
   const reasons=[];
   const decimal=value=>typeof value==='string'&&/^(0|[1-9][0-9]*)$/.test(value)&&Number.isSafeInteger(Number(value))?Number(value):NaN;
   if(profile.version!==1||profile.trust_workspace!==true)reasons.push('explicit trusted profile required');
   if(!Number.isSafeInteger(profile.max_requests)||profile.max_requests<1||profile.max_requests>16||!Number.isSafeInteger(profile.deadline_seconds)||profile.deadline_seconds<1||profile.deadline_seconds>1800)reasons.push('P7 trial needs 1..16 requests and 1..1800 second deadline');
+  if(profile.provider_timeout_seconds!==undefined&&(!Number.isSafeInteger(profile.provider_timeout_seconds)||profile.provider_timeout_seconds<1||profile.provider_timeout_seconds>180||profile.provider_timeout_seconds>profile.deadline_seconds))reasons.push('Explicit provider timeout must be 1..180 seconds within the task deadline');
   if(profile.processes?.length||profile.checks?.length||profile.mcp?.length||profile.mcp_http?.length||profile.skills||profile.decisions||profile.qualification_endpoint)reasons.push('external tools, skills, evaluators, executable checks and endpoint overrides are outside the source profile');
   if(profile.routing||profile.max_transport_retries!==0)reasons.push('Use one fixed qualified provider, without routing or retries');
   const snapshot=profile.provider;
   if(!snapshot||!(decimal(snapshot.valid_until)>now)||!(decimal(snapshot.compatibility?.valid_until)>now)||!(decimal(snapshot.price?.valid_until)>now)||snapshot.price?.currency!=='USD'||snapshot.compatibility?.responses_text_tools!==true||snapshot.compatibility?.provider_preferences_qualified!==true)reasons.push('current qualified USD provider snapshot and price required');
   const requested=decimal(profile.output_tokens),available=decimal(snapshot?.max_output);
-  if(!(requested>=1&&requested<=4096&&available>=requested))reasons.push('P7 profile must explicitly request 1..4096 output tokens within the CLI startup ceiling and qualified provider maximum');
+  if(!(requested>=1&&requested<=16384&&available>=requested))reasons.push('P7 profile must explicitly request 1..16384 total output tokens (including reasoning) within the CLI startup ceiling and qualified provider maximum');
   return reasons;
 }
 function profileReasons(profile,now=Date.now()) {

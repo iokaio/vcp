@@ -6,6 +6,7 @@ use std::{
     fs,
     io::Read,
     path::{Path, PathBuf},
+    time::Duration,
 };
 use vcp_domain::{
     policy::{Autonomy, EffectClass, Isolation},
@@ -42,6 +43,8 @@ pub struct Profile {
     pub max_requests: u32,
     #[serde(default)]
     pub output_tokens: Option<Units>,
+    #[serde(default)]
+    pub provider_timeout_seconds: Option<u32>,
     #[serde(default = "vcp_lifecycle::foundation::default_max_transport_retries")]
     pub max_transport_retries: u32,
     pub deadline_seconds: u32,
@@ -219,11 +222,29 @@ fn startup_output_ceiling(
     selected: Option<Units>,
     provider_maximum: Units,
 ) -> Result<Units, String> {
+    // Larger reasoning budgets require an explicit profile selection; retain
+    // the existing default for profiles that omit output_tokens.
     let selected = selected.unwrap_or(Units::new(4096));
-    if selected == Units::ZERO || selected.get() > 4096 || provider_maximum == Units::ZERO {
-        return Err("startup output tokens must be 1..4096 within provider capacity".into());
+    if selected == Units::ZERO || selected.get() > 16384 || provider_maximum == Units::ZERO {
+        return Err("startup output tokens must be 1..16384 within provider capacity".into());
     }
     Ok(Units::new(selected.get().min(provider_maximum.get())))
+}
+
+fn startup_provider_timeout(
+    selected: Option<u32>,
+    deadline_seconds: u32,
+) -> Result<Duration, String> {
+    match selected {
+        Some(seconds) if seconds == 0 || seconds > 180 || seconds > deadline_seconds => Err(
+            "explicit provider timeout must be 1..180 seconds and not exceed the task deadline"
+                .into(),
+        ),
+        Some(seconds) => Ok(Duration::from_secs(u64::from(seconds))),
+        // Preserve legacy profiles, including tasks shorter than 120 seconds;
+        // the task deadline remains an independent cancellation boundary.
+        None => Ok(Duration::from_secs(120)),
+    }
 }
 
 #[cfg(test)]
@@ -270,7 +291,7 @@ mod request_limit_tests {
     #[test]
     fn startup_output_is_bounded_and_legacy_default_is_preserved() {
         assert_eq!(
-            startup_output_ceiling(None, Units::new(8000)).unwrap(),
+            startup_output_ceiling(None, Units::new(32768)).unwrap(),
             Units::new(4096)
         );
         assert_eq!(
@@ -285,10 +306,47 @@ mod request_limit_tests {
             startup_output_ceiling(Some(Units::new(512)), Units::new(256)).unwrap(),
             Units::new(256)
         );
-        for output in [0, 4097, u64::MAX] {
-            assert!(startup_output_ceiling(Some(Units::new(output)), Units::new(8000)).is_err());
+        for output in [1, 4097, 16384] {
+            assert_eq!(
+                startup_output_ceiling(Some(Units::new(output)), Units::new(32768)).unwrap(),
+                Units::new(output)
+            );
+        }
+        assert_eq!(
+            startup_output_ceiling(Some(Units::new(16384)), Units::new(8000)).unwrap(),
+            Units::new(8000)
+        );
+        for output in [0, 16385, u64::MAX] {
+            assert!(startup_output_ceiling(Some(Units::new(output)), Units::new(32768)).is_err());
         }
         assert!(startup_output_ceiling(None, Units::ZERO).is_err());
+        assert!(startup_output_ceiling(Some(Units::new(16384)), Units::ZERO).is_err());
+    }
+
+    #[test]
+    fn provider_timeout_preserves_default_and_bounds_explicit_selection() {
+        for deadline in [60, 900] {
+            assert_eq!(
+                startup_provider_timeout(None, deadline).unwrap(),
+                Duration::from_secs(120)
+            );
+        }
+        for seconds in [1, 60, 120, 180] {
+            assert_eq!(
+                startup_provider_timeout(Some(seconds), 900).unwrap(),
+                Duration::from_secs(u64::from(seconds))
+            );
+        }
+        assert_eq!(
+            startup_provider_timeout(Some(60), 60).unwrap(),
+            Duration::from_secs(60)
+        );
+        for seconds in [0, 181, u32::MAX] {
+            assert!(startup_provider_timeout(Some(seconds), 3600).is_err());
+        }
+        assert!(startup_provider_timeout(Some(61), 60).is_err());
+        assert!(startup_provider_timeout(Some(180), 179).is_err());
+        assert!(startup_provider_timeout(Some(1), 0).is_err());
     }
 
     #[test]
@@ -311,6 +369,8 @@ mod request_limit_tests {
         let old: Profile = serde_json::from_value(legacy.clone()).unwrap();
         assert_eq!(old.output_tokens, None);
         assert_eq!(old.output_ceiling().unwrap(), Units::new(4096));
+        assert_eq!(old.provider_timeout_seconds, None);
+        assert_eq!(old.provider_timeout().unwrap(), Duration::from_secs(120));
         assert_eq!(old.max_transport_retries, 2);
         let mut selected = legacy;
         selected["output_tokens"] = serde_json::json!("512");
@@ -318,6 +378,27 @@ mod request_limit_tests {
         let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
         assert_eq!(configured.output_ceiling().unwrap(), Units::new(512));
         assert_eq!(configured.max_transport_retries, 0);
+        selected["output_tokens"] = serde_json::json!("16384");
+        let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
+        assert_eq!(configured.output_tokens, Some(Units::new(16384)));
+        assert_eq!(configured.output_ceiling().unwrap(), Units::new(8000));
+        selected["provider"]["max_output"] = serde_json::json!("32768");
+        let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
+        assert_eq!(configured.output_ceiling().unwrap(), Units::new(16384));
+        assert_eq!(configured.max_transport_retries, 0);
+        selected["provider_timeout_seconds"] = serde_json::json!(180);
+        let invalid: Profile = serde_json::from_value(selected.clone()).unwrap();
+        assert!(invalid.provider_timeout().is_err());
+        assert!(
+            matches!(invalid.prepare(Autonomy::Autonomous), Err(reason) if reason.contains("explicit provider timeout"))
+        );
+        selected["deadline_seconds"] = serde_json::json!(900);
+        let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
+        assert_eq!(configured.provider_timeout_seconds, Some(180));
+        assert_eq!(
+            configured.provider_timeout().unwrap(),
+            Duration::from_secs(180)
+        );
         selected["max_transport_retries"] = serde_json::json!(3);
         let invalid: Profile = serde_json::from_value(selected).unwrap();
         assert!(
@@ -331,8 +412,13 @@ impl Profile {
         startup_output_ceiling(self.output_tokens, self.provider.max_output)
     }
 
+    pub fn provider_timeout(&self) -> Result<Duration, String> {
+        startup_provider_timeout(self.provider_timeout_seconds, self.deadline_seconds)
+    }
+
     pub fn prepare(self, requested: Autonomy) -> Result<PreparedProfile, String> {
         self.output_ceiling()?;
+        self.provider_timeout()?;
         if self.max_transport_retries > 2 {
             return Err("transport retry ceiling must be 0..2".into());
         }
