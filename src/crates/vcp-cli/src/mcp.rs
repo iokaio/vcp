@@ -131,15 +131,54 @@ impl HttpServer {
 }
 
 #[cfg(windows)]
-pub fn configure_http(
+pub(crate) struct PreparedHttp {
+    server: HttpServer,
+    credential: Option<vcp_lifecycle::foundation::mcp::remote_authority::CredentialMaterial>,
+}
+
+/// Resolve trusted references before accepting a task. Material remains owned,
+/// zeroizing and memory-only until installed under the actual canonical owner.
+#[cfg(windows)]
+pub(crate) fn prepare_http(servers: &[HttpServer]) -> Result<Vec<PreparedHttp>, String> {
+    prepare_http_with(servers, |name| std::env::var(name).map_err(|_| ()))
+}
+
+#[cfg(windows)]
+fn prepare_http_with(
+    servers: &[HttpServer],
+    mut resolve: impl FnMut(&str) -> Result<String, ()>,
+) -> Result<Vec<PreparedHttp>, String> {
+    use vcp_lifecycle::foundation::mcp::remote_authority::CredentialMaterial;
+    servers
+        .iter()
+        .map(|server| {
+            let credential = server
+                .credential
+                .as_ref()
+                .map(|source| {
+                    // No enumeration/fallback and no raw secret-bearing diagnostic.
+                    let value = resolve(&source.environment)
+                        .map_err(|_| "configured MCP credential variable is unavailable")?;
+                    CredentialMaterial::bearer(value)
+                        .map_err(|_| "configured MCP credential format rejected")
+                })
+                .transpose()?;
+            Ok(PreparedHttp {
+                server: server.clone(),
+                credential,
+            })
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+pub(crate) fn configure_http(
     host: &vcp_lifecycle::foundation::CanonicalHost,
     workspace: &vcp_domain::WorkspaceId,
-    servers: &[HttpServer],
+    servers: Vec<PreparedHttp>,
     deadline_seconds: u32,
 ) -> Result<(), String> {
-    use vcp_lifecycle::foundation::mcp::{
-        remote_authority::CredentialMaterial, RemoteRegistration,
-    };
+    use vcp_lifecycle::foundation::mcp::RemoteRegistration;
     if deadline_seconds == 0 || deadline_seconds > 3600 {
         return Err("MCP HTTP credential lifetime exceeds run bounds".into());
     }
@@ -147,7 +186,7 @@ pub fn configure_http(
         .get()
         .checked_add(u64::from(deadline_seconds) * 1000)
         .ok_or("MCP HTTP credential expiry overflow")?;
-    for server in servers {
+    for PreparedHttp { server, credential } in servers {
         let registration = RemoteRegistration::new(
             server.profile(workspace.clone())?,
             server.allowed_tools.clone(),
@@ -158,14 +197,7 @@ pub fn configure_http(
             server.allowed_prompts.clone(),
         )?;
         host.configure_mcp_remote(registration)?;
-        if let Some(source) = &server.credential {
-            // Resolve exactly the trusted configured variable. No enumeration,
-            // fallback, raw profile/argv token, or secret-bearing error text.
-            let material = CredentialMaterial::bearer(
-                std::env::var(&source.environment)
-                    .map_err(|_| "configured MCP credential variable is unavailable")?,
-            )
-            .map_err(|_| "configured MCP credential format rejected")?;
+        if let Some(material) = credential {
             host.install_mcp_credential(
                 &server.name,
                 None,
@@ -436,6 +468,44 @@ mod tests {
             "credential":{"reference":"remote-key","environment":"VCP_SYNTHETIC_MCP_TOKEN"},
             "allowed_tools":["echo"],
             "limits":{"frame_bytes":4096,"total_discovery_bytes":8192,"tools":8,"pages":2,"timeout_ms":10000,"stderr_bytes":0}})
+    }
+    #[cfg(windows)]
+    #[test]
+    fn http_credential_preparation_resolves_once_and_excludes_failure_values() {
+        let server: HttpServer = serde_json::from_value(http_value()).unwrap();
+        let mut resolutions = 0;
+        let prepared = prepare_http_with(std::slice::from_ref(&server), |name| {
+            assert_eq!(name, "VCP_SYNTHETIC_MCP_TOKEN");
+            resolutions += 1;
+            Ok("synthetic-bearer".into())
+        })
+        .unwrap();
+        assert_eq!(resolutions, 1);
+        assert_eq!(prepared.len(), 1);
+        assert!(prepared[0].credential.is_some());
+        assert_eq!(prepared[0].server.name, server.name);
+        for (resolved, message) in [
+            (Err(()), "configured MCP credential variable is unavailable"),
+            (
+                Ok("synthetic invalid bearer".into()),
+                "configured MCP credential format rejected",
+            ),
+        ] {
+            let mut calls = 0;
+            let result = prepare_http_with(std::slice::from_ref(&server), |_| {
+                calls += 1;
+                resolved.clone()
+            });
+            assert_eq!(calls, 1);
+            assert_eq!(result.err().unwrap(), message);
+        }
+        let mut anonymous = server;
+        anonymous.credential = None;
+        let prepared = prepare_http_with(&[anonymous], |_| {
+            panic!("unconfigured credentials cannot be discovered")
+        })
+        .unwrap();
+        assert!(prepared[0].credential.is_none());
     }
     #[test]
     fn content_controls_preserve_exact_uri_arguments_and_cache_identity() {

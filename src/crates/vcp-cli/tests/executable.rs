@@ -4,6 +4,14 @@
 mod child_output_owner;
 #[path = "support/live_adapter.rs"]
 mod live_adapter;
+#[path = "support/packaged_crypto.rs"]
+mod packaged_crypto;
+#[path = "support/packaged_history.rs"]
+mod packaged_history;
+#[path = "support/packaged_long_check.rs"]
+mod packaged_long_check;
+#[path = "support/packaged_mcp_preflight.rs"]
+mod packaged_mcp_preflight;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,

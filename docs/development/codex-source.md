@@ -1,13 +1,20 @@
 # Committed Codex source and native build
 
-The current selection contains 7,939 files, including the original private
+The current selection contains 7,940 files, including the original private
 work-admission module added by VCP. It copies upstream source from Codex revision
-`3d3ae4965ab370217e871b3a7f0d15589557ee4b` into
+`8b78600dc85cc265d7e7e827f6aa903875405287` into
 `src/third_party/codex/`. This is an upstream qualification baseline. The binary
 still identifies itself as Codex. The separate [lifecycle qualification host](lifecycle-recovery.md)
 now exercises private checkpoints, startup/dispatch authority and pause/reopen;
 production OpenRouter, budget, storage, memory and CLI integration remain with
 their owning tasks. Do not treat an ordinary upstream session as VCP acceptance.
+
+The [P8-06 maintenance rehearsal](../evaluations/p8-upstream-maintenance-2026-09-22.md)
+records the adjacent revision update, unchanged 36-patch replay, full source
+review and scoped native results. Fresh unattended launch regressions and the
+exact both-store verification case close the recorded Windows dialog finding;
+the initial interventions remain disclosed. Historical baseline reports retain
+their original pin.
 
 ## Selection and retained structure
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "component": "codex",
-  "commit": "3d3ae4965ab370217e871b3a7f0d15589557ee4b",
+  "commit": "8b78600dc85cc265d7e7e827f6aa903875405287",
   "verification": "static_only",
   "scope": "Conservative package boundary ownership; capability lists are review surfaces, not proof of effects or their absence. No VCP runtime adapter is implemented by this inventory.",
   "seams": [
@@ -1411,7 +1411,9 @@
       "observation": "Explicit registered roots bound descriptor traversal and bytes; no-follow native repository reads never load bodies or resources during discovery. Host and CLI enforce current canonical source policy first.",
       "effect_class": "read-only",
       "vcp_boundary": "controller",
-      "effects": ["file-read"]
+      "effects": [
+        "file-read"
+      ]
     },
     {
       "id": "native-skill-activation",
@@ -1422,7 +1424,9 @@
       "observation": "Selected descriptor and bounded body/resource identities are validated through no-follow reads before returning attributed data; this module cannot execute skill instructions or grant permissions.",
       "effect_class": "read-only",
       "vcp_boundary": "controller",
-      "effects": ["file-read"]
+      "effects": [
+        "file-read"
+      ]
     },
     {
       "id": "native-duplex-process",
@@ -1433,7 +1437,10 @@
       "observation": "Owned bounded stdin/stdout framing uses the native process admission, explicit environment and Job Object drain. The canonical adapter separately owns current authority, durable process intent and its lifetime conflict claim; this primitive grants no MCP call authority.",
       "effect_class": "effectful",
       "vcp_boundary": "controller",
-      "effects": ["process", "scheduler"]
+      "effects": [
+        "process",
+        "scheduler"
+      ]
     },
     {
       "id": "canonical-mcp-dispatch",
@@ -1444,7 +1451,10 @@
       "observation": "Explicit stdio registrations bind each call to a connection generation, schema, arguments and verified source context. Canonical intent precedes a current-authority duplex write; lost receipts remain unknown and are never replayed as status probes.",
       "effect_class": "effectful",
       "vcp_boundary": "controller",
-      "effects": ["process", "scheduler"]
+      "effects": [
+        "process",
+        "scheduler"
+      ]
     },
     {
       "id": "owned-http-socket",
@@ -1455,7 +1465,11 @@
       "observation": "Private one-attempt HTTP/1 exchanges gate connecting and physical socket writes below TLS against owner generation and scoped credential revocation. The owned driver emits request-bound flush observations and bounded response events, with synchronous owner socket closure and no retries. Explicit recipient and trust do not themselves grant canonical tool authority.",
       "effect_class": "effectful",
       "vcp_boundary": "controller",
-      "effects": ["network", "credential", "scheduler"]
+      "effects": [
+        "network",
+        "credential",
+        "scheduler"
+      ]
     },
     {
       "id": "canonical-mcp-http-dispatch",
@@ -1466,7 +1480,11 @@
       "observation": "Remote MCP operations bind profile, trust, connection, schema and source provenance to durable canonical intent. Streaming callback POSTs reuse the admitted claim with separate wire intents; missing receipts remain unknown without replay.",
       "effect_class": "effectful",
       "vcp_boundary": "controller",
-      "effects": ["network", "credential", "scheduler"]
+      "effects": [
+        "network",
+        "credential",
+        "scheduler"
+      ]
     },
     {
       "id": "mcp-windows-trust-snapshot",
@@ -1477,7 +1495,9 @@
       "observation": "Explicit read-only bounded Windows Root and Disallowed snapshots configure normal TLS verification with additive distrust. Ambient CA environment overrides, OS trust mutation and automatic root fetching are excluded.",
       "effect_class": "read-only",
       "vcp_boundary": "controller",
-      "effects": ["file-read"]
+      "effects": [
+        "file-read"
+      ]
     },
     {
       "id": "host-memory-inspection",
@@ -1496,10 +1516,21 @@
   "groups": [
     {
       "id": "native-skills",
-      "packages": ["vcp-extensions"],
-      "capabilities": ["data", "instruction", "filesystem", "clock"],
+      "packages": [
+        "vcp-extensions"
+      ],
+      "capabilities": [
+        "data",
+        "instruction",
+        "filesystem",
+        "clock"
+      ],
       "handling": "retain-with-adapters",
-      "owner_tasks": ["P7-01", "P7-02", "P7-03"],
+      "owner_tasks": [
+        "P7-01",
+        "P7-02",
+        "P7-03"
+      ],
       "gate": "Production skill discovery and activation perform bounded no-follow reads only after host source-policy checks. Skill content grants no effect authority. MCP modules are pure bounded protocol, identity and schema data code; canonical lifecycle adapters alone own transport and dispatch. Qualification examples create temporary fixture files and reports; these are not product executors.",
       "effect_ceiling": "effectful",
       "vcp_boundary": "controller"

@@ -1,6 +1,6 @@
 {
   "schema": "p8-qualification-manifest/1",
-  "revision": "p8-native-recovery-history-v2",
+  "revision": "p8-local-package-recovery-v4",
   "description": "Bounded P8 readiness rows mapped to existing native Rust tests. A row without a command is an explicit qualification gap.",
   "workspace": "src/third_party/codex/codex-rs",
   "default_timeout_seconds": 1800,
@@ -222,9 +222,259 @@
       "title": "Exact package performs second-machine encrypted recovery",
       "required": true,
       "requires": ["native_windows", "packaged_artifact", "age_binary", "second_machine_fixture"],
-      "evidence": "requires packaged distribution and independent recovery environment; no checkout command can establish this row",
+      "evidence": "Owner directed local-only validation on 2026-09-22 and skipped machine handoff; retain this independent-environment gate as not-run, never substitute fresh local directories",
       "command": null,
       "gap": true
+    },
+    {
+      "id": "p8-02-integration-receipt-kill",
+      "work_item": "P8-02",
+      "area": "process_recovery",
+      "title": "Integration write/receipt process kills preserve partial effects and later human edits",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "Both-store supervisor kills after each native integration write before its receipt; recovery retains history/accounting without replay",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "child_integration_fault::child_integration_process_kill_after_each_write_reopens_without_replay", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-child-independent-stop",
+      "work_item": "P8-02",
+      "area": "recovery",
+      "title": "Independent child pause/cancel preserves active siblings and exact liability",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "Connected both-store pause/cancel cases retain uncertain child charges and permit the unrelated sibling response to settle",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "child_graph_dispatch::child_individual_cancellation_preserves_calling_sibling_and_exact_liability", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-child-output-consumer-loss",
+      "work_item": "P8-02",
+      "area": "process_recovery",
+      "title": "Noisy/quiet children retain transcripts and liabilities after output consumer loss",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "Both-store real pipe reader closure fences owner admission; fresh-owner cursor recovery retains all public messages and known/unknown charges",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "executable", "child_output_owner::noisy_and_quiet_registered_children_survive_output_loss_and_cursor_recovery", "--", "--exact"]
+    },
+    {
+      "id": "p8-02-child-write-receipt-kill",
+      "work_item": "P8-02",
+      "area": "process_recovery",
+      "title": "Owner kill inside a registered child's write preserves isolated partial effects",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "Both-store native child write/receipt interruption retains intent, first write and later human edit, sibling/parent isolation, transcript and accounting without replay",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "child_graph_dispatch::child_write_crash::child_native_write_process_kill_retains_unknown_effect_without_replay", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-mcp-retained-content-boundaries",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "Retained MCP content rechecks current identity, authorization and pruning",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Existing connected cached-resource fixture rechecks catalog/connection identity, read policy, prune state and credentials; this does not substitute for packaged compaction/reopen qualification",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "mcp_content::cached_resources_recheck_catalog_connection_read_policy_pruning_and_credentials", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-packaged-full-history",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "Packaged oversized output survives compaction and reopen until explicit purge",
+      "required": true,
+      "requires": ["native_windows", "cargo", "packaged_artifact", "vcp_test_git"],
+      "evidence": "Exact packaged CLI on both stores; full paged artifacts and provenance survive compaction/fresh inspectors; purge produces explicit gaps without replay",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "executable", "packaged_history::packaged_oversized_output_survives_compaction_and_reopen_until_explicit_purge", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-03-packaged-crypto-local-restore",
+      "work_item": "P8-03",
+      "area": "packaged_encryption",
+      "title": "Fresh packaged snapshots pass independent crypto and local restore checks",
+      "required": true,
+      "requires": ["native_windows", "cargo", "packaged_artifact", "age_binary", "vcp_test_git"],
+      "evidence": "Exact packaged CLI publishes fresh snapshots on both stores; pinned Go age and independent Node signature/inventory oracle; wrong-key/tamper controls and fresh local restore; no machine handoff",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "executable", "packaged_crypto::packaged_fresh_snapshots_pass_independent_age_signature_inventory_and_negative_controls", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-03-packaged-mcp-preflight",
+      "work_item": "P8-03",
+      "area": "packaged",
+      "title": "Packaged MCP credential diagnostics precede network and model work",
+      "required": true,
+      "requires": ["native_windows", "cargo", "packaged_artifact", "vcp_test_git"],
+      "evidence": "Missing/invalid credential configuration produces visible startup diagnostics, zero loopback connections and zero provider requests; not interactive HTTP 401 coverage",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "executable", "packaged_mcp_preflight::packaged_mcp_missing_or_invalid_credential_is_visible_without_network_or_provider_work", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-01-declared-long-verification",
+      "work_item": "P8-01",
+      "area": "native_process",
+      "title": "Declared direct and verification checks exceed 120 seconds and reopen",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Four native host arms across both stores execute actual 121-second checks with explicit trusted ceilings; not packaged terminal coverage",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "long_verification::declared_long_parent_checks_complete_and_reopen_on_both_stores", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-01-real-embedding-cache",
+      "work_item": "P8-01",
+      "area": "recovery",
+      "title": "Real CPU embedding batch cache and reopen match exact oracle",
+      "required": true,
+      "requires": ["native_windows", "cargo", "minilm_assets"],
+      "evidence": "Pinned MiniLM native subsystem batch, cancellation, cache and independent nearest-neighbor evidence; not minimum hardware qualification",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-memory", "--test", "embedding", "real_cpu_batches_cache_reopen_and_exact_oracle", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-01-real-vector-resources",
+      "work_item": "P8-01",
+      "area": "recovery",
+      "title": "Admitted real vectors retain resource observations and reopen",
+      "required": true,
+      "requires": ["native_windows", "cargo", "minilm_assets"],
+      "evidence": "Both-store native vector admission and CPU/RAM/disk receipts with pinned assets",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "memory_vectors::admitted_real_local_vectors_retain_resource_observation_and_reopen", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-02-real-vector-pause",
+      "work_item": "P8-02",
+      "area": "recovery",
+      "title": "In-flight local vectors cancel without blocking the owner",
+      "required": true,
+      "requires": ["native_windows", "cargo", "minilm_assets"],
+      "evidence": "Actual pinned-model work pauses/cancels on both stores without false readiness",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "memory_vectors::inflight_local_vectors_cancel_and_pause_without_blocking_owner", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-02-real-publication",
+      "work_item": "P8-02",
+      "area": "recovery",
+      "title": "Host publication atomically adopts real vector generation",
+      "required": true,
+      "requires": ["native_windows", "cargo", "minilm_assets"],
+      "evidence": "Both-store real lexical/vector publication covers exact canonical intents",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "memory_publication::admitted_host_publication_adopts_real_vectors_and_atomically_covers_intents", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-01-real-query-resources",
+      "work_item": "P8-01",
+      "area": "recovery",
+      "title": "Local query embeddings retain measured resources without provider calls",
+      "required": true,
+      "requires": ["native_windows", "cargo", "minilm_assets"],
+      "evidence": "Actual pinned CPU query embedding under canonical admission; native host proof, not a packaged query workflow",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "memory_query::actual_local_query_embedding_retains_measured_resources_without_provider_calls", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-02-real-generation-kills",
+      "work_item": "P8-02",
+      "area": "process_recovery",
+      "title": "Real generation publication survives process kills at sixteen boundaries",
+      "required": true,
+      "requires": ["native_windows", "cargo", "minilm_assets"],
+      "evidence": "Before/after lexical, vector, manifest and activation across both stores with pinned model assets",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-memory", "--test", "publication", "process_kill_at_component_manifest_and_activation_boundaries", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-02-retained-vector-restore",
+      "work_item": "P8-02",
+      "area": "recovery",
+      "title": "Encrypted cross-backend restore reuses compatible retained vectors",
+      "required": true,
+      "requires": ["native_windows", "cargo", "minilm_assets"],
+      "evidence": "Both backend directions retain vectors without destination model loading, exclude stale sources and reopen paused/untrusted authority",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "portable_vectors::encrypted_restore_rebuilds_compatible_retained_vectors_without_loading_another_model", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-01-packaged-long-check",
+      "work_item": "P8-01",
+      "area": "packaged",
+      "title": "Packaged declared long check completes and reopens on both stores",
+      "required": true,
+      "requires": ["native_windows", "cargo", "packaged_artifact", "vcp_test_git"],
+      "evidence": "Relocated exact package runs a real 121-second check and reopens its scoped verification artifact and settled ledger; local mock provider",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "executable", "packaged_long_check::packaged_declared_long_check_completes_and_reopens_on_both_stores", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-02-packaged-long-check-pause",
+      "work_item": "P8-02",
+      "area": "packaged",
+      "title": "Packaged long-check pause terminates the observed native process",
+      "required": true,
+      "requires": ["native_windows", "cargo", "packaged_artifact", "vcp_test_git"],
+      "evidence": "Both-store exact package pause after an independent native start marker; held Windows process handle proves termination, with no passing check, provider continuation or replay",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-cli", "--features", "qualification", "--test", "executable", "packaged_long_check::packaged_declared_long_check_pause_stops_execution_on_both_stores", "--", "--ignored", "--exact"]
+    },
+    {
+      "id": "p8-03-retention-notice",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "Thirty-day notices remain repeatable without deleting history",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Explicit aging boundary and repeat notification preserve complete retained records",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-memory", "--test", "retention_policy", "aging_boundary_repeat_and_notification_only_preserve_retained_history", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-backup-retention-obligation",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "Snapshot obligations prevent physical purge and stale publication",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Retained external snapshots remain disclosed obligations after active exclusion",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-memory", "--test", "portable_retention", "snapshot_obligations_block_physical_cleanup_and_stale_publication_after_purge", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-copy-after-purge",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "An admitted backup copy finishing after purge remains disclosed",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "An in-flight encrypted copy cannot be erased from the retained-backup obligation ledger",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-memory", "--test", "portable_retention", "admitted_copy_finishes_after_purge_and_remains_a_retained_backup_obligation", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-owned-generation-retention",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "Retention removes only owned generations and reports external copies",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Native owned generation removal preserves the explicit external-copy pending state",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-memory", "--test", "publication", "retention_removes_owned_generation_and_reports_external_copy_pending", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-native-mcp-auth-failure",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "An actual MCP HTTP 401 remains unknown without catalog or replay",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Both-store local TLS peer sends one actual 401; native host retains failure identity without reconnect/replay or credential disclosure; separate from packaged startup preflight",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "mcp_final_faults::http_actual_unauthorized_reply_is_unknown_without_catalog_or_replay", "--", "--exact"]
+    },
+    {
+      "id": "p8-03-native-mcp-content-conversation",
+      "work_item": "P8-03",
+      "area": "history",
+      "title": "The complete MCP content conversation retains roles and provenance",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Both-store eleven-request coding fixture keeps approvals, external-data roles, actual effects and cached artifact provenance within its explicit 32k prompt/40k context envelope",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "mcp_content_coding::coding_content_selectors_roles_and_cached_artifact_provenance_reach_real_provider_loop", "--", "--exact"]
+    },
+    {
+      "id": "p8-01-malformed-native-executable",
+      "work_item": "P8-01",
+      "area": "native_process",
+      "title": "Malformed native executable returns a failed check with unknown dispatch evidence",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Both-store real malformed executable fails unattended without a Windows error dialog, retains durable dispatch intent and unresolved effects, and cannot complete",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "verification::native_verification_preserves_uncertain_dispatch_intent", "--", "--exact"]
     }
   ]
 }

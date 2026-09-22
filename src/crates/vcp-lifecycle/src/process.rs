@@ -2,6 +2,7 @@
 //! Native Windows feasibility adapter over the retained Codex Job Object.
 //! Job membership is process containment, not filesystem/network isolation.
 pub mod duplex;
+mod launch;
 mod pty;
 use super::{Error, Lifecycle};
 use codex_extension_api::{HostWorkAdmission, HostWorkKind, HostWorkPermit};
@@ -364,7 +365,8 @@ impl Lifecycle {
             .stderr(Stdio::piped());
         // Retained implementation creates suspended, assigns via owned handle,
         // then resumes. Assignment failure cannot run an uncontained fallback.
-        let mut child = job.spawn_contained(&mut command)?;
+        let mut child =
+            launch::without_critical_error_dialog(|| job.spawn_contained(&mut command))?;
         self.0
             .jobs
             .lock()

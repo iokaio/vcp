@@ -352,7 +352,8 @@ impl Lifecycle {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = job.spawn_contained(&mut command)?;
+        let mut child =
+            super::launch::without_critical_error_dialog(|| job.spawn_contained(&mut command))?;
         let input = child
             .stdin
             .take()
