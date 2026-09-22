@@ -23,7 +23,7 @@ const rubric={schema:'p7-review-rubric/1',minimum_seeded:2,maximum_false_positiv
  {path:'shipping.cjs',line:1,reproduction:{arguments:[100],expected:0,actual:5},introduced_by_change:'introduced'},
  {path:'tax.cjs',line:1,reproduction:{arguments:[5,10],expected:1,actual:0},introduced_by_change:'pre_existing'},
 ]};
-const reviewPrompt='Review current shipping.cjs, tax.cjs and receipt.cjs against contract.md and the corresponding base/ files. Report supported correctness defects and distinguish pre-existing defects from defects introduced by the diff. Check the contract and relevant surrounding source. Never infer causality from a changed line alone. Do not modify files or run processes. Return only one JSON object with findings array. Each finding has kind (defect or suggestion), path, line, trigger, consequence, evidence (array of source references), uncertainty (nonempty string), introduced_by_change (introduced, pre_existing, or unknown), reproduction (arguments array, expected, actual). Use concrete reproducible boundary values. Invoke canonical vcp_verify with observed read evidence as needed; do not claim executable checks ran.\n';
+const reviewPrompt='Review current shipping.cjs, tax.cjs and receipt.cjs against contract.md and the corresponding base/ files. Report supported correctness defects and distinguish pre-existing defects from defects introduced by the diff. Check the contract and relevant surrounding source. Never infer causality from a changed line alone. Do not modify files or run processes. Return only one JSON object with findings array. Each finding has kind (defect or suggestion), path, line, trigger, consequence, evidence (array of source references), uncertainty (nonempty string), introduced_by_change (introduced, pre_existing, or unknown), reproduction (arguments array, expected, actual). Use concrete reproducible boundary values. Keep reproduction arguments, expected and actual as the actual JSON values: numeric results must be JSON numbers, not explanatory strings. Put explanations in trigger or consequence. The final response must begin with { and end with }; do not use Markdown code fences or surrounding prose. Invoke canonical vcp_verify with observed read evidence as needed; do not claim executable checks ran.\n';
 const humanNote='Human edit after child snapshot: preserve this exact note during integration.\n';
 function put(dir,files){for(const [name,bytes]of Object.entries(files)){const target=safeChild(dir,name);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,bytes,{flag:'wx'});}}
 function modelFiles(dir){return filesUnder(dir).filter(p=>p!=='.git'&&!p.startsWith('.git/'));}
@@ -60,22 +60,76 @@ function prepareWorkspaceGit(root,files,git){
 }
 function fixtureFiles(root,manifestFile){const manifest=JSON.parse(read(manifestFile)),files={};if(manifest.revision!=='p7-05-delegation-generation-v1'||JSON.stringify(manifest.editable)!=='["src/cart.cjs","src/cents.cjs"]'||!manifest.files.some(file=>file.path==='src/cart.cjs')||!manifest.files.some(file=>file.path==='src/cents.cjs'))throw Error('Frozen delegation fixture manifest changed');for(const file of manifest.files){const bytes=read(safeChild(root,file.path));if(bytes.length!==file.bytes||sha(bytes)!==file.sha256)throw Error('Frozen delegation fixture changed: '+file.path);files[file.path]=bytes;}return {manifest,files};}
 function exactCounter(v){if(typeof v!=='string'||!/^\d+$/.test(v)||!Number.isSafeInteger(Number(v)))throw Error('Invalid canonical counter');return Number(v);}
-function demonstrated(reproduction,defect){
+function reproductionValue(value){
+ if(typeof value==='number')return value;
+ // Historical prompts did not specify numeric scalar types for expected/actual.
+ // Recognize only an explicit integer annotation, never infer a value from prose.
+ if(typeof value!=='string'||value.length>2048)return null;
+ const match=/^(0|[1-9][0-9]*)[ \t]+[—–-][ \t]+(\S[^\r\n]*)(?![\s\S])/.exec(value);
+ if(!match)return null;
+ const number=Number(match[1]);return Number.isSafeInteger(number)?number:null;
+}
+function demonstrated(reproduction,defect,allowAnnotations=false){
  if(!reproduction||!Array.isArray(reproduction.arguments)||!reproduction.arguments.every(n=>Number.isSafeInteger(n)&&n>=0))return false;
  const args=reproduction.arguments;let expected,actual;
  if(defect.path==='shipping.cjs'&&args.length===1){expected=args[0]>=100?0:5;actual=args[0]>100?0:5;}
  else if(defect.path==='tax.cjs'&&args.length===2&&args[1]<=100){expected=Number((BigInt(args[0])*BigInt(args[1])+50n)/100n);actual=Math.floor(args[0]*args[1]/100);}
  else return false;
- return expected!==actual&&reproduction.expected===expected&&reproduction.actual===actual;
+ const scalar=value=>allowAnnotations?reproductionValue(value):value;
+ return expected!==actual&&scalar(reproduction.expected)===expected&&scalar(reproduction.actual)===actual;
 }
-function gradeReview(answer,expected=rubric){
+// Resolve citations only from retained canonical artifacts. Model-authored maps
+// and path-looking substrings are not authority for an opaque evidence ID.
+function reviewEvidence(state,transcript,evidence,files,taskId){
+ const rows=Object.values(state.records),one=(collection,id)=>{const matches=rows.filter(row=>row.collection===collection&&row.id===id);return matches.length===1?matches[0].value:null;};
+ const task=one('task',taskId),scope=task?.scope;
+ if(!scope||scope.task!==taskId)throw Error('Canonical review task missing');
+ const retained=(item,channel,schema)=>{
+  const descriptor=one('artifact',item?.artifact),bytes=typeof item?.text==='string'?Buffer.from(item.text):null;
+  return descriptor&&bytes&&bytes.length<=1024*1024&&descriptor.spec?.id===item.artifact&&descriptor.state==='complete'&&descriptor.spec.channel===channel&&descriptor.spec.schema===schema&&isDeepStrictEqual(descriptor.spec.scope,scope)&&descriptor.length===String(bytes.length)&&descriptor.sha256===sha(bytes)&&item.sha256===descriptor.sha256&&isDeepStrictEqual(descriptor.retained,[{start:'0',end:String(bytes.length)}]);
+ };
+ if(!retained(transcript,'child_transcript','retained-full-output/1'))throw Error('Canonical review transcript identity mismatch');
+ const workspace=one('workspace',scope.workspace),graph=one('projection',task.root),child=graph?.document_type==='vcp_task_graph_v1'?graph.children?.[taskId]:null;
+ const root=task.parent?child?.isolated_root:scope.workspace,binding=task.parent?child?.binding:workspace?.binding?.revision;
+ if(!root||typeof binding!=='string'||(task.parent&&child?.parent!==task.parent))throw Error('Canonical review source binding missing');
+ const references=new Map(),duplicates=new Set();
+ for(const item of evidence??[]){
+  if(references.has(item?.artifact)||duplicates.has(item?.artifact)){references.delete(item.artifact);duplicates.add(item.artifact);continue;}
+  if(!retained(item,'evidence','vcp-tool-result-v1'))continue;
+  let value;try{value=JSON.parse(item.text);}catch{continue;}
+  const version=value.version,source=version&&sources[version.path];
+  if(typeof source!=='string'||version.root!==root||version.binding!==binding||version.sha256!==files[version.path]||version.bytes!==String(Buffer.byteLength(source))||sha(Buffer.from(source))!==version.sha256||typeof value.text!=='string')continue;
+  const range=value.returned_range;
+  // This fixed review fixture has one relevant line per source. Partial reads
+  // must prove that line was actually returned, not merely hash the whole file.
+  if(range){if(range.start_line!==1||range.end_line!==1||value.text!==source)continue;}
+  else if(value.complete!==true||value.text!==source)continue;
+  references.set(item.artifact,{path:version.path,start:1,end:1});
+ }
+ return {references,files};
+}
+function gradeReview(answer,expected=rubric,context=null,options={}){
  if(!answer||!Array.isArray(answer.findings)||answer.findings.length>64)throw Error('Bounded JSON review answer required');
  const valid=f=>f&&['defect','suggestion'].includes(f.kind)&&typeof f.path==='string'&&Number.isInteger(f.line)&&['trigger','consequence','uncertainty'].every(k=>typeof f[k]==='string'&&f[k].trim().length>0&&f[k].length<=2048)&&Array.isArray(f.evidence)&&f.evidence.length>0&&f.evidence.every(x=>typeof x==='string'&&x.length<=1024);
- const defects=answer.findings.filter(f=>f.kind==='defect');
- const matching=(f,d)=>valid(f)&&f.path===d.path&&f.line===d.line&&demonstrated(f.reproduction,d)&&f.introduced_by_change===d.introduced_by_change&&f.evidence.some(e=>e.includes('base/'+d.path));
+ const defects=answer.findings.filter(f=>f?.kind==='defect');
+ const reference=e=>{
+  if(context?.references.has(e))return context.references.get(e);
+  if(Object.hasOwn(sources,e)&&(!context||Object.hasOwn(context.files,e)))return {path:e,start:1,end:1};
+  const match=/^([A-Za-z0-9_./-]+):([1-9][0-9]*)(?:-([1-9][0-9]*))?(?=$|\s|[,;])/.exec(e);
+  if(!match||!Object.hasOwn(sources,match[1])||(context&&!Object.hasOwn(context.files,match[1])))return null;
+  const start=Number(match[2]),end=Number(match[3]??match[2]);
+  return start===1&&end===1?{path:match[1],start,end}:null;
+ };
+ // Annotation compatibility is opt-in for offline regrading of historical prompts.
+ // New live prompts explicitly require typed values and retain strict comparison.
+ const detected=(f,d)=>valid(f)&&f.path===d.path&&f.line===d.line&&demonstrated(f.reproduction,d,options.historical_annotations===true);
+ const matching=(f,d)=>detected(f,d)&&f.introduced_by_change===d.introduced_by_change&&f.evidence.some(e=>reference(e)?.path==='base/'+d.path);
  const hits=expected.defects.filter(d=>defects.some(f=>matching(f,d))).length;
- const falsePositives=defects.filter(f=>!expected.defects.some(d=>matching(f,d))).length;
- return {pass:answer.findings.every(valid)&&hits===expected.minimum_seeded&&falsePositives<=expected.maximum_false_positives,seeded_found:hits,seeded_total:expected.minimum_seeded,false_positives:falsePositives,manual_evidence_usefulness_review_required:true};
+ const noticed=expected.defects.filter(d=>defects.some(f=>detected(f,d))).length;
+ const falsePositives=defects.filter(f=>!expected.defects.some(d=>detected(f,d))).length;
+ const unqualified=defects.filter(f=>expected.defects.some(d=>detected(f,d))&&!expected.defects.some(d=>matching(f,d))).length;
+ const duplicates=expected.defects.reduce((count,d)=>count+Math.max(0,defects.filter(f=>detected(f,d)).length-1),0);
+ return {pass:answer.findings.every(valid)&&hits===expected.minimum_seeded&&falsePositives<=expected.maximum_false_positives&&unqualified===0&&duplicates===0,seeded_found:hits,seeded_detected:noticed,seeded_total:expected.minimum_seeded,false_positives:falsePositives,unqualified_findings:unqualified,duplicate_findings:duplicates,manual_evidence_usefulness_review_required:true};
 }
 function accounting(state,cap,root,child){
  const rows=Object.values(state.records),of=c=>rows.filter(r=>r.collection===c).map(r=>r.value),ledgers=of('ledger'),attempts=of('attempt'),settlements=of('settlement');
@@ -169,8 +223,8 @@ function run(file,authorization){
    if(plan.stage==='review'){
     if(JSON.stringify(inventory(path.join(base,'workspace')))!==JSON.stringify(arm.files))throw Error('Read-only review changed parent source or index');
     if(adapter.result.child){const child=path.join(base,'children',adapter.result.child),observed=inventory(child);delete observed['.vcp-child-owner'];if(!isDeepStrictEqual(observed,arm.files))throw Error('Read-only review changed isolated source or index');}
-    const answers=adapter.result.transcripts.flatMap(t=>{try{return [JSON.parse(t.text)];}catch{return [];}}).filter(x=>Array.isArray(x.findings));
-    record.quality=answers.length===1?gradeReview(answers[0],JSON.parse(read(path.join(plan.directory,'private-rubric.json')))):{pass:false,reason:'Expected one unambiguous retained JSON review answer'};
+    const answers=adapter.result.transcripts.flatMap(transcript=>{try{return [{answer:JSON.parse(transcript.text),transcript}];}catch{return [];}}).filter(x=>Array.isArray(x.answer.findings));
+    record.quality=answers.length===1?gradeReview(answers[0].answer,JSON.parse(read(path.join(plan.directory,'private-rubric.json'))),reviewEvidence(state,answers[0].transcript,adapter.result.evidence,arm.files,adapter.result.child??config.root_task)):{pass:false,reason:'Expected one unambiguous retained JSON review answer'};
    }else record.quality=generationGrade(plan,base,arm,adapter,state);
    record.status=record.quality.pass?'passed':'failed';
   }catch(error){record.reason=error.message;report.stopped=true;if(record.actual_cost_micros===null)report.actual_cost_micros=null;}
@@ -178,5 +232,5 @@ function run(file,authorization){
  }
  write(path.join(plan.directory,'result.json'),report);return report;
 }
-module.exports={prepare,validate,run,gradeReview,accounting,sources,rubric,workspaceGitState,prepareWorkspaceGit,gitEnvironment,gitRun,adapterEnvironment,invokeAdapter,stderrSummary,humanNote};
+module.exports={prepare,validate,run,gradeReview,reviewEvidence,accounting,sources,rubric,workspaceGitState,prepareWorkspaceGit,gitEnvironment,gitRun,adapterEnvironment,invokeAdapter,stderrSummary,humanNote};
 if(require.main===module){try{const [command,file,extra,...rest]=process.argv.slice(2);if(rest.length||!file||!extra||!['prepare','run'].includes(command))throw Error('Usage: delegation-live-runner.cjs prepare <spec> <new-private-dir> | run <plan> <authorized-sha256>');const output=command==='prepare'?prepare(file,extra):run(file,extra);console.log(JSON.stringify(output));if(command==='run'&&(output.stopped||output.arms.some(arm=>arm.status!=='passed')))process.exitCode=1;}catch(error){console.error(error.message);process.exitCode=1;}}

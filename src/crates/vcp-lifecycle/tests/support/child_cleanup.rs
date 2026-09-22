@@ -119,7 +119,7 @@ async fn child_cleanup_retains_durable_intent_and_results_and_reconciles_only_or
                     read_paths: BTreeSet::from([String::new()]),
                     helper: Some(HelperTemplate {
                         name: "review".into(),
-                        revision: 1,
+                        revision: HelperTemplate::REVISION,
                     }),
                     objective: "Review retained source".into(),
                     acceptance: vec!["Report source evidence".into()],

@@ -310,6 +310,128 @@ fn legacy_host_config_defaults_to_two_retries_and_excess_is_rejected() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_response_timeout_defaults_and_explicit_bounds_are_retained() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let config = config(&temp.path().join("canonical"), &workspace, backend);
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        task(&host, &config, config.root_task.clone(), None);
+        let (snapshot, raw) = provider_snapshot();
+        host.configure_provider(snapshot.clone(), raw.clone())
+            .unwrap();
+        for timeout in [
+            Duration::ZERO,
+            Duration::from_secs(360) + Duration::from_nanos(1),
+        ] {
+            let before = host.snapshot().unwrap();
+            assert!(host
+                .configure_provider_with_timeout(snapshot.clone(), raw.clone(), timeout)
+                .is_err());
+            assert_eq!(
+                host.snapshot().unwrap(),
+                before,
+                "invalid timeout cannot publish configuration"
+            );
+        }
+        host.configure_provider_with_timeout(snapshot, raw, Duration::from_secs(360))
+            .unwrap();
+        let mut timeouts: Vec<u64> = host
+            .snapshot()
+            .unwrap()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Artifact)
+            .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+            .filter(|artifact| artifact.spec.schema == "openrouter-provider-configuration/1")
+            .map(|artifact| {
+                let bytes = host.read_artifact(artifact.spec.id).unwrap();
+                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["timeout_ms"]
+                    .as_u64()
+                    .unwrap()
+            })
+            .collect();
+        timeouts.sort_unstable();
+        assert_eq!(timeouts, vec![120_000, 360_000]);
+        owner.close().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn explicit_provider_response_timeout_reaches_admission_without_retries() {
+    use codex_extension_api::{HostModelPurpose, HostWorkAdmission};
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (host, owner, _, test, server) = setup_with_retries(
+            &temp,
+            backend,
+            Duration::from_secs(360),
+            1000,
+            false,
+            0,
+            None,
+        )
+        .await;
+        let started = std::time::Instant::now();
+        let mut body = serde_json::json!({"model":"gpt-5.1"});
+        let ticket = host
+            .admit_model(
+                test.codex.session_configured().thread_id,
+                &mut body,
+                HostModelPurpose::Turn,
+            )
+            .unwrap();
+        let deadline = ticket.response_deadline().unwrap();
+        assert!(deadline >= started + Duration::from_secs(360));
+        assert!(deadline <= std::time::Instant::now() + Duration::from_secs(360));
+        assert_eq!(server.received_requests().await.unwrap().len(), 0);
+        drop(ticket);
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn extended_provider_response_timeout_is_clamped_to_coding_deadline() {
+    use codex_extension_api::{HostModelPurpose, HostWorkAdmission};
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        // setup establishes a 60-second absolute coding deadline.
+        let (host, owner, _, test, server) = setup_with_retries(
+            &temp,
+            backend,
+            Duration::from_secs(360),
+            1000,
+            true,
+            0,
+            None,
+        )
+        .await;
+        let started = std::time::Instant::now();
+        let mut body = serde_json::json!({"model":"gpt-5.1"});
+        let ticket = host
+            .admit_model(
+                test.codex.session_configured().thread_id,
+                &mut body,
+                HostModelPurpose::Turn,
+            )
+            .unwrap();
+        let deadline = ticket.response_deadline().unwrap();
+        assert!(deadline > started);
+        assert!(
+            deadline <= started + Duration::from_secs(60),
+            "in-flight response cannot outlive the absolute coding deadline"
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 0);
+        drop(ticket);
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stores() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         for mode in [

@@ -279,7 +279,7 @@ pub(super) async fn child_case_with_helper(
         read_paths: BTreeSet::from([String::new()]),
         helper: Some(vcp_lifecycle::foundation::HelperTemplate {
             name: helper_name.unwrap_or("review").into(),
-            revision: 1,
+            revision: vcp_lifecycle::foundation::HelperTemplate::REVISION,
         }),
         objective: "Review file.txt with evidence".into(),
         acceptance: vec!["Report supported findings with source locations".into()],
@@ -325,7 +325,11 @@ pub(super) async fn child_case_with_helper(
         assert!(current_task(&host, &config, &id).objectives[0]
             .constraints
             .iter()
-            .any(|c| c.starts_with(&format!("helper-template:{}@1:", helper_name.unwrap()))));
+            .any(|c| c.starts_with(&format!(
+                "helper-template:{}@{}:",
+                helper_name.unwrap(),
+                vcp_lifecycle::foundation::HelperTemplate::REVISION
+            ))));
         id
     } else {
         let child_id = TaskId::new();
