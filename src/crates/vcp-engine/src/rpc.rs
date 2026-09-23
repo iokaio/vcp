@@ -41,9 +41,12 @@ pub const METHODS: &[&str] = &[
 ];
 pub const ESSENTIAL_CAPABILITIES: &[&str] = &["jsonrpc/2.0", "durable-command/1"];
 pub const APPROVAL_SOURCE_REVISIONS_CAPABILITY: &str = "approval/source-revisions/1";
+pub const MEMORY_INSPECTION_STATE_CAPABILITY: &str = "memory/inspection-state/1";
 
 #[cfg(test)]
 mod approval_source_tests;
+#[cfg(test)]
+mod memory_inspection_tests;
 
 /// Presentation extensions require explicit negotiation and implemented methods.
 /// Method registration in the schema alone never advertises the extension.
@@ -55,6 +58,9 @@ pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
         .collect();
     if capabilities.contains("task/read") && capabilities.contains("approval/respond") {
         capabilities.insert(APPROVAL_SOURCE_REVISIONS_CAPABILITY.to_owned());
+    }
+    if capabilities.contains("memory/inspect") {
+        capabilities.insert(MEMORY_INSPECTION_STATE_CAPABILITY.to_owned());
     }
     capabilities
 }
@@ -306,6 +312,16 @@ impl RpcSession {
             request.params.clone().unwrap_or(Value::Null),
         )
         .map_err(|_| RpcError::invalid_params())?;
+        if matches!(call, Call::MemoryInspect(_))
+            && !self.negotiated.contains(MEMORY_INSPECTION_STATE_CAPABILITY)
+        {
+            return Err(application(
+                Code::CapabilityUnavailable,
+                Retry::Never,
+                None,
+                "memory inspection state capability was not negotiated",
+            ));
+        }
         let mut result = host.call(call, access).await?;
         if !self
             .negotiated

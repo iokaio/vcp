@@ -113,6 +113,7 @@ test('committed schema is bound to compiled canonical sources and all generated 
     'src/crates/vcp-protocol/src/handshake.rs',
     'src/crates/vcp-protocol/src/jsonrpc.rs',
     'src/crates/vcp-protocol/src/lib.rs',
+    'src/crates/vcp-protocol/src/memory.rs',
     'src/crates/vcp-protocol/src/methods.rs',
     'src/third_party/codex/codex-rs/Cargo.lock',
   ];

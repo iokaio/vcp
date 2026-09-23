@@ -5,6 +5,7 @@ pub mod errors;
 pub mod event;
 pub mod handshake;
 pub mod jsonrpc;
+pub mod memory;
 pub mod methods;
 pub mod persisted_json;
 pub mod redaction;

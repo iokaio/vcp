@@ -454,6 +454,48 @@ independently after an authenticated bootstrap handoff.
 
 ## Named-pipe attachment and reconnect
 
+### Governed memory inspection
+
+The live host advertises `memory/inspect` and `memory/inspection-state/1`. Clients
+must negotiate both. The method reads claim/version history under the requesting
+actor's current authority and session scope; the requested task supplies the
+canonical applicability fingerprint. It uses read-only governed memory access,
+without retrieval, generation changes or model requests.
+
+Each finding includes typed `state`: memory sequence and canonical watermark,
+retained/pruned/purged visibility, applicability, current-head status, retained
+resolution and evidence availability. Pruned/purged lineage remains visible when
+authorized, but its removed statement, resolution and evidence content do not.
+Disputed versions remain explicit. Available evidence references preserve exact
+source ranges and digests. An explicit version filter is applied after claim
+authorization; an unavailable version is an error.
+
+History projection has a 128-finding, 64-KiB-per-statement and 256-KiB-page ceiling
+and a cooperative two-second deadline. Connection loss or a fenced worker
+interrupts it. Overflow is an error rather than a truncated complete history.
+The result's `complete` flag concerns the selected history, not evidence truth or
+availability. See [ADR-050](../adr/050-governed-public-memory-inspection.md).
+
+Native Rust 1.95 qualification passes 107 engine/protocol tests, three governed
+lifecycle tests and the compiled `local_memory_inspection` fixture. Both stores
+cover retained/disputed, logically pruned and physically purged histories, exact
+source ranges, capability/scope denial and unchanged canonical-state digests.
+Actual schema regeneration, strict TypeScript, generator contracts and all 18
+fast delivery cases pass.
+
+### CLI and API execution parity
+
+The compiled `local_execution_parity` fixture drives the same patch, verification
+and completion scenario through CLI `run` and API `turn/start` on both stores.
+It compares typed task/turn semantics, objective and acceptance conditions,
+accounting, attempts/reservations/settlements, effects and verification outcomes.
+Each run validates its own scoped identity links; random IDs, timestamps and
+path-dependent hashes are not equality criteria. Both frontends complete with
+three settled synthetic provider requests, 300 micro-USD settled and no active or
+uncertain liability. Each independently produces the expected file and passes
+the external Node acceptance test. This qualifies that shared execution scenario,
+not the remaining method adapters or SDK.
+
 ### Retained proposed changes
 
 The live host advertises `diff/read`. Its `change` is the canonical tool-effect

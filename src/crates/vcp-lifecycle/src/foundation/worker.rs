@@ -39,6 +39,7 @@ mod provider;
 pub(super) mod public_connection;
 mod public_diff;
 mod public_events;
+mod public_memory;
 pub(super) mod public_resume;
 mod public_rpc;
 #[cfg(windows)]

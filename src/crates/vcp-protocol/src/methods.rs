@@ -690,7 +690,15 @@ dto!(EvidenceRow {
     content: EvidenceReference
 });
 dto!(EvidencePage { scope: Scope, task: Id, watermark: Counter, rows: Vec<EvidenceRow>, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] next_cursor: Option<String>, complete: bool });
-dto!(MemoryFinding { claim: Id, version: Id, evidence: Vec<EvidenceReference>, #[cfg_attr(feature = "schema", schemars(length(max = 65536)))] content: String });
+dto!(MemoryFinding {
+    claim: Id,
+    version: Id,
+    evidence: Vec<EvidenceReference>,
+    #[cfg_attr(feature = "schema", schemars(length(max = 65536)))]
+    content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    state: Option<crate::memory::InspectionState>
+});
 dto!(MemoryPage { scope: Scope, task: Id, generation: Option<Id>, sequence: Counter, findings: Vec<MemoryFinding>, complete: bool });
 // Invalidation/evidence metadata, never a raw internal fact or complete reducer.
 dto!(Event { id: Id, scope: Scope, sequence: Counter, schema_version: String, timestamp_ms: Counter, kind: String, command_id: Option<Id>, task: Option<Id>, outcome: Option<OperationOutcome>, redacted: bool, evidence_complete: bool, #[cfg_attr(feature = "schema", schemars(length(max = 128)))] evidence: Vec<EvidenceReference> });

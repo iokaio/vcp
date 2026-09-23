@@ -1,5 +1,5 @@
 {
-  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"8104321a0d59da1eecdc63243c00e2cf547cbf541e8156d9791b48322108e070\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"14510467d66776279f8d5da93206ac5d528ad57baefa439d5aa70d5307897368\",\"src/crates/vcp-protocol/src/methods.rs\":\"cca3066e52330553f75f7e30514160561a83e7ce4930705fb9a2eca11c9fb39c\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
+  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"7d08f28fc631862aaafc44d6da1bb6a27175eb2f7f01ef4fc24a763c17879ff0\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"61db9d90b387512c7386622f71faf158ba74a3b50e67431e5b737ce1ff8d8ce6\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/methods.rs\":\"42f1cc6bf6c26d55c24ad2f41a1dcda9b65792b62e8136c939b4eb55c7ea7db0\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
@@ -1545,6 +1545,15 @@
       ],
       "type": "object"
     },
+    "EvidenceAvailability": {
+      "enum": [
+        "available",
+        "unavailable",
+        "missing",
+        "integrity_failure"
+      ],
+      "type": "string"
+    },
     "EvidencePage": {
       "additionalProperties": false,
       "properties": {
@@ -1631,6 +1640,35 @@
         "schema"
       ],
       "type": "object"
+    },
+    "EvidenceState": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/definitions/Id"
+        },
+        "availability": {
+          "$ref": "#/definitions/EvidenceAvailability"
+        },
+        "verification_current": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "artifact",
+        "availability",
+        "verification_current"
+      ],
+      "type": "object"
+    },
+    "EvidenceStatus": {
+      "enum": [
+        "verified",
+        "observed",
+        "inferred",
+        "unverified"
+      ],
+      "type": "string"
     },
     "ExecutionHost": {
       "additionalProperties": false,
@@ -1830,6 +1868,53 @@
       ],
       "type": "object"
     },
+    "InspectionState": {
+      "additionalProperties": false,
+      "properties": {
+        "applicable": {
+          "type": "boolean"
+        },
+        "canonical_watermark": {
+          "$ref": "#/definitions/Counter"
+        },
+        "current": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/definitions/EvidenceState"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "memory_sequence": {
+          "$ref": "#/definitions/Counter"
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Resolution"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Absent when retention removed the governed version payload."
+        },
+        "visibility": {
+          "$ref": "#/definitions/Visibility"
+        }
+      },
+      "required": [
+        "applicable",
+        "canonical_watermark",
+        "current",
+        "evidence",
+        "memory_sequence",
+        "visibility"
+      ],
+      "type": "object"
+    },
     "JsonRpcVersion": {
       "enum": [
         "2.0"
@@ -1858,6 +1943,16 @@
             "$ref": "#/definitions/EvidenceReference"
           },
           "type": "array"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InspectionState"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "version": {
           "$ref": "#/definitions/Id"
@@ -2094,6 +2189,15 @@
       ],
       "type": "string"
     },
+    "Outcome": {
+      "enum": [
+        "accepted",
+        "disputed",
+        "rejected",
+        "awaiting_review"
+      ],
+      "type": "string"
+    },
     "PendingInput": {
       "additionalProperties": false,
       "properties": {
@@ -2176,6 +2280,30 @@
           "type": "null"
         }
       ]
+    },
+    "Resolution": {
+      "additionalProperties": false,
+      "properties": {
+        "conflicts": {
+          "items": {
+            "$ref": "#/definitions/Id"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "evidence_status": {
+          "$ref": "#/definitions/EvidenceStatus"
+        },
+        "outcome": {
+          "$ref": "#/definitions/Outcome"
+        }
+      },
+      "required": [
+        "conflicts",
+        "evidence_status",
+        "outcome"
+      ],
+      "type": "object"
     },
     "ResultEnvelope": {
       "additionalProperties": false,
@@ -3141,6 +3269,14 @@
         "unresolved_micros"
       ],
       "type": "object"
+    },
+    "Visibility": {
+      "enum": [
+        "retained",
+        "pruned",
+        "purged"
+      ],
+      "type": "string"
     },
     "WireEnvelope": {
       "anyOf": [
