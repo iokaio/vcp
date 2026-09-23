@@ -1,0 +1,87 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x1000"><title>VCP — optimize</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+body { padding: 0; }
+.page table td.chg { color: var(--modified); }
+.step { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--fg-dim); margin: 6px 0 14px; }
+.step span { padding: 3px 10px; border: 1px solid var(--border-strong); border-radius: 12px; }
+.step span.on { border-color: var(--accent); color: #fff; background: rgba(0,120,212,.12); }
+.step span.done { color: var(--ok); border-color: rgba(115,201,145,.45); }
+.q { border: 1px solid var(--border-strong); border-radius: 4px; padding: 8px 10px; margin: 6px 0; font-size: 12.5px; }
+.q .qq { color: #fff; }
+.q .ans { margin-top: 5px; display: flex; gap: 6px; flex-wrap: wrap; }
+.q .ans span { border: 1px solid var(--border-strong); border-radius: 3px; padding: 2px 8px; font-size: 12px; color: var(--fg-dim); }
+.q .ans span.on { border-color: var(--accent); color: #fff; }
+</style></head>
+<body>
+<div class="window">
+  <div class="titlebar"><div class="menu"><span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span><span>Help</span></div><div class="center"><span class="cmd">ledger-api</span></div><div class="controls">–▢✕</div></div>
+  <div class="workbench no-sidebar">
+    <div class="activitybar">
+      <div class="icon"><span class="glyph"></span></div><div class="icon"><span class="glyph" style="border-radius:50%"></span></div><div class="icon"><span class="glyph" style="border-style:dashed"></span></div><div class="icon"><span class="glyph" style="transform:rotate(45deg);width:16px;height:16px"></span></div>
+      <div class="icon active"><span class="glyph vcp"></span></div><div class="spacer"></div><div class="icon"><span class="glyph" style="border-radius:50%;width:18px;height:18px"></span></div><div class="icon"><span class="glyph" style="width:18px;height:18px;border-radius:50%;border-style:dotted"></span></div>
+    </div>
+    <div class="editor-area">
+      <div class="tabs"><div class="tab active"><span class="ic">◎</span> VCP: Optimize · ledger-api <span class="x">✕</span></div><div class="fill"></div><div class="editor-actions">⋯</div></div>
+      <div class="editor"><div class="page">
+        <div class="row between"><h1>Optimize project routing</h1><span class="row" style="gap:6px"><span class="pill dim">routing policy rev 3</span><span class="pill dim">window: last 30 days · 41 tasks</span><span class="pill dim">local analysis; no inference or paid trial submitted</span></span></div>
+        <div class="step"><span class="done">1 Baseline report</span>→<span class="done">2 Questions</span>→<span class="on">3 Preview</span>→<span>4 Apply</span>→<span>5 Evaluate / rollback</span></div>
+
+        <div class="grid3">
+          <div>
+            <h2>1 · Baseline report opt-r7</h2>
+            <div class="kv" style="font-size:12px">
+              <span class="k">Tasks</span><span class="v">41 · 33 completed · 4 failed · 2 cancelled · 2 unfinished</span>
+              <span class="k">Attempts</span><span class="v">212 · 19 retries · 37 support attempts</span>
+              <span class="k">Known spend</span><span class="v mono">USD 27.410662</span>
+              <span class="k">Uncertain</span><span class="v">3 attempts · reserved liability <span class="mono">USD 0.184000</span></span>
+              <span class="k">Coverage</span><span class="v wrap">28 of 41 tasks have routing decisions; 13 ran on the fixed model. Small sample for role <i>reviewer</i> (n=6).</span>
+            </div>
+            <h3>Observed patterns (correlation, not causation)</h3>
+            <ul style="margin:0;padding-left:18px;font-size:12px">
+              <li>Retries cluster on <span class="mono">openai/gpt-6-astra-pro</span> transport errors (11 of 19).</li>
+              <li>Verification reserve blocked 4 Frontier selections; 3 of those tasks completed on High.</li>
+              <li>Compaction spend 6% of total; context parts omitted for budget in 9 tasks.</li>
+            </ul>
+            <div class="callout" style="margin-top:8px;font-size:11.5px">Different tasks and providers are not a controlled comparison. Pruned history (epoch 4) limits evidence before 2026-08-24; the report says so rather than inventing a conclusion.</div>
+            <h3>Pruning suggestions (separate; never applied here)</h3>
+            <div class="sub" style="font-size:12px">7 superseded claims · 3 duplicate passages · 2 obsolete source versions → <a href="#">open prune preview</a></div>
+          </div>
+          <div>
+            <h2>2 · Questions (adaptive · saved answers reused)</h2>
+            <div class="q"><div class="qq">priority — speed, cost or quality?</div><div class="ans"><span>speed</span><span>cost</span><span class="on">quality</span><span>balanced</span></div><div class="sub" style="font-size:11px">saved 2026-09-10 · revision 3</div></div>
+            <div class="q"><div class="qq">expected_size — typical task size?</div><div class="ans"><span>small</span><span class="on">medium</span><span>large</span></div></div>
+            <div class="q"><div class="qq">review_preference — extra model review?</div><div class="ans"><span>never</span><span class="on">on write tasks</span><span>always</span></div></div>
+            <div class="q"><div class="qq">model_restrictions — free text (≤ 2048 B)</div><div class="input" style="margin-top:5px">no x-ai/*; prefer zdr endpoints</div></div>
+            <div class="sub" style="font-size:11.5px">Answers are revision-checked (<span class="mono">expected_revision</span>). Not required to run the report.</div>
+          </div>
+          <div>
+            <h2>3 · Preview against revision 3 · pv-opt-12</h2>
+            <table>
+              <tr><th>Field</th><th>Prior</th><th>Requested</th><th>Effective (trusted ceilings)</th></tr>
+              <tr><td>profile</td><td>med</td><td class="chg">high</td><td>high</td></tr>
+              <tr><td>ordering</td><td>quality › total_cost › latency</td><td class="chg">quality › latency › total_cost</td><td>same</td></tr>
+              <tr><td>quality_floor_bps</td><td>7800</td><td class="chg">8200</td><td>8200</td></tr>
+              <tr><td>allowed_endpoints</td><td>any</td><td class="chg">zdr only</td><td>zdr only</td></tr>
+              <tr><td>allowed_models</td><td>any</td><td class="chg">¬ x-ai/*</td><td>¬ x-ai/*</td></tr>
+              <tr><td>escalation_max_transport_retries</td><td>3</td><td class="chg">2</td><td>2</td></tr>
+              <tr><td>output_tokens</td><td>inherited</td><td class="chg">16384</td><td style="color:var(--warn)">8192 (user ceiling)</td></tr>
+              <tr><td>reasoning_effort</td><td>medium</td><td class="chg">high</td><td>high</td></tr>
+            </table>
+            <div class="callout warn" style="margin-top:8px;font-size:11.5px"><b>Uncertainty:</b> reviewer sample n=6; quality floor change affects 2 candidates with stale evidence (age &gt; 14 d). Expected effect: fewer transport retries (−0.9/task), +18% est. spend/task.</div>
+            <div class="callout" style="font-size:11.5px">Cannot grant network/tool capability or raise a spending cap. Changing routing never deletes memory.</div>
+            <div class="row between" style="margin-top:10px"><span class="btn-row"><span class="btn">Apply pv-opt-12 → revision 4</span><span class="btn secondary">Edit selection</span><span class="btn secondary">Discard</span></span><span class="sub" style="font-size:11.5px">prior revision 3 kept · rollback available</span></div>
+            <h3>After apply</h3>
+            <div class="sub" style="font-size:12px">Subsequent tasks are compared against revision 3; regressions are reported with <span class="btn sm secondary">Rollback to rev 3</span>. No extra paid trial runs are required to save a preference.</div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="item left-remote">⌂ VCP</div><div class="item">⎇ main</div><div class="item"><span class="dot ok"></span> VCP: idle</div><div class="item">routing rev 3 · preview pending</div>
+    <div class="fill"></div><div class="item">engine 0.8.3 · controller · local</div><div class="item">🔔</div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,196 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x1000"><title>VCP — overview</title>
+<link rel="stylesheet" href="vscode.css"></head>
+<body>
+<div class="window">
+  <div class="titlebar">
+    <div class="menu"><span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span><span>Help</span></div>
+    <div class="center"><span class="cmd">ledger-api</span></div>
+    <div class="controls">–▢✕</div>
+  </div>
+  <div class="workbench">
+    <div class="activitybar">
+      <div class="icon"><span class="glyph"></span></div>
+      <div class="icon"><span class="glyph" style="border-radius:50%"></span></div>
+      <div class="icon"><span class="glyph" style="border-style:dashed"></span></div>
+      <div class="icon"><span class="glyph" style="transform:rotate(45deg);width:16px;height:16px"></span></div>
+      <div class="icon active"><span class="glyph vcp"></span><span class="badge">1</span></div>
+      <div class="spacer"></div>
+      <div class="icon"><span class="glyph" style="border-radius:50%;width:18px;height:18px"></span></div>
+      <div class="icon"><span class="glyph" style="width:18px;height:18px;border-radius:50%;border-style:dotted"></span></div>
+    </div>
+
+    <div class="sidebar">
+      <div class="sidebar-title">VCP <span class="actions">⋯</span></div>
+
+      <!-- SESSION VIEW -->
+      <div class="view grow">
+        <div class="view-header"><span class="chev">▾</span> Session <span class="badge">running</span><span class="actions">⏸ ✕ ⟳ ⋯</span></div>
+        <div class="view-body">
+          <div class="card" style="margin-top:2px">
+            <div class="row between"><span class="title">Fix the parser failure on malformed CRLF input</span></div>
+            <div class="sub mono" style="margin-top:2px">task-7f3a · turn 3 · revision 41</div>
+            <div class="row" style="margin-top:6px;gap:6px;flex-wrap:wrap">
+              <span class="pill info"><span class="dot run pulse" style="margin-right:5px"></span>running</span>
+              <span class="pill">controller · this window</span>
+              <span class="pill dim">host: local windows</span>
+            </div>
+          </div>
+
+          <div class="section-label">Current turn</div>
+          <ul class="stages">
+            <li class="done">assembling_context <span class="st ok">done</span><span class="sub">14 files · 2 instructions · manifest ctx-91</span></li>
+            <li class="done">reserving_budget <span class="st ok">$0.12 reserved</span></li>
+            <li class="done">requesting_model <span class="st ok">gpt-5.6-luna</span></li>
+            <li class="done">processing_response <span class="st ok">done</span></li>
+            <li class="active">executing_tools <span class="st run">1 running</span><span class="sub">process: cargo test -p parser (12 s)</span></li>
+
+          </ul>
+
+          <div class="section-label">Model &amp; policy</div>
+          <div class="kv">
+            <span class="k">Model</span><span class="v mono">openai/gpt-5.6-luna <span class="pill dim" style="margin-left:4px;font-family:var(--ui)">fixed model</span></span>
+            <span class="k">Profile</span><span class="v">med · autonomy <b>workspace</b> · policy rev 7</span>
+            <span class="k">Served</span><span class="v">not normalized — read from response evidence</span>
+          </div>
+
+          <div class="section-label">Budget · task tree</div>
+          <div class="meter"><span class="seg spent" style="left:0;width:31%"></span><span class="seg reserved" style="left:31%;width:6%"></span><span class="seg uncertain" style="left:37%;width:2%"></span><span class="seg protected" style="left:90%;width:10%"></span></div>
+          <div class="row between" style="font-size:12px"><span>$0.62 spent · $0.12 reserved · <span style="color:var(--warn)">$0.04 uncertain</span></span><span class="mono">cap $2.00</span></div>
+          <div class="legend"><span><i class="sw" style="background:var(--progress)"></i>spent</span><span><i class="sw" style="background:rgba(0,120,212,.45)"></i>reserved</span><span><i class="sw" style="background:var(--warn)"></i>uncertain</span><span><i class="sw" style="background:rgba(255,255,255,.22)"></i>protected verification</span></div>
+
+          <div class="section-label">Checks · execution / recorded outcome</div>
+          <ul class="check">
+            <li><span class="bx ok">✓</span><span>cargo check <span class="why">· fingerprint ws-3c1e</span></span></li>
+            <li><span class="bx run"></span><span>cargo test -p parser <span class="why">· execution: running; outcome: not recorded</span></span></li>
+            <li><span class="bx skip"></span><span>clippy <span class="why">· not yet selected</span></span></li>
+          </ul>
+
+          <div class="section-label">Children <span class="mono" style="text-transform:none;letter-spacing:0">(3)</span></div>
+          <ul class="tree" style="margin:0 -8px">
+            <li><span class="ic ok">●</span><span class="lbl">review · parser edge cases</span><span class="right"><span>completed</span><span>$0.0084</span></span></li>
+            <li><span class="ic run">●</span><span class="lbl">child · CRLF regression fixtures</span><span class="right"><span>running</span><span>$0.11</span></span></li>
+            <li><span class="ic err">●</span><span class="lbl">explore · CRLF call sites</span><span class="right"><span class="pill err" style="height:16px;line-height:14px">blocked · Workspace</span></span></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- QUESTIONS VIEW -->
+      <div class="view">
+        <div class="view-header"><span class="chev">▾</span> Questions <span class="badge alert">1</span><span class="actions">⋯</span></div>
+        <div class="view-body">
+          <div class="card selected">
+            <div class="row between"><span class="title">Approval required · process</span><span class="pill warn">actionable</span></div>
+            <div class="mono" style="margin:4px 0;color:#fff">cargo test -p parser --features crlf</div>
+            <div class="sub">effect <span class="mono">op-3e0</span> · digest <span class="mono">7c1e…</span> · expires in 14 m · policy: ask (no matching grant)</div>
+            <div class="row between" style="margin-top:8px">
+              <span class="btn-row"><span class="btn sm">Allow</span><span class="btn sm danger">Deny</span></span>
+              <span class="sub" style="font-size:11px">no default · answering does not resume work</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEERING INPUT -->
+      <div class="view">
+        <div class="view-header"><span class="chev">▾</span> Steer</div>
+        <div class="view-body">
+          <div class="input focus">Also cover the LF-only fixture in the regression test<span class="caret"></span></div>
+          <div class="row between" style="margin-top:5px;font-size:11.5px;color:var(--fg-dim)"><span>Enter queues durable guidance · <span class="mono">/</span> for commands</span><span>stops active effects, then pauses for Resume</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EDITOR AREA -->
+    <div class="editor-area with-panel">
+      <div class="tabs">
+        <div class="tab active"><span class="ic mod">◆</span> parser.rs (prepared change) <span class="x">✕</span></div>
+        <div class="tab"><span class="ic">▤</span> lib.rs <span class="x">✕</span></div>
+        <div class="tab"><span class="ic">◈</span> VCP: Agent review-1a2f <span class="x">✕</span></div>
+        <div class="fill"></div>
+        <div class="editor-actions">⇆ ⋯</div>
+      </div>
+      <div class="editor">
+        <div class="banner info">
+          <span class="pill info">prepared change</span>
+          <span>src/parser.rs · change-set <span class="mono">cs-8d4</span> · expects doc v12 / disk <span class="mono">a91c…</span> · buffer is <b>dirty</b> — edit prepared against the editor buffer</span>
+          <span class="fill"></span>
+          <span class="btn sm">Apply to buffer</span><span class="btn sm secondary">Re-prepare</span><span class="btn sm secondary">Discard</span>
+        </div>
+        <div class="breadcrumbs">src › parser.rs › <span style="color:var(--fg)">fn split_lines</span><span style="margin-left:auto">ORIGINAL (buffer v12) &nbsp;&nbsp;|&nbsp;&nbsp; PREPARED</span></div>
+        <div class="diff">
+          <div class="side">
+<pre><span class="l"><span class="ln">41</span><span class="kw">pub fn</span> <span class="fn">split_lines</span>(input: &amp;<span class="kw">str</span>) -&gt; <span class="ty">Vec</span>&lt;&amp;<span class="kw">str</span>&gt; {</span>
+<span class="l"><span class="ln">42</span>    <span class="kw">let</span> <span class="kw">mut</span> lines = <span class="ty">Vec</span>::new();</span>
+<span class="l del"><span class="ln">43</span>    <span class="kw">for</span> line <span class="kw">in</span> input.<span class="fn">split</span>(<span class="str">'\n'</span>) {</span>
+<span class="l del"><span class="ln">44</span>        lines.<span class="fn">push</span>(line);</span>
+<span class="l pad"><span class="ln"> </span></span>
+<span class="l pad"><span class="ln"> </span></span>
+<span class="l"><span class="ln">45</span>    }</span>
+<span class="l"><span class="ln">46</span>    lines</span>
+<span class="l"><span class="ln">47</span>}</span>
+<span class="l"><span class="ln">48</span></span>
+<span class="l pad"><span class="ln"> </span></span>
+<span class="l pad"><span class="ln"> </span></span>
+<span class="l pad"><span class="ln"> </span></span>
+<span class="l pad"><span class="ln"> </span></span>
+<span class="l pad"><span class="ln"> </span></span>
+<span class="l pad"><span class="ln"> </span></span>
+<span class="l pad"><span class="ln"> </span></span>
+<span class="l"><span class="ln">49</span><span class="cm">// Tokenizer entry point.</span></span></pre>
+          </div>
+          <div class="side">
+<pre><span class="l"><span class="ln">41</span><span class="kw">pub fn</span> <span class="fn">split_lines</span>(input: &amp;<span class="kw">str</span>) -&gt; <span class="ty">Vec</span>&lt;&amp;<span class="kw">str</span>&gt; {</span>
+<span class="l"><span class="ln">42</span>    <span class="kw">let</span> <span class="kw">mut</span> lines = <span class="ty">Vec</span>::new();</span>
+<span class="l add"><span class="ln">43</span>    <span class="cm">// Accept CRLF and LF without allocating; a trailing '\r' is</span></span>
+<span class="l add"><span class="ln">44</span>    <span class="cm">// part of the terminator, not the line.</span></span>
+<span class="l add"><span class="ln">45</span>    <span class="kw">for</span> line <span class="kw">in</span> input.<span class="fn">split</span>(<span class="str">'\n'</span>) {</span>
+<span class="l add"><span class="ln">46</span>        lines.<span class="fn">push</span>(line.<span class="fn">strip_suffix</span>(<span class="str">'\r'</span>).<span class="fn">unwrap_or</span>(line));</span>
+<span class="l"><span class="ln">47</span>    }</span>
+<span class="l"><span class="ln">48</span>    lines</span>
+<span class="l"><span class="ln">49</span>}</span>
+<span class="l"><span class="ln">50</span></span>
+<span class="l add"><span class="ln">51</span><span class="cm">#[cfg(test)]</span></span>
+<span class="l add"><span class="ln">52</span><span class="kw">mod</span> crlf_tests {</span>
+<span class="l add"><span class="ln">53</span>    <span class="kw">use super</span>::*;</span>
+<span class="l add"><span class="ln">54</span>    <span class="cm">#[test]</span></span>
+<span class="l add"><span class="ln">55</span>    <span class="kw">fn</span> <span class="fn">strips_cr_before_lf</span>() {</span>
+<span class="l add"><span class="ln">56</span>        <span class="fn">assert_eq!</span>(<span class="fn">split_lines</span>(<span class="str">"a\r\nb\r\n"</span>), [<span class="str">"a"</span>, <span class="str">"b"</span>, <span class="str">""</span>]);</span>
+<span class="l add"><span class="ln">57</span>    }</span>
+<span class="l add"><span class="ln">58</span>}</span>
+<span class="l"><span class="ln">59</span><span class="cm">// Tokenizer entry point.</span></span></pre>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-tabs"><span>Problems</span><span>Output</span><span>Terminal</span><span class="active">VCP Events</span><span>Ports</span><span style="margin-left:auto;letter-spacing:8px">⌃ ✕</span></div>
+        <div class="panel-body">
+<pre><span style="color:var(--fg-dim)">seq 1841  14:02:11.204</span>  <span style="color:var(--link)">root</span>              turn_transition      requesting_model → processing_response   <span style="color:var(--fg-dim)">attempt at-77 · requested openai/gpt-5.6-luna · served: not normalized</span>
+<span style="color:var(--fg-dim)">seq 1842  14:02:14.881</span>  <span style="color:var(--link)">root</span>              effect_transition    op-3e0 process · proposed → validated    <span style="color:var(--fg-dim)">cargo test -p parser --features crlf</span>
+<span style="color:var(--fg-dim)">seq 1843  14:02:14.882</span>  <span style="color:var(--link)">root</span>              approval_requested   q-2b91 · policy ask, no matching grant     <span style="color:var(--warn)">actionable · expires 14:16</span>
+<span style="color:var(--fg-dim)">seq 1844  14:02:15.010</span>  <span style="color:var(--ok)">child review-1a2f</span> commentary           examined 6 paths · 1 finding (defect, uncertainty low)   <span style="color:var(--fg-dim)">$0.008402 known · this node only</span>
+<span style="color:var(--fg-dim)">seq 1845  14:02:15.377</span>  <span style="color:var(--warn)">child explore-9c40</span> task_transition     pending → blocked · reason: Workspace       <span style="color:var(--fg-dim)">readiness: not_ready · setup_reason: git.exe not found</span>
+<span style="color:var(--fg-dim)">seq 1846  14:02:19.420</span>  <span style="color:var(--link)">root</span>              commentary           inspecting the current parser test output
+<span style="color:var(--fg-dim)">seq 1847  14:02:20.003</span>  <span style="color:var(--fg-dim)">ledger</span>            liability_retained   rs-118 submitted → reconciliation_pending   <span style="color:var(--warn)">$0.04 uncertain until usage reconciles</span>
+<span style="color:var(--fg-dim)">seq 1848  14:02:23.900</span>  <span style="color:var(--link)">root</span>              local_resources_observed   exec-51 · job j-51 alive · cpu 1.2 s · peak rss 88 MB · disk 0 B   <span style="color:var(--fg-dim)">last durable activity: seq 1842 (9 s ago, client-derived)</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <div class="item left-remote">⌂ VCP</div>
+    <div class="item">⎇ main ↑2</div>
+    <div class="item">⊗ 0 ⚠ 3</div>
+    <div class="item"><span class="dot run pulse"></span> VCP: running · executing_tools</div>
+    <div class="item">$ 0.62 / 2.00 <span style="color:var(--warn)">+0.04?</span></div>
+    <div class="item" style="color:var(--warn)">? 1 question</div>
+    <div class="fill"></div>
+    <div class="item">engine 0.8.3 · controller · local</div>
+    <div class="item">Ln 46, Col 21</div>
+    <div class="item">CRLF</div>
+    <div class="item">Rust</div>
+    <div class="item">🔔</div>
+  </div>
+</div>
+</body></html>

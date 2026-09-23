@@ -1,0 +1,98 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x1000"><title>VCP — memory and history</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+:root { --sidebar-w: 380px; }
+.claim { border: 1px solid var(--border-strong); border-radius: 4px; padding: 6px 10px; margin: 5px 0; font-size: 12px; }
+.claim .triple { color: #fff; }
+.claim .triple b { color: var(--link); font-weight: 600; }
+.hrow { display: grid; grid-template-columns: 44px 118px 118px 1fr 82px; gap: 8px; padding: 4px 6px; border-bottom: 1px solid var(--border); font-size: 11.5px; align-items: start; }
+.hrow.h { color: var(--fg-dim); text-transform: uppercase; font-size: 10.5px; font-weight: 600; }
+.bucket { border: 1px solid var(--border-strong); border-radius: 4px; padding: 8px 10px; }
+.bucket .n { font-family: var(--mono); font-size: 18px; color: #fff; }
+.bucket .l { font-size: 11px; text-transform: uppercase; letter-spacing: .3px; color: var(--fg-dim); }
+</style></head>
+<body>
+<div class="window">
+  <div class="titlebar"><div class="menu"><span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span><span>Help</span></div><div class="center"><span class="cmd">ledger-api</span></div><div class="controls">–▢✕</div></div>
+  <div class="workbench">
+    <div class="activitybar">
+      <div class="icon"><span class="glyph"></span></div><div class="icon"><span class="glyph" style="border-radius:50%"></span></div><div class="icon"><span class="glyph" style="border-style:dashed"></span></div><div class="icon"><span class="glyph" style="transform:rotate(45deg);width:16px;height:16px"></span></div>
+      <div class="icon active"><span class="glyph vcp"></span></div><div class="spacer"></div><div class="icon"><span class="glyph" style="border-radius:50%;width:18px;height:18px"></span></div><div class="icon"><span class="glyph" style="width:18px;height:18px;border-radius:50%;border-style:dotted"></span></div>
+    </div>
+    <div class="sidebar">
+      <div class="sidebar-title">VCP <span class="actions">⋯</span></div>
+      <div class="view"><div class="view-header"><span class="chev">▸</span> Session <span class="badge">completed</span></div></div>
+      <div class="view grow">
+        <div class="view-header"><span class="chev">▾</span> Memory <span class="badge">index ready</span><span class="actions">🔍 ⋯</span></div>
+        <div class="view-body">
+          <div class="input focus">parser test command<span class="caret"></span></div>
+          <div class="row" style="gap:6px;margin:6px 0;font-size:11.5px;color:var(--fg-dim)"><span class="pill dim">scope: workspace</span><span class="pill dim">current</span><span class="pill dim">limit 8</span><span class="pill dim">gen g-14 · seq 3120</span></div>
+          <div class="claim"><div class="row between"><span class="pill dim" style="font-size:10px">command · test</span><span class="row" style="gap:4px"><span class="pill ok" style="font-size:10px">accepted</span><span class="pill" style="font-size:10px">verified</span></span></div>
+            <div class="triple" style="margin-top:3px"><b>parser crate</b> · is tested by · <span class="mono">cargo test -p parser --features crlf</span></div>
+            <div class="sub">cl-208 v3 · evidence: verification vf-12 (exit 0) · tool_output · applicability: root-01, branch main · rank 0.91 · fresh (2 h)</div></div>
+          <div class="claim"><div class="row between"><span class="pill dim" style="font-size:10px">environment_constraint</span><span class="row" style="gap:4px"><span class="pill warn" style="font-size:10px">disputed</span><span class="pill" style="font-size:10px">observed</span></span></div>
+            <div class="triple" style="margin-top:3px"><b>workspace</b> · requires · Git ≥ 2.40 at C:/Program Files/Git</div>
+            <div class="sub">cl-131 v2 · conflicts with v1 (path changed) · finding: warning "two current values" · rank 0.44</div></div>
+          <div class="claim"><div class="row between"><span class="pill dim" style="font-size:10px">verified_fix</span><span class="row" style="gap:4px"><span class="pill dim" style="font-size:10px">awaiting_review</span><span class="pill" style="font-size:10px">inferred</span></span></div>
+            <div class="triple" style="margin-top:3px"><b>split_lines</b> · fixed by · strip trailing '\r' per line</div>
+            <div class="sub">cl-244 v1 · model_inference from at-77 · predecessor none · rank 0.38 · <span style="color:var(--warn)">not authoritative until resolved</span></div></div>
+          <div class="sub" style="font-size:11.5px;margin-top:6px">Passages are read-only and bounded (≤16 KiB tokens). Search snippets obey the same access and retention rules as full artifacts; excluded claims never surface through recall.</div>
+        </div>
+      </div>
+      <div class="view">
+        <div class="view-header"><span class="chev">▾</span> Retention <span class="badge alert">notice</span></div>
+        <div class="view-body">
+          <div class="callout warn" style="margin-top:2px">History older than 30 days: oldest 2026-08-12 · 214 MB retained · 1,802 events. Notification-only policy (no automatic deletion). Repeats weekly until acknowledged.</div>
+          <div class="btn-row" style="margin-top:6px"><span class="btn sm secondary">Preview prune…</span><span class="btn sm secondary">Retention settings</span><span class="btn sm secondary">Acknowledge</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="editor-area">
+      <div class="tabs"><div class="tab"><span class="ic">◈</span> VCP: Claim cl-208 <span class="x">✕</span></div><div class="tab active"><span class="ic">🕓</span> VCP: History · prune preview <span class="x">✕</span></div><div class="fill"></div><div class="editor-actions">⋯</div></div>
+      <div class="editor"><div class="page">
+        <div class="row between"><h1>History · workspace ws-4b7e</h1><span class="row" style="gap:6px"><span class="pill dim">timezone: local (UTC−06:00) · filters use UTC boundaries</span><span class="pill dim">watermark 3120 · 4 newer events</span></span></div>
+        <div class="row" style="gap:8px;margin:8px 0"><div class="input" style="flex:1"><span class="ph">Search history text…</span></div><span class="input">before 2026-08-24</span><span class="input">event: any</span><span class="input">agent: any</span><span class="input">model: any</span><span class="btn sm secondary">Selector JSON…</span></div>
+
+        <div class="grid2" style="grid-template-columns: 1.1fr 1fr">
+          <div>
+            <h2>Rows (page 1 of 15 · 128 max)</h2>
+            <div class="hrow h"><span>Seq</span><span>Kind</span><span>Task / agent</span><span>Summary</span><span>Artifacts</span></div>
+            <div class="hrow"><span class="mono">2117</span><span>effect_transition</span><span class="mono">task-51aa</span><span>process cargo test → succeeded (exit 0)</span><span><span class="pill ok" style="font-size:10px">available</span></span></div>
+            <div class="hrow"><span class="mono">2116</span><span>commentary</span><span class="mono">task-51aa/child-0e</span><span class="trunc">content_truncated · 612 KB</span><span><span class="pill ok" style="font-size:10px">available</span></span></div>
+            <div class="hrow" style="opacity:.6"><span class="mono">2090</span><span>attempt_submitted</span><span class="mono">task-4c02</span><span>recall_excluded · request req-30</span><span><span class="pill dim" style="font-size:10px">excluded</span></span></div>
+            <div class="hrow"><span class="mono">2071</span><span>artifact_attached</span><span class="mono">task-4c02</span><span>compacted · stdout so-30 (original 2.1 MB)</span><span><span class="pill warn" style="font-size:10px">compacted</span></span></div>
+            <div class="hrow"><span class="mono">1988</span><span>approval_resolved</span><span class="mono">task-3b19</span><span>q-0d3c denied · install</span><span><span class="pill ok" style="font-size:10px">available</span></span></div>
+            <div class="hrow" style="opacity:.6"><span class="mono">1801</span><span>usage_reconciled</span><span class="mono">task-2f88</span><span class="redacted">content removed, identity retained · digest 8ac1… · epoch 4</span><span><span class="pill err" style="font-size:10px">purged</span></span></div>
+            <div class="callout" style="margin-top:8px;font-size:11.5px">Gap: sequences 1500–1799 unavailable (retained gap: retention_changed, epoch 4). Navigation: claim → source events → derived claims works in both directions.</div>
+          </div>
+          <div>
+            <h2>Prune preview <span class="mono" style="font-size:11px">pv-9e2c…</span> · action <b>purge</b> · bound to watermark 3120 / deletion epoch 4</h2>
+            <div class="sub" style="color:var(--fg-dim)">Selector: date &lt; 2026-08-24T00:00Z ∧ ¬ status(task: running|paused) ∧ ¬ superseded(false)</div>
+            <div class="grid3" style="margin:8px 0">
+              <div class="bucket"><div class="n">1,204</div><div class="l">selected records/events</div><div class="sub">≈ 168 MB · bytes_are_exact: <b>false</b></div></div>
+              <div class="bucket"><div class="n">318</div><div class="l">dependent (claims, chunks, embeddings)</div><div class="sub">will be purged with sources</div></div>
+              <div class="bucket" style="border-color:rgba(204,167,0,.5)"><div class="n" style="color:var(--warn)">7</div><div class="l">protected · excluded</div><div class="sub">active task refs · unsettled accounting</div></div>
+            </div>
+            <table>
+              <tr><th>Protected target</th><th>Reason</th></tr>
+              <tr><td class="mono">event/1732</td><td>unsettled reservation rs-88 (reconciliation_pending)</td></tr>
+              <tr><td class="mono">record/task-2f88</td><td>paused task with recovery dependencies · protected until dependencies are resolved</td></tr>
+              <tr><td class="mono">artifact/ct-0e-1</td><td>referenced by child cleanup intent ci-3</td></tr>
+            </table>
+            <div class="callout warn" style="margin-top:8px;font-size:11.5px">Backup copies may retain older content: 2 encrypted snapshots in the vault (2026-08-01, 2026-09-01) are reported separately and are not modified by this purge. Expected search impact: −12% lexical docs, 1 vector generation rebuild.</div>
+            <div class="row between" style="margin-top:10px"><span class="btn-row"><span class="btn">Apply exactly this preview</span><span class="btn secondary">Re-preview (state changed?)</span><span class="btn secondary">Change action: exclude / compact</span></span><span class="sub" style="color:var(--fg-dim);font-size:11.5px">applies pv-9e2c… only; a changed watermark requires re-preview</span></div>
+            <h3>Actions are distinct</h3>
+            <div class="kv" style="font-size:12px"><span class="k">exclude</span><span class="v wrap">reversible relevance change; content stays</span><span class="k">restore_recall</span><span class="v wrap">undo an exclusion</span><span class="k">compact</span><span class="v wrap">shrink retained presentation; does not claim deletion</span><span class="k">purge</span><span class="v wrap">removes content and derived claims/chunks/embeddings/caches; identity + digest tombstones remain</span></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="item left-remote">⌂ VCP</div><div class="item">⎇ main</div><div class="item"><span class="dot ok"></span> VCP: idle · last task completed</div><div class="item">memory: ready · g-14</div><div class="item" style="color:var(--warn)">⏳ retention notice</div>
+    <div class="fill"></div><div class="item">engine 0.8.3 · controller · local</div><div class="item">🔔 1</div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,79 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x1000"><title>VCP — status bar and notifications</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+.sb { width: 1520px; margin: 6px 0 14px; }
+.sb .statusbar { border: 1px solid var(--border); }
+.sb .lab { font-size: 11px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 3px; }
+.cols { display: flex; gap: 24px; align-items: flex-start; }
+.col { width: 470px; }
+.pal { width: 560px; background: var(--editor-bg); border: 1px solid var(--border-strong); box-shadow: 0 4px 16px rgba(0,0,0,.6); }
+.pal .qin { padding: 6px; }
+.pal .prow { display: flex; justify-content: space-between; padding: 4px 12px; font-size: 12.5px; }
+.pal .prow.sel { background: var(--sel-bg); }
+.pal .prow .k { color: var(--fg-dim); font-size: 11.5px; }
+h2 { font-size: 13px; color: #fff; margin: 14px 0 6px; }
+</style></head>
+<body class="sheet">
+<h1>Status bar, notifications and commands</h1>
+<div class="caption">Status bar items are the always-visible truth: engine/role, task state, money, pending input. Notifications are reserved for state the user must act on or would otherwise miss; none of them ever implies completion, approval or resumption.</div>
+
+<div class="sb"><div class="lab">A · running, controller, one actionable question</div>
+<div class="statusbar"><div class="item left-remote">⌂ VCP</div><div class="item">⎇ main ↑2</div><div class="item"><span class="dot run pulse"></span> VCP: running · executing_tools</div><div class="item">$ 0.62 / 2.00 <span style="color:var(--warn)">+0.04?</span></div><div class="item" style="color:var(--warn)">? 1 question</div><div class="item">⛶ 3 agents</div><div class="fill"></div><div class="item">engine 0.8.3 · controller · local</div><div class="item">memory ready</div><div class="item">🔔</div></div></div>
+
+<div class="sb"><div class="lab">B · paused (local hold), unresolved effect, observer role</div>
+<div class="statusbar"><div class="item left-remote">⌂ VCP</div><div class="item">⎇ main ↑2</div><div class="item"><span class="dot"></span> VCP: paused · local hold</div><div class="item">$ 0.62 / 2.00 <span style="color:var(--warn)">+0.04?</span></div><div class="item warn">⚠ 1 outcome_unknown</div><div class="fill"></div><div class="item">engine 0.8.3 · <span style="color:var(--warn)">observer</span> · local</div><div class="item">🔔 2</div></div></div>
+
+<div class="sb"><div class="lab">C · restricted workspace, engine incompatible, retention notice</div>
+<div class="statusbar"><div class="item left-remote" style="background:var(--warn);color:#000">⌂ VCP · Restricted</div><div class="item">⎇ main</div><div class="item err">✕ engine incompatible (0.6.0)</div><div class="item" style="color:var(--warn)">⏳ retention notice</div><div class="fill"></div><div class="item">engine — · disconnected</div><div class="item">🔔 1</div></div></div>
+
+<div class="sb"><div class="lab">D · budget exhausted; completed</div>
+<div class="statusbar"><div class="item left-remote">⌂ VCP</div><div class="item">⎇ main</div><div class="item warn">$ budget_exhausted · 1.72 + 0.08? / 2.00</div><div class="item">⛶ 2 agents · 1 paused</div><div class="fill"></div><div class="item"><span class="dot ok"></span> last task completed · exit 0</div><div class="item">engine 0.8.3 · controller · local</div></div></div>
+
+<div class="cols">
+  <div class="col">
+    <h2>Notifications (toasts) — must-act or would-miss only</h2>
+    <div class="toast"><div class="head"><span class="ico warn">⚠</span><div class="msg"><b>VCP paused task-7f3a</b> — the controlling window was reloaded. Reconnect alone does not resume it.<div class="src">1 unresolved effect · $0.04 uncertain · Source: VCP</div></div></div><div class="acts"><span class="btn sm secondary">Inspect</span><span class="btn sm">Open Session</span></div></div>
+    <div class="toast"><div class="head"><span class="ico warn">⚠</span><div class="msg"><b>Prepared change invalidated</b> — src/parser.rs changed (v12 → v13) while a change was pending. Your typing is preserved.<div class="src">change-set cs-8d4 · Source: VCP</div></div></div><div class="acts"><span class="btn sm secondary">Discard</span><span class="btn sm">Re-prepare</span></div></div>
+    <div class="toast"><div class="head"><span class="ico err">⊗</span><div class="msg"><b>Workspace trust revoked</b> — project execution stopped; queued effect op-3e0 blocked; prepared actions must revalidate.<div class="src">Source: VCP</div></div></div><div class="acts"><span class="btn sm secondary">Manage Trust</span></div></div>
+    <div class="toast"><div class="head"><span class="ico warn">⚠</span><div class="msg"><b>Budget exhausted</b> for task-7f3a — next attempt ($0.14) does not fit available $0.02. No work is scheduled beyond the reservation policy.<div class="src">Source: VCP</div></div></div><div class="acts"><span class="btn sm secondary">Report partial</span><span class="btn sm">Raise cap…</span></div></div>
+    <div class="toast"><div class="head"><span class="ico info">ⓘ</span><div class="msg"><b>Children finished after the parent turn ended.</b> Review their evidence and any integration, then Resume for current parent verification.<div class="src">task-b3d7 completed · task-1a2f completed · Source: VCP</div></div></div><div class="acts"><span class="btn sm">Open Agents</span></div></div>
+  </div>
+  <div class="col">
+    <h2>&nbsp;</h2>
+    <div class="toast"><div class="head"><span class="ico err">⊗</span><div class="msg"><b>Engine incompatible</b> — vcp.exe 0.6.0 speaks protocol v0; this extension requires v1. Unknown governance states fail closed.<div class="src">Source: VCP</div></div></div><div class="acts"><span class="btn sm secondary">Choose executable…</span><span class="btn sm">Compatibility matrix</span></div></div>
+    <div class="toast"><div class="head"><span class="ico info">ⓘ</span><div class="msg"><b>Retention notice</b> — history older than 30 days (oldest 2026-08-12, 214 MB). Notification-only; nothing is deleted automatically.<div class="src">repeats weekly until acknowledged · Source: VCP</div></div></div><div class="acts"><span class="btn sm secondary">Acknowledge</span><span class="btn sm secondary">Preview prune…</span></div></div>
+    <div class="toast"><div class="head"><span class="ico warn">⚠</span><div class="msg"><b>Effect outcome unknown</b> — op-3e0 (cargo test) exit was not observed. Reconcile before dependent work; nothing is replayed automatically.<div class="src">Source: VCP</div></div></div><div class="acts"><span class="btn sm">Reconcile</span></div></div>
+    <div class="toast"><div class="head"><span class="ico info">ⓘ</span><div class="msg"><b>Backup created</b> at pause boundary — encrypted snapshot sn-0921 published to the configured vault. Recovery keys are not stored in the vault.<div class="src">Source: VCP</div></div></div><div class="acts"><span class="btn sm secondary">Backup status</span></div></div>
+    <div class="toast"><div class="head"><span class="ico warn">⚠</span><div class="msg"><b>Controller lease lost</b> — another client (vcp.exe PID 18004) now controls ses-21c0. This window is observing; it cannot answer questions.<div class="src">Source: VCP</div></div></div><div class="acts"><span class="btn sm secondary">Request transfer…</span></div></div>
+  </div>
+  <div>
+    <h2>Command palette (every command = one engine command)</h2>
+    <div class="pal">
+      <div class="qin"><div class="input focus">&gt;VCP: <span class="caret"></span></div></div>
+      <div class="prow sel"><span>VCP: Run Task…</span><span class="k">turn/start</span></div>
+      <div class="prow"><span>VCP: Resume Task…</span><span class="k">session/resume · revalidates</span></div>
+      <div class="prow"><span>VCP: Pause Task</span><span class="k">turn/pause · idempotent</span></div>
+      <div class="prow"><span>VCP: Cancel Task</span><span class="k">task/cancel</span></div>
+      <div class="prow"><span>VCP: Answer Question…</span><span class="k">approval/respond (allow | deny)</span></div>
+      <div class="prow"><span>VCP: Steer Task…</span><span class="k">turn/steer</span></div>
+      <div class="prow"><span>VCP: Show Agents</span><span class="k">tasks agents</span></div>
+      <div class="prow"><span>VCP: New Helper (explore / review)…</span><span class="k">/agents explore|review</span></div>
+      <div class="prow"><span>VCP: Delegate from spec.json…</span><span class="k">/agents delegate</span></div>
+      <div class="prow"><span>VCP: Integrate Child… / Apply Integration…</span><span class="k">/agents integrate|apply</span></div>
+      <div class="prow"><span>VCP: Inspect…</span><span class="k">inspect &lt;id&gt; --view</span></div>
+      <div class="prow"><span>VCP: Search Memory…</span><span class="k">memory search</span></div>
+      <div class="prow"><span>VCP: History / Prune Preview…</span><span class="k">history · prune show|apply</span></div>
+      <div class="prow"><span>VCP: Optimize Project Routing</span><span class="k">optimize report|preview|apply|rollback</span></div>
+      <div class="prow"><span>VCP: Add Selection to Task Context</span><span class="k">editor/context (ephemeral)</span></div>
+      <div class="prow"><span>VCP: Trust Workspace for Execution…</span><span class="k">workspace trust --expected-revision</span></div>
+      <div class="prow"><span>VCP: Rebind Workspace…</span><span class="k">workspace rebind</span></div>
+      <div class="prow"><span>VCP: Cleanup Child Workspace…</span><span class="k">/agents cleanup preview|apply|reconcile</span></div>
+      <div class="prow"><span>VCP: Backup Status / Create Backup</span><span class="k">backup status|create</span></div>
+      <div class="prow"><span>VCP: Doctor</span><span class="k">doctor</span></div>
+      <div class="prow"><span>VCP: Show Engine Output (diagnostics)</span><span class="k">stderr channel</span></div>
+    </div>
+    <div class="sub" style="font-size:11.5px;color:var(--fg-dim);margin-top:8px;width:560px">Not offered because the engine has no such command: “/plan”, “/model”, “/compact”, “/permissions”, “/backup” (interactive). Mode is chosen at task start (<span class="mono">--autonomy</span>); model is a routing policy, not a per-turn switch.</div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,109 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x860"><title>VCP — session states</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+.frame { width: 480px; }
+.frame .sidebar { border: none; height: auto; }
+.frame .view { border-top: none; }
+</style></head>
+<body class="sheet">
+<h1>Session view — task and turn states</h1>
+<div class="caption">Each frame is the Session view (side bar, 380–500 px) in one engine state. State names are the engine's <span class="mono">TaskState</span> / <span class="mono">TurnState</span> / <span class="mono">EffectState</span> wire values; badges never invent a state the engine did not report. Pause progress is a separate command/effect indicator.</div>
+
+<!-- 1. waiting_for_input -->
+<div class="frame"><div class="flabel">1 · waiting_for_input (awaiting_approval)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Session <span class="badge">waiting_for_input</span><span class="actions">⏸ ✕ ⟳ ⋯</span></div>
+<div class="view-body">
+  <div class="card" style="margin-top:2px"><div class="title">Fix the parser failure on malformed CRLF input</div><div class="sub mono">task-7f3a · turn 3 · revision 41</div>
+  <div class="row" style="margin-top:6px;gap:6px;flex-wrap:wrap"><span class="pill warn"><span class="dot warn" style="margin-right:5px"></span>waiting_for_input</span><span class="pill">controller · this window</span></div></div>
+  <div class="section-label">Current turn</div>
+  <ul class="stages">
+    <li class="done">processing_response <span class="st ok">done</span></li>
+    <li class="wait">awaiting_approval <span class="st warn">1 actionable</span><span class="sub">op-3e0 process · answer in Questions, then Resume</span></li>
+
+  </ul>
+  <div class="callout warn" style="margin-top:8px">No default answer. Approving records a decision; scheduling restarts only on a deliberate <b>Resume</b>.</div>
+  <div class="btn-row" style="margin-top:8px"><span class="btn sm secondary">Open Questions (1)</span><span class="btn sm disabled">Resume</span></div>
+</div></div></div></div>
+
+<!-- 2. pausing -->
+<div class="frame"><div class="flabel">2 · pausing (stop boundary not yet established)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Session <span class="badge">paused</span><span class="actions">✕ ⋯</span></div>
+<div class="view-body">
+  <div class="card" style="margin-top:2px"><div class="title">Fix the parser failure on malformed CRLF input</div><div class="sub mono">task-7f3a · turn 3 · revision 41</div>
+  <div class="row" style="margin-top:6px;gap:6px;flex-wrap:wrap"><span class="pill info"><span class="dot info pulse" style="margin-right:5px"></span>paused</span><span class="pill dim">pause command: stopping effects</span><span class="pill">controller · this window</span></div></div>
+  <div class="section-label">Admission fenced · reconciling effects</div>
+  <ul class="check">
+    <li><span class="bx ok">✓</span><span>model stream <span class="why">· cancelled · charge retained as uncertain</span></span></li>
+    <li><span class="bx run"></span><span>process op-3e0 <span class="why">· job j-51 stopping (grace 5 s)</span></span></li>
+    <li><span class="bx ok">✓</span><span>child task-b3d7 <span class="why">· inherited hold recorded</span></span></li>
+    <li><span class="bx run"></span><span>checkpoint <span class="why">· writing local pause checkpoint</span></span></li>
+  </ul>
+  <div class="callout" style="margin-top:8px">Pause fences admission; effects can still be stopping or unknown. Status, cost and inspectors stay available.</div>
+</div></div></div></div>
+
+<!-- 3. paused -->
+<div class="frame"><div class="flabel">3 · paused (with unresolved effect + uncertain cost)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Session <span class="badge">paused</span><span class="actions">✕ ⋯</span></div>
+<div class="view-body">
+  <div class="card" style="margin-top:2px"><div class="title">Fix the parser failure on malformed CRLF input</div><div class="sub mono">task-7f3a · turn 3 · revision 42 · steering 42</div>
+  <div class="row" style="margin-top:6px;gap:6px;flex-wrap:wrap"><span class="pill"><span class="dot" style="margin-right:5px"></span>paused · local hold</span><span class="pill">controller · this window</span></div></div>
+  <div class="section-label">Unresolved</div>
+  <ul class="check">
+    <li><span class="bx" style="border-color:var(--warn);color:var(--warn);background:transparent">?</span><span>effect op-3e0 <b>outcome_unknown</b> <span class="why">· process exit not observed · reconcile before dependent work</span></span></li>
+    <li><span class="bx" style="border-color:var(--warn);color:var(--warn);background:transparent">?</span><span>reservation rs-118 <b>reconciliation_pending</b> <span class="why">· $0.04 uncertain</span></span></li>
+  </ul>
+  <div class="section-label">Budget · task tree</div>
+  <div class="meter"><span class="seg spent" style="left:0;width:31%"></span><span class="seg uncertain" style="left:31%;width:2%"></span><span class="seg protected" style="left:90%;width:10%"></span></div>
+  <div class="row between" style="font-size:12px"><span>$0.62 settled · $0.00 active · <span style="color:var(--warn)">$0.04 unresolved</span></span><span class="mono">cap $2.00</span></div>
+  <div class="btn-row" style="margin-top:10px"><span class="btn sm disabled">▶ Resume (blocked)</span><span class="btn sm secondary">Reconcile op-3e0</span><span class="btn sm secondary">Raise cap…</span><span class="btn sm danger">Cancel task</span></div>
+  <div class="sub" style="margin-top:6px;font-size:11.5px">Resume revalidates workspace, policy, budget, effects and owner before any dispatch. Guidance typed while paused updates the objective; it does not resume.</div>
+</div></div></div></div>
+
+<!-- 4. completed -->
+<div class="frame"><div class="flabel">4 · completed (completion contract satisfied)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Session <span class="badge" style="background:var(--ok);color:#000">completed</span><span class="actions">⋯</span></div>
+<div class="view-body">
+  <div class="card" style="margin-top:2px"><div class="title">Fix the parser failure on malformed CRLF input</div><div class="sub mono">task-7f3a · 4 turns · revision 57 · exit 0</div>
+  <div class="row" style="margin-top:6px;gap:6px;flex-wrap:wrap"><span class="pill ok"><span class="dot ok" style="margin-right:5px"></span>completed</span><span class="pill dim">cost known</span></div></div>
+  <div class="section-label">Current result · fingerprint ws-9a02 / buffers 4e1c / env 77b0</div>
+  <ul class="check">
+    <li><span class="bx ok">✓</span><span>cargo check <span class="why">· exit 0</span></span></li>
+    <li><span class="bx ok">✓</span><span>cargo test -p parser --features crlf <span class="why">· exit 0 · 46 passed</span></span></li>
+    <li><span class="bx skip"></span><span>cargo clippy <span class="why">· not_run: not selected for a test-only change</span></span></li>
+  </ul>
+  <div class="kv" style="margin-top:6px"><span class="k">Changed</span><span class="v">src/parser.rs · tests/crlf.rs (disk receipts rc-31, rc-32)</span><span class="k">Outstanding</span><span class="v">none</span><span class="k">Spend</span><span class="v">$0.91 settled · $0.00 uncertain · 2 children $0.13</span></div>
+  <div class="btn-row" style="margin-top:8px"><span class="btn sm secondary">Open completion evidence</span><span class="btn sm secondary">New task</span></div>
+</div></div></div></div>
+
+<!-- 5. failed verification -->
+<div class="frame"><div class="flabel">5 · failed · verification failed (exit 3 incomplete)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Session <span class="badge" style="background:var(--err)">failed</span><span class="actions">⟳ ⋯</span></div>
+<div class="view-body">
+  <div class="card" style="margin-top:2px"><div class="title">Fix the parser failure on malformed CRLF input</div><div class="sub mono">task-7f3a · turn 4 · revision 52 · conditions: incomplete</div>
+  <div class="row" style="margin-top:6px;gap:6px;flex-wrap:wrap"><span class="pill err"><span class="dot err" style="margin-right:5px"></span>failed</span><span class="pill dim">reason: verification failed</span></div></div>
+  <div class="section-label">Current result · fingerprint ws-8c77</div>
+  <ul class="check">
+    <li><span class="bx ok">✓</span><span>cargo check</span></li>
+    <li><span class="bx fail">✕</span><span>cargo test -p parser <span class="why">· exit 101 · 1 failed: crlf_tests::strips_cr_before_lf</span></span></li>
+    <li><span class="bx skip"></span><span>cargo clippy <span class="why">· not_run: verification stopped at first failure</span></span></li>
+  </ul>
+  <div class="callout err" style="margin-top:8px">Partial artifacts are retained and inspectable. Partial work is not reported as completed.</div>
+  <div class="btn-row" style="margin-top:8px"><span class="btn sm secondary">Open check output</span><span class="btn sm">New task from retained evidence…</span></div>
+</div></div></div></div>
+
+<!-- 6. budget exhausted -->
+<div class="frame"><div class="flabel">6 · blocked · budget_exhausted (exit 5)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Session <span class="badge" style="background:var(--warn);color:#000">budget_exhausted</span><span class="actions">⋯</span></div>
+<div class="view-body">
+  <div class="card" style="margin-top:2px"><div class="title">Fix the parser failure on malformed CRLF input</div><div class="sub mono">task-7f3a · turn 5 · revision 61</div>
+  <div class="row" style="margin-top:6px;gap:6px;flex-wrap:wrap"><span class="pill warn"><span class="dot warn" style="margin-right:5px"></span>blocked · budget_exhausted</span><span class="pill dim">overrun: false</span></div></div>
+  <div class="section-label">Budget · task tree</div>
+  <div class="meter"><span class="seg spent" style="left:0;width:86%"></span><span class="seg uncertain" style="left:86%;width:4%"></span><span class="seg protected" style="left:90%;width:10%"></span></div>
+  <div class="row between" style="font-size:12px"><span>$1.72 settled · <span style="color:var(--warn)">$0.08 unresolved</span> · $0.20 protected</span><span class="mono">cap $2.00</span></div>
+  <div class="sub" style="font-size:11.5px;margin-top:4px">Next attempt quote $0.14 does not fit <span class="mono">available = cap − settled − active − unresolved − protected</span>. No work is scheduled beyond the reservation policy.</div>
+  <div class="btn-row" style="margin-top:10px"><span class="btn sm">Raise cap…</span><span class="btn sm secondary">Report partial result</span><span class="btn sm danger">Cancel task</span></div>
+  <div class="sub" style="font-size:11.5px;margin-top:6px">Raising the cap is a durable user decision recorded on the ledger; it never applies retroactively to unknown provider charges.</div>
+</div></div></div></div>
+
+</body></html>

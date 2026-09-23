@@ -1,0 +1,101 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x1000"><title>VCP — inspector chain</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+:root { --sidebar-w: 360px; }
+.vtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 8px 0 12px; }
+.vtabs span { padding: 5px 10px; font-size: 12px; color: var(--fg-dim); border-bottom: 2px solid transparent; }
+.vtabs span.on { color: #fff; border-bottom-color: var(--accent); }
+.items { font-size: 12px; }
+.items .it { display: grid; grid-template-columns: 150px 120px 1fr 160px; gap: 10px; padding: 5px 8px; border-bottom: 1px solid var(--border); align-items: start; }
+.items .it .ref { font-family: var(--mono); font-size: 11.5px; color: var(--link); }
+.items .it .col { color: var(--fg-dim); }
+.items .it.sel { background: var(--sel-bg); }
+.range { border: 1px solid var(--border-strong); border-radius: 4px; background: #141414; padding: 8px 10px; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); }
+</style></head>
+<body>
+<div class="window">
+  <div class="titlebar"><div class="menu"><span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span><span>Help</span></div><div class="center"><span class="cmd">ledger-api</span></div><div class="controls">–▢✕</div></div>
+  <div class="workbench">
+    <div class="activitybar">
+      <div class="icon"><span class="glyph"></span></div><div class="icon"><span class="glyph" style="border-radius:50%"></span></div><div class="icon"><span class="glyph" style="border-style:dashed"></span></div><div class="icon"><span class="glyph" style="transform:rotate(45deg);width:16px;height:16px"></span></div>
+      <div class="icon active"><span class="glyph vcp"></span></div><div class="spacer"></div><div class="icon"><span class="glyph" style="border-radius:50%;width:18px;height:18px"></span></div><div class="icon"><span class="glyph" style="width:18px;height:18px;border-radius:50%;border-style:dotted"></span></div>
+    </div>
+    <div class="sidebar">
+      <div class="sidebar-title">VCP <span class="actions">⋯</span></div>
+      <div class="view"><div class="view-header"><span class="chev">▸</span> Session <span class="badge">paused</span></div></div>
+      <div class="view grow">
+        <div class="view-header"><span class="chev">▾</span> Inspector <span class="actions">🔍 ⟳ ⋯</span></div>
+        <div class="view-body tight">
+          <div style="padding:6px 10px"><div class="input"><span class="ph">Inspect id (task, effect, artifact, claim)…</span></div></div>
+          <ul class="tree">
+            <li><span class="tw">▾</span><span class="ic">◈</span><span class="lbl">task-7f3a</span><span class="desc">paused · rev 42</span></li>
+            <li class="d1"><span class="tw">▾</span><span class="ic">↻</span><span class="lbl">turn-3</span><span class="desc">executing_tools → paused</span></li>
+            <li class="d2"><span class="tw">▸</span><span class="ic">▤</span><span class="lbl">request req-77</span><span class="desc">manifest ctx-91</span></li>
+            <li class="d2 selected"><span class="tw">▾</span><span class="ic run">◎</span><span class="lbl">attempt at-77</span><span class="desc">settled · main</span></li>
+            <li class="d3"><span class="ic">$</span><span class="lbl">reservation rs-117</span><span class="desc">settled $0.1102</span></li>
+            <li class="d3"><span class="ic">▤</span><span class="lbl">response resp-77</span><span class="desc">complete · 18 KiB</span></li>
+            <li class="d2"><span class="tw">▾</span><span class="ic warn">⚙</span><span class="lbl">effect op-3e0</span><span class="desc">outcome_unknown</span></li>
+            <li class="d3"><span class="ic">?</span><span class="lbl">approval q-2b91</span><span class="desc">allowed · grant g-77</span></li>
+            <li class="d3"><span class="ic warn">▤</span><span class="lbl">stdout so-3e0</span><span class="desc">aborted · unobserved_tail</span></li>
+            <li class="d2"><span class="tw">▸</span><span class="ic">✓</span><span class="lbl">verification vf-12</span><span class="desc">2 checks · fp 4f77d0</span></li>
+            <li class="d1"><span class="tw">▸</span><span class="ic">↻</span><span class="lbl">turn-2</span><span class="desc">completed</span></li>
+            <li class="d1"><span class="tw">▸</span><span class="ic">↻</span><span class="lbl">turn-1</span><span class="desc">completed</span></li>
+            <li><span class="tw">▸</span><span class="ic">◈</span><span class="lbl">task-b3d7</span><span class="desc">child · completed</span></li>
+            <li><span class="tw">▸</span><span class="ic">◈</span><span class="lbl">task-1a2f</span><span class="desc">child · completed</span></li>
+          </ul>
+          <div style="padding:8px 10px;font-size:11.5px;color:var(--fg-dim)">Tree is a paged <span class="mono">chain</span> query (≤128 items/page). Access and retention are rechecked per page and per artifact range.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="editor-area">
+      <div class="tabs"><div class="tab active"><span class="ic">🔍</span> VCP: Inspect task-7f3a <span class="x">✕</span></div><div class="fill"></div><div class="editor-actions">⋯</div></div>
+      <div class="editor"><div class="page">
+        <div class="row between"><h1>Inspect <span class="mono" style="font-size:16px">task-7f3a</span></h1><span class="row" style="gap:6px"><span class="pill dim">scope ws-4b7e / ses-21c0 / task-7f3a</span><span class="pill dim">source watermark 1902</span><span class="pill dim">access: read · tasks: all</span></span></div>
+        <div class="vtabs"><span class="on">chain</span><span>context</span><span>prompts</span><span>outputs</span><span>routing</span><span>policy</span><span>tools</span><span>costs</span><span>verification</span><span>memory</span></div>
+
+        <div class="chain">
+          <div class="node"><div class="t">Task</div><div class="id">task-7f3a · rev 42</div><div class="d">paused · steering 42</div></div><div class="arrow">→</div>
+          <div class="node"><div class="t">Request + context</div><div class="id">req-77 · ctx-91</div><div class="d">14 parts · 2 omitted (reason: budget)</div></div><div class="arrow">→</div>
+          <div class="node active"><div class="t">Attempt / reservation</div><div class="id">at-77 · rs-117</div><div class="d">settled · role main · $0.110214</div></div><div class="arrow">→</div>
+          <div class="node"><div class="t">Tool proposal + policy</div><div class="id">op-3e0 · q-2b91</div><div class="d">Question → allowed (grant g-77)</div></div><div class="arrow">→</div>
+          <div class="node"><div class="t">Dispatch / outcome</div><div class="id">exec-51 · job j-51</div><div class="d" style="color:var(--warn)">outcome_unknown · tail unobserved</div></div><div class="arrow">→</div>
+          <div class="node"><div class="t">Verification</div><div class="id">vf-12 · fp 4f77d0</div><div class="d">1 passed · 1 not_run · cost uncertain</div></div>
+        </div>
+
+        <div class="grid2" style="margin-top:14px">
+          <div>
+            <h2>Items · page 1 · after seq 1841</h2>
+            <div class="items">
+              <div class="it"><span class="ref">attempt/at-77</span><span class="col">Attempt</span><span>model_identity: requested <span class="mono">openai/gpt-5.6-luna</span> @ openai · served <span style="color:var(--warn)">not_normalized</span> — read from response evidence</span><span class="pill ok">available</span></div>
+              <div class="it sel"><span class="ref">artifact/resp-77</span><span class="col">Artifact · response</span><span>complete · 18,204 B · sha256 6b1f… · retained 0–18204</span><span class="pill ok">available</span></div>
+              <div class="it"><span class="ref">artifact/so-3e0</span><span class="col">Artifact · stdout</span><span>aborted · omissions: unobserved_tail · retained 0–4096 of unknown</span><span class="pill warn">partial</span></div>
+              <div class="it"><span class="ref">artifact/req-41</span><span class="col">Artifact · request_body</span><span>purged 2026-09-20 by prune-0b9c… · identity + digest retained</span><span class="pill err">pruned</span></div>
+              <div class="it"><span class="ref">event/z:1799</span><span class="col">Event · commentary</span><span>record exceeds inspection page capacity · 612,400 B serialized</span><span class="pill warn">truncated</span></div>
+              <div class="it"><span class="ref">claim/cl-208</span><span class="col">Claim</span><span>use governed memory history for current source authorization</span><span class="pill dim">governed_query_required</span></div>
+              <div class="it"><span class="ref">artifact/hd-9</span><span class="col">Artifact · evidence</span><span>omissions: authentication_headers · recovery_material</span><span class="pill dim">redacted</span></div>
+            </div>
+            <div class="row between" style="margin-top:8px;font-size:12px"><span class="sub" style="color:var(--fg-dim)">7 of 31 items · 512 KiB page cap</span><span class="btn sm secondary">Next page (cursor 1841→)</span></div>
+            <div class="callout warn" style="margin-top:8px">Cursor invalidated: inspection source, query or access changed (watermark 1902 → 1911). <span class="btn sm secondary" style="margin-left:6px">Restart without cursor</span></div>
+          </div>
+          <div>
+            <h2>artifact/resp-77 · range read (≤64 KiB, captured bytes)</h2>
+            <div class="kv" style="margin-bottom:6px"><span class="k">Descriptor</span><span class="v">response · application/json · complete · 18,204 B · sha256 6b1f0c…</span><span class="k">Range</span><span class="v">0–4096 · next_offset 4096 · encoding byte_array + UTF-8 text</span></div>
+            <div class="range">{"id":"gen-8f2","model":"openai/gpt-5.6-luna","choices":[{"message":{"role":"assistant","content":"I'll strip a trailing '\\r' per line and add a CRLF regression test…","tool_calls":[{"id":"call_1","function":{"name":"vcp_patch","arguments":"{\"path\":\"src/parser.rs\",…"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":6120,"completion_tokens":412,"total_tokens":6532,"cost":0.110214}<span class="trunc">
+… [display truncated; use Next range]</span></div>
+            <div class="btn-row" style="margin-top:6px"><span class="btn sm secondary">Next range (4096→)</span><span class="btn sm secondary">Copy artifact id</span><span class="btn sm secondary">Open raw (new editor)</span></div>
+            <h3>Served identity (from response evidence)</h3>
+            <div class="kv"><span class="k">Provider reported</span><span class="v mono">openai/gpt-5.6-luna · endpoint openai</span><span class="k">Usage (raw)</span><span class="v">prompt 6120 · completion 412 · cost 0.110214</span><span class="k">Normalized</span><span class="v">input 6120 · output 412 · cache_read 0 · reasoning 0 (subset)</span></div>
+            <div class="callout" style="margin-top:8px">Never cached in webview state. Revocation or pruning between reads returns the actual unavailable state; a known artifact ID grants no access.</div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="item left-remote">⌂ VCP</div><div class="item">⎇ main ↑2</div><div class="item"><span class="dot"></span> VCP: paused · local hold</div><div class="item">$ 0.62 / 2.00 <span style="color:var(--warn)">+0.04?</span></div>
+    <div class="fill"></div><div class="item">engine 0.8.3 · controller · local</div><div class="item">🔔</div>
+  </div>
+</div>
+</body></html>

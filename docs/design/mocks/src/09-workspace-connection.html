@@ -1,0 +1,119 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x1100"><title>VCP — workspace and connection</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+.frame { width: 480px; }
+.frame .sidebar { border: none; height: auto; }
+.frame .view { border-top: none; }
+.frame .view + .view { border-top: 1px solid var(--border); }
+.cap { display: inline-block; font-size: 10.5px; font-family: var(--mono); padding: 0 5px; border-radius: 3px; border: 1px solid var(--border-strong); margin: 1px 2px 1px 0; }
+.cap.ok { color: var(--ok); border-color: rgba(115,201,145,.45); } .cap.no { color: var(--err); border-color: rgba(248,81,73,.45); text-decoration: line-through; } .cap.unk { color: var(--warn); border-color: rgba(204,167,0,.45); }
+</style><style>.kv .v { white-space:normal; overflow-wrap:anywhere; } .tree li { height:auto; min-height:22px; white-space:normal; } .tree .lbl, .tree .desc { white-space:normal; overflow-wrap:anywhere; }body { height: 1100px; }</style><style>body.sheet { min-height:1100px; } .tree .lbl { flex-shrink:0; } .tree .desc { text-overflow:clip; }</style></head>
+<body class="sheet">
+<h1>Workspace view — engine, ownership, trust, roots, extensions</h1>
+<div class="caption">The extension launches only a configured trusted engine executable, negotiates protocol/capabilities, then acquires the permitted controller/observer role. Folder display names are presentation only; identity is (host, workspace_id, root_id). A repository file cannot select the engine executable. Version numbers below are illustrative, not a release compatibility guarantee.</div>
+
+<!-- 1 connected -->
+<div class="frame"><div class="flabel">1 · connected · controller · trusted</div>
+<div class="sidebar">
+<div class="view"><div class="view-header"><span class="chev">▾</span> Workspace <span class="badge" style="background:var(--ok);color:#000">connected</span><span class="actions">⟳ ⋯</span></div>
+<div class="view-body">
+  <div class="kv">
+    <span class="k">Engine</span><span class="v mono">vcp.exe 0.8.3 · build 65378da · C:\Program Files\VCP\</span>
+    <span class="k">Protocol</span><span class="v">v1 · events v1 · frame ≤256 KiB · 16 subscribers</span>
+    <span class="k">Role</span><span class="v"><span class="pill ok">controller</span> lease ctl-a1 · epoch 6 · this window</span>
+    <span class="k">Host</span><span class="v">local windows · host-tj-desktop · x64</span>
+    <span class="k">Provider</span><span class="v">OpenRouter (explicit VCP gateway) · key: <span class="redacted">present, never displayed</span></span>
+    <span class="k">Data root</span><span class="v mono">%LOCALAPPDATA%\VCP\data · sqlite</span>
+  </div>
+  <div class="section-label">Sandbox capabilities (evidence-backed)</div>
+  <div><span class="cap ok">path_containment</span><span class="cap ok">job_tree</span><span class="cap ok">process_count</span><span class="cap ok">filtered_environment</span><span class="cap ok">timeout</span><span class="cap ok">output_limit</span><span class="cap no">workspace_filesystem</span><span class="cap no">no_network</span><span class="cap unk">pty</span></div>
+  <div class="sub" style="font-size:11.5px;margin-top:4px">Unavailable enforcement is unavailable for a required policy; a Git worktree is never reported as an OS sandbox.</div>
+  <div class="section-label">Roots (folder URI + host → engine identity)</div>
+  <div class="card" style="margin:4px 0;padding:6px 8px"><div class="row between"><span><span class="dot ok"></span> <b style="color:#fff">ledger-api</b> <span class="mono" style="color:var(--fg-dim)">D:\code\acme\ledger-api</span></span><span class="pill ok" style="height:16px;line-height:14px">trusted</span></div><div class="sub mono">host-tj-desktop · ws-4b7e · root-01 · binding rev 3 · git 3c1e91</div></div>
+  <div class="card" style="margin:4px 0;padding:6px 8px"><div class="row between"><span><span class="dot warn"></span> <b style="color:#fff">ledger-api</b> <span class="mono" style="color:var(--fg-dim)">D:\scratch\ledger-api</span></span><span class="pill warn" style="height:16px;line-height:14px">untrusted</span></div><div class="sub mono">host-tj-desktop · ws-90aa · root-01 · binding rev 1 · no repository</div></div>
+  <div class="sub" style="font-size:11.5px">Two roots share a display name; identities differ. Grants and memory scope are not shared across roots.</div>
+</div></div>
+</div></div>
+
+<!-- 2 untrusted -->
+<div class="frame"><div class="flabel">2 · restricted mode · workspace not trusted</div>
+<div class="sidebar">
+<div class="view"><div class="view-header"><span class="chev">▾</span> Workspace <span class="badge" style="background:var(--warn);color:#000">restricted</span><span class="actions">⋯</span></div>
+<div class="view-body">
+  <div class="banner warn" style="margin:2px -8px 8px;border-top:1px solid rgba(204,167,0,.35)"><span>⚠</span><span>Restricted Mode. VCP can inspect history, cost and memory but will not start project execution, hooks or tool dispatch. Engine policy: “workspace is not trusted for tool dispatch”.</span></div>
+  <div class="kv">
+    <span class="k">Trust</span><span class="v">VS Code: restricted · engine: untrusted (rev 4)</span>
+    <span class="k">Effect</span><span class="v wrap">new tasks disabled · queued effect op-3e0 blocked · prepared changes require revalidation</span>
+    <span class="k">Engine config</span><span class="v wrap">from user settings only; <span class="mono">.vcp/</span> in this folder was <b>not</b> read for executable or hooks</span>
+  </div>
+  <div class="btn-row" style="margin-top:8px"><span class="btn sm">Manage Workspace Trust</span><span class="btn sm secondary">Inspect (read-only)</span></div>
+  <div class="sub" style="font-size:11.5px;margin-top:6px">Trusting later is a durable engine command (<span class="mono">workspace trust &lt;id&gt; --expected-revision</span>); it never resumes tasks or loads execution profiles by itself.</div>
+</div></div>
+</div></div>
+
+<!-- 3 engine problems -->
+<div class="frame"><div class="flabel">3 · engine unavailable / incompatible</div>
+<div class="sidebar">
+<div class="view"><div class="view-header"><span class="chev">▾</span> Workspace <span class="badge" style="background:var(--err)">disconnected</span><span class="actions">⋯</span></div>
+<div class="view-body">
+  <div class="card" style="margin-top:2px;border-color:rgba(248,81,73,.5)"><div class="row between"><span class="title">Incompatible engine</span><span class="pill err">VERSION_CONFLICT</span></div>
+    <div class="sub" style="margin-top:3px">Engine <span class="mono">vcp.exe 0.6.0</span> speaks protocol v0; this extension requires v1 (events v1). Unknown security/governance states fail closed.</div>
+    <div class="kv" style="margin-top:6px"><span class="k">Found at</span><span class="v mono">C:\Program Files\VCP\vcp.exe</span><span class="k">Compatible</span><span class="v">illustrative range only; use negotiated release matrix</span></div>
+    <div class="btn-row" style="margin-top:8px"><span class="btn sm">Open compatibility matrix</span><span class="btn sm secondary">Choose engine executable…</span></div></div>
+  <div class="card muted"><div class="row between"><span class="title">Engine not found</span><span class="pill dim">not configured</span></div>
+    <div class="sub" style="margin-top:3px">No trusted engine executable is configured. VCP does not download or execute a workspace-specified URL or path.</div>
+    <div class="btn-row" style="margin-top:8px"><span class="btn sm">Configure engine path (user settings)</span></div></div>
+  <div class="card muted"><div class="row between"><span class="title">Store locked by another owner</span><span class="pill warn">attach conflict</span></div>
+    <div class="sub" style="margin-top:3px">A live <span class="mono">vcp.exe</span> (PID 18004) owns this data root. Attaching as observer… A second independent writer is never opened.</div></div>
+</div></div>
+</div></div>
+
+<!-- 4 moved root / rebind -->
+<div class="frame"><div class="flabel">4 · moved or replaced root → explicit rebind</div>
+<div class="sidebar">
+<div class="view"><div class="view-header"><span class="chev">▾</span> Workspace <span class="badge" style="background:var(--warn);color:#000">reconcile</span><span class="actions">⋯</span></div>
+<div class="view-body">
+  <div class="card" style="margin-top:2px;border-color:rgba(204,167,0,.5)"><div class="row between"><span class="title">Root identity mismatch</span><span class="pill warn">binding unverified</span></div>
+    <div class="kv" style="margin-top:4px"><span class="k">Opened folder</span><span class="v mono">D:\code\acme\ledger-api-v2</span><span class="k">Retained history</span><span class="v mono">ws-4b7e · last root D:\code\acme\ledger-api · Git 3c1e91</span><span class="k">Native identity</span><span class="v">volume/file id differ · same repository HEAD</span></div>
+    <div class="sub" style="margin-top:6px">History is preserved. Rebinding keeps the original store, invalidates old authority and marks the workspace untrusted until you trust it again. Imported grants are never reused.</div>
+    <div class="btn-row" style="margin-top:8px"><span class="btn sm">Rebind ws-4b7e to this folder</span><span class="btn sm secondary">Open as new workspace</span><span class="btn sm secondary">Show descriptor</span></div></div>
+  <div class="sub" style="font-size:11.5px">Never assigned silently by pathname. Active owners and ambiguous destinations are rejected; a retry after interruption repairs the descriptor without a second binding commit.</div>
+</div></div>
+</div></div>
+
+<!-- 5 skills -->
+<div class="frame"><div class="flabel">5 · skills catalog (builtin ▸ user ▸ workspace precedence)</div>
+<div class="sidebar">
+<div class="view"><div class="view-header"><span class="chev">▾</span> Skills <span class="badge">6</span><span class="actions">⟳ ⋯</span></div>
+<div class="view-body tight">
+  <ul class="tree">
+    <li><span class="ic ok">◆</span><span class="lbl">vcp-builtin::rust::review-debug</span><span class="desc">v3</span><span class="right"><span class="pill ok" style="height:16px;line-height:14px">activated · rev 2</span></span></li>
+    <li><span class="ic">◆</span><span class="lbl">vcp-builtin::rust::cargo-workflow</span><span class="desc">v2 · matches Cargo.toml</span><span class="right"><span class="pill dim" style="height:16px;line-height:14px">compatible</span></span></li>
+    <li><span class="ic">◆</span><span class="lbl">user::docs::adr-writer</span><span class="desc">v1</span><span class="right"><span class="pill dim" style="height:16px;line-height:14px">compatible</span></span></li>
+    <li><span class="ic warn">◆</span><span class="lbl">workspace::ci::gh-release</span><span class="desc">v1 · requires gh</span><span class="right"><span class="pill warn" style="height:16px;line-height:14px">incompatible · missing tool</span></span></li>
+    <li><span class="ic err">◆</span><span class="lbl">user::misc::deploy</span><span class="desc">disabled by user</span><span class="right"><span class="pill err" style="height:16px;line-height:14px">disabled</span></span></li>
+    <li><span class="ic warn">◆</span><span class="lbl">workspace::ci::gh-release</span><span class="desc">duplicate id in two sources</span><span class="right"><span class="pill warn" style="height:16px;line-height:14px">ambiguous</span></span></li>
+  </ul>
+  <div style="padding:6px 10px;font-size:11.5px;color:var(--fg-dim)">registry digest 0aa1… rev 9 · 2 diagnostics · reads: 41 entries / 6 descriptors / 3 bodies. <span style="color:var(--warn)">Stale:</span> source changed since discovery — rediscover before activation.</div>
+  <div style="padding:0 10px" class="btn-row"><span class="btn sm secondary">Rediscover</span><span class="btn sm secondary">Activate…</span><span class="btn sm secondary">Disable…</span></div>
+</div></div>
+</div></div>
+
+<!-- 6 MCP -->
+<div class="frame"><div class="flabel">6 · MCP servers (governed stdio / streamable HTTP)</div>
+<div class="sidebar">
+<div class="view"><div class="view-header"><span class="chev">▾</span> MCP <span class="badge">2</span><span class="actions">⋯</span></div>
+<div class="view-body tight">
+  <ul class="tree">
+    <li><span class="tw">▾</span><span class="ic ok">●</span><span class="lbl">github-issues</span><span class="desc">stdio · protocol 2025-11-25 · gen 3</span><span class="right"><span class="pill ok" style="height:16px;line-height:14px">connected</span></span></li>
+    <li class="d1" style="height:auto;white-space:normal;padding:2px 8px 2px 24px;align-items:flex-start"><span class="ic"></span><span class="lbl" style="white-space:nowrap">tools 4 of 4 allowed</span><span class="desc">issue_read (read) · issue_search (read) · issue_comment (opaque) · label_set (opaque)</span></li>
+    <li class="d1" style="height:auto;white-space:normal;padding:2px 8px 2px 24px;align-items:flex-start"><span class="ic"></span><span class="lbl" style="white-space:nowrap">resources 12 · prompts 2</span><span class="desc">sampling · roots · elicitation · tasks: <span style="color:var(--err)">rejected (unsupported)</span></span></li>
+    <li class="d1" style="height:auto;white-space:normal;padding:2px 8px 2px 24px;align-items:flex-start"><span class="ic"></span><span class="lbl" style="white-space:nowrap">identity</span><span class="desc mono">registration 9f2a… · peer 44c0… · admission profile p-std</span></li>
+    <li style="height:auto;white-space:normal;padding:2px 8px;align-items:flex-start"><span class="tw">▸</span><span class="ic warn">●</span><span class="lbl" style="white-space:nowrap">docs-search</span><span class="desc">streamable_http · limits: frame 1 MiB · timeout 60 s</span><span class="right"><span class="pill warn" style="height:16px;line-height:14px">schema changed</span></span></li>
+  </ul>
+  <div style="padding:6px 10px;font-size:11.5px;color:var(--fg-dim)">Untrusted tools default to <span class="mono">opaque</span> effects and always ask. A changed tool schema digest invalidates prior grants for that tool. MCP control is session-scoped; pause and cancel remain available while a control request is queued.</div>
+</div></div>
+</div></div>
+
+</body></html>
