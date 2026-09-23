@@ -3,6 +3,7 @@ pub mod history;
 pub mod history_query;
 pub mod inspection;
 pub mod projection;
+pub mod session_export;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("history access denied")]

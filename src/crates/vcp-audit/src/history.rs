@@ -360,6 +360,12 @@ impl History {
         if artifact.spec.schema == "vcp-optimization-forecast-v1" {
             return Err(Error::Access);
         }
+        vcp_store::export_contract::validate_read(
+            store.state(),
+            access.authority,
+            access.tasks.as_ref(),
+            &artifact,
+        )?;
         if masks(store.state(), &access.workspace)?
             .iter()
             .any(|mask| mask.artifacts.contains(id))

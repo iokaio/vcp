@@ -407,7 +407,8 @@ controller loss, retained inspection and bounded snapshot/event recovery within
 their stated test boundaries. Subsequent increments qualify pending-input reconnect,
 durable acceptance before the client consumes a response, abandoned/slow readers,
 and CLI/API execution parity. The manual review increment below implements memory
-proposal and resolution. Remaining adapters include forgetting and session export.
+proposal and resolution. The local export increment below adds derived captures;
+scoped forgetting remains the final non-editor method adapter.
 
 Snapshot capture and cursor registration share a canonical worker boundary.
 Compiled process tests establish reader cleanup without blocking writes. P9-03
@@ -454,6 +455,35 @@ the acceptance requirements above. The optional pipe transport retains the serve
 independently after an authenticated bootstrap handoff.
 
 ## Named-pipe attachment and reconnect
+
+### Local session export
+
+`session/export` requires `session/export-local/1`, current read access and an
+explicitly acquired controller lease. The fixed local host permits the same source
+bytes as `artifact/read`; `host_tool_denials` can deny `session/export`. There is no
+client destination or upload operation. Task-specific requests use task revision
+and steering; session-wide requests use session revision and steering zero.
+
+The result identifies a local payload and visibility manifest committed with the
+original command receipt. The `event-metadata/1` history profile contains event
+identity/order/attribution and source references. It omits arbitrary event data and
+record contents, so `complete` is false. `visible_history_and_artifacts` additionally
+includes retained source octets, with original descriptors and capture omissions;
+the manifest explicitly states that it does not sanitize arbitrary content.
+
+The pair retains the full source dependency set. Both ordinary history reads and
+public artifact reads revalidate that set, including task scope, source versions,
+policy, authority and retention. A source change can make either output or replay
+unavailable even when the anchor task itself is unchanged. Previously generated
+exports and forecast payloads are excluded as input. Limits and atomic recovery
+behavior are recorded in [ADR-053](../adr/053-scoped-local-session-export.md).
+
+Native Rust 1.95 qualification passes 15 audit tests (including five export cases
+on both stores), three public-read tests and the capped-serialization unit test.
+Two compiled bridge tests pass on both stores: exact source bytes and declared
+omissions, profile/role/host-denial checks, original receipt replay after restart,
+unchanged original records and invalidation of both outputs after a source change.
+No provider or external destination is used.
 
 ### Explicit memory proposal and review
 

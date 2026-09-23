@@ -20,6 +20,7 @@ const METHODS: &[&str] = &[
     "session/read",
     "session/snapshot",
     "session/list",
+    "session/export",
     "task/read",
     "usage/read",
     "context/inspect",
@@ -321,6 +322,11 @@ impl RpcHost for PublicConnection {
             return self
                 .memory_inspect(request, current)
                 .map(ResultValue::Memory);
+        }
+        if let Call::SessionExport(request) = &call {
+            return self
+                .session_export(request, current)
+                .map(ResultValue::Export);
         }
         if let Call::MemoryQuery(request) = &call {
             return self

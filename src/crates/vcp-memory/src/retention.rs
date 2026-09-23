@@ -24,6 +24,8 @@ use vcp_store::{
     contract::{key, CanonicalStore, Collection, Mutation, Record, State, Transaction},
     Store,
 };
+#[path = "retention_exports.rs"]
+mod exports;
 #[path = "retention_sources.rs"]
 mod sources;
 const PREVIEW: &str = "vcp_retention_preview_v1";
@@ -441,6 +443,7 @@ fn context_dependencies(
                 attempt.request.as_str(),
             )));
     }
+    exports::extend(store, workspace, &mut dependencies)?;
     Ok(dependencies)
 }
 /// Materialize exact IDs against one canonical cut. Unknown metadata never
