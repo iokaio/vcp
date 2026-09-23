@@ -28,6 +28,7 @@ pub const MAX_BATCH: usize = 64;
 /// Direct canonical reads and mutations; live controls require the lifecycle host.
 pub const METHODS: &[&str] = &[
     "session/create",
+    "session/fork",
     "session/read",
     "session/list",
     "task/read",
@@ -407,7 +408,10 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                     _ => return Err(RpcError::internal_error()),
                 }
             }
-            Call::SessionCreate(_) | Call::TurnSteer(_) | Call::ApprovalRespond(_) => {
+            Call::SessionCreate(_)
+            | Call::SessionFork(_)
+            | Call::TurnSteer(_)
+            | Call::ApprovalRespond(_) => {
                 let operation = call.mutation().map(|mutation| mutation.command_id.clone());
                 let approval = matches!(call, Call::ApprovalRespond(_));
                 let receipt = engine

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+pub mod fork;
 use serde::{Deserialize, Serialize};
 use vcp_domain::{
     artifact::*, effect::*, ids::*, revision::*, task::*, verification::*, workspace::*,
@@ -48,6 +49,12 @@ pub enum Command {
     CreateSession {
         id: SessionId,
         fork_through: Option<TurnId>,
+    },
+    /// Atomic metadata-only ancestry fork. Execution needs separate admission.
+    ForkSession {
+        id: SessionId,
+        task: TaskId,
+        through_turn: TurnId,
     },
     CreateTask {
         root: TaskId,

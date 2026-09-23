@@ -83,6 +83,42 @@ attaches, generic startup remains held. The owned-execution path below can mint 
 new constructor-specific grant only through explicit resume after draining; old
 constructors cannot use that grant or attach through the generic path.
 
+## Atomic metadata forks
+
+`session/fork` requires the source session's current controller and an authorized,
+retained completed `through_turn`. Supply `new_session`, `new_task` and the original
+mutation command ID, with expected and steering revisions both `"0"`. Acceptance
+creates an ancestry-linked session and a pending root task atomically. The new
+objective, editing mode, required checks and fingerprint come from the task
+snapshot at the completed boundary, not from later steering or workspace changes.
+Missing or suppressed boundary evidence returns an explicit unavailable result.
+
+The operation leaves the host bound to its source session. It does not start the
+fork or copy its source's budget, controller lease, approvals or provider liability.
+Execution requires separate explicit root selection and fresh admission. The
+metadata receipt also does not guarantee that a later historical context read
+will succeed after retention changes.
+Pending is the creation state; ordinary shutdown/recovery may subsequently pause
+the task, using the existing lifecycle rules.
+
+Reconcile the original command in the source session. Repeating the same payload
+returns its original receipt; different parameters with that ID conflict. Current
+authorization is rechecked before replay. A collision with an existing target
+cannot leave an orphan session or task. Target genesis has its own deterministic
+internal correlation and points back to source acceptance by causation, preserving
+source-scoped receipt visibility. The exact transaction contract is recorded in
+[ADR-046](../adr/046-atomic-metadata-session-forks.md).
+
+Native Windows/Rust 1.95.0 verification passed 94 engine/protocol tests, 76 store
+tests and a compiled-process test covering both stores. The fork tests prove
+historical selection after later steering, atomic collision rejection, concurrent
+duplicate admission, retained-boundary failures, restart replay, current-controller
+requirements and scoped receipts. Store tests reject 13 forged transaction shapes.
+Two existing environment-dependent store tests (real OneDrive and independently
+provisioned age/Node envelope verification) remained ignored; they are not fork
+qualification evidence. The 18-case fast suite, affected Rust formatting and diff
+checks pass. Public DTOs and generated protocol artifacts are unchanged.
+
 ## Prerequisite verification
 
 On native Windows with Rust 1.95.0, the domain, protocol, engine and store package

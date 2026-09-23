@@ -246,6 +246,27 @@ impl<S: CanonicalStore> Engine<S> {
                 )?;
                 EventKind::SessionStarted
             }
+            Command::ForkSession {
+                id,
+                task,
+                through_turn,
+            } => {
+                let transaction = crate::fork::transaction(
+                    state,
+                    &command,
+                    digest,
+                    id,
+                    task,
+                    through_turn,
+                    host.now,
+                )?;
+                return self
+                    .store
+                    .transact(transaction)
+                    .await?
+                    .command
+                    .ok_or(Error::Target);
+            }
             Command::CreateSession { id, fork_through } => {
                 if command.task.is_some()
                     || command.expected != Revision::ZERO
