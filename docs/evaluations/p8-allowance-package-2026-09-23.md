@@ -124,3 +124,49 @@ Clean Windows, production network isolation, actual minimum hardware, physical
 full-volume exhaustion, remaining integrated package scenarios and human
 usefulness/correctness/architecture-fit acceptance remain open. Independent-machine
 handoff remains owner-skipped. P8-05 is not complete; P9 retains that prerequisite.
+
+### Authorized renewal outcome and distribution follow-up
+
+The subsequent owner instruction authorized the bounded $12 renewal and up to
+$48 for six owner tasks, with no retries and the existing $100 ceiling. The
+merged-checkout `proposal-v3.json` validated with zero calls, then ran once.
+Its SHA-256 is
+`8086d3698f96f8070b514d393f46c9bd1da8ce41740551893f4e67e007eab069`.
+The probe failed sending a request to `https://openrouter.ai/api/v1/responses`.
+The process was reaped, but the canonical ledger retained 6,397,576 micro-USD
+unresolved liability, zero active liability and zero settled cost. Actual charge
+and provider receipt are unknown; the transport error does not prove non-delivery.
+The coordinator rejected settlement and retained its full 12,000,000-micro-USD
+reservation. No retry, qualification promotion or owner-task launch followed.
+
+The shared ledger now records 3,637,947 settled and 78,127,269 reserved micro-USD,
+leaving 18,234,784 under the unchanged ceiling. Prior unknown reservations remain
+unchanged. Renewed qualification is a prerequisite for the six owner tasks;
+additional authorization does not remove liabilities or relax admission checks.
+The one-shot proposal is consumed, including this transport failure.
+
+Receipts under the proposal directory above:
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `renewal-result.json` | `98b68334512a3762465b011d3d591a2e99863852daeac9411870d438ea29e0ba` |
+| `probe/result.json` | `a6e2350877c43fa0a5f320f5c001f44e371ecaa28a01c8dd72612671e7325212` |
+
+The unpaid `production-distribution-qualification.ps1` campaign passed all 16
+commands and 32 assertions against this corrected package, using the prior
+memory-enabled package as the distinct previous version. It exercised private
+installation, interrupted upgrade/retry, compatible state round-trip, locked
+rollback/uninstall and preservation of user data. This is current-host evidence,
+not a clean OS, model task, network-isolation or physical-full-volume pass.
+Receipt under system TEMP:
+`vcp-p8-allowance-full-distribution/bbbf54fe-1508-49d6-8c3b-cbb6ecdb3222/result.json`,
+SHA-256 `f37b5185e83b181cd2784e36c216b766407d84bc78513754526a1a1ac71324ff`.
+
+Read-only environment inspection found Hyper-V tooling, but VM enumeration and
+hardware/volume management queries were denied to the current token. No clean
+test VM or disposable volume was established. C:, D: and E: are ordinary fixed
+NTFS volumes and were not filled. The existing AppContainer filesystem-ancestor
+incompatibility remains; no production guard or host ACL was weakened.
+Clean Windows, independently controlled network denial, declared minimum-hardware
+measurements and disposable-volume recovery therefore remain unexecuted.
+P8-05 acceptance, final owner review, P9 and P4-01 remain pending their prerequisites.
