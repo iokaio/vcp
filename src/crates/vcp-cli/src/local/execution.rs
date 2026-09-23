@@ -109,6 +109,7 @@ use vcp_protocol::{
     methods::{self, Call, ResultValue},
 };
 use vcp_store::contract::Collection;
+mod start;
 
 /// The helper process is the final containment boundary for a retained
 /// constructor that cannot prove cancellation-safe cleanup. Deadline loss seals
@@ -252,6 +253,14 @@ impl Supervisor {
         }
         let prepared = profile.prepare(policy.mode)?;
         let profile = &prepared.profile;
+        if let Some(accepted) = self.retained_budget(&state)? {
+            if accepted.budget.max_requests != profile.max_requests
+                || accepted.budget.deadline_seconds != profile.deadline_seconds
+                || accepted.budget.cap_micros.as_str() != self.config.cap.micros.get().to_string()
+            {
+                return Err("execution profile differs from original public run limits".into());
+            }
+        }
         let roots = std::iter::once(
             RootId::parse(self.config.workspace.as_str()).map_err(|_| "invalid execution root")?,
         )
@@ -281,6 +290,46 @@ impl Supervisor {
             return Err("execution profile changed during preparation".into());
         }
         Ok((prepared, pin))
+    }
+
+    fn retained_budget(
+        &self,
+        state: &vcp_store::contract::State,
+    ) -> Result<Option<vcp_engine::public_start::RetainedStartBudget>, String> {
+        if !state.records.contains_key(&vcp_store::contract::key(
+            Collection::Task,
+            self.config.root_task.as_str(),
+        )) {
+            return Ok(None);
+        }
+        vcp_engine::public_start::retained_start_budget(
+            state,
+            &Scope {
+                workspace: self.config.workspace.clone(),
+                session: self.config.session.clone(),
+                task: self.config.root_task.clone(),
+            },
+        )
+        .map_err(|_| "original run budget evidence unavailable".into())
+    }
+
+    fn execution_expiry(
+        &self,
+        profile: &crate::settings::Profile,
+    ) -> Result<tokio::time::Instant, String> {
+        let mut remaining = u64::from(profile.deadline_seconds) * 1000;
+        if let Some(accepted) = self.retained_budget(&self.host.snapshot()?)? {
+            let expires = accepted
+                .accepted_at
+                .get()
+                .checked_add(u64::from(accepted.budget.deadline_seconds) * 1000)
+                .ok_or("original run deadline overflow")?;
+            remaining = remaining.min(expires.saturating_sub(crate::settings::now().get()));
+        }
+        if remaining == 0 {
+            return Err("original run deadline elapsed".into());
+        }
+        Ok(tokio::time::Instant::now() + std::time::Duration::from_millis(remaining))
     }
 
     async fn resume(
@@ -374,22 +423,25 @@ impl Supervisor {
             .ok_or("execution session unavailable")?;
         let thread = session.id;
         let scope = ticket.scope().clone();
-        let mut execution =
-            crate::execution::RetainedExecution::claim(&self.host, session, &scope)?;
+        let execution = crate::execution::RetainedExecution::claim(&self.host, session, &scope)?;
         let receipt = match connection.resume_prepared(ticket, current)? {
             PublicResumeOutcome::Replay(receipt) => return Ok(receipt),
             PublicResumeOutcome::Accepted(receipt) => receipt,
         };
         if !state.configured {
+            let expires = match self.execution_expiry(&profile) {
+                Ok(expires) => expires,
+                Err(_) => {
+                    pause(&self.host, &scope);
+                    return Ok(receipt);
+                }
+            };
             if crate::execution_profile::install_thread(&self.host, thread, &profile).is_err() {
                 pause(&self.host, &scope);
                 return Ok(receipt);
             }
             state.configured = true;
-            state.deadline = Some(
-                tokio::time::Instant::now()
-                    + std::time::Duration::from_secs(u64::from(profile.deadline_seconds)),
-            );
+            state.deadline = Some(expires);
         }
         // Only a new durable acceptance can submit work. Canonical admission
         // independently rechecks controller loss between commit and submission.
@@ -400,37 +452,8 @@ impl Supervisor {
                 return Ok(receipt);
             }
         };
-        let host = self.host.clone();
         let expires = state.deadline.ok_or("execution deadline unavailable")?;
-        state.pump = Some(tokio::spawn(async move {
-            let deadline = tokio::time::sleep_until(expires);
-            tokio::pin!(deadline);
-            let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
-            loop {
-                tokio::select! {
-                    _ = &mut deadline => { pause(&host, &scope); break; }
-                    _ = tick.tick() => {
-                        match selected(&host, &scope) {
-                            Ok(task) if task.state == TaskState::Running => {}
-                            Ok(_) => break,
-                            Err(_) => { pause(&host, &scope); break; }
-                        }
-                    }
-                    event = execution.next_event() => match event {
-                        Ok(event) if event_for_turn(&event, &turn) => match event.msg {
-                            codex_protocol::protocol::EventMsg::TurnComplete(_) => {
-                                if matches!(execution.complete(), Err(_) | Ok(crate::execution::Completion::Rejected(_))) { pause(&host, &scope); }
-                                break;
-                            }
-                            codex_protocol::protocol::EventMsg::TurnAborted(_) | codex_protocol::protocol::EventMsg::Error(_) => { pause(&host, &scope); break; }
-                            _ => {}
-                        },
-                        Ok(_) => {},
-                        Err(_) => { pause(&host, &scope); break; }
-                    }
-                }
-            }
-        }));
+        state.pump = Some(pump(self.host.clone(), scope, execution, turn, expires));
         Ok(receipt)
     }
 
@@ -473,6 +496,44 @@ fn event_for_turn(event: &codex_protocol::protocol::Event, turn: &str) -> bool {
             EventMsg::TurnAborted(end) => end.turn_id.as_deref().is_none_or(|id| id == turn),
             _ => true,
         }
+}
+
+fn pump(
+    host: CanonicalHost,
+    scope: Scope,
+    mut execution: crate::execution::RetainedExecution,
+    turn: String,
+    expires: tokio::time::Instant,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let deadline = tokio::time::sleep_until(expires);
+        tokio::pin!(deadline);
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
+        loop {
+            tokio::select! {
+                _ = &mut deadline => { pause(&host, &scope); break; }
+                _ = tick.tick() => {
+                    match selected(&host, &scope) {
+                        Ok(task) if task.state == TaskState::Running => {}
+                        Ok(_) => break,
+                        Err(_) => { pause(&host, &scope); break; }
+                    }
+                }
+                event = execution.next_event() => match event {
+                    Ok(event) if event_for_turn(&event, &turn) => match event.msg {
+                        codex_protocol::protocol::EventMsg::TurnComplete(_) => {
+                            if matches!(execution.complete(), Err(_) | Ok(crate::execution::Completion::Rejected(_))) { pause(&host, &scope); }
+                            break;
+                        }
+                        codex_protocol::protocol::EventMsg::TurnAborted(_) | codex_protocol::protocol::EventMsg::Error(_) => { pause(&host, &scope); break; }
+                        _ => {}
+                    },
+                    Ok(_) => {},
+                    Err(_) => { pause(&host, &scope); break; }
+                }
+            }
+        }
+    })
 }
 
 fn selected(host: &CanonicalHost, scope: &Scope) -> Result<Task, String> {
@@ -537,7 +598,7 @@ impl Rpc {
             .copied()
             .filter(|name| {
                 connection.supported_methods().contains(name)
-                    || (*name == "session/resume" && supervisor.is_some())
+                    || (matches!(*name, "session/resume" | "turn/start") && supervisor.is_some())
             })
             .collect();
         Self {
@@ -569,11 +630,16 @@ impl RpcHost for Rpc {
             .authorize(current)
     }
     async fn call(&mut self, call: Call, current: &Access) -> Result<ResultValue, RpcError> {
-        if let (Call::SessionResume(request), Some(supervisor)) = (&call, &self.supervisor) {
-            let request = request.clone();
+        let execution = match &call {
+            Call::SessionResume(request) => Some((&request.scope, &request.mutation.command_id)),
+            Call::TurnStart(request) => Some((&request.scope, &request.mutation.command_id)),
+            _ => None,
+        };
+        if let (Some((scope, command)), Some(supervisor)) = (execution, &self.supervisor) {
+            let request = call.clone();
             let current = current.clone();
-            let command = request.mutation.command_id.clone();
-            let scope = request.scope.clone();
+            let command = command.clone();
+            let scope = scope.clone();
             let connection = self.connection.clone();
             let supervisor = supervisor.clone();
             // The task owns its original connection guard through durable commit
@@ -584,7 +650,15 @@ impl RpcHost for Rpc {
                 let connection = locked
                     .as_mut()
                     .ok_or_else(|| failure(Code::PolicyDenied, Some(command.clone())))?;
-                supervisor.resume(connection, request, &current).await?;
+                match request {
+                    Call::SessionResume(request) => {
+                        supervisor.resume(connection, request, &current).await?;
+                    }
+                    Call::TurnStart(request) => {
+                        supervisor.start(connection, request, &current).await?;
+                    }
+                    _ => return Err(RpcError::internal_error()),
+                }
                 connection
                     .call(
                         Call::CommandRead(methods::CommandRead {

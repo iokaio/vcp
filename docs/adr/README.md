@@ -60,6 +60,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 
 - [ADR-046 - Atomic metadata session forks](046-atomic-metadata-session-forks.md): historical boundaries, paired genesis and source-scoped receipts.
 
+- [ADR-047 - Durable public run start](047-durable-public-run-start.md): atomic caller identities, immutable root selection and one-use execution admission.
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.

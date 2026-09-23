@@ -6,7 +6,7 @@ use codex_protocol::ThreadId;
 use vcp_engine::public::{PublicAdmission, PublicError};
 use vcp_protocol::jsonrpc::RpcError;
 use vcp_protocol::methods::{Call, SessionResume};
-mod startup;
+pub(super) mod startup;
 pub use startup::PublicResumeStartup;
 
 pub enum PublicResumeAdmission {
@@ -322,6 +322,8 @@ impl Context {
                     if self.authority_pending {
                         return Err("authority change is stopping work".into());
                     }
+                    #[cfg(windows)]
+                    self.check_public_start_budget()?;
                     None
                 }
             },

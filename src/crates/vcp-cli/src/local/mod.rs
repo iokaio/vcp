@@ -50,6 +50,8 @@ struct LaunchRequest {
     #[serde(default)]
     transport: Transport,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    root_task: Option<vcp_domain::TaskId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     execution: Option<execution::Configuration>,
 }
 
@@ -195,6 +197,9 @@ async fn attach_bridge(mut client: Framed, request: AttachRequest) -> Result<(),
 }
 
 async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result<(), String> {
+    if request.root_task.is_some() && request.role != Role::Controller {
+        return Err("explicit root selection requires controller bootstrap".into());
+    }
     if let Some(execution) = &request.execution {
         execution.validate(request.role)?;
     }

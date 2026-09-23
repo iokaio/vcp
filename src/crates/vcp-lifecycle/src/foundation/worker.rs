@@ -40,6 +40,8 @@ pub(super) mod public_connection;
 mod public_events;
 pub(super) mod public_resume;
 mod public_rpc;
+#[cfg(windows)]
+pub(super) mod public_start;
 mod public_workspace;
 mod reasoning;
 pub(super) mod recovery;
@@ -581,6 +583,8 @@ impl Context {
         }
         self.validate_binding(binding)?;
         #[cfg(windows)]
+        self.check_public_start_window()?;
+        #[cfg(windows)]
         if binding.scope.task != self.config.root_task
             && vcp_engine::agents::graph(
                 self.engine.store().state(),
@@ -927,6 +931,11 @@ impl Context {
         self.validate_binding(binding)?;
         if self.capture_admission_blocked() {
             return Err("unfinished capture requires reconciliation".into());
+        }
+        #[cfg(windows)]
+        if let Err(error) = self.check_public_start_budget() {
+            self.pause_root("original public run budget requires attention")?;
+            return Err(error);
         }
         let provider_request = if self.provider_required {
             Some(self.admit_context(binding, &body)?)

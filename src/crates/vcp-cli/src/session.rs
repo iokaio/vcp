@@ -31,6 +31,11 @@ enum Startup<'a> {
         ticket: vcp_lifecycle::foundation::PublicResumeStartup,
         current: &'a vcp_engine::Access,
     },
+    PublicStart {
+        connection: &'a vcp_lifecycle::foundation::PublicConnection,
+        ticket: vcp_lifecycle::foundation::PublicStartStartup,
+        current: &'a vcp_engine::Access,
+    },
 }
 
 /// Load retained defaults without importing Codex user/project/system settings.
@@ -204,6 +209,28 @@ impl Session {
         .await
     }
 
+    /// Construct for a newly accepted public run. Replay cannot mint this grant.
+    pub async fn start_public_run(
+        host: &CanonicalHost,
+        config: Config,
+        binding: ThreadBinding,
+        connection: &vcp_lifecycle::foundation::PublicConnection,
+        startup: vcp_lifecycle::foundation::PublicStartStartup,
+        current: &vcp_engine::Access,
+    ) -> Result<Self, String> {
+        Self::start_with(
+            host,
+            config,
+            binding,
+            Startup::PublicStart {
+                connection,
+                ticket: startup,
+                current,
+            },
+        )
+        .await
+    }
+
     async fn start_with(
         host: &CanonicalHost,
         config: Config,
@@ -236,6 +263,7 @@ impl Session {
         extensions.work_admission(match &startup {
             Startup::Internal => Arc::new(host.clone()),
             Startup::Public { ticket, .. } => ticket.work_admission(),
+            Startup::PublicStart { ticket, .. } => ticket.work_admission(),
         });
         extensions.tool_contributor(Arc::new(host.clone()));
         let manager = Arc::new(ThreadManager::new(
@@ -279,6 +307,11 @@ impl Session {
                 ticket,
                 current,
             } => connection.attach_resume_root(ticket, started.thread.clone(), binding, current),
+            Startup::PublicStart {
+                connection,
+                ticket,
+                current,
+            } => connection.attach_start_root(ticket, started.thread.clone(), binding, current),
         };
         let id = match attached {
             Ok(id) => id,

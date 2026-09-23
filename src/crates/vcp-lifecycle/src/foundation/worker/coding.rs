@@ -56,6 +56,7 @@ impl Context {
             .map(|deadline| Duration::from_millis(deadline.get().saturating_sub(now().get())))
     }
     pub(super) fn check_coding_bounds(&self) -> Result<()> {
+        self.check_public_start_budget()?;
         if self.coding.is_empty() {
             return Ok(());
         }
@@ -73,6 +74,71 @@ impl Context {
         }
         Ok(())
     }
+    /// Original accepted limits survive reconstruction, resume, and profile
+    /// replacement. Existing CLI tasks use their configured window unchanged.
+    pub(super) fn check_public_start_window(
+        &self,
+    ) -> Result<Option<vcp_engine::public_start::RetainedStartBudget>> {
+        let scope = Scope {
+            workspace: self.config.workspace.clone(),
+            session: self.config.session.clone(),
+            task: self.config.root_task.clone(),
+        };
+        let Some(accepted) =
+            vcp_engine::public_start::retained_start_budget(self.engine.store().state(), &scope)?
+        else {
+            return Ok(None);
+        };
+        let deadline = accepted
+            .accepted_at
+            .get()
+            .checked_add(
+                u64::from(accepted.budget.deadline_seconds)
+                    .checked_mul(1000)
+                    .ok_or("deadline overflow")?,
+            )
+            .ok_or("deadline overflow")?;
+        let cap: u64 = accepted.budget.cap_micros.as_str().parse()?;
+        if now().get() >= deadline || self.config.cap.micros.get() > cap {
+            return Err("original public run budget expired or widened".into());
+        }
+        let ledger: Ledger = self
+            .engine
+            .store()
+            .state()
+            .record(Collection::Ledger, scope.task.as_str(), &scope.workspace)?
+            .decode()?;
+        if ledger.scope != scope || ledger.cap.get() > cap {
+            return Err("public run ledger exceeds original cap".into());
+        }
+        Ok(Some(accepted))
+    }
+    /// Count only before a new provider request. The last admitted response
+    /// can still settle and use tools within the original time/cost ceiling.
+    pub(super) fn check_public_start_budget(&self) -> Result<()> {
+        let Some(accepted) = self.check_public_start_window()? else {
+            return Ok(());
+        };
+        let attempts = self
+            .engine
+            .store()
+            .state()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Attempt)
+            .map(Record::decode::<Attempt>)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        if attempts
+            .iter()
+            .filter(|attempt| attempt.root == self.config.root_task)
+            .count()
+            >= accepted.budget.max_requests as usize
+        {
+            return Err("original public run request limit reached".into());
+        }
+        Ok(())
+    }
+
     fn coding_artifact(&self, id: &ArtifactId) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
         vcp_audit::history::History::read_artifact(
@@ -126,7 +192,7 @@ impl Context {
     pub(super) fn configure_coding_setup(
         &mut self,
         binding: &ThreadBinding,
-        config: CodingConfig,
+        mut config: CodingConfig,
         held: bool,
     ) -> Result<()> {
         if held {
@@ -142,6 +208,27 @@ impl Context {
                 "coding setup requires an idle configured provider and a fresh owner task binding"
                     .into(),
             );
+        }
+        let scope = Scope {
+            workspace: self.config.workspace.clone(),
+            session: self.config.session.clone(),
+            task: self.config.root_task.clone(),
+        };
+        if let Some(accepted) =
+            vcp_engine::public_start::retained_start_budget(self.engine.store().state(), &scope)?
+        {
+            self.check_public_start_budget()?;
+            let deadline = accepted
+                .accepted_at
+                .get()
+                .checked_add(
+                    u64::from(accepted.budget.deadline_seconds)
+                        .checked_mul(1000)
+                        .ok_or("deadline overflow")?,
+                )
+                .ok_or("deadline overflow")?;
+            config.max_requests = config.max_requests.min(accepted.budget.max_requests);
+            config.deadline = Timestamp::new(config.deadline.get().min(deadline));
         }
         config
             .validate(now())
