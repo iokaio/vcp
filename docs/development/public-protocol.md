@@ -26,7 +26,9 @@ The direct `vcp-engine::rpc::EngineRpcHost` supports `session/create`, `session/
 `command/read`. `RpcSession` dispatches the selected host’s advertised methods.
 Its declared capabilities are the enabled method names plus `jsonrpc/2.0` and
 `durable-command/1`; configuration can remove methods but cannot add handlers or
-unimplemented capabilities. Generic handshake fixtures may negotiate other
+unimplemented capabilities. The explicit `approval/source-revisions/1` extension
+may also be advertised when both `task/read` and `approval/respond` are enabled.
+Generic handshake fixtures may negotiate other
 declared capability strings to exercise negotiation; those fixtures do not extend
 `RpcSession`'s implementation.
 
@@ -271,7 +273,15 @@ and codec traces are in `src/tests/fixtures/protocol/v1.json`.
 | Malformed, noncanonical or out-of-range version components | Invalid parameters |
 | Request before initialization or repeated initialization | Explicit initialization-state failure |
 
-New optional presentation fields require an explicit compatible schema policy;
+[ADR-048](../adr/048-capability-gated-result-fields.md) defines the compatible
+policy for optional result fields. Clients negotiating
+`approval/source-revisions/1` receive the observed `effect_revision` and
+`policy_revision` counters on pending approvals in task and snapshot results.
+Without that capability both fields are absent, preserving strict older decoders.
+Clients needing these response preconditions should require the capability; the
+counters do not replace current authority and source validation.
+
+Other optional presentation fields still require an explicit compatible policy;
 unknown required capabilities and authority/governance enums fail closed. A wire
 breaking change requires a major-version contract rather than optimistic decoding.
 

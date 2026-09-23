@@ -40,6 +40,24 @@ pub const METHODS: &[&str] = &[
     "command/read",
 ];
 pub const ESSENTIAL_CAPABILITIES: &[&str] = &["jsonrpc/2.0", "durable-command/1"];
+pub const APPROVAL_SOURCE_REVISIONS_CAPABILITY: &str = "approval/source-revisions/1";
+
+#[cfg(test)]
+mod approval_source_tests;
+
+/// Presentation extensions require explicit negotiation and implemented methods.
+/// Method registration in the schema alone never advertises the extension.
+pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
+    let mut capabilities: BTreeSet<_> = methods
+        .iter()
+        .cloned()
+        .chain(ESSENTIAL_CAPABILITIES.iter().map(|s| (*s).to_owned()))
+        .collect();
+    if capabilities.contains("task/read") && capabilities.contains("approval/respond") {
+        capabilities.insert(APPROVAL_SOURCE_REVISIONS_CAPABILITY.to_owned());
+    }
+    capabilities
+}
 
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
@@ -96,7 +114,9 @@ impl RpcSession {
             .cloned()
             .chain(ESSENTIAL_CAPABILITIES.iter().map(|s| (*s).to_owned()))
             .collect();
-        if server.capabilities != supported {
+        let available = capabilities_for_methods(&server.methods);
+        if !supported.is_subset(&server.capabilities) || !server.capabilities.is_subset(&available)
+        {
             return Err(RpcError::internal_error());
         }
         Ok(Self {
@@ -286,7 +306,28 @@ impl RpcSession {
             request.params.clone().unwrap_or(Value::Null),
         )
         .map_err(|_| RpcError::invalid_params())?;
-        serde_json::to_value(host.call(call, access).await?).map_err(|_| RpcError::internal_error())
+        let mut result = host.call(call, access).await?;
+        if !self
+            .negotiated
+            .contains(APPROVAL_SOURCE_REVISIONS_CAPABILITY)
+        {
+            omit_approval_source_revisions(&mut result);
+        }
+        serde_json::to_value(result).map_err(|_| RpcError::internal_error())
+    }
+}
+
+fn omit_approval_source_revisions(result: &mut ResultValue) {
+    let omit = |task: &mut methods::TaskView| {
+        for input in &mut task.pending_inputs {
+            input.effect_revision = None;
+            input.policy_revision = None;
+        }
+    };
+    match result {
+        ResultValue::Task(task) => omit(task),
+        ResultValue::Snapshot(snapshot) => snapshot.tasks.iter_mut().for_each(omit),
+        _ => (),
     }
 }
 
@@ -522,6 +563,8 @@ pub(crate) fn task_view(
                     kind: methods::InputKind::Approval,
                     revision: approval.revision.get().into(),
                     operation_digest: Some(approval.operation_digest),
+                    effect_revision: Some(approval.effect_revision.get().into()),
+                    policy_revision: Some(approval.policy.get().into()),
                 });
             }
             Collection::Effect => {
