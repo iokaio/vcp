@@ -117,6 +117,19 @@ impl<S: CanonicalStore> Engine<S> {
         access: &Access,
         host: &HostFacts,
     ) -> Result<CommandReceipt> {
+        self.handle_with_digest(command, access, host, None).await
+    }
+
+    /// Only trusted adapters select a digest domain. Public reconnect identity
+    /// excludes transient engine ownership; internal callers retain the exact
+    /// historical envelope digest. This is not a wire-supplied digest.
+    pub(crate) async fn handle_with_digest(
+        &mut self,
+        command: CommandEnvelope,
+        access: &Access,
+        host: &HostFacts,
+        digest: Option<String>,
+    ) -> Result<CommandReceipt> {
         command.validate_version()?;
         if vcp_protocol::canonical_bytes(&command)?.len() > vcp_protocol::version::MAX_COMMAND_BYTES
         {
@@ -132,7 +145,10 @@ impl<S: CanonicalStore> Engine<S> {
         if !access.write && !matches!(command.payload, Command::Inspect) {
             return Err(Error::Access);
         }
-        let digest = command.digest()?;
+        let digest = match digest {
+            Some(digest) => digest,
+            None => command.digest()?,
+        };
         // A retry is authenticated under current access, then resolves the old
         // receipt before stale state/owner checks. Restart cannot duplicate work.
         if let Some(receipt) =

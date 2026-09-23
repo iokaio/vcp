@@ -164,6 +164,10 @@ already include these changes; normal builds never apply patches.
 36. `0036-p7-navigation-workspace.patch` records the tools crate's dependency on
     the already locked regex package for bounded source and path searches. No
     external package versions or retained upstream implementation changes.
+37. `0037-p9-protocol-schema-workspace.patch` records the protocol crate's optional
+    dependency on the already locked schemars 0.8.22 package for generating the
+    public JSON Schema contract. No external package versions or retained upstream
+    implementation changes.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

@@ -175,6 +175,10 @@
     {
       "path": "src/third_party/patches/codex/0036-p7-navigation-workspace.patch",
       "sha256": "c7be7938d14bea7ef4c1cc09cb822ca9753f9c5bb8a6cae3e217450752eda349"
+    },
+    {
+      "path": "src/third_party/patches/codex/0037-p9-protocol-schema-workspace.patch",
+      "sha256": "56de6707c8bb8e9d5444c01b82e5dabd7fc9672b1cae372a3c79fa4bcb930251"
     }
   ],
   "licenses": [

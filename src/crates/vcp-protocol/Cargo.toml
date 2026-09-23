@@ -7,9 +7,18 @@ license = "Apache-2.0"
 publish = false
 workspace = "../../third_party/codex/codex-rs"
 
+[features]
+schema = ["dep:schemars"]
+
+[[bin]]
+name = "vcp-protocol-schema"
+path = "src/bin/vcp-protocol-schema.rs"
+required-features = ["schema"]
+
 [dependencies]
 vcp-domain = { path = "../vcp-domain" }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
