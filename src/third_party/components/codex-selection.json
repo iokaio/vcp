@@ -179,6 +179,10 @@
     {
       "path": "src/third_party/patches/codex/0037-p9-protocol-schema-workspace.patch",
       "sha256": "56de6707c8bb8e9d5444c01b82e5dabd7fc9672b1cae372a3c79fa4bcb930251"
+    },
+    {
+      "path": "src/third_party/patches/codex/0038-p9-public-diff-workspace.patch",
+      "sha256": "ab02f460e1f5dc232f28c95de2d8b4f013464b2bf1233d5f2a5c84199abb64d0"
     }
   ],
   "licenses": [

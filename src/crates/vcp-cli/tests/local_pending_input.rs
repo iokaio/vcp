@@ -3,6 +3,7 @@
 //! Pending approval reconnect through a real compiled server and loopback provider.
 #[path = "support/local_fixture.rs"]
 mod wire;
+use base64::Engine as _;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
@@ -104,6 +105,10 @@ fn initialize(client: &mut wire::Client) {
         "controller/read",
         "controller/acquire",
         "command/read",
+        "diff/read",
+        "artifact/read",
+        "session/snapshot",
+        "events/next",
     ];
     let reply = client.rpc(1, "initialize", json!({"protocol_version":"1.0","client":{"name":"pending-input-qualification","version":"1"},"capabilities":methods,"required_capabilities":methods}));
     assert!(reply.get("error").is_none(), "{reply}");
@@ -164,6 +169,12 @@ async fn real_pending_approval_survives_connection_loss_and_requires_current_con
         assert!(!ready.to_string().contains(SECRET));
         initialize(&mut first);
         acquire(&mut first, &entry, "question-first-controller");
+        let snapshot = first.rpc(
+            101,
+            "session/snapshot",
+            json!({"scope":scope(&entry),"limit":128,"cursor":null}),
+        );
+        assert_eq!(snapshot["result"]["kind"], "snapshot", "{snapshot}");
         wire::accepted(&first.rpc(3,"turn/start",json!({"scope":scope(&entry),"mutation":{"command_id":"question-run","expected_revision":"0","steering_revision":"0"},"task":ROOT,"turn":TURN,"objective":"Change value.txt once and verify it","constraints":[],"acceptance":["value.txt contains 42"],"budget":{"cap_micros":"1000000","currency":"USD","max_requests":8,"deadline_seconds":300}})));
         let deadline = Instant::now() + Duration::from_secs(20);
         let pending = loop {
@@ -181,6 +192,16 @@ async fn real_pending_approval_survives_connection_loss_and_requires_current_con
             tokio::time::sleep(Duration::from_millis(20)).await;
         };
         let question = pending["pending_inputs"][0].clone();
+        let proposal = discover_diff(&mut first, &entry, &snapshot["result"]["value"]);
+        assert_eq!(proposal["schema"], "vcp-public-diff/1");
+        assert_eq!(proposal["disposition"], "proposed");
+        assert_eq!(proposal["scope"]["task"], ROOT);
+        assert_eq!(proposal["operation_digest"], question["operation_digest"]);
+        assert_eq!(proposal["files"][0]["path"], "value.txt");
+        assert_eq!(proposal["files"][0]["before"]["content_base64"], "NDEK");
+        assert_eq!(proposal["files"][0]["after"]["content_base64"], "NDIK");
+        assert!(proposal.get("controller").is_none());
+        assert!(proposal.get("owner").is_none());
         assert_eq!(question["kind"], "approval");
         assert_eq!(pending["task"], ROOT);
         assert_eq!(pending["turn"], TURN);
@@ -220,6 +241,13 @@ async fn real_pending_approval_survives_connection_loss_and_requires_current_con
         assert_eq!(paused["state"], "paused");
         assert_eq!(paused["pending_inputs"], pending["pending_inputs"]);
         let after_loss = count.load(Ordering::SeqCst);
+        // The read must remain historical after an independent workspace edit.
+        fs::write(fixture.workspace.join("value.txt"), "external edit\n").unwrap();
+        assert_eq!(
+            read_diff(&mut observer, &entry, &proposal["change"]),
+            proposal
+        );
+        fs::write(fixture.workspace.join("value.txt"), "41\n").unwrap();
         let mut replacement = attach(&ready["attachment"], "controller");
         assert!(replacement
             .rpc(3, "approval/respond", answer.clone())
@@ -250,6 +278,10 @@ async fn real_pending_approval_survives_connection_loss_and_requires_current_con
         let answered = task(&mut observer, &entry);
         assert_eq!(answered["state"], "paused");
         assert!(answered["pending_inputs"].as_array().unwrap().is_empty());
+        assert_eq!(
+            read_diff(&mut observer, &entry, &proposal["change"]),
+            proposal
+        );
         assert_eq!(count.load(Ordering::SeqCst), after_loss);
         assert_eq!(
             fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
@@ -293,6 +325,65 @@ async fn real_pending_approval_survives_connection_loss_and_requires_current_con
             .any(|r| r.collection == Collection::Approval && r.value["state"] == "pending"));
         store.close().await.unwrap();
     }
+}
+fn decode_range(reply: &Value) -> Vec<u8> {
+    assert_eq!(reply["result"]["kind"], "artifact", "{reply}");
+    let range = &reply["result"]["value"];
+    assert_eq!(range["encoding"], "base64");
+    base64::engine::general_purpose::STANDARD
+        .decode(range["content"].as_str().unwrap())
+        .unwrap()
+}
+fn read_diff(client: &mut wire::Client, entry: &WorkspaceEntry, change: &Value) -> Value {
+    let reply = client.rpc(
+        105,
+        "diff/read",
+        json!({"scope":scope(entry),"task":ROOT,"change":change,"offset":"0","length":49152}),
+    );
+    let bytes = decode_range(&reply);
+    assert_eq!(reply["result"]["value"]["complete"], true);
+    assert_eq!(
+        reply["result"]["value"]["sha256"],
+        vcp_protocol::digest_bytes(&bytes)
+    );
+    serde_json::from_slice(&bytes).unwrap()
+}
+fn discover_diff(client: &mut wire::Client, entry: &WorkspaceEntry, snapshot: &Value) -> Value {
+    let mut cursor = snapshot["event_cursor"].clone();
+    let mut seen = BTreeSet::new();
+    for _ in 0..16 {
+        let reply = client.rpc(
+            102,
+            "events/next",
+            json!({"scope":scope(entry),"subscription":snapshot["subscription"],"cursor":cursor}),
+        );
+        assert_eq!(reply["result"]["kind"], "events", "{reply}");
+        let batch = &reply["result"]["value"];
+        for event in batch["events"].as_array().unwrap() {
+            if event["task"] != ROOT {
+                continue;
+            }
+            for evidence in event["evidence"].as_array().unwrap() {
+                let artifact = evidence["artifact"].as_str().unwrap();
+                if !seen.insert(artifact.to_owned()) {
+                    continue;
+                }
+                let bytes = client.rpc(103, "artifact/read", json!({"scope":scope(entry),"task":ROOT,"artifact":artifact,"offset":"0","length":49152}));
+                if let Ok(document) = serde_json::from_slice::<Value>(&decode_range(&bytes)) {
+                    if document["schema"] == "vcp-public-diff/1" {
+                        assert_eq!(read_diff(client, entry, &document["change"]), document);
+                        return document;
+                    }
+                }
+            }
+        }
+        assert_ne!(
+            batch["at_end"], true,
+            "public diff must be discoverable from retained event evidence"
+        );
+        cursor = batch["cursor"].clone();
+    }
+    panic!("bounded fixture event history must include the public proposal");
 }
 struct Fixture {
     _temp: tempfile::TempDir,

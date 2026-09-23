@@ -454,6 +454,48 @@ independently after an authenticated bootstrap handoff.
 
 ## Named-pipe attachment and reconnect
 
+### Retained proposed changes
+
+The live host advertises `diff/read`. Its `change` is the canonical tool-effect
+identity, not a path or arbitrary artifact ID. Registered file tools retain a
+separate `vcp-public-diff/1` document alongside their private preparation. Event
+evidence references make that capture discoverable; its `change` field supplies
+the identity for subsequent diff ranges. The capture contains relative paths,
+SHA-256 and base64 before/after content, with `disposition: "proposed"`. It is not
+proof that the change was applied. Process and MCP proposals without typed file
+changes have no diff.
+
+The reader checks current scope, the retained initial `Validated` effect fact,
+both capture hashes and exact typed source correspondence before using the
+ordinary artifact-range path. A missing, redacted, masked, corrupt or incomplete
+source cannot produce an apparently complete diff. Historical proposals lacking
+this capture return unavailable. Changes to the live workspace never synthesize
+or alter these retained bytes. See
+[ADR-049](../adr/049-retained-public-diff-evidence.md).
+
+The compiled pending-input fixture discovers the actual proposal through event
+evidence and reads it through both artifact and diff methods. On both stores,
+the same proposal bytes survive an independent workspace edit, controller
+reconnect and explicit approval denial. Ninety domain/engine tests and all 30
+public lifecycle-host tests pass on native Windows/Rust 1.95.0.
+
+### Unreceived receipts and abandoned readers
+
+The compiled `local_crash_receipt` fixture uses a bounded JSON-RPC batch whose
+read-result prefix exceeds the measured Windows stdout pipe capacity. It stops
+reading the controller output, confirms a final session-create command's durable
+acceptance through an observer, then terminates only its own process-pinned server.
+After reopening, the original receipt is readable; explicit controller recovery
+and acquisition allow a same-command retry without creating another session.
+This proves recovery before the client consumes its receipt. It does not assert
+that the server had not already sent or buffered the response.
+
+A second case leaves the abandoned connection open. The production blocked-output
+timeout releases its controller while the observer remains responsive and the
+server remains alive. A replacement controller must explicitly acquire a lease
+before committing new work. Both cases pass for Files and SQLite without provider
+requests or production failure hooks.
+
 ### Pending approval source revisions
 
 Clients that need to answer pending approvals require

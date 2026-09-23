@@ -64,6 +64,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 
 - [ADR-048 - Capability-gated result fields](048-capability-gated-result-fields.md): approval source counters with strict v1.0 compatibility.
 
+- [ADR-049 - Retained public diff evidence](049-retained-public-diff-evidence.md): typed proposal captures, historical source linkage and bounded reads.
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.

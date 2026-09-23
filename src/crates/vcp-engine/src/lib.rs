@@ -8,6 +8,7 @@ pub mod controller;
 mod fork;
 pub mod policy;
 pub mod public;
+pub mod public_diff;
 pub mod public_evidence;
 pub mod public_reads;
 pub mod public_start;

@@ -10,6 +10,7 @@ pub mod ids;
 pub mod ingestion;
 pub mod memory;
 pub mod policy;
+pub mod public_diff;
 pub mod redaction;
 pub mod retention;
 pub mod retention_selector;

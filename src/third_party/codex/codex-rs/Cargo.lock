@@ -17493,6 +17493,7 @@ dependencies = [
 name = "vcp-cli"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "clap",
  "codex-config",
  "codex-core",
@@ -17540,6 +17541,7 @@ dependencies = [
 name = "vcp-domain"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
