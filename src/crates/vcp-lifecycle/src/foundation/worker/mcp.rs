@@ -19,7 +19,12 @@ impl Context {
         expected: Revision,
         fingerprint: vcp_domain::verification::Fingerprint,
         proofs: Vec<crate::foundation::mcp::ResumeProof>,
+        commit: ResumeCommit,
+        public_attempt: Option<Arc<AtomicBool>>,
     ) -> Result<CommandReceipt> {
+        if let Some(receipt) = self.recheck_resume(&commit)? {
+            return Ok(receipt);
+        }
         if !self.owner_alive || self.authority_pending || self.interrupted_capture {
             return Err("MCP resume owner is fenced".into());
         }
@@ -170,7 +175,7 @@ impl Context {
         if idle.is_empty() {
             return Err("empty MCP resume proof".into());
         }
-        self.resume_checked(binding, expected, fingerprint, &idle, || {
+        self.resume_checked(binding, expected, fingerprint, &idle, commit, || {
             let state = runtime
                 .0
                 .state
@@ -187,6 +192,9 @@ impl Context {
                 if job.active_process_count()? == 0 {
                     return Err("MCP process exited during resume observation".into());
                 }
+            }
+            if let Some(attempt) = public_attempt {
+                attempt.store(true, Ordering::SeqCst);
             }
             Ok(state)
         })

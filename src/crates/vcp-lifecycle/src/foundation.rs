@@ -129,6 +129,7 @@ pub struct CanonicalHost {
     bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
     scheduler: Arc<Scheduler>,
     public_identity: Arc<Mutex<Option<(ControllerId, Revision)>>>,
+    public_resume: Arc<Mutex<()>>,
     backup: Arc<Mutex<Option<backup_manager::Loaded>>>,
     #[cfg(windows)]
     mcp: Arc<mcp::Connections>,
@@ -305,6 +306,7 @@ impl CanonicalHost {
                 bindings: Arc::new(Mutex::new(HashMap::new())),
                 scheduler: Arc::new(Scheduler::default()),
                 public_identity: Arc::new(Mutex::new(None)),
+                public_resume: Arc::new(Mutex::new(())),
                 #[cfg(windows)]
                 mcp,
                 backup: Arc::new(Mutex::new(None)),

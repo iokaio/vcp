@@ -8,6 +8,7 @@ pub mod controller;
 pub mod policy;
 pub mod public;
 pub mod query;
+pub mod questions;
 pub mod rpc;
 mod subscription;
 pub use command_handler::{Access, Engine, HostFacts};

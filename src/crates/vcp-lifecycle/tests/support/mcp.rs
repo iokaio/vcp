@@ -171,7 +171,7 @@ impl Fixture {
             policy,
         }
     }
-    async fn list(&self) -> serde_json::Value {
+    pub(super) async fn list(&self) -> serde_json::Value {
         self.host
             .mcp_control(
                 self.thread,
@@ -182,7 +182,12 @@ impl Fixture {
             .await
             .unwrap()
     }
-    fn call(&self, list: &serde_json::Value, tool: &str, args: serde_json::Value) -> McpRequest {
+    pub(super) fn call(
+        &self,
+        list: &serde_json::Value,
+        tool: &str,
+        args: serde_json::Value,
+    ) -> McpRequest {
         let metadata = list["catalog"]["tools"]
             .as_array()
             .unwrap()
