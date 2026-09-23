@@ -60,6 +60,7 @@ pub struct PublicConnection {
     closed: bool,
     pub(super) connected: Arc<AtomicBool>,
     pub(super) subscriptions: Arc<Mutex<super::public_events::Subscriptions>>,
+    pub(super) retention_previews: Arc<Mutex<super::public_retention::Previews>>,
     release: Option<ReleaseReceiver>,
 }
 
@@ -185,6 +186,7 @@ impl CanonicalHost {
             closed: false,
             connected: Arc::new(AtomicBool::new(true)),
             subscriptions: Arc::new(Mutex::new(super::public_events::Subscriptions::default())),
+            retention_previews: Arc::new(Mutex::new(super::public_retention::Previews::default())),
             release: None,
         })
     }
@@ -466,6 +468,9 @@ impl PublicConnection {
     fn begin_disconnect(&self) -> std::result::Result<PublicDisconnect, String> {
         // Seal retained admission before cursor cleanup can wait on the writer.
         self.loss_signal().invalidate();
+        if let Ok(mut previews) = self.retention_previews.lock() {
+            previews.clear();
+        }
         self.clear_public_events();
         let (reply, receiver) = tokio::sync::oneshot::channel();
         if let Some(release) = self.release.clone() {

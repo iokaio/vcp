@@ -1,11 +1,10 @@
 # Local attachment construction
 
-Owning item: P9-02. The protocol foundation is delivered in PR #134. This increment
-adds canonical controller-lease state, a live connection adapter, controlled
-Windows launch and named-pipe attachment to the same live writer. P9-02 remains
-in progress: attachment, owned resume and bounded subscriptions have native
-incremental qualification below. Remaining method adapters
-and SDK acceptance are separate work.
+Owning item: P9-02, accepted on September 23, 2026. The protocol foundation is
+delivered in PR #134. The qualified local server provides canonical controller
+leases, controlled Windows launch and authenticated named-pipe attachment to the
+same live writer. Native evidence and its limits are recorded per increment below.
+P9-03 owns SDK compatibility; P4 owns editor observations and edit reconciliation.
 
 ## Controller identity
 
@@ -400,7 +399,7 @@ production-shaped capture omissions, genuine missing content, foreign task/schem
 denial, exact artifact-byte retrieval, read-only observer lookup and a saved cursor
 invalidated by a real intervening canonical commit. No provider is configured.
 
-## Remaining acceptance
+## P9-02 acceptance and next dependency
 
 The preceding records qualify attachment, owned resume, connected pause,
 controller loss, retained inspection and bounded snapshot/event recovery within
@@ -408,7 +407,45 @@ their stated test boundaries. Subsequent increments qualify pending-input reconn
 durable acceptance before the client consumes a response, abandoned/slow readers,
 and CLI/API execution parity. The manual review increment below implements memory
 proposal and resolution. The local export increment below adds derived captures;
-scoped forgetting remains the final non-editor method adapter.
+scoped forgetting completes the non-editor method adapters. P9-02 is accepted
+against these native-process checks and the final retention qualification below.
+The crash fixture proves durable acceptance before the client consumes a complete
+response, rather than a guarantee about when the server first buffered it. Native
+local authentication is qualified within the tested Windows user/process boundary;
+these checks do not establish remote or multi-user service support.
+
+### Scoped forgetting
+
+`memory/retention/1` adds read-only `memory/forgetPreview`,
+`memory/forgetPreviewRead` and `memory/forgetRead`, and controller-only
+`memory/forget`. The first call evaluates the shared typed selector once. The
+server caches the exact selection for 60 seconds, at most two previews of 1 MiB
+and 8,192 identities each. Pages contain at most 128 identities and revalidate
+current access. Applying a preview never substitutes a fresh selector result.
+
+The logical deletion, original command receipt and durable cleanup job commit
+atomically. Retry with the original command identity and payload to reconcile
+after a lost response or connection; an accepted command remains reconcilable
+after its preview expires. A retry may finish the same job's idempotent cleanup.
+`memory/forgetRead` reports status without changing it. Logical unavailability,
+physical rewrite and local cleanup completion are separate fields; backup and
+generation status is exposed as counts without private identifiers.
+
+Every stage retains the current session/task ceiling. Foreign dependencies deny
+the whole selection, and mixed search generations stay pending for separately
+authorized maintenance. The lifecycle holds MCP work before logical acceptance
+and pauses canonical tasks afterward, then drains dependencies before cleanup.
+Authority loss leaves an accepted job pending for explicit reconciliation and
+does not resume execution. See [ADR-054](../adr/054-scoped-public-retention.md).
+
+Final verification passes 32 protocol tests, five shared both-store retention
+tests, and the borrowing source-limit regression. Two compiled bridge tests pass
+on both stores (61.41 seconds): profile/role/lease enforcement, stale and evicted
+previews, unique pages, physical purge, retained job reads, same-command reconnect
+and foreign-session copy denial without disclosure. A native lifecycle test passes
+four real MCP scenarios in 3.40 seconds, proving owned drain after waiter abandonment
+or controller loss, original-command cleanup, no automatic resume and stable replay.
+The preceding export review closes physical dependency tracking for derived copies.
 
 Snapshot capture and cursor registration share a canonical worker boundary.
 Compiled process tests establish reader cleanup without blocking writes. P9-03
@@ -484,6 +521,12 @@ Two compiled bridge tests pass on both stores: exact source bytes and declared
 omissions, profile/role/host-denial checks, original receipt replay after restart,
 unchanged original records and invalidation of both outputs after a source change.
 No provider or external destination is used.
+The final export review also qualified immediate lifecycle hold and capture
+admission denial after a spool failure, including recovery after reopening. The
+retention graph follows immutable export lineage so purging a source physically
+removes both derived copies even after its revisions change; both-store tests
+verify this using the original complete descriptors. The export increment is
+merged in [PR #150](https://github.com/iokaio/vcp/pull/150).
 
 ### Explicit memory proposal and review
 

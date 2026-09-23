@@ -43,6 +43,7 @@ mod public_export;
 mod public_memory;
 mod public_memory_query;
 mod public_memory_review;
+mod public_retention;
 pub(super) mod public_resume;
 mod public_rpc;
 #[cfg(windows)]

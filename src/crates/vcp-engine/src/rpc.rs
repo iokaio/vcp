@@ -45,6 +45,7 @@ pub const MEMORY_INSPECTION_STATE_CAPABILITY: &str = "memory/inspection-state/1"
 pub const MEMORY_QUERY_SOURCES_CAPABILITY: &str = vcp_protocol::memory_query::CAPABILITY;
 pub const MEMORY_GOVERNANCE_CAPABILITY: &str = vcp_protocol::memory_governance::CAPABILITY;
 pub const SESSION_EXPORT_LOCAL_CAPABILITY: &str = "session/export-local/1";
+pub const MEMORY_RETENTION_CAPABILITY: &str = vcp_protocol::memory_retention::CAPABILITY;
 
 #[cfg(test)]
 mod approval_source_tests;
@@ -72,6 +73,17 @@ pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
     }
     if capabilities.contains("session/export") {
         capabilities.insert(SESSION_EXPORT_LOCAL_CAPABILITY.to_owned());
+    }
+    if [
+        "memory/forget",
+        "memory/forgetPreview",
+        "memory/forgetPreviewRead",
+        "memory/forgetRead",
+    ]
+    .iter()
+    .all(|method| capabilities.contains(*method))
+    {
+        capabilities.insert(MEMORY_RETENTION_CAPABILITY.to_owned());
     }
     if ["memory/propose", "memory/resolve", "memory/review"]
         .iter()
@@ -369,6 +381,21 @@ impl RpcSession {
                 Retry::Never,
                 None,
                 "memory inspection state capability was not negotiated",
+            ));
+        }
+        if matches!(
+            call,
+            Call::MemoryForget(_)
+                | Call::MemoryForgetPreview(_)
+                | Call::MemoryForgetPreviewRead(_)
+                | Call::MemoryForgetRead(_)
+        ) && !self.negotiated.contains(MEMORY_RETENTION_CAPABILITY)
+        {
+            return Err(application(
+                Code::CapabilityUnavailable,
+                Retry::Never,
+                call.command_id().cloned(),
+                "memory retention profile was not negotiated",
             ));
         }
         let mut result = host.call(call, access).await?;

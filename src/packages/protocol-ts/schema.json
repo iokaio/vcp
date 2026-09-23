@@ -1,5 +1,5 @@
 {
-  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"d5ec191dc741fa59b5d6f5bbb8c3f498925593fa0528ceb2c9ae78ea94ec1151\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"ac45c834f0fb059c7aca52e340e498dde009950f9e7ac7c11a0043062b50d897\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/methods.rs\":\"1fe86159a9fc287f9cd649ea969549e1d01899fb882c80f3f59440138da76441\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
+  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"7c0de523ccbabb45cda92c5efc8b2c30a0d93cab8e87f53eab99bf0eff23d182\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"5352f2e75347bd52c3e182ef371c5acdda4732a7a41a3b72c1e985fb1ad5d864\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"f8538b33df2fb84eab2fe7ada09e7552fb1dd2bcd8d2578171c9ee7ede1e829f\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
@@ -50,6 +50,15 @@
         "watermark"
       ],
       "type": "object"
+    },
+    "Action": {
+      "enum": [
+        "exclude",
+        "restore_recall",
+        "compact",
+        "purge"
+      ],
+      "type": "string"
     },
     "Applicability": {
       "additionalProperties": false,
@@ -297,6 +306,22 @@
         "offset",
         "scope",
         "task"
+      ],
+      "type": "object"
+    },
+    "Bound": {
+      "additionalProperties": false,
+      "properties": {
+        "inclusive": {
+          "type": "boolean"
+        },
+        "instant": {
+          "$ref": "#/definitions/InstantSpec"
+        }
+      },
+      "required": [
+        "inclusive",
+        "instant"
       ],
       "type": "object"
     },
@@ -945,6 +970,63 @@
           "properties": {
             "method": {
               "enum": [
+                "memory/forgetPreview"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/PreviewRequest"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "memory/forgetPreviewRead"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/PreviewPageRequest"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "memory/forgetRead"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/JobRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
                 "editor/context"
               ],
               "type": "string"
@@ -1164,6 +1246,17 @@
           "type": "object"
         }
       ]
+    },
+    "ClaimKind": {
+      "enum": [
+        "command",
+        "module_relationship",
+        "architecture",
+        "environment_constraint",
+        "verified_fix",
+        "user_preference"
+      ],
+      "type": "string"
     },
     "ClaimValue": {
       "oneOf": [
@@ -1627,6 +1720,265 @@
       "minLength": 1,
       "pattern": "^(0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|1844674407370955[0-0][0-9]{3}|18446744073709551[0-5][0-9]{2}|184467440737095516[0-0][0-9]{1}|1844674407370955161[0-4][0-9]{0}|18446744073709551615)(?![\\s\\S])",
       "type": "string"
+    },
+    "Criterion": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "date"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/TimeWindow"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "workspace"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Id"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "root"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Id"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "path"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "task"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Id"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "actor"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Id"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "agent"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Id"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "model"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "provider"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "event"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "claim"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/ClaimKind"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "status"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Status"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "superseded"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "Currency": {
       "enum": [
@@ -2342,6 +2694,22 @@
       ],
       "type": "object"
     },
+    "ForgetResult": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance": {
+          "$ref": "#/definitions/Acceptance"
+        },
+        "job": {
+          "$ref": "#/definitions/JobView"
+        }
+      },
+      "required": [
+        "acceptance",
+        "job"
+      ],
+      "type": "object"
+    },
     "GapReason": {
       "enum": [
         "retention_changed",
@@ -2577,6 +2945,103 @@
         "evidence",
         "memory_sequence",
         "visibility"
+      ],
+      "type": "object"
+    },
+    "InstantSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "entered": {
+          "maxLength": 29,
+          "minLength": 10,
+          "type": "string"
+        },
+        "offset_minutes": {
+          "format": "int16",
+          "maximum": 840,
+          "minimum": -840,
+          "type": "integer"
+        },
+        "utc": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "entered",
+        "offset_minutes",
+        "utc"
+      ],
+      "type": "object"
+    },
+    "JobRead": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "job",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "JobView": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/Action"
+        },
+        "backup_copies_count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "cleanup_required": {
+          "type": "boolean"
+        },
+        "deletion": {
+          "$ref": "#/definitions/Counter"
+        },
+        "job": {
+          "$ref": "#/definitions/Id"
+        },
+        "local_cleanup_complete": {
+          "type": "boolean"
+        },
+        "logical_unavailable": {
+          "type": "boolean"
+        },
+        "pending_generations_count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "rewrite_complete": {
+          "type": "boolean"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "action",
+        "backup_copies_count",
+        "cleanup_required",
+        "deletion",
+        "job",
+        "local_cleanup_complete",
+        "logical_unavailable",
+        "pending_generations_count",
+        "rewrite_complete",
+        "scope",
+        "task"
       ],
       "type": "object"
     },
@@ -2989,6 +3454,186 @@
       ],
       "type": "object"
     },
+    "PreviewPage": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/Action"
+        },
+        "authority": {
+          "$ref": "#/definitions/Counter"
+        },
+        "bytes_are_exact": {
+          "type": "boolean"
+        },
+        "deletion": {
+          "$ref": "#/definitions/Counter"
+        },
+        "dependent_count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "expires_in_ms": {
+          "format": "uint32",
+          "maximum": 60000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next_offset": {
+          "format": "uint32",
+          "maximum": 8192,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "offset": {
+          "format": "uint32",
+          "maximum": 8192,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "preview": {
+          "$ref": "#/definitions/Id"
+        },
+        "protected_count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "retained_bytes": {
+          "$ref": "#/definitions/Counter"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "selected_count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "targets": {
+          "items": {
+            "$ref": "#/definitions/PreviewTarget"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "action",
+        "authority",
+        "bytes_are_exact",
+        "deletion",
+        "dependent_count",
+        "digest",
+        "expires_in_ms",
+        "offset",
+        "preview",
+        "protected_count",
+        "retained_bytes",
+        "scope",
+        "selected_count",
+        "targets",
+        "task",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    "PreviewPageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "format": "uint32",
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "format": "uint32",
+          "maximum": 8192,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "preview": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "limit",
+        "offset",
+        "preview",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "PreviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/Action"
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "selector": {
+          "$ref": "#/definitions/Selector"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "action",
+        "limit",
+        "scope",
+        "selector",
+        "task"
+      ],
+      "type": "object"
+    },
+    "PreviewTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "protected_reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "target": {
+          "$ref": "#/definitions/Target"
+        }
+      },
+      "required": [
+        "selected",
+        "target"
+      ],
+      "type": "object"
+    },
     "ProposeParams": {
       "anyOf": [
         {
@@ -3378,6 +4023,63 @@
           "properties": {
             "kind": {
               "enum": [
+                "retention_preview"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/PreviewPage"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "retention"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/JobView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "forgotten"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/ForgetResult"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
                 "events"
               ],
               "type": "string"
@@ -3716,6 +4418,25 @@
       "required": [
         "session",
         "workspace"
+      ],
+      "type": "object"
+    },
+    "Selector": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "format": "uint32",
+          "maximum": 1,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tree": {
+          "$ref": "#/definitions/Tree"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tree"
       ],
       "type": "object"
     },
@@ -4084,6 +4805,92 @@
       ],
       "type": "object"
     },
+    "Status": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "task"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/TaskStatus"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "claim"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Outcome"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Target": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "record"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/Id"
+            },
+            "kind": {
+              "enum": [
+                "event"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "TaskCancel": {
       "additionalProperties": false,
       "properties": {
@@ -4207,6 +5014,122 @@
         "task"
       ],
       "type": "object"
+    },
+    "TimeWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "lower": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Bound"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "upper": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Bound"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Tree": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "operator": {
+              "enum": [
+                "all"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/definitions/Tree"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "operator",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "operator": {
+              "enum": [
+                "any"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/definitions/Tree"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "operator",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "operator": {
+              "enum": [
+                "not"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Tree"
+            }
+          },
+          "required": [
+            "operator",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "operator": {
+              "enum": [
+                "match"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Criterion"
+            }
+          },
+          "required": [
+            "operator",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "Trust": {
       "enum": [

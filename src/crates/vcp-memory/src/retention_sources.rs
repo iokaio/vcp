@@ -34,6 +34,9 @@ pub(super) fn metadata(
             continue;
         }
         let manifest: ArtifactDescriptor = row.decode()?;
+        if !access.allows_task(&manifest.spec.scope.task) {
+            continue;
+        }
         if !matches!(
             manifest.spec.schema.as_str(),
             "verification-baseline/1"

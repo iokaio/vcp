@@ -1,6 +1,6 @@
 # 17 — Deferred public API, local server and TypeScript SDK
 
-Status: P9-01 complete in PR #134; P9-02 in progress following [owner-directed closure](../adr/042-owner-directed-p8-closure.md) of P8-05. Owns P9-01 through P9-03, to be implemented in order. It is not a Windows CLI release prerequisite. Architecture section 5 is the external contract, and internal commands/events from P1 remain the engine boundary.
+Status: P9-01 and P9-02 complete following [owner-directed closure](../adr/042-owner-directed-p8-closure.md) of P8-05. P9-03 is the next ready item. Owns P9-01 through P9-03, to be implemented in order. It is not a Windows CLI release prerequisite. Architecture section 5 is the external contract, and internal commands/events from P1 remain the engine boundary.
 
 ## Code organization
 
@@ -54,6 +54,13 @@ concurrent duplicate mutation and stale approval. Compare final canonical state 
 independent effects with the same scenario driven by internal CLI commands.
 
 ## P9-02 — Local server and attachment
+
+Accepted on September 23, 2026. The [native construction and acceptance record](../development/local-attachment.md#p9-02-acceptance-and-next-dependency)
+covers authenticated processes, leases, execution/inspection/governance adapters,
+owner loss, pending input, snapshot/event recovery, durable retry and bounded
+readers. The final scoped-retention increment qualifies physical source/derived
+copy cleanup and abandoned-waiter/MCP recovery. SDK consumer evidence belongs to
+P9-03; unadvertised editor observations/reconciliation belong to P4.
 
 P9-01 acceptance covers the complete method schema inventory, generated artifacts,
 compatibility profile and qualified initial six-method engine adapter. P9-02 owns
