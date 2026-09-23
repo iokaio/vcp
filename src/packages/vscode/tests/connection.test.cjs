@@ -7,7 +7,7 @@ const { connectionRestriction } = require('../dist/trust.js');
 const scope = { workspace: 'actual-workspace', session: 'actual-session' };
 const root = '\\\\?\\C:\\work\\project';
 const selection = { workspaceUri: 'file:///C:/work/project', workspacePath: 'C:\\work\\project', executable: 'C:\\trusted\\vcp.exe', executableSource: 'global', workspaceTrusted: true };
-const workspace = { workspace: scope.workspace, host: 'actual-host', root, trust: 'untrusted', revision: '13', authority_revision: '7' };
+const workspace = { workspace: scope.workspace, host: 'actual-host', root, root_id: 'actual-root', binding_revision: '9007199254740993', trust: 'untrusted', revision: '13', authority_revision: '7' };
 const task = { scope, task: 'actual-task', pending_inputs: [{ id: 'actual-question', kind: 'approval', revision: '5' }] };
 function fake(overrides = {}) {
   const calls = [];
@@ -37,7 +37,8 @@ test('observer uses initialized identities, actual trust/pending data and cleans
   assert.equal(state.engineTrust, 'untrusted'); assert.equal(state.editorTrusted, true);
   assert.equal(state.pendingInputs, 1); assert.equal(state.taskCount, 1); assert.equal(state.watermark, '17');
   assert.deepEqual(state.scope, scope); assert.equal(state.host.id, 'actual-host'); assert.equal(state.engineBuild, 'actual-build'); assert.equal(state.workspaceRoot, root);
-  assert.equal(state.engineExecutable, selection.executable); assert.equal(Object.hasOwn(state, 'bindingRevision'), false); assert.equal(Object.hasOwn(state, 'rootId'), false);
+  assert.equal(state.engineExecutable, selection.executable); assert.equal(state.bindingRevision, '9007199254740993'); assert.equal(state.rootId, 'actual-root');
+  assert.ok(launches[0].initialize.required_capabilities.includes('workspace/binding/1'));
   assert.equal(launches[0].role, 'observer'); assert.equal(launches[0].transport, 'stdio'); assert.equal(launches[0].execution, undefined);
   for (let i = 0; i < 12; i++) await connection.refresh();
   assert.equal(client.calls.filter(c => c.method === 'events/unsubscribe').length, 13);
@@ -79,14 +80,15 @@ test('extension disposal waits for late native launch cleanup rather than abando
 });
 
 test('missing/incompatible host, canonical binding mismatch and snapshot gap never leave connected state', async () => {
-  for (const mode of ['missing', 'incompatible', 'host', 'root', 'gap']) {
+  for (const mode of ['missing', 'incompatible', 'capability', 'host', 'root', 'root-id', 'binding-revision', 'null-root-id', 'null-binding-revision', 'gap']) {
     const client = fake({ call: async (method, params) => {
-      if (method === 'workspace/open') return { kind: 'workspace', value: { ...workspace, root: mode === 'root' ? 'C:\\moved' : root } };
+      if (method === 'workspace/open') return { kind: 'workspace', value: { ...workspace, root: mode === 'root' ? 'C:\\moved' : root, root_id: mode === 'root-id' ? undefined : mode === 'null-root-id' ? null : workspace.root_id, binding_revision: mode === 'binding-revision' ? undefined : mode === 'null-binding-revision' ? null : workspace.binding_revision } };
       if (method === 'session/snapshot') return { kind: 'gap', value: { subscription: 'gapped' } };
       return { kind: 'unsubscribed', value: { subscription: params.subscription } };
     } });
     if (mode === 'host') client.initialized.execution_host.platform = 'linux';
     const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: async () => {
+      if (mode === 'capability') throw Object.assign(new Error('unsupported projection'), { code: 'CAPABILITY_UNAVAILABLE' });
       if (mode === 'missing') throw new Error('SECRET raw native diagnostic');
       if (mode === 'incompatible') throw Object.assign(new Error('SECRET peer payload'), { code: 'UNSUPPORTED_VERSION' });
       return client;
@@ -94,7 +96,9 @@ test('missing/incompatible host, canonical binding mismatch and snapshot gap nev
     const state = await connection.connect(selection);
     assert.equal(state.phase, 'unavailable'); assert.equal(state.scope, undefined); assert.equal(state.pendingInputs, undefined); assert.equal(state.message.includes('SECRET'), false);
     if (mode === 'incompatible') assert.match(state.message, /incompatible/);
+    if (mode === 'capability') assert.match(state.message, /required observer capabilities/);
     if (mode === 'gap') assert.equal(client.calls.at(-1).method, 'events/unsubscribe');
+    if (['root', 'root-id', 'binding-revision', 'null-root-id', 'null-binding-revision'].includes(mode)) assert.equal(client.calls.some(call => call.method === 'session/snapshot'), false);
     await connection.dispose();
   }
 });
@@ -130,6 +134,13 @@ test('map distinguishes same-name and nested roots by URI plus engine host and r
   map.bind(generation, a, workspace); map.bind(generation, b, { ...workspace, workspace: 'second' }); map.bind(generation, nested, { ...workspace, workspace: 'nested' });
   map.bind(generation, a, { ...workspace, host: 'different-host', workspace: 'remote-identity' });
   assert.equal(map.get(a, 'actual-host').workspace, scope.workspace); assert.equal(map.get(b, 'actual-host').workspace, 'second'); assert.equal(map.get(nested, 'actual-host').workspace, 'nested');
-  assert.equal(map.get(a, 'different-host').workspace, 'remote-identity'); map.invalidate();
+  assert.equal(map.get(a, 'different-host').workspace, 'remote-identity');
+  assert.equal(map.get(a, 'actual-host').rootId, 'actual-root');
+  assert.equal(map.get(a, 'actual-host').bindingRevision, '9007199254740993');
+  map.bind(generation, a, { ...workspace, root_id: 'rebound-root', binding_revision: '9007199254740994' });
+  assert.equal(map.get(a, 'actual-host').rootId, 'rebound-root');
+  assert.equal(map.get(a, 'actual-host').bindingRevision, '9007199254740994');
+  assert.equal(map.get(a, 'actual-host').workspaceRevision, '13');
+  map.invalidate();
   assert.equal(map.get(a, 'actual-host'), undefined); assert.equal(map.bind(generation, a, workspace), false);
 });

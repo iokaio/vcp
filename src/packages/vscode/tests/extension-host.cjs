@@ -51,6 +51,8 @@ exports.run = async function run() {
       assert.equal(connected.host.id,fixture.host);
       assert.equal(connected.host.platform,'windows');
       assert.equal(connected.workspaceRoot,fixture.canonicalRoot);
+      assert.equal(connected.rootId,fixture.rootId);
+      assert.equal(connected.bindingRevision,fixture.bindingRevision);
       assert.equal(connected.pendingInputs,1);
       assert.equal(connected.taskCount,1);
       await vscode.commands.executeCommand('vcp.connection.focus');

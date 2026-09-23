@@ -18,6 +18,16 @@ test('Counter is an exact canonical u64 string and request IDs are safe', () => 
   for (const id of [Number.MAX_SAFE_INTEGER + 1, 1.5, true]) assert.throws(() => validateWire('RequestId', id));
 });
 
+test('workspace binding projection accepts legacy shape and preserves opaque IDs and exact counters', () => {
+  const legacy = { workspace: 'ws', host: 'host', root: 'C:\\project', trust: 'untrusted', revision: '13', authority_revision: '7' };
+  validateWire('WorkspaceView', legacy);
+  const binding = { ...legacy, root_id: 'opaque-root', binding_revision: '9007199254740993' };
+  validateWire('WorkspaceView', binding);
+  for (const fields of [{ root_id: 'bad/id' }, { binding_revision: 9007199254740992 }, { binding_revision: '18446744073709551616' }]) {
+    assert.throws(() => validateWire('WorkspaceView', { ...binding, ...fields }));
+  }
+});
+
 test('strict envelopes preserve null IDs and reject ambiguous successes and authority fields', () => {
   validateWire('ResultEnvelope', { jsonrpc: '2.0', id: null, result: null });
   const error = { code: -32602, message: 'invalid', data: { kind: 'validation', details: { secret: 'not a log message' } } };

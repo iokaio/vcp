@@ -278,4 +278,4 @@ export type WireParams = ({ [key: string]: unknown; } | Array<unknown>);
 
 export type WorkspaceOpen = { "command_id": Id; "host": Id; "root": string; };
 
-export type WorkspaceView = { "authority_revision": Counter; "host": Id; "revision": Counter; "root": string; "trust": Trust; "workspace": Id; };
+export type WorkspaceView = { "authority_revision": Counter; "binding_revision"?: (Counter | null); "host": Id; "revision": Counter; "root": string; "root_id"?: (Id | null); "trust": Trust; "workspace": Id; };

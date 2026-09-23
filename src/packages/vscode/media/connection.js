@@ -15,6 +15,7 @@
       ['Engine', status.engineBuild], ['Executable', status.engineExecutable], ['Protocol', status.protocolVersion], ['Role', status.role === 'observer' ? 'observer (read-only)' : undefined],
       ['Host', status.host ? `${text(status.host.platform)} · ${text(status.host.id)}` : undefined],
       ['Folder URI', status.workspaceUri], ['Canonical root', status.workspaceRoot],
+      ['Root ID', status.rootId], ['Binding revision', status.bindingRevision],
       ['Workspace', status.scope?.workspace], ['Session', status.scope?.session],
       ['Editor trust', status.editorTrusted ? 'trusted' : 'restricted'], ['Engine trust', status.engineTrust],
       ['Tasks in snapshot', status.taskCount], ['Pending decisions', status.pendingInputs], ['Snapshot watermark', status.watermark],

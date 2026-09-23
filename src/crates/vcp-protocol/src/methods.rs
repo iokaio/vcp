@@ -640,6 +640,10 @@ dto!(SessionSnapshot {
 dto!(WorkspaceView {
     workspace: Id,
     host: Id,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    root_id: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    binding_revision: Option<Counter>,
     #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 32768)))]
     root: String,
     trust: Trust,

@@ -392,6 +392,14 @@ creates no durable receipt. A retry returns current authorized workspace trust a
 workspace/authority revisions. Creating or rebinding a workspace still requires its
 separate trusted bootstrap workflow; method availability does not grant that right.
 
+For P4-01 mapping, negotiated `workspace/binding/1` additionally returns the
+engine's opaque `root_id` and decimal-string `binding_revision`. The primary root
+currently uses the workspace's opaque identity, as in the repository/tool boundary;
+the counter comes from the durable binding, independently of workspace revision.
+Both fields are omitted for clients without the capability, following
+[ADR-048](../adr/048-capability-gated-result-fields.md). Clients that require durable
+mapping must require the capability and reject a missing projection.
+
 The retained-inspection and existing-workspace increment passes 92 engine/protocol
 tests, two both-store live-host workspace tests, and two compiled process tests
 (inspection/lookup and snapshot replay) on Windows/Rust 1.95.0. Coverage includes

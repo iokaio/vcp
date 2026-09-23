@@ -28,6 +28,7 @@ Its declared capabilities are the enabled method names plus `jsonrpc/2.0` and
 `durable-command/1`; configuration can remove methods but cannot add handlers or
 unimplemented capabilities. The explicit `approval/source-revisions/1` extension
 may also be advertised when both `task/read` and `approval/respond` are enabled.
+`workspace/binding/1` is available when `workspace/open` is implemented.
 Generic handshake fixtures may negotiate other
 declared capability strings to exercise negotiation; those fixtures do not extend
 `RpcSession`'s implementation.
@@ -283,6 +284,12 @@ policy for optional result fields. Clients negotiating
 Without that capability both fields are absent, preserving strict older decoders.
 Clients needing these response preconditions should require the capability; the
 counters do not replace current authority and source validation.
+
+The `workspace/binding/1` extension follows the same policy: negotiated workspace
+results include opaque `root_id` and decimal-string `binding_revision`; both fields
+are absent without negotiation. They describe the selected canonical binding and
+do not authorize creation, trust changes or rebinding. The editor requires this
+capability for durable workspace mapping.
 
 `memory/inspect` additionally requires `memory/inspection-state/1`; otherwise
 it fails before host dispatch. Its optional `MemoryFinding.state` distinguishes

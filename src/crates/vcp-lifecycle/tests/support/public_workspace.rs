@@ -31,11 +31,13 @@ async fn public_workspace_open_observes_only_selected_binding_without_mutation_o
         let temp = tempfile::tempdir().unwrap();
         let workspace = temp.path().join("workspace");
         std::fs::create_dir(&workspace).unwrap();
-        let config = config(
+        let mut config = config(
             &temp.path().join("canonical"),
             &workspace.canonicalize().unwrap(),
             backend,
         );
+        // Binding generation is independent of workspace/authority revisions.
+        config.binding.revision = Revision::new(9007199254740993);
         let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
         let access = access(&config);
         let mut observer = host.public_connection(access.clone()).unwrap();
@@ -53,6 +55,14 @@ async fn public_workspace_open_observes_only_selected_binding_without_mutation_o
         };
         assert_eq!(view.workspace.as_str(), config.workspace.as_str());
         assert_eq!(view.host.as_str(), config.binding.host.as_str());
+        assert_eq!(
+            view.root_id.as_ref().unwrap().as_str(),
+            config.workspace.as_str()
+        );
+        assert_eq!(
+            view.binding_revision.as_ref().unwrap().as_str(),
+            "9007199254740993"
+        );
         assert_eq!(view.root, config.binding.root);
         assert_eq!(view.trust, methods::Trust::Untrusted);
         assert_eq!(view.revision.as_str(), "0");
@@ -143,6 +153,11 @@ async fn public_workspace_open_rechecks_access_authority_binding_and_connection_
         assert_eq!(view.trust, methods::Trust::Trusted);
         assert_eq!(view.revision.as_str(), "1");
         assert_eq!(view.authority_revision.as_str(), "1");
+        assert_eq!(
+            view.root_id.as_ref().unwrap().as_str(),
+            config.workspace.as_str()
+        );
+        assert_eq!(view.binding_revision.as_ref().unwrap().as_str(), "0");
         assert_eq!(host.snapshot().unwrap(), changed);
         observer.loss_signal().invalidate();
         assert!(observer.workspace_open(&request, &current).is_err());
@@ -171,6 +186,35 @@ async fn public_workspace_open_rechecks_access_authority_binding_and_connection_
         replacement.root = rebound.root;
         assert!(observer.workspace_open(&replacement, &current).is_err());
         assert_eq!(host.snapshot().unwrap(), changed);
+        observer.disconnect().unwrap().wait().await.unwrap();
+        owner.close().await.unwrap();
+
+        // A newly selected host projects the durable rebind, preserving root
+        // identity while distinguishing binding, workspace and trust revisions.
+        drop(host);
+        let rebound_workspace: Workspace = changed
+            .record(
+                Collection::Workspace,
+                config.workspace.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let mut reopened = config.clone();
+        reopened.binding = rebound_workspace.binding;
+        let (host, owner) = CanonicalHost::open(reopened.clone()).unwrap();
+        let observer = host.public_connection(current.clone()).unwrap();
+        let view = observer.workspace_open(&replacement, &current).unwrap();
+        assert_eq!(
+            view.root_id.as_ref().unwrap().as_str(),
+            config.workspace.as_str()
+        );
+        assert_eq!(view.binding_revision.as_ref().unwrap().as_str(), "1");
+        assert_eq!(view.revision.as_str(), "2");
+        assert_eq!(view.authority_revision.as_str(), "2");
+        assert_eq!(view.root, reopened.binding.root);
+        assert_eq!(view.trust, methods::Trust::Untrusted);
         observer.disconnect().unwrap().wait().await.unwrap();
         owner.close().await.unwrap();
     }
