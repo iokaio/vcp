@@ -151,6 +151,8 @@ context and verification behavior during final acceptance.
 | M9 | Partial; acceptance remains open | Seeded numerical fixtures are recorded in [M1 kernel qualification](p6-markov-kernels.md). They do not establish generated lifecycle/store/retention traces or current-package actual delegation. Retain existing adversarial evidence and qualify enabled production boundaries separately. |
 
 These are scope dispositions, not passing comparisons or completion of P8.
+The subsequent [bounded seeded campaign](p8-seeded-boundaries-2026-09-23.md)
+records additional M9 implementation and execution separately from this snapshot.
 M4's rejected/disabled outcome, M7's deferral and M10's post-release placement
 remain unchanged. Reconsider M5/M6 only with frozen comparison criteria and
 affected scope, retention, resource and current-result qualification.

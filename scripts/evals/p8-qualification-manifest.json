@@ -1,6 +1,6 @@
 {
   "schema": "p8-qualification-manifest/1",
-  "revision": "p8-local-package-recovery-v4",
+  "revision": "p8-seeded-boundaries-v5",
   "description": "Bounded P8 readiness rows mapped to existing native Rust tests. A row without a command is an explicit qualification gap.",
   "workspace": "src/third_party/codex/codex-rs",
   "default_timeout_seconds": 1800,
@@ -475,6 +475,36 @@
       "requires": ["native_windows", "cargo"],
       "evidence": "Both-store real malformed executable fails unattended without a Windows error dialog, retains durable dispatch intent and unresolved effects, and cannot complete",
       "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--features", "qualification", "--test", "canonical_host", "verification::native_verification_preserves_uncertain_dispatch_intent", "--", "--exact"]
+    },
+    {
+      "id": "p8-01-seeded-controller-traces",
+      "work_item": "P8-01",
+      "area": "recovery",
+      "title": "Seeded legal and invalid controller traces preserve state and reopen boundaries",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Four fixed seeds on both stores drive real controller commands against an independent state oracle; cooperative reopen only, no provider or actual delegation claim",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--test", "canonical_host", "seeded_traces::seeded_controller_traces_preserve_independent_state_and_reopen_invariants", "--", "--nocapture", "--exact"]
+    },
+    {
+      "id": "p8-01-seeded-retention-restore",
+      "work_item": "P8-01",
+      "area": "history",
+      "title": "Seeded retention and authenticated restore preserve scoped visibility",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Four fixed seeds on both stores exercise retention, stale refusal, cooperative reopen and encrypted restore against an independent visibility oracle; not physical erasure or process-kill evidence",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-memory", "--test", "seeded_retention", "seeded_retention_reopen_and_authenticated_restore_preserve_oracle", "--", "--nocapture", "--exact"]
+    },
+    {
+      "id": "p8-01-seeded-liability-traces",
+      "work_item": "P8-01",
+      "area": "recovery",
+      "title": "Seeded unknown and late usage preserve independent liability arithmetic",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Four fixed seeds on both stores drive reservation, unknown liability, late settlement, duplicate/stale observations and reopen through real budget APIs; no provider transport or fork claim",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-budget", "--test", "seeded_accounting", "seeded_late_usage_traces_preserve_independent_liability_arithmetic", "--", "--nocapture", "--exact"]
     }
   ]
 }

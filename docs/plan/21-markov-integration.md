@@ -462,8 +462,10 @@ alone qualify failure handling, not a live endpoint switching default.
 ## M8–M10 — Reuse and qualification campaigns
 
 M8 is explicitly deferred because M4 supplies no qualified forecast to consume.
-M9 is partial: numerical seeds are qualified, while generated lifecycle traces
-and current-package delegation remain open. See the
+M9 is partial: numerical seeds are qualified; the bounded
+[seeded controller, retention/restore and accounting campaign](../evaluations/p8-seeded-boundaries-2026-09-23.md)
+extends synthetic boundary coverage with its recorded execution status.
+Generated provider/fork traces and current-package delegation remain open. See the
 [September 23 dispositions](../evaluations/p8-continuation-2026-09-23.md#supplement-dispositions).
 
 P7-04 may reuse qualified M4 forecasts to explain proposed child allocations;
