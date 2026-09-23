@@ -98,7 +98,7 @@ function checkRepository(root) {
     }
     if (ids.length !== count) errors.push('Unexpected requirement inventory: ' + prefix);
   }
-  if (files.filter(file => /^docs\/adr\/\d{3}-[^/]+\.md$/.test(file)).length !== 41) errors.push('ADR inventory must contain 41 records');
+  if (files.filter(file => /^docs\/adr\/\d{3}-[^/]+\.md$/.test(file)).length !== 42) errors.push('ADR inventory must contain 42 records');
   errors.push(...graphErrors(nodes));
   const closure = new Set();
   function include(id) { if (closure.has(id)) return; closure.add(id); for (const dep of nodes.get(id) || []) include(dep); }

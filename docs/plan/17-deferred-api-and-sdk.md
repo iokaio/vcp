@@ -1,6 +1,6 @@
 # 17 — Deferred public API, local server and TypeScript SDK
 
-Status: deferred. Owns P9-01 through P9-03. Starts after P8-05; it is not a Windows CLI release prerequisite. Architecture section 5 is the reserved external contract, and internal commands/events from P1 remain the engine boundary.
+Status: ready; next active phase after [owner-directed closure](../adr/042-owner-directed-p8-closure.md) of P8-05. Owns P9-01 through P9-03, to be implemented in order. It is not a Windows CLI release prerequisite. Architecture section 5 is the reserved external contract, and internal commands/events from P1 remain the engine boundary.
 
 ## Code organization
 

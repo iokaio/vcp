@@ -48,6 +48,10 @@ ADR-013 records the committed-source repository convention and maintenance evide
 | [ADR-040 — Saved aggregate forecast provenance](040-saved-aggregate-forecast-provenance.md) | P6-05/M3 workspace source manifests, aggregate access checks and typed retention |
 | [ADR-041 — Provider evidence and conservative routing](041-provider-evidence-and-conservative-routing.md) | P6 exact catalog association from generation receipts and full-input routed reservations |
 
+## Subsequent owner decisions
+
+- [ADR-042 — Owner-directed P8 closure and P9 continuation](042-owner-directed-p8-closure.md): closes the milestone with explicit qualification gaps; preserves release-evidence and runtime trust requirements.
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.

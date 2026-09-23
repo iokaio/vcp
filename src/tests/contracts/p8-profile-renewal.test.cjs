@@ -3,6 +3,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto');
 const renewal=require('../../../scripts/evals/p8-profile-renewal.cjs');
+const owner=require('../../../scripts/evals/p805-owner-runner.cjs');
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const put=(file,value)=>fs.writeFileSync(file,JSON.stringify(value));
 const budget=()=>({schema:'p7-p8-owner-campaign/1',cap_micros:100000000,settled_micros:1000,reserved_micros:20000000,models:['qwen/qwen3.8-max-0902'],runs:[{sha256:'old',status:'failed-unknown',cap_micros:20000000}]});
@@ -24,6 +25,53 @@ test('reservation preserves old unknown liabilities and refuses collisions/over-
   assert.throws(()=>renewal.reserve(b,{spec:{path:'fixed'}},'new'),/Duplicate/);
   for(const status of ['prepared','running','running-held']){const b=budget();b.runs.push({status});assert.throws(()=>renewal.reserve(b,{spec:{path:'fixed'}},'new'),/outstanding/);}
   const full=budget();full.reserved_micros=90000000;assert.throws(()=>renewal.reserve(full,{},'new'),/bound/);
+});
+
+test('P8 retained liabilities permit an independently settled renewal and bounded owner admission',async t=>{
+  const f=fixture(t),old=process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY='synthetic-only';
+  t.after(()=>{if(old===undefined)delete process.env.OPENROUTER_API_KEY;else process.env.OPENROUTER_API_KEY=old;});
+  const initial={...budget(),settled_micros:3637947,reserved_micros:78127269,runs:[
+    {sha256:'historical',status:'failed-unknown',cap_micros:66127269},
+    {sha256:'consumed-renewal',status:'failed-unknown',cap_micros:12000000,actual_cost_micros:null}
+  ]};
+  put(f.plan.campaign,initial);f.plan.campaign_sha256=sha(fs.readFileSync(f.plan.campaign));
+  // Synthetic, independently joined two-attempt accounting exercises the coordinator;
+  // these records provide no live provider qualification or paid execution authority.
+  f.report.status='observed';f.report.responses=[{},{}];f.report.responses_text_tools=true;
+  f.records[1].value.charged='3';f.records[2].value.charged='3';
+  const attempt=structuredClone(f.records[1]),reservation=structuredClone(f.records[2]);
+  attempt.id='attempt-2';Object.assign(attempt.value,{id:'attempt-2',reservation:'reservation-2',charged:'4'});
+  reservation.id='reservation-2';Object.assign(reservation.value,{attempt:'attempt-2',charged:'4'});
+  f.records.push(attempt,reservation);
+  let executions=0;
+  const result=await renewal.run('synthetic-proposal','fresh-renewal',{
+    platform:'win32',validate:()=>({plan:f.plan,root:f.root}),inputs:()=>{},execute:async()=>{
+      executions++;
+      const held=fs.readFileSync(f.plan.campaign);
+      assert.equal(JSON.parse(held).reserved_micros,90127269);
+      assert.throws(()=>owner.changeCampaign(f.plan.campaign,b=>owner.reserve(b,{directory:f.root},'owner-cohort',{id:'u01-sqlite'})),/outstanding/);
+      assert.deepEqual(fs.readFileSync(f.plan.campaign),held);
+      fs.mkdirSync(f.plan.output);
+      put(path.join(f.plan.output,'result.json'),f.report);
+      put(path.join(f.plan.output,'canonical-records.json'),f.records);
+      put(path.join(f.plan.output,'claim.json'),f.claim);
+      return {status:0,error:null,process_reaped:true,stdout:'',stderr:''};
+    }
+  });
+  assert.equal(executions,1);assert.equal(result.status,'observed-awaiting-qualification');
+  const settled=JSON.parse(fs.readFileSync(f.plan.campaign));
+  assert.equal(settled.reserved_micros,78127269);assert.equal(settled.settled_micros,3637954);
+  assert.deepEqual(settled.runs.slice(0,2),initial.runs);
+  // Admission at the exact remaining-budget boundary succeeds; one micro-dollar
+  // over refuses atomically. No test rewrites the real campaign or its receipts.
+  for(const extra of [0,1]){
+    const boundary=structuredClone(settled);boundary.settled_micros=13872731+extra;
+    put(f.plan.campaign,boundary);const before=fs.readFileSync(f.plan.campaign);
+    const admit=()=>owner.changeCampaign(f.plan.campaign,b=>owner.reserve(b,{directory:f.root},'owner-cohort',{id:'u01-sqlite'}));
+    if(extra){assert.throws(admit,/ceiling/);assert.deepEqual(fs.readFileSync(f.plan.campaign),before);}
+    else {admit();const admitted=JSON.parse(fs.readFileSync(f.plan.campaign));assert.equal(admitted.settled_micros+admitted.reserved_micros,100000000);assert.deepEqual(admitted.runs.slice(0,2),initial.runs);}
+  }
 });
 test('canonical accounting independently joins claims, ledger, attempts and charge sum',t=>{
   const f=fixture(t);assert.equal(renewal.accounting(f.report,f.records,f.claim,f.plan),7);
