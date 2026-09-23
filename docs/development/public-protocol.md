@@ -334,9 +334,9 @@ without pretending a JavaScript type check executes Rust schema generation.
 P9-02 native-process evidence is recorded in the [local attachment guide](local-attachment.md),
 including authentication, controller leases, owner-loss/pause, snapshot/event
 handoff, bounded readers and restart. That record owns its acceptance status.
-P9-03 requires SDK tests against a compiled real local server, including retry,
-cancellation, disposal and gap recovery; protocol schemas and in-process adapter
-tests do not establish SDK compatibility.
+P9-03 [SDK qualification](typescript-sdk.md) now covers compiled local clients,
+retry, cancellation, disposal and gap recovery. Its record separates package
+checks, native execution and delayed-response delivery evidence.
 
 ## ACP consideration
 
