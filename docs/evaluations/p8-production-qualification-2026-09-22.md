@@ -1,6 +1,10 @@
 # P8-01/P8-04 production qualification — 2026-09-22
 
 Status: bounded production evidence recorded; P8-01–05 acceptance remains open.
+The [subsequent qualification follow-up](p8-qualification-followup-2026-09-22.md)
+tracks the requested restore/startup corrections, new artifact checks, authorized
+bounded owner runs and fresh model provisioning. This report preserves the
+original frozen artifact and its historical results.
 This increment freezes the intended optimized Windows artifact without
 qualification features and performs selected artifact-specific checks. It preserves the previous
 [history/security campaign](p8-history-security-followup-2026-09-22.md) and its

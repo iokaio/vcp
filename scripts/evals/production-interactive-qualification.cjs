@@ -16,6 +16,24 @@ const {plain, read, privateDirectory, noParentInstructions, noSecrets} = prior.b
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const hash = file => sha(read(file, 1024 * 1024 * 1024));
 const json = value => JSON.stringify(value, null, 2) + '\n';
+// The PTY driver's stdin is JSONL: each physical line must be one complete
+// control. Pretty JSON is only for evidence files, never this transport.
+const controlFrame = value => JSON.stringify(value) + '\n';
+function controlWriter(stream,onFailure,onControl=()=>{}) {
+  let failed=false,terminating=false;
+  const fail=error=>{if(!failed){failed=true;onFailure(error);}};
+  // A writable check cannot prevent the reader from closing before write's
+  // asynchronous completion. Handle both callback and stream errors once.
+  stream.on('error',fail);
+  return value=>{
+    if(failed)return false;
+    if(stream.destroyed||!stream.writable){fail(Error('PTY control channel unavailable'));return false;}
+    if(value.action==='terminate'&&terminating)return true;
+    if(value.action==='terminate')terminating=true;
+    try{onControl(value);stream.write(controlFrame(value),error=>{if(error)fail(error);});return true;}
+    catch(error){fail(error);return false;}
+  };
+}
 const put = (file, value) => fs.writeFileSync(file, typeof value === 'string' ? value : json(value), {flag:'wx', mode:0o600});
 const CAP = 16000000;
 const PAUSED = 'Pause requested; inspect retained effects before resuming.';
@@ -119,10 +137,10 @@ async function run(file, expected) {
   const checkSurface=(surface,value)=>credentialSurface(secret,surface,value,result);
   const save=()=>fs.writeFileSync(path.join(plan.directory,'result.json'),redact(json(result)),{mode:0o600});
   const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-  let child=null, closed=false, text='', driverStderr='', structuredExit=null, forced=false, poll=0, task=null;
+  let child=null, closed=false, text='', driverStderr='', structuredExit=null, forced=false, poll=0, task=null, controls=null, controlFailure=null;
   const record=event=>result.events.push({at_ms:Date.now()-started,...event});
-  const send=value=>{if(!child?.stdin.writable)throw Error('PTY control channel unavailable');record({control:value});child.stdin.write(json(value));};
-  const wait=async(predicate,ms,label)=>{const deadline=Math.min(started+MAX_MS,Date.now()+ms);while(!predicate()){if(closed)throw Error('Terminal exited before '+label);if(Date.now()>=deadline)throw Error(label+' deadline exceeded');await delay(25);}};
+  const send=value=>{if(!controls?.(value))throw Error('PTY control channel unavailable');};
+  const wait=async(predicate,ms,label)=>{const deadline=Math.min(started+MAX_MS,Date.now()+ms);while(!predicate()){if(controlFailure)throw Error(controlFailure);if(closed)throw Error('Terminal exited before '+label);if(Date.now()>=deadline)throw Error(label+' deadline exceeded');await delay(25);}};
   function invoke(name,program,args,timeout=5000,env=process.env) {
     const began=Date.now(); const output=spawnSync(program,args,{windowsHide:true,shell:false,encoding:'utf8',timeout,maxBuffer:4*1024*1024,env,stdio:['ignore','pipe','pipe']});
     const log={name,program,arguments:args,exit_code:output.status,error:output.error?.code||null,elapsed_ms:Date.now()-began,stdout:checkSurface('command '+name+' stdout',output.stdout),stderr:checkSurface('command '+name+' stderr',output.stderr)};
@@ -163,14 +181,15 @@ async function run(file, expected) {
     });
     result.reservation_made=true;result.held_upper_bound_micros=CAP;result.actual_cost_micros=null;result.cost_status='unknown';save();
     child=spawn(plan.driver,[path.join(plan.directory,'driver-spec.json')],{windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env:{...process.env,RUST_MIN_STACK:'16777216'}});
+    controls=controlWriter(child.stdin,error=>{controlFailure='PTY control write failed: '+String(error.code||error.message);result.failures.push(controlFailure);},value=>record({control:value}));
     result.driver_pid=child.pid;
     let capturedBytes=0;
     const lines=readline.createInterface({input:child.stdout});
     lines.on('line',line=>{
-      capturedBytes+=Buffer.byteLength(line);if(capturedBytes>4*1024*1024){result.failures.push('Output ceiling exceeded');child.stdin.write(json({action:'terminate'}));return;}
+      capturedBytes+=Buffer.byteLength(line);if(capturedBytes>4*1024*1024){result.failures.push('Output ceiling exceeded');controls({action:'terminate'});return;}
       try {const event=JSON.parse(line);if(event.type==='output'){if(typeof event.text!=='string')throw Error('text required');text+=event.text;checkSurface('terminal',text);record({output_bytes:Buffer.byteLength(event.text),output_sha256:sha(event.text)});}else if(event.type==='exit'){structuredExit=event.code;record({event});}else if(event.type==='started'){record({event});}else throw Error('unknown event');}catch{result.failures.push('Invalid PTY event');}
     });
-    child.stderr.on('data',bytes=>{capturedBytes+=bytes.length;driverStderr+=bytes.toString('utf8');checkSurface('driver stderr',driverStderr);if(capturedBytes>4*1024*1024)child.stdin.write(json({action:'terminate'}));});
+    child.stderr.on('data',bytes=>{capturedBytes+=bytes.length;driverStderr+=bytes.toString('utf8');checkSurface('driver stderr',driverStderr);if(capturedBytes>4*1024*1024)controls({action:'terminate'});});
     child.on('error',error=>{result.failures.push(error.message);closed=true;});
     child.on('close',()=>{closed=true;});
     await wait(()=>text.includes('/pause /resume'),30000,'interactive startup');
@@ -250,5 +269,5 @@ async function run(file, expected) {
   return {result:path.join(plan.directory,'result.json'),status:result.status,cost_status:result.cost_status,held_upper_bound_micros:result.held_upper_bound_micros};
 }
 
-module.exports={prepare,validate,run,credentialSurface};
+module.exports={prepare,validate,run,credentialSurface,controlFrame,controlWriter};
 if(require.main===module){(async()=>{const[command,file,extra,sourceProfile,...rest]=process.argv.slice(2);if(rest.length||!file||!extra||!['prepare','run'].includes(command)||(command==='prepare'&&!sourceProfile)||(command==='run'&&sourceProfile))throw Error('Usage: production-interactive-qualification.cjs prepare <package-result.json> <new-private-dir> <private-source-profile.json> | run <plan.json> <exact-plan-sha256>');const result=command==='prepare'?prepare(file,extra,sourceProfile):await run(file,extra);console.log(json(result));if(command==='run'&&result.status!=='observed')process.exitCode=1;})().catch(error=>{console.error(error.message);process.exitCode=1;});}
