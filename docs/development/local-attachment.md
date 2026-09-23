@@ -448,9 +448,10 @@ or controller loss, original-command cleanup, no automatic resume and stable rep
 The preceding export review closes physical dependency tracking for derived copies.
 
 Snapshot capture and cursor registration share a canonical worker boundary.
-Compiled process tests establish reader cleanup without blocking writes. P9-03
-follows with SDK consumer tests against the compiled server; P4-01 then implements
-the extension connection UI from the prepared design through that SDK.
+Compiled process tests establish reader cleanup without blocking writes. P9-03's
+[SDK consumer qualification](typescript-sdk.md) now passes against the compiled
+server; P4-01 next implements the extension connection UI from the prepared design
+through that SDK.
 
 ## Controlled stdio launch
 

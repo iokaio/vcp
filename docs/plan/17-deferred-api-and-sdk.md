@@ -1,6 +1,6 @@
 # 17 — Deferred public API, local server and TypeScript SDK
 
-Status: P9-01 and P9-02 complete following [owner-directed closure](../adr/042-owner-directed-p8-closure.md) of P8-05. P9-03 is the next ready item. Owns P9-01 through P9-03, to be implemented in order. It is not a Windows CLI release prerequisite. Architecture section 5 is the external contract, and internal commands/events from P1 remain the engine boundary.
+Status: P9-01, P9-02 and P9-03 complete following [owner-directed closure](../adr/042-owner-directed-p8-closure.md) of P8-05. P4-01 is the next ready item in the requested path. Owns P9-01 through P9-03, implemented in order. It is not a Windows CLI release prerequisite. Architecture section 5 is the external contract, and internal commands/events from P1 remain the engine boundary.
 
 ## Code organization
 
@@ -114,6 +114,13 @@ ownership, retained unknown outcomes and exactly which cursor boundary rebuilt t
 client view; mocked transport handlers cannot prove local endpoint security.
 
 ## P9-03 — SDK
+
+Accepted on September 23, 2026. The [SDK qualification record](../development/typescript-sdk.md)
+documents 29 package/runtime tests, clean offline install/build and four compiled
+Windows tests on both stores. All seven example modules execute against the real
+local server; independent canonical evidence checks original receipts and one
+successful patch effect. The record distinguishes native transport evidence from
+the deterministic delayed-response gate and retained child inspection.
 
 Implement typed request/result calls, cancellable streams, resumable subscriptions, lifecycle errors and explicit resource cleanup. Avoid hidden retry of non-idempotent methods; retries use the caller's durable command identity and contract. Provide examples for run, inspect, wait/input, pause/resume and child progress using synthetic fixtures.
 
