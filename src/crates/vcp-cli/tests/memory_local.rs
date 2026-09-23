@@ -8,6 +8,10 @@ mod common;
 #[path = "support/memory_optimizer.rs"]
 mod memory_optimizer;
 
+#[cfg(windows)]
+#[path = "support/memory_restore.rs"]
+mod memory_restore;
+
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -38,6 +42,16 @@ impl Fixture {
         shared_data: Option<&Path>,
         marker: Option<&str>,
     ) -> Self {
+        Self::new_scoped_with_setup(backend, workspace_id, shared_data, marker, None).await
+    }
+
+    async fn new_scoped_with_setup(
+        backend: BackendKind,
+        workspace_id: &str,
+        shared_data: Option<&Path>,
+        marker: Option<&str>,
+        setup: Option<&dyn Fn(&Path)>,
+    ) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let base = temp.path().canonicalize().unwrap();
         let workspace = base.join("workspace with spaces");
@@ -45,10 +59,38 @@ impl Fixture {
             .map(Path::to_path_buf)
             .unwrap_or_else(|| base.join("private-data"));
         fs::create_dir_all(&workspace).unwrap();
+        if let Some(setup) = setup {
+            setup(&workspace);
+        }
         let mut initial = common::initial();
         let mut w = common::workspace();
         w.id = WorkspaceId::parse(workspace_id).unwrap();
         w.binding.root = workspace.to_string_lossy().into_owned();
+        // Native recovery fixtures create Git before admitting governed memory.
+        // Match the physical binding contract so no later rebind makes the
+        // freshly seeded preference evidence stale before the test even starts.
+        if setup.is_some() {
+            let root = vcp_repository::Root::open(
+                vcp_repository::RootIdentity {
+                    workspace: w.id.clone(),
+                    root: RootId::parse(w.id.as_str()).unwrap(),
+                    repository: w.binding.repository.clone(),
+                    worktree: w.binding.worktree.clone(),
+                    binding: w.binding.revision,
+                },
+                &workspace,
+            )
+            .unwrap();
+            let identity = vcp_cli::binding::capture(&root).unwrap();
+            w.binding.repository = vcp_protocol::digest_bytes(
+                identity
+                    .git_directory_identity
+                    .as_deref()
+                    .unwrap_or(&identity.directory_identity)
+                    .as_bytes(),
+            );
+            w.binding.worktree = vcp_protocol::digest_bytes(identity.directory_identity.as_bytes());
+        }
         let mut task = common::task();
         task.scope.workspace = w.id.clone();
         let mut session = common::session();
