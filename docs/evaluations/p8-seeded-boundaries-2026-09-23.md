@@ -102,3 +102,5 @@ durability, minimum hardware or packaged actual delegation. Existing adversarial
 fixtures supplement these traces; they are not relabeled as generated coverage.
 M9 remains partial until its uncovered enabled boundaries and production
 integration have appropriate evidence.
+The subsequent [provider and child campaign](p8-seeded-provider-children-2026-09-23.md)
+records those additional bounded synthetic scenarios separately from this run.
