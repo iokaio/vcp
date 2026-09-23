@@ -3,6 +3,7 @@
 pub mod accounting;
 pub mod agents;
 pub mod artifact;
+pub mod controller;
 pub mod effect;
 pub mod forecast;
 pub mod ids;

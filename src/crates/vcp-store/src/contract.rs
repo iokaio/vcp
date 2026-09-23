@@ -111,6 +111,23 @@ pub fn key(collection: Collection, id: &str) -> String {
     format!("{}:{id}", collection.name())
 }
 
+/// One bounded canonical lease key per workspace/session. Domain IDs cannot
+/// contain separators, but canonical tuple encoding also avoids concatenation
+/// ambiguity and permits the full 96-byte session-ID limit. Access keys matching
+/// `controller-` plus exactly 64 lowercase hexadecimal characters are reserved
+/// for this document type. An old conflicting generic row fails closed; it is
+/// never silently rewritten into authority. Other legacy Access keys remain valid.
+pub fn controller_lease_id(workspace: &WorkspaceId, session: &SessionId) -> Result<String> {
+    Ok(format!(
+        "controller-{}",
+        digest_bytes(&canonical_bytes(&(
+            vcp_domain::controller::DOCUMENT_TYPE,
+            workspace,
+            session,
+        ))?)
+    ))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Record {
@@ -124,6 +141,32 @@ pub struct Record {
     pub references: BTreeSet<String>,
 }
 impl Record {
+    fn controller_lease(&self) -> Result<bool> {
+        let kind = self.value["document_type"].as_str();
+        let reserved = self.collection == Collection::Access
+            && self.id.strip_prefix("controller-").is_some_and(|digest| {
+                digest.len() == 64
+                    && digest
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            });
+        if reserved && kind != Some(vcp_domain::controller::DOCUMENT_TYPE) {
+            return Err(Error::Corruption("reserved controller lease key"));
+        }
+        let Some(kind) = kind else {
+            return Ok(false);
+        };
+        if kind == vcp_domain::controller::DOCUMENT_TYPE {
+            if self.collection != Collection::Access {
+                return Err(Error::Corruption("controller lease collection"));
+            }
+            return Ok(true);
+        }
+        if kind.starts_with("vcp_controller_lease_") {
+            return Err(Error::Incompatible);
+        }
+        Ok(false)
+    }
     fn memory_kind(&self) -> Result<Option<&str>> {
         if let Some(kind) = crate::redaction_contract::kind(self)? {
             return Ok(Some(kind));
@@ -188,6 +231,18 @@ impl Record {
         TaskId::parse(self.id.clone())?;
         if encoded_len(self)? > MAX_RECORD_BYTES {
             return Err(Error::Limit("canonical record"));
+        }
+        if self.controller_lease()? {
+            let lease: vcp_domain::controller::Lease = self.decode()?;
+            lease.validate()?;
+            if lease.workspace != self.workspace
+                || lease.id != self.id
+                || lease.revision != self.revision
+                || lease.id != controller_lease_id(&lease.workspace, &lease.session)?
+            {
+                return Err(Error::Corruption("controller lease identity or revision"));
+            }
+            return Ok(());
         }
         if crate::forecast_contract::kind(self) {
             return crate::forecast_contract::shape(self);
@@ -415,6 +470,11 @@ impl Record {
         }
         if self.collection != Collection::Workspace {
             refs.insert(key(Collection::Workspace, self.workspace.as_str()));
+        }
+        if self.controller_lease()? {
+            let lease: vcp_domain::controller::Lease = self.decode()?;
+            refs.insert(key(Collection::Session, lease.session.as_str()));
+            return Ok(refs);
         }
         if ingestion_contract::kind(self)?.is_some() {
             refs.extend(ingestion_contract::references(self)?);
@@ -1175,6 +1235,11 @@ impl State {
                     }
                     match (self.records.get(&key), expected) {
                         (None, None) if record.revision == Revision::ZERO => {
+                            if record.controller_lease()? {
+                                record
+                                    .decode::<vcp_domain::controller::Lease>()?
+                                    .validate()?;
+                            }
                             ingestion_contract::insert(record)?;
                             crate::snapshot_jobs::insert(self, record)?;
                         }
@@ -1183,6 +1248,16 @@ impl State {
                                 && record.revision == expected.next()?
                                 && previous.workspace == record.workspace =>
                         {
+                            if previous.controller_lease()? != record.controller_lease()? {
+                                return Err(Error::Conflict(
+                                    "controller lease document type changed",
+                                ));
+                            }
+                            if previous.controller_lease()? {
+                                previous
+                                    .decode::<vcp_domain::controller::Lease>()?
+                                    .validate_transition(&record.decode()?)?;
+                            }
                             if matches!(
                                 previous.collection,
                                 Collection::Task

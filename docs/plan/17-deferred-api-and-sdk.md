@@ -1,6 +1,6 @@
 # 17 — Deferred public API, local server and TypeScript SDK
 
-Status: P9-01 in progress; public protocol construction follows [owner-directed closure](../adr/042-owner-directed-p8-closure.md) of P8-05. Owns P9-01 through P9-03, to be implemented in order. It is not a Windows CLI release prerequisite. Architecture section 5 is the reserved external contract, and internal commands/events from P1 remain the engine boundary.
+Status: P9-01 complete in PR #134; P9-02 in progress following [owner-directed closure](../adr/042-owner-directed-p8-closure.md) of P8-05. Owns P9-01 through P9-03, to be implemented in order. It is not a Windows CLI release prerequisite. Architecture section 5 is the external contract, and internal commands/events from P1 remain the engine boundary.
 
 ## Code organization
 
@@ -54,6 +54,16 @@ concurrent duplicate mutation and stale approval. Compare final canonical state 
 independent effects with the same scenario driven by internal CLI commands.
 
 ## P9-02 — Local server and attachment
+
+P9-01 acceptance covers the complete method schema inventory, generated artifacts,
+compatibility profile and qualified initial six-method engine adapter. P9-02 owns
+the remaining live host adapters and their execution evidence; schema presence
+does not establish a runtime capability. Begin with canonical controller leases
+and a host dispatch interface, then bind the existing lifecycle host to it before
+exposing authenticated transports. Live steering must fence and drain through
+the lifecycle host rather than mutate the engine directly. The
+[local attachment construction record](../development/local-attachment.md)
+describes this boundary and the remaining native-process acceptance.
 
 Implement authenticated stdio/Windows-pipe attachment with explicit controller versus observer roles and bounded subscribers. One engine remains writer per data root; attach cannot create a competing controller. Bind grants/decision responses to authorized controller identity and session revision.
 
