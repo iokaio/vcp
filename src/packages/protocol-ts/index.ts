@@ -122,7 +122,7 @@ export type Mutation = { "command_id": Id; "expected_revision": Counter; "steeri
 
 export type OperationOutcome = (("accepted" | "waiting_for_input" | "partial" | "unknown" | "completed" | "cancelled" | "failed") & string);
 
-export type PendingInput = { "id": Id; "kind": InputKind; "operation_digest"?: (string | null); "revision": Counter; };
+export type PendingInput = { "effect_revision"?: (Counter | null); "id": Id; "kind": InputKind; "operation_digest"?: (string | null); "policy_revision"?: (Counter | null); "revision": Counter; };
 
 export type RequestEnvelope = { "id"?: RequestId; "jsonrpc": JsonRpcVersion; "method": string; "params"?: WireParams; };
 

@@ -454,6 +454,32 @@ independently after an authenticated bootstrap handoff.
 
 ## Named-pipe attachment and reconnect
 
+### Pending approval source revisions
+
+Clients that need to answer pending approvals require
+`approval/source-revisions/1` during initialization. Negotiated task and snapshot
+views expose the approval's observed `effect_revision` and `policy_revision`
+alongside its own revision and operation digest. Without negotiation the added
+fields are omitted, preserving the strict v1.0 response shape; see
+[ADR-048](../adr/048-capability-gated-result-fields.md). These are source facts,
+not reusable authority. The response still requires current source and steering
+revisions, process ownership and a controller lease for this connection.
+
+The compiled `local_pending_input` test passes on native Windows/Rust 1.95.0 for
+both canonical stores. A synthetic loopback provider proposes an actual patch
+under a policy that requires approval. Controller loss preserves that pending
+input and pauses the task. A replacement connection reads the source counters,
+is denied before acquiring a lease, rejects a stale source revision, and explicitly
+denies the approval. Repeating the same command returns the original receipt;
+an observer can read it but cannot answer. The file remains unchanged, the task
+remains paused and provider request count does not increase after disconnect.
+The fixture also verifies eventual idle writer release. This test reconnects to
+the same live server; it does not treat an earlier process's approval as actionable.
+The increment also passes 100 native engine/protocol tests, schema regeneration
+and drift verification, strict TypeScript checking and the 18-case fast suite.
+
+### Attachment lifecycle
+
 Add `"transport":"windows_pipe"` to the launch frame to select the pipe service.
 The trusted bridge first launches and authenticates the server using the same
 inherited-handle bootstrap. The server creates a random local pipe endpoint with

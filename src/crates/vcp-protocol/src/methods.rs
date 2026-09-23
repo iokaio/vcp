@@ -598,7 +598,17 @@ enumeration!(InputKind {
     Reconciliation
 });
 enumeration!(Trust { Untrusted, Trusted });
-dto!(PendingInput { id: Id, kind: InputKind, revision: Counter, operation_digest: Option<String> });
+dto!(PendingInput {
+    id: Id,
+    kind: InputKind,
+    revision: Counter,
+    operation_digest: Option<String>,
+    // Present on the wire only with negotiated approval/source-revisions/1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    effect_revision: Option<Counter>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    policy_revision: Option<Counter>
+});
 // Relative to the authenticated connection, never a reusable ownership grant.
 enumeration!(ControllerOwnership {
     Unclaimed,

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
-use std::{collections::BTreeSet, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 type Execution = Option<Arc<execution::Supervisor>>;
 use vcp_domain::{ids::RootId, workspace::Workspace};
 use vcp_engine::{
-    rpc::{RpcHost, RpcSession, ESSENTIAL_CAPABILITIES},
+    rpc::{capabilities_for_methods, RpcHost, RpcSession},
     Access,
 };
 use vcp_lifecycle::foundation::{CanonicalHost, Config};
@@ -238,8 +238,7 @@ async fn connection(
     let mut connection = execution::Rpc::new(connection, execution);
     let result = async {
         let methods: Vec<String> = connection.supported_methods().iter().map(|value| (*value).into()).collect();
-        let capabilities: BTreeSet<String> = methods.iter().cloned()
-            .chain(ESSENTIAL_CAPABILITIES.iter().map(|value| (*value).into())).collect();
+        let capabilities = capabilities_for_methods(&methods);
         let mut session = RpcSession::new(ServerInfo {
             engine_build: concat!("vcp/", env!("CARGO_PKG_VERSION")).into(), methods, capabilities,
             limits: ConnectionLimits { maximum_frame_bytes: framed::LIMIT as u32,
