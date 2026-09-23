@@ -4,6 +4,7 @@ mod framed;
 mod server;
 mod windows_identity;
 mod windows_launch;
+mod windows_pipe;
 
 use framed::Framed;
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,22 @@ enum Role {
     Controller,
 }
 
+#[derive(Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum Transport {
+    #[default]
+    Stdio,
+    WindowsPipe,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Attachment {
+    endpoint: String,
+    server: ProcessPin,
+    ticket: String,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LaunchRequest {
@@ -29,6 +46,23 @@ struct LaunchRequest {
     workspace: PathBuf,
     data: Option<PathBuf>,
     role: Role,
+    #[serde(default)]
+    transport: Transport,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AttachRequest {
+    schema: String,
+    attachment: Attachment,
+    role: Role,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum BridgeRequest {
+    Launch(LaunchRequest),
+    Attach(AttachRequest),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -48,6 +82,17 @@ struct Ready {
     server: ProcessPin,
     scope: vcp_protocol::methods::Scope,
     role: Role,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attachment: Option<Attachment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    observer_attachment: Option<Attachment>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Handoff {
+    schema: String,
+    challenge: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -123,7 +168,30 @@ fn parent_proof(boot: &Bootstrap) -> Result<HeldProcess, String> {
 }
 
 async fn bridge(mut client: Framed) -> Result<(), String> {
-    let mut request: LaunchRequest = bootstrap(&mut client).await?;
+    match bootstrap::<BridgeRequest>(&mut client).await? {
+        BridgeRequest::Launch(request) => launch_bridge(client, request).await,
+        BridgeRequest::Attach(request) => attach_bridge(client, request).await,
+    }
+}
+
+async fn attach_bridge(mut client: Framed, request: AttachRequest) -> Result<(), String> {
+    if request.schema != "vcp-local-attach/1" {
+        return Err("invalid attachment bootstrap".into());
+    }
+    let mut server =
+        Framed::from_async(windows_pipe::connect(&request.attachment, request.role).await?);
+    let ready: Ready = bootstrap(&mut server).await?;
+    if ready.schema != READY
+        || ready.server != request.attachment.server
+        || ready.role != request.role
+    {
+        return Err("pipe attachment identity denied".into());
+    }
+    client.send_value(&ready).await?;
+    forward(&mut client, &mut server).await
+}
+
+async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result<(), String> {
     if request.data.is_none() {
         request.data = Some(crate::settings::default_data()?);
     }
@@ -155,6 +223,7 @@ async fn bridge(mut client: Framed) -> Result<(), String> {
         return Err("launched identity denied".into());
     }
     let role = request.role;
+    let transport = request.transport;
     let challenge: String = windows_launch::random_bytes::<32>()
         .map_err(|_| "local entropy unavailable")?
         .iter()
@@ -169,7 +238,7 @@ async fn bridge(mut client: Framed) -> Result<(), String> {
             let _ = std::io::copy(&mut diagnostics, &mut std::io::sink());
         })
         .map_err(|_| "local diagnostic drain unavailable")?;
-    let result = async {
+    let startup = async {
         child
             .send_value(&Bootstrap {
                 schema: BOOTSTRAP.into(),
@@ -192,29 +261,55 @@ async fn bridge(mut client: Framed) -> Result<(), String> {
         {
             return Err("local server authentication denied".into());
         }
-        client.send_value(&reply.ready).await?;
-        loop {
-            tokio::select! {
-                frame = client.receive() => match frame {
-                    Ok(frame) => {
-                        let mut lost = client.loss();
-                        tokio::select! {
-                            biased;
-                            _ = lost.wait_for(|lost| *lost) => break,
-                            sent = child.send(frame) => sent?,
-                        }
-                    },
-                    Err(_) => break,
-                },
-                frame = child.receive() => match frame {
-                    Ok(frame) => client.send(frame).await?,
-                    Err(_) => return Err("local server connection lost; reconcile pending commands".into()),
-                },
+        if transport == Transport::WindowsPipe {
+            let attachment = reply
+                .ready
+                .attachment
+                .as_ref()
+                .ok_or("pipe attachment bootstrap missing")?;
+            if attachment.server != expected {
+                return Err("pipe bootstrap pin changed".into());
             }
+            let mut pipe = Framed::from_async(windows_pipe::connect(attachment, role).await?);
+            let pipe_ready: Ready = bootstrap(&mut pipe).await?;
+            if pipe_ready.schema != READY
+                || pipe_ready.server != expected
+                || pipe_ready.scope != reply.ready.scope
+                || pipe_ready.role != role
+            {
+                return Err("pipe bootstrap identity changed".into());
+            }
+            child
+                .send_value(&Handoff {
+                    schema: "vcp-local-handoff/1".into(),
+                    challenge: challenge.clone(),
+                })
+                .await?;
+            let ack: Handoff = bootstrap(&mut child).await?;
+            if ack.schema != "vcp-local-handoff-accepted/1" || ack.challenge != challenge {
+                return Err("local server handoff denied".into());
+            }
+            return Ok((reply.ready, Some(pipe)));
         }
-        Ok::<(), String>(())
+        if reply.ready.attachment.is_some() {
+            return Err("unexpected pipe bootstrap".into());
+        }
+        Ok::<_, String>((reply.ready, None))
     }
     .await;
+    let result = match startup {
+        Ok((ready, Some(mut pipe))) => {
+            launched.guard.handoff();
+            drop(child);
+            client.send_value(&ready).await?;
+            return forward(&mut client, &mut pipe).await;
+        }
+        Ok((ready, None)) => match client.send_value(&ready).await {
+            Ok(()) => forward(&mut client, &mut child).await,
+            Err(error) => Err(error),
+        },
+        Err(error) => Err(error),
+    };
     drop(child); // Close stdin: server owns pause/drain before releasing its writer.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     while !launched
@@ -232,4 +327,27 @@ async fn bridge(mut client: Framed) -> Result<(), String> {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     result
+}
+
+async fn forward(client: &mut Framed, server: &mut Framed) -> Result<(), String> {
+    loop {
+        tokio::select! {
+            frame = client.receive() => match frame {
+                Ok(frame) => {
+                    let mut lost = client.loss();
+                    tokio::select! {
+                        biased;
+                        _ = lost.wait_for(|lost| *lost) => break,
+                        sent = server.send(frame) => sent?,
+                    }
+                },
+                Err(_) => break,
+            },
+            frame = server.receive() => match frame {
+                Ok(frame) => client.send(frame).await?,
+                Err(_) => return Err("local server connection lost; reconcile pending commands".into()),
+            },
+        }
+    }
+    Ok(())
 }

@@ -86,10 +86,91 @@ pub(super) async fn run(mut io: Framed) -> Result<(), String> {
     // This acquires the real canonical writer and performs crash recovery. No
     // provider credentials, request, root thread or task is created by attachment.
     let (host, owner) = CanonicalHost::open(config.clone())?;
+    let result = match boot.request.transport {
+        Transport::Stdio => {
+            let (_stop, stopped) = tokio::sync::watch::channel(false);
+            connection(
+                host,
+                config,
+                boot.request.role,
+                io,
+                Opening::Stdio {
+                    challenge: boot.challenge,
+                    parent,
+                },
+                stopped,
+            )
+            .await
+        }
+        Transport::WindowsPipe => {
+            pipe_service(host, config, boot.request.role, io, boot.challenge, parent).await
+        }
+    };
+    let closed = owner.close().await;
+    result.and(closed)
+}
+
+enum Opening {
+    Stdio {
+        challenge: String,
+        parent: HeldProcess,
+    },
+    Pipe(PipeGrants),
+}
+
+#[derive(Clone)]
+struct PipeGrants {
+    primary: Attachment,
+    observer: Attachment,
+    maximum_role: Role,
+}
+
+fn ready(config: &Config, role: Role, grants: Option<&PipeGrants>) -> Result<Ready, String> {
+    Ok(Ready {
+        schema: READY.into(),
+        server: HeldProcess::current()
+            .and_then(|process| process.pin())
+            .map_err(|_| "server identity unavailable")?,
+        scope: vcp_protocol::methods::Scope {
+            workspace: config
+                .workspace
+                .as_str()
+                .to_owned()
+                .try_into()
+                .map_err(|_| "invalid workspace")?,
+            session: config
+                .session
+                .as_str()
+                .to_owned()
+                .try_into()
+                .map_err(|_| "invalid session")?,
+        },
+        role,
+        attachment: grants.map(|grants| {
+            if role == Role::Observer {
+                grants.observer.clone()
+            } else {
+                grants.primary.clone()
+            }
+        }),
+        observer_attachment: grants
+            .filter(|_| role == Role::Controller)
+            .map(|grants| grants.observer.clone()),
+    })
+}
+
+async fn connection(
+    host: CanonicalHost,
+    config: Config,
+    role: Role,
+    mut io: Framed,
+    opening: Opening,
+    mut stopped: tokio::sync::watch::Receiver<bool>,
+) -> Result<(), String> {
+    let mut connection = host.public_connection(access(&host, &config, role)?)?;
+    let signal = connection.loss_signal();
+    io.on_loss(move || signal.invalidate());
     let result = async {
-        let mut connection = host.public_connection(access(&host, &config, boot.request.role)?)?;
-        let signal = connection.loss_signal();
-        io.on_loss(move || signal.invalidate());
         let methods: Vec<String> = connection.supported_methods().iter().map(|value| (*value).into()).collect();
         let capabilities: BTreeSet<String> = methods.iter().cloned()
             .chain(ESSENTIAL_CAPABILITIES.iter().map(|value| (*value).into())).collect();
@@ -101,20 +182,31 @@ pub(super) async fn run(mut io: Framed) -> Result<(), String> {
             execution_host: ExecutionHost { id: "local-windows".into(), platform: "windows".into() },
             sandbox_capabilities: vec![],
         }).map_err(|_| "local RPC configuration unavailable")?;
-        io.send_value(&BootstrapReply { schema: BOOTSTRAP.into(), challenge: boot.challenge,
-            ready: Ready { schema: READY.into(), server: HeldProcess::current().and_then(|process| process.pin())
-                .map_err(|_| "server identity unavailable")?,
-                scope: vcp_protocol::methods::Scope { workspace: config.workspace.as_str().to_owned().try_into().map_err(|_| "invalid workspace")?,
-                    session: config.session.as_str().to_owned().try_into().map_err(|_| "invalid session")? }, role: boot.request.role } }).await?;
-        let operation = async {
+        let parent = match opening {
+            Opening::Stdio { challenge, parent } => {
+                io.send_value(&BootstrapReply { schema: BOOTSTRAP.into(), challenge, ready: ready(&config, role, None)? }).await?;
+                Some(parent)
+            }
+            Opening::Pipe(grants) => {
+                io.send_value(&ready(&config, role, Some(&grants))?).await?;
+                None
+            }
+        };
             loop {
-                let bytes = match io.receive().await { Ok(frame) => frame, Err(_) => break };
-                if !parent.is_alive().map_err(|_| "parent liveness unavailable")? { break; }
-                let current = access(&host, &config, boot.request.role)?;
+                let bytes = tokio::select! {
+                    biased;
+                    _ = stopped.wait_for(|stopped| *stopped) => break,
+                    frame = io.receive() => match frame { Ok(frame) => frame, Err(_) => break },
+                };
+                if let Some(parent) = &parent {
+                    if !parent.is_alive().map_err(|_| "parent liveness unavailable")? { break; }
+                }
+                let current = access(&host, &config, role)?;
                 let frame = std::str::from_utf8(&bytes).map_err(|_| "invalid local UTF-8")?;
                 let mut lost = io.loss();
                 let response = tokio::select! {
                     biased;
+                    _ = stopped.wait_for(|stopped| *stopped) => break,
                     _ = lost.wait_for(|lost| *lost) => break,
                     response = session.dispatch_host(&mut connection, &current, jsonrpc::parse_frame(frame)) => response,
                 };
@@ -122,10 +214,192 @@ pub(super) async fn run(mut io: Framed) -> Result<(), String> {
                 if session.is_closed() { break; }
             }
             Ok::<(), String>(())
-        }.await;
-        let disconnected = connection.disconnect()?.wait().await;
-        operation.and(disconnected.map(|_| ()))
     }.await;
-    let closed = owner.close().await;
-    result.and(closed)
+    let disconnected = connection.disconnect()?.wait().await;
+    result.and(disconnected.map(|_| ()))
+}
+
+const PIPE_IDLE: Duration = Duration::from_secs(30);
+const PIPE_CLIENTS: usize = 16;
+const PIPE_AUTHENTICATING: usize = 16;
+
+fn random_hex() -> Result<String, String> {
+    Ok(windows_launch::random_bytes::<32>()
+        .map_err(|_| "local entropy unavailable")?
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+async fn pipe_service(
+    host: CanonicalHost,
+    config: Config,
+    role: Role,
+    mut bootstrap_io: Framed,
+    challenge: String,
+    parent: HeldProcess,
+) -> Result<(), String> {
+    let server_pin = HeldProcess::current()
+        .and_then(|process| process.pin())
+        .map_err(|_| "server identity unavailable")?;
+    let attachment = Attachment {
+        endpoint: format!(r"\\.\pipe\vcp-local-{}", random_hex()?),
+        server: server_pin,
+        ticket: random_hex()?,
+    };
+    let grants = PipeGrants {
+        observer: Attachment {
+            ticket: random_hex()?,
+            ..attachment.clone()
+        },
+        primary: attachment,
+        maximum_role: role,
+    };
+    let listener = windows_pipe::bind(&grants.primary.endpoint, true)?;
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let supervisor = tokio::spawn(supervise(
+        host,
+        config.clone(),
+        grants.clone(),
+        listener,
+        stop.clone(),
+        stopped,
+    ));
+    let handoff = async {
+        bootstrap_io
+            .send_value(&BootstrapReply {
+                schema: BOOTSTRAP.into(),
+                challenge: challenge.clone(),
+                ready: ready(&config, role, Some(&grants))?,
+            })
+            .await?;
+        let offered: Handoff = bootstrap(&mut bootstrap_io).await?;
+        if offered.schema != "vcp-local-handoff/1"
+            || offered.challenge != challenge
+            || !parent
+                .is_alive()
+                .map_err(|_| "bootstrap parent unavailable")?
+        {
+            return Err("local handoff authentication denied".into());
+        }
+        bootstrap_io
+            .send_value(&Handoff {
+                schema: "vcp-local-handoff-accepted/1".into(),
+                challenge,
+            })
+            .await
+    }
+    .await;
+    if handoff.is_err() {
+        let _ = stop.send(true);
+    }
+    drop(bootstrap_io);
+    let result = supervisor
+        .await
+        .map_err(|_| "local connection supervisor interrupted")?;
+    handoff.and(result)
+}
+
+struct Activity {
+    count: usize,
+    last_zero: tokio::time::Instant,
+    closing: bool,
+}
+struct Active(std::sync::Arc<std::sync::Mutex<Activity>>);
+impl Active {
+    fn admit(activity: &std::sync::Arc<std::sync::Mutex<Activity>>) -> Option<Self> {
+        let mut state = activity.lock().unwrap_or_else(|error| error.into_inner());
+        if state.closing {
+            return None;
+        }
+        state.count += 1;
+        Some(Self(activity.clone()))
+    }
+}
+impl Drop for Active {
+    fn drop(&mut self) {
+        let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        state.count -= 1;
+        if state.count == 0 {
+            state.last_zero = tokio::time::Instant::now();
+        }
+    }
+}
+
+async fn supervise(
+    host: CanonicalHost,
+    config: Config,
+    grants: PipeGrants,
+    mut listener: tokio::net::windows::named_pipe::NamedPipeServer,
+    stop: tokio::sync::watch::Sender<bool>,
+    mut stopped: tokio::sync::watch::Receiver<bool>,
+) -> Result<(), String> {
+    use std::sync::{Arc, Mutex};
+    let authentication = Arc::new(tokio::sync::Semaphore::new(PIPE_AUTHENTICATING));
+    let clients = Arc::new(tokio::sync::Semaphore::new(PIPE_CLIENTS));
+    let active = Arc::new(Mutex::new(Activity {
+        count: 0,
+        last_zero: tokio::time::Instant::now(),
+        closing: false,
+    }));
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut timer = tokio::time::interval(Duration::from_millis(100));
+    let mut outcome = Ok(());
+    let client_stop = stopped.clone();
+    loop {
+        tokio::select! {
+            biased;
+            _ = stopped.wait_for(|stopped| *stopped) => break,
+            _ = timer.tick() => {
+                let mut state = active.lock().unwrap_or_else(|error| error.into_inner());
+                if state.count == 0 && state.last_zero.elapsed() >= PIPE_IDLE {
+                    state.closing = true;
+                    break;
+                }
+            }
+            _ = tasks.join_next(), if !tasks.is_empty() => {}
+            connected = listener.connect() => {
+                if connected.is_err() { outcome = Err("local pipe listener failed".into()); break; }
+                // Reserve the namespace continuously while authenticated clients run.
+                let next = match windows_pipe::bind(&grants.primary.endpoint, false) {
+                    Ok(next) => next,
+                    Err(error) => { outcome = Err(error); break; },
+                };
+                let stream = std::mem::replace(&mut listener, next);
+                let permit = match authentication.clone().try_acquire_owned() {
+                    Ok(permit) => permit,
+                    Err(_) => { drop(stream); continue; },
+                };
+                let clients = clients.clone();
+                let active = active.clone();
+                let host = host.clone();
+                let config = config.clone();
+                let grants = grants.clone();
+                let mut stopped = client_stop.clone();
+                tasks.spawn(async move {
+                    let tickets = [(grants.primary.ticket.as_str(), grants.maximum_role),
+                        (grants.observer.ticket.as_str(), Role::Observer)];
+                    let authenticated = tokio::select! {
+                        biased;
+                        _ = stopped.wait_for(|stopped| *stopped) => return,
+                        authenticated = windows_pipe::authenticate_server_grants(stream, &grants.primary.server.principal, &tickets) => authenticated,
+                    };
+                    let Ok((stream, role)) = authenticated else { return; };
+                    let Ok(_client) = clients.try_acquire_owned() else { return; };
+                    let Some(_active) = Active::admit(&active) else { return; };
+                    drop(permit);
+                    let _ = connection(host, config, role, Framed::from_async(stream), Opening::Pipe(grants), stopped).await;
+                    // Active count and client capacity include canonical disconnect/drain.
+                });
+            }
+        }
+    }
+    active
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .closing = true;
+    let _ = stop.send(true);
+    drop(listener);
+    while tasks.join_next().await.is_some() {}
+    outcome
 }

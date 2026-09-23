@@ -1,7 +1,7 @@
 # ADR-044: Controlled local process bootstrap
 
 Date: 2026-09-23
-Status: selected for P9-02; controlled stdio implementation in construction.
+Status: selected for P9-02; controlled stdio and named-pipe attachment qualified.
 
 The TypeScript client cannot establish the Windows inherited-handle contract with
 an ordinary child-process launch. A native `vcp local-bridge` helper therefore
@@ -39,10 +39,29 @@ dropping its waiter invokes owned connection-loss handling. Normal bridge shutdo
 closes server stdin and allows bounded canonical cleanup before child-only process
 termination. A forced stop remains crash recovery, not proof of graceful completion.
 
-The initial stdio server lives for its bridge connection. Named-pipe attachment and
-reconnect will reuse held process identity and synchronous token impersonation,
-with a server-instance credential delivered by this trusted bootstrap. A pipe name
-or discovered PID alone will never authorize attachment. Persistent credential
-discovery and remote endpoints are outside this decision. P9-02 acceptance still
-requires named-pipe processes, live event recovery and the remaining execution
+The stdio server lives for its bridge connection. The optional `windows_pipe`
+transport extends that lifetime through an authenticated handoff: the bridge
+connects to the kernel-authenticated server pipe and exchanges a challenge-bound
+acknowledgement before relinquishing its child termination guard. Failed handoff
+retains owned cleanup. Pipe instances use a current-user ACL, reject remote clients
+and continuously reserve the endpoint while the server runs.
+
+Reconnect reuses the trusted server process pin and a server-instance ticket held
+in client memory. The server authenticates the actual kernel pipe client using
+synchronous token impersonation, reverts before awaiting, and enforces the ticket's
+role ceiling. Controller bootstrap returns a separate observer ticket; distributing
+that ticket cannot grant controller capability. No endpoint or credential metadata
+is persisted. A pipe name or discovered PID alone never authorizes attachment.
+Every attachment creates fresh connection authority and repeats public initialization;
+authentication never acquires a lease, renews an old token or resumes execution.
+
+All connections share the canonical writer. Controller loss immediately fences
+and drains its work while observers remain connected. After the final authenticated
+connection and its cleanup finish, the server retains the idle writer for 30 seconds
+before teardown. This is reconnect retention, not execution grace after owner loss.
+A new server requires fresh trusted bootstrap, not reuse of the expired pin/ticket.
+
+Persistent credential discovery and remote endpoints remain outside this decision.
+Native attachment evidence is recorded in [the construction guide](../development/local-attachment.md).
+P9-02 acceptance still requires live event recovery and the remaining execution
 adapters; this construction decision does not mark those complete.

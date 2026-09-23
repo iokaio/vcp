@@ -39,8 +39,14 @@ impl Launched {
 /// Call wait after closing child stdin for orderly shutdown; Drop is the fallback.
 pub(super) struct ChildGuard {
     process: OwnedHandle,
+    handed_off: bool,
 }
 impl ChildGuard {
+    /// Only after authenticated pipe readiness and explicit server handoff ack.
+    /// The server then owns idle shutdown; this closes our creation handle.
+    pub fn handoff(mut self) {
+        self.handed_off = true;
+    }
     pub fn wait(&self, milliseconds: u32) -> io::Result<bool> {
         match unsafe { WaitForSingleObject(self.process.as_raw_handle(), milliseconds) } {
             WAIT_OBJECT_0 => Ok(true),
@@ -64,7 +70,9 @@ impl ChildGuard {
 }
 impl Drop for ChildGuard {
     fn drop(&mut self) {
-        let _ = self.terminate();
+        if !self.handed_off {
+            let _ = self.terminate();
+        }
     }
 }
 
@@ -239,6 +247,7 @@ fn launch_inner(
     })?;
     let guard = ChildGuard {
         process: unsafe { OwnedHandle::from_raw_handle(information.hProcess) },
+        handed_off: false,
     };
     let _thread = unsafe { OwnedHandle::from_raw_handle(information.hThread) };
     let mut process = null_mut();
@@ -411,5 +420,26 @@ mod tests {
         drop(child.guard);
         assert!(!child.process.is_alive().unwrap());
         assert!(HeldProcess::current().unwrap().is_alive().unwrap());
+    }
+
+    #[test]
+    fn explicit_handoff_leaves_child_alive_for_its_new_owner() {
+        let exe = Executable::open(&std::env::current_exe().unwrap()).unwrap();
+        let child = launch_inner(
+            &exe,
+            "--exact local::windows_launch::tests::inherited_handle_child --ignored --nocapture",
+            &[],
+        )
+        .unwrap();
+        // Test owns a separate cleanup guard so even an assertion failure cannot
+        // leave the deliberately detached fixture process behind.
+        let cleanup = ChildGuard {
+            process: child.guard.process.try_clone().unwrap(),
+            handed_off: false,
+        };
+        child.guard.handoff();
+        assert!(child.process.is_alive().unwrap());
+        cleanup.terminate().unwrap();
+        assert!(!child.process.is_alive().unwrap());
     }
 }
