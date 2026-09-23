@@ -15,6 +15,7 @@ pub mod projections;
 pub mod proof;
 pub mod publication;
 pub mod repository;
+pub mod review;
 pub mod retention;
 pub mod retention_policy;
 pub mod retrieval;

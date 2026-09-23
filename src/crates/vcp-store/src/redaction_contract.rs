@@ -21,6 +21,14 @@ pub(crate) fn kind(row: &Record) -> Result<Option<&str>> {
         return Ok(None);
     };
     match tag {
+        vcp_domain::memory_review::REDACTED_SUBMISSION if row.collection == Collection::Claim => {
+            Ok(Some(tag))
+        }
+        vcp_domain::memory_review::REDACTED_DECISION
+            if row.collection == Collection::Projection =>
+        {
+            Ok(Some(tag))
+        }
         redaction::PROPOSAL | redaction::VERSION if row.collection == Collection::Claim => {
             Ok(Some(tag))
         }
@@ -37,6 +45,9 @@ pub(crate) fn kind(row: &Record) -> Result<Option<&str>> {
     }
 }
 pub(crate) fn scope(row: &Record) -> Result<Scope> {
+    if crate::memory_review_contract::kind(row)?.is_some() {
+        return crate::memory_review_contract::scope(row);
+    }
     match kind(row)? {
         Some(redaction::PROPOSAL) => Ok(row.decode::<RedactedProposal>()?.scope),
         Some(redaction::VERSION) => Ok(row.decode::<RedactedVersion>()?.scope),
@@ -46,6 +57,9 @@ pub(crate) fn scope(row: &Record) -> Result<Scope> {
     }
 }
 pub(crate) fn shape(row: &Record) -> Result<()> {
+    if crate::memory_review_contract::kind(row)?.is_some() {
+        return crate::memory_review_contract::shape(row);
+    }
     if kind(row)? == Some(vcp_domain::forecast::REDACTED) {
         let value: vcp_domain::forecast::RedactedSources = row.decode()?;
         value.validate()?;
@@ -104,6 +118,9 @@ fn source_refs(refs: &mut BTreeSet<String>, sources: &Sources) {
     );
 }
 pub(crate) fn references(row: &Record) -> Result<BTreeSet<String>> {
+    if crate::memory_review_contract::kind(row)?.is_some() {
+        return crate::memory_review_contract::references(row);
+    }
     if kind(row)? == Some(vcp_domain::forecast::REDACTED) {
         return Ok(BTreeSet::from([key(
             Collection::Workspace,
@@ -248,6 +265,14 @@ pub(crate) fn validate(state: &State) -> Result<()> {
             )?
             .decode()?;
         let epoch = match kind(row)? {
+            Some(vcp_domain::memory_review::REDACTED_SUBMISSION) => {
+                row.decode::<vcp_domain::memory_review::RedactedSubmission>()?
+                    .deletion
+            }
+            Some(vcp_domain::memory_review::REDACTED_DECISION) => {
+                row.decode::<vcp_domain::memory_review::RedactedDecision>()?
+                    .deletion
+            }
             Some(vcp_domain::forecast::REDACTED) => {
                 row.decode::<vcp_domain::forecast::RedactedSources>()?
                     .deletion
@@ -494,6 +519,9 @@ pub(crate) fn redact_record(
                 };
                 value.validate()?;
                 serde_json::to_value(value)?
+            }
+            Some(vcp_domain::memory_review::SUBMISSION | vcp_domain::memory_review::DECISION) => {
+                crate::memory_review_contract::redact(state, source, deletion)?
             }
             Some("vcp_memory_proposal_v1") => serde_json::to_value(
                 vcp_protocol::redaction::proposal(&source.decode::<ProposalRecord>()?, deletion)

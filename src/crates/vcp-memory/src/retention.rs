@@ -277,7 +277,13 @@ fn valid_record(row: &Record) -> bool {
             | Collection::Settlement
     ) || matches!(
         row.value["document_type"].as_str(),
-        Some("vcp_memory_proposal_v1" | "vcp_memory_version_v1" | "vcp_memory_result_v1")
+        Some(
+            "vcp_memory_proposal_v1"
+                | "vcp_memory_version_v1"
+                | "vcp_memory_result_v1"
+                | vcp_domain::memory_review::SUBMISSION
+                | vcp_domain::memory_review::DECISION
+        )
     ) || row.collection == Collection::Projection
         && row.value["document_type"]
             .as_str()
@@ -305,6 +311,10 @@ fn record_proposal(row: &Record) -> Result<Option<vcp_domain::memory::Proposal>>
     Ok(match row.value["document_type"].as_str() {
         Some("vcp_memory_proposal_v1") => Some(row.decode::<ProposalRecord>()?.proposal),
         Some("vcp_memory_version_v1") => Some(row.decode::<Version>()?.proposal),
+        Some(vcp_domain::memory_review::SUBMISSION) => Some(
+            row.decode::<vcp_domain::memory_review::Submission>()?
+                .candidate,
+        ),
         _ => None,
     })
 }
@@ -557,11 +567,25 @@ pub fn preview(
                 facts.timestamp = Some(v.recorded_at);
                 facts.claim_status = Some(v.resolution.outcome);
                 facts.superseded = Some(superseded.contains(v.id.as_str()));
+            } else if row.value["document_type"] == vcp_domain::memory_review::SUBMISSION {
+                let submission: vcp_domain::memory_review::Submission = row.decode()?;
+                facts.timestamp = Some(submission.recorded_at);
+                facts.claim_status = Some(vcp_domain::memory::Outcome::AwaitingReview);
             } else {
                 let p: ProposalRecord = row.decode()?;
                 facts.timestamp = Some(p.recorded_at);
                 facts.claim_status = Some(p.resolution.outcome);
             }
+        }
+        let review_decision = if row.value["document_type"] == vcp_domain::memory_review::DECISION {
+            Some(row.decode::<vcp_domain::memory_review::Decision>()?)
+        } else {
+            None
+        };
+        if let Some(decision) = &review_decision {
+            facts.actor = Some(&decision.actor);
+            facts.timestamp = Some(decision.recorded_at);
+            facts.claim_status = Some(decision.resolution.outcome);
         }
         if selector.evaluate(&facts)? == Truth::Match {
             selected.insert(target);

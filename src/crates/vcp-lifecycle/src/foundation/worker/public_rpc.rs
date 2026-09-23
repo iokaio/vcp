@@ -28,6 +28,9 @@ const METHODS: &[&str] = &[
     "diff/read",
     "memory/inspect",
     "memory/query",
+    "memory/propose",
+    "memory/resolve",
+    "memory/review",
     "task/cancel",
     "turn/pause",
     "turn/cancel",
@@ -324,6 +327,12 @@ impl RpcHost for PublicConnection {
                 .memory_query(request, current)
                 .await
                 .map(ResultValue::MemoryQuery);
+        }
+        if matches!(
+            call,
+            Call::MemoryPropose(_) | Call::MemoryResolve(_) | Call::MemoryReview(_)
+        ) {
+            return self.memory_review_call(call, current).await;
         }
         if matches!(
             call,

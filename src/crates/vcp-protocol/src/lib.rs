@@ -6,6 +6,7 @@ pub mod event;
 pub mod handshake;
 pub mod jsonrpc;
 pub mod memory;
+pub mod memory_governance;
 pub mod memory_query;
 pub mod methods;
 pub mod persisted_json;

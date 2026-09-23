@@ -41,6 +41,7 @@ mod public_diff;
 mod public_events;
 mod public_memory;
 mod public_memory_query;
+mod public_memory_review;
 pub(super) mod public_resume;
 mod public_rpc;
 #[cfg(windows)]
