@@ -94,6 +94,30 @@ test('current source oracle rejects edits after canonical verification and incom
   fs.writeFileSync(path.join(root,files[0]),'source');manifest.files.pop();assert.throws(()=>runner.sourceManifest(manifest,root),/manifest incomplete/);
 });
 
+test('integrated source evidence uses context artifacts and preserves refusal controls',t=>{
+  const root=temporary(t),files=['src/domain/window.cjs','src/api/page.cjs','package.json','test/page.test.cjs'];
+  for(const file of files){fs.mkdirSync(path.dirname(path.join(root,file)),{recursive:true});fs.writeFileSync(path.join(root,file),'source');}
+  const manifest={bounded_scan_complete:true,files:files.map(file=>({path:file,sha256:sha('source'),bytes:'6'}))};
+  let evidence={applicability:'current',observation_error:null,before:manifest,after:manifest};
+  let bytes,item;
+  const refresh=()=>{bytes=Buffer.from(JSON.stringify(evidence));item={id:'evidence-result',collection:'artifact',visibility:'available',record:{spec:{channel:'evidence',schema:'verification-result/1'},state:'complete',length:String(bytes.length),sha256:sha(bytes)}};};
+  refresh();
+  const verification=[{items:[{id:'verified',record:{outputs:['evidence-result']}}]}];
+  const call=()=>({status:0,error:null,stdout:JSON.stringify({type:'result',data:{items:[{artifact:item.id,visibility:'available',range:{start:0,end:bytes.length},bytes:[...bytes]}],gaps:[],next_cursor:null}})});
+  const read=pages=>runner.currentSources({executable:'unused'},root,{workspace:root},pages,verification,['verified'],call,()=>{});
+  const context=()=>[{items:[item],gaps:[]}];
+  assert.deepEqual(read(context()),[{artifact:item.id,passed:true,files:4}]);
+  // Production outputs excludes Channel::Evidence. The caller must supply context.
+  assert.throws(()=>read([{items:[],gaps:[]}]),/source evidence unavailable/);
+  assert.match(fs.readFileSync(path.resolve(__dirname,'../../../scripts/evals/p805-owner-runner.cjs'),'utf8'),/currentSources\(plan,base,row,evidence\.context,evidence\.verification/);
+  item.record.sha256='0'.repeat(64);assert.throws(()=>read(context()),/identity mismatch/);refresh();
+  evidence.applicability='stale';refresh();assert.throws(()=>read(context()),/source evidence unavailable/);
+  evidence.applicability='current';evidence.after={...manifest,bounded_scan_complete:false};refresh();assert.throws(()=>read(context()),/source evidence unavailable/);
+  evidence.after=manifest;evidence.observation_error='unreadable';refresh();assert.throws(()=>read(context()),/source evidence unavailable/);
+  evidence.observation_error=null;refresh();fs.writeFileSync(path.join(root,files[0]),'later source');assert.throws(()=>read(context()),/differs from current parent/);
+  fs.writeFileSync(path.join(root,files[0]),'source');verification[0].items[0].record.outputs=[];assert.throws(()=>read(context()),/source evidence unavailable/);
+});
+
 test('bounded subprocess returns actual nonzero exits and terminates a deadline',async()=>{
   const failed=await runner.bounded(process.execPath,['-e','process.stderr.write("bounded failure");process.exit(3)'],5000,{});
   assert.equal(failed.status,3);assert.equal(failed.stderr,'bounded failure');

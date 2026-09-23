@@ -165,27 +165,30 @@ affected scope, retention, resource and current-result qualification.
 
 ## Remaining execution gates
 
-The corrected v2 owner launcher needs a fresh versioned preparation bound to the
+At preparation, the corrected v2 owner launcher needed a fresh versioned plan bound to the
 rebuilt package, current qualified profile and passing launcher controls. The
 prior six-slot campaign was one-shot: its unspent dollar allowance does not
 authorize replacement attempts. The failed interactive trial retains its $16
-unknown-charge reservation; corrected execution needs a separately authorized
+unknown-charge reservation; corrected execution needed a separately authorized
 bound and fresh artifact/profile binding. Preparation performs no provider calls.
 
-Fresh preparations now exist against the candidate above, with zero calls or
+Fresh plans were prepared against the candidate above without calls or
 reservations. The six-slot owner plan is under system TEMP at
 `vcp-p805-memory-v2-f7d50e63-ea32-423e-a223-2ab4afafe61f/owner-execution-plan.json`,
 digest `c65b8d27a532edf18f94e6dc2de5bbe787a03531c4cdab01b78af965fb93b4fa`.
 It passed runner validation, binds the corrected v2 launcher and all 23 launcher
-controls, and remains explicitly unapproved for spending: six attempts, $8 each,
+controls. The owner subsequently approved execution: six attempts, $8 each,
 $48 aggregate, 16 requests/task, no retries. Its launcher grants are limited to
 the frozen pagination check; prior failures are not reclassified.
 The interactive plan is under system TEMP at
 `vcp-p8-interactive-memory-fd2ac140-7b99-49cb-a14c-800734a65597/plan.json`, digest
 `10e6507bc1c931415bd630f030011997b62c36125b37f4d0f5a2355c9eed29ba`:
 one observation, at most two requests, $16 additional cap, no retries. The prior
-unresolved $16 remains held. Explicit authorization for these $64 of new bounds
-has been requested; elapsed time is not authorization.
+unresolved $16 remains held. The owner's "Approved. Proceed." authorizes these
+$64 of additional bounds, with no retries. The existing shared $100 campaign
+ceiling and prior reservations remain enforced. Execution and outcomes are
+recorded in the [approved campaign follow-up](p8-approved-campaign-2026-09-23.md);
+execution authorization does not imply human task acceptance or final P8-05 sign-off.
 
 Reuse the six-root owner-history and retention summary
 `artifacts/p8-followup/owner-integration-summary-ee688898-0291-4f0c-aab1-46893781a127.json`
