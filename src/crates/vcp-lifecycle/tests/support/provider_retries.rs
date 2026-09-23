@@ -752,6 +752,16 @@ async fn provider_retry_reassembles_coding_continuity_with_current_liability() {
         let requests = observed.lock().unwrap();
         assert_eq!(facts(&requests[0])["attempt_count"], 0);
         assert_eq!(facts(&requests[1])["attempt_count"], 1);
+        for (used, request) in requests.iter().enumerate() {
+            let (allowance, _) = super::coding::request_allowance(request);
+            assert_eq!(allowance["root"], binding.scope.task.as_str());
+            assert_eq!(allowance["max_requests"], 4);
+            assert_eq!(allowance["requests_used"], used);
+            assert_eq!(
+                allowance["requests_remaining_including_this_request"],
+                4 - used
+            );
+        }
         assert_eq!(
             facts(&requests[1])["uncertain_attempts"]
                 .as_array()
