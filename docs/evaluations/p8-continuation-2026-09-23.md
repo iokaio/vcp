@@ -156,6 +156,9 @@ records additional M9 implementation and execution separately from this snapshot
 The later [provider and child campaign](p8-seeded-provider-children-2026-09-23.md)
 records loopback retry and cooperative child recovery evidence with the same
 explicit separation from live packaged acceptance.
+The [current-package memory/optimizer restore scenario](p8-package-memory-restore-2026-09-23.md)
+adds authenticated cross-backend history preservation and stale-binding exclusion
+on the production executable, without claiming transferred claim applicability.
 M4's rejected/disabled outcome, M7's deferral and M10's post-release placement
 remain unchanged. Reconsider M5/M6 only with frozen comparison criteria and
 affected scope, retention, resource and current-result qualification.

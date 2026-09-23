@@ -5,6 +5,10 @@ Status: P5-08 complete with [integrated native memory evidence](../evaluations/p
 Use the [qualification and release design](../architecture/qualification-release-design.md) for executable harness, fault-oracle, package and evidence contracts. [ADR-012](../adr/012-clients-and-distribution.md) owns client/platform sequencing, [ADR-018](../adr/018-release-acceptance.md) records the complete usable-release gate, and [ADR-019](../adr/019-cloud-encryption-and-keys.md) retains the still-unqualified crypto choices. Architecture [section 20](../architecture/vcp-what.md#20-testing-evaluation-and-performance) supplies the quality and invariant authority.
 
 The [current-machine qualification report](../evaluations/p8-local-qualification-2026-09-22.md) records the later exact-package, encryption, local restore and native follow-up evidence, including failures and bounded-run limitations.
+The [September 23 packaged memory/optimizer restore](../evaluations/p8-package-memory-restore-2026-09-23.md)
+adds cross-backend history, exclusion and authority checks. Old repository-bound
+claims remain inspectable history but are intentionally inapplicable after rebind;
+this does not establish positive restored semantic recall or complete P8 acceptance.
 
 ## Code and evidence organization
 
