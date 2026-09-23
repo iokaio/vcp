@@ -199,6 +199,9 @@ impl Write for DisplayOutput {
     }
 }
 fn command_result(format: Format, data: Value) -> Result<u8, String> {
+    command_outcome(format, data, 0)
+}
+fn command_outcome(format: Format, data: Value, exit_code: u8) -> Result<u8, String> {
     Jsonl::new(DisplayOutput {
         jsonl: format == Format::Jsonl,
         frame: Vec::new(),
@@ -207,12 +210,12 @@ fn command_result(format: Format, data: Value) -> Result<u8, String> {
         &CommandId::new(),
         None,
         Payload::CommandResult {
-            exit_code: 0,
+            exit_code,
             data: &data,
         },
     )
     .map_err(|e| e.to_string())?;
-    Ok(0)
+    Ok(exit_code)
 }
 
 async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, String> {
@@ -445,6 +448,14 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             "legacy workspace binding is unverified; run vcp rebind {} to reconcile the current root", entry.config.workspace
         ))?;
         crate::binding::verify(&root, identity)?;
+    }
+    if matches!(
+        cli.command,
+        ValidatedCommand::MemoryBuild(_) | ValidatedCommand::MemoryQuery(_)
+    ) {
+        let entry = entry.as_ref().ok_or("workspace has no durable session")?;
+        let (exit_code, result) = crate::memory::execute(&cli.command, entry).await?;
+        return command_outcome(cli.format, result, exit_code);
     }
     if let ValidatedCommand::Backup(crate::backup::Backup::Keys {
         command,

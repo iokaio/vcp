@@ -23,6 +23,8 @@ pub mod decision;
 #[cfg(windows)]
 mod execution;
 #[cfg(windows)]
+pub mod local_memory;
+#[cfg(windows)]
 pub mod mcp;
 #[cfg(windows)]
 pub mod memory_inspection;
@@ -119,6 +121,8 @@ pub struct ThreadBinding {
 }
 #[derive(Clone)]
 pub struct CanonicalHost {
+    local_memory_only: bool,
+    memory_owner_alive: Arc<std::sync::atomic::AtomicBool>,
     runtime: Lifecycle,
     worker: worker::Worker,
     bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
@@ -128,6 +132,7 @@ pub struct CanonicalHost {
     mcp: Arc<mcp::Connections>,
 }
 pub struct CanonicalOwner {
+    memory_owner_alive: Arc<std::sync::atomic::AtomicBool>,
     runtime: Option<OwnerLease>,
     worker: worker::Worker,
     #[cfg(windows)]
@@ -135,6 +140,8 @@ pub struct CanonicalOwner {
 }
 impl CanonicalOwner {
     pub async fn close(mut self) -> Result<(), String> {
+        self.memory_owner_alive
+            .store(false, std::sync::atomic::Ordering::Release);
         self.worker
             .run_cleanup(|context| context.pause_all("owning host closed"))?;
         if let Some(owner) = self.runtime.take() {
@@ -147,6 +154,8 @@ impl CanonicalOwner {
 }
 impl Drop for CanonicalOwner {
     fn drop(&mut self) {
+        self.memory_owner_alive
+            .store(false, std::sync::atomic::Ordering::Release);
         self.runtime.take();
         #[cfg(windows)]
         self.mcp.interrupt();
@@ -275,9 +284,11 @@ impl CanonicalHost {
     ) -> Result<(Self, CanonicalOwner), String> {
         let worker = worker::Worker::open(config, expected)?;
         let (runtime, owner) = Lifecycle::new(Duration::from_secs(5));
+        let memory_owner_alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
         #[cfg(windows)]
         let mcp = Arc::new(mcp::Connections::default());
         let owner = CanonicalOwner {
+            memory_owner_alive: memory_owner_alive.clone(),
             runtime: Some(owner),
             worker: worker.clone(),
             #[cfg(windows)]
@@ -285,6 +296,8 @@ impl CanonicalHost {
         };
         Ok((
             Self {
+                local_memory_only: false,
+                memory_owner_alive,
                 runtime,
                 worker,
                 bindings: Arc::new(Mutex::new(HashMap::new())),

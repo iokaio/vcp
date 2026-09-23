@@ -350,6 +350,11 @@ the candidate disabled with a recorded qualification result.
 
 ## M5 — Context, co-change, retrieval and compaction
 
+First-release disposition: explicitly deferred. The
+[September 23 record](../evaluations/p8-continuation-2026-09-23.md#supplement-dispositions)
+retains the existing qualified baseline; the candidate construction and matched
+comparisons below remain future work, not passing acceptance evidence.
+
 Under P2-01, refactor optional candidate selection to admit a bounded symbol/file
 graph and personalized PageRank scores seeded by permitted objective references,
 current diff and diagnostics. Version graph extraction, seeds, damping, iteration
@@ -389,6 +394,11 @@ escapes, revocation/prune and stale sends. Refresh affected integrated P5-08
 evidence; reject the extra source if its burden or false positives outweigh gains.
 
 ## M6 — Verification order
+
+First-release disposition: explicitly deferred, with the baseline required-check
+set and current-revision rules retained. The
+[September 23 record](../evaluations/p8-continuation-2026-09-23.md#supplement-dispositions)
+records the missing matched evidence; no ordering benefit is claimed.
 
 Reuse [CC-02a's declared foreground ceilings](23-claudecode-improvements.md#cc-02a--declared-foreground-execution-ceilings)
 when the P7-02 refinement lands; a longer permitted check does not become
@@ -450,6 +460,11 @@ or no measured benefit leaves the baseline in place. Synthetic burst fixtures
 alone qualify failure handling, not a live endpoint switching default.
 
 ## M8–M10 — Reuse and qualification campaigns
+
+M8 is explicitly deferred because M4 supplies no qualified forecast to consume.
+M9 is partial: numerical seeds are qualified, while generated lifecycle traces
+and current-package delegation remain open. See the
+[September 23 dispositions](../evaluations/p8-continuation-2026-09-23.md#supplement-dispositions).
 
 P7-04 may reuse qualified M4 forecasts to explain proposed child allocations;
 include support, integration and protected final verification without counting

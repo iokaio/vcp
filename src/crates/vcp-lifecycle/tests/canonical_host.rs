@@ -77,6 +77,9 @@ mod history_retention;
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;
 #[cfg(windows)]
+#[path = "support/local_memory.rs"]
+mod local_memory;
+#[cfg(windows)]
 #[path = "support/long_verification.rs"]
 mod long_verification;
 #[cfg(all(windows, feature = "qualification"))]

@@ -170,7 +170,7 @@ impl CanonicalHost {
             )));
         }
         let binding = self.binding(thread)?;
-        let generation = match self.runtime.admission_generation(thread) {
+        let generation = match self.memory_admission_generation(thread) {
             Ok(value) => value,
             Err(_) => {
                 return Ok(Outcome::early(Status::Deferred(
@@ -182,7 +182,7 @@ impl CanonicalHost {
         let sources = request.sources;
         let chunker = request.chunker;
         let inventory = match self.worker.run(move |context| {
-            context.can_start(&checked)?;
+            context.can_start_memory(&checked)?;
             if checked.scope.task != context.config.root_task {
                 return Err("workspace vector maintenance requires the root owner".into());
             }
@@ -225,7 +225,7 @@ impl CanonicalHost {
                 request.cancelled.load(Ordering::Acquire)
                     || aborted.load(Ordering::Acquire)
                     || host.worker.fenced()
-                    || host.runtime.admission_generation(thread).ok() != Some(generation)
+                    || host.memory_admission_generation(thread).ok() != Some(generation)
             };
             if stopped() {
                 return Ok(Outcome::early(Status::Cancelled));
@@ -261,7 +261,7 @@ impl CanonicalHost {
                 if host
                     .worker
                     .run(move |context| {
-                        context.can_start(&checked)?;
+                        context.can_start_memory(&checked)?;
                         let workspace: Workspace = context
                             .engine
                             .store()
@@ -330,7 +330,7 @@ impl CanonicalHost {
                 let captured = inventory.clone();
                 let checked = binding.clone();
                 host.worker.run(move |context| {
-                    context.can_start(&checked)?;
+                    context.can_start_memory(&checked)?;
                     let workspace: Workspace = context
                         .engine
                         .store()

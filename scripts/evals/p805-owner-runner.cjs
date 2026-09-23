@@ -48,13 +48,18 @@ function frozenInputs(plan,file,expected) {
 function validate(file,expected) {
   if(!/^[a-f0-9]{64}$/.test(expected)||hash(file)!==expected)throw Error('Exact frozen plan hash required');
   const plan=parse(file);
-  if(plan.schema!=='p805-owner-execution-binding/1'||plan.runnable!==true||plan.aggregate_cap_micros!==AGGREGATE||plain(path.dirname(path.resolve(file)))!==plan.directory)throw Error('Runnable six-slot binding required');
+  if(!['p805-owner-execution-binding/1','p805-owner-execution-binding/2'].includes(plan.schema)||plan.runnable!==true||plan.aggregate_cap_micros!==AGGREGATE||plain(path.dirname(path.resolve(file)))!==plan.directory)throw Error('Runnable six-slot binding required');
   privateDirectory(plan.directory);noParentInstructions(path.dirname(plan.directory));
   if(plan.campaign!==path.join(repo,'artifacts/p7-p8-owner-campaign.json'))throw Error('Existing owner campaign required');
   const required=['p805-owner-runner.cjs','p805-owner-prepare.cjs','p6-live-runner.cjs','builtin-live-runner.cjs','package-inventory.cjs'].map(name=>path.join(repo,name==='package-inventory.cjs'?'scripts':'scripts/evals',name));
   for(const name of required)if(plan.runner_hashes?.[name]!==hash(name))throw Error('Bound runner changed');
   for(const [name,digest]of Object.entries(plan.input_hashes))if(hash(name)!==digest)throw Error('Frozen input changed');
   for(const file of [plan.preparation_file,plan.package_file,plan.source_profile,plan.launcher_file])if(!plan.input_hashes[file])throw Error('Missing exact prerequisite binding');
+  if(plan.schema==='p805-owner-execution-binding/2'){
+    if(plan.launcher_revision!==2||plan.spend_authorized!==false||plan.prior_cohort!=='preserved-failed-no-reclassification')throw Error('Separate unapproved v2 binding required');
+    const inputs=require('./p805-owner-prepare.cjs').validateLauncherV2(plan.launcher_file,plan.launcher_controls_file);
+    for(const [name,digest]of Object.entries(inputs))if(plan.input_hashes[name]!==digest)throw Error('Missing v2 launcher evidence binding');
+  }
   const manifest=parse(path.join(fixture,'manifest.json'));
   if(hash(path.join(fixture,'manifest.json'))!==plan.fixture_manifest_sha256||manifest.revision!==plan.fixture_revision||!same(plan.limits,manifest.proposed_limits))throw Error('Fixture or proposed thresholds changed');
   for(const row of manifest.files)if(hash(path.join(fixture,row.path))!==row.sha256)throw Error('Frozen fixture file changed');

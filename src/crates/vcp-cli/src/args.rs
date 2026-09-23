@@ -127,6 +127,10 @@ pub enum WorkspaceCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum Memory {
+    /// Explicitly build local lexical/vector indexes from retained authorized evidence.
+    Build(crate::memory::Build),
+    /// Explicitly embed a query using provisioned local assets and search retained evidence.
+    Query(crate::memory::Query),
     /// Inspect retained search results, evidence and coverage without starting inference.
     Search(Search),
     /// Browse authorized immutable claim versions and their retained evidence.
@@ -304,6 +308,8 @@ pub enum ValidatedCommand {
     Sessions(Sessions),
     Tasks(Tasks),
     MemorySearch(Search),
+    MemoryBuild(crate::memory::Build),
+    MemoryQuery(crate::memory::Query),
     MemoryInspect(crate::history::MemoryInspect),
     MemoryPrune(crate::history::Preview),
     Inspect {
@@ -354,6 +360,22 @@ impl Cli {
                 Command::Resume(resume) => ValidatedCommand::Resume(resume),
                 Command::Sessions { command } => ValidatedCommand::Sessions(command),
                 Command::Tasks { command } => ValidatedCommand::Tasks(command),
+                Command::Memory {
+                    command: Memory::Build(build),
+                } => ValidatedCommand::MemoryBuild(build),
+                Command::Memory {
+                    command: Memory::Query(query),
+                } => {
+                    query
+                        .search
+                        .request(WorkspaceId::parse("preflight").map_err(|e| e.to_string())?)
+                        .validate()
+                        .map_err(|e| e.to_string())?;
+                    if query.search.text.len() > vcp_memory::embedding::CHUNK_BYTES {
+                        return Err("local query input exceeds exact embedding chunk limit".into());
+                    }
+                    ValidatedCommand::MemoryQuery(query)
+                }
                 Command::Memory {
                     command: Memory::Inspect(inspect),
                 } => {
