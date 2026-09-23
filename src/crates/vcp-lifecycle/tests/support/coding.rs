@@ -418,9 +418,24 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 TaskState::Running,
                 "invented pre-response calls cannot pause the root"
             );
+            let selected_turn = vcp_domain::TurnId::parse("explicit-canonical-turn").unwrap();
             let turn = host
-                .begin_coding_turn(id, "Run the synthetic request.".into())
+                .begin_coding_turn_identified(
+                    id,
+                    "Run the synthetic request.".into(),
+                    selected_turn.clone(),
+                )
                 .unwrap();
+            assert_eq!(turn, selected_turn);
+            let before_duplicate = host.snapshot().unwrap();
+            assert!(host
+                .begin_coding_turn_identified(
+                    id,
+                    "Different input cannot reuse this turn identity.".into(),
+                    selected_turn,
+                )
+                .is_err());
+            assert_eq!(host.snapshot().unwrap(), before_duplicate);
             coding_turn(&test, backend, mode).await;
             let canonical_turn: vcp_domain::task::Turn = host
                 .snapshot()

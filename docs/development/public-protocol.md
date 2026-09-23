@@ -21,7 +21,7 @@ capability error before mutation; an unknown method follows the selected JSON-RP
 method-error contract.
 
 The direct `vcp-engine::rpc::EngineRpcHost` supports `session/create`,
-`session/read`, `session/list`, `task/read`, `turn/steer`, `approval/respond` and
+`session/read`, `session/list`, `task/read`, `usage/read`, `turn/steer`, `approval/respond` and
 `command/read`. `RpcSession` dispatches the selected host’s advertised methods.
 Its declared capabilities are the enabled method names plus `jsonrpc/2.0` and
 `durable-command/1`; configuration can remove methods but cannot add handlers or

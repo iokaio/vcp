@@ -30,6 +30,15 @@ impl Configuration {
         Ok(())
     }
     pub fn install(&self, host: &CanonicalHost) -> Result<(), String> {
+        self.install_with(host, |name| std::env::var(name).map_err(|_| ()))
+    }
+    /// Resolve only the configured name. Server callers must supply their own
+    /// authenticated material source; this path never falls back to environment.
+    pub(crate) fn install_with(
+        &self,
+        host: &CanonicalHost,
+        resolve: impl FnMut(&str) -> Result<String, ()>,
+    ) -> Result<(), String> {
         self.validate()?;
         host.configure_decisions(self.evaluator.clone())?;
         if self.evaluator.mode == decision::Mode::Shadow {
@@ -37,17 +46,28 @@ impl Configuration {
                 host.select_local_shadow(pin.clone())?;
             }
         }
-        if self.evaluator.mode == decision::Mode::Shadow && self.evaluator.qualification.is_some() {
-            if let Some(name) = &self.credential_environment {
-                let material = decision::CredentialMaterial::bearer(
-                    std::env::var(name)
-                        .map_err(|_| "configured decision credential is unavailable")?,
-                )
-                .map_err(|_| "configured decision credential format rejected")?;
-                host.install_decision_credential(material)?;
-            }
+        if let Some(material) = self.prepare_credential_with(resolve)? {
+            host.install_decision_credential(material)?;
         }
         Ok(())
+    }
+    fn prepare_credential_with(
+        &self,
+        mut resolve: impl FnMut(&str) -> Result<String, ()>,
+    ) -> Result<Option<decision::CredentialMaterial>, String> {
+        self.validate()?;
+        if self.evaluator.mode != decision::Mode::Shadow || self.evaluator.qualification.is_none() {
+            return Ok(None);
+        }
+        self.credential_environment
+            .as_ref()
+            .map(|name| {
+                let value =
+                    resolve(name).map_err(|_| "configured decision credential is unavailable")?;
+                decision::CredentialMaterial::bearer(value)
+                    .map_err(|_| "configured decision credential format rejected".to_owned())
+            })
+            .transpose()
     }
 }
 
@@ -143,6 +163,54 @@ mod tests {
         let mut invalid_local = local;
         invalid_local.local_fit.as_mut().unwrap().digest = "unverified".into();
         assert!(invalid_local.validate().is_err());
+    }
+
+    #[test]
+    fn explicit_credential_resolver_is_named_bounded_and_has_no_fallback() {
+        let config: Configuration = serde_json::from_value(serde_json::json!({
+            "evaluator": {"mode":"shadow", "qualification":{"artifact":"qualification", "digest":"a".repeat(64)}},
+            "credential_environment":"DECISION_TEST_KEY"
+        })).unwrap();
+        let mut calls = 0;
+        assert!(config
+            .prepare_credential_with(|name| {
+                assert_eq!(name, "DECISION_TEST_KEY");
+                calls += 1;
+                Ok("synthetic-explicit-material".into())
+            })
+            .unwrap()
+            .is_some());
+        assert_eq!(calls, 1);
+        for (value, expected) in [
+            (Err(()), "configured decision credential is unavailable"),
+            (
+                Ok("synthetic\nrejected".into()),
+                "configured decision credential format rejected",
+            ),
+            (
+                Ok("a".repeat(8193)),
+                "configured decision credential format rejected",
+            ),
+        ] {
+            let result = config.prepare_credential_with(|name| {
+                assert_eq!(name, "DECISION_TEST_KEY");
+                value.clone()
+            });
+            assert_eq!(result.err().as_deref(), Some(expected));
+        }
+        for evaluator in [
+            serde_json::json!({"mode":"disabled","qualification":null}),
+            serde_json::json!({"mode":"shadow","qualification":null}),
+        ] {
+            let inactive: Configuration = serde_json::from_value(serde_json::json!({
+                "evaluator":evaluator,"credential_environment":"DECISION_TEST_KEY"
+            }))
+            .unwrap();
+            assert!(inactive
+                .prepare_credential_with(|_| panic!("inactive source must not resolve credentials"))
+                .unwrap()
+                .is_none());
+        }
     }
 
     #[tokio::test]

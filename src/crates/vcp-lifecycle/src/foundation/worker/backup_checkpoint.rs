@@ -97,7 +97,7 @@ impl Context {
         })
     }
     pub fn backup_cut(&self) -> Result<Cut> {
-        if !self.owner_alive || self.authority_pending || self.interrupted_capture {
+        if !self.owner_alive || self.authority_pending || self.capture_admission_blocked() {
             return Err("backup capture is fenced by canonical recovery".into());
         }
         let workspace: Workspace = self

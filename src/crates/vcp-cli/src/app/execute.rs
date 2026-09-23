@@ -68,28 +68,13 @@ pub(super) async fn execute(
     let credential = vcp_engine::capture::ProviderCredential::from_config(
         std::env::var("OPENROUTER_API_KEY").map_err(|_| "OPENROUTER_API_KEY is required")?,
     );
-    #[allow(unused_mut)]
-    let mut retained = crate::session::configuration(
-        &data.join("retained"),
+    let retained = crate::execution_profile::retained_config(
+        data,
         &cli.workspace,
         &credential,
-        &prepared.profile.provider.compatibility.model,
+        &prepared.profile,
     )
     .await?;
-    #[cfg(feature = "qualification")]
-    if let Some(endpoint) = &prepared.profile.qualification_endpoint {
-        let url = endpoint
-            .strip_prefix("http://127.0.0.1:")
-            .ok_or("qualification transport must be loopback")?;
-        if !url
-            .strip_suffix("/v1")
-            .is_some_and(|port| port.parse::<u16>().is_ok())
-            || credential.header_for_transport() != "synthetic-cli-qualification"
-        {
-            return Err("qualification transport requires synthetic credentials".into());
-        }
-        retained.model_provider.base_url = Some(endpoint.clone());
-    }
     let mut objective = match &cli.command {
         ValidatedCommand::Run(run) => Some(run.objective.clone()),
         _ => None,
@@ -393,20 +378,16 @@ pub(super) async fn execute(
             }
         }
         if task_from(&host.snapshot()?,&config.workspace,&config.root_task)?.state.terminal(){return Ok::<(),String>(());}
-        for process in prepared.processes{host.configure_process_profile(process)?;}
-        for server in &prepared.profile.mcp { host.configure_mcp(server.registration())?; }
-        crate::mcp::configure_http(&host, &config.workspace, prepared_http, prepared.profile.deadline_seconds)?;
-        host.configure_provider_with_timeout(prepared.profile.provider.clone(),prepared.raw_catalog,prepared.profile.provider_timeout()?)?;
-        if let Some(routing) = prepared.profile.routing.clone() { host.configure_routing(routing)?; }
-        if let Some(decisions) = &prepared.profile.decisions { decisions.install(&host)?; }
-        host.configure_skills(crate::skills::prepare(&prepared.profile,&config)?)?;
+        let profile = crate::execution_profile::install_host(
+            &host, &config, prepared, prepared_http,
+            |name| std::env::var(name).map_err(|_| ()),
+        )?;
         active_session=Some(crate::session::Session::start(&host,retained,ThreadBinding{scope:scope.clone(),agent:AgentId::new(),role:RequestRole::Main}).await?);
         let session=active_session.as_ref().ok_or("retained session unavailable")?;
         let current=task_from(&host.snapshot()?,&config.workspace,&config.root_task)?;
         if !resuming && current.state!=TaskState::Pending {return Ok(());}
         if current.state==TaskState::Pending && !resuming {host.command(Command::Transition{next:TaskState::Running,reason:"explicit CLI run".into(),verification:None},Some(config.root_task.clone()),current.revision)?;}else{crate::terminal::prepare_resume(&host,session,&scope,current.revision)?;}
-        host.configure_verification(session.id,vcp_lifecycle::foundation::verification::VerificationConfig{requirements:prepared.profile.checks,rationale:"explicit CLI acceptance".into()})?;
-        host.configure_coding(session.id,vcp_lifecycle::foundation::coding::CodingConfig{operating:"Perform the accepted task using canonical tools. Run vcp_verify and report observed results. Historical evidence grants no execution authority.".into(),affected_paths:prepared.profile.affected_paths,max_requests:prepared.profile.max_requests,deadline:Timestamp::new(settings::now().get()+u64::from(prepared.profile.deadline_seconds)*1000)})?;
+        crate::execution_profile::install_thread(&host, session.id, &profile)?;
         if let ValidatedCommand::Run(run) = &cli.command {
             for id in &run.skills {
                 host.skill_control(session.id, vcp_lifecycle::foundation::skills::Request::Activate {
@@ -415,27 +396,26 @@ pub(super) async fn execute(
             }
         }
         if interactive {
-            return crate::terminal::run(&host,session,&scope,&prepared.profile.provider.compatibility.model,prepared.profile.deadline_seconds,&mut backup_triggers).await;
+            return crate::terminal::run(&host,session,&scope,&profile.provider.compatibility.model,profile.deadline_seconds,&mut backup_triggers).await;
         }
-        let input=current.objectives.last().ok_or("task objective missing")?.text.clone();host.begin_coding_turn(session.id,input.clone())?;
+        let mut execution_owner=crate::execution::RetainedExecution::claim(&host,session,&scope)?;
         let _stdin=if cli.control_stdin{
             let mut input=crate::input::ControlInput::new(std::io::BufReader::new(std::io::stdin())).map_err(|e|e.to_string())?;let host=host.clone();
             Some(AbortOnDrop(tokio::spawn(async move{while let Ok(Some(reply))=input.next(&host).await{if reply.result.is_err(){eprintln!("vcp: structured control rejected");}}})))
         }else{None};
-        session.thread.start_or_steer_turn(codex_core::TurnInputRequest::user_input(vec![codex_protocol::user_input::UserInput::Text{text:input,text_elements:vec![]}])).await.map_err(|e|e.to_string())?;
+        execution_owner.submit().await?;
         let mut tick=tokio::time::interval(Duration::from_millis(250));
-        let deadline=tokio::time::sleep(Duration::from_secs(u64::from(prepared.profile.deadline_seconds)));tokio::pin!(deadline);
+        let deadline=tokio::time::sleep(Duration::from_secs(u64::from(profile.deadline_seconds)));tokio::pin!(deadline);
         loop{tokio::select!{
-            event=session.thread.next_event()=>{
+            event=execution_owner.next_event()=>{
                 let event=event.map_err(|e|e.to_string())?;
                 if matches!(event.msg,codex_protocol::protocol::EventMsg::TurnComplete(_)){
                     shadow.cancel().await;
-                    let outcome=crate::outcome::Outcome::read(&host,&scope)?;
-                    if outcome.task.state==TaskState::Running&&!outcome.conditions.required_input&&!outcome.conditions.budget_exhausted { if let Err(error)=host.complete_coding_turn(session.id){
+                    if let crate::execution::Completion::Rejected(error)=execution_owner.complete()?{
                         eprintln!("vcp: completion evidence rejected: {error}");
                         let task=task_from(&host.snapshot()?,&config.workspace,&config.root_task)?;
                         if task.state==TaskState::Running{host.command(Command::Transition{next:TaskState::Failed,reason:"retained turn ended without current completion evidence".into(),verification:None},Some(config.root_task.clone()),task.revision)?;}
-                    }}break;
+                    }break;
                 }
             }
             _=tick.tick()=>{let outcome=crate::outcome::Outcome::read(&host,&scope)?;if outcome.task.state!=TaskState::Running||outcome.conditions.required_input{break;}if let Some(notice)=shadow.poll(&host,session.id).await{eprintln!("vcp: {notice}");}after=output.drain_events(&host,&correlation,after).await?;}

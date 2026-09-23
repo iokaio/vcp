@@ -50,31 +50,7 @@ fn stop(host: &CanonicalHost, scope: &Scope, state: TaskState) -> Result<(), Str
 }
 
 async fn submit(host: &CanonicalHost, session: &Session, scope: &Scope) -> Result<(), String> {
-    let task = current(host, scope)?;
-    let text = task
-        .objectives
-        .last()
-        .ok_or("objective unavailable")?
-        .text
-        .clone();
-    host.begin_coding_turn(session.id, text.clone())?;
-    let submitted = session
-        .thread
-        .start_or_steer_turn(codex_core::TurnInputRequest::user_input(vec![
-            codex_protocol::user_input::UserInput::Text {
-                text,
-                text_elements: vec![],
-            },
-        ]))
-        .await
-        .map_err(|e| e.to_string())?;
-    if matches!(
-        submitted,
-        codex_core::TurnInputSubmission::NotSubmitted { .. }
-    ) {
-        return Err("retained admission rejected the turn".into());
-    }
-    Ok(())
+    crate::execution::submit(host, session, scope).await
 }
 
 /// Shared admission for an open terminal and an explicitly selected reopened
@@ -170,9 +146,12 @@ pub async fn run(
     seconds: u32,
     backup_triggers: &mut crate::backup_triggers::Triggers,
 ) -> Result<(), String> {
+    let mut execution = crate::execution::RetainedExecution::claim(host, session, scope)?;
     let mut input = input(std::io::BufReader::new(std::io::stdin())).map_err(|e| e.to_string())?;
     let renderer = Renderer::new(std::io::stderr()).map_err(|e| e.to_string())?;
-    let mut notice = String::from("/pause /resume /status /cost /history /groups /optimize /escalate /skills /mcp /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents explore|review <scope> <USD> <seconds> <git.exe> <disposable-parent> <objective> /agents delegate <spec.json> /agents cleanup preview <task> <git.exe> [--reject-edits] | cleanup apply|reconcile <task> /agents recover <task> <git.exe> /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task");
+    let mut notice = String::from(
+        "/pause /resume /status /cost /history /groups /optimize /escalate /skills /mcp /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents explore|review <scope> <USD> <seconds> <git.exe> <disposable-parent> <objective> /agents delegate <spec.json> /agents cleanup preview <task> <git.exe> [--reject-edits] | cleanup apply|reconcile <task> /agents recover <task> <git.exe> /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task",
+    );
     let mut page: Option<InspectionQuery> = None;
     let mut maintenance_page: Option<vcp_lifecycle::foundation::history_retention::Request> = None;
     let mut optimization = crate::optimize::Session::default();
@@ -396,7 +375,7 @@ pub async fn run(
                 }) }.await;
                 match result { Ok(message) if message=="exit"=>return Ok(()), Ok(message)=>notice=message, Err(error)=>notice=format!("Command rejected: {error}") }
             }
-            event = session.thread.next_event() => {
+            event = execution.next_event() => {
                 let event=event.map_err(|e|e.to_string())?;
                 if let EventMsg::AgentMessageContentDelta(message)=&event.msg {
                     if commentary_item!=message.item_id {
@@ -413,7 +392,6 @@ pub async fn run(
                 if matches!(event.msg,EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_)) {
                     shadow.cancel().await;
                     active=false;
-                    let outcome=Outcome::read(host,scope)?;
                     let child_work=host.snapshot()?.records.values().filter(|r|r.collection==Collection::Task && r.workspace==scope.workspace)
                         .filter_map(|r|r.decode::<Task>().ok()).any(|t|t.scope.session==scope.session && t.root==scope.task && t.scope.task!=scope.task && !t.state.terminal());
                     if matches!(event.msg,EventMsg::TurnAborted(_)) {
@@ -422,8 +400,8 @@ pub async fn run(
                     } else if child_work || child_review_pending || delegation_pending.is_some() {
                         child_review_pending=true;
                         notice="Parent turn ended while children remain active or paused. Inspect /agents; parent completion still requires integrated verification.".into();
-                    } else if outcome.task.state==TaskState::Running && !outcome.conditions.required_input && !outcome.conditions.budget_exhausted {
-                        if let Err(error)=host.complete_coding_turn(session.id) {
+                    } else {
+                        if let crate::execution::Completion::Rejected(error)=execution.complete()? {
                             stop(host,scope,TaskState::Paused)?;
                             notice=format!("Completion evidence unavailable; task paused: {error}");
                         }

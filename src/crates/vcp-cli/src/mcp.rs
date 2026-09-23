@@ -144,7 +144,7 @@ pub(crate) fn prepare_http(servers: &[HttpServer]) -> Result<Vec<PreparedHttp>, 
 }
 
 #[cfg(windows)]
-fn prepare_http_with(
+pub(crate) fn prepare_http_with(
     servers: &[HttpServer],
     mut resolve: impl FnMut(&str) -> Result<String, ()>,
 ) -> Result<Vec<PreparedHttp>, String> {

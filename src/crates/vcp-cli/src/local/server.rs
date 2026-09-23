@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
-use std::{collections::BTreeSet, path::Path};
+use std::{collections::BTreeSet, path::Path, sync::Arc};
+type Execution = Option<Arc<execution::Supervisor>>;
 use vcp_domain::{ids::RootId, workspace::Workspace};
 use vcp_engine::{
     rpc::{RpcHost, RpcSession, ESSENTIAL_CAPABILITIES},
@@ -13,7 +14,9 @@ use vcp_protocol::{
 };
 use vcp_store::contract::Collection;
 
-fn selection(request: &LaunchRequest) -> Result<(crate::selection::Lease, Config), String> {
+fn selection(
+    request: &LaunchRequest,
+) -> Result<(crate::selection::Lease, Config, PathBuf), String> {
     let workspace = request
         .workspace
         .canonicalize()
@@ -55,7 +58,7 @@ fn selection(request: &LaunchRequest) -> Result<(crate::selection::Lease, Config
             .as_ref()
             .ok_or("workspace identity requires rebind")?,
     )?;
-    Ok((lease, entry.config))
+    Ok((lease, entry.config, data))
 }
 
 fn access(host: &CanonicalHost, config: &Config, role: Role) -> Result<Access, String> {
@@ -80,18 +83,28 @@ fn access(host: &CanonicalHost, config: &Config, role: Role) -> Result<Access, S
 }
 
 pub(super) async fn run(mut io: Framed) -> Result<(), String> {
-    let boot: Bootstrap = bootstrap(&mut io).await?;
+    let mut boot: Bootstrap = bootstrap(&mut io).await?;
     let parent = parent_proof(&boot)?;
-    let (_selection, config) = selection(&boot.request)?;
+    if let Some(execution) = &boot.request.execution {
+        execution.validate(boot.request.role)?;
+    }
+    let (_selection, config, data) = selection(&boot.request)?;
     // This acquires the real canonical writer and performs crash recovery. No
-    // provider credentials, request, root thread or task is created by attachment.
+    // provider request, root thread or task is created by attachment.
     let (host, owner) = CanonicalHost::open(config.clone())?;
+    let execution = boot
+        .request
+        .execution
+        .take()
+        .map(|execution| execution::Supervisor::new(host.clone(), config.clone(), data, execution))
+        .transpose()?;
     let result = match boot.request.transport {
         Transport::Stdio => {
             let (_stop, stopped) = tokio::sync::watch::channel(false);
             connection(
                 host,
                 config,
+                execution.clone(),
                 boot.request.role,
                 io,
                 Opening::Stdio {
@@ -103,10 +116,23 @@ pub(super) async fn run(mut io: Framed) -> Result<(), String> {
             .await
         }
         Transport::WindowsPipe => {
-            pipe_service(host, config, boot.request.role, io, boot.challenge, parent).await
+            pipe_service(
+                host,
+                config,
+                execution.clone(),
+                boot.request.role,
+                io,
+                boot.challenge,
+                parent,
+            )
+            .await
         }
     };
-    let closed = owner.close().await;
+    let closed = if let Some(execution) = execution {
+        execution.shutdown(owner).await
+    } else {
+        owner.close().await
+    };
     result.and(closed)
 }
 
@@ -162,14 +188,17 @@ fn ready(config: &Config, role: Role, grants: Option<&PipeGrants>) -> Result<Rea
 async fn connection(
     host: CanonicalHost,
     config: Config,
+    execution: Execution,
     role: Role,
     mut io: Framed,
     opening: Opening,
     mut stopped: tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), String> {
-    let mut connection = host.public_connection(access(&host, &config, role)?)?;
+    let connection = host.public_connection(access(&host, &config, role)?)?;
     let signal = connection.loss_signal();
-    io.on_loss(move || signal.invalidate());
+    let transport_signal = signal.clone();
+    io.on_loss(move || transport_signal.invalidate());
+    let mut connection = execution::Rpc::new(connection, execution);
     let result = async {
         let methods: Vec<String> = connection.supported_methods().iter().map(|value| (*value).into()).collect();
         let capabilities: BTreeSet<String> = methods.iter().cloned()
@@ -177,7 +206,7 @@ async fn connection(
         let mut session = RpcSession::new(ServerInfo {
             engine_build: concat!("vcp/", env!("CARGO_PKG_VERSION")).into(), methods, capabilities,
             limits: ConnectionLimits { maximum_frame_bytes: framed::LIMIT as u32,
-                maximum_pending_requests: 1, maximum_subscriptions: 1,
+                maximum_pending_requests: 1, maximum_subscriptions: 8,
                 maximum_subscriber_queue_bytes: framed::LIMIT as u32 },
             execution_host: ExecutionHost { id: "local-windows".into(), platform: "windows".into() },
             sandbox_capabilities: vec![],
@@ -215,7 +244,8 @@ async fn connection(
             }
             Ok::<(), String>(())
     }.await;
-    let disconnected = connection.disconnect()?.wait().await;
+    signal.invalidate();
+    let disconnected = connection.disconnect().await;
     result.and(disconnected.map(|_| ()))
 }
 
@@ -234,6 +264,7 @@ fn random_hex() -> Result<String, String> {
 async fn pipe_service(
     host: CanonicalHost,
     config: Config,
+    execution: Execution,
     role: Role,
     mut bootstrap_io: Framed,
     challenge: String,
@@ -260,6 +291,7 @@ async fn pipe_service(
     let supervisor = tokio::spawn(supervise(
         host,
         config.clone(),
+        execution,
         grants.clone(),
         listener,
         stop.clone(),
@@ -329,6 +361,7 @@ impl Drop for Active {
 async fn supervise(
     host: CanonicalHost,
     config: Config,
+    execution: Execution,
     grants: PipeGrants,
     mut listener: tokio::net::windows::named_pipe::NamedPipeServer,
     stop: tokio::sync::watch::Sender<bool>,
@@ -374,6 +407,7 @@ async fn supervise(
                 let active = active.clone();
                 let host = host.clone();
                 let config = config.clone();
+                let execution = execution.clone();
                 let grants = grants.clone();
                 let mut stopped = client_stop.clone();
                 tasks.spawn(async move {
@@ -388,7 +422,7 @@ async fn supervise(
                     let Ok(_client) = clients.try_acquire_owned() else { return; };
                     let Some(_active) = Active::admit(&active) else { return; };
                     drop(permit);
-                    let _ = connection(host, config, role, Framed::from_async(stream), Opening::Pipe(grants), stopped).await;
+                    let _ = connection(host, config, execution, role, Framed::from_async(stream), Opening::Pipe(grants), stopped).await;
                     // Active count and client capacity include canonical disconnect/drain.
                 });
             }

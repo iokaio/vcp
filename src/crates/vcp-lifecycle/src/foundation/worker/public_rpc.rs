@@ -16,8 +16,11 @@ use vcp_protocol::{
 const METHODS: &[&str] = &[
     "session/create",
     "session/read",
+    "session/snapshot",
     "session/list",
     "task/read",
+    "usage/read",
+    "artifact/read",
     "task/cancel",
     "turn/pause",
     "turn/cancel",
@@ -28,6 +31,9 @@ const METHODS: &[&str] = &[
     "controller/acquire",
     "controller/release",
     "controller/recover",
+    "events/subscribe",
+    "events/next",
+    "events/unsubscribe",
 ];
 
 fn failure(code: Code, retry: Retry, call: &Call, explanation: &str) -> RpcError {
@@ -287,6 +293,15 @@ impl RpcHost for PublicConnection {
         })?;
         if matches!(
             call,
+            Call::SessionSnapshot(_)
+                | Call::EventsSubscribe(_)
+                | Call::EventsNext(_)
+                | Call::EventsUnsubscribe(_)
+        ) {
+            return self.event_call(call, current);
+        }
+        if matches!(
+            call,
             Call::ControllerRead(_)
                 | Call::ControllerAcquire(_)
                 | Call::ControllerRelease(_)
@@ -299,6 +314,13 @@ impl RpcHost for PublicConnection {
             return host
                 .worker
                 .run_cleanup(move |context| {
+                    if let Call::ArtifactRead(request) = &request {
+                        return Ok(context
+                            .engine
+                            .public_artifact(&access, request)
+                            .map(ResultValue::Artifact)
+                            .map_err(vcp_engine::rpc::query_error));
+                    }
                     let facts = facts(context)?;
                     Ok(context.runtime.block_on(
                         EngineRpcHost {

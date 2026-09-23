@@ -1,5 +1,5 @@
 {
-  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"8104321a0d59da1eecdc63243c00e2cf547cbf541e8156d9791b48322108e070\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"14510467d66776279f8d5da93206ac5d528ad57baefa439d5aa70d5307897368\",\"src/crates/vcp-protocol/src/methods.rs\":\"ef73ff53c421bbbba03d81c7fcba6378f2eca41d4e59a367fefbc210c3126741\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"fa9db84e5b8d393cf4a26a506486046cf7b588299b63aad92d0308dc742b1913\"}}",
+  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"8104321a0d59da1eecdc63243c00e2cf547cbf541e8156d9791b48322108e070\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"14510467d66776279f8d5da93206ac5d528ad57baefa439d5aa70d5307897368\",\"src/crates/vcp-protocol/src/methods.rs\":\"0af0af31eabbe69eb79a9315c87539d3c510800ee8de3a6c6af33c3abdaa7c62\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"fa9db84e5b8d393cf4a26a506486046cf7b588299b63aad92d0308dc742b1913\"}}",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
@@ -368,6 +368,25 @@
             },
             "params": {
               "$ref": "#/definitions/SessionRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "session/snapshot"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/SessionSnapshotRead"
             }
           },
           "required": [
@@ -1346,7 +1365,11 @@
           "items": {
             "$ref": "#/definitions/EvidenceReference"
           },
+          "maxItems": 128,
           "type": "array"
+        },
+        "evidence_complete": {
+          "type": "boolean"
         },
         "id": {
           "$ref": "#/definitions/Id"
@@ -1363,6 +1386,9 @@
               "type": "null"
             }
           ]
+        },
+        "redacted": {
+          "type": "boolean"
         },
         "schema_version": {
           "type": "string"
@@ -1389,8 +1415,10 @@
       },
       "required": [
         "evidence",
+        "evidence_complete",
         "id",
         "kind",
+        "redacted",
         "schema_version",
         "scope",
         "sequence",
@@ -1413,6 +1441,7 @@
           "items": {
             "$ref": "#/definitions/Event"
           },
+          "maxItems": 128,
           "type": "array"
         },
         "snapshot_sequence": {
@@ -2154,6 +2183,25 @@
           "properties": {
             "kind": {
               "enum": [
+                "snapshot"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/SessionSnapshot"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
                 "controller"
               ],
               "type": "string"
@@ -2653,6 +2701,83 @@
         "mutation",
         "scope",
         "task"
+      ],
+      "type": "object"
+    },
+    "SessionSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "event_cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "next_cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sequence": {
+          "$ref": "#/definitions/Counter"
+        },
+        "session": {
+          "$ref": "#/definitions/SessionView"
+        },
+        "subscription": {
+          "$ref": "#/definitions/Id"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/definitions/TaskView"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "complete",
+        "event_cursor",
+        "sequence",
+        "session",
+        "subscription",
+        "tasks",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    "SessionSnapshotRead": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "limit",
+        "scope"
       ],
       "type": "object"
     },

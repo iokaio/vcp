@@ -202,6 +202,18 @@ async fn output_loss_case(backend: BackendKind) {
     )
     .await
     .unwrap();
+    // A cloned session must not steal events from the supervisor. An invalid
+    // scope cannot acquire ownership, and releasing ownership permits handoff.
+    let execution = vcp_cli::execution::RetainedExecution::claim(&host, &parent, &scope).unwrap();
+    assert!(vcp_cli::execution::RetainedExecution::claim(&host, &parent.clone(), &scope).is_err());
+    drop(execution);
+    let mut wrong_scope = scope.clone();
+    wrong_scope.task = TaskId::new();
+    assert!(vcp_cli::execution::RetainedExecution::claim(&host, &parent, &wrong_scope).is_err());
+    assert!(vcp_cli::execution::submit(&host, &parent, &wrong_scope)
+        .await
+        .is_err());
+    drop(vcp_cli::execution::RetainedExecution::claim(&host, &parent, &scope).unwrap());
     host.configure_verification(
         parent.id,
         vcp_lifecycle::foundation::verification::VerificationConfig {
@@ -264,6 +276,18 @@ async fn output_loss_case(backend: BackendKind) {
     })
     .await
     .expect("both children must be active after attributed public-message flood");
+    // These are actual active retained child pumps, not just guard fixtures.
+    // A cloned child session must not steal their completion/transcript events.
+    for child in &children {
+        let mut child_scope = scope.clone();
+        child_scope.task = child.task.clone();
+        assert!(vcp_cli::execution::RetainedExecution::claim(
+            &host,
+            &child.session.clone(),
+            &child_scope
+        )
+        .is_err());
+    }
     assert_eq!(updates.len(), 2, "UI notice queue stays bounded");
     let page = vcp_cli::agents_view::page(
         &host.snapshot().unwrap(),

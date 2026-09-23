@@ -17,6 +17,10 @@ pub mod decision;
 pub mod delegation;
 pub mod disk_space;
 pub mod doctor;
+#[cfg(windows)]
+pub mod execution;
+#[cfg(windows)]
+pub(crate) mod execution_profile;
 pub mod exit_status;
 pub mod history;
 pub mod input;

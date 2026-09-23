@@ -86,6 +86,9 @@ pub use worker::agents_owner::{ChildStart, ChildWorkspaceInputs};
 #[cfg(windows)]
 pub use worker::agents_recovery::{ChildRecovery, ChildRecoveryTicket};
 pub use worker::public_connection::{PublicConnection, PublicConnectionLoss, PublicDisconnect};
+pub use worker::public_resume::{
+    PublicResumeAdmission, PublicResumeOutcome, PublicResumeStartup, PublicResumeTicket,
+};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -361,6 +364,9 @@ impl CanonicalHost {
     pub fn register(&self, id: ThreadId, binding: ThreadBinding) -> Result<(), String> {
         let checked = binding.clone();
         self.worker.run(move |context| {
+            if context.capture_admission_blocked() {
+                return Err("canonical capture/admission fenced; reopen required".into());
+            }
             context.validate_binding(&checked)?;
             Ok(())
         })?;
@@ -699,7 +705,7 @@ impl HostWorkAdmission for CanonicalHost {
         match purpose {
             HostModelPurpose::Compaction => binding.role = RequestRole::Compaction,
             HostModelPurpose::Memory => {
-                return Err("memory inference requires governed local adapter".into())
+                return Err("memory inference requires governed local adapter".into());
             }
             HostModelPurpose::Turn => {}
         }

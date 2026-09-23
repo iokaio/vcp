@@ -58,7 +58,8 @@ pub struct PublicConnection {
     pub(super) token: Option<ControllerToken>,
     pub(super) reactor: tokio::runtime::Handle,
     closed: bool,
-    connected: Arc<AtomicBool>,
+    pub(super) connected: Arc<AtomicBool>,
+    pub(super) subscriptions: Arc<Mutex<super::public_events::Subscriptions>>,
     release: Option<ReleaseReceiver>,
 }
 
@@ -113,7 +114,12 @@ impl CanonicalHost {
     pub(in crate::foundation) fn public_startup_admission(
         &self,
     ) -> std::result::Result<(), String> {
-        self.worker.run(|context| context.check_public_owner())
+        self.worker.run(|context| {
+            if context.capture_admission_blocked() {
+                return Err("canonical host fenced".into());
+            }
+            context.check_public_owner()
+        })
     }
 
     /// Select public ownership before dispatch. Attaching cannot silently take
@@ -178,6 +184,7 @@ impl CanonicalHost {
             reactor,
             closed: false,
             connected: Arc::new(AtomicBool::new(true)),
+            subscriptions: Arc::new(Mutex::new(super::public_events::Subscriptions::default())),
             release: None,
         })
     }
@@ -457,7 +464,9 @@ impl PublicConnection {
     }
 
     fn begin_disconnect(&self) -> std::result::Result<PublicDisconnect, String> {
-        self.connected.store(false, Ordering::SeqCst);
+        // Seal retained admission before cursor cleanup can wait on the writer.
+        self.loss_signal().invalidate();
+        self.clear_public_events();
         let (reply, receiver) = tokio::sync::oneshot::channel();
         if let Some(release) = self.release.clone() {
             drop(self.reactor.spawn(async move {
@@ -632,6 +641,9 @@ impl Context {
     }
 
     pub(super) fn check_public_owner(&self) -> Result<()> {
+        if self.capture_admission_blocked() {
+            return Err("canonical host fenced".into());
+        }
         if !self.public_mode {
             return Ok(());
         }

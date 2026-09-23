@@ -162,21 +162,7 @@ pub struct Page {
     pub snapshot_watermark: Watermark,
     pub at_end: bool,
 }
-/// Minimal read-side suppression contract. P5 owns selector/preview, dependency
-/// traversal, protected accounting references and physical purge. This service
-/// never invents authority to write a retention policy or erase content.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RetentionMask {
-    pub schema_version: u32,
-    pub workspace: WorkspaceId,
-    pub session: SessionId,
-    pub first: SessionSeq,
-    pub last: SessionSeq,
-    pub artifacts: Vec<ArtifactId>,
-    pub deletion: DeletionEpoch,
-    pub reason: String,
-}
+pub use vcp_domain::retention::RetentionMask;
 pub(crate) fn masks(state: &State, workspace: &WorkspaceId) -> Result<Vec<RetentionMask>> {
     let mut result = Vec::new();
     for record in state
@@ -185,11 +171,7 @@ pub(crate) fn masks(state: &State, workspace: &WorkspaceId) -> Result<Vec<Retent
         .filter(|r| r.collection == Collection::Tombstone && &r.workspace == workspace)
     {
         let mask: RetentionMask = record.decode()?;
-        if mask.schema_version != 1
-            || &mask.workspace != workspace
-            || mask.first > mask.last
-            || mask.reason.trim().is_empty()
-        {
+        if &mask.workspace != workspace || mask.validate().is_err() {
             return Err(Error::Version);
         }
         result.push(mask);

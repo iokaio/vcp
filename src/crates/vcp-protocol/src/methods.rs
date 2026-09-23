@@ -176,6 +176,7 @@ dto!(SessionCreate {
     configuration_revision: Counter
 });
 dto!(SessionRead { scope: Scope });
+dto!(SessionSnapshotRead { scope: Scope, #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 128)))] limit: u32, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] cursor: Option<String> });
 dto!(SessionList { scope: Scope, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] cursor: Option<String>, #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 128)))] limit: u32 });
 dto!(SessionResume {
     scope: Scope,
@@ -339,6 +340,7 @@ calls! {
     WorkspaceOpen(WorkspaceOpen) => "workspace/open",
     SessionCreate(SessionCreate) => "session/create",
     SessionRead(SessionRead) => "session/read",
+    SessionSnapshot(SessionSnapshotRead) => "session/snapshot",
     SessionList(SessionList) => "session/list",
     SessionResume(SessionResume) => "session/resume",
     SessionFork(SessionFork) => "session/fork",
@@ -503,6 +505,13 @@ impl Call {
                 Err("controller generation must be positive")
             }
             Self::WorkspaceOpen(p) => text(&p.root, 32768),
+            Self::SessionSnapshot(p) => {
+                page(p.limit)?;
+                if let Some(cursor) = &p.cursor {
+                    text(cursor, 4096)?;
+                }
+                Ok(())
+            }
             Self::SessionList(p) => {
                 page(p.limit)?;
                 if let Some(c) = &p.cursor {
@@ -601,6 +610,21 @@ enumeration!(ControllerOwnership {
 dto!(ControllerView { scope: Scope, revision: Option<Counter>, generation: Counter, ownership: ControllerOwnership, watermark: Counter });
 dto!(TaskView { scope: Scope, task: Id, root: Id, parent: Option<Id>, turn: Option<Id>, revision: Counter, steering_revision: Counter, state: TaskStatus, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] reason: String, pending_inputs: Vec<PendingInput>, effects: EffectStatus });
 dto!(SessionView { scope: Scope, revision: Counter, configuration_revision: Counter, fork_origin: Option<Id>, fork_through: Option<Id> });
+// A completed page sequence describes one canonical boundary. The replay cursor
+// starts after that boundary; it is not a grant or a live producer subscription.
+dto!(SessionSnapshot {
+    session: SessionView,
+    sequence: Counter,
+    watermark: Counter,
+    subscription: Id,
+    #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))]
+    event_cursor: String,
+    #[cfg_attr(feature = "schema", schemars(length(max = 128)))]
+    tasks: Vec<TaskView>,
+    #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))]
+    next_cursor: Option<String>,
+    complete: bool
+});
 dto!(WorkspaceView {
     workspace: Id,
     host: Id,
@@ -658,7 +682,8 @@ dto!(EvidenceRow {
 dto!(EvidencePage { scope: Scope, task: Id, watermark: Counter, rows: Vec<EvidenceRow>, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] next_cursor: Option<String>, complete: bool });
 dto!(MemoryFinding { claim: Id, version: Id, evidence: Vec<EvidenceReference>, #[cfg_attr(feature = "schema", schemars(length(max = 65536)))] content: String });
 dto!(MemoryPage { scope: Scope, task: Id, generation: Option<Id>, sequence: Counter, findings: Vec<MemoryFinding>, complete: bool });
-dto!(Event { id: Id, scope: Scope, sequence: Counter, schema_version: String, timestamp_ms: Counter, kind: String, command_id: Option<Id>, task: Option<Id>, outcome: Option<OperationOutcome>, evidence: Vec<EvidenceReference> });
+// Invalidation/evidence metadata, never a raw internal fact or complete reducer.
+dto!(Event { id: Id, scope: Scope, sequence: Counter, schema_version: String, timestamp_ms: Counter, kind: String, command_id: Option<Id>, task: Option<Id>, outcome: Option<OperationOutcome>, redacted: bool, evidence_complete: bool, #[cfg_attr(feature = "schema", schemars(length(max = 128)))] evidence: Vec<EvidenceReference> });
 enumeration!(GapReason {
     RetentionChanged,
     AuthorityChanged,
@@ -666,7 +691,7 @@ enumeration!(GapReason {
     SequenceUnavailable,
     SlowConsumer
 });
-dto!(EventBatch { subscription: Id, snapshot_sequence: Counter, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] cursor: String, events: Vec<Event>, at_end: bool });
+dto!(EventBatch { subscription: Id, snapshot_sequence: Counter, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] cursor: String, #[cfg_attr(feature = "schema", schemars(length(max = 128)))] events: Vec<Event>, at_end: bool });
 dto!(EventGap {
     subscription: Id,
     reason: GapReason,
@@ -690,6 +715,7 @@ dto!(ExportView {
 )]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ResultValue {
+    Snapshot(SessionSnapshot),
     Controller(ControllerView),
     Workspace(WorkspaceView),
     Session(SessionView),

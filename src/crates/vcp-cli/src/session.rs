@@ -20,6 +20,17 @@ pub struct Session {
     pub manager: Arc<ThreadManager>,
     pub thread: Arc<CodexThread>,
     pub id: codex_protocol::ThreadId,
+    events: Arc<tokio::sync::Mutex<()>>,
+    scope: vcp_domain::workspace::Scope,
+}
+
+enum Startup<'a> {
+    Internal,
+    Public {
+        connection: &'a vcp_lifecycle::foundation::PublicConnection,
+        ticket: vcp_lifecycle::foundation::PublicResumeStartup,
+        current: &'a vcp_engine::Access,
+    },
 }
 
 /// Load retained defaults without importing Codex user/project/system settings.
@@ -42,6 +53,15 @@ pub async fn configuration(
 }
 
 impl Session {
+    pub fn scope(&self) -> &vcp_domain::workspace::Scope {
+        &self.scope
+    }
+    pub(crate) fn claim_events(&self) -> Result<tokio::sync::OwnedMutexGuard<()>, String> {
+        self.events
+            .clone()
+            .try_lock_owned()
+            .map_err(|_| "retained session already has an event owner".into())
+    }
     /// Reattach a registered child while held. Explicit resume remains a
     /// separate control after canonical/native reconciliation.
     pub async fn recover_child(
@@ -50,6 +70,10 @@ impl Session {
         child: vcp_domain::TaskId,
         snapshotter: &vcp_repository::worktree::Snapshotter,
     ) -> Result<(Self, vcp_domain::ArtifactId), String> {
+        let scope = vcp_domain::workspace::Scope {
+            task: child.clone(),
+            ..self.scope.clone()
+        };
         let recovery = host
             .prepare_child_recovery(self.id, child, snapshotter)
             .await?;
@@ -93,6 +117,8 @@ impl Session {
                 manager: self.manager.clone(),
                 thread: started.thread,
                 id,
+                events: Arc::new(tokio::sync::Mutex::new(())),
+                scope,
             },
             evidence,
         ))
@@ -106,6 +132,10 @@ impl Session {
         child: vcp_domain::TaskId,
         snapshotter: &vcp_repository::worktree::Snapshotter,
     ) -> Result<Self, String> {
+        let scope = vcp_domain::workspace::Scope {
+            task: child.clone(),
+            ..self.scope.clone()
+        };
         let ticket = host
             .prepare_child_start(self.id, child, snapshotter)
             .await?;
@@ -137,6 +167,8 @@ impl Session {
             manager: self.manager.clone(),
             thread: started.thread,
             id,
+            events: Arc::new(tokio::sync::Mutex::new(())),
+            scope,
         })
     }
     /// Caller has validated configuration and created the canonical task before
@@ -146,6 +178,39 @@ impl Session {
         config: Config,
         binding: ThreadBinding,
     ) -> Result<Self, String> {
+        Self::start_with(host, config, binding, Startup::Internal).await
+    }
+
+    /// Construct only the root authorized by an explicit public resume ticket.
+    /// Attachment remains locally held until the separate durable resume commit.
+    pub async fn start_public(
+        host: &CanonicalHost,
+        config: Config,
+        binding: ThreadBinding,
+        connection: &vcp_lifecycle::foundation::PublicConnection,
+        startup: vcp_lifecycle::foundation::PublicResumeStartup,
+        current: &vcp_engine::Access,
+    ) -> Result<Self, String> {
+        Self::start_with(
+            host,
+            config,
+            binding,
+            Startup::Public {
+                connection,
+                ticket: startup,
+                current,
+            },
+        )
+        .await
+    }
+
+    async fn start_with(
+        host: &CanonicalHost,
+        config: Config,
+        binding: ThreadBinding,
+        startup: Startup<'_>,
+    ) -> Result<Self, String> {
+        let scope = binding.scope.clone();
         let auth = Arc::new(
             codex_login::AuthManager::new(
                 config.codex_home.to_path_buf(),
@@ -168,7 +233,10 @@ impl Session {
         ));
         let mut extensions = ExtensionRegistryBuilder::new();
         extensions.turn_start_admission(Arc::new(host.clone()));
-        extensions.work_admission(Arc::new(host.clone()));
+        extensions.work_admission(match &startup {
+            Startup::Internal => Arc::new(host.clone()),
+            Startup::Public { ticket, .. } => ticket.work_admission(),
+        });
         extensions.tool_contributor(Arc::new(host.clone()));
         let manager = Arc::new(ThreadManager::new(
             &config,
@@ -187,9 +255,11 @@ impl Session {
             None,
             None,
         ));
-        host.lifecycle()
-            .authorize_startup(config.cwd.as_path(), None)
-            .map_err(|e| format!("owner startup: {e:?}"))?;
+        if matches!(&startup, Startup::Internal) {
+            host.lifecycle()
+                .authorize_startup(config.cwd.as_path(), None)
+                .map_err(|e| format!("owner startup: {e:?}"))?;
+        }
         let mut options = StartThreadOptions::new(config);
         options
             .thread_extension_init
@@ -198,15 +268,31 @@ impl Session {
             .start_thread(options)
             .await
             .map_err(|e| format!("retained startup: {e}"))?;
-        let id = host
-            .lifecycle()
-            .attach_root(started.thread.clone())
-            .map_err(|e| format!("owner attachment: {e:?}"))?;
-        host.register(id, binding)?;
+        let attached = match startup {
+            Startup::Internal => host
+                .lifecycle()
+                .attach_root(started.thread.clone())
+                .map_err(|e| format!("owner attachment: {e:?}"))
+                .and_then(|id| host.register(id, binding).map(|_| id)),
+            Startup::Public {
+                connection,
+                ticket,
+                current,
+            } => connection.attach_resume_root(ticket, started.thread.clone(), binding, current),
+        };
+        let id = match attached {
+            Ok(id) => id,
+            Err(error) => {
+                let cleanup = started.thread.shutdown_and_wait().await;
+                return Err(format!("{error}; retained startup cleanup: {cleanup:?}"));
+            }
+        };
         Ok(Self {
             manager,
             thread: started.thread,
             id,
+            events: Arc::new(tokio::sync::Mutex::new(())),
+            scope,
         })
     }
 }

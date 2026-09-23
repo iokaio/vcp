@@ -2,7 +2,7 @@
 use super::*;
 impl Context {
     pub(super) fn apply_startup_retention_policy(&mut self) -> Result<()> {
-        if self.interrupted_capture {
+        if self.capture_admission_blocked() {
             return Ok(());
         }
         let access = self.memory_access();
