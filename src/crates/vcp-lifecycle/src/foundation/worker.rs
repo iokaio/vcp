@@ -169,6 +169,7 @@ impl Worker {
     }
 }
 pub struct Context {
+    pub(super) local_memory_only: bool,
     pub engine: Engine<Store>,
     pub runtime: tokio::runtime::Runtime,
     pub config: Config,
@@ -315,6 +316,7 @@ impl Context {
             .filter_map(|row| row.decode::<ArtifactDescriptor>().ok())
             .any(|row| row.spec.schema == "openrouter-provider-configuration/1");
         let mut context = Self {
+            local_memory_only: false,
             engine,
             runtime,
             config,
@@ -511,6 +513,20 @@ impl Context {
             self.memory_after_command();
         }
         Ok(receipt)
+    }
+    #[cfg(windows)]
+    pub(super) fn can_start_memory(&self, binding: &ThreadBinding) -> Result<()> {
+        if !self.local_memory_only {
+            return self.can_start(binding);
+        }
+        if !self.owner_alive || self.authority_pending || self.interrupted_capture {
+            return Err("local memory owner is fenced or capture recovery is incomplete".into());
+        }
+        self.validate_binding(binding)?;
+        if binding.scope.task != self.config.root_task {
+            return Err("local memory maintenance requires the root owner".into());
+        }
+        Ok(())
     }
     pub fn can_start(&self, binding: &ThreadBinding) -> Result<()> {
         if self.authority_pending {

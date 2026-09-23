@@ -83,15 +83,14 @@ impl CanonicalHost {
     > {
         let binding = self.binding(thread)?;
         let generation = self
-            .runtime
-            .admission_generation(thread)
+            .memory_admission_generation(thread)
             .map_err(|_| "memory reader owner is held")?;
         if cancelled.load(Ordering::Acquire) || self.scheduler.busy() {
             return Err("memory reader deferred or cancelled".into());
         }
         let checked = binding.clone();
         let (snapshot, access) = self.worker.run(move |context| {
-            context.can_start(&checked)?;
+            context.can_start_memory(&checked)?;
             Ok((context.engine.store().snapshot()?, context.memory_access()))
         })?;
         let host = self.clone();
@@ -103,7 +102,7 @@ impl CanonicalHost {
                 stage.load(Ordering::Acquire)
                     || host.scheduler.busy()
                     || host.worker.fenced()
-                    || host.runtime.admission_generation(thread).ok() != Some(generation)
+                    || host.memory_admission_generation(thread).ok() != Some(generation)
             };
             super::memory_query_resources::run(
                 &host,
@@ -142,7 +141,7 @@ impl CanonicalHost {
                 result = &mut work => break result.map_err(|_| "memory reader worker failed")??,
                 _ = &mut deadline, if !stopped.load(Ordering::Acquire) => { stopped.store(true, Ordering::Release); }
                 _ = tick.tick() => { if cancelled.load(Ordering::Acquire) || self.worker.fenced() || self.scheduler.busy()
-                    || self.runtime.admission_generation(thread).ok() != Some(generation) { stopped.store(true, Ordering::Release); } }
+                    || self.memory_admission_generation(thread).ok() != Some(generation) { stopped.store(true, Ordering::Release); } }
             }
         };
         if stopped.load(Ordering::Acquire) || cancelled.load(Ordering::Acquire) {

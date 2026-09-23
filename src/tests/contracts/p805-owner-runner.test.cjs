@@ -99,3 +99,28 @@ test('bounded subprocess returns actual nonzero exits and terminates a deadline'
   assert.equal(failed.status,3);assert.equal(failed.stderr,'bounded failure');
   const timed=await runner.bounded(process.execPath,['-e','setInterval(()=>{},1000)'],100,process.env);assert.equal(timed.error,'deadline_exceeded');
 });
+// V2 controls are required evidence, not permission to repeat a failed cohort.
+const preparer=require('../../../scripts/evals/p805-owner-prepare.cjs');
+function controlEvidence(){
+  const outcomes=[['reference-visible',0],['reference-canonical',0],['reference-oracle',0],...Array.from({length:18},(_,i)=>['hostile-'+(i+1),1]),['permissions-visible',0],['permissions-canonical',0]];
+  return {schema:'p805-page-launcher-controls/2',pass:true,inputs_unchanged:true,paid_authorization:false,model_calls:0,fixture_manifest_sha256:'6a27284e55f440ffbc8580562b415f8cab1157e54b569dde88fbe07ec5c8969b',identities:{'launcher.exe':sha('launcher'),'build.json':sha('build')},cases:outcomes.map(([name,status])=>({name,status,signal:null}))};
+}
+test('v2 binding requires every positive, hostile-argument and permission control from the same build',()=>{
+  const controls=controlEvidence(),identities={...controls.identities};
+  assert.doesNotThrow(()=>preparer.validateControlEvidence(controls,identities));
+  for(const mutate of [c=>c.cases.pop(),c=>c.cases.push(c.cases[0]),c=>c.cases[3].status=0,c=>c.cases[22].status=1,c=>c.cases[1].signal='SIGTERM',c=>c.cases[2].error='timeout',c=>c.cases.reverse(),c=>delete c.identities['build.json'],c=>c.identities['launcher.exe']=sha('other launcher'),c=>c.pass=false,c=>c.inputs_unchanged=false,c=>c.paid_authorization=true,c=>c.model_calls=1,c=>c.fixture_manifest_sha256=sha('different fixtures')]){
+    const changed=structuredClone(controls);mutate(changed);
+    assert.throws(()=>preparer.validateControlEvidence(changed,identities),/controls|control/i);
+  }
+  assert.deepEqual(controls,controlEvidence());
+});
+test('v2 preparation refuses old or failed launcher builds without launching or writing evidence',t=>{
+  const root=temporary(t),build=path.join(root,'build.json'),controls=path.join(root,'controls.json');
+  fs.writeFileSync(controls,JSON.stringify(controlEvidence()));
+  for(const value of [{schema:'p805-page-launcher-build/1'}, {schema:'p805-page-launcher-build/2',exit_code:0,parser_test_exit_code:1,inputs_unchanged:true,paid_authorization:false,model_calls:0}]){
+    fs.writeFileSync(build,JSON.stringify(value));
+    assert.throws(()=>preparer.validateLauncherV2(build,controls),/Successful offline v2 launcher build required/);
+    assert.deepEqual(fs.readdirSync(root).sort(),['build.json','controls.json']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(build)),value);
+  }
+});

@@ -1,5 +1,30 @@
 # P8-04 Windows distribution candidate
 
+## Explicit local-memory commands
+
+After provisioning the pinned local embedding assets and creating a durable
+workspace session, close any active owner before standalone memory maintenance:
+
+```powershell
+vcp --workspace C:/work/project --data-dir C:/private/vcp memory build --assets C:/private/models/minilm
+vcp --workspace C:/work/project --data-dir C:/private/vcp memory query "retained design decision" --assets C:/private/models/minilm --task TASK_ID
+```
+
+Build publishes lexical and vector indexes from authorized retained evidence.
+Query embeds the supplied text locally; its scope flags match `memory search`.
+Neither command downloads assets, needs a provider key, or resumes paused work.
+Local CPU/resource observations are retained. Missing/corrupt assets fail with a
+nonzero exit; build permits degraded publication only with the explicit
+`--allow-lexical-only` flag. Query text is bounded by the qualified embedding
+chunk limit (192 UTF-8 bytes). Use local-drive assets without reparse redirects.
+
+`memory search` remains read-only and does not load an embedding model. A local
+build/query cannot attach to a competing live owner; close it before retrying.
+Ctrl+C requests cancellation and waits for bounded native work to drain before
+closing the canonical owner. See the
+[current qualification record](../evaluations/p8-continuation-2026-09-23.md)
+for actual tested scope and outstanding acceptance gates.
+
 `scripts/package.ps1` assembles an unsigned Windows ZIP from an explicit native executable, validated built-in skills, notices, and optional runtime files. Its manifest hashes every payload and records source, target, compatibility and model provisioning metadata. A supplied `vcp-local-build/1` receipt must bind the exact executable digest; without it, provenance is explicitly unverified. The archive digest is recorded beside the ZIP in `result.json`.
 
 Build the production candidate with `scripts/build-production.ps1`. It requires native Windows AMD64, PowerShell 7, Node, Git, Rust 1.95.0, Visual C++ tools, and already cached locked dependencies. The recipe builds only `vcp-cli`'s `vcp` executable with `--release --no-default-features --locked --offline`, explicit static-CRT/stack flags, and the committed Cargo configuration. It rejects unqualified build overrides, checks VCP dependency artifacts for the `qualification` feature, and records source inventories before/after compilation, compiler/native tool identities, feature lists, executable hash and any PDB hash. A failed or unstable build does not produce an accepted build receipt. These are local build provenance checks; they do not establish reproducible builds across machines or release acceptance.

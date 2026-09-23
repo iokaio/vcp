@@ -142,15 +142,14 @@ impl CanonicalHost {
         }
         let binding = self.binding(thread)?;
         let generation = self
-            .runtime
-            .admission_generation(thread)
+            .memory_admission_generation(thread)
             .map_err(|_| "memory query owner is held or closed")?;
         if cancelled.load(Ordering::Acquire) || self.scheduler.busy() {
             return Err("local query deferred or cancelled".into());
         }
         let checked = binding.clone();
         let (controller, epoch) = self.worker.run(move |context| {
-            context.can_start(&checked)?;
+            context.can_start_memory(&checked)?;
             Ok((
                 context.engine.controller().clone(),
                 context.engine.owner_epoch(),
@@ -172,7 +171,7 @@ impl CanonicalHost {
                 flag.load(Ordering::Acquire)
                     || host.worker.fenced()
                     || host.scheduler.busy()
-                    || host.runtime.admission_generation(thread).ok() != Some(generation)
+                    || host.memory_admission_generation(thread).ok() != Some(generation)
                     || start.elapsed() >= Duration::from_secs(60)
             };
             if stopped() {
@@ -225,7 +224,7 @@ impl CanonicalHost {
                 result = &mut task => break result.map_err(|_| "query embedding worker failed")?,
                 _ = &mut deadline, if !stage_cancel.load(Ordering::Acquire) => { stage_cancel.store(true, Ordering::Release); }
                 _ = tick.tick() => { if cancelled.load(Ordering::Acquire) || self.worker.fenced() || self.scheduler.busy()
-                    || self.runtime.admission_generation(thread).ok() != Some(generation) { stage_cancel.store(true, Ordering::Release); } }
+                    || self.memory_admission_generation(thread).ok() != Some(generation) { stage_cancel.store(true, Ordering::Release); } }
             }
         };
         match result {
@@ -237,7 +236,7 @@ impl CanonicalHost {
             Ok((result, resources)) => {
                 let result = if stage_cancel.load(Ordering::Acquire)
                     || cancelled.load(Ordering::Acquire)
-                    || self.runtime.admission_generation(thread).ok() != Some(generation)
+                    || self.memory_admission_generation(thread).ok() != Some(generation)
                 {
                     Err("local query cancelled before return".into())
                 } else {

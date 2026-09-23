@@ -3,6 +3,59 @@ use clap::Parser;
 use vcp_cli::args::{Cli, ValidatedCommand};
 
 #[test]
+fn explicit_local_memory_commands_require_assets_and_validate_query_scope() {
+    let workspace = tempfile::tempdir().unwrap();
+    let parse = |extra: &[&str]| {
+        let mut args = vec![
+            "vcp",
+            "--workspace",
+            workspace.path().to_str().unwrap(),
+            "memory",
+        ];
+        args.extend_from_slice(extra);
+        Cli::try_parse_from(args)
+            .map_err(|e| e.to_string())
+            .and_then(|cli| cli.validate(None))
+    };
+    assert!(parse(&["build"]).is_err());
+    assert!(parse(&["query", "retained evidence"]).is_err());
+    assert!(parse(&[
+        "query",
+        "retained evidence",
+        "--assets",
+        "model",
+        "--path",
+        "../outside"
+    ])
+    .is_err());
+    let oversized = "x".repeat(vcp_memory::embedding::CHUNK_BYTES + 1);
+    assert!(parse(&["query", &oversized, "--assets", "model"]).is_err());
+    let build = parse(&["build", "--assets", "model"]).unwrap();
+    let ValidatedCommand::MemoryBuild(build) = build.command else {
+        panic!("typed build expected")
+    };
+    assert!(!build.allow_lexical_only);
+    let query = parse(&[
+        "query",
+        "retained evidence",
+        "--assets",
+        "model",
+        "--task",
+        "task",
+        "--limit",
+        "3",
+    ])
+    .unwrap();
+    let ValidatedCommand::MemoryQuery(query) = query.command else {
+        panic!("typed query expected")
+    };
+    assert_eq!(query.search.task.unwrap().as_str(), "task");
+    assert_eq!(query.search.limit, 3);
+    // Parsing never opens canonical storage or requires provider credentials.
+    assert_eq!(std::fs::read_dir(workspace.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn memory_search_scope_and_bounds_are_validated_before_state_is_opened() {
     let workspace = tempfile::tempdir().unwrap();
     let parse = |extra: &[&str]| {

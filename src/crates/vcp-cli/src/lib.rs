@@ -22,6 +22,7 @@ pub mod history;
 pub mod input;
 pub mod jsonl;
 pub mod mcp;
+pub mod memory;
 pub mod optimize;
 pub mod outcome;
 pub mod output;

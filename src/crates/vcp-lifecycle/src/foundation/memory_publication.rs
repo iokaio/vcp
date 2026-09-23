@@ -54,7 +54,7 @@ impl CanonicalHost {
     ) -> Result<Arc<Manager>, String> {
         let binding = self.binding(thread)?;
         self.worker.run(move |context| {
-            context.can_start(&binding)?;
+            context.can_start_memory(&binding)?;
             if binding.scope.task != context.config.root_task {
                 return Err("publication requires root owner".into());
             }
@@ -100,14 +100,13 @@ impl CanonicalHost {
         let chunker = request.vectors.chunker.clone();
         let external = request.vectors.cancelled.clone();
         let generation = self
-            .runtime
-            .admission_generation(thread)
+            .memory_admission_generation(thread)
             .map_err(|_| "publication owner is held or closed")?;
         let initial_sources = sources.clone();
         let initial_chunker = chunker.clone();
         let initial_binding = binding.clone();
         let empty = self.worker.run(move |context| {
-            context.can_start(&initial_binding)?;
+            context.can_start_memory(&initial_binding)?;
             let inventory = search_record::inventory(
                 context.engine.store(),
                 &context.memory_access(),
@@ -155,7 +154,7 @@ impl CanonicalHost {
             ));
         }
         if external.load(Ordering::Acquire)
-            || self.runtime.admission_generation(thread).ok() != Some(generation)
+            || self.memory_admission_generation(thread).ok() != Some(generation)
         {
             return Ok(early(Status::Cancelled, vector_result.resources));
         }
@@ -181,7 +180,7 @@ impl CanonicalHost {
             .as_ref()
             .map(|report| report.observation.clone());
         let (snapshot, workload) = self.worker.run(move |context| {
-            context.can_start(&checked)?;
+            context.can_start_memory(&checked)?;
             if context.engine.controller() != &manager_check.controller
                 || context.engine.owner_epoch() != manager_check.epoch
             {
@@ -295,7 +294,7 @@ impl CanonicalHost {
                 if started.elapsed() >= Duration::from_secs(60)
                     || observer.scheduler.busy()
                     || observer.worker.fenced()
-                    || observer.runtime.admission_generation(thread).ok() != Some(generation)
+                    || observer.memory_admission_generation(thread).ok() != Some(generation)
                 {
                     stage_flag.store(true, Ordering::Release);
                 }
@@ -404,7 +403,7 @@ impl CanonicalHost {
                 }
                 _=tick.tick()=>{
                     if external.load(Ordering::Acquire)||self.worker.fenced()||self.scheduler.busy()
-                        ||self.runtime.admission_generation(thread).ok()!=Some(generation) {stage_cancel.store(true,Ordering::Release);}
+                        ||self.memory_admission_generation(thread).ok()!=Some(generation) {stage_cancel.store(true,Ordering::Release);}
                 }
             }
         };
@@ -438,17 +437,17 @@ impl CanonicalHost {
         };
         if stage_cancel.load(Ordering::Acquire)
             || external.load(Ordering::Acquire)
-            || self.runtime.admission_generation(thread).ok() != Some(generation)
+            || self.memory_admission_generation(thread).ok() != Some(generation)
         {
             return Ok(early_stage(Status::Cancelled, vector_result.resources));
         }
         let manifest = validated.manifest().clone();
         let checked = binding;
         let owning = manager;
-        let runtime = self.runtime.clone();
+        let admission_host = self.clone();
         let stage_observation = publication_resources.observation.clone();
         let receipt = self.worker.run(move |context| {
-            context.can_start(&checked)?;
+            context.can_start_memory(&checked)?;
             let following: Vec<_> = context
                 .engine
                 .store()
@@ -466,7 +465,7 @@ impl CanonicalHost {
             }
             if context.engine.controller() != &owning.controller
                 || context.engine.owner_epoch() != owning.epoch
-                || runtime.admission_generation(thread).ok() != Some(generation)
+                || admission_host.memory_admission_generation(thread).ok() != Some(generation)
                 || external.load(Ordering::Acquire)
                 || context.engine.store().state().watermark
                     != validated.manifest().canonical_watermark.next()?

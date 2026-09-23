@@ -43,6 +43,10 @@ The report must include all attempted queries/tasks, sourced recall and stale/fo
 
 ## P8-01 — Native Windows support matrix
 
+The [September 23 continuation](../evaluations/p8-continuation-2026-09-23.md)
+addresses the production local-memory adapter prerequisite and records explicit
+M5/M6/M8/M9 dispositions. Its pending qualification is not a completed P8 gate.
+
 The [production supplement](../evaluations/p8-production-qualification-2026-09-22.md)
 binds the optimized artifact and bounded retained-history measurements plus
 selected P8-04/recovery/interactive checks. It preserves earlier debug evidence
@@ -177,11 +181,12 @@ tracks the restore/startup corrections and authorized bounded owner execution.
 Final human acceptance and the remaining environment/integration gates stay open
 until their actual results are recorded.
 
-The production U09 probe found a missing CLI integration prerequisite: internal
-vector build/query APIs have no trusted profile asset-selection or command path.
-P5-08 subsystem evidence does not establish that production workflow. P8-01/P8-05
-must bind that integration and qualify offline build/reopen, scope isolation and
-ANN-versus-exact retrieval before claiming integrated U09 acceptance.
+The production U09 probe identified the CLI integration prerequisite now addressed
+by explicit local `memory build` and `memory query` commands. The
+[September 23 continuation](../evaluations/p8-continuation-2026-09-23.md) records
+production build/reopen, scope isolation and finite ANN-versus-exact checks;
+network-denied qualification and remaining integrated U09 acceptance retain their
+separate execution gates. P5-08 subsystem evidence alone is not that acceptance.
 
 Owner evaluation is incomplete: the bounded six-attempt follow-up recorded three
 completed tasks and three request-limit pauses, with human review still pending.
