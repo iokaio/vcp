@@ -67,7 +67,7 @@ $report = [ordered]@{
     script_sha256=(Get-FileHash -LiteralPath $PSCommandPath).Hash.ToLowerInvariant()
     created_at=[DateTime]::UtcNow.ToString('o'); fixtures=@(); steps=@(); backends=@()
     rollback_candidate=@{kind='prior debug qualification executable';executable=$rollback;sha256=$RollbackSha256;scope='Same-format canonical read compatibility after production restore/rebind/encrypted publication; no downgrade write or format migration'}
-    restore_configuration='Explicit disposable --sync-root supplies the required private trust exclusion; default fresh restore without an existing destination or known/declared sync root is not covered by passing rows'
+    restore_configuration='Fresh default restore without known/declared sync roots, plus explicit disjoint sync-root preview and overlapping sync-root rejection; mandatory staging remains excluded from trust/canonical/key storage'
     tools=@{git_sha256=(Get-FileHash -LiteralPath $git).Hash.ToLowerInvariant();age_sha256=(Get-FileHash -LiteralPath $age).Hash.ToLowerInvariant();node_sha256=(Get-FileHash -LiteralPath $node).Hash.ToLowerInvariant();verifier_sha256=(Get-FileHash -LiteralPath $verifier).Hash.ToLowerInvariant()}
     limitations=@('Current-host local restore only; machine handoff skipped', 'No physical full-volume exhaustion', 'No deterministic production crash-barrier injection', 'No model inference', 'Unknown third-party synchronization roots must be supplied explicitly through SyncRoots', 'Vault plaintext scan is of final published inventory, not a concurrent interrupted-write observer', 'Finite CLI authentication, path, and fresh encrypted-write checks; historical full crypto matrix retained separately')
 }
@@ -229,11 +229,14 @@ try {
         [IO.File]::WriteAllText($checkpoint,($fixture.checkpoint | ConvertTo-Json -Compress))
         $null=Invoke-Candidate "$backend-enroll" $data $enrollment @('backup','keys','--workspace-id',$fixture.workspace,'import','--key',$key,'--lineage',$fixture.lineage,'--checkpoint',$checkpoint)
         # Fresh destination does not exist and sanitized child environments have
-        # no ambient OneDrive roots. TrustStore requires a nonempty exclusion
-        # set; declare an explicit disjoint disposable sync boundary for restore.
-        $base=@('restore','--workspace-id',$fixture.workspace,'--source',$source,'--key',$key,'--staging',$stage,'--backend',$backend,'--sync-root',$declaredSyncRoot)
+        # no ambient OneDrive roots. Exercise the default path without --sync-root.
+        $base=@('restore','--workspace-id',$fixture.workspace,'--source',$source,'--key',$key,'--staging',$stage,'--backend',$backend)
         $workspaceDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($fixture.workspace))).ToLowerInvariant()
         $descriptor=Join-Path $data "workspaces/$workspaceDigest/workspace.json"
+        $explicitPreview=Invoke-Candidate "$backend-explicit-sync-preview" $data $dest ($base+@('--sync-root',$declaredSyncRoot,'--preview'))
+        Assert-True ($explicitPreview.recovery_verified -eq $true -and $explicitPreview.ciphertext_sha256 -ceq $sourceHash) 'Explicit disjoint sync root prevented authenticated preview'
+        $null=Invoke-Candidate "$backend-overlapping-sync-root" $data $dest ($base+@('--sync-root',$data,'--preview')) $true 'workspace access denied'
+        Assert-True (-not (Test-Path -LiteralPath $descriptor) -and -not (Test-Path -LiteralPath $dest)) 'Overlapping sync root changed selection or materialized destination'
         foreach ($negative in @('wrong-key','missing-key','tampered','truncated')) {
             $argsCopy=$base.Clone()
             if ($negative -eq 'wrong-key') { $argsCopy[6]=$wrongKeys[0].FullName }
@@ -255,8 +258,8 @@ try {
         $preview=Invoke-Candidate "$backend-preview" $data $dest ($base+@('--preview'))
         Assert-True ($preview.preview -eq $true -and $preview.recovery_verified -eq $true -and $null -eq $preview.expected_descriptor -and $preview.ciphertext_sha256 -ceq $sourceHash) 'Fresh preview authentication/identity failed'
         $apply=$base+@('--operation',$preview.operation,'--ciphertext-sha256',$preview.ciphertext_sha256,'--bytes',([string]$preview.bytes))
-        # Canonical data is forbidden plaintext staging. Authentication succeeds first;
-        # apply must reject without activating or materializing the source tree.
+        # Canonical data is forbidden plaintext staging. Reject without activating
+        # or materializing the source tree.
         $unsafe=$apply.Clone(); $unsafe[8]=$data
         $null=Invoke-Candidate "$backend-unsafe-staging" $data $dest $unsafe $true 'workspace access denied'
         Assert-True (-not (Test-Path -LiteralPath $descriptor) -and -not (Test-Path -LiteralPath $dest)) 'Unsafe staging activated or materialized restore'

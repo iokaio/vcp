@@ -249,20 +249,24 @@ pub async fn execute(
             }
         }
     }
-    let mut trust_roots = forbidden.clone();
-    trust_roots.retain(|root| root != &data);
+    // Only omit the implicit data boundary: an explicitly declared sync root
+    // equal to data must still exclude trust and canonical storage.
+    let mut trust_roots = forbidden[1..].to_vec();
+    // Trust and canonical state must remain separate from plaintext staging.
+    // This mandatory existing boundary also keeps the private-path guard's
+    // exclusions nonempty for a fresh destination with no known sync roots.
+    let staging_root = request
+        .staging
+        .canonicalize()
+        .map_err(|_| "private restore staging must exist")?;
+    trust_roots.push(staging_root.clone());
     let mut trust = TrustStore::open(&crate::backup::trust_path(&data, &workspace), &trust_roots)
         .map_err(|e| e.to_string())?;
     let trust_digest = vcp_protocol::digest_bytes(
         &vcp_protocol::canonical_bytes(trust.trust().configuration()).map_err(|e| e.to_string())?,
     );
     let mut key_roots = forbidden.clone();
-    key_roots.push(
-        request
-            .staging
-            .canonicalize()
-            .map_err(|_| "private restore staging must exist")?,
-    );
+    key_roots.push(staging_root);
     let recovery = crate::backup::recovery(&request.key, &key_roots)?;
     let verified = vcp_store::keys::LocalKeys::import(&recovery)
         .and_then(|keys| keys.verify_recovery(&recovery))

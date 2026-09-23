@@ -647,34 +647,34 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
                 | vcp_lifecycle::foundation::history_retention::Request::Apply { .. }
                 | vcp_lifecycle::foundation::history_retention::Request::Cleanup { .. }
         );
-        let mut value = history_control(entry, &workspace, &pipe, request).await?;
-        let notice = if notify {
-            history_control(
-                entry,
-                &workspace,
-                &pipe,
-                vcp_lifecycle::foundation::history_retention::Request::Notice,
-            )
-            .await
-            .ok()
-            .filter(|v| v["due"] == true)
-        } else {
-            None
-        };
-        if let Some(notice) = &notice {
-            value["retention_notice"] = notice.clone();
+        // Keep the canonical owner through the query and its notice handling.
+        // Reopening for each request replays all retained commits each time.
+        let mut history = HistoryControl::open(entry, &workspace, &pipe).await?;
+        let result = async {
+            let mut value = history.execute(request).await?;
+            let notice = if notify {
+                history
+                    .execute(vcp_lifecycle::foundation::history_retention::Request::Notice)
+                    .await
+                    .ok()
+                    .filter(|v| v["due"] == true)
+            } else {
+                None
+            };
+            if let Some(notice) = &notice {
+                value["retention_notice"] = notice.clone();
+            }
+            let code = command_result(cli.format, value)?;
+            if notice.is_some() {
+                let _ = history
+                    .execute(vcp_lifecycle::foundation::history_retention::Request::NoticeShown)
+                    .await;
+            }
+            Ok(code)
         }
-        let code = command_result(cli.format, value)?;
-        if notice.is_some() {
-            let _ = history_control(
-                entry,
-                &workspace,
-                &pipe,
-                vcp_lifecycle::foundation::history_retention::Request::NoticeShown,
-            )
-            .await;
-        }
-        return Ok(code);
+        .await;
+        history.close().await?;
+        return result;
     }
     let read = match &cli.command {
         ValidatedCommand::Discover => Some(Query::Continuation),
@@ -791,62 +791,91 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
     .await
 }
 
-async fn history_control(
-    entry: &WorkspaceEntry,
-    workspace: &Path,
-    pipe: &str,
-    request: vcp_lifecycle::foundation::history_retention::Request,
-) -> Result<Value, String> {
-    match Store::open(
-        &entry.config.canonical_root,
-        entry.config.backend,
-        std::slice::from_ref(&workspace.to_owned()),
-    )
-    .await
-    {
-        Ok(mut store) => {
-            let workspace: vcp_domain::workspace::Workspace = store
-                .state()
-                .record(
-                    Collection::Workspace,
-                    entry.config.workspace.as_str(),
-                    &entry.config.workspace,
+enum HistoryControl<'a> {
+    Local {
+        store: Store,
+        access: vcp_memory::access::Access,
+    },
+    Remote {
+        entry: &'a WorkspaceEntry,
+        pipe: &'a str,
+    },
+}
+
+impl<'a> HistoryControl<'a> {
+    async fn open(
+        entry: &'a WorkspaceEntry,
+        workspace: &Path,
+        pipe: &'a str,
+    ) -> Result<Self, String> {
+        match Store::open(
+            &entry.config.canonical_root,
+            entry.config.backend,
+            std::slice::from_ref(&workspace.to_owned()),
+        )
+        .await
+        {
+            Ok(store) => {
+                let workspace: vcp_domain::workspace::Workspace = store
+                    .state()
+                    .record(
+                        Collection::Workspace,
+                        entry.config.workspace.as_str(),
+                        &entry.config.workspace,
+                    )
+                    .and_then(|r| r.decode())
+                    .map_err(|e| e.to_string())?;
+                let access = vcp_memory::access::Access {
+                    workspace: workspace.id,
+                    actor: entry.config.actor.clone(),
+                    authority: workspace.authority,
+                    read: true,
+                    write: true,
+                    tasks: None,
+                };
+                Ok(Self::Local { store, access })
+            }
+            Err(vcp_store::Error::Conflict("canonical root already has an owner")) => {
+                Ok(Self::Remote { entry, pipe })
+            }
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    async fn execute(
+        &mut self,
+        request: vcp_lifecycle::foundation::history_retention::Request,
+    ) -> Result<Value, String> {
+        match self {
+            Self::Local { store, access } => {
+                let now = vcp_domain::Timestamp::new(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|e| e.to_string())?
+                        .as_millis()
+                        .min(u64::MAX as u128) as u64,
+                );
+                vcp_lifecycle::foundation::history_retention::execute(store, access, request, now)
+                    .await
+            }
+            Self::Remote { entry, pipe } => {
+                control::request(
+                    pipe,
+                    &control::Request::HistoryRetention {
+                        workspace: entry.config.workspace.clone(),
+                        request,
+                    },
                 )
-                .and_then(|r| r.decode())
-                .map_err(|e| e.to_string())?;
-            let access = vcp_memory::access::Access {
-                workspace: workspace.id,
-                actor: entry.config.actor.clone(),
-                authority: workspace.authority,
-                read: true,
-                write: true,
-                tasks: None,
-            };
-            let now = vcp_domain::Timestamp::new(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|e| e.to_string())?
-                    .as_millis()
-                    .min(u64::MAX as u128) as u64,
-            );
-            let value = vcp_lifecycle::foundation::history_retention::execute(
-                &mut store, &access, request, now,
-            )
-            .await;
-            store.close().await.map_err(|e| e.to_string())?;
-            value
+                .await
+            }
         }
-        Err(vcp_store::Error::Conflict("canonical root already has an owner")) => {
-            control::request(
-                pipe,
-                &control::Request::HistoryRetention {
-                    workspace: entry.config.workspace.clone(),
-                    request,
-                },
-            )
-            .await
+    }
+
+    async fn close(self) -> Result<(), String> {
+        match self {
+            Self::Local { store, .. } => store.close().await.map_err(|e| e.to_string()),
+            Self::Remote { .. } => Ok(()),
         }
-        Err(error) => Err(error.to_string()),
     }
 }
 

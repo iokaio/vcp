@@ -2,6 +2,8 @@
 #![cfg(all(windows, feature = "qualification"))]
 #[path = "support/child_output_owner.rs"]
 mod child_output_owner;
+#[path = "support/history_notice.rs"]
+mod history_notice;
 #[path = "support/live_adapter.rs"]
 mod live_adapter;
 #[path = "support/packaged_crypto.rs"]

@@ -33,6 +33,30 @@ pub const MAX_RECORDS: usize = 100_000;
 /// rejects admission explicitly; it never truncates or silently prunes history.
 pub const MAX_STATE_BYTES: usize = 64 * 1024 * 1024;
 
+// Record and State serialize only JSON data (no raw JSON fragments). Sorting
+// their object keys changes byte order, not encoded length. Count that length
+// directly instead of allocating and sorting another complete JSON tree on
+// every replayed commit. Digests and persisted bytes still use canonical_bytes.
+fn encoded_len(value: &impl Serialize) -> Result<usize> {
+    #[derive(Default)]
+    struct Counter(usize);
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self
+                .0
+                .checked_add(bytes.len())
+                .ok_or_else(|| std::io::Error::other("canonical byte count overflow"))?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = Counter::default();
+    serde_json::to_writer(&mut counter, value)?;
+    Ok(counter.0)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Collection {
@@ -158,11 +182,11 @@ impl Record {
     /// For the retained arbitrary JSON tree, use `value` directly (or clone it):
     /// choosing `serde_json::Value` as `T` invokes its private-key interpretation.
     pub fn decode<T: serde::de::DeserializeOwned>(&self) -> Result<T> {
-        Ok(serde_json::from_value(self.value.clone())?)
+        Ok(T::deserialize(&self.value)?)
     }
     pub fn validate_shape(&self) -> Result<()> {
         TaskId::parse(self.id.clone())?;
-        if canonical_bytes(self)?.len() > MAX_RECORD_BYTES {
+        if encoded_len(self)? > MAX_RECORD_BYTES {
             return Err(Error::Limit("canonical record"));
         }
         if crate::forecast_contract::kind(self) {
@@ -901,7 +925,7 @@ impl State {
         if self.records.len() > MAX_RECORDS {
             return Err(Error::Limit("canonical record count"));
         }
-        if canonical_bytes(self)?.len() > MAX_STATE_BYTES {
+        if encoded_len(self)? > MAX_STATE_BYTES {
             return Err(Error::Limit(
                 "canonical view bytes; explicit migration required",
             ));
@@ -1375,4 +1399,63 @@ impl State {
 pub trait CanonicalStore {
     fn state(&self) -> &State;
     async fn transact(&mut self, transaction: Transaction) -> Result<Receipt>;
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::*;
+
+    fn record(value: serde_json::Value) -> Record {
+        Record {
+            collection: Collection::Projection,
+            id: "size-fixture".into(),
+            workspace: WorkspaceId::parse("workspace").unwrap(),
+            revision: Revision::ZERO,
+            value,
+            references: BTreeSet::new(),
+        }
+    }
+
+    #[test]
+    fn streaming_sizes_match_canonical_records_and_states() {
+        let literal = serde_json::Value::Object(serde_json::Map::from_iter([
+            ("$serde_json::private::Number".into(), "not a number".into()),
+            ("$serde_json::private::RawValue".into(), "not JSON".into()),
+            ("escaped".into(), "\"\\\n\t\r\0 café 漢字 😀".into()),
+        ]));
+        for value in [
+            literal,
+            serde_json::Value::Object(serde_json::Map::from_iter([(
+                "$serde_json::private::Number".into(), "1.5".into(),
+            )])),
+            serde_json::Value::Object(serde_json::Map::from_iter([(
+                "$serde_json::private::RawValue".into(), "null".into(),
+            )])),
+            serde_json::from_str("[9007199254740993,18446744073709551616,0.12345678901234567890123456789,3e-128,-0.0,null,true]").unwrap(),
+        ] {
+            let record = record(value);
+            assert_eq!(encoded_len(&record).unwrap(), canonical_bytes(&record).unwrap().len());
+            let mut state = State::default();
+            state.records.insert(record.key(), record);
+            assert_eq!(encoded_len(&state).unwrap(), canonical_bytes(&state).unwrap().len());
+        }
+    }
+
+    #[test]
+    fn record_byte_limit_keeps_exact_canonical_boundary() {
+        let mut record = record(serde_json::json!({"schema_version":1,"payload":""}));
+        let overhead = canonical_bytes(&record).unwrap().len();
+        record.value["payload"] = "x".repeat(MAX_RECORD_BYTES - overhead).into();
+        assert_eq!(canonical_bytes(&record).unwrap().len(), MAX_RECORD_BYTES);
+        record.validate_shape().unwrap();
+        record.value["payload"] = "x".repeat(MAX_RECORD_BYTES - overhead + 1).into();
+        assert_eq!(
+            canonical_bytes(&record).unwrap().len(),
+            MAX_RECORD_BYTES + 1
+        );
+        assert!(matches!(
+            record.validate_shape(),
+            Err(Error::Limit("canonical record"))
+        ));
+    }
 }
