@@ -5,6 +5,13 @@ the [work-item contracts](../plan/15-integration-and-release.md) to committed
 evidence. It does not add implementation requirements or waive existing ones.
 P8-06 maintenance completion is separate from these release gates.
 
+The later [production qualification supplement](p8-production-qualification-2026-09-22.md)
+addresses the intended optimized artifact with bounded startup and selected
+installation, recovery/security and terminal checks. Read its exact scope and
+remaining conditions alongside this historical mapping; older debug receipts
+are preserved. Physical full-volume exhaustion remains open and machine handoff
+remains owner-skipped.
+
 The subsequent [P8-02 boundary audit](p8-local-recovery-boundary-map-2026-09-22.md)
 and [bounded local increment](p8-local-recovery-increment-2026-09-22.md) refine the
 recovery gaps below with retained receipt mapping and selected new evidence.

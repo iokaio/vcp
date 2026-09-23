@@ -1,0 +1,43 @@
+{
+  "schema": "p805-proposed-budget-analysis/1",
+  "status": "analysis-only-no-profile-or-ledger-changes",
+  "model": "qwen/qwen3.8-max-0902",
+  "endpoint": "alibaba",
+  "price_snapshot": "7373f944e42f5af867ca70bdd43ee66baea42c06786eccb2cbc862faace0a2d5",
+  "snapshot_valid_until_utc": "2026-09-23T13:28:37.477Z",
+  "byte_ceiling_qualified": false,
+  "reservation_input_tokens": 983616,
+  "output_tokens": 16384,
+  "conservative_disjoint_charge_micros": {
+    "ordinary_input": 1967232,
+    "cache_read": 1967232,
+    "cache_write": 2459040,
+    "output": 98304,
+    "request": 1000
+  },
+  "per_request_reservation_micros": 6492808,
+  "superseded_one_dollar_proposal_admits_this_snapshot": false,
+  "reason": "Without qualified byte/token bounds, admission reserves the full provider input capacity for ordinary/cache-read/cache-write possibilities. This intentionally conservative bound is not actual incurred cost.",
+  "source_evidence": [
+    "src/crates/vcp-models/src/catalog.rs:Snapshot::reservation_input",
+    "src/crates/vcp-lifecycle/src/foundation/worker.rs:reservation_input and Usage bound",
+    "src/crates/vcp-domain/src/accounting.rs:Usage::disjoint",
+    "src/crates/vcp-budget/src/arithmetic.rs:quote"
+  ],
+  "selected_prelaunch_proposal": {
+    "status": "proposal-only-awaiting-owner-approval-no-ledger-mutation",
+    "per_task_usd": "8.000000",
+    "six_owner_tasks_usd": "48.000000",
+    "observed_campaign_remaining_usd": "64.594570",
+    "remaining_after_owner_allocation_usd": "16.594570",
+    "separate_single_interactive_pause_resume_slot_usd": "16.000000",
+    "combined_owner_and_interactive_slots_usd": "64.000000",
+    "automatic_repeats": 0,
+    "conditions": [
+      "Reconcile current campaign ledger before reserving; intervening exposure reduces available headroom.",
+      "Fresh provider validity and all selected limits must still pass admission.",
+      "Do not change caps after observing a result; retain all failed and uncertain attempts.",
+      "Unknown charge stops subsequent dispatch; earlier unresolved exposure is never recycled."
+    ]
+  }
+}

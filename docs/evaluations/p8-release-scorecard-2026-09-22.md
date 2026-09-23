@@ -9,6 +9,11 @@ continuation by owner direction and remains not run for release acceptance.
 
 ## Candidate and evidence identity
 
+The following table preserves the earlier debug candidate. The subsequent
+[production supplement](p8-production-qualification-2026-09-22.md) freezes the
+optimized candidate and records its bounded artifact-specific checks and owner
+fixture proposal. Neither set of receipts records owner acceptance.
+
 | Identity | Value |
 |---|---|
 | Delivery source | `c963b751b862d4ff84c7df6c4f998c44df6559a3` (merged PR 117); receipt runs reuse unchanged qualification checkout `b1c08a21a7e9756fd4d3cbbe79cc4928e7653412` |

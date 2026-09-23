@@ -1,0 +1,384 @@
+{
+  "schema": "p805-portable-owner-fixtures/1",
+  "revision": "p8-owner-v3-node-verification-1-spdx-1",
+  "disposition": "proposal-awaiting-owner-approval",
+  "predecessor_inventory_sha256": "5f46c615139ea2a2dea33cab926a10503c884926df8b496e7feafe449b103830",
+  "proposed_limits": {
+    "per_task_usd": "8.000000",
+    "aggregate_usd": "48.000000",
+    "task_seconds": 900,
+    "response_seconds": 360,
+    "max_requests": 16,
+    "output_tokens": 16384,
+    "transport_retries": 0,
+    "automatic_repeats": 0,
+    "allowed_interventions": 0
+  },
+  "backends": [
+    "sqlite",
+    "files"
+  ],
+  "independent_scenarios": 3,
+  "planned_attempts": 6,
+  "execution_visibility": "Only the selected case workspace_files and task.txt are model-visible. Grader/reference/other-case/source metadata is never copied to a model workspace.",
+  "cases": [
+    {
+      "id": "U01",
+      "directory": "u01",
+      "workspace_files": [
+        "AGENTS.md",
+        "README.md",
+        "generated/api-example.cjs",
+        "src/app/summary.cjs",
+        "src/domain/AGENTS.md",
+        "src/domain/report.cjs",
+        "src/shared/numbers.cjs",
+        "src/storage/readings.cjs",
+        "src/transport/handler.cjs",
+        "src/transport/status.cjs"
+      ],
+      "second_workspace_files": [
+        "AGENTS.md",
+        "src/domain/report.cjs"
+      ],
+      "grader": "u01/hidden/truth.json",
+      "remaining_setup": "Populate separately scoped second-workspace memory before an actual retrieval-isolation trial."
+    },
+    {
+      "id": "U02",
+      "directory": "u02",
+      "workspace_files": [
+        "AGENTS.md",
+        "CONTRACT.md",
+        "base/src/capacity.cjs",
+        "base/src/expiry.cjs",
+        "base/src/receipt.cjs",
+        "src/capacity.cjs",
+        "src/expiry.cjs",
+        "src/receipt.cjs",
+        "user-note.txt"
+      ],
+      "grader": "u02/hidden/truth.json",
+      "git": {
+        "baseline_overrides": {
+          "src/capacity.cjs": {
+            "source": "base/src/capacity.cjs"
+          },
+          "src/expiry.cjs": {
+            "source": "base/src/expiry.cjs"
+          },
+          "src/receipt.cjs": {
+            "source": "base/src/receipt.cjs"
+          },
+          "user-note.txt": {
+            "text": "Baseline user note before the review fixture.\n"
+          }
+        },
+        "untracked": [],
+        "staged": [],
+        "diff_file": "change.diff",
+        "expected_status": [
+          " M src/capacity.cjs",
+          " M src/expiry.cjs",
+          " M src/receipt.cjs",
+          " M user-note.txt",
+          "?? change.diff"
+        ]
+      }
+    },
+    {
+      "id": "U03",
+      "directory": "u03",
+      "workspace_files": [
+        "AGENTS.md",
+        "CONTRACT.md",
+        "package.json",
+        "src/api/page.cjs",
+        "src/domain/window.cjs",
+        "staged-note.txt",
+        "test/page.test.cjs",
+        "unstaged-note.txt",
+        "untracked-note.txt"
+      ],
+      "grader": "u03/hidden/oracle.cjs",
+      "rubric": "u03/hidden/rubric.json",
+      "editable": [
+        "src/domain/window.cjs",
+        "src/api/page.cjs"
+      ],
+      "git": {
+        "baseline_overrides": {
+          "staged-note.txt": {
+            "text": "Committed staged-note baseline.\n"
+          },
+          "unstaged-note.txt": {
+            "text": "Committed unstaged-note baseline.\n"
+          }
+        },
+        "untracked": [
+          "untracked-note.txt"
+        ],
+        "staged": [
+          "staged-note.txt"
+        ],
+        "expected_status": [
+          "M  staged-note.txt",
+          " M unstaged-note.txt",
+          "?? untracked-note.txt"
+        ]
+      },
+      "verification": {
+        "manifest": "package.json",
+        "runner": "node",
+        "declared_script": "node --test test/page.test.cjs",
+        "launcher_source": "tools/page-check-launcher.rs",
+        "launcher_status": "not-built-or-qualified-by-this-proposal",
+        "embedded_variables": [
+          "VCP_P805_NODE",
+          "VCP_P805_SYSTEMROOT"
+        ],
+        "allowed_arguments": [
+          "--test",
+          "--test-reporter=tap",
+          "--test-concurrency=1",
+          "test/page.test.cjs"
+        ],
+        "expected_tests": [
+          "empty array",
+          "small default page is a copy",
+          "invalid array"
+        ],
+        "authority": "separately frozen trusted sole-process/check profile required"
+      }
+    }
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 9091,
+      "sha256": "61ad634847c7a41749b5a4b01ea0f4df65e9797b692f0e8487bddb1a6510c31f"
+    },
+    {
+      "path": "hidden/provider-budget-analysis.json",
+      "bytes": 2093,
+      "sha256": "31d8a9b34cf75170e8ff4c1f4e43a0a5730b3ee07e1b096e87f7852ae76b3d35"
+    },
+    {
+      "path": "hidden/selfcheck.cjs",
+      "bytes": 2195,
+      "sha256": "c48666746177e0bc403441ac5b4d936fae8fd3ec81365f844e50810dd9777cd0"
+    },
+    {
+      "path": "tools/page-check-launcher.rs",
+      "bytes": 2020,
+      "sha256": "b6268e586ce53d44d2941f62171bff34d1c8e6e568e51390bf4571cb874d80a3"
+    },
+    {
+      "path": "tools/prepare.cjs",
+      "bytes": 8254,
+      "sha256": "7b065c0e7bdfffa474f9e36d3b9a3690ce13b1581ca9256d9bfbfc89ca8a646d"
+    },
+    {
+      "path": "u01/hidden/truth.json",
+      "bytes": 1025,
+      "sha256": "6b97aa1598a73699910754a8b80aaf5fbb4d431f0839ca2b544067593b576cca"
+    },
+    {
+      "path": "u01/second-workspace/AGENTS.md",
+      "bytes": 143,
+      "sha256": "f6d9cc4dbe9d0dfd85eb3745c4e2c9076d118d6cda681d789a2e8f3f6edcbf78"
+    },
+    {
+      "path": "u01/second-workspace/src/domain/report.cjs",
+      "bytes": 200,
+      "sha256": "3432791ba8a47755765c5cad93003139ae1a1e1c39197e8505d3816dd8a6c268"
+    },
+    {
+      "path": "u01/task.txt",
+      "bytes": 480,
+      "sha256": "588fc3e443318774cb02fd057dd5254e309ad1cb4ea39382428f00a7b45f91fe"
+    },
+    {
+      "path": "u01/workspace/AGENTS.md",
+      "bytes": 373,
+      "sha256": "4daa913765dfc2186c13699f3692dad9d2533ce0cbe42a9976726fb931c081b3"
+    },
+    {
+      "path": "u01/workspace/README.md",
+      "bytes": 346,
+      "sha256": "0790ab90bc6ad7930978b73ce1a3a099b828ab181872527be69bd8b70e800499"
+    },
+    {
+      "path": "u01/workspace/generated/api-example.cjs",
+      "bytes": 178,
+      "sha256": "64fa16a4457e0cdcd53be8f6ed173963acba56d622f4264be3326162f5322037"
+    },
+    {
+      "path": "u01/workspace/src/app/summary.cjs",
+      "bytes": 212,
+      "sha256": "b3e91328c214455485e0658a7cbd14f874af42f49ae39bee3376aae9f7c98164"
+    },
+    {
+      "path": "u01/workspace/src/domain/AGENTS.md",
+      "bytes": 334,
+      "sha256": "1968e5d4ec228ae53902b72e2433c056e4df26495197180bf82e2e01dbe03f7d"
+    },
+    {
+      "path": "u01/workspace/src/domain/report.cjs",
+      "bytes": 235,
+      "sha256": "bd14b536a02e63ee5da47eb58f5efb5a806d64d8d2c9bbb53656aa4855ba481b"
+    },
+    {
+      "path": "u01/workspace/src/shared/numbers.cjs",
+      "bytes": 114,
+      "sha256": "ef411eecfcb1ca2361ac5925713e76e56734a24ffe8ffae2acbd3e1ce71e4f95"
+    },
+    {
+      "path": "u01/workspace/src/storage/readings.cjs",
+      "bytes": 74,
+      "sha256": "6019e54c11d88909b2284d4423255a56dce0fbad0dffe76447d08f641bbb5a65"
+    },
+    {
+      "path": "u01/workspace/src/transport/handler.cjs",
+      "bytes": 153,
+      "sha256": "ba45a9f691008e534eff319d4df4b73db4e43078a057079733e8cfedccc3b823"
+    },
+    {
+      "path": "u01/workspace/src/transport/status.cjs",
+      "bytes": 69,
+      "sha256": "39f5381e4ca1a0c62a3487ff497d02602ff25d138be6ef0994f976390ddbee78"
+    },
+    {
+      "path": "u02/hidden/truth.json",
+      "bytes": 1093,
+      "sha256": "4579c45b928192e5bcfa00263f7ad67574dc39a00ea2df0938d5b165f292a2cb"
+    },
+    {
+      "path": "u02/task.txt",
+      "bytes": 472,
+      "sha256": "ef3e31b0cf638bd307174823d2f229a5921953a5d74a65211d30b9f094d1db7f"
+    },
+    {
+      "path": "u02/workspace/AGENTS.md",
+      "bytes": 267,
+      "sha256": "ccb572b1e0a538e277b7c76a525f003d337f389350dbf6e9cfc608024e68e96f"
+    },
+    {
+      "path": "u02/workspace/CONTRACT.md",
+      "bytes": 457,
+      "sha256": "0bc6aeae9fb7e059297e01c0321cbe18fe16dc5ad048d67ec0333bb38058ff0f"
+    },
+    {
+      "path": "u02/workspace/base/src/capacity.cjs",
+      "bytes": 121,
+      "sha256": "ffc725e49126536bc1e3018bf4263afa3d80747c79b613265e64c8f5dbf46f7f"
+    },
+    {
+      "path": "u02/workspace/base/src/expiry.cjs",
+      "bytes": 95,
+      "sha256": "2f8545a45937824aab1f54c9c17d541ed3ee43ffde77402f4e823660702105fa"
+    },
+    {
+      "path": "u02/workspace/base/src/receipt.cjs",
+      "bytes": 75,
+      "sha256": "4df8783d8e473cbcbd2b67de8bc72a3e11f14a98b22980d9b0508ebaebe6653b"
+    },
+    {
+      "path": "u02/workspace/src/capacity.cjs",
+      "bytes": 120,
+      "sha256": "32e8e295368c8242a770234c91d436f7df5b6e9f0476ddc4e6f0a1ab78dc73d1"
+    },
+    {
+      "path": "u02/workspace/src/expiry.cjs",
+      "bytes": 96,
+      "sha256": "8d8a37b284d1afdb05a35c10cfa31e75df0502d01db3843ae07a532b7c5e78a2"
+    },
+    {
+      "path": "u02/workspace/src/receipt.cjs",
+      "bytes": 72,
+      "sha256": "5c783672f8137dc0978eaca81407108402321b3ff1cb1a5840e7ec503cbc2ab4"
+    },
+    {
+      "path": "u02/workspace/user-note.txt",
+      "bytes": 65,
+      "sha256": "99de6c1b72658282d8e7130b6444eb6c3e55586ea1f7dc428ecce0ebabb069f2"
+    },
+    {
+      "path": "u03/hidden/oracle.cjs",
+      "bytes": 4527,
+      "sha256": "b07997671c68830b0288379472f4c93216640127767184c95903e44b3ee158cb"
+    },
+    {
+      "path": "u03/hidden/reference/src/api/page.cjs",
+      "bytes": 499,
+      "sha256": "30f2a5c5703afb0a23406952db00f4811d1f26ef5967b01ffdf692f85a92881c"
+    },
+    {
+      "path": "u03/hidden/reference/src/domain/window.cjs",
+      "bytes": 439,
+      "sha256": "1fdf2a29a8e9eb956db1d12f4d48f240cb4f0ebeac331519372caeadc235cbe4"
+    },
+    {
+      "path": "u03/hidden/rubric.json",
+      "bytes": 1002,
+      "sha256": "6255ea6e9db83b63728c43b965aa3dee370eac88c531cd89c4f148b0d054f568"
+    },
+    {
+      "path": "u03/task.txt",
+      "bytes": 507,
+      "sha256": "7cfc39071725d258adef1b753cd73365693c90b50c8808b7d402ac8b7b656e2c"
+    },
+    {
+      "path": "u03/workspace/AGENTS.md",
+      "bytes": 451,
+      "sha256": "bf22652337e63dcc2aee8440bc5305996c28a57a5177d3ca174cd5a8aa47c8f3"
+    },
+    {
+      "path": "u03/workspace/CONTRACT.md",
+      "bytes": 1028,
+      "sha256": "0b9dd3580a9bb9149336950ade1a0b9ccc59839221b8f06bb76dea90fa1ffafc"
+    },
+    {
+      "path": "u03/workspace/package.json",
+      "bytes": 87,
+      "sha256": "41605e807ff53b592896ebf42f55c9defe9afc6c8723080059b49522c793c414"
+    },
+    {
+      "path": "u03/workspace/src/api/page.cjs",
+      "bytes": 375,
+      "sha256": "b8171b8e4bc6dd0ee444c0cc1de8510a7dd79df50bf98cc53b52fa7c76a61b37"
+    },
+    {
+      "path": "u03/workspace/src/domain/window.cjs",
+      "bytes": 218,
+      "sha256": "acd60dd309adc06d665e52a6d7edcbf108f3906294d6c9d19fdfe0d288038513"
+    },
+    {
+      "path": "u03/workspace/staged-note.txt",
+      "bytes": 57,
+      "sha256": "6452def2a0882eb09fe02ab589f9bb74067e6ccc271c8726705ae9b1b9b9d025"
+    },
+    {
+      "path": "u03/workspace/test/page.test.cjs",
+      "bytes": 635,
+      "sha256": "f7384721dd0583468c31a98a54bfb4585d3ebd99f9755097909615bcc3670e69"
+    },
+    {
+      "path": "u03/workspace/unstaged-note.txt",
+      "bytes": 51,
+      "sha256": "957ecdbdb718a7792d3f90a8ffb5bbfcd986da8a205174ee5eff6c48d557d3ba"
+    },
+    {
+      "path": "u03/workspace/untracked-note.txt",
+      "bytes": 61,
+      "sha256": "200d3831f74fe597fcf3d548471aae055d88ae25bd2b9832ebd9e43496785172"
+    }
+  ],
+  "limitations": [
+    "No live execution or owner approval.",
+    "No implicit provider choice or budget mutation.",
+    "Required integrated routing/children/memory/MCP/skills/U07 acceptance is separate.",
+    "Backend repetition does not increase independent task count."
+  ],
+  "predecessor_manifest_sha256": "c39ab2d89dff5bb08b4cf8f3e8365a56420ce169e54c579dd5b496412256ba0b"
+}

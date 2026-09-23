@@ -43,6 +43,12 @@ The report must include all attempted queries/tasks, sourced recall and stale/fo
 
 ## P8-01 — Native Windows support matrix
 
+The [production supplement](../evaluations/p8-production-qualification-2026-09-22.md)
+binds the optimized artifact and bounded retained-history measurements plus
+selected P8-04/recovery/interactive checks. It preserves earlier debug evidence
+and the explicit full-volume gap and owner-skipped machine handoff. P8-05 task
+fixtures and thresholds remain subject to their separate owner gate.
+
 Include the selected [Cursor](22-cursor-improvements.md) and
 [Claude Code](23-claudecode-improvements.md) refinements in the same packaged
 matrix: bounded search/read coverage, declared long foreground checks, Windows

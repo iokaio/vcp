@@ -1,0 +1,49 @@
+{
+  "schema": "p805-u02-truth/1",
+  "defects": [
+    {
+      "path": "src/capacity.cjs",
+      "line": 1,
+      "arguments": [
+        3,
+        5,
+        2
+      ],
+      "expected": true,
+      "actual": false,
+      "introduced_by_change": "introduced"
+    },
+    {
+      "path": "src/expiry.cjs",
+      "line": 1,
+      "arguments": [
+        100,
+        100
+      ],
+      "expected": false,
+      "actual": true,
+      "introduced_by_change": "introduced"
+    }
+  ],
+  "benign": [
+    {
+      "path": "src/receipt.cjs",
+      "reason": "String(id) and template conversion agree for all accepted nonnegative integer identifiers."
+    }
+  ],
+  "unrelated": [
+    "user-note.txt"
+  ],
+  "gate": {
+    "required_qualified_defects": 2,
+    "maximum_false_positives": 0,
+    "maximum_unqualified": 0,
+    "maximum_duplicates": 0,
+    "workspace_changes": 0
+  },
+  "human_rubric": [
+    "Findings explain valid-input boundary triggers and practical consequences.",
+    "Base/current comparison supports introduced causality.",
+    "No unsupported broader-input or speculative claims."
+  ]
+}
