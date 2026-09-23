@@ -744,6 +744,7 @@ pub enum ResultValue {
     Artifact(ArtifactRange),
     Evidence(EvidencePage),
     Memory(MemoryPage),
+    MemoryQuery(crate::memory_query::Page),
     Events(EventBatch),
     Gap(EventGap),
     Export(ExportView),

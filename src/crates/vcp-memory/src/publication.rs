@@ -916,7 +916,31 @@ impl Publisher {
     ) -> Result<Recovery> {
         self.recover_state(snapshot.state(), access, check)
     }
+    /// Read-only inspection of a workspace generation under a scoped captured
+    /// query. Complete component integrity is verified, but the broad View and
+    /// inventory never leave this boundary. Only canonical finish can return text.
+    pub fn search_captured_with_check(
+        &self,
+        access: &Access,
+        captured: crate::retrieval::Capture,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<crate::retrieval::Selection> {
+        captured.check_reader(access)?;
+        let recovery = self.recover_components(captured.captured_state(), access, check)?;
+        crate::retrieval::search(captured, recovery.view.as_ref(), None, &|| check().is_err())
+    }
     fn recover_state(
+        &self,
+        state: &State,
+        access: &Access,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Recovery> {
+        if access.tasks.is_some() {
+            return Err(Error::Access);
+        }
+        self.recover_components(state, access, check)
+    }
+    fn recover_components(
         &self,
         state: &State,
         access: &Access,
@@ -924,9 +948,6 @@ impl Publisher {
     ) -> Result<Recovery> {
         check()?;
         let workspace = access::authorize(state, access, false)?;
-        if access.tasks.is_some() {
-            return Err(Error::Access);
-        }
         let mut pins = self
             .pins
             .lock()

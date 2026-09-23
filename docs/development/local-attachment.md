@@ -404,14 +404,15 @@ invalidated by a real intervening canonical commit. No provider is configured.
 
 The preceding records qualify attachment, owned resume, connected pause,
 controller loss, retained inspection and bounded snapshot/event recovery within
-their stated test boundaries. Remaining work includes the other method adapters,
-pending-input reconnect, process crash after durable acceptance but before response,
-abandoned/slow consumer qualification and final CLI/API behavior parity.
+their stated test boundaries. Subsequent increments qualify pending-input reconnect,
+durable acceptance before the client consumes a response, abandoned/slow readers,
+and CLI/API execution parity. Remaining adapters include memory proposal,
+resolution, forgetting and session export.
 
 Snapshot capture and cursor registration share a canonical worker boundary.
-Remaining process-level consumer tests must prove that gaps/disconnects release
-resources without blocking writes. P9-03 follows with SDK tests against the
-compiled server; P4-01 then attaches the prepared extension UI through that SDK.
+Compiled process tests establish reader cleanup without blocking writes. P9-03
+follows with SDK consumer tests against the compiled server; P4-01 then implements
+the extension connection UI from the prepared design through that SDK.
 
 ## Controlled stdio launch
 
@@ -453,6 +454,40 @@ the acceptance requirements above. The optional pipe transport retains the serve
 independently after an authenticated bootstrap handoff.
 
 ## Named-pipe attachment and reconnect
+
+### Scoped memory search
+
+The live host advertises `memory/query` with required profile
+`memory/query-sources/1`. It returns `kind: "memory_query"`, whose findings have
+tagged artifact or claim/version sources, retained record identities, source
+digests/spans and governance/evidence status. A captured repository passage is
+never labeled with an invented claim ID. The requested task restricts source
+scope; current connection authority and source state are checked at capture and
+again before releasing results.
+
+Search reuses the CLI's resource-controlled lexical runner and an existing pinned
+generation. It runs outside the canonical worker, loads no model and changes no
+canonical state. A missing generation reports rebuild/degradation status rather
+than starting indexing. The host accepts at most 4096 query bytes and 64 results;
+larger requests receive `RESOURCE_LIMIT`. The broader original request schema
+remains an absolute envelope rather than a promise of every host's capacity.
+
+Pages expose indexed sequence, generation and canonical watermarks, fixed
+degradation codes, trimming and explicit truncation. `complete: false` preserves
+known source/generation deficits. The bounded recent-overlay time budget may
+truncate candidates; overall deadline or connection loss interrupts the request.
+Result order is shared retrieval rank, not a confidence or truth score. See
+[ADR-051](../adr/051-authenticated-public-memory-query.md).
+
+Native Rust 1.95 qualification passes 110 engine/protocol tests, three shared
+retrieval tests and two lifecycle projection tests. The compiled observer fixture
+passes on Files and SQLite with a real mixed-task lexical generation, checking
+artifact and governed-claim identities, exact digest/range/content correspondence,
+task/session/workspace isolation, capability negotiation, bounds and unchanged
+canonical state. Three existing CLI memory-query regressions also pass; the
+separate local-model inference fixture retains its explicit asset gate and was
+not run. Schema regeneration, strict TypeScript and all 18 fast delivery
+cases pass. No provider or downloaded model is needed.
 
 ### Governed memory inspection
 

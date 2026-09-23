@@ -27,6 +27,7 @@ const METHODS: &[&str] = &[
     "artifact/read",
     "diff/read",
     "memory/inspect",
+    "memory/query",
     "task/cancel",
     "turn/pause",
     "turn/cancel",
@@ -317,6 +318,12 @@ impl RpcHost for PublicConnection {
             return self
                 .memory_inspect(request, current)
                 .map(ResultValue::Memory);
+        }
+        if let Call::MemoryQuery(request) = &call {
+            return self
+                .memory_query(request, current)
+                .await
+                .map(ResultValue::MemoryQuery);
         }
         if matches!(
             call,
