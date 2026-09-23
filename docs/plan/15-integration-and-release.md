@@ -192,8 +192,13 @@ production build/reopen, scope isolation and finite ANN-versus-exact checks;
 network-denied qualification and remaining integrated U09 acceptance retain their
 separate execution gates. P5-08 subsystem evidence alone is not that acceptance.
 
-Owner evaluation is incomplete: the bounded six-attempt follow-up recorded three
-completed tasks and three request-limit pauses, with human review still pending.
+Owner evaluation is incomplete. The earlier six-attempt follow-up recorded three
+completed tasks and three request-limit pauses. The later
+[approved current-package campaign](../evaluations/p8-approved-campaign-2026-09-23.md)
+recorded two automated passes, three request-limit pauses and one CLI-completed
+generation rejected by the current-source evidence gate. Its live interactive
+observation exercised same-process pause/resume and explicit terminal exit-to-pause, with
+unknown provider liabilities retained. Human review remains pending.
 The [release scorecard](../evaluations/p8-release-scorecard-2026-09-22.md)
 joins the 56-task closure, FR/I/U dispositions and 46 passing executable matrix
 cases. The [gap reconciliation](../evaluations/p8-acceptance-gaps-2026-09-22.md)

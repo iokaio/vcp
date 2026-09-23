@@ -170,9 +170,9 @@ function sourceManifest(manifest,workspace) {
   return {passed:true,files:seen.size};
 }
 
-function currentSources(plan,base,row,outputs,verification,ids,call,capture) {
+function currentSources(plan,base,row,context,verification,ids,call,capture) {
   const selected=verification.flatMap(p=>p.items).filter(i=>ids.includes(i.id)||ids.includes(i.record?.id)).map(i=>i.record);
-  const artifacts=outputs.flatMap(p=>p.items).filter(i=>i.collection==='artifact'&&i.record?.spec?.schema==='verification-result/1'&&selected.some(v=>v.outputs.includes(i.id)));
+  const artifacts=context.flatMap(p=>p.items).filter(i=>i.collection==='artifact'&&i.record?.spec?.schema==='verification-result/1'&&selected.some(v=>v.outputs.includes(i.id)));
   const matched=[];
   for(const item of artifacts){
     const text=artifactBytes(plan,base,item,call).toString('utf8');capture('verification-source-'+sha(Buffer.from(item.id))+'.json',text);
@@ -229,7 +229,7 @@ async function run(file,expected) {
         const data=status.status===0&&!status.error?frames(status.stdout).find(f=>f.type==='result')?.data:null;
         if(!data||data.truncated||data.records?.length!==1||data.records[0].scope.task!==accepted.scope.task)throw Error('Fresh canonical parent status unavailable');
         report.verification=verificationEvidence(evidence.verification,data.records[0]);
-        report.current_sources=currentSources(plan,base,row,evidence.outputs,evidence.verification,report.verification,call,capture);
+        report.current_sources=currentSources(plan,base,row,evidence.context,evidence.verification,report.verification,call,capture);
         const grade=await bounded(row.hidden_grader.program,row.hidden_grader.args,10000,{SystemRoot:process.env.SystemRoot});capture('hidden-oracle.json',grade);
         if(grade.error||!grade.process_reaped)result.stopped=true;
         if(grade.error||!grade.process_reaped||grade.status!==0)throw Error('Hidden feature oracle failed');report.oracle=JSON.parse(grade.stdout);
@@ -254,5 +254,5 @@ async function run(file,expected) {
   result.status=result.stopped?'stopped':result.runs.every(r=>r.status==='automated-checks-passed-human-review-pending')?'human-review-pending':'failed';save();return result;
 }
 
-module.exports={validate,frozenInputs,preservation,changeCampaign,reserve,bounded,naturalAnswer,verificationEvidence,sourceManifest,run};
+module.exports={validate,frozenInputs,preservation,changeCampaign,reserve,bounded,naturalAnswer,verificationEvidence,sourceManifest,currentSources,run};
 if(require.main===module){(async()=>{const [command,file,digest,...extra]=process.argv.slice(2);if(!['validate','run'].includes(command)||!file||!digest||extra.length)throw Error('Usage: p805-owner-runner.cjs validate|run <plan.json> <exact-plan-sha256>');if(command==='validate'){validate(path.resolve(file),digest);console.log(JSON.stringify({status:'validated',model_calls:0}));}else{const result=await run(path.resolve(file),digest);console.log(JSON.stringify({directory:path.dirname(file),status:result.status,runs:result.runs.length,actual_cost_micros:result.actual_cost_micros,unknown_upper_bound_micros:result.unknown_upper_bound_micros,human_acceptance:'pending'}));if(result.status!=='human-review-pending')process.exitCode=1;}})().catch(error=>{console.error(error.message);process.exitCode=1;});}
