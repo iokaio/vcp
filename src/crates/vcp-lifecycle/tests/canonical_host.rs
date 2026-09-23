@@ -150,6 +150,8 @@ mod public_connection;
 mod public_controller;
 #[path = "support/public_events.rs"]
 mod public_events;
+#[path = "support/public_export.rs"]
+mod public_export;
 #[path = "support/public_resume.rs"]
 mod public_resume;
 #[cfg(windows)]

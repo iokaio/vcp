@@ -480,7 +480,9 @@ async fn disclosure_limits_and_canonical_provenance_fail_closed() {
                     Timestamp::new(3)
                 )
                 .await,
-            Err(PublicError::InvalidParameters)
+            Err(PublicExportCommitError::Public(
+                PublicError::InvalidParameters
+            ))
         ));
         assert_eq!(engine.store().state(), &before);
         assert_eq!(engine.store().spool().unfinished().unwrap().len(), 0);

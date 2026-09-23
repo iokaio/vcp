@@ -2,7 +2,7 @@
 //! Local derived captures under the authenticated reader's existing disclosure ceiling.
 use super::{public_connection::PublicConnection, *};
 use vcp_engine::{
-    public_export::{ExportDisclosure, PublicExportAdmission},
+    public_export::{ExportDisclosure, PublicExportAdmission, PublicExportCommitError},
     rpc::public_error,
 };
 use vcp_protocol::{
@@ -48,6 +48,7 @@ impl PublicConnection {
         let fallback = request.clone();
         let connected = self.connected.clone();
         let worker = host.worker.clone();
+        let lifecycle = host.runtime.clone();
         host.worker
             .run_cleanup(move |context| {
                 Ok((|| -> RpcResult<_> {
@@ -147,7 +148,26 @@ impl PublicConnection {
                             now(),
                         ))
                         .map_err(|e| {
-                            public_error(e, Some(request.mutation.command_id.clone()), false)
+                            match e {
+                                PublicExportCommitError::Public(error) => public_error(
+                                    error,
+                                    Some(request.mutation.command_id.clone()),
+                                    false,
+                                ),
+                                PublicExportCommitError::CaptureFault => {
+                                    context.interrupted_capture = true;
+                                    // Admission closes synchronously. The lifecycle owns
+                                    // the interruption; dropping its waiter cannot abort it.
+                                    if lifecycle.hold_owner().is_err() {
+                                        worker.fence();
+                                    }
+                                    if context.pause_root("session export capture failed").is_err()
+                                    {
+                                        worker.fence();
+                                    }
+                                    error(Code::StoreUnavailable, &request)
+                                }
+                            }
                         })?;
                     if stopped() {
                         return Err(unknown(&request));

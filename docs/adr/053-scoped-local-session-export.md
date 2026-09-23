@@ -26,6 +26,10 @@ history access. Both completed descriptors and the original public command recei
 commit in one transaction. A precommit failure can leave unreferenced spool objects,
 but cannot publish a canonical half-export. Replaying a command checks current
 controller/disclosure and source validity before returning the same output IDs.
+Spool creation, writing or finalization failures immediately fence capture
+admission, hold runtime work and pause the root. Interrupted captures require
+recovery after reopening; validation failures and uncertain canonical commits
+retain their distinct error classifications.
 
 An export anchored to one task may describe a whole session. Every payload and
 manifest read therefore checks the complete source boundary, not just the anchor
@@ -51,3 +55,6 @@ paired outputs, receipt replay/restart, stale policy/authority/deletion, task sc
 malformed provenance, schema downgrade and oversized retained events. The compiled
 fixture exercises the authenticated bridge, role/profile checks, explicit host
 denial, read/replay and source invalidation without a provider.
+A native lifecycle fault test uses a one-byte artifact limit on both stores to
+prove immediate admission blocking, no export receipt and persisted recovery
+requirements after reopening.

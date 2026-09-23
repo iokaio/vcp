@@ -33,6 +33,19 @@ pub enum PublicExportAdmission {
     Replay(PublicExportOutcome),
     Ready(PreparedPublicExport),
 }
+/// Capture faults require the lifecycle owner to stop admission until recovery.
+/// Validation/source errors and uncertain canonical commits retain their original
+/// public classification; they must not be mistaken for an interrupted spool.
+#[derive(Debug)]
+pub enum PublicExportCommitError {
+    Public(PublicError),
+    CaptureFault,
+}
+impl From<PublicError> for PublicExportCommitError {
+    fn from(error: PublicError) -> Self {
+        Self::Public(error)
+    }
+}
 pub struct PreparedPublicExport {
     request: methods::SessionExport,
     actor: ActorId,
@@ -217,9 +230,9 @@ impl Engine<Store> {
         disclosure: &ExportDisclosure,
         rendered: Rendered,
         now: Timestamp,
-    ) -> Result<PublicExportOutcome, PublicError> {
+    ) -> Result<PublicExportOutcome, PublicExportCommitError> {
         if prepared.actor != access.actor {
-            return Err(PublicError::Access);
+            return Err(PublicError::Access.into());
         }
         let ready = match self.prepare_public_export(
             prepared.request.clone(),
@@ -236,7 +249,7 @@ impl Engine<Store> {
             || rendered.sources != ready.sources
             || rendered.capture != ready.request.capture
         {
-            return Err(PublicError::StaleState);
+            return Err(PublicError::StaleState.into());
         }
         if rendered.payload.len() > export_contract::MAX_BYTES
             || rendered.omissions.len()
@@ -244,33 +257,38 @@ impl Engine<Store> {
             || rendered.omissions.iter().any(|s| s.len() > 512)
             || (rendered.complete && !rendered.omissions.is_empty())
         {
-            return Err(PublicError::InvalidParameters);
+            return Err(PublicError::InvalidParameters.into());
         }
-        let capture = |schema: &str, bytes: &[u8]| -> Result<ArtifactDescriptor, PublicError> {
-            let mut writer = self
-                .store()
-                .spool()
-                .create(ArtifactSpec {
-                    id: ArtifactId::new(),
-                    scope: ready.sources.scope().clone(),
-                    media_type: "application/json".into(),
-                    schema: schema.into(),
-                    source: "canonical bounded session export".into(),
-                    channel: Channel::Evidence,
-                    retention: "history".into(),
-                    omissions: vec![],
-                })
-                .map_err(unavailable)?;
-            for chunk in bytes.chunks(CHUNK_BYTES) {
-                writer.write_chunk(chunk).map_err(unavailable)?;
-            }
-            writer.finalize().map_err(unavailable)
-        };
+        let capture =
+            |schema: &str, bytes: &[u8]| -> Result<ArtifactDescriptor, PublicExportCommitError> {
+                let mut writer = self
+                    .store()
+                    .spool()
+                    .create(ArtifactSpec {
+                        id: ArtifactId::new(),
+                        scope: ready.sources.scope().clone(),
+                        media_type: "application/json".into(),
+                        schema: schema.into(),
+                        source: "canonical bounded session export".into(),
+                        channel: Channel::Evidence,
+                        retention: "history".into(),
+                        omissions: vec![],
+                    })
+                    .map_err(|_| PublicExportCommitError::CaptureFault)?;
+                for chunk in bytes.chunks(CHUNK_BYTES) {
+                    writer
+                        .write_chunk(chunk)
+                        .map_err(|_| PublicExportCommitError::CaptureFault)?;
+                }
+                writer
+                    .finalize()
+                    .map_err(|_| PublicExportCommitError::CaptureFault)
+            };
         let artifact = capture(export_contract::PAYLOAD_SCHEMA, &rendered.payload)?;
         let manifest=serde_json::to_vec(&serde_json::json!({"schema":export_contract::MANIFEST_SCHEMA,"sources":ready.sources,"capture":rendered.capture,
             "artifact":artifact,"complete":rendered.complete,"omissions":rendered.omissions,"secret_sanitization":false})).map_err(unavailable)?;
         if manifest.len().saturating_add(rendered.payload.len()) > export_contract::MAX_BYTES {
-            return Err(PublicError::InvalidParameters);
+            return Err(PublicError::InvalidParameters.into());
         }
         let visibility_manifest = capture(export_contract::MANIFEST_SCHEMA, &manifest)?;
         let acceptance = Acceptance {
