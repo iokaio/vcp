@@ -1,0 +1,921 @@
+// SPDX-License-Identifier: Apache-2.0
+//! Stateful public dispatch without a transport. The host supplies current access
+//! on every request; initialization and client fields never grant authority.
+//! Notifications (including mutations and initialize) are ignored. A request ID
+//! is required for execution; responses to notifications are always suppressed.
+//! Oversized batches or responses close the session without a JSON-RPC reply.
+//! Transports must close when `is_closed()` becomes true; reconnecting callers
+//! reconcile outstanding durable command identities before retrying.
+use crate::{
+    public::PublicError,
+    query::{Query, QueryError, QueryResult, SessionCursor},
+    Access, Engine, HostFacts,
+};
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::BTreeSet;
+use vcp_domain::{ids::*, revision::Revision, workspace::Session};
+use vcp_protocol::{
+    command::{CommandReceipt, CommandResult},
+    errors::{ApplicationError, Code, Retry},
+    handshake::{Handshake, InitializeParams, ServerInfo},
+    jsonrpc::{self, Envelope, Message, Request, Response, RpcError},
+    methods::{self, Call, ResultValue},
+};
+use vcp_store::contract::CanonicalStore;
+
+pub const MAX_BATCH: usize = 64;
+/// Task projection and live execution controls are not advertised by this adapter.
+pub const METHODS: &[&str] = &[
+    "session/create",
+    "session/read",
+    "session/list",
+    "turn/steer",
+    "approval/respond",
+    "command/read",
+];
+pub const ESSENTIAL_CAPABILITIES: &[&str] = &["jsonrpc/2.0", "durable-command/1"];
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum RpcResponses {
+    Single(Response),
+    Batch(Vec<Response>),
+}
+
+pub struct RpcSession {
+    handshake: Handshake,
+    server: ServerInfo,
+    negotiated: BTreeSet<String>,
+    principal: Option<(ActorId, WorkspaceId, SessionId)>,
+    closed: bool,
+}
+
+impl RpcSession {
+    /// Configuration may restrict the implemented methods, never add a handler
+    /// or capability. Resource/host facts remain the trusted caller's property.
+    pub fn new(server: ServerInfo) -> Result<Self, RpcError> {
+        let methods: BTreeSet<_> = server.methods.iter().cloned().collect();
+        if methods.len() != server.methods.len()
+            || methods
+                .iter()
+                .any(|method| !METHODS.contains(&method.as_str()))
+        {
+            return Err(RpcError::internal_error());
+        }
+        let supported: BTreeSet<_> = methods
+            .iter()
+            .cloned()
+            .chain(ESSENTIAL_CAPABILITIES.iter().map(|s| (*s).to_owned()))
+            .collect();
+        if server.capabilities != supported {
+            return Err(RpcError::internal_error());
+        }
+        Ok(Self {
+            handshake: Handshake::default(),
+            server,
+            negotiated: BTreeSet::new(),
+            principal: None,
+            closed: false,
+        })
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed
+    }
+
+    pub async fn dispatch<S: CanonicalStore>(
+        &mut self,
+        engine: &mut Engine<S>,
+        access: &Access,
+        host: &HostFacts,
+        envelope: Envelope,
+    ) -> Option<RpcResponses> {
+        if self.closed {
+            return None;
+        }
+        let responses = match envelope {
+            Envelope::Single(message) => self
+                .message(engine, access, host, message)
+                .await
+                .map(RpcResponses::Single),
+            Envelope::Batch(messages) => {
+                if messages.is_empty() {
+                    return Some(RpcResponses::Single(Response::invalid(
+                        RpcError::invalid_request(),
+                    )));
+                }
+                if messages.len() > MAX_BATCH {
+                    self.closed = true;
+                    return None;
+                }
+                let mut responses = Vec::new();
+                for message in messages {
+                    if let Some(response) = self.message(engine, access, host, message).await {
+                        responses.push(response);
+                    }
+                }
+                if responses.is_empty() {
+                    None
+                } else {
+                    Some(RpcResponses::Batch(responses))
+                }
+            }
+        };
+        // A committed mutation stays committed even if its response cannot fit.
+        // The client reconciles original command IDs; this is never a retry grant.
+        let responses = responses?;
+        if jsonrpc::encode_frame(&responses, self.server.limits.maximum_frame_bytes as usize)
+            .is_err()
+        {
+            self.closed = true;
+            None
+        } else {
+            Some(responses)
+        }
+    }
+
+    async fn message<S: CanonicalStore>(
+        &mut self,
+        engine: &mut Engine<S>,
+        access: &Access,
+        host: &HostFacts,
+        message: Result<Message, RpcError>,
+    ) -> Option<Response> {
+        match message {
+            Err(error) => Some(Response::invalid(error)),
+            Ok(Message::Response(_)) => Some(Response::invalid(RpcError::invalid_request())),
+            Ok(Message::Request(request)) if request.is_notification() => None,
+            Ok(Message::Request(request)) => {
+                let outcome = self.request(engine, access, host, &request).await;
+                request.respond(outcome)
+            }
+        }
+    }
+
+    async fn request<S: CanonicalStore>(
+        &mut self,
+        engine: &mut Engine<S>,
+        access: &Access,
+        host: &HostFacts,
+        request: &Request,
+    ) -> Result<Value, RpcError> {
+        if jsonrpc::encode_frame(request, self.server.limits.maximum_frame_bytes as usize).is_err()
+        {
+            return Err(application(
+                Code::ResourceLimit,
+                Retry::Never,
+                None,
+                "request frame exceeds negotiated limit",
+            ));
+        }
+        // A host must refresh access before dispatch; cached initialization is not
+        // a grant. Bind identity too, so one connection cannot switch principals.
+        engine.authorize(access).map_err(|_| {
+            application(
+                Code::PolicyDenied,
+                Retry::AfterRevalidation,
+                None,
+                "current read access denied",
+            )
+        })?;
+        engine
+            .query(
+                access,
+                &Query::Session {
+                    session: access.session.clone(),
+                },
+            )
+            .map_err(query_error)?;
+        let principal = (
+            access.actor.clone(),
+            access.workspace.clone(),
+            access.session.clone(),
+        );
+        if self
+            .principal
+            .as_ref()
+            .is_some_and(|current| current != &principal)
+        {
+            return Err(application(
+                Code::PolicyDenied,
+                Retry::Never,
+                None,
+                "connection principal or scope changed",
+            ));
+        }
+        if request.method == "initialize" {
+            let params: InitializeParams =
+                serde_json::from_value(request.params.clone().unwrap_or(Value::Null))
+                    .map_err(|_| RpcError::invalid_params())?;
+            let preview = vcp_protocol::handshake::negotiate(&params, &self.server)?;
+            let preview = request
+                .respond(serde_json::to_value(preview).map_err(|_| RpcError::internal_error()));
+            if jsonrpc::encode_frame(&preview, self.server.limits.maximum_frame_bytes as usize)
+                .is_err()
+            {
+                return Err(application(
+                    Code::ResourceLimit,
+                    Retry::Never,
+                    None,
+                    "initialization response exceeds frame limit",
+                ));
+            }
+            let result = self.handshake.initialize(&params, &self.server)?;
+            self.negotiated = result.capabilities.iter().cloned().collect();
+            self.principal = Some(principal);
+            return serde_json::to_value(result).map_err(|_| RpcError::internal_error());
+        }
+        self.handshake.require_initialized()?;
+        if !Call::METHODS.contains(&request.method.as_str()) {
+            return Err(RpcError::method_not_found());
+        }
+        if !self
+            .server
+            .methods
+            .iter()
+            .any(|method| method == &request.method)
+            || !self.negotiated.contains(&request.method)
+        {
+            return Err(application(
+                Code::CapabilityUnavailable,
+                Retry::Never,
+                None,
+                "method capability was not negotiated",
+            ));
+        }
+        let call = Call::decode(
+            &request.method,
+            request.params.clone().unwrap_or(Value::Null),
+        )
+        .map_err(|_| RpcError::invalid_params())?;
+        let result = match &call {
+            Call::SessionRead(p) => {
+                check_scope(&p.scope, access)?;
+                match engine
+                    .query(
+                        access,
+                        &Query::Session {
+                            session: access.session.clone(),
+                        },
+                    )
+                    .map_err(query_error)?
+                {
+                    QueryResult::Session { session, .. } => {
+                        ResultValue::Session(session_view(session)?)
+                    }
+                    _ => return Err(RpcError::internal_error()),
+                }
+            }
+            Call::SessionList(p) => {
+                check_scope(&p.scope, access)?;
+                let cursor: Option<SessionCursor> = p
+                    .cursor
+                    .as_ref()
+                    .map(|value| serde_json::from_str(value))
+                    .transpose()
+                    .map_err(|_| RpcError::invalid_params())?;
+                match engine
+                    .query(
+                        access,
+                        &Query::Sessions {
+                            limit: p.limit,
+                            cursor,
+                        },
+                    )
+                    .map_err(query_error)?
+                {
+                    QueryResult::Sessions {
+                        watermark,
+                        sessions,
+                        next,
+                    } => ResultValue::Sessions(methods::SessionPage {
+                        watermark: watermark.get().into(),
+                        sessions: sessions
+                            .into_iter()
+                            .map(session_view)
+                            .collect::<Result<_, _>>()?,
+                        next_cursor: next
+                            .map(|cursor| serde_json::to_string(&cursor))
+                            .transpose()
+                            .map_err(|_| RpcError::internal_error())?,
+                    }),
+                    _ => return Err(RpcError::internal_error()),
+                }
+            }
+            Call::CommandRead(p) => {
+                check_scope(&p.scope, access)?;
+                let command = CommandId::parse(p.command_id.as_str())
+                    .map_err(|_| RpcError::invalid_params())?;
+                match engine
+                    .query(access, &Query::Command { command })
+                    .map_err(query_error)?
+                {
+                    QueryResult::Command { receipt, .. } => acceptance(engine, access, &receipt)?,
+                    _ => return Err(RpcError::internal_error()),
+                }
+            }
+            Call::SessionCreate(_) | Call::TurnSteer(_) | Call::ApprovalRespond(_) => {
+                let operation = call.mutation().map(|mutation| mutation.command_id.clone());
+                let approval = matches!(call, Call::ApprovalRespond(_));
+                let receipt = engine
+                    .handle_public(call, access, host)
+                    .await
+                    .map_err(|error| public_error(error, operation, approval))?;
+                acceptance(engine, access, &receipt)?
+            }
+            _ => {
+                return Err(application(
+                    Code::CapabilityUnavailable,
+                    Retry::Never,
+                    None,
+                    "method has no public adapter",
+                ))
+            }
+        };
+        serde_json::to_value(result).map_err(|_| RpcError::internal_error())
+    }
+}
+
+fn check_scope(scope: &methods::Scope, access: &Access) -> Result<(), RpcError> {
+    if scope.workspace.as_str() != access.workspace.as_str()
+        || scope.session.as_str() != access.session.as_str()
+    {
+        return Err(application(
+            Code::PolicyDenied,
+            Retry::Never,
+            None,
+            "request scope differs from authenticated scope",
+        ));
+    }
+    Ok(())
+}
+fn id(value: &str) -> Result<methods::Id, RpcError> {
+    value
+        .to_owned()
+        .try_into()
+        .map_err(|_| RpcError::internal_error())
+}
+fn session_view(session: Session) -> Result<methods::SessionView, RpcError> {
+    Ok(methods::SessionView {
+        scope: methods::Scope {
+            workspace: id(session.workspace.as_str())?,
+            session: id(session.id.as_str())?,
+        },
+        revision: session.revision.get().into(),
+        configuration_revision: session.configuration.get().into(),
+        fork_origin: session
+            .fork_origin
+            .as_ref()
+            .map(|value| id(value.as_str()))
+            .transpose()?,
+        fork_through: session
+            .fork_through
+            .as_ref()
+            .map(|value| id(value.as_str()))
+            .transpose()?,
+    })
+}
+fn acceptance<S: CanonicalStore>(
+    engine: &Engine<S>,
+    access: &Access,
+    receipt: &CommandReceipt,
+) -> Result<ResultValue, RpcError> {
+    let command_id = id(receipt.command.as_str())?;
+    let revision: Revision = match receipt.result {
+        CommandResult::Accepted { revision } => revision,
+        _ => {
+            return Err(application(
+                Code::CapabilityUnavailable,
+                Retry::Never,
+                Some(id(receipt.command.as_str())?),
+                "legacy command result has no public acceptance projection",
+            ))
+        }
+    };
+    let event = engine
+        .store()
+        .state()
+        .events
+        .iter()
+        .find(|event| {
+            event.watermark == receipt.watermark
+                && event.event.correlation == receipt.command
+                && event.event.workspace == access.workspace
+                && event.event.session == access.session
+        })
+        .ok_or_else(|| {
+            application(
+                Code::CursorGap,
+                Retry::AfterRevalidation,
+                Some(command_id.clone()),
+                "command projection scope evidence unavailable",
+            )
+        })?;
+    Ok(ResultValue::Acceptance(methods::Acceptance {
+        command_id,
+        scope: methods::Scope {
+            workspace: id(access.workspace.as_str())?,
+            session: id(access.session.as_str())?,
+        },
+        task: event
+            .event
+            .task
+            .as_ref()
+            .map(|task| id(task.as_str()))
+            .transpose()?,
+        turn: None,
+        revision: revision.get().into(),
+        watermark: receipt.watermark.get().into(),
+        outcome: methods::OperationOutcome::Accepted,
+    }))
+}
+fn application(
+    code: Code,
+    retry: Retry,
+    operation: Option<methods::Id>,
+    explanation: &str,
+) -> RpcError {
+    ApplicationError {
+        code,
+        retry,
+        operation,
+        explanation: explanation.into(),
+        reconciliation: None,
+    }
+    .into_rpc()
+}
+fn query_error(error: QueryError) -> RpcError {
+    let (code, retry) = match error {
+        QueryError::Access | QueryError::Unavailable => {
+            (Code::PolicyDenied, Retry::AfterRevalidation)
+        }
+        QueryError::StaleCursor => (Code::CursorGap, Retry::AfterRevalidation),
+        QueryError::Limit => (Code::ResourceLimit, Retry::Never),
+        QueryError::InvalidData => (Code::StoreUnavailable, Retry::Never),
+    };
+    application(code, retry, None, "scoped read unavailable")
+}
+fn public_error(error: PublicError, operation: Option<methods::Id>, approval: bool) -> RpcError {
+    let (code, retry) = match error {
+        PublicError::Access => (Code::PolicyDenied, Retry::AfterRevalidation),
+        PublicError::InvalidParameters => return RpcError::invalid_params(),
+        PublicError::CapabilityUnavailable => (Code::CapabilityUnavailable, Retry::Never),
+        PublicError::CommandConflict => (Code::CommandConflict, Retry::Never),
+        PublicError::StaleState => (
+            if approval {
+                Code::ApprovalStale
+            } else {
+                Code::VersionConflict
+            },
+            Retry::AfterRevalidation,
+        ),
+        PublicError::Unavailable => (Code::PolicyDenied, Retry::AfterRevalidation),
+        PublicError::OutcomeUnknown => (Code::OutcomeUnknown, Retry::ReconcileOriginal),
+    };
+    application(
+        code,
+        retry,
+        operation,
+        "public command was not acknowledged",
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use vcp_domain::{revision::*, workspace::Binding};
+    use vcp_protocol::{
+        command::{Command, CommandEnvelope},
+        handshake::{ConnectionLimits, ExecutionHost},
+    };
+    use vcp_store::{BackendKind, Store};
+
+    fn access() -> Access {
+        Access {
+            actor: ActorId::parse("owner").unwrap(),
+            workspace: WorkspaceId::parse("workspace").unwrap(),
+            session: SessionId::parse("session").unwrap(),
+            authority: AuthorityRevision::ZERO,
+            read: true,
+            write: true,
+            bootstrap: true,
+        }
+    }
+    fn server() -> ServerInfo {
+        ServerInfo {
+            engine_build: "fixture".into(),
+            capabilities: METHODS
+                .iter()
+                .chain(ESSENTIAL_CAPABILITIES)
+                .map(|s| (*s).to_owned())
+                .collect(),
+            methods: METHODS.iter().map(|s| (*s).to_owned()).collect(),
+            limits: ConnectionLimits {
+                maximum_frame_bytes: 256 * 1024,
+                maximum_pending_requests: 64,
+                maximum_subscriptions: 1,
+                maximum_subscriber_queue_bytes: 256 * 1024,
+            },
+            execution_host: ExecutionHost {
+                id: "fixture-host".into(),
+                platform: "test".into(),
+            },
+            sandbox_capabilities: vec![],
+        }
+    }
+    async fn setup(path: &std::path::Path, backend: BackendKind) -> Engine<Store> {
+        let mut engine = Engine::new(Store::open(path, backend, &[]).await.unwrap()).unwrap();
+        let access = access();
+        let command = CommandEnvelope {
+            version: 1,
+            id: CommandId::new(),
+            workspace: access.workspace.clone(),
+            session: access.session.clone(),
+            task: None,
+            caller: access.actor.clone(),
+            controller: engine.controller().clone(),
+            owner_epoch: engine.owner_epoch(),
+            expected: Revision::ZERO,
+            steering: SteeringRevision::ZERO,
+            payload: Command::Initialize {
+                binding: Binding {
+                    host: HostId::new(),
+                    root: "C:/rpc-fixture".into(),
+                    repository: "fixture".into(),
+                    worktree: "main".into(),
+                    revision: Revision::ZERO,
+                },
+            },
+        };
+        engine
+            .handle(command, &access, &HostFacts::inspect(Timestamp::new(1)))
+            .await
+            .unwrap();
+        engine
+    }
+    fn request(id: i64, method: &str, params: Value) -> Value {
+        json!({"jsonrpc":"2.0","id":id,"method":method,"params":params})
+    }
+    fn init() -> Value {
+        request(
+            0,
+            "initialize",
+            json!({"protocol_version":"1.0","client":{"name":"fixture","version":"1"},"capabilities":METHODS,"required_capabilities":ESSENTIAL_CAPABILITIES}),
+        )
+    }
+    fn create(id: i64) -> Value {
+        request(
+            id,
+            "session/create",
+            json!({"scope":{"workspace":"workspace","session":"session"},
+        "mutation":{"command_id":"create-once","expected_revision":"0","steering_revision":"0"},"new_session":"created","configuration_revision":"0"}),
+        )
+    }
+    async fn send(
+        rpc: &mut RpcSession,
+        engine: &mut Engine<Store>,
+        grant: &Access,
+        value: Value,
+    ) -> Option<Value> {
+        rpc.dispatch(
+            engine,
+            grant,
+            &HostFacts::inspect(Timestamp::new(1)),
+            jsonrpc::parse_frame(&value.to_string()),
+        )
+        .await
+        .map(|response| serde_json::to_value(response).unwrap())
+    }
+
+    #[tokio::test]
+    async fn actual_envelopes_replay_durable_commands_and_project_typed_queries_after_restart() {
+        for backend in [BackendKind::Sqlite, BackendKind::Files] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join("store");
+            let mut engine = setup(&root, backend).await;
+            let mut rpc = RpcSession::new(server()).unwrap();
+            assert_eq!(
+                send(&mut rpc, &mut engine, &access(), create(1))
+                    .await
+                    .unwrap()["error"]["data"]["kind"],
+                "not_initialized"
+            );
+            let initialized = send(&mut rpc, &mut engine, &access(), init())
+                .await
+                .unwrap();
+            assert_eq!(initialized["result"]["methods"], json!(METHODS));
+            assert!(!initialized["result"]["methods"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("task/read")));
+            let first = send(&mut rpc, &mut engine, &access(), create(1))
+                .await
+                .unwrap();
+            assert_eq!(first["result"]["kind"], "acceptance");
+            let watermark = engine.store().state().watermark;
+            let retry = send(&mut rpc, &mut engine, &access(), create(2))
+                .await
+                .unwrap();
+            assert_eq!(first["result"], retry["result"]);
+            assert_eq!(retry["id"], 2);
+            let mut changed = create(3);
+            changed["params"]["new_session"] = json!("changed");
+            assert_eq!(
+                send(&mut rpc, &mut engine, &access(), changed)
+                    .await
+                    .unwrap()["error"]["data"]["details"]["code"],
+                "COMMAND_CONFLICT"
+            );
+            let query = request(
+                4,
+                "command/read",
+                json!({"scope":{"workspace":"workspace","session":"session"},"command_id":"create-once"}),
+            );
+            let receipt = send(&mut rpc, &mut engine, &access(), query.clone())
+                .await
+                .unwrap();
+            assert_eq!(receipt["result"], first["result"]);
+            assert!(receipt["result"]["value"].get("digest").is_none());
+            let sessions = request(
+                5,
+                "session/list",
+                json!({"scope":{"workspace":"workspace","session":"session"},"cursor":null,"limit":128}),
+            );
+            let page = send(&mut rpc, &mut engine, &access(), sessions)
+                .await
+                .unwrap();
+            assert_eq!(
+                page["result"]["value"]["sessions"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            assert_eq!(
+                page["result"]["value"]["sessions"][0]["scope"]["session"],
+                "session"
+            );
+            assert_eq!(engine.store().state().watermark, watermark);
+            engine.into_store().close().await.unwrap();
+            let mut engine = Engine::new(Store::open(&root, backend, &[]).await.unwrap()).unwrap();
+            let mut rpc = RpcSession::new(server()).unwrap();
+            send(&mut rpc, &mut engine, &access(), init())
+                .await
+                .unwrap();
+            assert_eq!(
+                send(&mut rpc, &mut engine, &access(), create(8))
+                    .await
+                    .unwrap()["result"],
+                first["result"]
+            );
+            assert_eq!(
+                send(&mut rpc, &mut engine, &access(), query).await.unwrap()["result"],
+                first["result"]
+            );
+            assert_eq!(engine.store().state().watermark, watermark);
+            engine.into_store().close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn notification_batch_capability_and_current_authority_gates_prevent_mutations() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut engine = setup(temp.path(), BackendKind::Sqlite).await;
+        let mut rpc = RpcSession::new(server()).unwrap();
+        let mut notification = init();
+        notification.as_object_mut().unwrap().remove("id");
+        assert!(send(&mut rpc, &mut engine, &access(), notification)
+            .await
+            .is_none());
+        assert_eq!(
+            send(&mut rpc, &mut engine, &access(), create(1))
+                .await
+                .unwrap()["error"]["data"]["kind"],
+            "not_initialized"
+        );
+        send(&mut rpc, &mut engine, &access(), init())
+            .await
+            .unwrap();
+        let watermark = engine.store().state().watermark;
+        let mut notification = create(1);
+        notification.as_object_mut().unwrap().remove("id");
+        assert!(send(
+            &mut rpc,
+            &mut engine,
+            &access(),
+            json!([notification.clone(), notification.clone()])
+        )
+        .await
+        .is_none());
+        let batch = send(
+            &mut rpc,
+            &mut engine,
+            &access(),
+            json!([notification, 7, {"jsonrpc":"2.0","id":7,"result":{}}]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(batch.as_array().unwrap().len(), 2);
+        assert_eq!(batch[0]["error"]["code"], -32600);
+        assert_eq!(batch[1]["error"]["code"], -32600);
+        let mut observer = access();
+        observer.write = false;
+        assert_eq!(
+            send(&mut rpc, &mut engine, &observer, create(2))
+                .await
+                .unwrap()["error"]["data"]["details"]["code"],
+            "POLICY_DENIED"
+        );
+        let mut revoked = access();
+        revoked.authority = AuthorityRevision::new(1);
+        assert_eq!(
+            send(&mut rpc, &mut engine, &revoked, create(3))
+                .await
+                .unwrap()["error"]["data"]["details"]["code"],
+            "POLICY_DENIED"
+        );
+        let mut changed_actor = access();
+        changed_actor.actor = ActorId::new();
+        assert_eq!(
+            send(&mut rpc, &mut engine, &changed_actor, create(4))
+                .await
+                .unwrap()["error"]["data"]["details"]["code"],
+            "POLICY_DENIED"
+        );
+        let mut rpc = RpcSession::new(server()).unwrap();
+        let mut limited = init();
+        limited["params"]["capabilities"] = json!(["session/read"]);
+        send(&mut rpc, &mut engine, &access(), limited)
+            .await
+            .unwrap();
+        assert_eq!(
+            send(&mut rpc, &mut engine, &access(), create(5))
+                .await
+                .unwrap()["error"]["data"]["details"]["code"],
+            "CAPABILITY_UNAVAILABLE"
+        );
+        assert_eq!(engine.store().state().watermark, watermark);
+        engine.into_store().close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unsupported_versions_required_capabilities_and_unknown_governance_fields_fail_closed()
+    {
+        let temp = tempfile::tempdir().unwrap();
+        let mut engine = setup(temp.path(), BackendKind::Files).await;
+        let mut invalid_server = server();
+        invalid_server.methods.push("task/read".into());
+        assert!(RpcSession::new(invalid_server).is_err());
+        let mut invalid_server = server();
+        invalid_server
+            .capabilities
+            .insert("background-owner".into());
+        assert!(RpcSession::new(invalid_server).is_err());
+        let mut rpc = RpcSession::new(server()).unwrap();
+        let mut wrong = init();
+        wrong["params"]["protocol_version"] = json!("2.0");
+        assert_eq!(
+            send(&mut rpc, &mut engine, &access(), wrong).await.unwrap()["error"]["data"]["kind"],
+            "unsupported_version"
+        );
+        let mut wrong = init();
+        wrong["params"]["required_capabilities"] = json!(["task/read"]);
+        assert_eq!(
+            send(&mut rpc, &mut engine, &access(), wrong).await.unwrap()["error"]["data"]["kind"],
+            "unsupported_capability"
+        );
+        send(&mut rpc, &mut engine, &access(), init())
+            .await
+            .unwrap();
+        let watermark = engine.store().state().watermark;
+        assert_eq!(
+            send(
+                &mut rpc,
+                &mut engine,
+                &access(),
+                request(10, "invented/method", json!({}))
+            )
+            .await
+            .unwrap()["error"]["code"],
+            -32601
+        );
+        assert_eq!(
+            send(
+                &mut rpc,
+                &mut engine,
+                &access(),
+                request(11, "task/read", json!({}))
+            )
+            .await
+            .unwrap()["error"]["data"]["details"]["code"],
+            "CAPABILITY_UNAVAILABLE"
+        );
+        let mut wrong = create(1);
+        wrong["params"]["grant_controller"] = json!(true);
+        assert_eq!(
+            send(&mut rpc, &mut engine, &access(), wrong).await.unwrap()["error"]["code"],
+            -32602
+        );
+        let mut wrong = create(2);
+        wrong["params"]["scope"]["session"] = json!("foreign");
+        assert_eq!(
+            send(&mut rpc, &mut engine, &access(), wrong).await.unwrap()["error"]["data"]
+                ["details"]["code"],
+            "POLICY_DENIED"
+        );
+        assert_eq!(engine.store().state().watermark, watermark);
+        engine.into_store().close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oversized_batches_close_without_replies_or_partial_execution() {
+        for backend in [BackendKind::Sqlite, BackendKind::Files] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut engine = setup(temp.path(), backend).await;
+            let watermark = engine.store().state().watermark;
+            for mixed in [false, true] {
+                let mut rpc = RpcSession::new(server()).unwrap();
+                send(&mut rpc, &mut engine, &access(), init())
+                    .await
+                    .unwrap();
+                let entries = (0..65)
+                    .map(|index| {
+                        let mut value = create(index);
+                        if !mixed || index % 2 == 0 {
+                            value.as_object_mut().unwrap().remove("id");
+                        }
+                        value
+                    })
+                    .collect();
+                assert!(
+                    send(&mut rpc, &mut engine, &access(), Value::Array(entries))
+                        .await
+                        .is_none()
+                );
+                assert!(rpc.is_closed());
+                assert_eq!(engine.store().state().watermark, watermark);
+                assert!(send(&mut rpc, &mut engine, &access(), create(99))
+                    .await
+                    .is_none());
+                assert_eq!(engine.store().state().watermark, watermark);
+            }
+            engine.into_store().close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn response_overflow_closes_and_reconnect_reconciles_committed_mutation() {
+        for backend in [BackendKind::Sqlite, BackendKind::Files] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut engine = setup(temp.path(), backend).await;
+            let mut configuration = server();
+            configuration.limits.maximum_frame_bytes = 1536;
+            let mut rpc = RpcSession::new(configuration).unwrap();
+            let initialized = send(&mut rpc, &mut engine, &access(), init())
+                .await
+                .unwrap();
+            assert!(initialized.get("result").is_some());
+            let before = engine.store().state().watermark;
+            let read = request(
+                2,
+                "command/read",
+                json!({"scope":{"workspace":"workspace","session":"session"},"command_id":"create-once"}),
+            );
+            let batch = Value::Array(
+                std::iter::once(create(1))
+                    .chain((2..9).map(|request_id| {
+                        let mut request = read.clone();
+                        request["id"] = json!(request_id);
+                        request
+                    }))
+                    .collect(),
+            );
+            assert!(serde_json::to_vec(&batch).unwrap().len() <= 1536);
+            assert!(send(&mut rpc, &mut engine, &access(), batch)
+                .await
+                .is_none());
+            assert!(rpc.is_closed());
+            let committed = engine.store().state().watermark;
+            assert!(committed > before);
+            assert_eq!(engine.store().state().commands.len(), 2);
+            assert!(send(&mut rpc, &mut engine, &access(), create(3))
+                .await
+                .is_none());
+            let mut reconnected = RpcSession::new(server()).unwrap();
+            send(&mut reconnected, &mut engine, &access(), init())
+                .await
+                .unwrap();
+            let receipt = send(&mut reconnected, &mut engine, &access(), read)
+                .await
+                .unwrap();
+            let retried = send(&mut reconnected, &mut engine, &access(), create(4))
+                .await
+                .unwrap();
+            assert_eq!(receipt["result"], retried["result"]);
+            assert_eq!(engine.store().state().watermark, committed);
+            engine.into_store().close().await.unwrap();
+        }
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@vcp/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generated VCP public wire types and JSON Schema; no runtime client.",
+  "license": "Apache-2.0",
+  "types": "./index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts"
+    },
+    "./schema.json": "./schema.json"
+  }
+}

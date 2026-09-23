@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Private versioned envelopes. Public transports and SDK bindings remain deferred.
+//! Internal domain envelopes and the separately negotiated public wire contract.
 pub mod command;
+pub mod errors;
 pub mod event;
+pub mod handshake;
+pub mod jsonrpc;
+pub mod methods;
 pub mod persisted_json;
 pub mod redaction;
 pub mod subscription;

@@ -1,0 +1,541 @@
+{
+  "profile": "vcp-public/1.0",
+  "purpose": "Compatibility and decoding only; no engine execution or authority grant is implied.",
+  "server": {
+    "engine_build": "compatibility-fixture",
+    "capabilities": [
+      "events.resume",
+      "task.read"
+    ],
+    "methods": [
+      "task/read",
+      "events/subscribe"
+    ],
+    "limits": {
+      "maximum_frame_bytes": 1048576,
+      "maximum_pending_requests": 32,
+      "maximum_subscriptions": 8,
+      "maximum_subscriber_queue_bytes": 1048576
+    },
+    "execution_host": {
+      "id": "local-test",
+      "platform": "windows"
+    },
+    "sandbox_capabilities": []
+  },
+  "handshakes": [
+    {
+      "name": "older_1_0",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "init-old",
+        "method": "initialize",
+        "params": {
+          "protocol_version": "1.0",
+          "client": {
+            "name": "fixture-peer",
+            "version": "0.1.0"
+          },
+          "capabilities": [
+            "events.resume",
+            "future.optional"
+          ],
+          "required_capabilities": []
+        }
+      },
+      "expected_status": "negotiated",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "init-old",
+        "result": {
+          "protocol_version": "1.0",
+          "event_schema_version": "1.0",
+          "schema_version": "1.0",
+          "engine_build": "compatibility-fixture",
+          "capabilities": [
+            "events.resume"
+          ],
+          "methods": [
+            "task/read",
+            "events/subscribe"
+          ],
+          "limits": {
+            "maximum_frame_bytes": 1048576,
+            "maximum_pending_requests": 32,
+            "maximum_subscriptions": 8,
+            "maximum_subscriber_queue_bytes": 1048576
+          },
+          "execution_host": {
+            "id": "local-test",
+            "platform": "windows"
+          },
+          "sandbox_capabilities": []
+        }
+      }
+    },
+    {
+      "name": "newer_1_7_falls_back",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "init-new",
+        "method": "initialize",
+        "params": {
+          "protocol_version": "1.7",
+          "client": {
+            "name": "fixture-peer",
+            "version": "0.1.0"
+          },
+          "capabilities": [
+            "events.resume",
+            "future.optional"
+          ],
+          "required_capabilities": []
+        }
+      },
+      "expected_status": "negotiated",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "init-new",
+        "result": {
+          "protocol_version": "1.0",
+          "event_schema_version": "1.0",
+          "schema_version": "1.0",
+          "engine_build": "compatibility-fixture",
+          "capabilities": [
+            "events.resume"
+          ],
+          "methods": [
+            "task/read",
+            "events/subscribe"
+          ],
+          "limits": {
+            "maximum_frame_bytes": 1048576,
+            "maximum_pending_requests": 32,
+            "maximum_subscriptions": 8,
+            "maximum_subscriber_queue_bytes": 1048576
+          },
+          "execution_host": {
+            "id": "local-test",
+            "platform": "windows"
+          },
+          "sandbox_capabilities": []
+        }
+      }
+    },
+    {
+      "name": "unsupported_major",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "init-major",
+        "method": "initialize",
+        "params": {
+          "protocol_version": "2.0",
+          "client": {
+            "name": "fixture-peer",
+            "version": "0.1.0"
+          },
+          "capabilities": [
+            "events.resume",
+            "future.optional"
+          ],
+          "required_capabilities": []
+        }
+      },
+      "expected_status": "unsupported_version",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "init-major",
+        "error": {
+          "code": -32000,
+          "message": "VCP request rejected",
+          "data": {
+            "kind": "unsupported_version",
+            "details": {
+              "requested": "2.0",
+              "supported": [
+                "1.0"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "required_capability_absent_on_same_version",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "init-required",
+        "method": "initialize",
+        "params": {
+          "protocol_version": "1.0",
+          "client": {
+            "name": "fixture-peer",
+            "version": "0.1.0"
+          },
+          "capabilities": [
+            "events.resume",
+            "future.optional"
+          ],
+          "required_capabilities": [
+            "future.required"
+          ]
+        }
+      },
+      "expected_status": "unsupported_capability",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "init-required",
+        "error": {
+          "code": -32000,
+          "message": "VCP request rejected",
+          "data": {
+            "kind": "unsupported_capability",
+            "details": {
+              "missing": [
+                "future.required"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "malformed_version",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "init-malformed",
+        "method": "initialize",
+        "params": {
+          "protocol_version": "1.0.0",
+          "client": {
+            "name": "fixture-peer",
+            "version": "0.1.0"
+          },
+          "capabilities": [
+            "events.resume",
+            "future.optional"
+          ],
+          "required_capabilities": []
+        }
+      },
+      "expected_status": "invalid_params",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "init-malformed",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params"
+        }
+      }
+    }
+  ],
+  "calls": [
+    {
+      "name": "session_create",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "session_create",
+        "method": "session/create",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "mutation": {
+            "command_id": "command-1",
+            "expected_revision": "7",
+            "steering_revision": "0"
+          },
+          "new_session": "session-2",
+          "configuration_revision": "0"
+        }
+      },
+      "expected_status": "decoded"
+    },
+    {
+      "name": "task_read",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "task_read",
+        "method": "task/read",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "task": "task-1"
+        }
+      },
+      "expected_status": "decoded"
+    },
+    {
+      "name": "unknown_authority",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "unknown_authority",
+        "method": "session/create",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "mutation": {
+            "command_id": "command-1",
+            "expected_revision": "7",
+            "steering_revision": "0"
+          },
+          "new_session": "session-2",
+          "configuration_revision": "0",
+          "grant_controller": true
+        }
+      },
+      "expected_status": "invalid_params",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "unknown_authority",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params"
+        }
+      }
+    },
+    {
+      "name": "max_u64",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "max_u64",
+        "method": "session/create",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "mutation": {
+            "command_id": "command-1",
+            "expected_revision": "18446744073709551615",
+            "steering_revision": "0"
+          },
+          "new_session": "session-2",
+          "configuration_revision": "0"
+        }
+      },
+      "expected_status": "decoded"
+    },
+    {
+      "name": "above_u64",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "above_u64",
+        "method": "session/create",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "mutation": {
+            "command_id": "command-1",
+            "expected_revision": "18446744073709551616",
+            "steering_revision": "0"
+          },
+          "new_session": "session-2",
+          "configuration_revision": "0"
+        }
+      },
+      "expected_status": "invalid_params",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "above_u64",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params"
+        }
+      }
+    },
+    {
+      "name": "numeric_counter",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "numeric_counter",
+        "method": "session/create",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "mutation": {
+            "command_id": "command-1",
+            "expected_revision": 7,
+            "steering_revision": "0"
+          },
+          "new_session": "session-2",
+          "configuration_revision": "0"
+        }
+      },
+      "expected_status": "invalid_params",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "numeric_counter",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params"
+        }
+      }
+    },
+    {
+      "name": "page_0",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "page_0",
+        "method": "session/list",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "cursor": null,
+          "limit": 0
+        }
+      },
+      "expected_status": "invalid_params",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "page_0",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params"
+        }
+      }
+    },
+    {
+      "name": "page_128",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "page_128",
+        "method": "session/list",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "cursor": null,
+          "limit": 128
+        }
+      },
+      "expected_status": "decoded"
+    },
+    {
+      "name": "page_129",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "page_129",
+        "method": "session/list",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "cursor": null,
+          "limit": 129
+        }
+      },
+      "expected_status": "invalid_params",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "page_129",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params"
+        }
+      }
+    },
+    {
+      "name": "range_0",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "range_0",
+        "method": "artifact/read",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "task": "task-1",
+          "artifact": "artifact-1",
+          "offset": "9007199254740993",
+          "length": 0
+        }
+      },
+      "expected_status": "invalid_params",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "range_0",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params"
+        }
+      }
+    },
+    {
+      "name": "range_65536",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "range_65536",
+        "method": "artifact/read",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "task": "task-1",
+          "artifact": "artifact-1",
+          "offset": "9007199254740993",
+          "length": 65536
+        }
+      },
+      "expected_status": "decoded"
+    },
+    {
+      "name": "range_65537",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "range_65537",
+        "method": "artifact/read",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "task": "task-1",
+          "artifact": "artifact-1",
+          "offset": "9007199254740993",
+          "length": 65537
+        }
+      },
+      "expected_status": "invalid_params",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "range_65537",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params"
+        }
+      }
+    },
+    {
+      "name": "null_request_id",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": null,
+        "method": "task/read",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "task": "task-1"
+        }
+      },
+      "expected_status": "decoded"
+    }
+  ]
+}

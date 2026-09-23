@@ -1,0 +1,2907 @@
+{
+  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"8104321a0d59da1eecdc63243c00e2cf547cbf541e8156d9791b48322108e070\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"14510467d66776279f8d5da93206ac5d528ad57baefa439d5aa70d5307897368\",\"src/crates/vcp-protocol/src/methods.rs\":\"e93e85c969a1bad209b1eab9e352f3283f4581e9bed8a82cbc58b63a009ee267\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"fa9db84e5b8d393cf4a26a506486046cf7b588299b63aad92d0308dc742b1913\"}}",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "Acceptance": {
+      "additionalProperties": false,
+      "properties": {
+        "command_id": {
+          "$ref": "#/definitions/Id"
+        },
+        "outcome": {
+          "$ref": "#/definitions/OperationOutcome"
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "turn": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "command_id",
+        "outcome",
+        "revision",
+        "scope",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    "ApplicationError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/Code"
+        },
+        "explanation": {
+          "description": "Safe static explanation, never raw provider, filesystem or token errors.",
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reconciliation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retry": {
+          "$ref": "#/definitions/Retry"
+        }
+      },
+      "required": [
+        "code",
+        "explanation",
+        "retry"
+      ],
+      "type": "object"
+    },
+    "ApprovalDecision": {
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "type": "string"
+    },
+    "ApprovalRespond": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/definitions/Id"
+        },
+        "decision": {
+          "$ref": "#/definitions/ApprovalDecision"
+        },
+        "effect_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "operation_digest": {
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+          "type": "string"
+        },
+        "policy_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "approval",
+        "decision",
+        "effect_revision",
+        "mutation",
+        "operation_digest",
+        "policy_revision",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "ArtifactEncoding": {
+      "enum": [
+        "utf8",
+        "base64"
+      ],
+      "type": "string"
+    },
+    "ArtifactRange": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/definitions/Id"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "content": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "encoding": {
+          "$ref": "#/definitions/ArtifactEncoding"
+        },
+        "offset": {
+          "$ref": "#/definitions/Counter"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "total_bytes": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "artifact",
+        "complete",
+        "content",
+        "encoding",
+        "offset",
+        "sha256",
+        "total_bytes"
+      ],
+      "type": "object"
+    },
+    "ArtifactRead": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/definitions/Id"
+        },
+        "length": {
+          "format": "uint32",
+          "maximum": 65536,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "$ref": "#/definitions/Counter"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "artifact",
+        "length",
+        "offset",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "Budget": {
+      "additionalProperties": false,
+      "properties": {
+        "cap_micros": {
+          "$ref": "#/definitions/Counter"
+        },
+        "currency": {
+          "$ref": "#/definitions/Currency"
+        },
+        "deadline_seconds": {
+          "format": "uint32",
+          "maximum": 86400,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_requests": {
+          "format": "uint32",
+          "maximum": 1024,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cap_micros",
+        "currency",
+        "deadline_seconds",
+        "max_requests"
+      ],
+      "type": "object"
+    },
+    "Call": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "workspace/open"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/WorkspaceOpen"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "session/create"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/SessionCreate"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "session/read"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/SessionRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "session/list"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/SessionList"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "session/resume"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/SessionResume"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "session/fork"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/SessionFork"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "task/read"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/TaskRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "task/cancel"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/TaskCancel"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "turn/start"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/TurnStart"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "turn/steer"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/TurnSteer"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "turn/pause"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/TurnControl"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "turn/cancel"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/TurnControl"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "approval/respond"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ApprovalRespond"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "events/subscribe"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/EventsSubscribe"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "events/next"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/EventsNext"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "events/unsubscribe"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/EventsUnsubscribe"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "artifact/read"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ArtifactRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "diff/read"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/DiffRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "context/inspect"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/Inspect"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "routing/explain"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/Inspect"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "usage/read"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/Inspect"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "memory/query"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/MemoryQuery"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "memory/inspect"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/MemoryInspect"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "memory/propose"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/MemoryPropose"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "memory/resolve"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/MemoryResolve"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "memory/forget"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/MemoryForget"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "editor/context"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/EditorContext"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "editor/changeResult"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/EditorChangeResult"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "session/export"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/SessionExport"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "command/read"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/CommandRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CaptureScope": {
+      "enum": [
+        "visible_history",
+        "visible_history_and_artifacts"
+      ],
+      "type": "string"
+    },
+    "ClientInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "Code": {
+      "enum": [
+        "POLICY_DENIED",
+        "APPROVAL_REQUIRED",
+        "APPROVAL_STALE",
+        "BUDGET_EXHAUSTED",
+        "CAPABILITY_UNAVAILABLE",
+        "VERSION_CONFLICT",
+        "PROVIDER_RETRYABLE",
+        "PROVIDER_REJECTED",
+        "STORE_UNAVAILABLE",
+        "INDEX_NOT_READY",
+        "OUTCOME_UNKNOWN",
+        "CANCELLED",
+        "COMMAND_CONFLICT",
+        "INPUT_REQUIRED",
+        "AUTHORITY_STALE",
+        "UNSUPPORTED_VERSION",
+        "CURSOR_GAP",
+        "RESOURCE_LIMIT"
+      ],
+      "type": "string"
+    },
+    "CommandRead": {
+      "additionalProperties": false,
+      "properties": {
+        "command_id": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "command_id",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "ConnectionLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum_frame_bytes": {
+          "format": "uint32",
+          "maximum": 16777216,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maximum_pending_requests": {
+          "format": "uint32",
+          "maximum": 1024,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maximum_subscriber_queue_bytes": {
+          "format": "uint32",
+          "maximum": 16777216,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maximum_subscriptions": {
+          "format": "uint32",
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "maximum_frame_bytes",
+        "maximum_pending_requests",
+        "maximum_subscriber_queue_bytes",
+        "maximum_subscriptions"
+      ],
+      "type": "object"
+    },
+    "Counter": {
+      "maxLength": 20,
+      "minLength": 1,
+      "pattern": "^(0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|1844674407370955[0-0][0-9]{3}|18446744073709551[0-5][0-9]{2}|184467440737095516[0-0][0-9]{1}|1844674407370955161[0-4][0-9]{0}|18446744073709551615)(?![\\s\\S])",
+      "type": "string"
+    },
+    "Currency": {
+      "enum": [
+        "USD"
+      ],
+      "type": "string"
+    },
+    "DiffRead": {
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "$ref": "#/definitions/Id"
+        },
+        "length": {
+          "format": "uint32",
+          "maximum": 65536,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "$ref": "#/definitions/Counter"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "change",
+        "length",
+        "offset",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "DocumentObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "maxLength": 65536,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content_sha256": {
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+          "type": "string"
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "disk_sha256": {
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host": {
+          "$ref": "#/definitions/Id"
+        },
+        "uri": {
+          "maxLength": 32768,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "content_sha256",
+        "dirty",
+        "host",
+        "uri",
+        "version"
+      ],
+      "type": "object"
+    },
+    "EditorChangeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "$ref": "#/definitions/Id"
+        },
+        "documents": {
+          "items": {
+            "$ref": "#/definitions/DocumentObservation"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "outcome": {
+          "$ref": "#/definitions/EditorOutcome"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "change",
+        "documents",
+        "mutation",
+        "outcome",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "EditorContext": {
+      "additionalProperties": false,
+      "properties": {
+        "documents": {
+          "items": {
+            "$ref": "#/definitions/DocumentObservation"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "documents",
+        "mutation",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "EditorOutcome": {
+      "enum": [
+        "applied",
+        "rejected",
+        "partial",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "EffectStatus": {
+      "enum": [
+        "pending",
+        "known",
+        "partial",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "ErrorData": {
+      "additionalProperties": false,
+      "properties": {
+        "details": true,
+        "kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "details",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ErrorEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/RpcError"
+        },
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "jsonrpc": {
+          "$ref": "#/definitions/JsonRpcVersion"
+        }
+      },
+      "required": [
+        "error",
+        "id",
+        "jsonrpc"
+      ],
+      "type": "object"
+    },
+    "Event": {
+      "additionalProperties": false,
+      "properties": {
+        "command_id": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/definitions/EvidenceReference"
+          },
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/definitions/Id"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OperationOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "sequence": {
+          "$ref": "#/definitions/Counter"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timestamp_ms": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "evidence",
+        "id",
+        "kind",
+        "schema_version",
+        "scope",
+        "sequence",
+        "timestamp_ms"
+      ],
+      "type": "object"
+    },
+    "EventBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "at_end": {
+          "type": "boolean"
+        },
+        "cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/definitions/Event"
+          },
+          "type": "array"
+        },
+        "snapshot_sequence": {
+          "$ref": "#/definitions/Counter"
+        },
+        "subscription": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "at_end",
+        "cursor",
+        "events",
+        "snapshot_sequence",
+        "subscription"
+      ],
+      "type": "object"
+    },
+    "EventGap": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "$ref": "#/definitions/GapReason"
+        },
+        "resubscribe_required": {
+          "type": "boolean"
+        },
+        "snapshot_sequence": {
+          "$ref": "#/definitions/Counter"
+        },
+        "subscription": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "reason",
+        "resubscribe_required",
+        "snapshot_sequence",
+        "subscription"
+      ],
+      "type": "object"
+    },
+    "EventsNext": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "subscription": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "cursor",
+        "scope",
+        "subscription"
+      ],
+      "type": "object"
+    },
+    "EventsSubscribe": {
+      "additionalProperties": false,
+      "properties": {
+        "after_sequence": {
+          "$ref": "#/definitions/Counter"
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "after_sequence",
+        "limit",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "EventsUnsubscribe": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "subscription": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "scope",
+        "subscription"
+      ],
+      "type": "object"
+    },
+    "EvidencePage": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "next_cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/definitions/EvidenceRow"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "complete",
+        "rows",
+        "scope",
+        "task",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    "EvidenceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/definitions/Id"
+        },
+        "length": {
+          "$ref": "#/definitions/Counter"
+        },
+        "offset": {
+          "$ref": "#/definitions/Counter"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact",
+        "length",
+        "offset",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "EvidenceRow": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "$ref": "#/definitions/EvidenceReference"
+        },
+        "id": {
+          "$ref": "#/definitions/Id"
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "schema": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "id",
+        "revision",
+        "schema"
+      ],
+      "type": "object"
+    },
+    "ExecutionHost": {
+      "additionalProperties": false,
+      "description": "Host facts are supplied by the authenticated runtime, never client claims.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "platform"
+      ],
+      "type": "object"
+    },
+    "ExportView": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/definitions/Id"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "visibility_manifest": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "artifact",
+        "complete",
+        "scope",
+        "visibility_manifest"
+      ],
+      "type": "object"
+    },
+    "GapReason": {
+      "enum": [
+        "retention_changed",
+        "authority_changed",
+        "cursor_expired",
+        "sequence_unavailable",
+        "slow_consumer"
+      ],
+      "type": "string"
+    },
+    "Id": {
+      "maxLength": 96,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_-]{1,96}(?![\\s\\S])",
+      "type": "string"
+    },
+    "InitializeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "description": "Optional capabilities: absence at the server does not reject a peer.",
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "client": {
+          "$ref": "#/definitions/ClientInfo"
+        },
+        "protocol_version": {
+          "type": "string"
+        },
+        "required_capabilities": {
+          "default": [],
+          "description": "Required capabilities fail closed, including unknown names.",
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "type": "array"
+        }
+      },
+      "required": [
+        "capabilities",
+        "client",
+        "protocol_version"
+      ],
+      "type": "object"
+    },
+    "InitializeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "description": "Intersection of requested (optional and required) and supported features.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "engine_build": {
+          "type": "string"
+        },
+        "event_schema_version": {
+          "type": "string"
+        },
+        "execution_host": {
+          "$ref": "#/definitions/ExecutionHost"
+        },
+        "limits": {
+          "$ref": "#/definitions/ConnectionLimits"
+        },
+        "methods": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "protocol_version": {
+          "type": "string"
+        },
+        "sandbox_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "capabilities",
+        "engine_build",
+        "event_schema_version",
+        "execution_host",
+        "limits",
+        "methods",
+        "protocol_version",
+        "sandbox_capabilities",
+        "schema_version"
+      ],
+      "type": "object"
+    },
+    "InputKind": {
+      "enum": [
+        "approval",
+        "question",
+        "reconciliation"
+      ],
+      "type": "string"
+    },
+    "Inspect": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "limit",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "JsonRpcVersion": {
+      "enum": [
+        "2.0"
+      ],
+      "type": "string"
+    },
+    "MemoryDecision": {
+      "enum": [
+        "accept",
+        "reject"
+      ],
+      "type": "string"
+    },
+    "MemoryFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "$ref": "#/definitions/Id"
+        },
+        "content": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/definitions/EvidenceReference"
+          },
+          "type": "array"
+        },
+        "version": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "claim",
+        "content",
+        "evidence",
+        "version"
+      ],
+      "type": "object"
+    },
+    "MemoryForget": {
+      "additionalProperties": false,
+      "properties": {
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "preview": {
+          "$ref": "#/definitions/Id"
+        },
+        "preview_digest": {
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "mutation",
+        "preview",
+        "preview_digest",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "MemoryInspect": {
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "claim",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "MemoryPage": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/definitions/MemoryFinding"
+          },
+          "type": "array"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "sequence": {
+          "$ref": "#/definitions/Counter"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "complete",
+        "findings",
+        "scope",
+        "sequence",
+        "task"
+      ],
+      "type": "object"
+    },
+    "MemoryPropose": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/definitions/Id"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "type": "array"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "content",
+        "evidence",
+        "mutation",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "MemoryQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "format": "uint32",
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "limit",
+        "query",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "MemoryResolve": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "$ref": "#/definitions/MemoryDecision"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "proposal": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "decision",
+        "mutation",
+        "proposal",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "Mutation": {
+      "additionalProperties": false,
+      "properties": {
+        "command_id": {
+          "$ref": "#/definitions/Id"
+        },
+        "expected_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "steering_revision": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "command_id",
+        "expected_revision",
+        "steering_revision"
+      ],
+      "type": "object"
+    },
+    "OperationOutcome": {
+      "enum": [
+        "accepted",
+        "waiting_for_input",
+        "partial",
+        "unknown",
+        "completed",
+        "cancelled",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "PendingInput": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/Id"
+        },
+        "kind": {
+          "$ref": "#/definitions/InputKind"
+        },
+        "operation_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "RequestEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "jsonrpc": {
+          "$ref": "#/definitions/JsonRpcVersion"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WireParams"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method"
+      ],
+      "type": "object"
+    },
+    "RequestId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ResultEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "jsonrpc": {
+          "$ref": "#/definitions/JsonRpcVersion"
+        },
+        "result": true
+      },
+      "required": [
+        "id",
+        "jsonrpc",
+        "result"
+      ],
+      "type": "object"
+    },
+    "ResultValue": {
+      "description": "Typed outcomes never reinterpret pending/partial/unknown as success.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "workspace"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/WorkspaceView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "session"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/SessionView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "sessions"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/SessionPage"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "task"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/TaskView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "acceptance"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Acceptance"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "usage"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/UsageView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "artifact"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/ArtifactRange"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "evidence"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/EvidencePage"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "memory"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/MemoryPage"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "events"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/EventBatch"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "gap"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/EventGap"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "export"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/ExportView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "unsubscribed"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "additionalProperties": false,
+              "properties": {
+                "subscription": {
+                  "$ref": "#/definitions/Id"
+                }
+              },
+              "required": [
+                "subscription"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Retry": {
+      "oneOf": [
+        {
+          "enum": [
+            "never",
+            "after_input",
+            "after_revalidation"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Resolve the original durable command; do not invent a replacement ID.",
+          "enum": [
+            "reconcile_original"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "RpcError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ErrorData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "Scope": {
+      "additionalProperties": false,
+      "properties": {
+        "session": {
+          "$ref": "#/definitions/Id"
+        },
+        "workspace": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "session",
+        "workspace"
+      ],
+      "type": "object"
+    },
+    "SessionCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "configuration_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "new_session": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "configuration_revision",
+        "mutation",
+        "new_session",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "SessionExport": {
+      "additionalProperties": false,
+      "properties": {
+        "capture": {
+          "$ref": "#/definitions/CaptureScope"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "capture",
+        "mutation",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "SessionFork": {
+      "additionalProperties": false,
+      "properties": {
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "new_session": {
+          "$ref": "#/definitions/Id"
+        },
+        "new_task": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "through_turn": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "mutation",
+        "new_session",
+        "new_task",
+        "scope",
+        "through_turn"
+      ],
+      "type": "object"
+    },
+    "SessionList": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "limit",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "SessionPage": {
+      "additionalProperties": false,
+      "properties": {
+        "next_cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessions": {
+          "items": {
+            "$ref": "#/definitions/SessionView"
+          },
+          "type": "array"
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "sessions",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    "SessionRead": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
+    "SessionResume": {
+      "additionalProperties": false,
+      "properties": {
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "mutation",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "SessionView": {
+      "additionalProperties": false,
+      "properties": {
+        "configuration_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "fork_origin": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fork_through": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "configuration_revision",
+        "revision",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "TaskCancel": {
+      "additionalProperties": false,
+      "properties": {
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "mutation",
+        "reason",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "TaskRead": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "TaskStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "waiting_for_input",
+        "blocked",
+        "paused",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "TaskView": {
+      "additionalProperties": false,
+      "properties": {
+        "effects": {
+          "$ref": "#/definitions/EffectStatus"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pending_inputs": {
+          "items": {
+            "$ref": "#/definitions/PendingInput"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "root": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "state": {
+          "$ref": "#/definitions/TaskStatus"
+        },
+        "steering_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "turn": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "effects",
+        "pending_inputs",
+        "reason",
+        "revision",
+        "root",
+        "scope",
+        "state",
+        "steering_revision",
+        "task"
+      ],
+      "type": "object"
+    },
+    "Trust": {
+      "enum": [
+        "untrusted",
+        "trusted"
+      ],
+      "type": "string"
+    },
+    "TurnControl": {
+      "additionalProperties": false,
+      "properties": {
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "turn": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "mutation",
+        "reason",
+        "scope",
+        "task",
+        "turn"
+      ],
+      "type": "object"
+    },
+    "TurnStart": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "budget": {
+          "$ref": "#/definitions/Budget"
+        },
+        "constraints": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "objective": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "turn": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "acceptance",
+        "budget",
+        "constraints",
+        "mutation",
+        "objective",
+        "scope",
+        "task",
+        "turn"
+      ],
+      "type": "object"
+    },
+    "TurnSteer": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "constraints": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "objective": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "turn": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "acceptance",
+        "constraints",
+        "mutation",
+        "objective",
+        "scope",
+        "task",
+        "turn"
+      ],
+      "type": "object"
+    },
+    "UsageView": {
+      "additionalProperties": false,
+      "properties": {
+        "cap_micros": {
+          "$ref": "#/definitions/Counter"
+        },
+        "currency": {
+          "$ref": "#/definitions/Currency"
+        },
+        "overrun": {
+          "type": "boolean"
+        },
+        "reserved_micros": {
+          "$ref": "#/definitions/Counter"
+        },
+        "root": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "settled_micros": {
+          "$ref": "#/definitions/Counter"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "unresolved_micros": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "cap_micros",
+        "currency",
+        "overrun",
+        "reserved_micros",
+        "root",
+        "scope",
+        "settled_micros",
+        "task",
+        "unresolved_micros"
+      ],
+      "type": "object"
+    },
+    "WireEnvelope": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RequestEnvelope"
+        },
+        {
+          "$ref": "#/definitions/ResultEnvelope"
+        },
+        {
+          "$ref": "#/definitions/ErrorEnvelope"
+        }
+      ]
+    },
+    "WireFrame": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/WireEnvelope"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/WireEnvelope"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        }
+      ]
+    },
+    "WireParams": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "items": true,
+          "type": "array"
+        }
+      ]
+    },
+    "WorkspaceOpen": {
+      "additionalProperties": false,
+      "properties": {
+        "command_id": {
+          "$ref": "#/definitions/Id"
+        },
+        "host": {
+          "$ref": "#/definitions/Id"
+        },
+        "root": {
+          "maxLength": 32768,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "host",
+        "root"
+      ],
+      "type": "object"
+    },
+    "WorkspaceView": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "host": {
+          "$ref": "#/definitions/Id"
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "root": {
+          "maxLength": 32768,
+          "minLength": 1,
+          "type": "string"
+        },
+        "trust": {
+          "$ref": "#/definitions/Trust"
+        },
+        "workspace": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "authority_revision",
+        "host",
+        "revision",
+        "root",
+        "trust",
+        "workspace"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "Schema root bundles canonical definitions; this object is never a wire frame.",
+  "properties": {
+    "application_error": {
+      "$ref": "#/definitions/ApplicationError"
+    },
+    "call": {
+      "$ref": "#/definitions/Call"
+    },
+    "envelope": {
+      "$ref": "#/definitions/WireFrame"
+    },
+    "error": {
+      "$ref": "#/definitions/RpcError"
+    },
+    "initialize": {
+      "$ref": "#/definitions/InitializeParams"
+    },
+    "initialized": {
+      "$ref": "#/definitions/InitializeResult"
+    },
+    "result": {
+      "$ref": "#/definitions/ResultValue"
+    }
+  },
+  "required": [
+    "application_error",
+    "call",
+    "envelope",
+    "error",
+    "initialize",
+    "initialized",
+    "result"
+  ],
+  "title": "PublicApi",
+  "type": "object"
+}

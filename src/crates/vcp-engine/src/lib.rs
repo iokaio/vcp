@@ -5,6 +5,9 @@ pub mod agents;
 pub mod capture;
 pub mod command_handler;
 pub mod policy;
+pub mod public;
+pub mod query;
+pub mod rpc;
 mod subscription;
 pub use command_handler::{Access, Engine, HostFacts};
 
