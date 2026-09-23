@@ -36,25 +36,63 @@ function assertPreview(expected,entries){
 function assertRefusal(result,diagnostic){
   if(result.status!==2||!result.stderr.includes(diagnostic))throw Error('Expected retention refusal diagnostic differs');
 }
+function reuseObservations(previousFile,row,current,originalData,originalWorkspace){
+  const previous=parse(previousFile),found=previous.rows?.filter(r=>r.id===row.id);
+  if(found?.length!==1||!found[0].originals_preserved||found[0].task!==row.task||found[0].backend!==row.backend)throw Error('Prior preserved owner observation required');
+  const source=found[0],base=path.join(path.dirname(previousFile),row.id),bindings=[];
+  if(!['read-only-observations-passed-retention-not-run','bounded-integrated-controls-passed'].includes(source.status)||source.checks?.some(c=>c.status!=='passed'))throw Error('Prior row must contain only completed successful observations');
+  function bound(file){const resolved=plain(path.resolve(file));bindings.push({file:resolved,sha256:hash(resolved)});return resolved;}
+  for(const [name,expected] of [['original-data-before.json',originalData],['original-data-after.json',originalData],['original-workspace-before.json',originalWorkspace],['original-workspace-after.json',originalWorkspace]]){
+    if(!same(parse(bound(path.join(base,name))),expected))throw Error('Prior original inventory no longer matches');
+  }
+  for(const name of ['independent-before.json','independent-after-read.json'])if(!same(parse(bound(path.join(base,name))).state,current))throw Error('Prior canonical observation cut no longer matches');
+  for(const name of ['history-pagination-independent-event-ids','default-no-delete-and-full-output-digests'])if(!source.checks?.some(c=>c.name===name&&c.status==='passed'))throw Error('Prior successful read-only check missing');
+  const complete=Object.values(current.records).filter(r=>r.collection==='artifact'&&r.value.spec.scope.task===row.task&&['response','stdout','stderr'].includes(r.value.spec.channel)&&r.value.state==='complete').map(r=>r.value);
+  if(source.full_outputs?.length!==complete.length)throw Error('Prior raw output inventory differs');
+  for(const artifact of complete){
+    const output=source.full_outputs.filter(o=>o.id===artifact.spec.id);
+    if(output.length!==1||output[0].sha256!==artifact.sha256||output[0].bytes!==Number(artifact.length))throw Error('Prior raw output descriptor differs');
+    const file=bound(path.join(base,'raw-'+artifact.spec.id+'.bin'));
+    if(fs.statSync(file).size!==Number(artifact.length)||bindings.at(-1).sha256!==artifact.sha256)throw Error('Prior raw output bytes changed');
+  }
+  // Bind every command receipt as well as the independently verified raw bytes.
+  const receipts=fs.readdirSync(base).filter(n=>/^\d{4}-.*\.json$/.test(n));
+  for(const name of receipts)bound(path.join(base,name));
+  function data(name){const execution=parse(path.join(base,name)),result=frames(execution.stdout).filter(r=>r.type==='result');if(execution.status!==0||execution.error||!execution.process_reaped||result.length!==1||result[0].exit_code!==0)throw Error('Prior successful command receipt required');return result[0].data;}
+  const historyNames=receipts.filter(n=>/^\d{4}-full-history-\d+\.json$/.test(n)).sort(),policies=receipts.filter(n=>/^\d{4}-retention-default\.json$/.test(n));
+  if(!historyNames.length||policies.length!==1||data(policies[0]).automatic!==null)throw Error('Prior default retention/history receipts missing or invalid');
+  const pages=historyNames.map(data),expectedIds=current.events.filter(e=>e.event.task===row.task).map(e=>e.event.id).sort();
+  if(pages.some(p=>!Array.isArray(p.rows)||!Array.isArray(p.gaps)||p.gaps.length)||!same(pages.flatMap(p=>p.rows.map(r=>r.event.event.id)).sort(),expectedIds)||pages.at(-1).next_cursor)throw Error('Prior history receipt event IDs differ from independent canonical cut');
+  return {source,bindings,checks:source.checks.filter(c=>['history-pagination-independent-event-ids','default-no-delete-and-full-output-digests'].includes(c.name))};
+}
 
-async function run(specFile,destination,python){
+async function run(specFile,destination,python,previousFile,selectedIds){
   const spec=parse(specFile);destination=plain(path.resolve(destination));python=plain(path.resolve(python));
   if(spec.schema!=='p805-integrated-history-spec/1'||!Array.isArray(spec.rows)||!spec.rows.length||spec.rows.length>6)throw Error('Bounded declared owner rows required');
+  if(selectedIds&&(!previousFile||!Array.isArray(selectedIds)||!selectedIds.length||selectedIds.length>6||new Set(selectedIds).size!==selectedIds.length||selectedIds.some(id=>!spec.rows.some(r=>r.id===id))))throw Error('Explicit unique existing row subset requires prior observations');
+  const rows=selectedIds?spec.rows.filter(row=>selectedIds.includes(row.id)):spec.rows;
   if(spec.owner_plan&&(hash(spec.owner_plan)!==spec.owner_plan_sha256||hash(spec.owner_result)!==spec.owner_result_sha256))throw Error('Owner plan/result evidence changed');
   for(const row of spec.rows)for(const original of [row.data,row.workspace]){
     const source=plain(path.resolve(original));
     if(prior.boundaries.within(source,destination)||prior.boundaries.within(destination,source))throw Error('Evidence destination must be disjoint from every original data/workspace root');
   }
+  const previous=previousFile?parse(plain(path.resolve(previousFile))):null,previousHash=previousFile?hash(previousFile):null;
+  if(previous&&(previous.schema!=='p805-integrated-history-result/1'||!['partial','passed'].includes(previous.status)||previous.spec_sha256!==hash(specFile)||previous.model_calls!==0))throw Error('Completed exact-spec zero-provider observations required');
+  if(previousFile&&(prior.boundaries.within(path.dirname(previousFile),destination)||prior.boundaries.within(destination,path.dirname(previousFile))))throw Error('New observations must be disjoint from reused evidence');
   privateDirectory(destination);noParentInstructions(path.dirname(destination));if(fs.existsSync(destination))throw Error('New private evidence root required');
   const pkg=parse(spec.package_result),packageRoot=path.join(path.dirname(spec.package_result),'package'),executable=path.join(packageRoot,'vcp.exe');
   inventory.verifyManifest(packageRoot,pkg.manifest);
   const exeRow=pkg.manifest.files.filter(r=>r.path==='vcp.exe');
   if(exeRow.length!==1||hash(executable)!==exeRow[0].sha256||hash(path.join(path.dirname(spec.package_result),pkg.package))!==pkg.archive_sha256)throw Error('Exact production package required');
+  if(previous&&(previous.executable_sha256!==exeRow[0].sha256||previous.package_sha256!==pkg.archive_sha256))throw Error('Reused observation artifact differs');
   const build=parse(path.join(packageRoot,'build-receipt.json'));if(build.profile!=='release'||build.qualification_build!==false||build.executable_sha256!==exeRow[0].sha256)throw Error('Production artifact required');
   if(new Set(spec.rows.map(r=>r.id)).size!==spec.rows.length||spec.rows.some(r=>!/^[-a-z0-9]+$/.test(r.id)))throw Error('Unique simple row IDs required');
   fs.mkdirSync(destination,{mode:0o700});
   const report={schema:'p805-integrated-history-result/1',status:'running',purpose:spec.purpose,model_calls:0,package_sha256:pkg.archive_sha256,executable_sha256:exeRow[0].sha256,spec_sha256:hash(specFile),runner_sha256:hash(__filename),oracle_sha256:hash(oracleFile),python_sha256:hash(python),rows:[],limitations:['Current-host disposable copies of actual owner roots; no machine handoff or clean-OS claim.','Whole-task retention oracle supports only fresh single-root history without prior redactions or complex memory/advisory lineage.','No 30-day boundary, cleanup kill, physical exhaustion, retained-cloud-copy deletion or active provider/delegated pause qualification.','Optimizer/skill inspection is not live routing, optimization policy apply/rollback, skill activation or MCP invocation.','No human quality judgment or final acceptance is recorded.']};
   const secret=process.env.OPENROUTER_API_KEY;const env={...process.env};delete env.OPENROUTER_API_KEY;
+  if(previous)report.reused_observations={file:path.resolve(previousFile),sha256:previousHash,scope:'Completed history, default-no-delete, raw output and read-only inspections; retention is executed anew'};
+  report.declared_rows=rows.map(row=>row.id);
+  const reusedBindings=[];
   let commandIndex=0;
   function capture(file,value){const text=typeof value==='string'?value:JSON.stringify(value,null,2)+'\n';if(secret&&text.includes(secret))throw Error('Credential occurrence detected in observation; raw payload not written');write(file,text);}
   const save=()=>fs.writeFileSync(path.join(destination,'result.json'),JSON.stringify(report,null,2)+'\n');save();
@@ -94,7 +132,7 @@ async function run(specFile,destination,python){
     if(secret&&bytes.includes(Buffer.from(secret)))throw Error('Credential occurrence in raw artifact');
     const file=path.join(base,'raw-'+artifact.spec.id+'.bin');fs.writeFileSync(file,bytes,{flag:'wx',mode:0o600});return {id:artifact.spec.id,bytes:length,sha256:sha(bytes),channel:artifact.spec.channel,larger_than_history_summary:length>8192};
   }
-  for(const row of spec.rows){
+  for(const row of rows){
     const base=path.join(destination,row.id);fs.mkdirSync(base);const result={id:row.id,task:row.task,backend:row.backend,status:'running',checks:[],limitations:[]};report.rows.push(result);
     let originalData,originalWorkspace;
     try{
@@ -103,11 +141,20 @@ async function run(specFile,destination,python){
       const before=await state(base,row,seed,'independent-before');capture(path.join(base,'predeclared-oracle.json'),before.retention_oracle);
       const expectedIds=before.state.events.filter(e=>e.event.task===row.task).map(e=>e.event.id).sort();
       if(!expectedIds.length)throw Error('No actual owner events');
+      const artifacts=Object.values(before.state.records).filter(r=>r.collection==='artifact'&&r.value.spec.scope.task===row.task&&['response','stdout','stderr'].includes(r.value.spec.channel)).map(r=>r.value);
+      if(previous){
+        const reused=reuseObservations(previousFile,row,before.state,originalData,originalWorkspace);reusedBindings.push(...reused.bindings);
+        capture(path.join(base,'reused-evidence-bindings.json'),reused.bindings);
+        result.checks=reused.checks.map(c=>({...c,status:'reused-passed',source_result_sha256:previousHash}));
+        const origin={reused:true,source_directory:path.join(path.dirname(path.resolve(previousFile)),row.id),source_result_sha256:previousHash};
+        result.full_outputs=reused.source.full_outputs.map(output=>({...output,...origin}));
+        result.optimizer=reused.source.optimizer.map(observation=>({...observation,...origin}));result.skills={...reused.source.skills,...origin};
+        result.limitations.push(...reused.source.limitations);
+      }else{
       const policy=await cli(base,row,seed,'retention-default',['retention','show']);if(policy.automatic!==null)throw Error('Fresh owner retention is not notification-only');
       const pages=await history(base,row,seed,'full-history',['--expand-compacted']);
       const actualIds=pages.flatMap(p=>p.rows.map(r=>r.event.event.id)).sort();if(pages.some(p=>p.gaps.length)||!same(actualIds,expectedIds))throw Error('History event ID oracle mismatch or gaps');
       result.checks.push({name:'history-pagination-independent-event-ids',status:'passed',events:expectedIds.length,pages:pages.length});
-      const artifacts=Object.values(before.state.records).filter(r=>r.collection==='artifact'&&r.value.spec.scope.task===row.task&&['response','stdout','stderr'].includes(r.value.spec.channel)).map(r=>r.value);
       if(artifacts.length>256||artifacts.reduce((sum,a)=>sum+Number(a.length),0)>32*1024*1024)throw Error('Raw outputs exceed declared aggregate bound');
       result.full_outputs=[];
       for(const artifact of artifacts){if(artifact.state==='complete')result.full_outputs.push(await fullOutput(base,row,seed,artifact));else result.limitations.push('Incomplete capture retained as '+artifact.state+': '+artifact.spec.id);}
@@ -120,6 +167,7 @@ async function run(specFile,destination,python){
         try{const data=await cli(base,row,seed,'optimize-'+operation,['optimize',operation]);result.optimizer.push({operation,status:'observed',data_file:commandIndex,local_workflow:data.local_workflow??null});}catch(error){if(error.supervision)throw error;result.optimizer.push({operation,status:'failed',reason:error.message});}
       }
       try{const data=await cli(base,row,seed,'skills-list',['skills','list']);result.skills={status:'observed',configured:data.configured??null,meaning:'Read-only configured descriptor/setup observation; no activation or invocation'};}catch(error){if(error.supervision)throw error;result.skills={status:'failed',reason:error.message};}
+      }
       const oracle=before.retention_oracle;
       if(!oracle.supported){result.retention={status:'not_run',reasons:oracle.not_run_reasons};result.status='read-only-observations-passed-retention-not-run';continue;}
       result.retention={status:'running',cases:[]};
@@ -169,6 +217,7 @@ async function run(specFile,destination,python){
     if(report.stopped)break;
   }
   if(hash(executable)!==report.executable_sha256||hash(__filename)!==report.runner_sha256||hash(oracleFile)!==report.oracle_sha256)throw Error('Artifact or harness changed during observations');
+  if(previous&&(hash(previousFile)!==previousHash||reusedBindings.some(r=>hash(r.file)!==r.sha256)))throw Error('Reused observation evidence changed during retention checks');
   report.status=report.rows.some(r=>r.status==='failed')?'failed':report.rows.some(r=>r.retention?.status==='not_run'||r.optimizer?.some(o=>o.status==='failed')||r.skills?.status==='failed')?'partial':'passed';save();return {directory:destination,status:report.status,rows:report.rows.length,model_calls:0};
 }
 
@@ -180,5 +229,5 @@ function prepare(ownerPlanFile,ownerResultFile,packageResult,output){
   if(!rows.length)throw Error('No accepted owner roots to inspect');
   write(output,{schema:'p805-integrated-history-spec/1',purpose:'Post-owner exact-production observations; no inference or human approval',package_result:path.resolve(packageResult),owner_plan:path.resolve(ownerPlanFile),owner_plan_sha256:hash(ownerPlanFile),owner_result:path.resolve(ownerResultFile),owner_result_sha256:hash(ownerResultFile),rows});return {spec:output,sha256:hash(output),rows:rows.length};
 }
-module.exports={run,prepare,assertPreview,assertRefusal,retentionExpected};
-if(require.main===module){(async()=>{const [command,...args]=process.argv.slice(2);if(command==='prepare'&&args.length===4)console.log(JSON.stringify(prepare(...args)));else if(command==='run'&&args.length===3){const result=await run(...args);console.log(JSON.stringify(result));if(result.status==='failed')process.exitCode=1;}else throw Error('Usage: p805-owner-integration.cjs prepare <owner-plan> <owner-result> <package-result> <new-spec> | run <spec> <new-private-directory> <python-executable>');})().catch(error=>{console.error(error.message);process.exitCode=1;});}
+module.exports={run,prepare,assertPreview,assertRefusal,retentionExpected,reuseObservations};
+if(require.main===module){(async()=>{const [command,...args]=process.argv.slice(2);if(command==='prepare'&&args.length===4)console.log(JSON.stringify(prepare(...args)));else if((command==='run'&&args.length===3)||(command==='run-retention'&&args.length>=4&&args.length<=10)){const call=args.slice(0,4);if(args.length>4)call.push(args.slice(4));const result=await run(...call);console.log(JSON.stringify(result));if(result.status==='failed')process.exitCode=1;}else throw Error('Usage: p805-owner-integration.cjs prepare <owner-plan> <owner-result> <package-result> <new-spec> | run <spec> <new-private-directory> <python-executable> | run-retention <spec> <new-private-directory> <python-executable> <previous-result> [row-id ...]');})().catch(error=>{console.error(error.message);process.exitCode=1;});}

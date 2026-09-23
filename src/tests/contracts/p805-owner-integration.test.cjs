@@ -58,3 +58,32 @@ test('changed owner evidence is rejected before any qualification directory is c
   fs.writeFileSync(ownerResult,'{"changed":true}');const output=path.join(root,'new-evidence');
   await assert.rejects(integration.run(spec,output,process.execPath),/Owner plan\/result evidence changed/);assert.equal(fs.existsSync(output),false);
 });
+
+test('retention-only reuse binds unchanged canonical cut, original inventories and complete raw bytes',t=>{
+  const root=temporary(t),row={id:'u01-sqlite',task:'task',backend:'sqlite'},base=path.join(root,row.id);fs.mkdirSync(base);
+  const bytes=Buffer.from('complete output beyond a summary'),digest=sha(bytes),data=[{path:'canonical',sha256:'a'}],workspace=[{path:'source',sha256:'b'}];
+  const current={records:{'artifact:output':{collection:'artifact',value:{spec:{id:'output',scope:{task:'task'},channel:'response'},state:'complete',sha256:digest,length:String(bytes.length)}}},events:[]};
+  for(const name of ['original-data-before.json','original-data-after.json'])put(base,name,data);
+  for(const name of ['original-workspace-before.json','original-workspace-after.json'])put(base,name,workspace);
+  for(const name of ['independent-before.json','independent-after-read.json'])put(base,name,{state:current});
+  const raw=path.join(base,'raw-output.bin');fs.writeFileSync(raw,bytes);
+  const receipt=value=>({status:0,error:null,process_reaped:true,stdout:JSON.stringify({type:'result',exit_code:0,data:value})+'\n'});
+  put(base,'0001-retention-default.json',receipt({automatic:null}));put(base,'0002-full-history-0.json',receipt({rows:[],gaps:[],next_cursor:null}));
+  const report={rows:[{...row,status:'read-only-observations-passed-retention-not-run',originals_preserved:true,checks:['history-pagination-independent-event-ids','default-no-delete-and-full-output-digests'].map(name=>({name,status:'passed'})),full_outputs:[{id:'output',sha256:digest,bytes:bytes.length}]}]};
+  const previous=put(root,'result.json',report),reused=integration.reuseObservations(previous,row,current,data,workspace);
+  assert.equal(reused.bindings.length,9);assert.ok(reused.bindings.some(r=>r.file===raw&&r.sha256===digest));
+  assert.throws(()=>integration.reuseObservations(previous,row,current,[{changed:true}],workspace),/inventory no longer matches/);
+  assert.throws(()=>integration.reuseObservations(previous,row,{...current,events:[{changed:true}]},data,workspace),/canonical observation cut/);
+  fs.writeFileSync(raw,Buffer.alloc(bytes.length));assert.throws(()=>integration.reuseObservations(previous,row,current,data,workspace),/raw output bytes changed/);fs.writeFileSync(raw,bytes);
+  const history=path.join(base,'0002-full-history-0.json');fs.writeFileSync(history,JSON.stringify(receipt({rows:[],gaps:[{missing:true}],next_cursor:null})));assert.throws(()=>integration.reuseObservations(previous,row,current,data,workspace),/history receipt event IDs differ/);fs.writeFileSync(history,JSON.stringify(receipt({rows:[],gaps:[],next_cursor:null})));
+  report.rows[0].checks[0].status='failed';fs.writeFileSync(previous,JSON.stringify(report));assert.throws(()=>integration.reuseObservations(previous,row,current,data,workspace),/only completed successful observations/);
+  report.rows[0].checks[0].status='passed';report.rows[0].checks.push({name:'other-gate',status:'failed'});fs.writeFileSync(previous,JSON.stringify(report));assert.throws(()=>integration.reuseObservations(previous,row,current,data,workspace),/only completed successful observations/);
+  report.rows[0].checks.pop();report.rows[0].status='failed';fs.writeFileSync(previous,JSON.stringify(report));assert.throws(()=>integration.reuseObservations(previous,row,current,data,workspace),/only completed successful observations/);
+});
+
+test('retention-only row selection rejects undeclared, duplicate or unbound rows before creating output',async t=>{
+  const root=temporary(t),spec=put(root,'spec.json',{schema:'p805-integrated-history-spec/1',rows:[{id:'u01-sqlite'}]});
+  for(const [previous,subset] of [[undefined,['u01-sqlite']],['prior',['unknown']],['prior',['u01-sqlite','u01-sqlite']],['prior',[]]]){
+    const destination=path.join(root,'new-evidence');await assert.rejects(integration.run(spec,destination,process.execPath,previous,subset),/Explicit unique existing row subset/);assert.equal(fs.existsSync(destination),false);
+  }
+});

@@ -111,8 +111,14 @@ matching source bytes, the hidden feature oracle and preserved user/Git edits.
 Human findings/usefulness/architecture judgments remain separate. Independent
 review found no blocking issue. Frozen inputs are checked before reservation,
 before each row and after every attempted slot; nine owner controls pass.
-The final fast delivery run passed all 17 groups, including the expanded owner
-runner group: `artifacts/p8-followup-final-fast/f42b2466-5902-4d8a-9a63-fbd00af7846f/manifest.json`.
+The delivery run passed all 17 groups:
+`artifacts/p8-followup-delivery-fast/9c303171-ea24-45b9-b863-64411a27e181/manifest.json`.
+After the separately reviewed retention extension, the affected P8 group passed
+36/36 tests, zero skipped:
+`artifacts/p8-followup-retention-tests/b05c281e-4ee6-44e4-9270-4170d3aba30c/manifest.json`.
+The independent Python oracle controls passed 19 tests. Imported Codex and
+Munarium Git-mode/byte checks also passed. These are delivery/harness evidence;
+they do not replace the package observations or human acceptance.
 
 A credential-free end-to-end control against the previous package prepared and
 validated all six roots, then rejected solely for the missing provider key,
@@ -223,6 +229,34 @@ The fresh unexecuted retry plan is under system TEMP in
 `d0133deb79cf6d4d81088380d5fa2d2fba4aedb5a1c0f67dcb9aca4761e66053`.
 Preparation made zero model calls and no reservation; validation must recheck
 the qualified profile's expiry before any subsequently authorized execution.
+
+## Post-owner history and retention
+
+The zero-provider integration runner independently decoded each accepted owner
+root, including failed tasks, and compared CLI pagination against all **2,803
+task event IDs**. It recovered **101 complete response/stdout/stderr artifacts**
+through bounded CLI ranges and matched their canonical lengths and hashes.
+Notification-only defaults and those reads preserved canonical state. Every
+original data/workspace inventory remained byte-identical. Optimizer and skill
+commands supplied inspection/setup evidence only, not live routing or activation.
+
+The initial report under system TEMP is
+`vcp-followup-integrated-ee688898-0291-4f0c-aab1-46893781a127/result.json`, SHA-256
+`1379b43143c1e85f5b9a5df9b5eae225a7a2aff53fc48a3d915be30a6e91491d`.
+Its status is partial because the original oracle conservatively rejected all
+Claim-stored documents, including internal ingestion bookkeeping. No failed
+read-only observation was counted as a pass.
+
+The reviewed oracle extension permits only recognized sole-task ingestion jobs
+and cursors without governed results. Unknown claims, memory/advisory lineage,
+other-task scope and unsupported dependencies remain rejected. It derives exact
+selected/protected IDs from independent canonical state before product previews.
+A retention-only follow-up revalidates the original inventories, canonical cut,
+history/default-policy command receipts and every complete raw-output byte hash,
+then binds those prior observations throughout the new run. This avoids repeating
+successful history/output checks. Three parallel batches use separate disposable
+roots, make no provider calls and preserve the original owner evidence. Launch
+receipt: `artifacts/p8-followup/owner-retention-launch-ee688898-0291-4f0c-aab1-46893781a127.json`.
 
 ## Fresh model provisioning
 

@@ -89,4 +89,14 @@ with tempfile.TemporaryDirectory(prefix="vcp-p805-oracle-test-") as directory:
     except ValueError as error:
         assert "separately qualified decoder" in str(error)
 
-print("11 independent oracle controls passed, including SQLite/Files parity, committed-frame corruption, record corruption and replay refusal")
+ingestion = copy.deepcopy(state)
+ingestion["records"]["claim:cursor"] = record("claim", "cursor", {"document_type": "vcp_ingestion_cursor_v1", "scope": {"task": task}})
+ingestion["records"]["claim:job"] = record("claim", "job", {"document_type": "vcp_ingestion_job_v1", "scope": {"task": task}, "root": task, "results": [], "finding": json.dumps({"outputs": 0, "findings": [{"code": "source_observed", "artifact": "output"}]})})
+result = oracle.oracle(ingestion, task)
+assert result["supported"] and result["selected"] == expected and result["dependent"] == []
+for change in [{"root": "other"}, {"scope": {"task": "other"}}, {"results": ["governed-result"]}, {"finding": "invalid diagnostic"}, {"finding": json.dumps({"outputs": 1, "findings": []})}, {"finding": json.dumps({"outputs": 0, "findings": [{"code": "unknown"}]})}, {"document_type": "vcp_unknown_claim_v1"}]:
+    altered = copy.deepcopy(ingestion)
+    altered["records"]["claim:job"]["value"].update(change)
+    assert not oracle.oracle(altered, task)["supported"]
+
+print("19 independent oracle controls passed, including ingestion bookkeeping versus governed lineage, SQLite/Files parity and corruption/replay refusal")

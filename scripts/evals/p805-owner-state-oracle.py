@@ -66,7 +66,20 @@ def oracle(state, task):
     for key, row in records.items():
         value = row["value"]
         kind = value.get("document_type", "")
-        if row["collection"] == "claim" or kind in {"vcp_memory_proposal_v1", "vcp_memory_version_v1", "vcp_memory_result_v1"} or kind.startswith(("vcp_memory_redacted_", "vcp_escalation_", "vcp_optimization_forecast", "vcp_retention_")):
+        # Ingestion progress is held in Claim storage but is not governed memory
+        # and is not an eligible retention target (retention.rs::valid_record).
+        # Keep all unknown claim documents unsupported.
+        ingestion = kind in {"vcp_ingestion_job_v1", "vcp_ingestion_cursor_v1"}
+        diagnostic_only = value.get("finding") is None
+        if ingestion and kind == "vcp_ingestion_job_v1" and not diagnostic_only:
+            try:
+                finding = json.loads(value["finding"])
+                diagnostic_only = isinstance(finding, dict) and finding.get("outputs") == 0 and isinstance(finding.get("findings"), list) and all(isinstance(item, dict) and item.get("code") in {"source_observed", "unsupported_observation", "work_observation"} for item in finding["findings"])
+            except (ValueError, TypeError):
+                diagnostic_only = False
+        if ingestion and (value.get("scope", {}).get("task") != task or (kind == "vcp_ingestion_job_v1" and (value.get("root") != task or value.get("results") != [] or not diagnostic_only))):
+            reasons.append("Ingestion progress outside the sole task or already produced governed results")
+        if (row["collection"] == "claim" and not ingestion) or kind in {"vcp_memory_proposal_v1", "vcp_memory_version_v1", "vcp_memory_result_v1"} or kind.startswith(("vcp_memory_redacted_", "vcp_escalation_", "vcp_optimization_forecast", "vcp_retention_")):
             reasons.append("Existing memory/advisory/forecast/retention lineage outside narrow oracle")
         if value.get("redaction") or value.get("state") == "purged":
             reasons.append("Previously redacted source outside fresh owner oracle")
