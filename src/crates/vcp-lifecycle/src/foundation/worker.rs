@@ -35,6 +35,8 @@ mod memory;
 #[cfg(windows)]
 mod memory_query;
 mod provider;
+pub(super) mod public_connection;
+mod public_rpc;
 mod reasoning;
 pub(super) mod recovery;
 mod retention_policy;
@@ -179,6 +181,8 @@ pub struct Context {
     interrupted_capture: bool,
     owner_alive: bool,
     authority_pending: bool,
+    public_mode: bool,
+    public_controller: Option<public_connection::CurrentController>,
     provider_required: bool,
     provider: Option<provider::Provider>,
     routing: Option<routing::Runtime>,
@@ -326,6 +330,8 @@ impl Context {
             interrupted_capture,
             owner_alive: true,
             authority_pending: false,
+            public_mode: false,
+            public_controller: None,
             provider_required,
             provider: None,
             routing: None,
@@ -448,6 +454,15 @@ impl Context {
         expected: Revision,
         resume: Option<ResumeEvidence>,
     ) -> Result<CommandReceipt> {
+        if matches!(
+            payload,
+            Command::Transition {
+                next: TaskState::Running,
+                ..
+            }
+        ) {
+            self.check_public_owner()?;
+        }
         // Yield capture/tool hot paths to interactive work. Their durable
         // observations are picked up at the next task/turn/check boundary.
         let maintain_memory = matches!(
@@ -516,6 +531,7 @@ impl Context {
     }
     #[cfg(windows)]
     pub(super) fn can_start_memory(&self, binding: &ThreadBinding) -> Result<()> {
+        self.check_public_owner()?;
         if !self.local_memory_only {
             return self.can_start(binding);
         }
@@ -529,6 +545,7 @@ impl Context {
         Ok(())
     }
     pub fn can_start(&self, binding: &ThreadBinding) -> Result<()> {
+        self.check_public_owner()?;
         if self.authority_pending {
             return Err("authority change is stopping work".into());
         }
@@ -803,6 +820,7 @@ impl Context {
         Option<std::time::Instant>,
         u32,
     )> {
+        self.check_public_owner()?;
         if native_probe && !cfg!(feature = "qualification") {
             return Err("native probe requires qualification build".into());
         }

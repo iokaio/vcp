@@ -9,6 +9,7 @@ use vcp_store::contract::*;
 
 /// Supplied by the authenticated local host, never accepted from JSON commands.
 /// Revocation changes the workspace authority revision, invalidating old grants.
+#[derive(Clone)]
 pub struct Access {
     pub actor: ActorId,
     pub workspace: WorkspaceId,

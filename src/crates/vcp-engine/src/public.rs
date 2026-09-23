@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Public mutation translation into the canonical command handler.
 //! This module does not advertise a transport or an execution-host capability.
-use crate::{Access, Engine, HostFacts};
+use crate::{controller::ControllerToken, Access, Engine, HostFacts};
 use serde::{Deserialize, Serialize};
 use vcp_domain::{
     ids::*,
     revision::*,
-    task::{Objective, Task, Turn, TurnState},
+    task::{Objective, Task, TaskState, Turn, TurnState},
     workspace::{Session, Workspace},
 };
 use vcp_protocol::{
@@ -41,6 +41,86 @@ fn number(value: &Counter) -> Result<u64, PublicError> {
         .map_err(|_| PublicError::InvalidParameters)
 }
 
+/// Host-local admission, never accepted from a wire representation.
+#[derive(Debug)]
+pub enum PublicAdmission {
+    Replay(CommandReceipt),
+    Ready(PreparedPublicCommand),
+}
+
+#[derive(Debug)]
+pub struct PreparedPublicCommand {
+    call: Call,
+    digest: String,
+    command: CommandEnvelope,
+    authority: AuthorityRevision,
+    controller: Option<(ControllerId, ControllerToken)>,
+}
+impl PreparedPublicCommand {
+    pub fn call(&self) -> &Call {
+        &self.call
+    }
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+    pub fn id(&self) -> &CommandId {
+        &self.command.id
+    }
+    pub fn payload(&self) -> &Command {
+        &self.command.payload
+    }
+    pub fn task(&self) -> Option<&TaskId> {
+        self.command.task.as_ref()
+    }
+    pub fn expected(&self) -> Revision {
+        self.command.expected
+    }
+    pub fn steering(&self) -> SteeringRevision {
+        self.command.steering
+    }
+    fn lease_identity(&self) -> Option<(ControllerId, Revision, Revision)> {
+        self.controller
+            .as_ref()
+            .map(|(connection, token)| (connection.clone(), token.generation(), token.revision()))
+    }
+}
+
+/// Proof of the selected task's canonical pause, bound to one public admission.
+/// The host must also fence and drain external work before committing steering.
+#[derive(Debug)]
+pub struct PublicPauseProof {
+    command: CommandId,
+    digest: String,
+    task: Task,
+    receipt: Option<CommandReceipt>,
+    owner: ControllerId,
+    epoch: OwnerEpoch,
+    authority: AuthorityRevision,
+    controller: Option<(ControllerId, Revision, Revision)>,
+}
+impl PublicPauseProof {
+    pub fn receipt(&self) -> Option<&CommandReceipt> {
+        self.receipt.as_ref()
+    }
+    pub fn revision(&self) -> Revision {
+        self.task.revision
+    }
+}
+
+fn public_error(error: crate::Error) -> PublicError {
+    match error {
+        crate::Error::Access => PublicError::Access,
+        crate::Error::Owner
+        | crate::Error::Target
+        | crate::Error::Host
+        | crate::Error::Domain(_)
+        | crate::Error::Policy(_) => PublicError::StaleState,
+        crate::Error::Protocol(_) | crate::Error::Json(_) => PublicError::InvalidParameters,
+        crate::Error::Store(vcp_store::Error::Conflict(_)) => PublicError::StaleState,
+        crate::Error::Store(_) => PublicError::OutcomeUnknown,
+    }
+}
+
 impl<S: CanonicalStore> Engine<S> {
     pub async fn handle_public(
         &mut self,
@@ -48,6 +128,55 @@ impl<S: CanonicalStore> Engine<S> {
         access: &Access,
         host: &HostFacts,
     ) -> Result<CommandReceipt, PublicError> {
+        match self.prepare_public(call, access, host)? {
+            PublicAdmission::Replay(receipt) => Ok(receipt),
+            PublicAdmission::Ready(prepared) => self.commit_public(prepared, access, host).await,
+        }
+    }
+
+    pub fn prepare_public(
+        &self,
+        call: Call,
+        access: &Access,
+        host: &HostFacts,
+    ) -> Result<PublicAdmission, PublicError> {
+        self.prepare_public_inner(call, access, host, None)
+    }
+
+    pub fn prepare_controlled_public(
+        &self,
+        call: Call,
+        access: &Access,
+        host: &HostFacts,
+        connection: &ControllerId,
+        token: &ControllerToken,
+    ) -> Result<PublicAdmission, PublicError> {
+        self.check_controller(access, connection, token)
+            .map_err(|_| PublicError::Access)?;
+        let mut admission = self.prepare_public(call, access, host)?;
+        if let PublicAdmission::Ready(prepared) = &mut admission {
+            if matches!(prepared.call, Call::TurnSteer(_)) {
+                let task = self.public_task(prepared, access)?;
+                if task.state != TaskState::Paused {
+                    // Both the trusted pause and steering must fit before the host holds work.
+                    task.revision
+                        .next()
+                        .and_then(Revision::next)
+                        .map_err(|_| PublicError::StaleState)?;
+                }
+            }
+            prepared.controller = Some((connection.clone(), token.clone()));
+        }
+        Ok(admission)
+    }
+
+    fn prepare_public_inner(
+        &self,
+        call: Call,
+        access: &Access,
+        host: &HostFacts,
+        paused_revision: Option<Revision>,
+    ) -> Result<PublicAdmission, PublicError> {
         self.authorize(access).map_err(|_| PublicError::Access)?;
         if !access.write {
             return Err(PublicError::Access);
@@ -101,13 +230,17 @@ impl<S: CanonicalStore> Engine<S> {
             .command(&access.workspace, &id, &digest)
             .map_err(|_| PublicError::CommandConflict)?
         {
-            return Ok(receipt);
+            return Ok(PublicAdmission::Replay(receipt));
         }
-        let expected = Revision::new(number(&mutation.expected_revision)?);
+        let expected =
+            paused_revision.unwrap_or(Revision::new(number(&mutation.expected_revision)?));
         let steering = SteeringRevision::new(number(&mutation.steering_revision)?);
         let (task, payload) = match &call {
             Call::SessionCreate(p) => {
-                if number(&p.configuration_revision)? != session.configuration.get() {
+                if expected != Revision::ZERO
+                    || steering != SteeringRevision::ZERO
+                    || number(&p.configuration_revision)? != session.configuration.get()
+                {
                     return Err(PublicError::StaleState);
                 }
                 (
@@ -138,7 +271,9 @@ impl<S: CanonicalStore> Engine<S> {
                 {
                     return Err(PublicError::Unavailable);
                 }
-                if task.scope.task != task_id
+                if task.revision != expected
+                    || task.steering != steering
+                    || task.scope.task != task_id
                     || turn.id.as_str() != p.turn.as_str()
                     || turn.steering != steering
                     || matches!(
@@ -148,19 +283,18 @@ impl<S: CanonicalStore> Engine<S> {
                 {
                     return Err(PublicError::StaleState);
                 }
-                (
-                    Some(task_id),
-                    Command::Steer {
-                        objective: Objective {
-                            text: p.objective.clone(),
-                            constraints: p.constraints.clone(),
-                            acceptance: p.acceptance.clone(),
-                            source: EventId::new(),
-                            steering,
-                        },
-                    },
-                )
+                let objective = Objective {
+                    text: p.objective.clone(),
+                    constraints: p.constraints.clone(),
+                    acceptance: p.acceptance.clone(),
+                    source: EventId::new(),
+                    steering,
+                };
+                task.steer(expected, objective.clone())
+                    .map_err(|_| PublicError::StaleState)?;
+                (Some(task_id), Command::Steer { objective })
             }
+
             Call::ApprovalRespond(p) => {
                 let task_id =
                     TaskId::parse(p.task.as_str()).map_err(|_| PublicError::InvalidParameters)?;
@@ -211,19 +345,184 @@ impl<S: CanonicalStore> Engine<S> {
             steering,
             payload,
         };
-        self.handle_with_digest(command, access, host, Some(digest))
-            .await
-            .map_err(|error| match error {
-                crate::Error::Access => PublicError::Access,
-                crate::Error::Owner
-                | crate::Error::Target
-                | crate::Error::Host
-                | crate::Error::Domain(_)
-                | crate::Error::Policy(_) => PublicError::StaleState,
-                crate::Error::Protocol(_) | crate::Error::Json(_) => PublicError::InvalidParameters,
-                crate::Error::Store(vcp_store::Error::Conflict(_)) => PublicError::StaleState,
-                crate::Error::Store(_) => PublicError::OutcomeUnknown,
-            })
+        Ok(PublicAdmission::Ready(PreparedPublicCommand {
+            call,
+            digest,
+            command,
+            authority: access.authority,
+            controller: None,
+        }))
+    }
+
+    fn check_public_prepared(
+        &self,
+        prepared: &PreparedPublicCommand,
+        access: &Access,
+    ) -> Result<(), PublicError> {
+        self.authorize(access).map_err(|_| PublicError::Access)?;
+        if !access.write
+            || access.actor != prepared.command.caller
+            || access.workspace != prepared.command.workspace
+            || access.session != prepared.command.session
+            || access.authority != prepared.authority
+        {
+            return Err(PublicError::Access);
+        }
+        if prepared.command.controller != *self.controller()
+            || prepared.command.owner_epoch != self.owner_epoch()
+        {
+            return Err(PublicError::StaleState);
+        }
+        if let Some((connection, token)) = &prepared.controller {
+            self.check_controller(access, connection, token)
+                .map_err(|_| PublicError::Access)?;
+        }
+        Ok(())
+    }
+
+    pub async fn commit_public(
+        &mut self,
+        prepared: PreparedPublicCommand,
+        access: &Access,
+        host: &HostFacts,
+    ) -> Result<CommandReceipt, PublicError> {
+        self.check_public_prepared(&prepared, access)?;
+        if prepared.controller.is_some() && matches!(prepared.call, Call::TurnSteer(_)) {
+            return Err(PublicError::CapabilityUnavailable);
+        }
+        match self.prepare_public(prepared.call, access, host)? {
+            PublicAdmission::Replay(receipt) => Ok(receipt),
+            PublicAdmission::Ready(current) => self
+                .handle_with_digest(current.command, access, host, Some(current.digest))
+                .await
+                .map_err(public_error),
+        }
+    }
+
+    fn public_task(
+        &self,
+        prepared: &PreparedPublicCommand,
+        access: &Access,
+    ) -> Result<Task, PublicError> {
+        let task = prepared.task().ok_or(PublicError::InvalidParameters)?;
+        self.store()
+            .state()
+            .record(Collection::Task, task.as_str(), &access.workspace)
+            .map_err(|_| PublicError::Unavailable)?
+            .decode()
+            .map_err(|_| PublicError::Unavailable)
+    }
+
+    pub async fn pause_public_for_authority(
+        &mut self,
+        prepared: &PreparedPublicCommand,
+        access: &Access,
+        host: &HostFacts,
+    ) -> Result<PublicPauseProof, PublicError> {
+        self.check_public_prepared(prepared, access)?;
+        if !matches!(prepared.call, Call::TurnSteer(_)) {
+            return Err(PublicError::CapabilityUnavailable);
+        }
+        // Revalidate the original expected revision and objective before changing state.
+        if !matches!(
+            self.prepare_public(prepared.call.clone(), access, host)?,
+            PublicAdmission::Ready(_)
+        ) {
+            return Err(PublicError::StaleState);
+        }
+        let before = self.public_task(prepared, access)?;
+        let receipt = if before.state == TaskState::Paused {
+            None
+        } else {
+            let mut pause = prepared.command.clone();
+            pause.id = CommandId::new();
+            pause.payload = Command::Transition {
+                next: TaskState::Paused,
+                reason: "authority change requires deliberate continuation".into(),
+                verification: None,
+            };
+            Some(
+                self.handle(pause, access, host)
+                    .await
+                    .map_err(public_error)?,
+            )
+        };
+        let task = self.public_task(prepared, access)?;
+        if task.state != TaskState::Paused || task.steering != prepared.steering() {
+            return Err(PublicError::OutcomeUnknown);
+        }
+        Ok(PublicPauseProof {
+            command: prepared.id().clone(),
+            digest: prepared.digest.clone(),
+            task,
+            receipt,
+            owner: prepared.command.controller.clone(),
+            epoch: prepared.command.owner_epoch,
+            authority: prepared.authority,
+            controller: prepared.lease_identity(),
+        })
+    }
+
+    pub async fn commit_public_after_pause(
+        &mut self,
+        prepared: PreparedPublicCommand,
+        proof: PublicPauseProof,
+        access: &Access,
+        host: &HostFacts,
+    ) -> Result<CommandReceipt, PublicError> {
+        self.check_public_prepared(&prepared, access)?;
+        if !matches!(prepared.call, Call::TurnSteer(_))
+            || proof.command != *prepared.id()
+            || proof.digest != prepared.digest
+            || proof.owner != prepared.command.controller
+            || proof.epoch != prepared.command.owner_epoch
+            || proof.authority != prepared.authority
+            || proof.controller != prepared.lease_identity()
+        {
+            return Err(PublicError::StaleState);
+        }
+        if let Some(receipt) = self
+            .store()
+            .state()
+            .command(&access.workspace, prepared.id(), prepared.digest())
+            .map_err(|_| PublicError::CommandConflict)?
+        {
+            return Ok(receipt);
+        }
+        if self.public_task(&prepared, access)? != proof.task {
+            return Err(PublicError::StaleState);
+        }
+        let expected = if let Some(receipt) = &proof.receipt {
+            if self
+                .store()
+                .state()
+                .command(&access.workspace, &receipt.command, &receipt.digest)
+                .map_err(|_| PublicError::StaleState)?
+                .as_ref()
+                != Some(receipt)
+            {
+                return Err(PublicError::StaleState);
+            }
+            prepared
+                .expected()
+                .next()
+                .map_err(|_| PublicError::StaleState)?
+        } else {
+            prepared.expected()
+        };
+        if proof.task.revision != expected
+            || proof.task.state != TaskState::Paused
+            || proof.task.steering != prepared.steering()
+        {
+            return Err(PublicError::StaleState);
+        }
+        match self.prepare_public_inner(prepared.call, access, host, Some(expected))? {
+            PublicAdmission::Replay(receipt) => Ok(receipt),
+            PublicAdmission::Ready(current) => self
+                .handle_with_digest(current.command, access, host, Some(current.digest))
+                .await
+                .map_err(public_error),
+        }
     }
 }
 
@@ -354,6 +653,288 @@ mod tests {
             new_session: id("created-session"),
             configuration_revision: 0.into(),
         })
+    }
+
+    fn ready(admission: PublicAdmission) -> PreparedPublicCommand {
+        match admission {
+            PublicAdmission::Ready(value) => value,
+            _ => panic!("expected new admission"),
+        }
+    }
+
+    fn steer_call(command: &str, revision: u64) -> Call {
+        Call::TurnSteer(methods::TurnSteer {
+            scope: scope(),
+            mutation: mutation(command, revision, 0),
+            task: id("task"),
+            turn: id("turn"),
+            objective: "controlled objective".into(),
+            constraints: vec![],
+            acceptance: vec![],
+        })
+    }
+
+    #[tokio::test]
+    async fn controlled_pause_preserves_identity_and_fences_stale_admission() {
+        for backend in [BackendKind::Sqlite, BackendKind::Files] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut engine = setup(temp.path(), backend).await;
+            let connection = ControllerId::new();
+            engine
+                .acquire_controller(&access(), &connection, CommandId::new(), None, facts().now)
+                .await
+                .unwrap();
+            let token = engine.controller_token(&access(), &connection).unwrap();
+            let task = task(&mut engine).await;
+            start_turn(&mut engine, &task).await;
+            let current: Task = engine
+                .store()
+                .state()
+                .record(Collection::Task, task.as_str(), &access().workspace)
+                .unwrap()
+                .decode()
+                .unwrap();
+            let watermark = engine.store().state().watermark;
+            assert!(matches!(
+                engine.prepare_controlled_public(
+                    steer_call("stale", 0),
+                    &access(),
+                    &facts(),
+                    &connection,
+                    &token
+                ),
+                Err(PublicError::StaleState)
+            ));
+            assert_eq!(engine.store().state().watermark, watermark);
+            let call = steer_call("controlled-steer", current.revision.get());
+            let prepared = ready(
+                engine
+                    .prepare_controlled_public(
+                        call.clone(),
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token,
+                    )
+                    .unwrap(),
+            );
+            assert_eq!(
+                engine.commit_public(prepared, &access(), &facts()).await,
+                Err(PublicError::CapabilityUnavailable)
+            );
+            assert_eq!(engine.store().state().watermark, watermark);
+            let prepared = ready(
+                engine
+                    .prepare_controlled_public(
+                        call.clone(),
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token,
+                    )
+                    .unwrap(),
+            );
+            let proof = engine
+                .pause_public_for_authority(&prepared, &access(), &facts())
+                .await
+                .unwrap();
+            assert!(proof.receipt().is_some());
+            assert_eq!(proof.revision(), current.revision.next().unwrap());
+            let digest = prepared.digest().to_owned();
+            let receipt = engine
+                .commit_public_after_pause(prepared, proof, &access(), &facts())
+                .await
+                .unwrap();
+            assert_eq!(receipt.digest, digest);
+            assert_eq!(receipt.command.as_str(), "controlled-steer");
+            let after: Task = engine
+                .store()
+                .state()
+                .record(Collection::Task, task.as_str(), &access().workspace)
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert_eq!(after.state, TaskState::Paused);
+            assert_eq!(after.objectives.len(), current.objectives.len() + 1);
+            let watermark = engine.store().state().watermark;
+            assert!(matches!(
+                engine
+                    .prepare_controlled_public(
+                        call.clone(),
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token
+                    )
+                    .unwrap(),
+                PublicAdmission::Replay(_)
+            ));
+            assert_eq!(engine.store().state().watermark, watermark);
+            engine.into_store().close().await.unwrap();
+            let mut engine =
+                Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
+            assert_eq!(
+                engine
+                    .handle_public(call, &access(), &facts())
+                    .await
+                    .unwrap(),
+                receipt
+            );
+            assert_eq!(engine.store().state().watermark, watermark);
+            engine.into_store().close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn controlled_proof_cannot_survive_release_or_denied_current_access() {
+        for backend in [BackendKind::Sqlite, BackendKind::Files] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut engine = setup(temp.path(), backend).await;
+            let connection = ControllerId::new();
+            engine
+                .acquire_controller(&access(), &connection, CommandId::new(), None, facts().now)
+                .await
+                .unwrap();
+            let token = engine.controller_token(&access(), &connection).unwrap();
+            let task = task(&mut engine).await;
+            start_turn(&mut engine, &task).await;
+            let current: Task = engine
+                .store()
+                .state()
+                .record(Collection::Task, task.as_str(), &access().workspace)
+                .unwrap()
+                .decode()
+                .unwrap();
+            let call = steer_call("lost-controller", current.revision.get());
+            let prepared = ready(
+                engine
+                    .prepare_controlled_public(call, &access(), &facts(), &connection, &token)
+                    .unwrap(),
+            );
+            let mut observer = access();
+            observer.write = false;
+            let watermark = engine.store().state().watermark;
+            assert!(matches!(
+                engine
+                    .pause_public_for_authority(&prepared, &observer, &facts())
+                    .await,
+                Err(PublicError::Access)
+            ));
+            assert_eq!(engine.store().state().watermark, watermark);
+            let proof = engine
+                .pause_public_for_authority(&prepared, &access(), &facts())
+                .await
+                .unwrap();
+            engine
+                .release_controller(
+                    &access(),
+                    &connection,
+                    CommandId::new(),
+                    &token,
+                    token.revision(),
+                    vcp_domain::controller::Reason::Released,
+                    facts().now,
+                )
+                .await
+                .unwrap();
+            let watermark = engine.store().state().watermark;
+            assert_eq!(
+                engine
+                    .commit_public_after_pause(prepared, proof, &access(), &facts())
+                    .await,
+                Err(PublicError::Access)
+            );
+            assert_eq!(engine.store().state().watermark, watermark);
+            engine.into_store().close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn pause_proof_rejects_other_identity_and_changed_task_and_owner() {
+        for backend in [BackendKind::Sqlite, BackendKind::Files] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut engine = setup(temp.path(), backend).await;
+            let task = task(&mut engine).await;
+            start_turn(&mut engine, &task).await;
+            let current: Task = engine
+                .store()
+                .state()
+                .record(Collection::Task, task.as_str(), &access().workspace)
+                .unwrap()
+                .decode()
+                .unwrap();
+            let first = ready(
+                engine
+                    .prepare_public(
+                        steer_call("first", current.revision.get()),
+                        &access(),
+                        &facts(),
+                    )
+                    .unwrap(),
+            );
+            let other = ready(
+                engine
+                    .prepare_public(
+                        steer_call("other", current.revision.get()),
+                        &access(),
+                        &facts(),
+                    )
+                    .unwrap(),
+            );
+            let proof = engine
+                .pause_public_for_authority(&first, &access(), &facts())
+                .await
+                .unwrap();
+            let paused = proof.revision();
+            let watermark = engine.store().state().watermark;
+            assert_eq!(
+                engine
+                    .commit_public_after_pause(other, proof, &access(), &facts())
+                    .await,
+                Err(PublicError::StaleState)
+            );
+            assert_eq!(engine.store().state().watermark, watermark);
+            let prepared = ready(
+                engine
+                    .prepare_public(
+                        steer_call("already-paused", paused.get()),
+                        &access(),
+                        &facts(),
+                    )
+                    .unwrap(),
+            );
+            let proof = engine
+                .pause_public_for_authority(&prepared, &access(), &facts())
+                .await
+                .unwrap();
+            assert!(proof.receipt().is_none());
+            assert_eq!(engine.store().state().watermark, watermark);
+            engine
+                .handle_public(steer_call("intervening", paused.get()), &access(), &facts())
+                .await
+                .unwrap();
+            let watermark = engine.store().state().watermark;
+            assert_eq!(
+                engine
+                    .commit_public_after_pause(prepared, proof, &access(), &facts())
+                    .await,
+                Err(PublicError::StaleState)
+            );
+            assert_eq!(engine.store().state().watermark, watermark);
+            let prepared = ready(
+                engine
+                    .prepare_public(create_call("stale-owner"), &access(), &facts())
+                    .unwrap(),
+            );
+            engine.into_store().close().await.unwrap();
+            let mut engine =
+                Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
+            assert_eq!(
+                engine.commit_public(prepared, &access(), &facts()).await,
+                Err(PublicError::StaleState)
+            );
+            engine.into_store().close().await.unwrap();
+        }
     }
 
     #[tokio::test]
