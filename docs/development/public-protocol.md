@@ -215,7 +215,7 @@ resolved in the following section rather than inferred from a method's name.
 | `routing/explain` | Workspace/session/task/step; O | Current scope and snapshot cursor; read | Stored routing decisions/evidence; audit `View::Routing` | Typed public projection; do not synthesize a replacement explanation as authority |
 | `usage/read` | Workspace/session/task/root budget; O | Current scope and snapshot cursor; read | Complete settled/reserved/unresolved cost view; audit `View::Costs` | Typed public accounting projection preserving distinct liabilities |
 | `memory/query` | Workspace and authorized memory/task scope; O | Current access/view, generation/sequence and bounded query; read | Evidence/findings with generation and sequence; `vcp_memory::retrieval::query`, `CanonicalHost::query_memory_context`, local-memory APIs | Select shared interactive query/resource semantics; do not treat context preparation as an interchangeable public query |
-| `memory/inspect` | Workspace/claim/version; O | Current memory access and retained version; read | Claim/provenance/visibility state; `CanonicalHost::inspect_memory`, memory inspection/history APIs | Typed claim/version projection |
+| `memory/inspect` | Workspace/session/task/claim/version; O | Current governed memory access; requires `memory/inspection-state/1`; read | Implemented by live `PublicConnection::memory_inspect` using governed history; retained/pruned/purged version, resolution and evidence states | [ADR-050](../adr/050-governed-public-memory-inspection.md); no retrieval, hidden payload or inferred authority |
 | `memory/propose` | Workspace and authorized claim scope; C | Governance authority and source/view versions; durable | Durable proposal/governance status; `vcp_memory::repository::propose` | Uniform shared command/receipt facade, not adapter-owned governance |
 | `memory/resolve` | Workspace/proposal/claim version; C | Expected proposal/claim and governance revisions; durable | Durable resolution with explicit rejection/conflict; governance `gates::evaluate` and repository components | Shared authenticated resolution operation; evaluating gates alone does not commit a resolution |
 | `memory/forget` | Workspace and selected claims/history/artifacts; C | Current preview/digest, deletion/authority revisions and deletion authorization; durable | Durable staged deletion status; retention `preview/save_preview/apply/cleanup` | Public shared workflow and reconciliation; accepted deletion does not imply physical cleanup finished |
@@ -280,6 +280,11 @@ policy for optional result fields. Clients negotiating
 Without that capability both fields are absent, preserving strict older decoders.
 Clients needing these response preconditions should require the capability; the
 counters do not replace current authority and source validation.
+
+`memory/inspect` additionally requires `memory/inspection-state/1`; otherwise
+it fails before host dispatch. Its optional `MemoryFinding.state` distinguishes
+retained, pruned and purged versions, applicability, resolution and evidence
+availability. It does not reinterpret an empty statement as a missing claim.
 
 Other optional presentation fields still require an explicit compatible policy;
 unknown required capabilities and authority/governance enums fail closed. A wire

@@ -78,11 +78,17 @@ export type EventsSubscribe = { "after_sequence": Counter; "limit": number; "sco
 
 export type EventsUnsubscribe = { "scope": Scope; "subscription": Id; };
 
+export type EvidenceAvailability = (("available" | "unavailable" | "missing" | "integrity_failure") & string);
+
 export type EvidencePage = { "complete": boolean; "next_cursor"?: (string | null); "rows": Array<EvidenceRow>; "scope": Scope; "task": Id; "watermark": Counter; };
 
 export type EvidenceReference = { "artifact": Id; "length": Counter; "offset": Counter; "sha256": string; };
 
 export type EvidenceRow = { "content": EvidenceReference; "id": Id; "revision": Counter; "schema": string; };
+
+export type EvidenceState = { "artifact": Id; "availability": EvidenceAvailability; "verification_current": boolean; };
+
+export type EvidenceStatus = (("verified" | "observed" | "inferred" | "unverified") & string);
 
 export type ExecutionHost = { "id": string; "platform": string; };
 
@@ -100,11 +106,13 @@ export type InputKind = (("approval" | "question" | "reconciliation") & string);
 
 export type Inspect = { "cursor"?: (string | null); "limit": number; "scope": Scope; "target"?: (Id | null); "task": Id; };
 
+export type InspectionState = { "applicable": boolean; "canonical_watermark": Counter; "current": boolean; "evidence": Array<EvidenceState>; "memory_sequence": Counter; "resolution"?: (Resolution | null); "visibility": Visibility; };
+
 export type JsonRpcVersion = ("2.0" & string);
 
 export type MemoryDecision = (("accept" | "reject") & string);
 
-export type MemoryFinding = { "claim": Id; "content": string; "evidence": Array<EvidenceReference>; "version": Id; };
+export type MemoryFinding = { "claim": Id; "content": string; "evidence": Array<EvidenceReference>; "state"?: (InspectionState | null); "version": Id; };
 
 export type MemoryForget = { "mutation": Mutation; "preview": Id; "preview_digest": string; "scope": Scope; "task": Id; };
 
@@ -122,11 +130,15 @@ export type Mutation = { "command_id": Id; "expected_revision": Counter; "steeri
 
 export type OperationOutcome = (("accepted" | "waiting_for_input" | "partial" | "unknown" | "completed" | "cancelled" | "failed") & string);
 
+export type Outcome = (("accepted" | "disputed" | "rejected" | "awaiting_review") & string);
+
 export type PendingInput = { "effect_revision"?: (Counter | null); "id": Id; "kind": InputKind; "operation_digest"?: (string | null); "policy_revision"?: (Counter | null); "revision": Counter; };
 
 export type RequestEnvelope = { "id"?: RequestId; "jsonrpc": JsonRpcVersion; "method": string; "params"?: WireParams; };
 
 export type RequestId = (string | number | null);
+
+export type Resolution = { "conflicts": Array<Id>; "evidence_status": EvidenceStatus; "outcome": Outcome; };
 
 export type ResultEnvelope = { "id": RequestId; "jsonrpc": JsonRpcVersion; "result": unknown; };
 
@@ -175,6 +187,8 @@ export type TurnStart = { "acceptance": Array<string>; "budget": Budget; "constr
 export type TurnSteer = { "acceptance": Array<string>; "constraints": Array<string>; "mutation": Mutation; "objective": string; "scope": Scope; "task": Id; "turn": Id; };
 
 export type UsageView = { "cap_micros": Counter; "currency": Currency; "overrun": boolean; "reserved_micros": Counter; "root": Id; "scope": Scope; "settled_micros": Counter; "task": Id; "unresolved_micros": Counter; };
+
+export type Visibility = (("retained" | "pruned" | "purged") & string);
 
 export type WireEnvelope = (RequestEnvelope | ResultEnvelope | ErrorEnvelope);
 
