@@ -34,6 +34,8 @@ pub mod memory_query;
 pub mod memory_query_resources;
 #[cfg(windows)]
 pub mod memory_vectors;
+#[cfg(feature = "qualification")]
+pub mod model_dispatch_qualification;
 pub mod openrouter;
 #[cfg(windows)]
 mod process;

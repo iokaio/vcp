@@ -17,6 +17,9 @@ use wiremock::{
 #[cfg(feature = "qualification")]
 #[path = "child_write_crash.rs"]
 mod child_write_crash;
+#[cfg(feature = "qualification")]
+#[path = "model_dispatch_crash.rs"]
+mod model_dispatch_crash;
 
 struct Fixture {
     _temp: tempfile::TempDir,
@@ -38,6 +41,15 @@ impl Fixture {
     }
 
     async fn new_in(backend: BackendKind, requests: u64, temp: tempfile::TempDir) -> Self {
+        Self::new_in_endpoint(backend, requests, temp, None).await
+    }
+
+    async fn new_in_endpoint(
+        backend: BackendKind,
+        requests: u64,
+        temp: tempfile::TempDir,
+        endpoint: Option<String>,
+    ) -> Self {
         let workspace = temp.path().join("workspace");
         let copies = temp.path().join("children");
         fs::create_dir(&workspace).unwrap();
@@ -161,6 +173,9 @@ impl Fixture {
                 c.cwd = cwd.try_into().unwrap();
                 c.model = Some(model.clone());
                 configure_fixture_provider(c);
+                if let Some(endpoint) = endpoint {
+                    c.model_provider.base_url = Some(format!("{endpoint}/v1"));
+                }
                 starter
                     .lifecycle()
                     .authorize_startup(c.cwd.as_path(), None)

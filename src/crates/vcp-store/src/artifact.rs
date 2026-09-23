@@ -50,6 +50,14 @@ pub(crate) fn reject_link(path: &Path) -> Result<()> {
 }
 
 pub(crate) fn immutable_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    immutable_file_observed(path, bytes, &|_| Ok(()))
+}
+
+fn immutable_file_observed(
+    path: &Path,
+    bytes: &[u8],
+    observe: &dyn Fn(&str) -> Result<()>,
+) -> Result<()> {
     let temporary = path.with_extension(format!("{}.partial", TransactionId::new()));
     let mut file = OpenOptions::new()
         .create_new(true)
@@ -60,7 +68,9 @@ pub(crate) fn immutable_file(path: &Path, bytes: &[u8]) -> Result<()> {
     drop(file);
     // Publication is create-only: no existing immutable file can be replaced.
     // A hard link is atomic and fails if the destination already exists.
+    observe("before_publication")?;
     fs::hard_link(&temporary, path)?;
+    observe("after_publication")?;
     fs::remove_file(&temporary)?;
     sync_directory(path.parent().ok_or(Error::Corruption("missing parent"))?)?;
     Ok(())
@@ -420,6 +430,24 @@ fn descriptor(
 }
 impl LocalWriter {
     fn finish(&mut self, state: CaptureState) -> Result<ArtifactDescriptor> {
+        self.finish_observed(state, &|_| Ok(()))
+    }
+
+    /// Qualification-only fault observer at the immutable seal publication boundary.
+    /// An injected I/O error follows the same writer fencing path as a write failure.
+    #[cfg(feature = "qualification")]
+    pub fn finalize_observed(
+        &mut self,
+        observe: &dyn Fn(&str) -> Result<()>,
+    ) -> Result<ArtifactDescriptor> {
+        self.finish_observed(CaptureState::Complete, observe)
+    }
+
+    fn finish_observed(
+        &mut self,
+        state: CaptureState,
+        observe: &dyn Fn(&str) -> Result<()>,
+    ) -> Result<ArtifactDescriptor> {
         if let Some(terminal) = &self.terminal {
             if terminal.state != state {
                 return Err(Error::Conflict("artifact is already terminal"));
@@ -461,7 +489,9 @@ impl LocalWriter {
             version: 1,
             descriptor: result.clone(),
         })?;
-        if let Err(error) = immutable_file(&self.directory.join("seal.json"), &bytes) {
+        if let Err(error) =
+            immutable_file_observed(&self.directory.join("seal.json"), &bytes, observe)
+        {
             self.failed = true;
             return Err(error);
         }

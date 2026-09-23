@@ -149,3 +149,27 @@ variants, cloud hydration/offline divergence, and retained per-barrier superviso
 receipts remain outside what this audit establishes. Machine handoff stays
 skipped. Production package qualification and P8-03/P8-05 remain separate work;
 this map does not waive their acceptance conditions.
+
+## Follow-up disposition
+
+The [local recovery follow-up](p8-local-recovery-followup-2026-09-22.md) maps
+additional passing bounded receipts: artifact seal/publication (ten actual
+kills), root/child model dispatch (twelve), prune (eight), combined artifact/vault
+recovery (six), and MCP stdio/HTTPS owner loss (four). It also records three
+ciphertext-staging and four restore-staging capacity cases, offline divergence,
+native and MCP model-driven hostile-content authority checks on both stores, and an
+actual unfinished cloud hydration helper kill followed by exact recovery.
+Its subsequent externally supervised same-ciphertext restore uses the identified
+qualification package: independent decryption proves the complete historical
+replay state, retained live records/receipts and all spool parts after activation,
+two CLI reopens and exact retry. The follow-up records the hash chain and retained
+fresh roots; this is a sequential helper-interruption/recovery/VCP-restore proof.
+It preserves failed and superseded attempts with their source identities.
+
+The follow-up reconciles the already-retained sixteen snapshot/vault kills and
+P7 native trust-boundary logs without another full matrix run. Those historical
+results do not acquire new per-barrier receipts or production-package status.
+Physical whole-volume exhaustion was not run. The cloud run observed pending
+I/O at zero bytes, not a nonzero partial transfer; VCP was not active during that
+interrupted provider request. The follow-on does not qualify cloud publication
+interruption. Machine handoff stays skipped.
