@@ -172,7 +172,20 @@ Keep pre-existing upstream failures distinct from new regressions and intentiona
 
 ## P8-05 — Owner acceptance and release evaluation
 
-Preparation is in progress: the [release scorecard](../evaluations/p8-release-scorecard-2026-09-22.md)
+The [qualification follow-up](../evaluations/p8-qualification-followup-2026-09-22.md)
+tracks the restore/startup corrections and authorized bounded owner execution.
+Final human acceptance and the remaining environment/integration gates stay open
+until their actual results are recorded.
+
+The production U09 probe found a missing CLI integration prerequisite: internal
+vector build/query APIs have no trusted profile asset-selection or command path.
+P5-08 subsystem evidence does not establish that production workflow. P8-01/P8-05
+must bind that integration and qualify offline build/reopen, scope isolation and
+ANN-versus-exact retrieval before claiming integrated U09 acceptance.
+
+Owner evaluation is incomplete: the bounded six-attempt follow-up recorded three
+completed tasks and three request-limit pauses, with human review still pending.
+The [release scorecard](../evaluations/p8-release-scorecard-2026-09-22.md)
 joins the 56-task closure, FR/I/U dispositions and 46 passing executable matrix
 cases. The [gap reconciliation](../evaluations/p8-acceptance-gaps-2026-09-22.md)
 and [owner packet](../evaluations/p8-owner-acceptance-package-2026-09-22.md)

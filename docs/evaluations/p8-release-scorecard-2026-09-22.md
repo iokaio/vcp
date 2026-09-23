@@ -7,6 +7,12 @@ It does not complete P8-05. The [gap report](p8-acceptance-gaps-2026-09-22.md)
 is the remaining-work inventory. Machine handoff is excluded from this
 continuation by owner direction and remains not run for release acceptance.
 
+Current bounded results are in the
+[qualification follow-up](p8-qualification-followup-2026-09-22.md), including the
+rebuilt candidate, corrected restore, retained-history timings and fresh model
+provisioning. The original receipts and requirement mapping below retain their
+recorded scope; no owner acceptance is inferred from automated observations.
+
 ## Candidate and evidence identity
 
 The following table preserves the earlier debug candidate. The subsequent

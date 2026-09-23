@@ -1,5 +1,10 @@
 # P8-05 owner acceptance packet — 2026-09-22
 
+The [qualification follow-up](p8-qualification-followup-2026-09-22.md) records
+the owner's later request to execute the prepared bounded tasks. The pending
+acceptance form below remains unsigned; execution authorization is distinct
+from the final owner decision.
+
 **Disposition: NOT APPROVED.** This packet prepares owner review of the existing
 unsigned candidate. It does not record an owner task run, acceptance, or permission
 to publish. P8-06 is complete; P8-01 through P8-05 remain open. The owner directed

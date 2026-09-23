@@ -5,6 +5,11 @@ the [work-item contracts](../plan/15-integration-and-release.md) to committed
 evidence. It does not add implementation requirements or waive existing ones.
 P8-06 maintenance completion is separate from these release gates.
 
+The [subsequent qualification follow-up](p8-qualification-followup-2026-09-22.md)
+records the rebuilt restore/startup fixes, fresh model acquisition and additional
+owner/integration observations. It supersedes the corresponding missing-evidence
+statements below only within its explicit scope; this mapping remains historical.
+
 The later [production qualification supplement](p8-production-qualification-2026-09-22.md)
 addresses the intended optimized artifact with bounded startup and selected
 installation, recovery/security and terminal checks. Read its exact scope and
