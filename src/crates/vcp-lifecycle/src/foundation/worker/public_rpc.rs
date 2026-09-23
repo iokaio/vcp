@@ -17,6 +17,10 @@ const METHODS: &[&str] = &[
     "session/create",
     "session/read",
     "session/list",
+    "task/read",
+    "task/cancel",
+    "turn/pause",
+    "turn/cancel",
     "turn/steer",
     "approval/respond",
     "command/read",
@@ -399,6 +403,65 @@ impl RpcHost for PublicConnection {
                         "host authority operation is stopping; reconcile original command",
                     ));
                 }
+                let stopping = matches!(
+                    prepared.call(),
+                    Call::TaskCancel(_) | Call::TurnPause(_) | Call::TurnCancel(_)
+                );
+                if stopping {
+                    let task = prepared.task().ok_or_else(RpcError::internal_error)?;
+                    let selected: Task = context
+                        .engine
+                        .store()
+                        .state()
+                        .record(Collection::Task, task.as_str(), &admitted_access.workspace)
+                        .and_then(Record::decode)
+                        .map_err(|_| RpcError::internal_error())?;
+                    // Public preparation validated scope, task/turn chronology and
+                    // revisions before any retained work is touched. Acceptance
+                    // is durable intent; owned cancellation may still be draining.
+                    let attached = bindings
+                        .lock()
+                        .map_err(|_| RpcError::internal_error())?
+                        .values()
+                        .any(|binding| binding.scope == selected.scope);
+                    if selected.state == TaskState::Running && !attached {
+                        return Err(failure(
+                            Code::CapabilityUnavailable,
+                            Retry::AfterRevalidation,
+                            &request,
+                            "running task has no retained host owner",
+                        ));
+                    }
+                    marker.store(true, Ordering::SeqCst);
+                    super::control::hold_task_stop(
+                        &runtime,
+                        &bindings,
+                        &context.config.root_task,
+                        &selected,
+                    )
+                    .map_err(|_| {
+                        failure(
+                            Code::OutcomeUnknown,
+                            Retry::ReconcileOriginal,
+                            &request,
+                            "retained task stop requires reconciliation",
+                        )
+                    })?;
+                    context
+                        .check_public_controller(
+                            &admitted_access,
+                            &admitted_connection,
+                            &admitted_token,
+                        )
+                        .map_err(|_| {
+                            failure(
+                                Code::AuthorityStale,
+                                Retry::ReconcileOriginal,
+                                &request,
+                                "controller lost during task stop",
+                            )
+                        })?;
+                }
                 if !matches!(prepared.payload(), Command::Steer { .. }) {
                     let receipt = context
                         .runtime
@@ -408,6 +471,20 @@ impl RpcHost for PublicConnection {
                                 .commit_public(prepared, &admitted_access, &facts),
                         )
                         .map_err(|error| public_error(error, operation.clone(), approval))?;
+                    if stopping {
+                        runtime.0.changed.notify_waiters();
+                        #[cfg(windows)]
+                        context
+                            .stop_coding_turns("explicit public task stop")
+                            .map_err(|_| {
+                                failure(
+                                    Code::OutcomeUnknown,
+                                    Retry::ReconcileOriginal,
+                                    &request,
+                                    "coding turn stop requires reconciliation",
+                                )
+                            })?;
+                    }
                     return acceptance(&context.engine, &admitted_access, &receipt)
                         .map(Admission::Reply);
                 }
