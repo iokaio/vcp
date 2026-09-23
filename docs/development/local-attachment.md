@@ -1,9 +1,9 @@
 # Local attachment construction
 
 Owning item: P9-02. The protocol foundation is delivered in PR #134. This increment
-adds canonical controller-lease state, an injectable RPC host boundary and a live
-connection adapter. It does not expose a local server or qualify endpoint
-authentication.
+adds canonical controller-lease state, a live connection adapter and controlled
+Windows stdio launch. Named-pipe attachment, live subscriptions and the remaining
+execution adapters are still in construction.
 
 ## Controller identity
 
@@ -112,13 +112,69 @@ test machine. Process-level endpoint authentication remains separate acceptance.
 
 ## Remaining acceptance
 
-Before advertising attachment, qualify controlled stdio launch and native Windows
-pipe peer authentication, endpoint permissions, inherited handles and writer-lock
-ownership. Then prove real-process competing controllers, observer disconnect,
-controller loss, connected pause, explicit resume and crash/retry behavior.
+Qualify native Windows pipe peer authentication, endpoint permissions and reconnect
+to the same live writer. Then prove real-process competing controllers, observer
+disconnect, controller loss during active execution, connected pause, explicit
+resume and crash/retry behavior. Controlled stdio process evidence does not stand
+in for these named-pipe and execution cases.
 
 Capture snapshot plus cursor in one canonical worker operation and bridge to
 bounded live delivery without missing events. Slow consumers must receive a gap
 or disconnect without blocking writes. Retention and access changes remain
 explicit errors. P9-03 follows with SDK tests against the compiled server; P4-01
 then attaches the prepared extension UI through that SDK.
+
+## Controlled stdio launch
+
+[ADR-044](../adr/044-controlled-local-process-bootstrap.md) selects a native bridge
+so that a TypeScript client does not have to reproduce Windows handle security.
+Launch the trusted absolute `vcp.exe` with the sole argument `local-bridge` and
+private stdin/stdout/stderr pipes. The first stdin JSON line is:
+
+```json
+{"schema":"vcp-local-bootstrap/1","workspace":"D:\\work\\project","data":"D:\\private\\vcp-data","role":"controller"}
+```
+
+Use `observer` for read-only access. `data` may be null to resolve the bridge's
+local application-data default. The workspace must already have a valid selected
+descriptor and binding. The bridge returns a `vcp-local-ready/1` frame with the
+authenticated server process pin and authorized scope. Then send the public
+`initialize` request. No workspace request runs before that handshake. Startup
+failures emit stderr diagnostics and close stdout without a CLI JSONL result.
+
+The server currently implements the six initial methods and four optional
+controller methods. Request the required method capabilities during initialization.
+`controller/read` gives scoped revision/generation and ownership classification;
+it never discloses another actor's token. `controller/acquire` is explicit,
+`controller/release` drains and pauses while leaving the connection readable, and
+`controller/recover` explicitly resolves a stale process lease. Authentication,
+receipt replay and reconnect never acquire or resume automatically. Read/retry
+uses the original durable command identity. Replaying recovery after a later
+acquisition returns the original receipt without disturbing that acquisition.
+
+The bridge and its single stdio server share a lifetime. EOF closes the controlling
+connection and allows canonical cleanup before releasing the writer. Another
+launch against the same root fails while the first writer remains alive. A slow
+or invalid stream cannot grow an unbounded queue: frames have a 1 MiB payload
+ceiling, helper queues hold at most eight frames, and blocked output has a five
+second deadline. Only one RPC is dispatched at a time. Event subscriptions are not
+advertised. Native pipe/reconnect support will extend this lifetime separately.
+
+Native qualification uses the compiled production `vcp` binary in five process
+tests: both-store controller receipt replay and explicit release, both-store
+observer denial, writer exclusion/EOF cleanup, malformed or unproved bootstrap,
+and oversized protocol input after acquisition. They seed actual descriptors and
+bindings, remove provider credentials, and verify canonical lease/task state after
+process exit. No provider requests or paid effects occur. Separate native tests
+check process pin tampering, executable replacement denial, inherited kernel
+object identity (including an excluded decoy), bootstrap handle sealing and owned
+child cleanup. The ignored child-fixture entry is explicitly launched by the
+inheritance test, rather than counted as a deferred qualification.
+
+Transport loss synchronously invalidates the connection and seals owned admission
+before notifying asynchronous dispatch. A gated active-stream host test exercises
+that interval before `disconnect()` runs; observer and stale loss signals cannot
+hold a newer owner. All 11 public-host tests and 71 engine/protocol tests pass on
+native Windows/Rust 1.95.0. Generated schemas/types, their nine generator contracts,
+and the 18-case fast delivery suite pass. Named-pipe identity and reconnect remain
+outside this stdio evidence.

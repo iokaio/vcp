@@ -85,7 +85,7 @@ pub use worker::agents_integration::ChildIntegration;
 pub use worker::agents_owner::{ChildStart, ChildWorkspaceInputs};
 #[cfg(windows)]
 pub use worker::agents_recovery::{ChildRecovery, ChildRecoveryTicket};
-pub use worker::public_connection::{PublicConnection, PublicDisconnect};
+pub use worker::public_connection::{PublicConnection, PublicConnectionLoss, PublicDisconnect};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]

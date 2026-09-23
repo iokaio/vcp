@@ -21,6 +21,8 @@ pub mod exit_status;
 pub mod history;
 pub mod input;
 pub mod jsonl;
+#[cfg(windows)]
+pub mod local;
 pub mod mcp;
 pub mod memory;
 pub mod optimize;

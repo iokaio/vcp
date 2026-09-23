@@ -536,6 +536,143 @@
         }
       },
       "expected_status": "decoded"
+    },
+    {
+      "name": "controller_read",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "controller_read",
+        "method": "controller/read",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          }
+        }
+      },
+      "expected_status": "decoded"
+    },
+    {
+      "name": "controller_first_acquire",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "controller_first_acquire",
+        "method": "controller/acquire",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "command_id": "claim",
+          "expected_revision": null
+        }
+      },
+      "expected_status": "decoded"
+    },
+    {
+      "name": "controller_reacquire",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "controller_reacquire",
+        "method": "controller/acquire",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "command_id": "claim",
+          "expected_revision": "3"
+        }
+      },
+      "expected_status": "decoded"
+    },
+    {
+      "name": "controller_release",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "controller_release",
+        "method": "controller/release",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "command_id": "release",
+          "expected_revision": "2",
+          "generation": "2"
+        }
+      },
+      "expected_status": "decoded"
+    },
+    {
+      "name": "controller_recover",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "controller_recover",
+        "method": "controller/recover",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "command_id": "recover",
+          "expected_revision": "2",
+          "generation": "2"
+        }
+      },
+      "expected_status": "decoded"
+    },
+    {
+      "name": "controller_reject_connection_claim",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "controller_reject_connection_claim",
+        "method": "controller/acquire",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "command_id": "claim",
+          "expected_revision": null,
+          "connection": "forged"
+        }
+      },
+      "expected_status": "invalid_params",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "controller_reject_connection_claim",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params"
+        }
+      }
+    },
+    {
+      "name": "controller_reject_zero_generation",
+      "input": {
+        "jsonrpc": "2.0",
+        "id": "controller_reject_zero_generation",
+        "method": "controller/recover",
+        "params": {
+          "scope": {
+            "workspace": "workspace-1",
+            "session": "session-1"
+          },
+          "command_id": "recover",
+          "expected_revision": "0",
+          "generation": "0"
+        }
+      },
+      "expected_status": "invalid_params",
+      "expected_response": {
+        "jsonrpc": "2.0",
+        "id": "controller_reject_zero_generation",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params"
+        }
+      }
     }
   ]
 }

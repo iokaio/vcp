@@ -198,3 +198,25 @@ test('committed opaque IDs reject trailing line terminators and non-ASCII charac
     assert.equal(accepts(value), false, `Id ${JSON.stringify(value)}`);
   }
 });
+
+test('optional controller schemas expose scoped revisions without wire credentials', () => {
+  const definitions = JSON.parse(fs.readFileSync(committedSchema, 'utf8')).definitions;
+  const calls = definitions.Call.oneOf.map(branch => branch.properties.method.enum[0]);
+  for (const method of ['controller/read', 'controller/acquire', 'controller/release', 'controller/recover']) {
+    assert.ok(calls.includes(method), `${method} has a canonical call schema`);
+  }
+  for (const name of ['ControllerRead', 'ControllerAcquire', 'ControllerRelease', 'ControllerRecover']) {
+    const dto = definitions[name];
+    assert.equal(dto.additionalProperties, false);
+    assert.ok(dto.required.includes('scope'));
+    for (const field of ['actor', 'connection', 'token', 'write', 'steering_revision']) {
+      assert.equal(Object.hasOwn(dto.properties, field), false, `${name}.${field} cannot grant authority`);
+    }
+    if (name !== 'ControllerRead') assert.ok(dto.required.includes('command_id'));
+    if (name === 'ControllerRelease' || name === 'ControllerRecover') {
+      assert.ok(dto.required.includes('expected_revision'));
+      assert.ok(dto.required.includes('generation'));
+    }
+  }
+  assert.deepEqual(definitions.ControllerOwnership.enum, ['unclaimed', 'this_connection', 'other_connection', 'previous_process', 'released']);
+});

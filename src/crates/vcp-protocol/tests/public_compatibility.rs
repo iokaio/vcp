@@ -171,5 +171,5 @@ fn golden_calls_preserve_exact_counters_and_fail_closed_before_execution() {
             assert_eq!(serde_json::to_value(typed).unwrap(), case.input);
         }
     }
-    assert_eq!(seen.len(), 13);
+    assert_eq!(seen.len(), 20);
 }

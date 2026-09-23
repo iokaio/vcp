@@ -140,6 +140,83 @@ impl<S: CanonicalStore> Engine<S> {
         self.load_controller(access)
     }
 
+    /// Read-only scoped ownership facts. This never constructs a controller token.
+    pub fn read_controller(&self, access: &Access) -> Result<Option<Lease>> {
+        self.query(
+            access,
+            &Query::Session {
+                session: access.session.clone(),
+            },
+        )
+        .map_err(|_| ControllerError::Access)?;
+        self.load_controller(access)
+    }
+
+    /// Check replay before a live host changes admission. A replayed acquisition
+    /// must not mint a refreshed token after policy changes or lease release.
+    pub fn controller_acquire_receipt(
+        &self,
+        access: &Access,
+        connection: &ControllerId,
+        command: &CommandId,
+        expected: Option<Revision>,
+    ) -> Result<Option<CommandReceipt>> {
+        self.controller_access(access)?;
+        let digest = self.controller_digest(
+            access,
+            connection,
+            &Operation::Acquire {
+                expected_revision: expected,
+            },
+        )?;
+        self.controller_receipt(access, command, &digest)
+    }
+
+    /// Access-before-replay validation lets the live host return an already
+    /// durable explicit release without holding the retained owner a second time.
+    pub fn controller_release_receipt(
+        &self,
+        access: &Access,
+        connection: &ControllerId,
+        command: &CommandId,
+        expected: Revision,
+        generation: Revision,
+    ) -> Result<Option<CommandReceipt>> {
+        self.controller_access(access)?;
+        let digest = self.controller_digest(
+            access,
+            connection,
+            &Operation::Release {
+                expected_revision: expected,
+                generation,
+                reason: Reason::Released,
+            },
+        )?;
+        self.controller_receipt(access, command, &digest)
+    }
+
+    /// Reconciliation remains available after a separate acquisition. Returning
+    /// this receipt neither releases nor renews the current process's lease.
+    pub fn controller_recover_receipt(
+        &self,
+        access: &Access,
+        connection: &ControllerId,
+        command: &CommandId,
+        expected: Revision,
+        generation: Revision,
+    ) -> Result<Option<CommandReceipt>> {
+        self.controller_access(access)?;
+        let digest = self.controller_digest(
+            access,
+            connection,
+            &Operation::Recover {
+                expected_revision: expected,
+                generation,
+            },
+        )?;
+        self.controller_receipt(access, command, &digest)
+    }
+
     fn controller_digest(
         &self,
         access: &Access,
@@ -499,6 +576,84 @@ mod tests {
     }
     fn connection(name: &str) -> ControllerId {
         ControllerId::parse(name).unwrap()
+    }
+
+    #[tokio::test]
+    async fn observer_facts_and_release_replay_validate_current_access_before_receipts() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut engine = setup(temporary.path(), BackendKind::Files).await;
+        let owner = access();
+        let connection = connection("controller");
+        let acquired = engine
+            .acquire_controller(&owner, &connection, command("acquire"), None, now())
+            .await
+            .unwrap();
+        let mut observer = access();
+        observer.write = false;
+        assert!(engine.read_controller(&observer).unwrap().is_some());
+        assert!(matches!(
+            engine.controller_acquire_receipt(&observer, &connection, &command("acquire"), None),
+            Err(ControllerError::Access)
+        ));
+        assert_eq!(
+            engine
+                .controller_acquire_receipt(&owner, &connection, &command("acquire"), None)
+                .unwrap(),
+            Some(acquired)
+        );
+        let token = engine.controller_token(&owner, &connection).unwrap();
+        let released = engine
+            .release_controller(
+                &owner,
+                &connection,
+                command("release"),
+                &token,
+                token.revision(),
+                Reason::Released,
+                now(),
+            )
+            .await
+            .unwrap();
+        let watermark = engine.store().state().watermark;
+        assert_eq!(
+            engine
+                .controller_release_receipt(
+                    &owner,
+                    &connection,
+                    &command("release"),
+                    token.revision(),
+                    token.generation()
+                )
+                .unwrap(),
+            Some(released)
+        );
+        assert!(matches!(
+            engine.controller_release_receipt(
+                &observer,
+                &connection,
+                &command("release"),
+                token.revision(),
+                token.generation()
+            ),
+            Err(ControllerError::Access)
+        ));
+        assert!(matches!(
+            engine.controller_release_receipt(
+                &owner,
+                &connection,
+                &command("release"),
+                token.revision(),
+                Revision::new(2)
+            ),
+            Err(ControllerError::CommandConflict)
+        ));
+        observer.authority = AuthorityRevision::new(1);
+        assert!(matches!(
+            engine.read_controller(&observer),
+            Err(ControllerError::Access)
+        ));
+        assert_eq!(engine.store().state().watermark, watermark);
+        engine.into_store().close().await.unwrap();
     }
     fn command(name: &str) -> CommandId {
         CommandId::parse(name).unwrap()

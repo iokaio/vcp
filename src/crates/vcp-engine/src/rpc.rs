@@ -74,14 +74,15 @@ pub struct RpcSession {
 }
 
 impl RpcSession {
-    /// Configuration may restrict the implemented methods, never add a handler
-    /// or capability. Resource/host facts remain the trusted caller's property.
+    /// Configuration names typed methods only. Initialization additionally checks
+    /// every advertised method against the selected host's actual implementation.
+    /// Resource/host facts remain the trusted caller's property.
     pub fn new(server: ServerInfo) -> Result<Self, RpcError> {
         let methods: BTreeSet<_> = server.methods.iter().cloned().collect();
         if methods.len() != server.methods.len()
             || methods
                 .iter()
-                .any(|method| !METHODS.contains(&method.as_str()))
+                .any(|method| !Call::METHODS.contains(&method.as_str()))
         {
             return Err(RpcError::internal_error());
         }
@@ -738,6 +739,102 @@ mod tests {
         );
         assert_eq!(host.authorizations.get(), 1);
         assert_eq!(host.calls, 0);
+    }
+
+    #[tokio::test]
+    async fn optional_controller_method_requires_typed_registry_and_selected_host_support() {
+        struct ControllerProbe;
+        impl RpcHost for ControllerProbe {
+            fn supported_methods(&self) -> &[&str] {
+                &["controller/read"]
+            }
+            fn authorize(&self, _: &Access) -> Result<(), RpcError> {
+                Ok(())
+            }
+            async fn call(&mut self, call: Call, access: &Access) -> Result<ResultValue, RpcError> {
+                let Call::ControllerRead(params) = call else {
+                    panic!("wrong method")
+                };
+                check_scope(&params.scope, access)?;
+                Ok(ResultValue::Controller(methods::ControllerView {
+                    scope: params.scope,
+                    revision: None,
+                    generation: 0.into(),
+                    ownership: methods::ControllerOwnership::Unclaimed,
+                    watermark: 0.into(),
+                }))
+            }
+        }
+        let mut configuration = server();
+        configuration.methods = vec!["controller/read".into()];
+        configuration.capabilities = std::iter::once("controller/read".to_owned())
+            .chain(
+                ESSENTIAL_CAPABILITIES
+                    .iter()
+                    .map(|value| (*value).to_owned()),
+            )
+            .collect();
+        let mut invalid = configuration.clone();
+        invalid.methods.push("controller/invented".into());
+        assert!(RpcSession::new(invalid).is_err());
+        let initialize = request(
+            1,
+            "initialize",
+            json!({"protocol_version":"1.0", "client":{"name":"fixture","version":"1"}, "capabilities":[], "required_capabilities":["controller/read"]}),
+        );
+        let mut rpc = RpcSession::new(configuration.clone()).unwrap();
+        let mut host = ControllerProbe;
+        let initialized = rpc
+            .dispatch_host(
+                &mut host,
+                &access(),
+                jsonrpc::parse_frame(&initialize.to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(initialized).unwrap()["result"]["methods"],
+            json!(["controller/read"])
+        );
+        let read = request(
+            2,
+            "controller/read",
+            json!({"scope":{"workspace":"workspace","session":"session"}}),
+        );
+        let result = rpc
+            .dispatch_host(
+                &mut host,
+                &access(),
+                jsonrpc::parse_frame(&read.to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(result).unwrap()["result"]["value"]["ownership"],
+            "unclaimed"
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let mut engine = setup(temp.path(), BackendKind::Files).await;
+        let mut unsupported = RpcSession::new(configuration).unwrap();
+        assert_eq!(
+            send(&mut unsupported, &mut engine, &access(), initialize.clone())
+                .await
+                .unwrap()["error"]["code"],
+            -32603
+        );
+        let mut direct = RpcSession::new(server()).unwrap();
+        assert_eq!(
+            send(&mut direct, &mut engine, &access(), init())
+                .await
+                .unwrap()["result"]["methods"],
+            json!(METHODS)
+        );
+        assert!(send(&mut direct, &mut engine, &access(), read)
+            .await
+            .unwrap()
+            .get("error")
+            .is_some());
+        engine.into_store().close().await.unwrap();
     }
 
     fn access() -> Access {

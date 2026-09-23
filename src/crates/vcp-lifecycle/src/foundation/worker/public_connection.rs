@@ -4,7 +4,7 @@ use super::*;
 use crate::foundation::CanonicalHost;
 use vcp_domain::controller::Reason;
 use vcp_engine::{
-    controller::ControllerToken,
+    controller::{ControllerError, ControllerToken},
     query::{Query, QueryResult},
 };
 
@@ -14,17 +14,68 @@ pub(super) struct CurrentController {
     token: ControllerToken,
     connected: Arc<AtomicBool>,
 }
+pub(super) type ReleaseReceiver =
+    tokio::sync::watch::Receiver<Option<std::result::Result<CommandReceipt, ControllerError>>>;
+pub(super) async fn await_release(
+    mut receiver: ReleaseReceiver,
+) -> std::result::Result<CommandReceipt, ControllerError> {
+    loop {
+        if let Some(result) = receiver.borrow().clone() {
+            return result;
+        }
+        receiver
+            .changed()
+            .await
+            .map_err(|_| ControllerError::OutcomeUnknown)?;
+    }
+}
 
 /// Not clonable: dropping the controlling connection owns its pause and release.
 /// Access is supplied by trusted local authentication, never request parameters.
 pub struct PublicConnection {
-    host: CanonicalHost,
-    access: Access,
-    connection: ControllerId,
-    token: Option<ControllerToken>,
-    reactor: tokio::runtime::Handle,
+    pub(super) host: CanonicalHost,
+    pub(super) access: Access,
+    pub(super) connection: ControllerId,
+    pub(super) token: Option<ControllerToken>,
+    pub(super) reactor: tokio::runtime::Handle,
     closed: bool,
     connected: Arc<AtomicBool>,
+    release: Option<ReleaseReceiver>,
+}
+
+/// A transport may invalidate admission synchronously before publishing EOF to
+/// its async dispatcher. This grants no commands or canonical writer ownership.
+#[derive(Clone)]
+pub struct PublicConnectionLoss {
+    runtime: crate::Lifecycle,
+    identity: Arc<Mutex<Option<(ControllerId, Revision)>>>,
+    connection: ControllerId,
+    connected: Arc<AtomicBool>,
+    worker: std::sync::Weak<super::Inner>,
+}
+impl PublicConnectionLoss {
+    pub fn invalidate(&self) {
+        if !self.connected.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        let stopped = (|| -> std::result::Result<(), ()> {
+            let identity = self.identity.lock().map_err(|_| ())?;
+            if identity
+                .as_ref()
+                .is_some_and(|(connection, _)| connection == &self.connection)
+            {
+                // Keep identity locked until admission is sealed. No worker
+                // wait occurs here, and the interruption outlives its waiter.
+                drop(self.runtime.hold_owner().map_err(|_| ())?);
+            }
+            Ok(())
+        })();
+        if stopped.is_err() {
+            if let Some(worker) = self.worker.upgrade() {
+                Worker(worker).fence();
+            }
+        }
+    }
 }
 
 pub struct PublicDisconnect(
@@ -108,55 +159,223 @@ impl CanonicalHost {
             reactor,
             closed: false,
             connected: Arc::new(AtomicBool::new(true)),
+            release: None,
         })
     }
 }
 
 impl PublicConnection {
+    pub fn loss_signal(&self) -> PublicConnectionLoss {
+        PublicConnectionLoss {
+            runtime: self.host.runtime.clone(),
+            identity: self.host.public_identity.clone(),
+            connection: self.connection.clone(),
+            connected: self.connected.clone(),
+            worker: Arc::downgrade(&self.host.worker.0),
+        }
+    }
+
+    /// An accepted release owns its drain even if the response receiver is lost.
+    /// The authenticated connection remains available for observation afterward.
+    pub(super) fn release_current(
+        &mut self,
+        current: &Access,
+        command: CommandId,
+        expected: Revision,
+        generation: Revision,
+    ) -> std::result::Result<ReleaseReceiver, ControllerError> {
+        self.rpc_context(current)
+            .map_err(|_| ControllerError::Access)?;
+        let access = current.clone();
+        let connection = self.connection.clone();
+        let token = self.token.clone();
+        let runtime = self.host.runtime.clone();
+        let requested = command.clone();
+        let (reply, receiver) = tokio::sync::watch::channel(None);
+        let admission = self
+            .host
+            .worker
+            .run(move |context| {
+                Ok((|| -> std::result::Result<_, ControllerError> {
+                    if let Some(receipt) = context.engine.controller_release_receipt(
+                        &access,
+                        &connection,
+                        &requested,
+                        expected,
+                        generation,
+                    )? {
+                        return Ok(Err(receipt));
+                    }
+                    let token = token.ok_or(ControllerError::Stale)?;
+                    if token.generation() != generation || token.revision() != expected {
+                        return Err(ControllerError::Stale);
+                    }
+                    context
+                        .check_public_controller(&access, &connection, &token)
+                        .map_err(|_| ControllerError::Stale)?;
+                    let waiter = runtime
+                        .hold_owner()
+                        .map_err(|_| ControllerError::OutcomeUnknown)?;
+                    context.public_controller = None;
+                    context
+                        .pause_public_session(&access)
+                        .map_err(|_| ControllerError::OutcomeUnknown)?;
+                    Ok(Ok((waiter, token)))
+                })())
+            })
+            .map_err(|_| ControllerError::OutcomeUnknown)
+            .and_then(|result| result);
+        let admission = match admission {
+            Ok(admission) => admission,
+            Err(error) => {
+                if error == ControllerError::OutcomeUnknown {
+                    self.host.worker.fence();
+                }
+                return Err(error);
+            }
+        };
+        let (waiter, token) = match admission {
+            Err(receipt) => {
+                let _ = reply.send(Some(Ok(receipt)));
+                return Ok(receiver);
+            }
+            Ok(pending) => pending,
+        };
+        let worker = self.host.worker.clone();
+        self.release = Some(receiver.clone());
+        let identity = self.host.public_identity.clone();
+        let scheduler = self.host.scheduler.clone();
+        let deadline = self.host.runtime.0.deadline;
+        let access = current.clone();
+        let connection = self.connection.clone();
+        let guard = CleanupGuard {
+            worker: worker.clone(),
+            complete: false,
+        };
+        drop(self.reactor.spawn(async move {
+            let mut guard = guard;
+            let result = async {
+                waiter
+                    .wait()
+                    .await
+                    .map_err(|_| ControllerError::OutcomeUnknown)?;
+                tokio::time::timeout(deadline, async {
+                    while scheduler.busy() {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .map_err(|_| ControllerError::OutcomeUnknown)?;
+                worker
+                    .run_cleanup(move |context| {
+                        Ok((|| -> std::result::Result<_, ControllerError> {
+                            let receipt =
+                                context.runtime.block_on(context.engine.release_controller(
+                                    &access,
+                                    &connection,
+                                    command,
+                                    &token,
+                                    expected,
+                                    Reason::Released,
+                                    now(),
+                                ))?;
+                            let mut identity = identity
+                                .lock()
+                                .map_err(|_| ControllerError::OutcomeUnknown)?;
+                            if identity.as_ref() == Some(&(connection.clone(), generation)) {
+                                *identity = None;
+                            }
+                            Ok(receipt)
+                        })())
+                    })
+                    .map_err(|_| ControllerError::OutcomeUnknown)?
+            }
+            .await;
+            guard.complete = result.is_ok();
+            let _ = reply.send(Some(result));
+        }));
+        Ok(receiver)
+    }
+
     pub fn acquire(
         &mut self,
         command: CommandId,
         expected: Option<Revision>,
     ) -> std::result::Result<CommandReceipt, String> {
-        if self.closed || !self.connected.load(Ordering::SeqCst) {
-            return Err("public connection closed".into());
+        self.acquire_current(&self.access.clone(), command, expected)
+            .map_err(|error| error.to_string())
+    }
+
+    pub(super) fn acquire_current(
+        &mut self,
+        current: &Access,
+        command: CommandId,
+        expected: Option<Revision>,
+    ) -> std::result::Result<CommandReceipt, ControllerError> {
+        self.rpc_context(current)
+            .map_err(|_| ControllerError::Access)?;
+        if !current.write {
+            return Err(ControllerError::Access);
         }
-        let access = self.access.clone();
+        if self.closed || !self.connected.load(Ordering::SeqCst) {
+            return Err(ControllerError::Access);
+        }
+        let access = current.clone();
         let connection = self.connection.clone();
         let connected = self.connected.clone();
         let identity = self.host.public_identity.clone();
-        let (receipt, token) = self.host.worker.run(move |context| {
-            if !connected.load(Ordering::SeqCst) {
-                return Err("public connection closed".into());
-            }
-            if !context.owner_alive || context.authority_pending {
-                return Err("public owner is unavailable".into());
-            }
-            let receipt = context.runtime.block_on(context.engine.acquire_controller(
-                &access,
-                &connection,
-                command,
-                expected,
-                now(),
-            ))?;
-            let token = match context.engine.controller_token(&access, &connection) {
-                Ok(token) => Some(token),
-                Err(vcp_engine::controller::ControllerError::Stale) => None,
-                Err(error) => return Err(error.into()),
-            };
-            if let Some(token) = &token {
-                *identity.lock().map_err(|_| "public identity poisoned")? =
-                    Some((connection.clone(), token.generation()));
-                context.public_controller = Some(CurrentController {
-                    access,
-                    connection,
-                    token: token.clone(),
-                    connected,
-                });
-            }
-            Ok((receipt, token))
-        })?;
-        self.token = token;
+        let (receipt, token) = self
+            .host
+            .worker
+            .run(move |context| {
+                Ok((|| -> std::result::Result<_, ControllerError> {
+                    if !connected.load(Ordering::SeqCst) {
+                        return Err(ControllerError::Access);
+                    }
+                    if let Some(receipt) = context.engine.controller_acquire_receipt(
+                        &access,
+                        &connection,
+                        &command,
+                        expected,
+                    )? {
+                        return Ok((receipt, None));
+                    }
+                    if !context.owner_alive || context.authority_pending {
+                        return Err(ControllerError::Held);
+                    }
+                    let receipt = context.runtime.block_on(context.engine.acquire_controller(
+                        &access,
+                        &connection,
+                        command,
+                        expected,
+                        now(),
+                    ))?;
+                    let token = match context.engine.controller_token(&access, &connection) {
+                        Ok(token) => Some(token),
+                        Err(vcp_engine::controller::ControllerError::Stale) => None,
+                        Err(error) => return Err(error.into()),
+                    };
+                    if let Some(token) = &token {
+                        *identity
+                            .lock()
+                            .map_err(|_| ControllerError::OutcomeUnknown)? =
+                            Some((connection.clone(), token.generation()));
+                        context.public_controller = Some(CurrentController {
+                            access,
+                            connection,
+                            token: token.clone(),
+                            connected,
+                        });
+                    }
+                    Ok((receipt, token))
+                })())
+            })
+            .map_err(|_| ControllerError::OutcomeUnknown)??;
+        if token.is_some() {
+            self.token = token;
+            self.release = None;
+            self.access.authority = current.authority;
+        }
         Ok(receipt)
     }
 
@@ -225,6 +444,16 @@ impl PublicConnection {
     fn begin_disconnect(&self) -> std::result::Result<PublicDisconnect, String> {
         self.connected.store(false, Ordering::SeqCst);
         let (reply, receiver) = tokio::sync::oneshot::channel();
+        if let Some(release) = self.release.clone() {
+            drop(self.reactor.spawn(async move {
+                let result = await_release(release)
+                    .await
+                    .map(|_| None)
+                    .map_err(|error| error.to_string());
+                let _ = reply.send(result);
+            }));
+            return Ok(PublicDisconnect(receiver));
+        }
         let Some(original) = self.token.clone() else {
             let _ = reply.send(Ok(None));
             return Ok(PublicDisconnect(receiver));
@@ -465,7 +694,7 @@ impl Context {
         })
     }
 
-    fn pause_public_session(&mut self, access: &Access) -> Result<()> {
+    pub(super) fn pause_public_session(&mut self, access: &Access) -> Result<()> {
         // Refresh only trusted host cleanup authority, never a client's stored
         // credential/token. The absent public_controller still fences dispatch.
         self.access.authority = access.authority;
