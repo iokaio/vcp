@@ -1,5 +1,8 @@
 # Reviewed evaluation summaries
 
+- [P8 production qualification](p8-production-qualification-2026-09-22.md): frozen
+  optimized artifact, bounded retained-history startup, targeted installation,
+  recovery and interactive checks, and proposed owner fixtures/thresholds.
 - [P8 release-readiness scorecard](p8-release-scorecard-2026-09-22.md): 46 passing
   executable matrix cases, one owner-skipped handoff, 56-task closure and FR/I/U
   evidence dispositions; final release acceptance remains open.

@@ -12,6 +12,11 @@ acceptance, preserving the earlier failed runs and separate focused repairs.
 
 ## Work-item ownership and readiness
 
+The [production qualification supplement](../evaluations/p8-production-qualification-2026-09-22.md)
+adds an exact optimized artifact, bounded startup observations, selected package
+checks and a frozen owner-fixture proposal to the P8 evidence below. It does not
+change the open release-gate states or replace historical debug receipts.
+
 Each linked task supplies code organization, implementation increments and testing instructions. Evidence IDs refer to current architecture/workbook cases with the release scoping below. Update status with actual evidence links during implementation; P0/P1 evidence qualifies their stated boundaries while full product acceptance remains outstanding.
 
 | Work item | Required dependencies | Detailed owner | Architecture acceptance evidence | State |

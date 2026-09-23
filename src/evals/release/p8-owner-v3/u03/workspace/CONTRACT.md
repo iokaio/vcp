@@ -1,0 +1,5 @@
+# Offset pagination feature
+
+windowFor(total, offset = 0, limit = 25) accepts nonnegative safe integer total and offset, offset <= total, and integer limit from 1 through 100. All other inputs, including explicit null/string values, throw TypeError('invalid pagination'). It returns { start: offset, end: min(total, offset + limit), nextOffset: end < total ? end : null }. Calculate this correctly even near Number.MAX_SAFE_INTEGER; all returned numeric fields must remain safe integers.
+
+pageItems(items, options = {}) accepts an array and a non-null non-array options object. Missing offset and limit select 0 and 25; explicit invalid values are rejected by windowFor. Unknown option properties are ignored. It calls the domain windowFor with items.length and the chosen options, then returns { items: a new shallow slice, total: items.length, offset: start, nextOffset }. Input arrays, entries and options must not be mutated. Empty arrays are valid with offset 0. Only src/domain/window.cjs and src/api/page.cjs may change.

@@ -15,6 +15,13 @@ and [ADR-018](../adr/018-release-acceptance.md).
 
 ## Candidate under review
 
+The table and commands below preserve the historical debug candidate. The
+[production qualification supplement](p8-production-qualification-2026-09-22.md)
+identifies the new optimized artifact and its exact receipts. Use that artifact
+identity for production review; do not transfer the debug candidate's identity
+or approval form to it. The supplement also links the proposed new owner tasks
+and numeric thresholds. Human acceptance remains unrecorded.
+
 | Item | Bound identity |
 | --- | --- |
 | Local package directory | `artifacts/p8-local-distribution/3f7a6bec-a374-487a-8d0a-06134e079e78` |

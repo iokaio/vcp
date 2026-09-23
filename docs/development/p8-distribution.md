@@ -2,6 +2,14 @@
 
 `scripts/package.ps1` assembles an unsigned Windows ZIP from an explicit native executable, validated built-in skills, notices, and optional runtime files. Its manifest hashes every payload and records source, target, compatibility and model provisioning metadata. A supplied `vcp-local-build/1` receipt must bind the exact executable digest; without it, provenance is explicitly unverified. The archive digest is recorded beside the ZIP in `result.json`.
 
+Build the production candidate with `scripts/build-production.ps1`. It requires native Windows AMD64, PowerShell 7, Node, Git, Rust 1.95.0, Visual C++ tools, and already cached locked dependencies. The recipe builds only `vcp-cli`'s `vcp` executable with `--release --no-default-features --locked --offline`, explicit static-CRT/stack flags, and the committed Cargo configuration. It rejects unqualified build overrides, checks VCP dependency artifacts for the `qualification` feature, and records source inventories before/after compilation, compiler/native tool identities, feature lists, executable hash and any PDB hash. A failed or unstable build does not produce an accepted build receipt. These are local build provenance checks; they do not establish reproducible builds across machines or release acceptance.
+
+```powershell
+pwsh -File scripts/build-production.ps1 -OutputRoot artifacts/p8-production-build -Jobs 2
+```
+
+Use the copied executable and matching `build-receipt.json` from the same generated build directory when packaging. Keep its source inputs stable through compilation. Packaging and subsequent qualification refer to exact hashes; changing executable bytes requires a new candidate.
+
 ```powershell
 pwsh -File scripts/package.ps1 -Executable artifacts/vcp.exe `
   -BuildReceipt artifacts/build-receipt.json -OutputRoot artifacts/p8-distribution
@@ -36,3 +44,18 @@ pwsh -File scripts/evals/distribution-qualification.ps1 -PackageResult <result.j
 ```
 
 It installs the recorded ZIP using its packaged installer, runs the actual CLI with an empty process environment and fresh profile directories, checks first-run diagnosis, and uninstalls while preserving sentinels. It records startup time, peak working set and CPU time. This same-host smoke test does not establish a clean OS installation, second-machine encrypted recovery, live task quality or owner acceptance. Those remain separate P8 qualification rows.
+
+The following production runners add bounded observations against the frozen artifact without rerunning the historical full matrix. A runner's availability is not a passing qualification result; retain its result, command logs, input hashes and stated limitations.
+
+| Runner | Inputs and scope |
+|---|---|
+| `scripts/evals/production-startup-qualification.ps1` | `-PackageResult` plus `-FixtureManifest` (`vcp-retained-startup-fixtures/1`) or explicit `-FixtureResults`. Copies retained SQLite/files data before each fresh-process cost inspection/history listing, checks semantic results and preserved originals, and records history counts, elapsed time and resources. Requires Python for the read-only counter. Defaults to three repeats and a 120-second process deadline; the small sample and uncontrolled OS cache do not establish p95 latency or a controlled scaling curve. |
+| `scripts/evals/production-distribution-qualification.ps1` | `-PackageResult` and `-PreviousPackageResult`. Exercises the packaged installer with a fresh profile, compatible upgrade/rollback, interrupted activation, locked payloads and uninstall preservation. Its real CLI state round trip covers storage preferences and sentinels; canonical task/ledger compatibility belongs to the recovery runner. |
+| `scripts/evals/production-recovery-qualification.ps1` | Explicit `-Executable`, `-ExpectedSha256`, retained `-FixtureRoot`, new private `-OutputRoot`, and Git/Node/pinned Go age paths through `-GitExecutable`, `-NodeExecutable`, `-AgeExecutable`. Supply `-EnvelopeVerifier scripts/evals/verify-production-envelope.cjs`. Both backends exercise restore authentication/path refusals, paused retained tasks and source bytes, then fresh encrypted publication from disposable Git workspaces. Independent age decryption and Node signature/payload checks inspect the new snapshot. Optional paired `-RollbackExecutable`/`-RollbackSha256` compare the prior debug executable's task/ledger reads with a production reopen; this is same-format read compatibility, not downgrade writes. `-SyntheticProfile` adds a differential check that production rejects qualification endpoints. |
+| `scripts/evals/production-interactive-qualification.cjs` | `prepare <package-result.json> <new-private-dir> <private-source-profile.json>` freezes inputs without inference; `run <plan.json> <exact-plan-sha256>` executes one bounded real-provider ConPTY observation using the existing campaign budget and a $16 reservation. It checks same-process/task pause/resume, a brief paused attempt observation and durable reopen. The current fixture uses the qualified Qwen profile and retained PTY/export helpers. This is paid execution with explicit campaign admission, not an offline smoke test or P8-05 task-quality acceptance. |
+
+Active plaintext history, workspaces and private profiles must live outside repositories and synchronization roots. Use a new directory under `[IO.Path]::GetTempPath()` for the distribution/recovery output and interactive preparation; do not put those runs under repository `artifacts/`. The startup runner separates its artifact receipts from disposable canonical copies in system TEMP. Ensure TEMP itself is private and unsynchronized; declare additional recovery exclusions with `-SyncRoots`. Retain private runs for diagnosis and copy only appropriate non-secret receipts into the repository.
+
+The recovery vault scan covers final published files, not concurrent interrupted-write observation. Physical full-volume exhaustion remains an explicit gap, machine handoff remains skipped, and these runners do not supply owner sign-off, the full sensitive-surface matrix, signing or publication. Preserve historical evidence alongside each new artifact-specific receipt.
+
+The [production qualification report](../evaluations/p8-production-qualification-2026-09-22.md) records exact measured scope and current gaps. In this candidate, fresh restore without known/declared sync roots fails before authentication; the passing recovery runner explicitly configures a disjoint sync exclusion. Restored source remains untrusted until ordinary revision-checked workspace trust is granted before backup capture. Paid interactive execution and owner acceptance are not recorded as passing.

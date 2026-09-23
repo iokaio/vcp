@@ -29,15 +29,20 @@ Use `-FullHost` for the broader, slower canonical-host regression suite.
 crash qualification. Supply the pinned independent age binary and optionally the
 public handoff fixture; see [the guide](../docs/development/portable-storage-spike.md).
 
-This directory owns repository automation. `test.ps1` and `test-runner.cjs` implement delivery checks; `build.ps1` builds the imported Codex baseline and selected Munarium libraries. See [test setup](../docs/development/delivery-harness.md) and [native build/reconstruction](../docs/development/codex-source.md). Full P8 distribution packaging remains planned; built-in skill asset packaging is implemented for qualification.
+This directory owns repository automation. `test.ps1` and `test-runner.cjs` implement delivery checks; `build.ps1` builds the imported Codex baseline and selected Munarium libraries. See [test setup](../docs/development/delivery-harness.md) and [native build/reconstruction](../docs/development/codex-source.md). Unsigned P8 candidate packaging and bounded production qualification runners are implemented; their availability does not establish release acceptance. See [production build and distribution](../docs/development/p8-distribution.md).
 
 | Entry point (planned unless noted) | Responsibility | Work owner |
 |---|---|---|
 | `build.ps1` (implemented baseline) | Verify and build the selected native Windows Codex workspace, or select Munarium libraries with `-Component Munarium`; `-Mode BoundaryTests` runs component tests; `-Mode LifecycleTests` runs retained admission and host tests; `-Mode RecoveryTests` runs [durable owner and native execution qualification](../docs/development/lifecycle-recovery.md) | P0-03/P0-05/P0-07/P0-08 |
+| `build-production.ps1` (implemented) | Build locked/offline Rust 1.95.0 Windows AMD64 release `vcp` without qualification features; freeze source, tool, feature and executable identities in the local build receipt | P8-01/P8-04 |
 | `test.ps1` (implemented) | Run deterministic repository, harness, experiment and upstream-inventory checks; preserve exit status and evidence | P0-01, extended by feature owners |
 | `test-embeddings.ps1` (implemented qualification) | Verify explicit local assets, test/build the CPU helper, check its dependency graph and compare real model results | P0-07; integration continues in P0-02 |
 | `test-local-memory.ps1` (implemented prototype) | Build the corpus qualification executable, verify its dependency closure and observe real local indexes across fresh processes; add `-Scale` for the declared resource gate | P0-02 |
-| `package.ps1` | Assemble qualified artifacts, licenses, notices, and checksums | P8-04 |
+| `package.ps1` (implemented) | Assemble an explicit executable, built-in assets, installer, licenses, notices and checksums into an unsigned candidate; bind an optional exact build receipt | P8-04 |
+| `evals/production-startup-qualification.ps1` (implemented) | Measure bounded fresh-process inspection/history startup using preserved retained fixtures and private disposable canonical copies; no model calls or p95 claim | P8-01 |
+| `evals/production-distribution-qualification.ps1` (implemented) | Exercise exact packaged installation, compatible upgrade/rollback, interruption and protected-state preservation on the current host | P8-04 |
+| `evals/production-recovery-qualification.ps1` (implemented) | Exercise both stores' local restore refusals, paused history, fresh independently verified encrypted publication and optional prior-debug canonical read compatibility | P8-01/P8-04 |
+| `evals/production-interactive-qualification.cjs` (implemented) | Prepare a frozen private plan, then explicitly admit one paid ConPTY pause/resume observation within the existing campaign budget; not owner task-quality acceptance | P8-01 |
 | `package-skills.ps1` (implemented qualification) | Stage an explicit executable with hash-bound built-in skills and notices, then verify every archive entry; see [built-in assets](../docs/development/p7-builtin-skills.md) | P7-02 |
 | `evals/builtin-skill-qualification.ps1` (implemented qualification) | Exercise the frozen project catalog and lazy activation contracts without model or ecosystem toolchain calls | P7-02 |
 | `evals/duplex-qualification.ps1` (implemented qualification) | Exercise bounded native duplex IO and canonical process authority/recovery with stable source and log identities; see [duplex prerequisite](../docs/development/p7-mcp-duplex.md) | P7-03 |
@@ -50,6 +55,8 @@ This directory owns repository automation. `test.ps1` and `test-runner.cjs` impl
 | `upstream/` (implemented baseline tooling) | `inventory.cjs` records immutable Git bytes; `reconstruct.cjs` reconstructs/verifies selected source; `build-baseline.ps1` runs native builds/tests | P0-07/P0-08, rehearsed in P8-06 |
 
 The [delivery contract](../docs/plan/00-delivery-contract.md) specifies the test command interface and future product suites. The [layout](../docs/plan/code-layout.md) separates automation from reusable test code and graders under `src/`.
+
+Production distribution/recovery runs and interactive preparation need new private system-TEMP directories outside repository and synchronization trees: their output includes active plaintext state. Startup keeps receipts separately and copies canonical data into system TEMP. Preserve private evidence and copy only suitable non-secret receipts into `artifacts/`. The [distribution guide](../docs/development/p8-distribution.md) lists exact parameters, prerequisites and the independent envelope verifier. These bounded runners preserve existing matrix evidence; physical full-volume exhaustion remains open and machine handoff remains skipped.
 
 Under [ADR-013](../docs/adr/013-upstream-reuse-and-vendoring.md), normal builds consume committed Codex source. They do not fetch Codex, advance its pin or apply patches. Reconstruction runs separately in a disposable directory as explicit maintenance/verification work.
 
