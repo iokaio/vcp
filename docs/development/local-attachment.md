@@ -281,6 +281,43 @@ page. Offset and total length count raw bytes; the hash covers the full retained
 artifact. `complete` requires both the final range and a complete capture. An
 aborted or pending prefix can reach its retained length with `complete: false`.
 
+## Retained context and routing inspection
+
+`context/inspect` lists retained `context-manifest/1` references for the exact
+authorized task; `routing/explain` lists recorded `routing-selection/1` references.
+They do not assemble new context, rerun routing or imply that a recorded preparation
+was submitted successfully. An optional target is an exact artifact ID, not a
+guessed turn or attempt association. Clients retrieve bytes through `artifact/read`.
+
+Pages contain at most 128 typed references. Cursors bind the principal, authority,
+workspace/session/task, selected view, target, limit, source watermark and retention
+epoch. Changes require a fresh query. Retention masks suppress references; absent,
+aborted, truncated or redacted evidence keeps `complete` false. Mandatory exclusions
+of authentication headers and recovery material are outside the public evidence
+contract and do not make an otherwise complete retained reference partial. This
+completeness describes the selected retained metadata; full byte hashes are verified
+when an artifact range is read.
+
+## Existing workspace lookup
+
+`workspace/open` can observe the binding already selected by trusted launch,
+including from an observer connection. Its host and root must exactly match that
+binding's host ID and canonical root spelling. The initialize response reports the
+same host ID. The method does not resolve caller-supplied paths, create another
+writer, establish a new binding, change trust or resume execution.
+
+This existing-binding variant is a read: the schema's `command_id` is unused and
+creates no durable receipt. A retry returns current authorized workspace trust and
+workspace/authority revisions. Creating or rebinding a workspace still requires its
+separate trusted bootstrap workflow; method availability does not grant that right.
+
+The retained-inspection and existing-workspace increment passes 92 engine/protocol
+tests, two both-store live-host workspace tests, and two compiled process tests
+(inspection/lookup and snapshot replay) on Windows/Rust 1.95.0. Coverage includes
+production-shaped capture omissions, genuine missing content, foreign task/schema
+denial, exact artifact-byte retrieval, read-only observer lookup and a saved cursor
+invalidated by a real intervening canonical commit. No provider is configured.
+
 ## Remaining acceptance
 
 Native stdio and named-pipe attachment now have the bounded evidence below.

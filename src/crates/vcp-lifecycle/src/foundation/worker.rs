@@ -40,6 +40,7 @@ pub(super) mod public_connection;
 mod public_events;
 pub(super) mod public_resume;
 mod public_rpc;
+mod public_workspace;
 mod reasoning;
 pub(super) mod recovery;
 mod retention_policy;

@@ -161,6 +161,8 @@ mod public_rpc;
 mod public_rpc_drain;
 #[path = "support/public_task_control.rs"]
 mod public_task_control;
+#[path = "support/public_workspace.rs"]
+mod public_workspace;
 #[path = "support/response_boundary.rs"]
 mod response_boundary;
 #[cfg(windows)]
