@@ -8,6 +8,7 @@ pub mod jsonrpc;
 pub mod memory;
 pub mod memory_governance;
 pub mod memory_query;
+pub mod memory_retention;
 pub mod methods;
 pub mod persisted_json;
 pub mod redaction;

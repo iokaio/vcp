@@ -32,6 +32,10 @@ const METHODS: &[&str] = &[
     "memory/propose",
     "memory/resolve",
     "memory/review",
+    "memory/forgetPreview",
+    "memory/forgetPreviewRead",
+    "memory/forgetRead",
+    "memory/forget",
     "task/cancel",
     "turn/pause",
     "turn/cancel",
@@ -339,6 +343,15 @@ impl RpcHost for PublicConnection {
             Call::MemoryPropose(_) | Call::MemoryResolve(_) | Call::MemoryReview(_)
         ) {
             return self.memory_review_call(call, current).await;
+        }
+        if matches!(
+            call,
+            Call::MemoryForgetPreview(_)
+                | Call::MemoryForgetPreviewRead(_)
+                | Call::MemoryForgetRead(_)
+                | Call::MemoryForget(_)
+        ) {
+            return self.retention_call(call, current).await;
         }
         if matches!(
             call,

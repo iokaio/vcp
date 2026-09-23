@@ -73,6 +73,9 @@ mod duplex;
 mod framework_verification;
 #[path = "support/history_retention.rs"]
 mod history_retention;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/public_retention.rs"]
+mod public_retention;
 #[cfg(windows)]
 #[path = "support/host_tool_authority.rs"]
 mod host_tool_authority;

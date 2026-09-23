@@ -116,6 +116,7 @@ test('committed schema is bound to compiled canonical sources and all generated 
     'src/crates/vcp-protocol/src/memory.rs',
     'src/crates/vcp-protocol/src/memory_governance.rs',
     'src/crates/vcp-protocol/src/memory_query.rs',
+    'src/crates/vcp-protocol/src/memory_retention.rs',
     'src/crates/vcp-protocol/src/methods.rs',
     'src/third_party/codex/codex-rs/Cargo.lock',
   ];

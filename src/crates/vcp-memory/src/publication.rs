@@ -1019,6 +1019,79 @@ impl Publisher {
         if access.tasks.is_some() {
             return Err(Error::Access);
         }
+        self.collect_authorized(store, access, id, policy, obsolete)
+    }
+    /// An exact scoped job may remove only a wholly authorized immutable cache.
+    /// Mixed or unverifiable generations remain pending for workspace-authorized
+    /// maintenance. The inventory and its text never leave this boundary.
+    pub(crate) fn collect_scoped(
+        &self,
+        store: &Store,
+        access: &Access,
+        id: &GenerationId,
+        policy: &GarbagePolicy,
+        scope: &vcp_domain::workspace::Scope,
+        ceiling: &BTreeSet<vcp_domain::TaskId>,
+    ) -> Result<bool> {
+        let workspace = access::authorize(store.state(), access, true)?;
+        if access.tasks.is_none()
+            || scope.workspace != access.workspace
+            || !access.allows_task(&scope.task)
+        {
+            return Err(Error::Access);
+        }
+        let manifest = generation(store.state(), id, &access.workspace)?;
+        let allowed = |own: &vcp_domain::workspace::Scope| {
+            own.workspace == scope.workspace
+                && own.session == scope.session
+                && access.allows_task(&own.task)
+                && ceiling.contains(&own.task)
+        };
+        if !allowed(&manifest.scope) {
+            return Ok(false);
+        }
+        match fs::symlink_metadata(self.root.join(id.as_str())) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+            Err(error) => return Err(io(error)),
+            Ok(_) => (),
+        }
+        let directory = self.directory(id)?;
+        let verified = (|| -> Result<bool> {
+            let bytes = bounded(&directory.join("inventory.json"), MAX_INVENTORY_BYTES)?;
+            if digest_bytes(&bytes) != manifest.inventory_checksum {
+                return Ok(false);
+            }
+            let inventory: Inventory = serde_json::from_slice(&bytes)?;
+            inventory.validate()?;
+            Ok(inventory.workspace == scope.workspace
+                && inventory.digest == manifest.inventory_digest
+                && inventory.watermark == manifest.canonical_watermark
+                && inventory.authority == manifest.authority
+                && inventory.deletion == manifest.deletion
+                && inventory
+                    .records
+                    .iter()
+                    .all(|record| allowed(&record.scope)))
+        })();
+        if !matches!(verified, Ok(true)) {
+            return Ok(false);
+        }
+        self.collect_authorized(
+            store,
+            access,
+            id,
+            policy,
+            manifest.deletion < workspace.deletion,
+        )
+    }
+    fn collect_authorized(
+        &self,
+        store: &Store,
+        access: &Access,
+        id: &GenerationId,
+        policy: &GarbagePolicy,
+        obsolete: bool,
+    ) -> Result<bool> {
         let mut pins = self
             .pins
             .lock()

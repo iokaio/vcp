@@ -80,6 +80,8 @@ pub struct PrunePreview {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PruneReceipt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) public: Option<crate::retention_public::Binding>,
     pub schema_version: u32,
     pub document_type: String,
     pub id: String,
@@ -232,7 +234,7 @@ fn empty_facts(workspace: &WorkspaceId) -> Facts<'_> {
         superseded: None,
     }
 }
-fn scope(state: &State, target: &Target) -> Result<Option<Scope>> {
+pub(crate) fn scope(state: &State, target: &Target) -> Result<Option<Scope>> {
     match target {
         Target::Event(id) => Ok(state
             .events
@@ -455,10 +457,38 @@ pub fn preview(
     action: Action,
     now: Timestamp,
 ) -> Result<PrunePreview> {
+    preview_inner(store, access, None, selector, action, now)
+}
+pub(crate) fn preview_scoped(
+    store: &Store,
+    access: &Access,
+    scope: &Scope,
+    selector: Selector,
+    action: Action,
+    now: Timestamp,
+) -> Result<PrunePreview> {
+    preview_inner(store, access, Some(scope), selector, action, now)
+}
+fn preview_inner(
+    store: &Store,
+    access: &Access,
+    scoped: Option<&Scope>,
+    selector: Selector,
+    action: Action,
+    now: Timestamp,
+) -> Result<PrunePreview> {
     let workspace = access::authorize(store.state(), access, false)?;
-    if access.tasks.is_some() {
+    if scoped.is_none() && access.tasks.is_some() {
         return Err(Error::Access);
     }
+    let allowed = scoped
+        .map(|own| {
+            if own.workspace != access.workspace || !access.allows_task(&own.task) {
+                return Err(Error::Access);
+            }
+            access.tasks.as_ref().ok_or(Error::Access)
+        })
+        .transpose()?;
     let selector = selector.normalized()?;
     let state = store.state();
     let source_metadata = sources::metadata(store, access, &selector.tree)?;
@@ -480,6 +510,16 @@ pub fn preview(
             && e.redaction.is_none()
             && e.event.data["document_type"] != PREVIEW
     }) {
+        if let (Some(own), Some(tasks)) = (scoped, allowed) {
+            if !crate::retention_public::target_allowed(
+                state,
+                own,
+                tasks,
+                &Target::Event(event.event.id.clone()),
+            )? {
+                continue;
+            }
+        }
         let name = serde_json::to_value(&event.event.kind)?;
         let mut facts = empty_facts(&access.workspace);
         facts.timestamp = Some(event.event.timestamp);
@@ -513,6 +553,11 @@ pub fn preview(
         .filter(|r| r.workspace == access.workspace && valid_record(r) && !already_redacted(r))
     {
         let target = Target::Record(row.key());
+        if let (Some(own), Some(tasks)) = (scoped, allowed) {
+            if !crate::retention_public::target_allowed(state, own, tasks, &target)? {
+                continue;
+            }
+        }
         let own = scope(state, &target)?;
         let mut facts = empty_facts(&access.workspace);
         facts.task = own.as_ref().map(|s| &s.task);
@@ -741,6 +786,15 @@ pub fn preview(
             break;
         }
     }
+    // Dependencies are not silently dropped to make a scoped selection appear
+    // safe. The complete private canonical closure must fit the current ceiling.
+    if let (Some(own), Some(tasks)) = (scoped, allowed) {
+        for target in &closure {
+            if !crate::retention_public::target_allowed(state, own, tasks, target)? {
+                return Err(Error::Access);
+            }
+        }
+    }
     let mut protected = Vec::new();
     if action == Action::Purge {
         for target in &closure {
@@ -861,12 +915,51 @@ pub async fn apply(
     preview: &PrunePreview,
     now: Timestamp,
 ) -> Result<PruneReceipt> {
+    apply_inner(store, access, preview, None, now).await
+}
+pub(crate) async fn apply_scoped(
+    store: &mut Store,
+    access: &Access,
+    preview: &PrunePreview,
+    binding: &crate::retention_public::Binding,
+    now: Timestamp,
+) -> Result<crate::retention_public::Commit> {
+    let job = apply_inner(store, access, preview, Some(binding), now).await?;
+    let command = store
+        .state()
+        .commands
+        .get(&vcp_store::contract::command_key(
+            &access.workspace,
+            &binding.command,
+        ))
+        .ok_or(Error::Conflict("retention receipt unavailable"))?;
+    if command.digest != binding.command_digest {
+        return Err(Error::Conflict("retention command payload conflict"));
+    }
+    let receipt = store
+        .state()
+        .transactions
+        .get(&command.transaction)
+        .ok_or(Error::Conflict("retention receipt unavailable"))?
+        .clone();
+    Ok(crate::retention_public::Commit { receipt, job })
+}
+async fn apply_inner(
+    store: &mut Store,
+    access: &Access,
+    preview: &PrunePreview,
+    public: Option<&crate::retention_public::Binding>,
+    now: Timestamp,
+) -> Result<PruneReceipt> {
     let mut workspace = access::authorize(store.state(), access, true)?;
-    if access.tasks.is_some()
+    if (public.is_none() && access.tasks.is_some())
         || preview.actor != access.actor
         || preview.workspace != access.workspace
     {
         return Err(Error::Access);
+    }
+    if let Some(binding) = public {
+        crate::retention_public::authorize_targets(store, access, binding, preview, true)?;
     }
     if let Some(row) = store.state().records.get(&key(
         Collection::Projection,
@@ -875,6 +968,11 @@ pub async fn apply(
         let existing: PruneReceipt = row.decode()?;
         if existing.preview != *preview {
             return Err(Error::Conflict("preview identity mismatch"));
+        }
+        if public.is_some_and(|binding| existing.public.as_ref() != Some(binding)) {
+            return Err(Error::Conflict(
+                "retention preview already applied by another command",
+            ));
         }
         return Ok(existing);
     }
@@ -885,9 +983,10 @@ pub async fn apply(
     {
         return Err(Error::Conflict("stale preview; create a new preview"));
     }
-    let mut actual = self::preview(
+    let mut actual = preview_inner(
         store,
         access,
+        public.map(|binding| &binding.scope),
         preview.selector.clone(),
         preview.action,
         preview.created_at,
@@ -907,7 +1006,10 @@ pub async fn apply(
         ));
     }
     let state = store.state();
-    let scope = scope_for(state, &access.workspace)?;
+    let scope = match public {
+        Some(binding) => binding.scope.clone(),
+        None => scope_for(state, &access.workspace)?,
+    };
     let old_revision = workspace.revision;
     workspace.revision = workspace.revision.next()?;
     workspace.deletion = workspace.deletion.next()?;
@@ -1071,6 +1173,7 @@ pub async fn apply(
         });
     }
     let receipt = PruneReceipt {
+        public: public.cloned(),
         schema_version: 1,
         document_type: JOB.into(),
         id: format!("prune-{}", preview.id),
@@ -1116,19 +1219,30 @@ pub async fn apply(
             }
         })
         .collect();
-    let event = event(
+    let mut event = event(
         &scope,
         access,
         now,
         serde_json::json!({"version":1,"preview":preview.id,"action":preview.action,"facts":facts}),
     );
+    if let Some(binding) = public {
+        event.correlation = binding.command.clone();
+    }
     store
         .transact(Transaction {
             id: transaction,
             expected_watermark: state.watermark,
             mutations,
             events: vec![event],
-            command: None,
+            command: public.map(|binding| vcp_store::contract::ReceiptInput {
+                command: binding.command.clone(),
+                workspace: access.workspace.clone(),
+                session: binding.scope.session.clone(),
+                digest: binding.command_digest.clone(),
+                result: vcp_protocol::command::CommandResult::Accepted {
+                    revision: workspace.revision,
+                },
+            }),
         })
         .await?;
     Ok(receipt)
@@ -1174,8 +1288,26 @@ pub async fn cleanup(
     id: &str,
     now: Timestamp,
 ) -> Result<PruneReceipt> {
+    cleanup_inner(store, access, None, id, now).await
+}
+pub(crate) async fn cleanup_scoped(
+    store: &mut Store,
+    access: &Access,
+    scope: &Scope,
+    id: &str,
+    now: Timestamp,
+) -> Result<PruneReceipt> {
+    cleanup_inner(store, access, Some(scope), id, now).await
+}
+async fn cleanup_inner(
+    store: &mut Store,
+    access: &Access,
+    scoped: Option<&Scope>,
+    id: &str,
+    now: Timestamp,
+) -> Result<PruneReceipt> {
     access::authorize(store.state(), access, true)?;
-    if access.tasks.is_some() {
+    if scoped.is_none() && access.tasks.is_some() {
         return Err(Error::Access);
     }
     let mut job: PruneReceipt = store
@@ -1184,6 +1316,13 @@ pub async fn cleanup(
         .decode()?;
     if job.document_type != JOB {
         return Err(Error::Invalid("retention job type".into()));
+    }
+    if let Some(scope) = scoped {
+        let binding = job.public.as_ref().ok_or(Error::Access)?;
+        if &binding.scope != scope {
+            return Err(Error::Access);
+        }
+        crate::retention_public::authorize_targets(store, access, binding, &job.preview, true)?;
     }
     if job.preview.action != Action::Purge {
         return Ok(job);
@@ -1263,7 +1402,20 @@ pub async fn cleanup(
             if !owned {
                 pending.push(generation.clone());
             } else if let Some(publisher) = &publisher {
-                if !publisher.collect(store, access, generation, &policy)? {
+                let collected = if let Some(scope) = scoped {
+                    let binding = job.public.as_ref().ok_or(Error::Access)?;
+                    publisher.collect_scoped(
+                        store,
+                        access,
+                        generation,
+                        &policy,
+                        scope,
+                        &binding.tasks,
+                    )?
+                } else {
+                    publisher.collect(store, access, generation, &policy)?
+                };
+                if !collected {
                     pending.push(generation.clone());
                 }
             }
@@ -1278,7 +1430,10 @@ pub async fn cleanup(
         result.pinned.is_empty() && result.failed.is_empty() && job.pending_generations.is_empty();
     let expected = job.revision;
     job.revision = job.revision.next()?;
-    let scope = scope_for(store.state(), &access.workspace)?;
+    let scope = match scoped {
+        Some(scope) => scope.clone(),
+        None => scope_for(store.state(), &access.workspace)?,
+    };
     let record = Record::typed(
         Collection::Projection,
         &job.id,
@@ -1286,12 +1441,15 @@ pub async fn cleanup(
         job.revision,
         &job,
     )?;
-    let event = event(
+    let mut event = event(
         &scope,
         access,
         now,
         serde_json::json!({"version":1,"retention_cleanup":job.id,"facts":[record]}),
     );
+    if scoped.is_some() {
+        event.correlation = job.public.as_ref().ok_or(Error::Access)?.command.clone();
+    }
     store
         .transact(Transaction {
             id: TransactionId::new(),

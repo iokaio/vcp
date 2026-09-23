@@ -8,6 +8,8 @@ export type PublicApi = { "application_error": ApplicationError; "call": Call; "
 
 export type Acceptance = { "command_id": Id; "outcome": OperationOutcome; "revision": Counter; "scope": Scope; "task"?: (Id | null); "turn"?: (Id | null); "watermark": Counter; };
 
+export type Action = (("exclude" | "restore_recall" | "compact" | "purge") & string);
+
 export type Applicability = { "branch"?: (string | null); "conditions": { [key: string]: string; }; "fingerprint"?: (Fingerprint | null); "paths": Array<string>; "repository": string; "roots": Array<Id>; "symbols": Array<string>; "valid_from"?: (Counter | null); "valid_until"?: (Counter | null); "worktree": string; };
 
 export type ApplicationError = { "code": Code; "explanation": string; "operation"?: (Id | null); "reconciliation"?: (string | null); "retry": Retry; };
@@ -22,15 +24,19 @@ export type ArtifactRange = { "artifact": Id; "complete": boolean; "content": st
 
 export type ArtifactRead = { "artifact": Id; "length": number; "offset": Counter; "scope": Scope; "task": Id; };
 
+export type Bound = { "inclusive": boolean; "instant": InstantSpec; };
+
 export type Budget = { "cap_micros": Counter; "currency": Currency; "deadline_seconds": number; "max_requests": number; };
 
-export type Call = ({ "method": ("controller/read" & string); "params": ControllerRead; } | { "method": ("controller/acquire" & string); "params": ControllerAcquire; } | { "method": ("controller/release" & string); "params": ControllerRelease; } | { "method": ("controller/recover" & string); "params": ControllerRecover; } | { "method": ("workspace/open" & string); "params": WorkspaceOpen; } | { "method": ("session/create" & string); "params": SessionCreate; } | { "method": ("session/read" & string); "params": SessionRead; } | { "method": ("session/snapshot" & string); "params": SessionSnapshotRead; } | { "method": ("session/list" & string); "params": SessionList; } | { "method": ("session/resume" & string); "params": SessionResume; } | { "method": ("session/fork" & string); "params": SessionFork; } | { "method": ("task/read" & string); "params": TaskRead; } | { "method": ("task/cancel" & string); "params": TaskCancel; } | { "method": ("turn/start" & string); "params": TurnStart; } | { "method": ("turn/steer" & string); "params": TurnSteer; } | { "method": ("turn/pause" & string); "params": TurnControl; } | { "method": ("turn/cancel" & string); "params": TurnControl; } | { "method": ("approval/respond" & string); "params": ApprovalRespond; } | { "method": ("events/subscribe" & string); "params": EventsSubscribe; } | { "method": ("events/next" & string); "params": EventsNext; } | { "method": ("events/unsubscribe" & string); "params": EventsUnsubscribe; } | { "method": ("artifact/read" & string); "params": ArtifactRead; } | { "method": ("diff/read" & string); "params": DiffRead; } | { "method": ("context/inspect" & string); "params": Inspect; } | { "method": ("routing/explain" & string); "params": Inspect; } | { "method": ("usage/read" & string); "params": Inspect; } | { "method": ("memory/query" & string); "params": MemoryQuery; } | { "method": ("memory/inspect" & string); "params": MemoryInspect; } | { "method": ("memory/propose" & string); "params": ProposeParams; } | { "method": ("memory/resolve" & string); "params": ResolveParams; } | { "method": ("memory/review" & string); "params": ReviewRead; } | { "method": ("memory/forget" & string); "params": MemoryForget; } | { "method": ("editor/context" & string); "params": EditorContext; } | { "method": ("editor/changeResult" & string); "params": EditorChangeResult; } | { "method": ("session/export" & string); "params": SessionExport; } | { "method": ("command/read" & string); "params": CommandRead; });
+export type Call = ({ "method": ("controller/read" & string); "params": ControllerRead; } | { "method": ("controller/acquire" & string); "params": ControllerAcquire; } | { "method": ("controller/release" & string); "params": ControllerRelease; } | { "method": ("controller/recover" & string); "params": ControllerRecover; } | { "method": ("workspace/open" & string); "params": WorkspaceOpen; } | { "method": ("session/create" & string); "params": SessionCreate; } | { "method": ("session/read" & string); "params": SessionRead; } | { "method": ("session/snapshot" & string); "params": SessionSnapshotRead; } | { "method": ("session/list" & string); "params": SessionList; } | { "method": ("session/resume" & string); "params": SessionResume; } | { "method": ("session/fork" & string); "params": SessionFork; } | { "method": ("task/read" & string); "params": TaskRead; } | { "method": ("task/cancel" & string); "params": TaskCancel; } | { "method": ("turn/start" & string); "params": TurnStart; } | { "method": ("turn/steer" & string); "params": TurnSteer; } | { "method": ("turn/pause" & string); "params": TurnControl; } | { "method": ("turn/cancel" & string); "params": TurnControl; } | { "method": ("approval/respond" & string); "params": ApprovalRespond; } | { "method": ("events/subscribe" & string); "params": EventsSubscribe; } | { "method": ("events/next" & string); "params": EventsNext; } | { "method": ("events/unsubscribe" & string); "params": EventsUnsubscribe; } | { "method": ("artifact/read" & string); "params": ArtifactRead; } | { "method": ("diff/read" & string); "params": DiffRead; } | { "method": ("context/inspect" & string); "params": Inspect; } | { "method": ("routing/explain" & string); "params": Inspect; } | { "method": ("usage/read" & string); "params": Inspect; } | { "method": ("memory/query" & string); "params": MemoryQuery; } | { "method": ("memory/inspect" & string); "params": MemoryInspect; } | { "method": ("memory/propose" & string); "params": ProposeParams; } | { "method": ("memory/resolve" & string); "params": ResolveParams; } | { "method": ("memory/review" & string); "params": ReviewRead; } | { "method": ("memory/forget" & string); "params": MemoryForget; } | { "method": ("memory/forgetPreview" & string); "params": PreviewRequest; } | { "method": ("memory/forgetPreviewRead" & string); "params": PreviewPageRequest; } | { "method": ("memory/forgetRead" & string); "params": JobRead; } | { "method": ("editor/context" & string); "params": EditorContext; } | { "method": ("editor/changeResult" & string); "params": EditorChangeResult; } | { "method": ("session/export" & string); "params": SessionExport; } | { "method": ("command/read" & string); "params": CommandRead; });
 
 export type Candidate = { "applicability": Applicability; "claim": Id; "correction_reason"?: (string | null); "evidence": Array<Evidence>; "origins": Array<Id>; "predecessor"?: (Id | null); "predicate": string; "retention": string; "statement": string; "subject": string; "value": ClaimValue; };
 
 export type CaptureScope = (("visible_history" | "visible_history_and_artifacts") & string);
 
 export type CheckOutcome = ({ "status": ("passed" & string); } | { "reason": string; "status": ("failed" & string); } | { "reason": string; "status": ("not_run" & string); });
+
+export type ClaimKind = (("command" | "module_relationship" | "architecture" | "environment_constraint" | "verified_fix" | "user_preference") & string);
 
 export type ClaimValue = ({ "argv": Array<string>; "configuration": Id; "cwd": string; "kind": ("command" & string); "outcome"?: (CheckOutcome | null); "purpose": CommandPurpose; "verification"?: (Id | null); } | { "from": SourceEndpoint; "kind": ("module_relationship" & string); "relation": string; "to": SourceEndpoint; } | { "decision": string; "inference": boolean; "kind": ("architecture" & string); "rationale": string; } | { "component": string; "kind": ("environment_constraint" & string); "observed_value"?: (string | null); "requirement": string; } | { "after": Fingerprint; "before": Fingerprint; "issue": string; "kind": ("verified_fix" & string); "patch": Id; "verification": Id; } | { "explicit_origin": Id; "key": string; "kind": ("user_preference" & string); "value": string; });
 
@@ -57,6 +63,8 @@ export type ControllerRelease = { "command_id": Id; "expected_revision": Counter
 export type ControllerView = { "generation": Counter; "ownership": ControllerOwnership; "revision"?: (Counter | null); "scope": Scope; "watermark": Counter; };
 
 export type Counter = string;
+
+export type Criterion = ({ "kind": ("date" & string); "value": TimeWindow; } | { "kind": ("workspace" & string); "value": Id; } | { "kind": ("root" & string); "value": Id; } | { "kind": ("path" & string); "value": string; } | { "kind": ("task" & string); "value": Id; } | { "kind": ("actor" & string); "value": Id; } | { "kind": ("agent" & string); "value": Id; } | { "kind": ("model" & string); "value": string; } | { "kind": ("provider" & string); "value": string; } | { "kind": ("event" & string); "value": string; } | { "kind": ("claim" & string); "value": ClaimKind; } | { "kind": ("status" & string); "value": Status; } | { "kind": ("superseded" & string); "value": boolean; });
 
 export type Currency = ("USD" & string);
 
@@ -112,6 +120,8 @@ export type Finding = { "content": string; "end": Counter; "evidence": Array<Id>
 
 export type Fingerprint = { "buffers": string; "environment": string; "repository": string; };
 
+export type ForgetResult = { "acceptance": Acceptance; "job": JobView; };
+
 export type GapReason = (("retention_changed" | "authority_changed" | "cursor_expired" | "sequence_unavailable" | "slow_consumer") & string);
 
 export type Guards = { "deletion_epoch": Counter; "expected_head"?: (Id | null); "policy_revision": Counter; };
@@ -129,6 +139,12 @@ export type InputKind = (("approval" | "question" | "reconciliation") & string);
 export type Inspect = { "cursor"?: (string | null); "limit": number; "scope": Scope; "target"?: (Id | null); "task": Id; };
 
 export type InspectionState = { "applicable": boolean; "canonical_watermark": Counter; "current": boolean; "evidence": Array<EvidenceState>; "memory_sequence": Counter; "resolution"?: (Resolution | null); "visibility": Visibility; };
+
+export type InstantSpec = { "entered": string; "offset_minutes": number; "utc": Counter; };
+
+export type JobRead = { "job": Id; "scope": Scope; "task": Id; };
+
+export type JobView = { "action": Action; "backup_copies_count": Counter; "cleanup_required": boolean; "deletion": Counter; "job": Id; "local_cleanup_complete": boolean; "logical_unavailable": boolean; "pending_generations_count": Counter; "rewrite_complete": boolean; "scope": Scope; "task": Id; };
 
 export type JsonRpcVersion = ("2.0" & string);
 
@@ -158,6 +174,14 @@ export type Page = { "canonical_watermark": Counter; "complete": boolean; "degra
 
 export type PendingInput = { "effect_revision"?: (Counter | null); "id": Id; "kind": InputKind; "operation_digest"?: (string | null); "policy_revision"?: (Counter | null); "revision": Counter; };
 
+export type PreviewPage = { "action": Action; "authority": Counter; "bytes_are_exact": boolean; "deletion": Counter; "dependent_count": Counter; "digest": string; "expires_in_ms": number; "next_offset"?: (number | null); "offset": number; "preview": Id; "protected_count": Counter; "retained_bytes": Counter; "scope": Scope; "selected_count": Counter; "targets": Array<PreviewTarget>; "task": Id; "watermark": Counter; };
+
+export type PreviewPageRequest = { "limit": number; "offset": number; "preview": Id; "scope": Scope; "task": Id; };
+
+export type PreviewRequest = { "action": Action; "limit": number; "scope": Scope; "selector": Selector; "task": Id; };
+
+export type PreviewTarget = { "protected_reason"?: (string | null); "selected": boolean; "target": Target; };
+
 export type ProposeParams = (LegacyPropose | TypedPropose);
 
 export type Range = { "end": Counter; "start": Counter; };
@@ -172,7 +196,7 @@ export type ResolveParams = (LegacyResolve | TypedResolve);
 
 export type ResultEnvelope = { "id": RequestId; "jsonrpc": JsonRpcVersion; "result": unknown; };
 
-export type ResultValue = ({ "kind": ("snapshot" & string); "value": SessionSnapshot; } | { "kind": ("controller" & string); "value": ControllerView; } | { "kind": ("workspace" & string); "value": WorkspaceView; } | { "kind": ("session" & string); "value": SessionView; } | { "kind": ("sessions" & string); "value": SessionPage; } | { "kind": ("task" & string); "value": TaskView; } | { "kind": ("acceptance" & string); "value": Acceptance; } | { "kind": ("usage" & string); "value": UsageView; } | { "kind": ("artifact" & string); "value": ArtifactRange; } | { "kind": ("evidence" & string); "value": EvidencePage; } | { "kind": ("memory" & string); "value": MemoryPage; } | { "kind": ("memory_query" & string); "value": Page; } | { "kind": ("memory_review" & string); "value": ReviewView; } | { "kind": ("memory_reviewed" & string); "value": ReviewResult; } | { "kind": ("events" & string); "value": EventBatch; } | { "kind": ("gap" & string); "value": EventGap; } | { "kind": ("export" & string); "value": ExportView; } | { "kind": ("unsubscribed" & string); "value": { "subscription": Id; }; });
+export type ResultValue = ({ "kind": ("snapshot" & string); "value": SessionSnapshot; } | { "kind": ("controller" & string); "value": ControllerView; } | { "kind": ("workspace" & string); "value": WorkspaceView; } | { "kind": ("session" & string); "value": SessionView; } | { "kind": ("sessions" & string); "value": SessionPage; } | { "kind": ("task" & string); "value": TaskView; } | { "kind": ("acceptance" & string); "value": Acceptance; } | { "kind": ("usage" & string); "value": UsageView; } | { "kind": ("artifact" & string); "value": ArtifactRange; } | { "kind": ("evidence" & string); "value": EvidencePage; } | { "kind": ("memory" & string); "value": MemoryPage; } | { "kind": ("memory_query" & string); "value": Page; } | { "kind": ("memory_review" & string); "value": ReviewView; } | { "kind": ("memory_reviewed" & string); "value": ReviewResult; } | { "kind": ("retention_preview" & string); "value": PreviewPage; } | { "kind": ("retention" & string); "value": JobView; } | { "kind": ("forgotten" & string); "value": ForgetResult; } | { "kind": ("events" & string); "value": EventBatch; } | { "kind": ("gap" & string); "value": EventGap; } | { "kind": ("export" & string); "value": ExportView; } | { "kind": ("unsubscribed" & string); "value": { "subscription": Id; }; });
 
 export type Retry = ((("never" | "after_input" | "after_revalidation") & string) | ("reconcile_original" & string));
 
@@ -187,6 +211,8 @@ export type ReviewView = { "candidate": Candidate; "candidate_digest": string; "
 export type RpcError = { "code": number; "data"?: (ErrorData | null); "message": string; };
 
 export type Scope = { "session": Id; "workspace": Id; };
+
+export type Selector = { "schema_version": number; "tree": Tree; };
 
 export type SessionCreate = { "configuration_revision": Counter; "mutation": Mutation; "new_session": Id; "scope": Scope; };
 
@@ -212,6 +238,10 @@ export type Source = ({ "artifact": Id; "kind": ("artifact" & string); } | { "cl
 
 export type SourceEndpoint = { "artifact": Id; "path": string; "root": Id; "sha256": string; "symbol"?: (string | null); };
 
+export type Status = ({ "kind": ("task" & string); "value": TaskStatus; } | { "kind": ("claim" & string); "value": Outcome; });
+
+export type Target = ({ "id": string; "kind": ("record" & string); } | { "id": Id; "kind": ("event" & string); });
+
 export type TaskCancel = { "mutation": Mutation; "reason": string; "scope": Scope; "task": Id; };
 
 export type TaskRead = { "scope": Scope; "task": Id; };
@@ -219,6 +249,10 @@ export type TaskRead = { "scope": Scope; "task": Id; };
 export type TaskStatus = (("pending" | "running" | "waiting_for_input" | "blocked" | "paused" | "completed" | "failed" | "cancelled") & string);
 
 export type TaskView = { "effects": EffectStatus; "parent"?: (Id | null); "pending_inputs": Array<PendingInput>; "reason": string; "revision": Counter; "root": Id; "scope": Scope; "state": TaskStatus; "steering_revision": Counter; "task": Id; "turn"?: (Id | null); };
+
+export type TimeWindow = { "lower"?: (Bound | null); "upper"?: (Bound | null); };
+
+export type Tree = ({ "operator": ("all" & string); "value": Array<Tree>; } | { "operator": ("any" & string); "value": Array<Tree>; } | { "operator": ("not" & string); "value": Tree; } | { "operator": ("match" & string); "value": Criterion; });
 
 export type Trust = (("untrusted" | "trusted") & string);
 

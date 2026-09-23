@@ -219,7 +219,9 @@ resolved in the following section rather than inferred from a method's name.
 | `memory/propose` | Exact workspace/session/task; C | Current controller; typed candidate and task/steering/policy/deletion/head guards; `memory/governance/1` | Immutable awaiting-review submission with original public receipt, no claim version | [ADR-052](../adr/052-explicit-public-memory-review.md); legacy prose shape rejected without inference |
 | `memory/resolve` | Exact scoped submission; C | Current controller and candidate digest; current task/steering/policy/deletion/head guards | One immutable decision; accept runs existing governance, reject creates no version; atomic receipt | Same-key replay preserves outcome; acceptance does not override dispute or rejection |
 | `memory/review` | Exact workspace/session/task/submission; O | Current source access and retention; `memory/governance/1` | Retained typed candidate, pending/decided state and actual governed outcome | Read-only reconnect inspection; unavailable after masking/purge |
-| `memory/forget` | Workspace and selected claims/history/artifacts; C | Current preview/digest, deletion/authority revisions and deletion authorization; durable | Durable staged deletion status; retention `preview/save_preview/apply/cleanup` | Public shared workflow and reconciliation; accepted deletion does not imply physical cleanup finished |
+| `memory/forgetPreview`, `memory/forgetPreviewRead` | Current session/task ceiling; O | `memory/retention/1`; frozen selection, bounded pages and 60-second connection cache | Read-only exact shared retention preview | [ADR-054](../adr/054-scoped-public-retention.md); stale or foreign dependencies fail closed |
+| `memory/forgetRead` | Current session/task ceiling; O | `memory/retention/1`; current authorization of original job | Read-only durable cleanup counts/status | Does not perform physical cleanup |
+| `memory/forget` | Current session/task ceiling; C | `memory/retention/1`; exact preview/digest and revision guards; durable | Original receipt, logical deletion and job commit atomically; owned scoped cleanup | Retry original command after reauthorization; accepted deletion does not imply physical cleanup finished |
 | `editor/context` | Workspace/host/document; C | Document version/hash, observation revision and binding; durable for accepted canonical context | Accepted bounded editor observation; prepared filesystem tooling supplies related primitives | Shared document observation/invalidation behavior is missing; do not advertise capability from schema alone |
 | `editor/changeResult` | Workspace/task/prepared change/document; C | Prepared operation, document/binding versions and expected effect revision; durable | Reconciled applied/partial/unknown editor effect | Shared editor-receipt reconciliation is missing; a client success assertion is not verified effect evidence |
 | `session/export` | Exact session and optional task; C | Current controller/read disclosure and revision; `session/export-local/1` | Atomic local artifact + visibility manifest, original receipt; metadata history with optional captured octets | [ADR-053](../adr/053-scoped-local-session-export.md); explicit omissions, complete false, both outputs revalidate all sources |
@@ -329,11 +331,12 @@ Internal-command/API parity applies to the implemented adapter methods, not ever
 registered method schema. Source provenance and generated-output drift are checked
 without pretending a JavaScript type check executes Rust schema generation.
 
-P9-02 still requires real authenticated local processes, controller leases,
-owner-loss/pause, snapshot/live-event handoff, bounded subscribers and restart
-qualification. P9-03 requires the SDK against a compiled real local server,
-including retry, cancellation, disposal and gap recovery. These future tests cannot
-be discharged by P9-01's in-process adapter or synthetic schema fixtures.
+P9-02 native-process evidence is recorded in the [local attachment guide](local-attachment.md),
+including authentication, controller leases, owner-loss/pause, snapshot/event
+handoff, bounded readers and restart. That record owns its acceptance status.
+P9-03 requires SDK tests against a compiled real local server, including retry,
+cancellation, disposal and gap recovery; protocol schemas and in-process adapter
+tests do not establish SDK compatibility.
 
 ## ACP consideration
 

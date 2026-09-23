@@ -74,6 +74,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 
 - [ADR-053 - Scoped local session export](053-scoped-local-session-export.md): atomic derived captures, explicit visibility and source-dependent reads.
 
+- [ADR-054 - Scoped public retention](054-scoped-public-retention.md): exact authenticated previews, original-command reconciliation and scoped physical cleanup.
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.
