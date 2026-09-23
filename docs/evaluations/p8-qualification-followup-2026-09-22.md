@@ -1,6 +1,7 @@
 # P8 qualification follow-up — 2026-09-22
 
-Status: in progress; no release acceptance or publication is recorded.
+Status: bounded follow-up checks finished; release qualification remains
+incomplete. No actual owner acceptance or publication is recorded.
 The owner requested correction of fresh restore and retained-history latency,
 the prepared $16 interactive observation and six $8 owner attempts ($48 maximum),
 missing integrated scenarios, and installation/model-provisioning qualification.
@@ -235,10 +236,12 @@ the qualified profile's expiry before any subsequently authorized execution.
 The zero-provider integration runner independently decoded each accepted owner
 root, including failed tasks, and compared CLI pagination against all **2,803
 task event IDs**. It recovered **101 complete response/stdout/stderr artifacts**
-through bounded CLI ranges and matched their canonical lengths and hashes.
+through bounded CLI ranges and matched their canonical lengths and hashes:
+4,140,136 bytes in total, with 87 artifacts larger than 8 KiB.
 Notification-only defaults and those reads preserved canonical state. Every
 original data/workspace inventory remained byte-identical. Optimizer and skill
-commands supplied inspection/setup evidence only, not live routing or activation.
+commands succeeded on all six roots and supplied inspection/setup evidence only,
+not live routing or activation.
 
 The initial report under system TEMP is
 `vcp-followup-integrated-ee688898-0291-4f0c-aab1-46893781a127/result.json`, SHA-256
@@ -257,6 +260,31 @@ then binds those prior observations throughout the new run. This avoids repeatin
 successful history/output checks. Three parallel batches use separate disposable
 roots, make no provider calls and preserve the original owner evidence. Launch
 receipt: `artifacts/p8-followup/owner-retention-launch-ee688898-0291-4f0c-aab1-46893781a127.json`.
+
+All **six rows and 24 retention controls passed**. Exclude and compact retained
+the expected history and sampled full-output bytes on every root. Logical purge
+on the three terminal roots produced explicit event gaps and denied the sampled
+artifact reads. Purge on the three paused roots refused with the expected
+protected-closure diagnosis and retained every original task event. All six
+stale previews refused without deletion. Every original root remained
+byte-identical; no model/provider calls occurred.
+
+Final summary:
+`artifacts/p8-followup/owner-integration-summary-ee688898-0291-4f0c-aab1-46893781a127.json`,
+SHA-256 `4dfa2b50078154f8448ea29676b67d62934a989cc67a60278fb9bc65e80ac75a`.
+The summary binds the initial report and these three successful receipts under
+system TEMP:
+
+| Batch | Receipt directory | Result SHA-256 |
+| --- | --- | --- |
+| U01, both stores | `vcp-followup-retention-ee688898-0291-4f0c-aab1-46893781a127-a` | `22a70dd98f6deec478e8d3cf525670ba7c40da8c240fa785d7910c678351b777` |
+| U02, both stores | `vcp-followup-retention-ee688898-0291-4f0c-aab1-46893781a127-b` | `aac3815fc8b9b983afc7be11146ba23beceb7eb931e8c70891c912c96565359e` |
+| U03, both stores | `vcp-followup-retention-ee688898-0291-4f0c-aab1-46893781a127-c` | `40df157e6392262579a20156ea6b4874a8a32e3c4bdd44295b9f79e3fa34f299` |
+
+This closes the declared history/output and logical retention increment. It does
+not establish physical cleanup, thirty-day boundaries, deletion from retained
+external copies, live memory/routing/delegation/MCP/skill integration, or full
+U01–U09 acceptance. Earlier evidence for other boundaries keeps its own scope.
 
 ## Fresh model provisioning
 
@@ -305,9 +333,9 @@ sandbox. Windows Sandbox was not available. The owner was asked for an existing
 clean Windows environment and an authorized execution path; no machine handoff
 was attempted.
 
-The prepared owner cohort covers direct U01–U03 on each backend. Populated
+The executed owner cohort covers direct U01–U03 on each backend. Populated
 cross-workspace memory, visible child review, integrated routing/optimization,
-MCP/skills and remaining U05–U09 scenarios require their own exact evidence.
+MCP/skills and remaining U05–U09 variants require their own exact evidence.
 Human usefulness/architecture-fit rubrics and final acceptance remain pending.
 
 ## Current owner review record
@@ -326,3 +354,5 @@ Human usefulness/architecture-fit rubrics and final acceptance remain pending.
 The original acceptance packet remains historical. This record identifies the
 rebuilt candidate actually exercised in this continuation; neither a merge of
 the fixes nor passing delivery tests constitutes release or owner acceptance.
+
+Delivery and check status: [PR 122](https://github.com/iokaio/vcp/pull/122).
