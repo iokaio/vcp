@@ -1,0 +1,182 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x1120"><title>VCP — agents</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+:root { --sidebar-w: 440px; }
+.agent { border: 1px solid var(--border-strong); border-radius: 4px; margin: 6px 0; background: rgba(255,255,255,.02); }
+.agent .head { display: flex; align-items: center; gap: 8px; padding: 7px 10px 4px; }
+.agent .head .name { font-weight: 600; color: #fff; }
+.agent .head .id { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
+.agent .body { padding: 0 10px 8px; font-size: 12px; }
+.agent .body .kv { font-size: 11.5px; }
+.agent .foot { display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--fg-dim); }
+.agent.sel { border-color: var(--accent); }
+.agent .mode { font-size: 10.5px; }
+</style></head>
+<body>
+<div class="window">
+  <div class="titlebar"><div class="menu"><span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span><span>Help</span></div><div class="center"><span class="cmd">ledger-api</span></div><div class="controls">–▢✕</div></div>
+  <div class="workbench">
+    <div class="activitybar">
+      <div class="icon"><span class="glyph"></span></div><div class="icon"><span class="glyph" style="border-radius:50%"></span></div><div class="icon"><span class="glyph" style="border-style:dashed"></span></div><div class="icon"><span class="glyph" style="transform:rotate(45deg);width:16px;height:16px"></span></div>
+      <div class="icon active"><span class="glyph vcp"></span></div><div class="spacer"></div><div class="icon"><span class="glyph" style="border-radius:50%;width:18px;height:18px"></span></div><div class="icon"><span class="glyph" style="width:18px;height:18px;border-radius:50%;border-style:dotted"></span></div>
+    </div>
+
+    <div class="sidebar">
+      <div class="sidebar-title">VCP <span class="actions">⋯</span></div>
+      <div class="view"><div class="view-header"><span class="chev">▸</span> Session <span class="badge">paused</span><span class="actions">⋯</span></div></div>
+      <div class="view grow">
+        <div class="view-header"><span class="chev">▾</span> Agents <span class="badge">3</span><span class="actions">＋ ⟳ ⋯</span></div>
+        <div class="view-body">
+          <!-- parent summary -->
+          <div class="card" style="margin-top:2px">
+            <div class="row between"><span class="title">Parent task</span><span class="pill">graph rev 12</span></div>
+            <div style="color:#fff;margin-top:2px">Fix the parser failure on malformed CRLF input</div>
+            <div class="sub">task-7f3a · delegated to 3 children · 2 isolated roots · depth 1 of 4 · concurrency 1 of 4</div>
+            <div class="section-label" style="margin-top:6px">Allocations (subdivide the root cap, not charges)</div>
+            <div class="meter"><span class="seg spent" style="left:0;width:31%"></span><span class="seg" style="left:31%;width:22%;background:rgba(0,120,212,.25);border:1px dashed rgba(77,170,252,.6)"></span><span class="seg protected" style="left:90%;width:10%"></span></div>
+            <div class="row between" style="font-size:11.5px"><span>$0.62 settled · $0.45 allocated to children</span><span class="mono">cap $2.00</span></div>
+            <div class="callout warn" style="margin-top:6px">Parent turn ended while children remain terminal/paused. Review their evidence and any integration, then Resume for current parent verification.</div>
+          </div>
+
+          <!-- child 1: write child, result submitted -->
+          <div class="agent sel">
+            <div class="head"><span class="dot ok"></span><span class="name">CRLF regression fixtures</span><span class="id">task-b3d7</span><span style="margin-left:auto" class="pill ok">completed</span></div>
+            <div class="body">
+              <div class="row" style="gap:5px;flex-wrap:wrap;margin-bottom:5px"><span class="pill mode">isolated_write</span><span class="pill mode dim">bounded development child</span><span class="pill mode dim mono">openai/gpt-5.6-luna</span></div>
+              <div class="kv">
+                <span class="k">Workspace</span><span class="v mono">C:\vcp-child-workspaces\task-b3d7 · root-c2</span>
+                <span class="k">Readiness</span><span class="v wrap">recorded_ready · process checks <span style="color:var(--warn)">unavailable</span> (child fs isolation not qualified)</span>
+                <span class="k">Result</span><span class="v wrap">packet pk-58 · 2 changed paths · plan ip-19 · <span style="color:var(--warn)">1 conflict</span></span>
+                <span class="k">Last activity</span><span class="v">14:07:41 · turn ended · seq 1902</span>
+              </div>
+              <div class="section-label" style="margin:6px 0 2px">Required checks (child state)</div>
+              <ul class="check"><li><span class="bx skip"></span><span>cargo test -p parser <span class="why">· not_run: process checks unavailable in child root; runs on integrated parent</span></span></li></ul>
+              <div class="section-label" style="margin:6px 0 2px">Acceptance (assessed at integration)</div>
+              <ul class="check"><li><span class="bx"></span><span>Fixtures under tests/fixtures/crlf/</span></li><li><span class="bx"></span><span>Regression test covers CR-only input</span></li></ul>
+              <div class="meter" style="margin-top:6px"><span class="seg spent" style="left:0;width:44%"></span><span class="seg reserved" style="left:44%;width:0%"></span></div>
+              <div class="row between" style="font-size:11.5px"><span>$0.11 known · $0.00 reserved · $0.00 uncertain</span><span>allocation $0.25 · this node only</span></div>
+            </div>
+            <div class="foot"><span class="btn sm">Integrate</span><span class="btn sm secondary disabled">Apply</span><span class="btn sm secondary">Focus</span><span style="margin-left:auto">cleanup: not eligible (unintegrated edits)</span></div>
+          </div>
+
+          <!-- child 2: review helper completed -->
+          <div class="agent">
+            <div class="head"><span class="dot ok"></span><span class="name">Review · parser edge cases</span><span class="id">task-1a2f</span><span style="margin-left:auto" class="pill ok">completed</span></div>
+            <div class="body">
+              <div class="row" style="gap:5px;flex-wrap:wrap;margin-bottom:5px"><span class="pill mode">read_only</span><span class="pill mode dim">helper: review rev 2</span><span class="pill mode dim mono">openai/gpt-5.6-luna</span></div>
+              <div class="kv">
+                <span class="k">Read scope</span><span class="v mono">. (captured snapshot sn-7a)</span>
+                <span class="k">Result</span><span class="v wrap">1 finding · defect · uncertainty low · examined base 3c1e / current 3c1e</span>
+                <span class="k">Evidence</span><span class="v wrap" style="color:var(--fg-dim)">historical untrusted evidence at its examined revision; not current parent acceptance</span>
+              </div>
+              <div class="meter" style="margin-top:6px"><span class="seg spent" style="left:0;width:8%"></span></div>
+              <div class="row between" style="font-size:11.5px"><span>$0.008402 known</span><span>allocation $0.10</span></div>
+            </div>
+            <div class="foot"><span class="btn sm secondary">Focus</span><span class="btn sm secondary">Cleanup preview…</span><span style="margin-left:auto">cleanup: eligible · result retained</span></div>
+          </div>
+
+          <!-- child 3: explore blocked -->
+          <div class="agent">
+            <div class="head"><span class="dot err"></span><span class="name">Explore · CRLF call sites</span><span class="id">task-9c40</span><span style="margin-left:auto" class="pill err">blocked</span></div>
+            <div class="body">
+              <div class="row" style="gap:5px;flex-wrap:wrap;margin-bottom:5px"><span class="pill mode">read_only</span><span class="pill mode dim">helper: explore rev 2</span></div>
+              <div class="kv">
+                <span class="k">Constraint</span><span class="v"><span class="pill err" style="height:16px;line-height:14px">Workspace</span></span>
+                <span class="k">Readiness</span><span class="v wrap">not_ready · inspect setup reason and required inputs before explicit recovery</span>
+                <span class="k">Setup reason</span><span class="v wrap">git.exe not found at <span class="mono">C:/Program Files/Git/cmd/git.exe</span></span>
+              </div>
+            </div>
+            <div class="foot"><span class="btn sm secondary">Recover…</span><span class="btn sm danger">Cancel</span><span style="margin-left:auto">$0.00 · allocation $0.10 held</span></div>
+          </div>
+
+          <div class="row between" style="font-size:11.5px;color:var(--fg-dim);margin-top:6px"><span>3 of 3 · page 1 (8 per page)</span><span>canonical snapshot · dispatch also requires current native state and a live owner</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EDITOR: agent focus -->
+    <div class="editor-area">
+      <div class="tabs"><div class="tab"><span class="ic mod">◆</span> parser.rs <span class="x">✕</span></div><div class="tab active"><span class="ic">◈</span> VCP: Agent task-b3d7 <span class="x">✕</span></div><div class="fill"></div><div class="editor-actions">⋯</div></div>
+      <div class="editor"><div class="page">
+        <div class="row between"><h1>CRLF regression fixtures</h1><span class="row" style="gap:6px"><span class="pill ok">completed</span><span class="pill">isolated_write</span><span class="pill dim">graph rev 12 · child rev 9</span></span></div>
+        <p class="sub" style="color:var(--fg-dim)">task-b3d7 · parent task-7f3a · root task-7f3a · actor ctl-a1 · parent steering 42 · deadline 14:20:00</p>
+
+        <div class="grid3">
+          <div>
+            <h2>Assignment</h2>
+            <div class="kv">
+              <span class="k">Objective</span><span class="v wrap">Add CRLF/LF/CR-only fixtures and a regression test for split_lines</span>
+              <span class="k">Model policy</span><span class="v mono">openai/gpt-5.6-luna (exact ceiling)</span>
+              <span class="k">Effects</span><span class="v">read · write</span>
+              <span class="k">Write paths</span><span class="v mono wrap">tests/fixtures/crlf/** · tests/crlf.rs · src/parser.rs</span>
+              <span class="k">Allocation</span><span class="v">$0.25 of root cap · $0.11 known</span>
+              <span class="k">Snapshot</span><span class="v mono">sn-7a · digest 3c1e91… (staged + unstaged + 1 untracked input)</span>
+              <span class="k">Registration</span><span class="v mono">reg-b3d7 · native identity verified 14:01:03</span>
+            </div>
+          </div>
+          <div>
+            <h2>Lifecycle</h2>
+            <ul class="stages">
+              <li class="done">spec admitted <span class="st ok">14:00:58</span></li>
+              <li class="done">workspace ready <span class="st ok">14:01:03</span><span class="sub">materialized · native identity rechecked before dispatch</span></li>
+              <li class="done">running <span class="st ok">2 turns</span></li>
+              <li class="done">result submitted <span class="st ok">pk-58</span></li>
+              <li class="done">quiescent <span class="st ok">no active effects</span></li>
+              <li class="active">integration plan <span class="st warn">1 conflict</span></li>
+              <li>parent apply <span class="st">needs plan without conflicts</span></li>
+              <li>parent verification <span class="st">required for completion</span></li>
+              <li>cleanup <span class="st">not eligible</span></li>
+            </ul>
+          </div>
+          <div>
+            <h2>Cost · this node only</h2>
+            <div class="kv">
+              <span class="k">Known</span><span class="v">$0.110214</span>
+              <span class="k">Reserved</span><span class="v">$0.000000</span>
+              <span class="k">Uncertain</span><span class="v">$0.000000</span>
+              <span class="k">Attempts</span><span class="v">2 · role child · both settled</span>
+            </div>
+            <h2>Controls</h2>
+            <div class="btn-row"><span class="btn sm secondary disabled">Pause</span><span class="btn sm danger disabled">Cancel</span><span class="btn sm secondary">Cleanup preview…</span><span class="btn sm secondary">Recover…</span></div>
+            <p class="sub" style="color:var(--fg-dim);font-size:11.5px">Terminal child: pause/cancel unavailable. Cleanup blocked while unintegrated edits exist.</p>
+          </div>
+        </div>
+
+        <h2>Integration plan ip-19 · base 3c1e91 → child 8b02aa → current parent 4f77d0</h2>
+        <table>
+          <tr><th>Path</th><th>Change</th><th>Parent probe</th><th>Status</th></tr>
+          <tr><td class="mono">tests/fixtures/crlf/mixed.txt</td><td>add (412 B)</td><td>absent</td><td><span class="pill ok">ready · version-bound edit prepared</span></td></tr>
+          <tr><td class="mono">tests/crlf.rs</td><td>add (1.2 KiB)</td><td>absent</td><td><span class="pill ok">ready</span></td></tr>
+          <tr><td class="mono">src/parser.rs</td><td>modify (+6 −2)</td><td>changed since base (human edit 14:05)</td><td><span class="pill err">conflict · concurrent_content</span> <a href="#">open 3-way</a></td></tr>
+        </table>
+        <p class="sub" style="color:var(--fg-dim)">Plan is not <span class="mono">ready()</span>: conflicts must produce a new reviewed resolution. Apply uses ordinary parent policy, approval and per-file receipts; a child pass is child-state evidence only.</p>
+
+        <div class="grid2">
+          <div>
+            <h2>Commentary · untrusted unstamped child transcript</h2>
+            <div class="card" style="font-size:12px;margin:4px 0">
+              <div class="sub mono" style="margin-bottom:4px">artifact ct-b3d7-2 · 9.8 KiB · preview 4096 B</div>
+              Added three fixtures (CRLF, LF, CR-only) and a table-driven test. `split_lines` now strips a trailing '\r' per line… The existing tokenizer test relied on the old behaviour, so I updated its expectation in src/parser.rs lines 118–121.
+              <div class="trunc" style="margin-top:4px">[preview truncated; inspect retained artifact]</div>
+            </div>
+          </div>
+          <div>
+            <h2>Findings from review task-1a2f (historical · examined 3c1e)</h2>
+            <div class="card" style="font-size:12px;margin:4px 0">
+              <div class="row between"><span class="mono">src/parser.rs:43–44</span><span class="row" style="gap:5px"><span class="pill err">defect</span><span class="pill dim">uncertainty: low</span><span class="pill dim">introduced-by-change: unknown</span></span></div>
+              <div style="margin-top:4px"><b>Trigger:</b> input containing "\r\n" · <b>Consequence:</b> trailing '\r' retained in every line, breaking downstream `trim_end` assumptions.</div>
+              <div class="sub">Evidence: source range ev-201 (sha 91cc…), tool_output ev-202 · <span style="color:var(--warn)">not re-examined against current files</span></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="item left-remote">⌂ VCP</div><div class="item">⎇ main ↑2</div>
+    <div class="item"><span class="dot"></span> VCP: paused · local hold</div><div class="item">$ 0.62 / 2.00 <span style="color:var(--warn)">+0.04?</span></div><div class="item">⛶ 3 agents · 1 blocked</div>
+    <div class="fill"></div><div class="item">engine 0.8.3 · controller · local</div><div class="item">🔔</div>
+  </div>
+</div>
+</body></html>

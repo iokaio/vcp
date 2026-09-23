@@ -1,0 +1,72 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x850"><title>VCP — delegate and cleanup</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+.frame { width: 480px; }
+.frame .sidebar { border: none; height: auto; }
+.frame .view { border-top: none; }
+.form .f { margin: 8px 0; }
+.form label { display: block; font-size: 11.5px; color: var(--fg-dim); margin-bottom: 3px; }
+.form .input { display: block; }
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 3px; overflow: hidden; }
+.seg span { padding: 3px 10px; font-size: 12px; color: var(--fg-dim); border-right: 1px solid var(--border-strong); }
+.seg span:last-child { border-right: none; }
+.seg span.on { background: var(--accent); color: #fff; }
+</style><style>.kv .v { white-space:normal; overflow-wrap:anywhere; }body { height: 850px; }</style></head>
+<body class="sheet">
+<h1>Delegation — helper templates, explicit specs, deliberate cleanup</h1>
+<div class="caption">Delegation forms collect exactly the fields of the engine's <span class="mono">DelegationRequest</span>. Templates <b>explore</b> and <b>review</b> are read-only and inherit the current qualified model; no credentials or grants travel in a spec. Cleanup is a lifecycle action with preview → apply → reconcile; nothing is deleted by viewing, reopening or a timer.</div>
+
+<!-- 1 helper template -->
+<div class="frame"><div class="flabel">1 · new read-only helper (template)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> New helper</div>
+<div class="view-body form">
+  <div class="f"><label>Template</label><div class="seg"><span class="on">explore</span><span>review</span><span>explicit spec…</span></div><div class="sub" style="font-size:11.5px;margin-top:3px">explore → path/range references + short synthesis · review → structured findings. Both read-only; cannot run processes, patch or change model.</div></div>
+  <div class="f"><label>Objective</label><div class="input focus">Locate parser entry points and explain the CRLF error flow<span class="caret"></span></div></div>
+  <div class="f"><label>Read scope</label><div class="input mono">. <span class="ph">(captured snapshot; narrower scopes fail explicitly)</span></div></div>
+  <div class="row" style="gap:10px"><div class="f" style="flex:1"><label>Allocation (USD, from root cap)</label><div class="input mono">0.10</div></div><div class="f" style="flex:1"><label>Deadline (seconds, ≤ 3600)</label><div class="input mono">120</div></div></div>
+  <div class="f"><label>Git executable (absolute)</label><div class="input mono">C:/Program Files/Git/cmd/git.exe</div></div>
+  <div class="f"><label>Disposable parent (must exist)</label><div class="input mono">C:/vcp-child-workspaces</div></div>
+  <div class="kv" style="font-size:11.5px;margin-top:4px"><span class="k">Model</span><span class="v mono">openai/gpt-5.6-luna (inherited, exact)</span><span class="k">Template rev</span><span class="v">2 · retained with the assignment</span><span class="k">Root available</span><span class="v">$1.02 ledger available · $0.10 child limit (not a charge)</span></div>
+  <div class="row between" style="margin-top:8px"><span class="btn disabled">Requesting helper…</span><span class="sub" style="font-size:11px">admission checks snapshot, scope, budget · no extra confirmation</span></div>
+  <div class="callout" style="margin-top:6px;font-size:11.5px">Read-only helper requested; current model, source scope and shared budget admission are pending.</div>
+</div></div></div></div>
+
+<!-- 2 explicit spec -->
+<div class="frame"><div class="flabel">2 · explicit isolated_write specification</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> New child · explicit spec</div>
+<div class="view-body form">
+  <div class="f"><label>Mode</label><div class="seg"><span>read_only</span><span class="on">isolated_write</span></div></div>
+  <div class="f"><label>Objective</label><div class="input">Add CRLF/LF/CR-only fixtures and a regression test for split_lines</div></div>
+  <div class="f"><label>Acceptance criteria (assessed at integration)</label><div class="input">• Fixtures under tests/fixtures/crlf/<br>• Regression test covers CR-only input</div></div>
+  <div class="f"><label>Write paths (exact; enforced by the broker)</label><div class="input mono">tests/fixtures/crlf/mixed.txt<br>tests/crlf.rs<br>src/parser.rs</div></div>
+  <div class="f"><label>Untracked inputs to include in the snapshot</label><div class="input mono">tests/fixtures/local-sample.txt</div></div>
+  <div class="row" style="gap:10px"><div class="f" style="flex:1"><label>Allocation (USD)</label><div class="input mono">0.25</div></div><div class="f" style="flex:1"><label>Seconds</label><div class="input mono">600</div></div></div>
+  <div class="f"><label>Required checks (IDs)</label><div class="input mono">cargo-test-parser <span class="pill warn" style="margin-left:6px">child process checks unavailable → runs on integrated parent</span></div></div>
+  <div class="row between" style="margin-top:6px"><span class="btn-row"><span class="btn">Delegate</span><span class="btn secondary">Save as spec.json</span></span><span class="sub" style="font-size:11px">≤ 64 KiB · version 1</span></div>
+  <div class="sub" style="font-size:11.5px;margin-top:6px">Child authority = root ∩ parent ∩ assignment ∩ host enforcement. A read-only parent cannot create a write child; allocation must fit the root cap.</div>
+</div></div></div></div>
+
+<!-- 3 cleanup -->
+<div class="frame"><div class="flabel">3 · cleanup preview → apply → reconcile</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Cleanup · task-1a2f</div>
+<div class="view-body">
+  <div class="card" style="margin-top:2px"><div class="row between"><span class="title">Preview</span><span class="pill ok">eligible</span></div>
+    <div class="kv" style="font-size:11.5px;margin-top:4px">
+      <span class="k">Root</span><span class="v mono">C:\vcp-child-workspaces\task-1a2f</span>
+      <span class="k">Identity</span><span class="v">absolute path + native id + ownership marker + registration verified</span>
+      <span class="k">Live refs</span><span class="v">none · no recovery refs · no unsettled root costs</span>
+      <span class="k">Retained result</span><span class="v mono">rr-1a2f (findings + transcript) · captured before removal</span>
+      <span class="k">Changed content</span><span class="v">none (read-only child)</span>
+    </div>
+    <div class="btn-row" style="margin-top:8px"><span class="btn sm">Apply cleanup</span><span class="btn sm secondary">Cancel</span></div></div>
+  <div class="card" style="border-color:rgba(204,167,0,.5)"><div class="row between"><span class="title">Preview · task-b3d7</span><span class="pill warn">blocked</span></div>
+    <div class="sub" style="margin-top:3px">Root has <b>unintegrated edits</b> (2 paths). Cleanup requires explicit <span class="mono">--reject-edits</span> after result artifacts are retained; integrated content is still treated as changed until explicitly rejected.</div>
+    <div class="btn-row" style="margin-top:8px"><span class="btn sm secondary">Retain result &amp; reject edits…</span><span class="btn sm secondary">Integrate instead</span></div></div>
+  <div class="card" style="border-color:rgba(248,81,73,.5)"><div class="row between"><span class="title">Receipt · task-0e11</span><span class="pill err">interrupted</span></div>
+    <div class="sub" style="margin-top:3px">Removal locked by another process at 13:12 (native file lock). Diagnostic retained (append-only). History and cost remain available. Reconcile uses the original inventory; a new directory at the old pathname is never deleted.</div>
+    <div class="btn-row" style="margin-top:8px"><span class="btn sm secondary">Reconcile</span><span class="btn sm secondary">Show diagnostic</span></div></div>
+  <div class="sub" style="font-size:11.5px">Pause and owner loss fence each native removal. Cancelled children attached to the current owner require close/reopen before cleanup.</div>
+</div></div></div></div>
+
+</body></html>

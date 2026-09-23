@@ -1,0 +1,128 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x900"><title>VCP — questions and steering</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+.frame { width: 480px; }
+.frame .sidebar { border: none; height: auto; }
+.frame .view { border-top: none; }
+.frame .view + .view { border-top: 1px solid var(--border); }
+</style></head>
+<body class="sheet">
+<h1>Questions &amp; approvals · steering</h1>
+<div class="caption">The engine has exactly one durable question type: the tool/effect <span class="mono">Approval</span> (<span class="mono">pending | allowed | denied</span>). The only answers are <b>Allow</b> and <b>Deny</b>. Answering never resumes work. Every card carries the durable ID, the operation digest and the revisions the answer is bound to.</div>
+
+<!-- 1 actionable -->
+<div class="frame"><div class="flabel">1 · actionable approval (controller)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Questions <span class="badge alert">1</span><span class="actions">⋯</span></div>
+<div class="view-body">
+  <div class="card selected">
+    <div class="row between"><span class="title">Approval required · process</span><span class="pill warn">actionable</span></div>
+    <div class="mono" style="margin:4px 0;color:#fff;white-space:pre-wrap">cargo test -p parser --features crlf</div>
+    <div class="kv" style="margin-top:4px">
+      <span class="k">Why</span><span class="v wrap">operation needs scoped user authority (autonomy <b>workspace</b>: execute is not auto-allowed; no matching grant)</span>
+      <span class="k">Effects</span><span class="v">execute · opaque</span>
+      <span class="k">Isolation</span><span class="v">path_containment · job_tree · timeout · output_limit</span>
+      <span class="k">Directory</span><span class="v mono">D:\code\acme\ledger-api</span>
+      <span class="k">Bound to</span><span class="v mono">effect op-3e0 rev 2 · digest 7c1e9b… · steering 41 · policy 7</span>
+      <span class="k">Expires</span><span class="v">14:16:44 (13 m 51 s)</span>
+    </div>
+    <div class="row between" style="margin-top:8px"><span class="btn-row"><span class="btn sm">Allow</span><span class="btn sm danger">Deny</span></span><span class="sub" style="font-size:11px">q-2b91 · no default</span></div>
+  </div>
+  <div class="sub" style="font-size:11.5px">An allow creates a scoped <span class="mono">Grant</span> (task scope, exact digest) recorded with its approval ID; a deny stays denied at this policy + steering revision.</div>
+</div></div></div></div>
+
+<!-- 2 pending / disabled -->
+<div class="frame"><div class="flabel">2 · answer submitted, durable acknowledgement pending → resolved</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Questions <span class="badge">1</span><span class="actions">⋯</span></div>
+<div class="view-body">
+  <div class="card">
+    <div class="row between"><span class="title">Approval required · process</span><span class="pill info">submitting…</span></div>
+    <div class="mono" style="margin:4px 0;color:#fff">cargo test -p parser --features crlf</div>
+    <div class="sub">decide cmd-5e12 · expected revision 2 · waiting for durable receipt</div>
+    <div class="row between" style="margin-top:8px"><span class="btn-row"><span class="btn sm disabled">Allow</span><span class="btn sm danger disabled">Deny</span></span><span class="sub" style="font-size:11px">controls disabled until reconciled by cmd-5e12</span></div>
+  </div>
+  <div class="card muted" style="margin-top:10px">
+    <div class="row between"><span class="title">Approved · process</span><span class="pill ok">allowed</span></div>
+    <div class="mono" style="margin:4px 0">cargo test -p parser --features crlf</div>
+    <div class="sub">grant g-77 · scope task · exact digest 7c1e9b… · expires with task · approval q-2b91 rev 1</div>
+  </div>
+  <div class="callout" style="margin-top:8px">Answer recorded; no work was dispatched by the answer. <span class="btn sm" style="margin-left:6px">▶ Resume</span></div>
+</div></div></div></div>
+
+<!-- 3 stale / expired -->
+<div class="frame"><div class="flabel">3 · stale, expired and superseded questions (historical, not blocking)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Questions <span class="badge">0</span><span class="actions">⋯</span></div>
+<div class="view-body">
+  <div class="card muted">
+    <div class="row between"><span class="title">Approval · write</span><span class="pill dim">expired</span></div>
+    <div class="mono" style="margin:4px 0">vcp_patch src/parser.rs</div>
+    <div class="sub">q-19aa · expired 13:58:10 · effect op-2c7 was re-proposed as op-3e0 after steering 41</div>
+  </div>
+  <div class="card muted">
+    <div class="row between"><span class="title">Approval · process</span><span class="pill dim">superseded</span></div>
+    <div class="mono" style="margin:4px 0">cargo test -p parser</div>
+    <div class="sub">q-1f02 · steering revision 40 ≠ current 41 · not actionable</div>
+  </div>
+  <div class="card muted">
+    <div class="row between"><span class="title">Approval · process</span><span class="pill err">denied</span></div>
+    <div class="mono" style="margin:4px 0">npm install</div>
+    <div class="sub">q-0d3c · denied 13:41 · policy 7 · install effect · stays denied at this policy + steering</div>
+  </div>
+  <div class="sub" style="font-size:11.5px">Historical decisions remain evidence. Answering a stale card returns <span class="mono">APPROVAL_STALE</span>; the UI never re-enables it.</div>
+</div></div></div></div>
+
+<!-- 4 observer -->
+<div class="frame"><div class="flabel">4 · observer role (another client holds the controller lease)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Questions <span class="badge">1</span><span class="actions">⋯</span></div>
+<div class="view-body">
+  <div class="banner warn" style="margin:0 -8px 8px;border-bottom:none;border-top:1px solid rgba(204,167,0,.35)"><span>⚠</span><span>Observing. Controller lease is held by <b>vcp.exe (terminal, PID 18004)</b>. You can inspect but not answer.</span></div>
+  <div class="card">
+    <div class="row between"><span class="title">Approval required · process</span><span class="pill dim">not actionable here</span></div>
+    <div class="mono" style="margin:4px 0;color:#fff">cargo test -p parser --features crlf</div>
+    <div class="sub">q-2b91 · controller ctl-a1 · owner epoch 6 · expires 14:16:44</div>
+    <div class="row between" style="margin-top:8px"><span class="btn-row"><span class="btn sm disabled">Allow</span><span class="btn sm danger disabled">Deny</span></span><span class="btn sm secondary">Request controller transfer…</span></div>
+  </div>
+  <div class="sub" style="font-size:11.5px">A transfer is a deliberate lease operation (event). Losing the controller pauses the task tree; an observer disconnecting changes nothing.</div>
+</div></div></div></div>
+
+<!-- 5 steering -->
+<div class="frame"><div class="flabel">5 · steering: compose → queued → applied → resume</div>
+<div class="sidebar">
+<div class="view"><div class="view-header"><span class="chev">▾</span> Steer</div>
+<div class="view-body">
+  <div class="input focus">Also cover the LF-only fixture in the regression test<span class="caret"></span></div>
+  <div class="row between" style="margin-top:5px;font-size:11.5px;color:var(--fg-dim)"><span>Enter queues durable guidance · <span class="mono">/</span> commands</span><span>64 KiB max</span></div>
+</div></div>
+<div class="view"><div class="view-header"><span class="chev">▾</span> Steer</div>
+<div class="view-body">
+  <div class="input" style="opacity:.7">Also cover the LF-only fixture in the regression test</div>
+  <div class="callout" style="margin-top:6px"><span class="dot info pulse" style="margin-right:6px"></span>Guidance queued; admission is fenced while existing effects stop. Task stays paused for Resume.</div>
+</div></div>
+<div class="view"><div class="view-header"><span class="chev">▾</span> Steer</div>
+<div class="view-body">
+  <div class="callout ok">Guidance applied as steering revision <b>42</b>. Pending work at revision 41 was discarded or re-planned. <span class="btn sm" style="margin-left:6px">▶ Resume</span></div>
+  <div class="section-label">Objective history (append-only)</div>
+  <ul class="stages">
+    <li class="done">rev 41 · Fix the parser failure on malformed CRLF input <span class="st">13:40</span></li>
+    <li class="active">rev 42 · User guidance: Also cover the LF-only fixture… <span class="st run">current</span></li>
+  </ul>
+</div></div>
+</div></div>
+
+<!-- 6 slash palette -->
+<div class="frame"><div class="flabel">6 · slash-command completion in the Steer input (engine commands only)</div>
+<div class="sidebar"><div class="view"><div class="view-header"><span class="chev">▾</span> Steer</div>
+<div class="view-body">
+  <div class="input focus">/ag<span class="caret"></span></div>
+  <ul class="tree" style="margin:4px -8px 0;border:1px solid var(--border-strong);background:var(--editor-bg)">
+    <li class="selected"><span class="ic">▸</span><span class="lbl mono">/agents</span><span class="desc">list children (8 per page)</span></li>
+    <li><span class="ic">▸</span><span class="lbl mono">/agents focus &lt;task&gt;</span><span class="desc">open Agent focus</span></li>
+    <li><span class="ic">▸</span><span class="lbl mono">/agents explore …</span><span class="desc">read-only helper</span></li>
+    <li><span class="ic">▸</span><span class="lbl mono">/agents review …</span><span class="desc">read-only review</span></li>
+    <li><span class="ic">▸</span><span class="lbl mono">/agents delegate &lt;spec.json&gt;</span><span class="desc">explicit child spec</span></li>
+    <li><span class="ic">▸</span><span class="lbl mono">/agents cleanup preview &lt;task&gt;</span><span class="desc">deliberate cleanup</span></li>
+  </ul>
+  <div class="sub" style="font-size:11.5px;margin-top:6px">Every slash command maps 1:1 to an existing engine command; the extension adds no private actions. Unavailable services answer “not ready in this stage; no work scheduled”.</div>
+</div></div></div></div>
+
+</body></html>

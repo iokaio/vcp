@@ -1,0 +1,89 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x1000"><title>VCP — start and resume</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+.qp { position: absolute; left: 50%; top: 50px; transform: translateX(-50%); width: 720px; background: var(--editor-bg); border: 1px solid var(--border-strong); box-shadow: 0 4px 16px rgba(0,0,0,.6); z-index: 10; }
+.qp .qin { padding: 6px; }
+.qp .qin .input { width: 100%; }
+.qp .qrow { display: flex; align-items: flex-start; gap: 10px; padding: 6px 12px; font-size: 13px; border-top: 1px solid var(--border); }
+.qp .qrow.sel { background: var(--sel-bg); }
+.qp .qrow .main { flex: 1; min-width: 0; }
+.qp .qrow .main .t { color: #fff; }
+.qp .qrow .main .d { color: var(--fg-dim); font-size: 12px; margin-top: 2px; }
+.qp .qrow .r { color: var(--fg-dim); font-size: 11.5px; text-align: right; white-space: nowrap; }
+.form .f { margin: 10px 0; }
+.form label { display: block; font-size: 11.5px; color: var(--fg-dim); margin-bottom: 3px; }
+.form .input { display: block; }
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 3px; overflow: hidden; }
+.seg span { padding: 3px 10px; font-size: 12px; color: var(--fg-dim); border-right: 1px solid var(--border-strong); }
+.seg span:last-child { border-right: none; }
+.seg span.on { background: var(--accent); color: #fff; }
+</style></head>
+<body>
+<div class="window">
+  <div class="titlebar"><div class="menu"><span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span><span>Help</span></div><div class="center"><span class="cmd">ledger-api</span></div><div class="controls">–▢✕</div></div>
+  <div class="workbench">
+    <div class="activitybar">
+      <div class="icon"><span class="glyph"></span></div><div class="icon"><span class="glyph" style="border-radius:50%"></span></div><div class="icon"><span class="glyph" style="border-style:dashed"></span></div><div class="icon"><span class="glyph" style="transform:rotate(45deg);width:16px;height:16px"></span></div>
+      <div class="icon active"><span class="glyph vcp"></span></div><div class="spacer"></div><div class="icon"><span class="glyph" style="border-radius:50%;width:18px;height:18px"></span></div><div class="icon"><span class="glyph" style="width:18px;height:18px;border-radius:50%;border-style:dotted"></span></div>
+    </div>
+    <div class="sidebar">
+      <div class="sidebar-title">VCP <span class="actions">⋯</span></div>
+      <div class="view grow">
+        <div class="view-header"><span class="chev">▾</span> Session <span class="badge">no active task</span><span class="actions">＋ ⋯</span></div>
+        <div class="view-body">
+          <div class="callout warn" style="margin-top:2px"><b>2 unfinished tasks</b> in this workspace (paused by console close on 2026-09-22). Nothing was resumed automatically. <span class="btn sm secondary" style="margin-left:6px">Choose…</span></div>
+          <div class="section-label">Start a new task</div>
+          <div class="form">
+            <div class="f"><label>Objective (task input, never a script)</label><div class="input focus" style="min-height:52px">Fix the parser failure on malformed CRLF input and add a regression test<span class="caret"></span></div></div>
+            <div class="row" style="gap:10px">
+              <div class="f" style="flex:1"><label>Budget cap (USD, required)</label><div class="input mono">2.00</div></div>
+              <div class="f" style="flex:1"><label>Cost profile</label><div class="seg"><span>low</span><span class="on">med</span><span>high</span></div></div>
+            </div>
+            <div class="f"><label>Autonomy preset</label><div class="seg"><span>plan</span><span>ask</span><span class="on">workspace</span><span>autonomous</span></div><div class="sub" style="font-size:11.5px;margin-top:3px">workspace: task-scoped edits + configured build/test commands in roots; execute/network/install ask.</div></div>
+            <div class="f"><label>Skills (optional, up to 32)</label><div class="input"><span class="pill dim">vcp-builtin::rust::review-debug</span> <span class="ph">add…</span></div></div>
+            <div class="f"><label>Editor context (ephemeral unless captured)</label><div class="sub" style="font-size:12px">◆ src/parser.rs · dirty buffer v12 · selection L41–47 · <a href="#">include buffer content</a> · diagnostics: 3 warnings (rust-analyzer, 14:01)</div></div>
+            <div class="row between"><span class="btn">Run task</span><span class="sub" style="font-size:11.5px">creates a durable turn/start with an idempotency key; nothing billable before validation</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="editor-area">
+      <div class="tabs"><div class="tab active"><span class="ic">▤</span> parser.rs <span class="x">✕</span></div><div class="fill"></div></div>
+      <div class="editor">
+        <div class="qp">
+          <div class="qin"><div class="input focus"><span class="ph">Choose a task to review (Enter); selection never resumes it</span></div></div>
+          <div class="qrow sel">
+            <div class="main"><div class="t">Fix the parser failure on malformed CRLF input</div>
+              <div class="d">task-7f3a · <b>paused</b> · reason: owner console closed · rev 42 · last activity 2026-09-22 14:09 · 2 children: task-b3d7 completed, task-9c40 blocked (paused_ancestors: task-7f3a)</div>
+              <div class="d"><span style="color:var(--warn)">1 unresolved effect (op-3e0 outcome_unknown)</span> · <span style="color:var(--warn)">1 unsettled reservation $0.041</span> · 1 pending approval (expired) · 3 observed changes · 2 artifacts</div></div>
+            <div class="r">ledger $0.62 / 2.00<br>expected revision 42</div>
+          </div>
+          <div class="qrow">
+            <div class="main"><div class="t">Document the retention selector language</div>
+              <div class="d">task-2f88 · <b>paused</b> · reason: explicit /pause · rev 9 · last activity 2026-09-21 18:22 · no children · waiting_for_input: none</div>
+              <div class="d">no unresolved effects · no unsettled money</div></div>
+            <div class="r">ledger $0.08 / 1.00<br>expected revision 9</div>
+          </div>
+          <div class="qrow" style="color:var(--fg-dim);font-size:12px">More tasks may exist beyond this bounded list (128 max); use an explicit task ID to resume an unlisted task. Ordering: latest task-tree activity, then task ID.</div>
+        </div>
+        <div style="position:absolute;left:24px;right:24px;bottom:24px">
+          <div class="card">
+            <div class="row between"><span class="title">Before resuming task-7f3a — revalidation preview</span><span class="pill dim">read/reconcile only · nothing dispatched</span></div>
+            <div class="grid3" style="margin-top:6px;font-size:12px">
+              <div class="kv"><span class="k">Workspace</span><span class="v wrap">root bound · fingerprint changed (2 files edited since pause)</span><span class="k">Instructions</span><span class="v wrap">AGENTS.md changed → stale preparation invalidated</span></div>
+              <div class="kv"><span class="k">Policy</span><span class="v">rev 7 current · trust ok</span><span class="k">Budget</span><span class="v">$1.02 available after $0.041 uncertain</span></div>
+              <div class="kv"><span class="k">Effects</span><span class="v" style="color:var(--warn)">op-3e0 must be reconciled first</span><span class="k">Owner</span><span class="v">check current controller lease before explicit Resume</span></div>
+            </div>
+            <div class="row between" style="margin-top:8px"><span class="btn-row"><span class="btn">Reconcile op-3e0</span><span class="btn disabled">Resume (blocked)</span><span class="btn secondary">Inspect first</span><span class="btn secondary">Leave paused</span></span><span class="sub" style="font-size:11.5px">bound to expected revision 42 — a changed task cannot be resumed through a stale row</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="item left-remote">⌂ VCP</div><div class="item">⎇ main ↑2</div><div class="item"><span class="dot"></span> VCP: 2 paused tasks</div>
+    <div class="fill"></div><div class="item">engine 0.8.3 · controller · local</div><div class="item">🔔 1</div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,128 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="mock-size" content="1600x1000"><title>VCP — inspector costs routing policy</title>
+<link rel="stylesheet" href="vscode.css">
+<style>
+body { padding: 0; }
+.three { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; height: 100%; }
+.three > div { padding: 16px 20px; border-right: 1px solid var(--border); overflow: hidden; }
+.three > div:last-child { border-right: none; }
+.three h1 { font-size: 16px; margin: 0 0 2px; color: #fff; }
+.three .sub { color: var(--fg-dim); font-size: 11.5px; margin-bottom: 10px; }
+.big { font-size: 22px; font-weight: 600; color: #fff; font-family: var(--mono); }
+.stat { border: 1px solid var(--border-strong); border-radius: 4px; padding: 6px 10px; }
+.stat .l { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--fg-dim); }
+.stat .v { font-family: var(--mono); font-size: 15px; color: #fff; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+table { table-layout: fixed; }
+th { color: var(--fg-dim); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; }
+h2 { font-size: 12.5px; font-weight: 600; margin: 14px 0 6px; color: #fff; border-bottom: 1px solid var(--border); padding-bottom: 3px; }
+.ex { display: inline-block; font-family: var(--mono); font-size: 10.5px; color: var(--err); border: 1px solid rgba(248,81,73,.4); border-radius: 3px; padding: 0 4px; margin: 1px 2px 1px 0; }
+.ol { margin: 0; padding-left: 18px; font-size: 12px; }
+.ol li { margin: 2px 0; }
+</style></head>
+<body>
+<div class="three">
+  <!-- COSTS -->
+  <div>
+    <h1>costs · task-7f3a</h1>
+    <div class="sub">Ledger (one per root task) · policy rev 7 · currency USD · units micros, serialized as decimal strings</div>
+    <div class="stats">
+      <div class="stat"><div class="l">cap</div><div class="v">2.000000</div></div>
+      <div class="stat"><div class="l">settled (known)</div><div class="v">0.620441</div></div>
+      <div class="stat"><div class="l">active (reserved)</div><div class="v">0.120000</div></div>
+      <div class="stat"><div class="l">unresolved (uncertain)</div><div class="v" style="color:var(--warn)">0.041000</div></div>
+      <div class="stat"><div class="l">protected (verification)</div><div class="v">0.200000</div></div>
+      <div class="stat"><div class="l">available</div><div class="v">1.018559</div></div>
+    </div>
+    <div class="meter" style="height:10px"><span class="seg spent" style="left:0;width:31%"></span><span class="seg reserved" style="left:31%;width:6%"></span><span class="seg uncertain" style="left:37%;width:2%"></span><span class="seg protected" style="left:90%;width:10%"></span></div>
+    <div class="row between" style="font-size:11px;color:var(--fg-dim)"><span>overrun: false · daily: none configured</span><span>allocations: task-b3d7 0.25 · task-1a2f 0.10 · task-9c40 0.10</span></div>
+
+    <h2>Attribution by role (disjoint categories only)</h2>
+    <table>
+      <tr><th>Role</th><th>Attempts</th><th>Settled</th><th>Uncertain</th></tr>
+      <tr><td>main</td><td>5</td><td class="mono">0.482300</td><td class="mono" style="color:var(--warn)">0.041000</td></tr>
+      <tr><td>child</td><td>2</td><td class="mono">0.110214</td><td class="mono">0</td></tr>
+      <tr><td>reviewer</td><td>1</td><td class="mono">0.008402</td><td class="mono">0</td></tr>
+      <tr><td>compaction</td><td>1</td><td class="mono">0.019525</td><td class="mono">0</td></tr>
+      <tr><td>memory · verification · optimizer · helper</td><td>0</td><td class="mono">0</td><td class="mono">0</td></tr>
+    </table>
+
+    <h2>Reservations</h2>
+    <table>
+      <tr><th>ID</th><th>Attempt</th><th>Phase</th><th>Amount</th><th>Charged</th><th>Liability</th></tr>
+      <tr><td class="mono">rs-117</td><td class="mono">at-77</td><td><span class="pill ok" style="height:15px;line-height:13px;font-size:10px">settled</span></td><td class="mono">0.140000</td><td class="mono">0.110214</td><td class="mono">0</td></tr>
+      <tr><td class="mono">rs-118</td><td class="mono">at-78</td><td><span class="pill warn" style="height:15px;line-height:13px;font-size:10px">reconciliation_pending</span></td><td class="mono">0.120000</td><td class="mono">—</td><td class="mono" style="color:var(--warn)">0.041000</td></tr>
+      <tr><td class="mono">rs-119</td><td class="mono">at-79</td><td><span class="pill info" style="height:15px;line-height:13px;font-size:10px">submitted</span></td><td class="mono">0.120000</td><td class="mono">—</td><td class="mono">0.120000</td></tr>
+      <tr><td class="mono">rs-116</td><td class="mono">at-76</td><td><span class="pill dim" style="height:15px;line-height:13px;font-size:10px">released</span></td><td class="mono">0.090000</td><td class="mono">0</td><td class="mono">0</td></tr>
+    </table>
+    <div class="callout warn" style="margin-top:8px;font-size:11.5px"><b>at-78 uncertain:</b> "stream cancelled before terminal usage; provider may bill the partial generation". Usage unavailable is never treated as zero. <span class="btn sm secondary" style="margin-left:6px">Resolve explicitly…</span></div>
+    <div class="sub" style="margin-top:8px">Quote method: price snapshot ps-31 (valid until 15:00) · normalization v3. Raw provider usage retained on each response artifact.</div>
+  </div>
+
+  <!-- ROUTING -->
+  <div>
+    <h1>routing · attempt at-77</h1>
+    <div class="sub">RoutingDecision <span class="mono">vcp_routing_decision_v1</span> · profile <b>med</b> · role main · task class edit · catalog rev 41 · ordering quality › total_cost › latency</div>
+    <div class="kv" style="font-size:12px"><span class="k">Selected</span><span class="v mono">openai/gpt-5.6-luna @ openai <span class="pill ok" style="margin-left:4px;font-family:var(--ui)">High</span></span><span class="k">Fallback from</span><span class="v">none</span><span class="k">Pin</span><span class="v">none (routing policy rev 3)</span><span class="k">Available</span><span class="v">$1.018559 · protected verification $0.20</span></div>
+
+    <h2>Candidates (eligible first, then excluded)</h2>
+    <table>
+      <tr><th>Model @ endpoint</th><th>Group</th><th>Quality</th><th>p95</th><th>Est. total</th><th>Exclusions</th></tr>
+      <tr style="background:rgba(0,120,212,.08)"><td class="mono">openai/gpt-5.6-luna @ openai</td><td>High</td><td>8420 · 31 samples</td><td>6.8 s</td><td class="mono">0.31</td><td>—</td></tr>
+      <tr><td class="mono">qwen/qwen3.8-max-0902 @ alibaba</td><td>High</td><td>8115 · 18</td><td>9.1 s</td><td class="mono">0.22</td><td>—</td></tr>
+      <tr><td class="mono">anthropic/claude-haiku-4.5 @ anthropic</td><td>Medium</td><td>7620 · 44</td><td>3.2 s</td><td class="mono">0.09</td><td><span class="ex">quality_floor</span></td></tr>
+      <tr><td class="mono">qwen/qwen3.8-flash @ alibaba</td><td>Low</td><td>— · 2</td><td>—</td><td class="mono">—</td><td><span class="ex">insufficient_samples</span><span class="ex">missing_cost_estimate</span></td></tr>
+      <tr><td class="mono">openai/gpt-6-astra-pro @ openai</td><td>Frontier</td><td>9010 · 12</td><td>14 s</td><td class="mono">1.42</td><td><span class="ex">insufficient_verification_reserve</span></td></tr>
+      <tr><td class="mono">x-ai/grok-4.6 @ xai</td><td>High</td><td>unknown</td><td>—</td><td class="mono">—</td><td><span class="ex">data_policy</span><span class="ex">unknown_capability</span></td></tr>
+    </table>
+    <div class="sub" style="margin-top:6px">Estimate breakdown for selection: first attempt 0.14 · retries 0.06 · handoff 0 · support 0.02 · children 0.05 · verification 0.04 = <b>0.31</b>. Assumptions and evidence refs attached.</div>
+
+    <h2>Capability groups vs cost profiles</h2>
+    <div class="sub">Groups <b>Frontier / High / Medium / Low</b> are catalog evidence tiers; profiles <b>low / med / high</b> are the user's cost strategy. A profile chooses among groups; it does not map to one. Group changes never change permissions.</div>
+
+    <h2>Escalation counters (turn 3)</h2>
+    <div class="kv" style="font-size:12px"><span class="k">transport_retries</span><span class="v">1 of 3</span><span class="k">quality_switches</span><span class="v">0 of 1</span><span class="k">decompositions</span><span class="v">0</span><span class="k">last trigger</span><span class="v">transport_retry · provider 502 · backoff 2.0 s</span></div>
+    <div class="callout" style="margin-top:8px;font-size:11.5px">When no decision projection exists for an attempt the view shows an explicit gap: “routing decision unavailable; fixed qualified model”. Absence is shown, never filled in.</div>
+  </div>
+
+  <!-- POLICY -->
+  <div>
+    <h1>policy · effect op-3e0</h1>
+    <div class="sub">Policy rev 7 · mode <b>workspace</b> · authority rev 9 · binding rev 3 · trust: trusted · host ceilings applied</div>
+    <h2>Decision order (as evaluated)</h2>
+    <ol class="ol">
+      <li><span style="color:var(--ok)">✓</span> owner/task admission · controller ctl-a1 · owner epoch 6</li>
+      <li><span style="color:var(--ok)">✓</span> identity drift · steering 42 = 42 · digest match</li>
+      <li><span style="color:var(--ok)">✓</span> workspace trust · trusted</li>
+      <li><span style="color:var(--ok)">✓</span> resource ceilings · timeout 120 s ≤ 300 s · output 1 MiB ≤ 4 MiB</li>
+      <li><span style="color:var(--ok)">✓</span> platform isolation · required {path_containment, job_tree, timeout, output_limit} ⊆ advertised</li>
+      <li><span style="color:var(--ok)">✓</span> host denials · none matched</li>
+      <li><span style="color:var(--ok)">✓</span> user denials · none matched</li>
+      <li><span style="color:var(--fg-dim)">–</span> plan mode · not active</li>
+      <li><span style="color:var(--fg-dim)">–</span> grants · no matching grant at evaluation time</li>
+      <li><span style="color:var(--fg-dim)">–</span> autonomy preset · workspace auto-allows read/write in roots; <b>execute</b> not included</li>
+      <li><span style="color:var(--warn)">?</span> <b>Question</b> · "operation needs scoped user authority" → q-2b91 → <span style="color:var(--ok)">allowed</span> → grant g-77</li>
+    </ol>
+
+    <h2>Operation</h2>
+    <div class="kv" style="font-size:11.5px"><span class="k">Tool</span><span class="v mono">process</span><span class="k">Invocation</span><span class="v mono wrap">C:\Users\tj\.cargo\bin\cargo.exe (identity 3a91…) test -p parser --features crlf · shell: none</span><span class="k">Effects</span><span class="v">execute · opaque</span><span class="k">Resources</span><span class="v mono">root-01 · . (write: false)</span><span class="k">Env digest</span><span class="v mono">env-7f01 (filtered_environment)</span></div>
+
+    <h2>Denials in force</h2>
+    <table>
+      <tr><th>Origin</th><th>Effects</th><th>Tool / paths</th><th>Reason</th></tr>
+      <tr><td><span class="pill dim" style="height:15px;line-height:13px;font-size:10px">host</span></td><td>network · install · publish</td><td>any</td><td>host ceiling: not granted to workspace preset</td></tr>
+      <tr><td><span class="pill dim" style="height:15px;line-height:13px;font-size:10px">user</span></td><td>write</td><td class="mono">.github/** · Cargo.lock</td><td>user rule: protect CI and lockfile</td></tr>
+    </table>
+
+    <h2>Grants (current)</h2>
+    <table>
+      <tr><th>ID</th><th>Scope</th><th>Target</th><th>Expires</th><th>Origin</th></tr>
+      <tr><td class="mono">g-77</td><td>task</td><td class="mono">exact · 7c1e9b…</td><td>with task</td><td>user · approval q-2b91</td></tr>
+      <tr><td class="mono">g-52</td><td>workspace</td><td class="mono">configured · process cargo (check|test) · roots root-01</td><td>2026-10-01</td><td>user</td></tr>
+    </table>
+    <div class="callout" style="margin-top:8px;font-size:11.5px">Autonomy presets: <b>plan</b> read/search only · <b>ask</b> asks for new write/command authority · <b>workspace</b> (default) edits + configured commands in roots · <b>autonomous</b> only the configured automatic_effects set. A higher preset never disables denials, budget or version checks.</div>
+  </div>
+</div>
+</body></html>
