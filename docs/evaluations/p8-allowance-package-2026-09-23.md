@@ -69,6 +69,57 @@ The prior profile is under system TEMP at
 `vcp-p705-quality-qwen38-review-70abeb52-3f33-4462-a4db-763a626576bc/source-profile.json`
 (SHA-256 `78121630c5c81690bbde2f102745e872bdcfbb7d2d7ed4e0f7f9d0a3dabcec8f`).
 
+### Reviewable renewal preparation
+
+The old qualification coordinator launched requests immediately and could not
+execute an already reviewed, exact spec. The P8-05 follow-up adds
+`scripts/evals/p8-profile-renewal.cjs validate|run <proposal> <sha256>` for one
+fixed two-request probe, no retries, with a 12,000,000-micro-USD cap. `validate`
+performs no provider calls or reservations. `run` requires separate execution
+authority; preparing or validating a proposal supplies none.
+
+The coordinator pins the executable, spec, catalog, loaded repository helpers and
+prepared campaign snapshot. It uses the existing owner coordinator's atomic lock
+and checks for outstanding launches before reserving under the unchanged shared
+$100 ceiling. This is a cooperative, exclusively scheduled campaign; the lock
+does not coordinate legacy scripts with different or absent locks. No other
+campaign coordinator may run concurrently.
+
+A permanent claim prevents replay. Bounded execution has a five-minute deadline;
+unconfirmed termination, missing/invalid accounting, changed inputs or unknown
+liability retain the full cap. Even a refusal after reservation but before launch
+conservatively retains the reservation and blocks subsequent launches; it is not
+reported as a charge. Release requires an independently joined exact canonical
+ledger, attempts and reservations. Known-cost failure can settle while remaining
+failed. Credential-safe diagnostics and redacted stream hashes prevent raw output
+from entering coordinator logs; detected sensitive output cannot pass.
+
+Fresh unauthenticated endpoint metadata was captured at 2026-09-23 13:11:54.249 UTC,
+with unchanged selected capabilities and tariffs. The new spec retains 512 output
+tokens and the same immutable model/provider choice. Its proposed observation
+window ends the following day; it does not extend the previous profile's window.
+Preparation under system TEMP is
+`vcp-p8-allowance-conformance-proposal-732d8798-4a94-4441-9c62-7ab6bd6d60b3/`.
+Catalog SHA-256: `83206136323e1febde0d707b4cbdab64f30a3d327235a42be4705015056fa097`.
+Spec SHA-256: `ebe778e63d6e40648ae156445d9ba34f602bf1a6eab4c68e2db5aa37d674c4dd`.
+The draft v2 proposal validated without calls or reservations. Final bindings must
+be regenerated and validated against the merged checkout before approval, because
+checkout can change script line endings. Original proposals remain immutable.
+
+All eight local coordinator controls passed: reservation/collision limits,
+canonical accounting joins, known-failure settlement and sensitive-output handling,
+unknown/unreaped/missing-report retention, freshness, prelaunch expiry, malformed
+credential-bearing JSON, and input/helper tampering. Independent review found no
+blocking issue. A passing probe would still require authenticated generation
+receipts and the existing strict offline qualification join before producing a
+new profile. Six owner attempts would then need their own frozen $8/task, $48
+aggregate plan under the shared ceiling. Neither stage has execution authority.
+All 17 registered fast-suite groups passed with the new controls included:
+`artifacts/p8-profile-renewal-fast/38a7e7d6-14bf-4ef1-b765-ddb3f4901359/manifest.json`.
+A separate read-only check ran the new accounting join against the retained
+successful native probe, reproducing its 2,232-micro-USD charge exactly without
+any new call; this guards against fixture-only assumptions about record shape.
+
 Clean Windows, production network isolation, actual minimum hardware, physical
 full-volume exhaustion, remaining integrated package scenarios and human
 usefulness/correctness/architecture-fit acceptance remain open. Independent-machine
