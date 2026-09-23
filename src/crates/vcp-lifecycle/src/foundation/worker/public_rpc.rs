@@ -14,12 +14,15 @@ use vcp_protocol::{
 };
 
 const METHODS: &[&str] = &[
+    "workspace/open",
     "session/create",
     "session/read",
     "session/snapshot",
     "session/list",
     "task/read",
     "usage/read",
+    "context/inspect",
+    "routing/explain",
     "artifact/read",
     "task/cancel",
     "turn/pause",
@@ -291,6 +294,13 @@ impl RpcHost for PublicConnection {
                 "current public connection access denied",
             )
         })?;
+        // The existing selected binding is a read, despite the schema also
+        // reserving command identity for future explicit creation semantics.
+        if let Call::WorkspaceOpen(request) = &call {
+            return self
+                .workspace_open(request, current)
+                .map(ResultValue::Workspace);
+        }
         if matches!(
             call,
             Call::SessionSnapshot(_)

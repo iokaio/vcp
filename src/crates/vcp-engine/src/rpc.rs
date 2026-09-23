@@ -32,6 +32,8 @@ pub const METHODS: &[&str] = &[
     "session/list",
     "task/read",
     "usage/read",
+    "context/inspect",
+    "routing/explain",
     "turn/steer",
     "approval/respond",
     "command/read",
@@ -386,6 +388,12 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
             }
             Call::UsageRead(p) => {
                 ResultValue::Usage(engine.public_usage(access, p).map_err(query_error)?)
+            }
+            Call::ContextInspect(p) => {
+                ResultValue::Evidence(engine.public_context(access, p).map_err(query_error)?)
+            }
+            Call::RoutingExplain(p) => {
+                ResultValue::Evidence(engine.public_routing(access, p).map_err(query_error)?)
             }
             Call::CommandRead(p) => {
                 check_scope(&p.scope, access)?;

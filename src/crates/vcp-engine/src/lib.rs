@@ -7,6 +7,7 @@ pub mod command_handler;
 pub mod controller;
 pub mod policy;
 pub mod public;
+pub mod public_evidence;
 pub mod public_reads;
 pub mod query;
 pub mod questions;

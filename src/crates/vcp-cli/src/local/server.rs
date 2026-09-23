@@ -208,7 +208,7 @@ async fn connection(
             limits: ConnectionLimits { maximum_frame_bytes: framed::LIMIT as u32,
                 maximum_pending_requests: 1, maximum_subscriptions: 8,
                 maximum_subscriber_queue_bytes: framed::LIMIT as u32 },
-            execution_host: ExecutionHost { id: "local-windows".into(), platform: "windows".into() },
+            execution_host: ExecutionHost { id: config.binding.host.as_str().into(), platform: "windows".into() },
             sandbox_capabilities: vec![],
         }).map_err(|_| "local RPC configuration unavailable")?;
         let parent = match opening {
