@@ -424,6 +424,14 @@ pub fn validate_read(
     if !reserved(&artifact.spec.schema) && !has_provenance {
         return Ok(());
     }
+    acceptance(state, artifact)?
+        .sources
+        .validate_current(state, authority, allowed)
+}
+
+// Authenticate immutable acceptance separately from current disclosure. Retention
+// must follow copies even after their original source hashes or permissions change.
+fn acceptance(state: &State, artifact: &ArtifactDescriptor) -> Result<Acceptance> {
     if artifact.spec.schema != PAYLOAD_SCHEMA && artifact.spec.schema != MANIFEST_SCHEMA {
         return Err(Error::Access);
     }
@@ -502,12 +510,111 @@ pub fn validate_read(
                 return Err(Error::Access);
             }
         }
-        accepted
-            .sources
-            .validate_current(state, authority, allowed)?;
-        found = Some(());
+        found = Some(accepted);
     }
     found.ok_or(Error::Access)
+}
+
+/// Trusted retention lineage only: this never authorizes reading source bytes.
+pub struct ExportDependencies {
+    pub artifacts: [ArtifactId; 2],
+    pub records: BTreeSet<String>,
+    pub events: BTreeSet<EventId>,
+}
+
+/// Follow every still-retained export's frozen lineage, including exports whose
+/// read guard has become stale. Malformed/missing acceptance cannot make a copy
+/// disappear from the physical-purge obligation. Callers must authorize the full
+/// transitive closure before changing any source or dependent output.
+pub fn retention_dependencies(
+    state: &State,
+    workspace: &WorkspaceId,
+) -> Result<Vec<ExportDependencies>> {
+    let mut result = Vec::new();
+    let mut seen = BTreeSet::new();
+    for row in state
+        .records
+        .values()
+        .filter(|row| row.workspace == *workspace && row.collection == Collection::Artifact)
+    {
+        let artifact: ArtifactDescriptor = row.decode()?;
+        if artifact.state == vcp_domain::artifact::CaptureState::Purged {
+            continue;
+        }
+        let marked = state.events.iter().any(|event| {
+            event.event.workspace == *workspace
+                && event.event.artifacts.contains(&artifact.spec.id)
+                && event.event.data.get("session_export").is_some()
+        });
+        if !reserved(&artifact.spec.schema) && !marked {
+            continue;
+        }
+        let accepted = acceptance(state, &artifact)?;
+        if !seen.insert(accepted.artifact.spec.id.clone()) {
+            continue;
+        }
+        if result.len() == MAX_EVENTS {
+            return Err(Error::Limit("retained export lineage count"));
+        }
+        let sources = &accepted.sources;
+        if sources.scope.workspace != *workspace
+            || sources.tasks.is_empty()
+            || sources.tasks.len() > MAX_EVENTS
+            || !sources.tasks.contains(&sources.scope.task)
+            || sources.dependencies.len() > MAX_EVENTS + MAX_ARTIFACTS + 2
+            || sources
+                .task
+                .as_ref()
+                .is_some_and(|task| task != &sources.scope.task || sources.tasks.len() != 1)
+        {
+            return Err(Error::Access);
+        }
+        let mut records = BTreeSet::new();
+        let mut tasks = BTreeSet::new();
+        let mut artifacts = 0usize;
+        for dep in &sources.dependencies {
+            if !vcp_domain::accounting::valid_hash(&dep.digest)
+                || !records.insert(key(dep.collection, &dep.id))
+            {
+                return Err(Error::Access);
+            }
+            match dep.collection {
+                Collection::Workspace if dep.id == workspace.as_str() => (),
+                Collection::Session if dep.id == sources.scope.session.as_str() => (),
+                Collection::Task => {
+                    tasks.insert(TaskId::parse(&dep.id)?);
+                }
+                Collection::Artifact => {
+                    ArtifactId::parse(&dep.id)?;
+                    artifacts += 1;
+                }
+                _ => return Err(Error::Access),
+            }
+        }
+        if tasks != sources.tasks
+            || artifacts > MAX_ARTIFACTS
+            || !records.contains(&key(Collection::Workspace, workspace.as_str()))
+            || !records.contains(&key(Collection::Session, sources.scope.session.as_str()))
+        {
+            return Err(Error::Access);
+        }
+        // Rewrites preserve event identity/scope. Current contents and hashes may
+        // already be redacted; those changes must not erase the lineage edge.
+        let events = sources
+            .events(state)?
+            .into_iter()
+            .map(|event| event.event.id.clone())
+            .collect();
+        result.push(ExportDependencies {
+            artifacts: [
+                accepted.artifact.spec.id,
+                accepted.visibility_manifest.spec.id,
+            ],
+            records,
+            events,
+        });
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

@@ -37,6 +37,10 @@ task. The ordinary audit and public artifact readers share this check. Later
 source changes, retention masks, policy or authority changes invalidate old
 exports; metadata, a spool schema or a prior receipt alone cannot bypass it.
 Schema downgrades and missing/malformed canonical export provenance fail closed.
+The physical retention dependency graph also follows immutable canonical export
+acceptance to both output artifacts. Purging a source therefore removes its
+derived copies even after source changes have invalidated their read guards.
+Current source hashes are not required to discover this deletion obligation.
 
 The collector permits at most 4,096 source events/tasks and 128 source artifacts,
 with a 4 MiB source/output budget and 512 KiB raw artifact budget. Capped borrowing
@@ -58,3 +62,6 @@ denial, read/replay and source invalidation without a provider.
 A native lifecycle fault test uses a one-byte artifact limit on both stores to
 prove immediate admission blocking, no export receipt and persisted recovery
 requirements after reopening.
+A both-store retention regression selects a source independently of the export's
+anchor task, changes its revision, and proves both derived spools are physically
+removed while the other task remains intact.
