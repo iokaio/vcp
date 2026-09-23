@@ -1,6 +1,6 @@
 # 18 — Deferred VS Code client
 
-Status: deferred. Owns P4-01 through P4-05. Starts after P8 and P9; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
+Status: P4-01 in progress after owner-directed P8 closure and completed P9. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
 
 ## Code organization
 
@@ -16,6 +16,12 @@ that version. Existing source candidates are investigation inputs, not granted
 license, installation support or proof of safe document application.
 
 ## P4-01 — Connection and workspace mapping
+
+The [initial observer connection](../development/editor-connection.md) connects the
+prepared workspace UI through the SDK. [ADR-056](../adr/056-editor-observer-connection.md)
+records its read-only boundary and the native API prerequisites for full mapping,
+trust/rebind and observer reload. This increment begins P4-01; the acceptance
+requirements below remain in force.
 
 Implement launch/attach/version negotiation through the SDK, map VS Code roots to durable VCP identities and enforce workspace trust. Handle reload/disconnect and controlling versus observing clients according to P9's explicit owner contract.
 

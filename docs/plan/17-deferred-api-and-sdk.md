@@ -1,6 +1,6 @@
 # 17 — Deferred public API, local server and TypeScript SDK
 
-Status: P9-01, P9-02 and P9-03 complete following [owner-directed closure](../adr/042-owner-directed-p8-closure.md) of P8-05. P4-01 is the next ready item in the requested path. Owns P9-01 through P9-03, implemented in order. It is not a Windows CLI release prerequisite. Architecture section 5 is the external contract, and internal commands/events from P1 remain the engine boundary.
+Status: P9-01, P9-02 and P9-03 complete following [owner-directed closure](../adr/042-owner-directed-p8-closure.md) of P8-05. P4-01 has begun with the initial editor observer connection. Owns P9-01 through P9-03, implemented in order. It is not a Windows CLI release prerequisite. Architecture section 5 is the external contract, and internal commands/events from P1 remain the engine boundary.
 
 ## Code organization
 
