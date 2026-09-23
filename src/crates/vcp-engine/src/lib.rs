@@ -4,6 +4,7 @@
 pub mod agents;
 pub mod capture;
 pub mod command_handler;
+pub mod controller;
 pub mod policy;
 pub mod public;
 pub mod query;

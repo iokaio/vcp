@@ -1,7 +1,7 @@
 # Public protocol construction reference
 
-Owning item: P9-01. Status: v1.0 protocol and bounded engine adapter implemented
-and locally qualified; final delivery pending. No local server or SDK support is
+Owning item: P9-01. Status: v1.0 protocol and bounded engine adapter accepted and
+delivered in [PR #134](https://github.com/iokaio/vcp/pull/134). No local server or SDK support is
 declared. [ADR-042](../adr/042-owner-directed-p8-closure.md) opens P9
 after owner-directed P8 closure; it does not qualify the API. The method names
 below come from [architecture section 5.3](../architecture/vcp-what.md#53-minimum-methods).

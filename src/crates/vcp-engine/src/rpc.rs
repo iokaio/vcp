@@ -43,6 +43,28 @@ pub enum RpcResponses {
     Batch(Vec<Response>),
 }
 
+/// Implemented by trusted hosts, never by wire parameters. A live host must
+/// recheck current access and controller leases in the same owned operation as
+/// admission, and project its typed result at that canonical boundary. In
+/// particular, steering must drain live authority before committing. Dropping
+/// the call waiter must not abandon an already accepted operation.
+///
+/// Static async dispatch intentionally imposes no object-safe or Send contract;
+/// the eventual transport chooses its execution task without changing ownership.
+#[allow(async_fn_in_trait)]
+pub trait RpcHost {
+    fn supported_methods(&self) -> &[&str];
+    fn authorize(&self, current: &Access) -> Result<(), RpcError>;
+    async fn call(&mut self, call: Call, current: &Access) -> Result<ResultValue, RpcError>;
+}
+
+/// Direct canonical adapter for the existing in-process boundary. This does not
+/// replace a live CanonicalHost's authority draining or execution supervision.
+pub struct EngineRpcHost<'a, S: CanonicalStore> {
+    pub engine: &'a mut Engine<S>,
+    pub facts: &'a HostFacts,
+}
+
 pub struct RpcSession {
     handshake: Handshake,
     server: ServerInfo,
@@ -91,12 +113,29 @@ impl RpcSession {
         host: &HostFacts,
         envelope: Envelope,
     ) -> Option<RpcResponses> {
+        self.dispatch_host(
+            &mut EngineRpcHost {
+                engine,
+                facts: host,
+            },
+            access,
+            envelope,
+        )
+        .await
+    }
+
+    pub async fn dispatch_host<H: RpcHost>(
+        &mut self,
+        host: &mut H,
+        access: &Access,
+        envelope: Envelope,
+    ) -> Option<RpcResponses> {
         if self.closed {
             return None;
         }
         let responses = match envelope {
             Envelope::Single(message) => self
-                .message(engine, access, host, message)
+                .message(host, access, message)
                 .await
                 .map(RpcResponses::Single),
             Envelope::Batch(messages) => {
@@ -111,7 +150,7 @@ impl RpcSession {
                 }
                 let mut responses = Vec::new();
                 for message in messages {
-                    if let Some(response) = self.message(engine, access, host, message).await {
+                    if let Some(response) = self.message(host, access, message).await {
                         responses.push(response);
                     }
                 }
@@ -135,11 +174,10 @@ impl RpcSession {
         }
     }
 
-    async fn message<S: CanonicalStore>(
+    async fn message<H: RpcHost>(
         &mut self,
-        engine: &mut Engine<S>,
+        host: &mut H,
         access: &Access,
-        host: &HostFacts,
         message: Result<Message, RpcError>,
     ) -> Option<Response> {
         match message {
@@ -147,17 +185,16 @@ impl RpcSession {
             Ok(Message::Response(_)) => Some(Response::invalid(RpcError::invalid_request())),
             Ok(Message::Request(request)) if request.is_notification() => None,
             Ok(Message::Request(request)) => {
-                let outcome = self.request(engine, access, host, &request).await;
+                let outcome = self.request(host, access, &request).await;
                 request.respond(outcome)
             }
         }
     }
 
-    async fn request<S: CanonicalStore>(
+    async fn request<H: RpcHost>(
         &mut self,
-        engine: &mut Engine<S>,
+        host: &mut H,
         access: &Access,
-        host: &HostFacts,
         request: &Request,
     ) -> Result<Value, RpcError> {
         if jsonrpc::encode_frame(request, self.server.limits.maximum_frame_bytes as usize).is_err()
@@ -171,22 +208,7 @@ impl RpcSession {
         }
         // A host must refresh access before dispatch; cached initialization is not
         // a grant. Bind identity too, so one connection cannot switch principals.
-        engine.authorize(access).map_err(|_| {
-            application(
-                Code::PolicyDenied,
-                Retry::AfterRevalidation,
-                None,
-                "current read access denied",
-            )
-        })?;
-        engine
-            .query(
-                access,
-                &Query::Session {
-                    session: access.session.clone(),
-                },
-            )
-            .map_err(query_error)?;
+        host.authorize(access)?;
         let principal = (
             access.actor.clone(),
             access.workspace.clone(),
@@ -205,6 +227,14 @@ impl RpcSession {
             ));
         }
         if request.method == "initialize" {
+            if self
+                .server
+                .methods
+                .iter()
+                .any(|method| !host.supported_methods().contains(&method.as_str()))
+            {
+                return Err(RpcError::internal_error());
+            }
             let params: InitializeParams =
                 serde_json::from_value(request.params.clone().unwrap_or(Value::Null))
                     .map_err(|_| RpcError::invalid_params())?;
@@ -236,6 +266,7 @@ impl RpcSession {
             .iter()
             .any(|method| method == &request.method)
             || !self.negotiated.contains(&request.method)
+            || !host.supported_methods().contains(&request.method.as_str())
         {
             return Err(application(
                 Code::CapabilityUnavailable,
@@ -249,6 +280,39 @@ impl RpcSession {
             request.params.clone().unwrap_or(Value::Null),
         )
         .map_err(|_| RpcError::invalid_params())?;
+        serde_json::to_value(host.call(call, access).await?).map_err(|_| RpcError::internal_error())
+    }
+}
+
+impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
+    fn supported_methods(&self) -> &[&str] {
+        METHODS
+    }
+
+    fn authorize(&self, access: &Access) -> Result<(), RpcError> {
+        self.engine.authorize(access).map_err(|_| {
+            application(
+                Code::PolicyDenied,
+                Retry::AfterRevalidation,
+                None,
+                "current read access denied",
+            )
+        })?;
+        self.engine
+            .query(
+                access,
+                &Query::Session {
+                    session: access.session.clone(),
+                },
+            )
+            .map_err(query_error)?;
+        Ok(())
+    }
+
+    async fn call(&mut self, call: Call, access: &Access) -> Result<ResultValue, RpcError> {
+        self.authorize(access)?;
+        let engine = &mut *self.engine;
+        let host = self.facts;
         let result = match &call {
             Call::SessionRead(p) => {
                 check_scope(&p.scope, access)?;
@@ -333,7 +397,7 @@ impl RpcSession {
                 ))
             }
         };
-        serde_json::to_value(result).map_err(|_| RpcError::internal_error())
+        Ok(result)
     }
 }
 
@@ -491,6 +555,168 @@ mod tests {
         handshake::{ConnectionLimits, ExecutionHost},
     };
     use vcp_store::{BackendKind, Store};
+
+    struct ProbeHost {
+        allowed: bool,
+        enabled: bool,
+        authorizations: std::cell::Cell<usize>,
+        calls: usize,
+    }
+
+    impl RpcHost for ProbeHost {
+        fn supported_methods(&self) -> &[&str] {
+            if self.enabled {
+                &["session/read"]
+            } else {
+                &[]
+            }
+        }
+        fn authorize(&self, access: &Access) -> Result<(), RpcError> {
+            self.authorizations.set(self.authorizations.get() + 1);
+            if !self.allowed || !access.read {
+                return Err(application(
+                    Code::PolicyDenied,
+                    Retry::AfterRevalidation,
+                    None,
+                    "fixture current access denied",
+                ));
+            }
+            Ok(())
+        }
+        async fn call(&mut self, call: Call, access: &Access) -> Result<ResultValue, RpcError> {
+            self.calls += 1;
+            let Call::SessionRead(params) = call else {
+                panic!("unexpected host call")
+            };
+            check_scope(&params.scope, access)?;
+            Ok(ResultValue::Session(methods::SessionView {
+                scope: params.scope,
+                revision: 0.into(),
+                configuration_revision: 0.into(),
+                fork_origin: None,
+                fork_through: None,
+            }))
+        }
+    }
+
+    /// This verifies the dispatch seam only. Real engine tests below remain the
+    /// canonical behavioral evidence; this probe makes no transport/security claim.
+    #[tokio::test]
+    async fn host_seam_authorizes_before_decode_and_dispatches_only_negotiated_supported_calls() {
+        let mut configuration = server();
+        configuration.methods = vec!["session/read".into()];
+        configuration.capabilities = std::iter::once("session/read".to_owned())
+            .chain(ESSENTIAL_CAPABILITIES.iter().map(|name| (*name).to_owned()))
+            .collect();
+        let mut rpc = RpcSession::new(configuration).unwrap();
+        let mut host = ProbeHost {
+            allowed: false,
+            enabled: true,
+            authorizations: std::cell::Cell::new(0),
+            calls: 0,
+        };
+        let malformed = request(1, "initialize", json!({"invented_governance":true}));
+        let response = rpc
+            .dispatch_host(
+                &mut host,
+                &access(),
+                jsonrpc::parse_frame(&malformed.to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(response).unwrap()["error"]["data"]["details"]["code"],
+            "POLICY_DENIED"
+        );
+        assert_eq!(host.authorizations.get(), 1);
+        assert_eq!(host.calls, 0);
+        host.allowed = true;
+        let initialized = rpc
+            .dispatch_host(
+                &mut host,
+                &access(),
+                jsonrpc::parse_frame(&init().to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(initialized).unwrap()["result"]["methods"],
+            json!(["session/read"])
+        );
+        let read = request(
+            2,
+            "session/read",
+            json!({"scope":{"workspace":"workspace","session":"session"}}),
+        );
+        let result = rpc
+            .dispatch_host(
+                &mut host,
+                &access(),
+                jsonrpc::parse_frame(&read.to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(result).unwrap()["result"]["kind"],
+            "session"
+        );
+        assert_eq!(host.calls, 1);
+        host.allowed = false;
+        let malformed = request(3, "session/read", json!({"invented_governance":true}));
+        let response = rpc
+            .dispatch_host(
+                &mut host,
+                &access(),
+                jsonrpc::parse_frame(&malformed.to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(response).unwrap()["error"]["data"]["details"]["code"],
+            "POLICY_DENIED"
+        );
+        assert_eq!(host.calls, 1);
+        host.allowed = true;
+        host.enabled = false;
+        let response = rpc
+            .dispatch_host(
+                &mut host,
+                &access(),
+                jsonrpc::parse_frame(&read.to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(response).unwrap()["error"]["data"]["details"]["code"],
+            "CAPABILITY_UNAVAILABLE"
+        );
+        assert_eq!(host.calls, 1);
+    }
+
+    #[tokio::test]
+    async fn host_cannot_advertise_unimplemented_methods_during_initialization() {
+        let mut rpc = RpcSession::new(server()).unwrap();
+        let mut host = ProbeHost {
+            allowed: true,
+            enabled: true,
+            authorizations: std::cell::Cell::new(0),
+            calls: 0,
+        };
+        let response = rpc
+            .dispatch_host(
+                &mut host,
+                &access(),
+                jsonrpc::parse_frame(&init().to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(response).unwrap()["error"]["code"],
+            -32603
+        );
+        assert_eq!(host.authorizations.get(), 1);
+        assert_eq!(host.calls, 0);
+    }
 
     fn access() -> Access {
         Access {
