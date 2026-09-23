@@ -85,6 +85,7 @@ pub use worker::agents_integration::ChildIntegration;
 pub use worker::agents_owner::{ChildStart, ChildWorkspaceInputs};
 #[cfg(windows)]
 pub use worker::agents_recovery::{ChildRecovery, ChildRecoveryTicket};
+pub use worker::public_connection::{PublicConnection, PublicDisconnect};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -127,6 +128,7 @@ pub struct CanonicalHost {
     worker: worker::Worker,
     bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
     scheduler: Arc<Scheduler>,
+    public_identity: Arc<Mutex<Option<(ControllerId, Revision)>>>,
     backup: Arc<Mutex<Option<backup_manager::Loaded>>>,
     #[cfg(windows)]
     mcp: Arc<mcp::Connections>,
@@ -302,6 +304,7 @@ impl CanonicalHost {
                 worker,
                 bindings: Arc::new(Mutex::new(HashMap::new())),
                 scheduler: Arc::new(Scheduler::default()),
+                public_identity: Arc::new(Mutex::new(None)),
                 #[cfg(windows)]
                 mcp,
                 backup: Arc::new(Mutex::new(None)),
@@ -669,6 +672,7 @@ impl HostWorkAdmission for CanonicalHost {
         if self.worker.fenced() {
             return Err("canonical host fenced".into());
         }
+        self.public_startup_admission()?;
         self.runtime.admit_startup(workspace, resumed)
     }
     fn admit(

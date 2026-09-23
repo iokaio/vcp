@@ -440,11 +440,28 @@ fn session_view(session: Session) -> Result<methods::SessionView, RpcError> {
             .transpose()?,
     })
 }
-fn acceptance<S: CanonicalStore>(
+/// Project a canonical receipt inside the host's serialized admission operation.
+/// Recheck current access and persisted identity even when the caller just wrote
+/// the receipt, so this helper cannot project a forged or out-of-scope result.
+pub fn acceptance<S: CanonicalStore>(
     engine: &Engine<S>,
     access: &Access,
     receipt: &CommandReceipt,
 ) -> Result<ResultValue, RpcError> {
+    match engine
+        .query(
+            access,
+            &Query::Command {
+                command: receipt.command.clone(),
+            },
+        )
+        .map_err(query_error)?
+    {
+        QueryResult::Command {
+            receipt: current, ..
+        } if current == *receipt => (),
+        _ => return Err(RpcError::internal_error()),
+    }
     let command_id = id(receipt.command.as_str())?;
     let revision: Revision = match receipt.result {
         CommandResult::Accepted { revision } => revision,
@@ -520,7 +537,12 @@ fn query_error(error: QueryError) -> RpcError {
     };
     application(code, retry, None, "scoped read unavailable")
 }
-fn public_error(error: PublicError, operation: Option<methods::Id>, approval: bool) -> RpcError {
+/// Preserve the same stable error classification across direct and live hosts.
+pub fn public_error(
+    error: PublicError,
+    operation: Option<methods::Id>,
+    approval: bool,
+) -> RpcError {
     let (code, retry) = match error {
         PublicError::Access => (Code::PolicyDenied, Retry::AfterRevalidation),
         PublicError::InvalidParameters => return RpcError::invalid_params(),

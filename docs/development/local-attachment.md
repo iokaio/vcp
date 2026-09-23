@@ -1,8 +1,9 @@
 # Local attachment construction
 
 Owning item: P9-02. The protocol foundation is delivered in PR #134. This increment
-adds canonical controller-lease state and an injectable RPC host boundary. It does
-not expose a local server or qualify endpoint authentication.
+adds canonical controller-lease state, an injectable RPC host boundary and a live
+connection adapter. It does not expose a local server or qualify endpoint
+authentication.
 
 ## Controller identity
 
@@ -40,7 +41,7 @@ generic keys retain their existing behavior.
 RPC framing, initialization and method negotiation remain separate from host
 execution. `RpcHost` supplies current authorization and typed call dispatch. The
 existing direct-engine adapter remains useful for protocol tests; the production
-adapter must live in `vcp-lifecycle`, which already depends on `vcp-engine`.
+adapter lives in `vcp-lifecycle`, which already depends on `vcp-engine`.
 
 The live adapter must validate controller generation in the same serialized worker
 operation as decision/task revision checks. Bare engine mutation is insufficient
@@ -55,6 +56,30 @@ used for a reconnectable connection loss. Canonical non-running task state is a
 necessary lease transition precondition; it does not prove that retained effects
 have drained. The host must establish that independently. A token never replaces
 runtime execution admission, budget checks or effect reconciliation.
+
+`PublicConnection` selects public ownership only on a quiescent private host.
+The retained `CanonicalOwner` continues to own the writer; authenticated observers
+can read without a controller lease. Mutations require both the durable lease and
+the connected host owner, checked inside the serialized worker. Refreshed read
+access cannot upgrade the connection's original scope or role, or refresh an old
+controller token. Public mode also gates startup and effect admission.
+
+Live steering validates the original request before holding work. It records an
+authority-change intent containing the original command identity and digest,
+pauses canonical tasks, drains retained work and scheduler completion, then
+revalidates authority before committing. An opaque engine-local pause proof binds
+the adjusted task revision to that original request. It cannot be supplied over
+the wire. Dropping the caller's await leaves completion owned by the host; losing
+the controller or fencing the worker prevents the final steering commit. Receipt
+replay does not perform another hold. An intent alone is not a successful receipt.
+
+Connection loss invalidates admission immediately and starts interruption before
+waiting on the writer queue. It releases the durable lease only after owned
+draining; observers retain access to paused state. Reacquisition never resumes
+execution. If disconnection interrupts construction before the first retained root
+attaches, the host must be reopened before another root construction. This
+conservative startup restriction rejects late attachment from the interrupted
+constructor; it is separate from ordinary attached-root pause/resume.
 
 ## Prerequisite verification
 
@@ -72,6 +97,18 @@ Store tests reject unreachable snapshot states, reserved-key occupation, forged
 replay and type replacement without changing canonical state. These are native
 library tests; they do not establish local peer authentication or live owner-loss
 handling.
+
+The live-host increment passed 68 engine/protocol tests and 30 lifecycle tests on
+native Windows with Rust 1.95.0. The latter include seven public-connection/RPC
+tests, one existing public metadata test, and 22 existing controller, integration
+and port tests. Public steering fixtures cover both stores with an active
+synthetic provider stream, a deliberately retained admission permit, dropped RPC
+receivers, connection loss and a real output-capture capacity failure. They check
+single receipt acceptance, unchanged steering on failure, retained partial
+response/unknown provider liability, and the original authority intent. A no-root
+fixture proves startup drains before acceptance; a separate fixture rejects late
+root attachment after disconnect. These tests require no paid provider or external
+test machine. Process-level endpoint authentication remains separate acceptance.
 
 ## Remaining acceptance
 

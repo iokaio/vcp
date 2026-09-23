@@ -9,7 +9,10 @@ const put=(file,value)=>fs.writeFileSync(file,JSON.stringify(value));
 const budget=()=>({schema:'p7-p8-owner-campaign/1',cap_micros:100000000,settled_micros:1000,reserved_micros:20000000,models:['qwen/qwen3.8-max-0902'],runs:[{sha256:'old',status:'failed-unknown',cap_micros:20000000}]});
 function fixture(t){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'vcp-renewal-controls-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
-  const spec={model:'qwen/qwen3.8-max-0902',observed_at:String(Date.now()),valid_until:String(Date.now()+86400000)},specFile=path.join(root,'spec.json');put(specFile,spec);
+  // A single observation keeps the maximum catalog window exact even when
+  // fixture construction crosses a millisecond boundary under parallel load.
+  const observed=Date.now();
+  const spec={model:'qwen/qwen3.8-max-0902',observed_at:String(observed),valid_until:String(observed+86400000)},specFile=path.join(root,'spec.json');put(specFile,spec);
   const campaign=path.join(root,'campaign.json');put(campaign,budget());
   const plan={spec:{path:specFile,sha256:sha(fs.readFileSync(specFile))},executable:{path:'never-launched.exe',sha256:'bound'},output:path.join(root,'probe'),campaign,campaign_sha256:sha(fs.readFileSync(campaign))};
   const scope={task:'task',workspace:'workspace',session:'session'};

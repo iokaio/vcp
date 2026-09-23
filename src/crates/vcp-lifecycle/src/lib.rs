@@ -84,6 +84,11 @@ struct State {
     attached: bool,
     root: Option<ThreadId>,
     sealing: bool,
+    // A constructor interrupted before root attachment cannot safely be
+    // rebound without a per-constructor identity. Reopen recovers this case.
+    root_admission_held: bool,
+    owner_sealing: bool,
+    owner_hold_waiters: Vec<oneshot::Sender<Result<(), Error>>>,
     entries: HashMap<ThreadId, Entry>,
     workspace: String,
     journal: Option<journal::Journal>,
@@ -302,6 +307,9 @@ impl Lifecycle {
                 attached: true,
                 root: None,
                 sealing: false,
+                root_admission_held: false,
+                owner_sealing: false,
+                owner_hold_waiters: Vec::new(),
                 entries: HashMap::new(),
                 workspace: String::new(),
                 journal: None,
@@ -402,6 +410,9 @@ impl Lifecycle {
         if state.sealing {
             return Err(Error::Busy);
         }
+        if state.root_admission_held {
+            return Err(Error::Held);
+        }
         if let Some(id) = resumed {
             if !state.entries.contains_key(&id) {
                 return Err(Error::UnknownThread);
@@ -481,6 +492,9 @@ impl Lifecycle {
         let mut state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
         if !state.attached {
             return Err(Error::OwnerLost);
+        }
+        if state.sealing || state.root_admission_held {
+            return Err(Error::Held);
         }
         if state.root.is_some() {
             return Err(Error::RootAlreadyAttached);
@@ -592,10 +606,26 @@ impl Lifecycle {
     /// Trusted controller operation: choose and fence the current owner tree
     /// atomically, without retrying a revision observed before work completed.
     pub(crate) fn hold_owner(&self) -> Result<HoldWaiter, Error> {
-        let state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
+        let mut state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
+        if state.attached && state.sealing && state.owner_sealing {
+            let (reply, receiver) = oneshot::channel();
+            state.owner_hold_waiters.push(reply);
+            return Ok(HoldWaiter(receiver));
+        }
         state.check(&state.revision())?;
-        let root = state.root.ok_or(Error::UnknownThread)?;
-        self.hold_locked(root, state)
+        if let Some(root) = state.root {
+            return self.hold_locked(root, state);
+        }
+        state.advance()?;
+        state.root_admission_held = true;
+        state.sealing = true;
+        state.owner_sealing = true;
+        state.startups.clear();
+        let durable = state.checkpoint();
+        drop(state);
+        self.0.changed.notify_waiters();
+        let waiter = HoldWaiter(self.interrupt_owned(Vec::new(), true));
+        durable.map(|_| waiter)
     }
 
     fn hold_locked(
@@ -609,6 +639,7 @@ impl Lifecycle {
         state.advance()?;
         state.entries.get_mut(&id).unwrap().held = true;
         state.sealing = true;
+        state.owner_sealing = state.root == Some(id);
         state.startups.clear();
         let selected: Vec<_> = state
             .entries
@@ -757,8 +788,13 @@ impl Lifecycle {
         if clear_sealing {
             state.sealing = false;
         }
-        state.advance()?;
-        state.checkpoint()?;
+        let result = state.advance().and_then(|_| state.checkpoint()).and(result);
+        if clear_sealing && state.owner_sealing {
+            state.owner_sealing = false;
+            for waiter in state.owner_hold_waiters.drain(..) {
+                let _ = waiter.send(result);
+            }
+        }
         result
     }
 
@@ -928,7 +964,7 @@ impl codex_extension_api::HostWorkAdmission for Lifecycle {
             .canonicalize()
             .map_err(|_| "unavailable startup workspace")?;
         let mut state = self.0.state.lock().map_err(|_| "poisoned lifecycle")?;
-        if !state.attached || state.sealing {
+        if !state.attached || state.sealing || state.root_admission_held {
             return Err("startup owner unavailable".into());
         }
         let index = state

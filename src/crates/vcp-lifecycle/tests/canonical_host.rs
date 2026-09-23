@@ -144,6 +144,12 @@ mod portable_vectors;
 mod process_broker;
 #[path = "support/provider_retries.rs"]
 mod provider_retries;
+#[path = "support/public_connection.rs"]
+mod public_connection;
+#[path = "support/public_rpc.rs"]
+mod public_rpc;
+#[path = "support/public_rpc_drain.rs"]
+mod public_rpc_drain;
 #[path = "support/response_boundary.rs"]
 mod response_boundary;
 #[cfg(windows)]
