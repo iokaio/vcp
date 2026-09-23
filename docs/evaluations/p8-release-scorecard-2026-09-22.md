@@ -13,6 +13,11 @@ rebuilt candidate, corrected restore, retained-history timings and fresh model
 provisioning. The original receipts and requirement mapping below retain their
 recorded scope; no owner acceptance is inferred from automated observations.
 
+Later evidence is recorded in the [September 23 approved campaign](p8-approved-campaign-2026-09-23.md)
+and [request-allowance candidate](p8-allowance-package-2026-09-23.md). These preserve
+the original failed trials, unknown interactive liabilities and outstanding P8
+gates; they do not replace the original artifact identities below.
+
 ## Candidate and evidence identity
 
 The following table preserves the earlier debug candidate. The subsequent
