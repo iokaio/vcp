@@ -1,5 +1,5 @@
 {
-  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"d8f5839e08d440363773865e2c706d183a00d2edf97fa1ef4672a459ae7f0fde\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"1d3a01c7a66a18b42a628530daea59d8002bf732b5bb20b50511e27105d83c85\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/methods.rs\":\"9da58dd6a450ae81a04adf4c4db2effcf6c8d9a8c6e51fcb1e041c8dc49421dd\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
+  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"d5ec191dc741fa59b5d6f5bbb8c3f498925593fa0528ceb2c9ae78ea94ec1151\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"ac45c834f0fb059c7aca52e340e498dde009950f9e7ac7c11a0043062b50d897\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/methods.rs\":\"1fe86159a9fc287f9cd649ea969549e1d01899fb882c80f3f59440138da76441\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
@@ -48,6 +48,95 @@
         "revision",
         "scope",
         "watermark"
+      ],
+      "type": "object"
+    },
+    "Applicability": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conditions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Fingerprint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "repository": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "roots": {
+          "items": {
+            "$ref": "#/definitions/Id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "symbols": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "valid_from": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "valid_until": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worktree": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "conditions",
+        "paths",
+        "repository",
+        "roots",
+        "symbols",
+        "worktree"
       ],
       "type": "object"
     },
@@ -785,7 +874,7 @@
               "type": "string"
             },
             "params": {
-              "$ref": "#/definitions/MemoryPropose"
+              "$ref": "#/definitions/ProposeParams"
             }
           },
           "required": [
@@ -804,7 +893,26 @@
               "type": "string"
             },
             "params": {
-              "$ref": "#/definitions/MemoryResolve"
+              "$ref": "#/definitions/ResolveParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "memory/review"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ReviewRead"
             }
           },
           "required": [
@@ -910,12 +1018,377 @@
         }
       ]
     },
+    "Candidate": {
+      "additionalProperties": false,
+      "properties": {
+        "applicability": {
+          "$ref": "#/definitions/Applicability"
+        },
+        "claim": {
+          "$ref": "#/definitions/Id"
+        },
+        "correction_reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/definitions/Evidence"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "origins": {
+          "items": {
+            "$ref": "#/definitions/Id"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "predecessor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "predicate": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "retention": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/ClaimValue"
+        }
+      },
+      "required": [
+        "applicability",
+        "claim",
+        "evidence",
+        "origins",
+        "predicate",
+        "retention",
+        "statement",
+        "subject",
+        "value"
+      ],
+      "type": "object"
+    },
     "CaptureScope": {
       "enum": [
         "visible_history",
         "visible_history_and_artifacts"
       ],
       "type": "string"
+    },
+    "CheckOutcome": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "enum": [
+                "passed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "failed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "not_run"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ClaimValue": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "argv": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array"
+            },
+            "configuration": {
+              "$ref": "#/definitions/Id"
+            },
+            "cwd": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "command"
+              ],
+              "type": "string"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/CheckOutcome"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "purpose": {
+              "$ref": "#/definitions/CommandPurpose"
+            },
+            "verification": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "argv",
+            "configuration",
+            "cwd",
+            "kind",
+            "purpose"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "$ref": "#/definitions/SourceEndpoint"
+            },
+            "kind": {
+              "enum": [
+                "module_relationship"
+              ],
+              "type": "string"
+            },
+            "relation": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "to": {
+              "$ref": "#/definitions/SourceEndpoint"
+            }
+          },
+          "required": [
+            "from",
+            "kind",
+            "relation",
+            "to"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "decision": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "inference": {
+              "type": "boolean"
+            },
+            "kind": {
+              "enum": [
+                "architecture"
+              ],
+              "type": "string"
+            },
+            "rationale": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "decision",
+            "inference",
+            "kind",
+            "rationale"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "component": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "environment_constraint"
+              ],
+              "type": "string"
+            },
+            "observed_value": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "requirement": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "component",
+            "kind",
+            "requirement"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "after": {
+              "$ref": "#/definitions/Fingerprint"
+            },
+            "before": {
+              "$ref": "#/definitions/Fingerprint"
+            },
+            "issue": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "verified_fix"
+              ],
+              "type": "string"
+            },
+            "patch": {
+              "$ref": "#/definitions/Id"
+            },
+            "verification": {
+              "$ref": "#/definitions/Id"
+            }
+          },
+          "required": [
+            "after",
+            "before",
+            "issue",
+            "kind",
+            "patch",
+            "verification"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "explicit_origin": {
+              "$ref": "#/definitions/Id"
+            },
+            "key": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "user_preference"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "explicit_origin",
+            "key",
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ClientInfo": {
       "additionalProperties": false,
@@ -957,6 +1430,13 @@
         "UNSUPPORTED_VERSION",
         "CURSOR_GAP",
         "RESOURCE_LIMIT"
+      ],
+      "type": "string"
+    },
+    "CommandPurpose": {
+      "enum": [
+        "test",
+        "build"
       ],
       "type": "string"
     },
@@ -1545,12 +2025,74 @@
       ],
       "type": "object"
     },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/definitions/Id"
+        },
+        "kind": {
+          "$ref": "#/definitions/EvidenceKind"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Range"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Fingerprint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verification": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "artifact",
+        "kind",
+        "sha256"
+      ],
+      "type": "object"
+    },
     "EvidenceAvailability": {
       "enum": [
         "available",
         "unavailable",
         "missing",
         "integrity_failure"
+      ],
+      "type": "string"
+    },
+    "EvidenceKind": {
+      "enum": [
+        "source",
+        "configuration",
+        "tool_output",
+        "verification",
+        "user_statement",
+        "model_inference",
+        "patch"
       ],
       "type": "string"
     },
@@ -1780,6 +2322,26 @@
       ],
       "type": "object"
     },
+    "Fingerprint": {
+      "additionalProperties": false,
+      "properties": {
+        "buffers": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "repository": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "buffers",
+        "environment",
+        "repository"
+      ],
+      "type": "object"
+    },
     "GapReason": {
       "enum": [
         "retention_changed",
@@ -1790,10 +2352,44 @@
       ],
       "type": "string"
     },
+    "Guards": {
+      "additionalProperties": false,
+      "properties": {
+        "deletion_epoch": {
+          "$ref": "#/definitions/Counter"
+        },
+        "expected_head": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "policy_revision": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "deletion_epoch",
+        "policy_revision"
+      ],
+      "type": "object"
+    },
     "Id": {
       "maxLength": 96,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_-]{1,96}(?![\\s\\S])",
+      "type": "string"
+    },
+    "Indexing": {
+      "enum": [
+        "pending",
+        "ready",
+        "failed"
+      ],
       "type": "string"
     },
     "InitializeParams": {
@@ -1990,6 +2586,68 @@
       ],
       "type": "string"
     },
+    "LegacyPropose": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/definitions/Id"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "type": "array"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "content",
+        "evidence",
+        "mutation",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "LegacyResolve": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "$ref": "#/definitions/MemoryDecision"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "proposal": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "decision",
+        "mutation",
+        "proposal",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
     "MemoryDecision": {
       "enum": [
         "accept",
@@ -2135,40 +2793,6 @@
       ],
       "type": "object"
     },
-    "MemoryPropose": {
-      "additionalProperties": false,
-      "properties": {
-        "content": {
-          "maxLength": 65536,
-          "type": "string"
-        },
-        "evidence": {
-          "items": {
-            "$ref": "#/definitions/Id"
-          },
-          "maxItems": 128,
-          "minItems": 1,
-          "type": "array"
-        },
-        "mutation": {
-          "$ref": "#/definitions/Mutation"
-        },
-        "scope": {
-          "$ref": "#/definitions/Scope"
-        },
-        "task": {
-          "$ref": "#/definitions/Id"
-        }
-      },
-      "required": [
-        "content",
-        "evidence",
-        "mutation",
-        "scope",
-        "task"
-      ],
-      "type": "object"
-    },
     "MemoryQuery": {
       "additionalProperties": false,
       "properties": {
@@ -2193,34 +2817,6 @@
       "required": [
         "limit",
         "query",
-        "scope",
-        "task"
-      ],
-      "type": "object"
-    },
-    "MemoryResolve": {
-      "additionalProperties": false,
-      "properties": {
-        "decision": {
-          "$ref": "#/definitions/MemoryDecision"
-        },
-        "mutation": {
-          "$ref": "#/definitions/Mutation"
-        },
-        "proposal": {
-          "$ref": "#/definitions/Id"
-        },
-        "scope": {
-          "$ref": "#/definitions/Scope"
-        },
-        "task": {
-          "$ref": "#/definitions/Id"
-        }
-      },
-      "required": [
-        "decision",
-        "mutation",
-        "proposal",
         "scope",
         "task"
       ],
@@ -2393,6 +2989,32 @@
       ],
       "type": "object"
     },
+    "ProposeParams": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/LegacyPropose"
+        },
+        {
+          "$ref": "#/definitions/TypedPropose"
+        }
+      ]
+    },
+    "Range": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "$ref": "#/definitions/Counter"
+        },
+        "start": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "end",
+        "start"
+      ],
+      "type": "object"
+    },
     "RequestEnvelope": {
       "additionalProperties": false,
       "properties": {
@@ -2453,6 +3075,16 @@
         "outcome"
       ],
       "type": "object"
+    },
+    "ResolveParams": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/LegacyResolve"
+        },
+        {
+          "$ref": "#/definitions/TypedResolve"
+        }
+      ]
     },
     "ResultEnvelope": {
       "additionalProperties": false,
@@ -2708,6 +3340,44 @@
           "properties": {
             "kind": {
               "enum": [
+                "memory_review"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/ReviewView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "memory_reviewed"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/ReviewResult"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
                 "events"
               ],
               "type": "string"
@@ -2808,6 +3478,203 @@
           "type": "string"
         }
       ]
+    },
+    "ReviewDisposition": {
+      "enum": [
+        "awaiting_review",
+        "resolved"
+      ],
+      "type": "string"
+    },
+    "ReviewRead": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "submission": {
+          "$ref": "#/definitions/Id"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "scope",
+        "submission",
+        "task"
+      ],
+      "type": "object"
+    },
+    "ReviewResult": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance": {
+          "$ref": "#/definitions/Acceptance"
+        },
+        "candidate_digest": {
+          "type": "string"
+        },
+        "disposition": {
+          "$ref": "#/definitions/ReviewDisposition"
+        },
+        "governed_proposal": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "indexing": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Indexing"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Resolution"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "submission": {
+          "$ref": "#/definitions/Id"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "acceptance",
+        "candidate_digest",
+        "disposition",
+        "submission"
+      ],
+      "type": "object"
+    },
+    "ReviewView": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate": {
+          "$ref": "#/definitions/Candidate"
+        },
+        "candidate_digest": {
+          "type": "string"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MemoryDecision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decision_command": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disposition": {
+          "$ref": "#/definitions/ReviewDisposition"
+        },
+        "governed_proposal": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "guards": {
+          "$ref": "#/definitions/Guards"
+        },
+        "indexing": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Indexing"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Resolution"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "submission": {
+          "$ref": "#/definitions/Id"
+        },
+        "submission_command": {
+          "$ref": "#/definitions/Id"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "candidate",
+        "candidate_digest",
+        "disposition",
+        "guards",
+        "scope",
+        "submission",
+        "submission_command",
+        "task"
+      ],
+      "type": "object"
     },
     "RpcError": {
       "additionalProperties": false,
@@ -3183,6 +4050,40 @@
         }
       ]
     },
+    "SourceEndpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/definitions/Id"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "root": {
+          "$ref": "#/definitions/Id"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "symbol": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "artifact",
+        "path",
+        "root",
+        "sha256"
+      ],
+      "type": "object"
+    },
     "TaskCancel": {
       "additionalProperties": false,
       "properties": {
@@ -3437,6 +4338,84 @@
         "scope",
         "task",
         "turn"
+      ],
+      "type": "object"
+    },
+    "TypedPropose": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate": {
+          "$ref": "#/definitions/Candidate"
+        },
+        "guards": {
+          "$ref": "#/definitions/Guards"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "submission": {
+          "$ref": "#/definitions/Id"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "candidate",
+        "guards",
+        "mutation",
+        "scope",
+        "submission",
+        "task"
+      ],
+      "type": "object"
+    },
+    "TypedResolve": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "$ref": "#/definitions/MemoryDecision"
+        },
+        "guards": {
+          "$ref": "#/definitions/Guards"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "submission": {
+          "$ref": "#/definitions/Id"
+        },
+        "submission_digest": {
+          "type": "string"
+        },
+        "submission_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "decision",
+        "guards",
+        "mutation",
+        "reason",
+        "scope",
+        "submission",
+        "submission_digest",
+        "submission_revision",
+        "task"
       ],
       "type": "object"
     },

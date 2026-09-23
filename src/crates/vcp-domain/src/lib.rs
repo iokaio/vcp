@@ -9,6 +9,7 @@ pub mod forecast;
 pub mod ids;
 pub mod ingestion;
 pub mod memory;
+pub mod memory_review;
 pub mod policy;
 pub mod public_diff;
 pub mod redaction;

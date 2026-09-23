@@ -43,6 +43,7 @@ pub const ESSENTIAL_CAPABILITIES: &[&str] = &["jsonrpc/2.0", "durable-command/1"
 pub const APPROVAL_SOURCE_REVISIONS_CAPABILITY: &str = "approval/source-revisions/1";
 pub const MEMORY_INSPECTION_STATE_CAPABILITY: &str = "memory/inspection-state/1";
 pub const MEMORY_QUERY_SOURCES_CAPABILITY: &str = vcp_protocol::memory_query::CAPABILITY;
+pub const MEMORY_GOVERNANCE_CAPABILITY: &str = vcp_protocol::memory_governance::CAPABILITY;
 
 #[cfg(test)]
 mod approval_source_tests;
@@ -67,6 +68,12 @@ pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
     }
     if capabilities.contains("memory/query") {
         capabilities.insert(MEMORY_QUERY_SOURCES_CAPABILITY.to_owned());
+    }
+    if ["memory/propose", "memory/resolve", "memory/review"]
+        .iter()
+        .all(|method| capabilities.contains(*method))
+    {
+        capabilities.insert(MEMORY_GOVERNANCE_CAPABILITY.to_owned());
     }
     capabilities
 }
@@ -326,6 +333,18 @@ impl RpcSession {
                 Retry::Never,
                 None,
                 "memory query source capability was not negotiated",
+            ));
+        }
+        if matches!(
+            call,
+            Call::MemoryPropose(_) | Call::MemoryResolve(_) | Call::MemoryReview(_)
+        ) && !self.negotiated.contains(MEMORY_GOVERNANCE_CAPABILITY)
+        {
+            return Err(application(
+                Code::CapabilityUnavailable,
+                Retry::Never,
+                call.command_id().cloned(),
+                "memory governance capability was not negotiated",
             ));
         }
         if matches!(call, Call::MemoryInspect(_))

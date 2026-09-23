@@ -413,11 +413,29 @@ pub async fn propose(
     proposal: Proposal,
     now: Timestamp,
 ) -> Result<MemoryCommit> {
+    propose_inner(store, access, proposal, now, None).await
+}
+
+/// The manual review owner supplies its already authorized immutable submission.
+/// Decoration is committed with the governed proposal, never as a second write.
+pub(crate) async fn propose_inner(
+    store: &mut Store,
+    access: &Access,
+    proposal: Proposal,
+    now: Timestamp,
+    manual: Option<(
+        &vcp_domain::memory_review::Submission,
+        &crate::review::Resolve,
+    )>,
+) -> Result<MemoryCommit> {
     if canonical_bytes(&proposal)?.len() > 256 * 1024 {
         return Err(Error::Invalid("proposal exceeds 256 KiB".into()));
     }
     let digest = digest_bytes(&canonical_bytes(&proposal)?);
     for _ in 0..3 {
+        if let Some((submission, request)) = manual {
+            crate::review::validate_fresh(store, access, submission, request)?;
+        }
         let workspace = access::authorize(store.state(), access, true)?;
         if proposal.scope.workspace != access.workspace
             || proposal.actor != access.actor
@@ -486,6 +504,11 @@ pub async fn propose(
                 || previous.proposal.command == proposal.command
                 || same_origin
             {
+                if manual.is_some() {
+                    return Err(Error::Conflict(
+                        "manual candidate already governed by another command",
+                    ));
+                }
                 if previous.payload_digest != digest {
                     return Err(Error::Conflict(
                         "proposal/origin identity reused with different content",
@@ -530,7 +553,9 @@ pub async fn propose(
                 });
             }
         }
-        crate::projections::rebuild(store, access, now).await?;
+        if manual.is_none() {
+            crate::projections::rebuild(store, access, now).await?;
+        }
         let head: Option<Head> = store
             .state()
             .records
@@ -702,6 +727,27 @@ pub async fn propose(
             None,
             &result,
         )?);
+        let decision = manual
+            .map(|(submission, request)| {
+                crate::review::decision(
+                    submission,
+                    request,
+                    &access.actor,
+                    Some(proposal.id.clone()),
+                    resolution.clone(),
+                )
+            })
+            .transpose()?;
+        if let Some(decision) = &decision {
+            mutations.push(put(
+                Collection::Projection,
+                &decision.id,
+                &access.workspace,
+                Revision::ZERO,
+                None,
+                decision,
+            )?);
+        }
         let records: Vec<_> = mutations
             .iter()
             .filter_map(|m| match m {
@@ -709,7 +755,7 @@ pub async fn propose(
                 _ => None,
             })
             .collect();
-        let event = EventInput {
+        let mut event = EventInput {
             id: EventId::new(),
             workspace: access.workspace.clone(),
             session: proposal.scope.session.clone(),
@@ -723,6 +769,9 @@ pub async fn propose(
             data: serde_json::json!({"schema_version":1,"proposal":proposal.id,"resolution":resolution.outcome,"records":records}),
             metadata: None,
         };
+        if let Some(decision) = &decision {
+            crate::review::decorate(&mut event, "decision", &decision.id, decision)?;
+        }
         let transaction = Transaction {
             id: tx,
             expected_watermark: store.state().watermark,
@@ -732,7 +781,10 @@ pub async fn propose(
                 command: proposal.command.clone(),
                 workspace: access.workspace.clone(),
                 session: proposal.scope.session.clone(),
-                digest: digest.clone(),
+                digest: manual.map_or_else(
+                    || digest.clone(),
+                    |(_, request)| request.command_digest.clone(),
+                ),
                 result: CommandResult::Accepted {
                     revision: next_sequence.revision,
                 },

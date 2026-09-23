@@ -180,3 +180,99 @@ pub fn result(
     result.validate().map_err(|e| e.to_string())?;
     Ok(result)
 }
+
+/// Preserve review lineage without candidate text or executable authority.
+pub fn review_sources(
+    source: &vcp_domain::memory_review::Submission,
+) -> vcp_domain::redaction::Sources {
+    use std::collections::BTreeSet;
+    vcp_domain::redaction::Sources {
+        origins: source.candidate.origins.clone(),
+        artifacts: source
+            .candidate
+            .evidence
+            .iter()
+            .map(|e| e.artifact.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect(),
+        verifications: source
+            .candidate
+            .evidence
+            .iter()
+            .filter_map(|e| e.verification.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect(),
+        versions: source
+            .candidate
+            .predecessor
+            .iter()
+            .chain(source.expected_head.iter())
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect(),
+    }
+}
+pub fn review_submission(
+    source: &vcp_domain::memory_review::Submission,
+    deletion: DeletionEpoch,
+) -> Result<vcp_domain::memory_review::RedactedSubmission> {
+    use vcp_domain::memory_review::*;
+    source.validate().map_err(|e| e.to_string())?;
+    let erased = metadata(source, deletion)?;
+    let result = RedactedSubmission {
+        document_type: REDACTED_SUBMISSION.into(),
+        schema_version: 1,
+        id: source.id.clone(),
+        scope: source.scope.clone(),
+        revision: source.revision,
+        deletion,
+        original_digest: erased.original_digest,
+        candidate_digest: source.candidate_digest.clone(),
+        command_digest: source.command_digest.clone(),
+        command: source.candidate.command.clone(),
+        actor: source.candidate.actor.clone(),
+        claim: source.candidate.claim.clone(),
+        sources: review_sources(source),
+        recorded_at: source.recorded_at,
+    };
+    result.validate().map_err(|e| e.to_string())?;
+    Ok(result)
+}
+pub fn review_decision(
+    source: &vcp_domain::memory_review::Decision,
+    submission_sources: &vcp_domain::redaction::Sources,
+    deletion: DeletionEpoch,
+) -> Result<vcp_domain::memory_review::RedactedDecision> {
+    use vcp_domain::memory_review::*;
+    source.validate().map_err(|e| e.to_string())?;
+    submission_sources.validate().map_err(|e| e.to_string())?;
+    let erased = metadata(source, deletion)?;
+    let mut sources = submission_sources.clone();
+    sources.versions.extend(source.resolution.conflicts.clone());
+    sources.versions.sort();
+    sources.versions.dedup();
+    let result = RedactedDecision {
+        document_type: REDACTED_DECISION.into(),
+        schema_version: 1,
+        id: source.id.clone(),
+        scope: source.scope.clone(),
+        revision: source.revision,
+        deletion,
+        original_digest: erased.original_digest,
+        submission: source.submission.clone(),
+        submission_digest: source.submission_digest.clone(),
+        command: source.command.clone(),
+        command_digest: source.command_digest.clone(),
+        actor: source.actor.clone(),
+        choice: source.choice,
+        outcome: source.resolution.outcome,
+        governed_proposal: source.governed_proposal.clone(),
+        sources,
+        recorded_at: source.recorded_at,
+    };
+    result.validate().map_err(|e| e.to_string())?;
+    Ok(result)
+}

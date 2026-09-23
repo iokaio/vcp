@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+#[cfg(test)]
+extern crate self as vcp_store;
 mod accounting_contract;
 pub mod artifact;
 mod backend;
@@ -6,6 +8,7 @@ pub mod contract;
 mod forecast_contract;
 mod fork_contract;
 pub mod keys;
+mod memory_review_contract;
 pub mod migration;
 pub mod portable_snapshot;
 mod private_paths;

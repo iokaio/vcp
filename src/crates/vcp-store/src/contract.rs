@@ -107,6 +107,12 @@ impl Collection {
         }
     }
 }
+pub fn memory_review_decision_id(
+    scope: &vcp_domain::workspace::Scope,
+    submission: &ProposalId,
+) -> Result<String> {
+    crate::memory_review_contract::decision_id(scope, submission)
+}
 pub fn key(collection: Collection, id: &str) -> String {
     format!("{}:{id}", collection.name())
 }
@@ -168,6 +174,9 @@ impl Record {
         Ok(false)
     }
     fn memory_kind(&self) -> Result<Option<&str>> {
+        if let Some(kind) = crate::memory_review_contract::kind(self)? {
+            return Ok(Some(kind));
+        }
         if let Some(kind) = crate::redaction_contract::kind(self)? {
             return Ok(Some(kind));
         }
@@ -189,6 +198,9 @@ impl Record {
         Ok(Some(kind))
     }
     fn immutable_memory(&self) -> Result<bool> {
+        if crate::memory_review_contract::kind(self)?.is_some() {
+            return Ok(true);
+        }
         if crate::forecast_contract::kind(self) {
             return Ok(true);
         }
@@ -265,6 +277,9 @@ impl Record {
             }
             Ok(())
         };
+        if crate::memory_review_contract::kind(self)?.is_some() {
+            return crate::memory_review_contract::shape(self);
+        }
         if crate::redaction_contract::kind(self)?.is_some() {
             return crate::redaction_contract::shape(self);
         }
@@ -459,6 +474,11 @@ impl Record {
         Ok(())
     }
     pub fn required_references(&self) -> Result<BTreeSet<String>> {
+        if crate::memory_review_contract::kind(self)?.is_some() {
+            let mut refs = crate::memory_review_contract::references(self)?;
+            refs.extend(self.references.clone());
+            return Ok(refs);
+        }
         if crate::redaction_contract::kind(self)?.is_some() {
             let mut refs = crate::redaction_contract::references(self)?;
             refs.extend(self.references.clone());
@@ -687,6 +707,9 @@ impl Record {
         }
         if self.value["document_type"] == vcp_domain::forecast::REDACTED {
             return Ok(None);
+        }
+        if crate::memory_review_contract::kind(self)?.is_some() {
+            return Ok(Some(crate::memory_review_contract::scope(self)?));
         }
         if crate::redaction_contract::kind(self)?.is_some() {
             return Ok(Some(crate::redaction_contract::scope(self)?));
@@ -996,6 +1019,7 @@ impl State {
             }
             record.validate_shape()?;
             self.validate_memory(record)?;
+            crate::memory_review_contract::validate(self, record)?;
             crate::forecast_contract::validate(self, record)?;
             if record.collection == Collection::Access
                 && record.value["document_type"] == "vcp_authority_v1"
@@ -1189,6 +1213,7 @@ impl State {
         if transaction.expected_watermark != self.watermark {
             return Err(Error::Conflict("stale canonical watermark"));
         }
+        crate::memory_review_contract::transaction(self, transaction)?;
         let watermark = self.watermark.next()?;
         let mut result = self.clone();
         result.watermark = watermark;

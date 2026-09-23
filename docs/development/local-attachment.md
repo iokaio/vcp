@@ -406,8 +406,8 @@ The preceding records qualify attachment, owned resume, connected pause,
 controller loss, retained inspection and bounded snapshot/event recovery within
 their stated test boundaries. Subsequent increments qualify pending-input reconnect,
 durable acceptance before the client consumes a response, abandoned/slow readers,
-and CLI/API execution parity. Remaining adapters include memory proposal,
-resolution, forgetting and session export.
+and CLI/API execution parity. The manual review increment below implements memory
+proposal and resolution. Remaining adapters include forgetting and session export.
 
 Snapshot capture and cursor registration share a canonical worker boundary.
 Compiled process tests establish reader cleanup without blocking writes. P9-03
@@ -454,6 +454,38 @@ the acceptance requirements above. The optional pipe transport retains the serve
 independently after an authenticated bootstrap handoff.
 
 ## Named-pipe attachment and reconnect
+
+### Explicit memory proposal and review
+
+The live host exposes `memory/propose`, `memory/resolve` and `memory/review` under
+`memory/governance/1`. Propose accepts an explicit candidate from the six governed
+claim classes, source references and expected task/steering/policy/deletion/head
+guards. Actor and authority come from the authenticated connection. The original
+prose-only parameters remain decodable but receive `CAPABILITY_UNAVAILABLE` from
+this host; no model infers a claim's meaning.
+
+Writes require the currently held controller lease. A submission is immutable and
+awaits review without creating a claim version or indexing intent. The write result
+tag `memory_reviewed` separates command acceptance from disposition. Accept runs
+the existing governance gates and may return disputed or rejected; explicit reject
+creates no version. Decision and governed result commit with the original public
+receipt. Changed payloads cannot reuse command identity.
+
+Observers can call `memory/review` to retrieve the retained candidate and decision
+under current scope/source authorization. Reconnect does not answer pending review.
+Retention closes over source copies and physically erases candidate text and
+decision reasons; reads and replay cannot resurrect them. See
+[ADR-052](../adr/052-explicit-public-memory-review.md).
+
+Native qualification passes six focused domain/store contract tests, six repository
+tests spanning both stores (including physical purge of pending and decided
+reviews), the 18 existing governed-memory tests, and the adapter reconciliation
+unit test. The broad domain/store regression passed 93 tests with two existing
+ignored cases. A compiled named-pipe fixture passes both stores across controller
+reconnect, observer denial, original receipt replay, stale guards and accepted,
+disputed, governance-rejected and explicitly rejected outcomes. No provider runs.
+The engine/protocol regression passes 112 tests; the Rust-derived schema,
+TypeScript declarations and nine generator contracts also pass.
 
 ### Scoped memory search
 

@@ -361,8 +361,9 @@ calls! {
     UsageRead(Inspect) => "usage/read",
     MemoryQuery(MemoryQuery) => "memory/query",
     MemoryInspect(MemoryInspect) => "memory/inspect",
-    MemoryPropose(MemoryPropose) => "memory/propose",
-    MemoryResolve(MemoryResolve) => "memory/resolve",
+    MemoryPropose(crate::memory_governance::ProposeParams) => "memory/propose",
+    MemoryResolve(crate::memory_governance::ResolveParams) => "memory/resolve",
+    MemoryReview(crate::memory_governance::ReviewRead) => "memory/review",
     MemoryForget(MemoryForget) => "memory/forget",
     EditorContext(EditorContext) => "editor/context",
     EditorChangeResult(EditorChangeResult) => "editor/changeResult",
@@ -395,8 +396,8 @@ impl Call {
             Self::TurnSteer(p) => Some(&p.mutation),
             Self::TurnPause(p) | Self::TurnCancel(p) => Some(&p.mutation),
             Self::ApprovalRespond(p) => Some(&p.mutation),
-            Self::MemoryPropose(p) => Some(&p.mutation),
-            Self::MemoryResolve(p) => Some(&p.mutation),
+            Self::MemoryPropose(p) => Some(p.mutation()),
+            Self::MemoryResolve(p) => Some(p.mutation()),
             Self::MemoryForget(p) => Some(&p.mutation),
             Self::EditorContext(p) => Some(&p.mutation),
             Self::EditorChangeResult(p) => Some(&p.mutation),
@@ -562,12 +563,8 @@ impl Call {
                 page(p.limit)?;
                 text(&p.query, 16384)
             }
-            Self::MemoryPropose(p) => {
-                if p.evidence.is_empty() || p.evidence.len() > 128 {
-                    return Err("evidence list limit");
-                }
-                text(&p.content, 65536)
-            }
+            Self::MemoryPropose(p) => p.validate(),
+            Self::MemoryResolve(p) => p.validate(),
             Self::MemoryForget(p) => digest(&p.preview_digest),
             Self::EditorContext(p) => documents(&p.documents),
             Self::EditorChangeResult(p) => documents(&p.documents),
@@ -745,6 +742,8 @@ pub enum ResultValue {
     Evidence(EvidencePage),
     Memory(MemoryPage),
     MemoryQuery(crate::memory_query::Page),
+    MemoryReview(crate::memory_governance::ReviewView),
+    MemoryReviewed(crate::memory_governance::ReviewResult),
     Events(EventBatch),
     Gap(EventGap),
     Export(ExportView),
