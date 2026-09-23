@@ -1,6 +1,6 @@
 # 15 — Integrated qualification and native Windows release
 
-Status: P5-08 complete with [integrated native memory evidence](../evaluations/p5-08-integrated-memory.md). P8-01 through P8-04 now have an executable matrix, an unsigned Windows distribution candidate and [partial native qualification](../evaluations/p8-native-qualification-2026-09-22.md); clean-machine, second-machine recovery and full integrated acceptance remain open. On September 22 the owner directed this continuation to skip machine handoff and validate on the current workstation; independent-machine and clean-OS evidence remain explicitly not run. P8-06 is complete with the [bounded upstream maintenance rehearsal](../evaluations/p8-upstream-maintenance-2026-09-22.md); P8-05 human acceptance remains open. This file contains two stages: memory qualification before P6-04, then final integration after all required CLI features. Do not require the entire file to finish before routing development.
+Status: P5-08 and P8-06 complete by their recorded qualification. P8-01 through P8-05 closed on September 23 by [owner-directed closure](../adr/042-owner-directed-p8-closure.md), with outstanding evidence gaps explicitly retained. P9 is next; no failed or unexecuted check is relabeled passed. The sections below preserve the qualification contract and historical observations.
 
 Use the [qualification and release design](../architecture/qualification-release-design.md) for executable harness, fault-oracle, package and evidence contracts. [ADR-012](../adr/012-clients-and-distribution.md) owns client/platform sequencing, [ADR-018](../adr/018-release-acceptance.md) records the complete usable-release gate, and [ADR-019](../adr/019-cloud-encryption-and-keys.md) retains the still-unqualified crypto choices. Architecture [section 20](../architecture/vcp-what.md#20-testing-evaluation-and-performance) supplies the quality and invariant authority.
 
@@ -179,6 +179,9 @@ Choose the representative update and affected contracts before patching. Record 
 Keep pre-existing upstream failures distinct from new regressions and intentional VCP differences. Inspect effect inventories for newly introduced retry, credential, network or telemetry paths. Update notices and model/native asset inventory with source changes. A smaller patch is useful only if the single controller, authority and accounting contracts still hold.
 
 ## P8-05 — Owner acceptance and release evaluation
+
+Current disposition: closed by [owner-directed closure](../adr/042-owner-directed-p8-closure.md). The remaining
+qualification and scoring gaps below are retained limitations, not P9 blockers.
 
 The [qualification follow-up](../evaluations/p8-qualification-followup-2026-09-22.md)
 tracks the restore/startup corrections and authorized bounded owner execution.

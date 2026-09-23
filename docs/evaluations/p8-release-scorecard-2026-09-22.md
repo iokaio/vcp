@@ -1,6 +1,8 @@
 # P8 release readiness scorecard — 2026-09-22
 
-**Release disposition: incomplete; owner acceptance not recorded.** This P8-05
+**Current milestone disposition:** P8 closed by [owner direction on September 23](../adr/042-owner-directed-p8-closure.md); P9 may proceed. Release qualification remains incomplete, and the historical measurements below are unchanged.
+
+**Historical release disposition (September 22): incomplete; owner acceptance not recorded.** This P8-05
 preparation increment closes two missing native command receipts, reconciles
 P8-01–04 acceptance, and supplies an [owner packet](p8-owner-acceptance-package-2026-09-22.md).
 It does not complete P8-05. The [gap report](p8-acceptance-gaps-2026-09-22.md)

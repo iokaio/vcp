@@ -1,5 +1,9 @@
 # VCP implementation and testing plan
 
+Current progression (September 23): P8 is closed by
+[owner direction](../adr/042-owner-directed-p8-closure.md), with its recorded
+qualification gaps retained. Continue P9-01 → P9-02 → P9-03 → P4-01.
+
 Plan revision 14 — September 21, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded
 qualification already completed from remaining product implementation. Explicit
