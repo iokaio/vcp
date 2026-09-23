@@ -7,6 +7,10 @@ use std::io::{self, Write};
 // Windows/Linux checkouts without blessing a stale exporter after source edits.
 const SOURCES: &[(&str, &str)] = &[
     (
+        "src/crates/vcp-protocol/src/memory_query.rs",
+        include_str!("../memory_query.rs"),
+    ),
+    (
         "src/crates/vcp-protocol/src/memory.rs",
         include_str!("../memory.rs"),
     ),

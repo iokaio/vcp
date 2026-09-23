@@ -258,6 +258,26 @@ async fn recent_overlay_recalls_new_claims_with_current_scope_and_return_fences(
             assert!(result.degraded.contains(&"recent_overlay_lexical_only"));
             assert_eq!(result.degraded.contains(&"recent_overlay_bounded"), bounded);
             assert!(result.degraded.contains(&"minimum_sequence_unsatisfied"));
+            assert_eq!(result.truncated, bounded);
+            let mut one = query_request.clone();
+            one.text = String::new();
+            one.results = 1;
+            let limited = query(
+                &store,
+                &access,
+                Some(&view),
+                &one,
+                &[],
+                &chunker,
+                None,
+                &|| false,
+            )
+            .unwrap();
+            assert_eq!(limited.passages.len(), 1);
+            assert!(
+                limited.truncated,
+                "published plus recent claims exceed the one-result ceiling"
+            );
             revalidate_fence(&store, &access, result.fence.as_ref().unwrap()).unwrap();
             let narrowed = Access {
                 tasks: Some(BTreeSet::from([scope.task.clone()])),
@@ -339,6 +359,43 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
         let recovery = publisher.recover(&store, &access).unwrap();
         let view = recovery.view.as_ref().unwrap();
         let query_request = request(&scope);
+        {
+            let narrowed = Access {
+                workspace: access.workspace.clone(),
+                actor: access.actor.clone(),
+                authority: access.authority,
+                read: true,
+                write: false,
+                tasks: Some(BTreeSet::from([scope.task.clone()])),
+            };
+            let snapshot = store.snapshot().unwrap();
+            assert!(
+                publisher.recover_snapshot(&snapshot, &narrowed).is_err(),
+                "scoped query does not gain a broad component View"
+            );
+            let broad = capture(&store, &access, &query_request, &[], &chunker, &|| false).unwrap();
+            assert!(
+                publisher
+                    .search_captured_with_check(&narrowed, broad, &|| Ok(()))
+                    .is_err(),
+                "broad capture cannot cross a narrow reader"
+            );
+            let scoped =
+                capture(&store, &narrowed, &query_request, &[], &chunker, &|| false).unwrap();
+            let selected = publisher
+                .search_captured_with_check(&narrowed, scoped, &|| Ok(()))
+                .unwrap();
+            let page = finish(&store, &narrowed, selected, &|| false).unwrap();
+            assert_eq!(page.passages.len(), 1);
+            assert_eq!(page.passages[0].scope.task, scope.task);
+            let mut foreign_actor = narrowed;
+            foreign_actor.actor = ActorId::parse("foreign-actor").unwrap();
+            let scoped =
+                capture(&store, &access, &query_request, &[], &chunker, &|| false).unwrap();
+            assert!(publisher
+                .search_captured_with_check(&foreign_actor, scoped, &|| Ok(()))
+                .is_err());
+        }
         let checkpoints = std::cell::Cell::new(0usize);
         let interrupt = || {
             checkpoints.set(checkpoints.get() + 1);
@@ -372,6 +429,42 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
         )
         .unwrap();
         assert_eq!(result.passages.len(), 1);
+        assert!(
+            !result.truncated,
+            "lexical-only or generation diagnostics do not invent budget truncation"
+        );
+        let mut exact_limit = query_request.clone();
+        exact_limit.results = 1;
+        let exact = query(
+            &store,
+            &access,
+            Some(view),
+            &exact_limit,
+            &[],
+            &chunker,
+            None,
+            &|| false,
+        )
+        .unwrap();
+        assert_eq!(exact.passages.len(), 1);
+        assert!(
+            !exact.truncated,
+            "exactly filling a result limit is not itself truncation"
+        );
+        let mut no_room = query_request.clone();
+        no_room.tokens = 2;
+        let omitted = query(
+            &store,
+            &access,
+            Some(view),
+            &no_room,
+            &[],
+            &chunker,
+            None,
+            &|| false,
+        )
+        .unwrap();
+        assert!(omitted.passages.is_empty() && omitted.truncated);
         assert!(result.passages[0].text.contains("retained-preference-only"));
         assert_eq!(result.passages[0].evidence_status, EvidenceStatus::Observed);
         assert!(result.degraded.contains(&"minimum_sequence_unsatisfied"));
@@ -442,6 +535,7 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
         .unwrap();
         assert_eq!(trimmed.passages.len(), 1);
         assert!(trimmed.passages[0].trimmed);
+        assert!(trimmed.truncated);
         assert_eq!(trimmed.passages[0].status, result.passages[0].status);
         assert_eq!(trimmed.passages[0].source, result.passages[0].source);
         assert!(trimmed.token_upper_bound <= trimmed_request.tokens);

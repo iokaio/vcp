@@ -40,6 +40,61 @@ impl Drop for CancelInspection {
 }
 use vcp_memory::{publication::Publisher, retrieval, search_record::ChunkerSpec};
 
+/// Search-only failure classification; no public wire types cross this seam.
+#[derive(Debug)]
+pub(super) enum SearchError {
+    Memory(vcp_memory::Error),
+    Resource,
+    Worker,
+}
+impl std::fmt::Display for SearchError {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Memory(e) => write!(out, "{e}"),
+            Self::Resource => out.write_str("memory inspection resources unavailable"),
+            Self::Worker => out.write_str("memory inspection worker failed"),
+        }
+    }
+}
+pub(super) async fn search_captured(
+    captured: retrieval::Capture,
+    access: vcp_memory::access::Access,
+    directory: std::path::PathBuf,
+    stopped: Arc<dyn Fn() -> bool + Send + Sync>,
+) -> std::result::Result<retrieval::Selection, SearchError> {
+    tokio::task::spawn_blocking(move || {
+        let check = || {
+            if stopped() {
+                Err(vcp_memory::Error::Conflict("memory inspection interrupted"))
+            } else {
+                Ok(())
+            }
+        };
+        check().map_err(SearchError::Memory)?;
+        let _permit = super::memory_vectors::admission()
+            .map_err(|_| SearchError::Resource)?
+            .acquire(vcp_memory::local_resources::Workload {
+                rows: 1024,
+                source_bytes: 0,
+                batch: 1,
+                load_model: false,
+            })
+            .map_err(|_| SearchError::Resource)?;
+        let publisher = match std::fs::symlink_metadata(&directory) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return Err(SearchError::Worker),
+            Ok(_) => Some(Publisher::open_existing(&directory).map_err(SearchError::Memory)?),
+        };
+        match publisher {
+            Some(publisher) => publisher.search_captured_with_check(&access, captured, &check),
+            None => retrieval::search(captured, None, None, &|| stopped()),
+        }
+        .map_err(SearchError::Memory)
+    })
+    .await
+    .map_err(|_| SearchError::Worker)?
+}
+
 impl CanonicalHost {
     pub async fn inspect_memory(
         &self,
@@ -51,7 +106,7 @@ impl CanonicalHost {
         let capture_worker = self.worker.clone();
         // Inspection is allowed while the owner is paused. Read authorization is
         // checked by capture/finish, independently of task execution admission.
-        let (captured, snapshot, access, directory, sources) = self.worker.run(move |context| {
+        let (captured, access, directory, sources) = self.worker.run(move |context| {
             let mut access = context.memory_access();
             access.write = false;
             let check = || {
@@ -75,7 +130,6 @@ impl CanonicalHost {
             )?;
             Ok((
                 captured,
-                context.engine.store().snapshot()?,
                 access,
                 context.config.canonical_root.join("search-generations"),
                 bindings,
@@ -83,49 +137,14 @@ impl CanonicalHost {
         })?;
         let search_control = control.clone();
         let search_worker = self.worker.clone();
-        let selected = tokio::task::spawn_blocking(move || -> Result<_, String> {
-            let check = || {
-                search_control.check()?;
-                if search_worker.fenced() {
-                    return Err(vcp_memory::Error::Conflict(
-                        "memory inspection owner closed",
-                    ));
-                }
-                Ok(())
-            };
-            check().map_err(|e| e.to_string())?;
-            // Immediate admission, no maintenance wait queue. This bounded
-            // read has no durable resource receipt, preserving read-only state.
-            let _permit = super::memory_vectors::admission()?.acquire(
-                vcp_memory::local_resources::Workload {
-                    rows: 1024,
-                    source_bytes: 0,
-                    batch: 1,
-                    load_model: false,
-                },
-            )?;
-            let publisher = match std::fs::symlink_metadata(&directory) {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => return Err(error.to_string()),
-                Ok(_) => Some(Publisher::open_existing(&directory).map_err(|e| e.to_string())?),
-            };
-            let recovery = publisher
-                .as_ref()
-                .map(|p| p.recover_snapshot_with_check(&snapshot, &access, &check))
-                .transpose()
-                .map_err(|e| e.to_string())?;
-            // Both manager and View share the canonical-root reader registry;
-            // the retained View pin outlives all native candidate operations.
-            retrieval::search(
-                captured,
-                recovery.as_ref().and_then(|r| r.view.as_ref()),
-                None,
-                &|| check().is_err(),
-            )
-            .map_err(|e| e.to_string())
-        })
+        let selected = search_captured(
+            captured,
+            access,
+            directory,
+            Arc::new(move || search_control.stopped() || search_worker.fenced()),
+        )
         .await
-        .map_err(|_| "memory inspection worker failed")??;
+        .map_err(|e| e.to_string())?;
         let finish_worker = self.worker.clone();
         self.worker.run(move |context| {
             let stopped = || control.stopped() || finish_worker.fenced();

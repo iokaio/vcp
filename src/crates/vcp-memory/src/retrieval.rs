@@ -214,6 +214,8 @@ pub struct Response {
     pub generation_watermark: Option<Watermark>,
     pub indexed_sequence: MemorySeq,
     pub rebuild_required: bool,
+    /// A candidate, inventory, result or materialization budget curtailed this search.
+    pub truncated: bool,
     /// Fixed codes only: denied names, IDs and text never become diagnostics.
     pub degraded: Vec<&'static str>,
     pub passages: Vec<Passage>,
@@ -276,6 +278,22 @@ pub struct Capture {
     tasks: Option<BTreeSet<TaskId>>,
     inventory: Option<search_record::Inventory>,
     _snapshot: vcp_store::Snapshot,
+}
+impl Capture {
+    pub(crate) fn check_reader(&self, access: &Access) -> Result<()> {
+        if !access.read
+            || self.workspace.id != access.workspace
+            || self.actor != access.actor
+            || self.workspace.authority != access.authority
+            || self.tasks != narrow_tasks(access, &self.request)
+        {
+            return Err(Error::Access);
+        }
+        Ok(())
+    }
+    pub(crate) fn captured_state(&self) -> &vcp_store::contract::State {
+        self._snapshot.state()
+    }
 }
 /// Opaque candidate IDs and scores; only finish() can turn these into passages.
 /// The captured access scope can be narrowed later but cannot be expanded.
@@ -375,6 +393,7 @@ pub fn search(
         generation_watermark: None,
         indexed_sequence: MemorySeq::ZERO,
         rebuild_required: false,
+        truncated: false,
         degraded: vec![],
         passages: vec![],
         token_upper_bound: 2,
@@ -440,6 +459,7 @@ pub fn search(
         .any(|e| e.reason.contains("limit"))
     {
         response.degraded.push("canonical_inventory_bounded");
+        response.truncated = true;
         response.rebuild_required = true;
     }
     let published: BTreeSet<_> = view
@@ -457,6 +477,7 @@ pub fn search(
     )?;
     if overlay.through < current.watermark {
         response.degraded.push("recent_overlay_bounded");
+        response.truncated = true;
     }
     let recent: Vec<_> = overlay
         .records
@@ -494,6 +515,7 @@ pub fn search(
     )?;
     if lexical.len() == 100 {
         response.degraded.push("lexical_candidate_bound");
+        response.truncated = true;
     }
     let lexical: Vec<_> = lexical
         .into_iter()
@@ -519,10 +541,16 @@ pub fn search(
             64,
             &stop_native,
         )?;
+        if candidates.rows.len() == 64 {
+            response.truncated = true;
+        }
         match candidates.mode {
             vector::Mode::Ann => (),
             vector::Mode::ExactAuthorizedSubset => response.degraded.push("bounded_exact_subset"),
-            vector::Mode::ReducedRecall => response.degraded.push("vector_reduced_recall"),
+            vector::Mode::ReducedRecall => {
+                response.degraded.push("vector_reduced_recall");
+                response.truncated = true;
+            }
         }
         candidates.rows
     } else {
@@ -541,6 +569,7 @@ pub fn search(
         if overlay_started.elapsed() >= Duration::from_millis(50) {
             if !response.degraded.contains(&"recent_overlay_bounded") {
                 response.degraded.push("recent_overlay_bounded");
+                response.truncated = true;
             }
             break;
         }
@@ -571,6 +600,7 @@ pub fn search(
     overlay_matches.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
     if overlay_matches.len() > 100 {
         response.degraded.push("recent_overlay_candidate_bound");
+        response.truncated = true;
     }
     for (position, (id, score)) in overlay_matches.into_iter().take(100).enumerate() {
         let rank = position + 1;
@@ -666,6 +696,7 @@ pub fn finish(
         response.rebuild_required = true;
         if !response.degraded.contains(&"canonical_inventory_bounded") {
             response.degraded.push("canonical_inventory_bounded");
+            response.truncated = true;
         }
     }
     let records: BTreeMap<_, _> = fresh
@@ -686,14 +717,15 @@ pub fn finish(
     let mut used = 2; // JSON array brackets; each later passage adds a comma.
     for rank in ranked {
         checkpoint(start, request, cancelled)?;
-        if response.passages.len() >= request.results {
-            break;
-        }
         let Some(record) = records.get(&rank.id) else {
             continue;
         };
         if response.passages.iter().any(|left| overlaps(left, record)) {
             continue;
+        }
+        if response.passages.len() >= request.results {
+            response.truncated = true;
+            break;
         }
         let evidence = match &record.source {
             TextSource::Artifact { id } => vec![id.clone()],
@@ -735,9 +767,12 @@ pub fn finish(
                 .min(request.tokens)
                 .saturating_sub(used + separator),
         )? {
+            response.truncated |= passage.trimmed;
             used += bytes + separator;
             selected.push(source_fence(record));
             response.passages.push(passage);
+        } else {
+            response.truncated = true;
         }
     }
     checkpoint(start, request, cancelled)?;

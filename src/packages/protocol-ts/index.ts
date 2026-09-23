@@ -94,6 +94,8 @@ export type ExecutionHost = { "id": string; "platform": string; };
 
 export type ExportView = { "artifact": Id; "complete": boolean; "scope": Scope; "visibility_manifest": Id; };
 
+export type Finding = { "content": string; "end": Counter; "evidence": Array<Id>; "evidence_status": EvidenceStatus; "outcome": Outcome; "rank": number; "record_id": string; "root": Id; "source": Source; "source_sha256": string; "start": Counter; "trimmed": boolean; };
+
 export type GapReason = (("retention_changed" | "authority_changed" | "cursor_expired" | "sequence_unavailable" | "slow_consumer") & string);
 
 export type Id = string;
@@ -132,6 +134,8 @@ export type OperationOutcome = (("accepted" | "waiting_for_input" | "partial" | 
 
 export type Outcome = (("accepted" | "disputed" | "rejected" | "awaiting_review") & string);
 
+export type Page = { "canonical_watermark": Counter; "complete": boolean; "degraded": Array<string>; "findings": Array<Finding>; "generation"?: (Id | null); "generation_watermark"?: (Counter | null); "rebuild_required": boolean; "scope": Scope; "sequence": Counter; "task": Id; "truncated": boolean; };
+
 export type PendingInput = { "effect_revision"?: (Counter | null); "id": Id; "kind": InputKind; "operation_digest"?: (string | null); "policy_revision"?: (Counter | null); "revision": Counter; };
 
 export type RequestEnvelope = { "id"?: RequestId; "jsonrpc": JsonRpcVersion; "method": string; "params"?: WireParams; };
@@ -142,7 +146,7 @@ export type Resolution = { "conflicts": Array<Id>; "evidence_status": EvidenceSt
 
 export type ResultEnvelope = { "id": RequestId; "jsonrpc": JsonRpcVersion; "result": unknown; };
 
-export type ResultValue = ({ "kind": ("snapshot" & string); "value": SessionSnapshot; } | { "kind": ("controller" & string); "value": ControllerView; } | { "kind": ("workspace" & string); "value": WorkspaceView; } | { "kind": ("session" & string); "value": SessionView; } | { "kind": ("sessions" & string); "value": SessionPage; } | { "kind": ("task" & string); "value": TaskView; } | { "kind": ("acceptance" & string); "value": Acceptance; } | { "kind": ("usage" & string); "value": UsageView; } | { "kind": ("artifact" & string); "value": ArtifactRange; } | { "kind": ("evidence" & string); "value": EvidencePage; } | { "kind": ("memory" & string); "value": MemoryPage; } | { "kind": ("events" & string); "value": EventBatch; } | { "kind": ("gap" & string); "value": EventGap; } | { "kind": ("export" & string); "value": ExportView; } | { "kind": ("unsubscribed" & string); "value": { "subscription": Id; }; });
+export type ResultValue = ({ "kind": ("snapshot" & string); "value": SessionSnapshot; } | { "kind": ("controller" & string); "value": ControllerView; } | { "kind": ("workspace" & string); "value": WorkspaceView; } | { "kind": ("session" & string); "value": SessionView; } | { "kind": ("sessions" & string); "value": SessionPage; } | { "kind": ("task" & string); "value": TaskView; } | { "kind": ("acceptance" & string); "value": Acceptance; } | { "kind": ("usage" & string); "value": UsageView; } | { "kind": ("artifact" & string); "value": ArtifactRange; } | { "kind": ("evidence" & string); "value": EvidencePage; } | { "kind": ("memory" & string); "value": MemoryPage; } | { "kind": ("memory_query" & string); "value": Page; } | { "kind": ("events" & string); "value": EventBatch; } | { "kind": ("gap" & string); "value": EventGap; } | { "kind": ("export" & string); "value": ExportView; } | { "kind": ("unsubscribed" & string); "value": { "subscription": Id; }; });
 
 export type Retry = ((("never" | "after_input" | "after_revalidation") & string) | ("reconcile_original" & string));
 
@@ -169,6 +173,8 @@ export type SessionSnapshot = { "complete": boolean; "event_cursor": string; "ne
 export type SessionSnapshotRead = { "cursor"?: (string | null); "limit": number; "scope": Scope; };
 
 export type SessionView = { "configuration_revision": Counter; "fork_origin"?: (Id | null); "fork_through"?: (Id | null); "revision": Counter; "scope": Scope; };
+
+export type Source = ({ "artifact": Id; "kind": ("artifact" & string); } | { "claim": Id; "kind": ("claim" & string); "version": Id; });
 
 export type TaskCancel = { "mutation": Mutation; "reason": string; "scope": Scope; "task": Id; };
 
