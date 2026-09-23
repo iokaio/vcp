@@ -87,6 +87,12 @@ these new measurements or candidate sources.
 3. Route model-assisted compaction through the model gateway and budget ledger. Store summary inputs/output/evidence and version; deterministic summarization can be local where appropriate.
 4. Form explicit handoff packets with scope, current state, references, remaining budget and compatible tool-call/result pairs. Record discarded provider-specific opaque fields rather than inventing missing reasoning.
 
+Coding context also captures the existing shared-root request allowance before
+admission, including the receiving request in the remaining count. This observed
+snapshot cannot reserve or expand authority; canonical admission remains the
+gate. The [request-allowance follow-up](../evaluations/p8-request-allowance-2026-09-23.md)
+records retry/reopen provenance and the unchanged shared-root limit.
+
 Implement an invalidation table rather than a single “context dirty” flag:
 
 | Change | Required action |

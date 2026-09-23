@@ -135,6 +135,7 @@ async fn coding_context_lists_only_public_process_invocation_metadata() {
             .unwrap();
             coding_turn(&test, backend, "public-process-metadata").await;
             let requests = observed.lock().unwrap().clone();
+            assert_allowance(&host, &requests[0], &config.root_task, 2, 0);
             assert_eq!(requests.len(), 1);
             let operating = requests[0]["input"]
                 .as_array()
@@ -446,6 +447,15 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             };
             assert_eq!(count.load(Ordering::SeqCst), expected, "{backend:?} {mode}");
             let requests = observed.lock().unwrap().clone();
+            for (used, request) in requests.iter().enumerate() {
+                assert_allowance(
+                    &host,
+                    request,
+                    &config.root_task,
+                    if mode == "limit" { 2 } else { 8 },
+                    used,
+                );
+            }
             assert_eq!(requests[0]["parallel_tool_calls"], true);
             if mode == "complete" {
                 let input = requests[1]["input"].as_array().unwrap();
@@ -701,6 +711,10 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 coding_turn(&test, backend, "reopen").await;
                 assert_eq!(count.load(Ordering::SeqCst), 6);
                 let request = observed.lock().unwrap()[5].clone();
+                let (allowance, _) = request_allowance(&request);
+                assert_eq!(allowance["max_requests"], 6);
+                assert_eq!(allowance["requests_used"], 5);
+                assert_eq!(allowance["requests_remaining_including_this_request"], 1);
                 assert!(request
                     .to_string()
                     .contains("instruction version three after reopen"));
@@ -781,6 +795,59 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             }
         }
     }
+}
+
+pub(super) fn request_allowance(request: &serde_json::Value) -> (serde_json::Value, String) {
+    let found: Vec<_> = request["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["type"] == "message")
+        .flat_map(|item| item["content"].as_array().unwrap())
+        .filter_map(|content| {
+            let text = content["text"].as_str()?;
+            let part: serde_json::Value = serde_json::from_str(text).ok()?;
+            let text = part["text"].as_str()?;
+            let value: serde_json::Value = serde_json::from_str(text).ok()?;
+            (value["kind"] == "canonical_root_request_allowance").then(|| (value, text.to_owned()))
+        })
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "one fresh allowance observation per request"
+    );
+    found.into_iter().next().unwrap()
+}
+
+fn assert_allowance(
+    host: &CanonicalHost,
+    request: &serde_json::Value,
+    root: &TaskId,
+    limit: usize,
+    used: usize,
+) {
+    let (allowance, text) = request_allowance(request);
+    assert_eq!(allowance["root"], root.as_str());
+    assert_eq!(allowance["max_requests"], limit);
+    assert_eq!(allowance["requests_used"], used);
+    assert_eq!(
+        allowance["requests_remaining_including_this_request"],
+        limit - used
+    );
+    let digest = vcp_protocol::digest_bytes(text.as_bytes());
+    assert!(
+        host.snapshot()
+            .unwrap()
+            .records
+            .values()
+            .filter(|record| record.collection == Collection::Artifact)
+            .map(|record| record.decode::<ArtifactDescriptor>().unwrap())
+            .any(|descriptor| descriptor.sha256 == digest
+                && descriptor.spec.schema == "canonical-coding-content/1"
+                && descriptor.state == CaptureState::Complete),
+        "model-visible allowance must have canonical captured provenance"
+    );
 }
 
 async fn coding_turn(test: &TestCodex, backend: BackendKind, mode: &str) {
