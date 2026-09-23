@@ -181,6 +181,8 @@ pub struct Context {
     provider_required: bool,
     provider: Option<provider::Provider>,
     routing: Option<routing::Runtime>,
+    #[cfg(feature = "qualification")]
+    pub(super) model_dispatch_observer: Option<super::model_dispatch_qualification::Observer>,
     #[cfg(windows)]
     decisions: decision::Runtime,
     #[cfg(windows)]
@@ -278,7 +280,32 @@ impl Context {
             write: true,
             bootstrap: true,
         };
-        let interrupted_capture = !engine.store().spool().unfinished()?.is_empty();
+        // A deliberately stopped process can retain an acknowledged partial
+        // stdout/stderr/transcript. It is history, not an interrupted capture
+        // transaction. Only that exact terminal descriptor can clear this
+        // startup guard; pending, failed, provider and unacknowledged captures
+        // still require reconciliation.
+        let interrupted_capture = engine.store().spool().unfinished()?.iter().any(|physical| {
+            physical.state != CaptureState::Aborted
+                || physical.spec.schema != "retained-full-output/1"
+                || !matches!(
+                    physical.spec.channel,
+                    Channel::Stdout | Channel::Stderr | Channel::ChildTranscript
+                )
+                || physical.spec.omissions.contains(&Omission::CaptureFailure)
+                || engine
+                    .store()
+                    .state()
+                    .record(
+                        Collection::Artifact,
+                        physical.spec.id.as_str(),
+                        &physical.spec.scope.workspace,
+                    )
+                    .ok()
+                    .and_then(|record| record.decode::<ArtifactDescriptor>().ok())
+                    .as_ref()
+                    != Some(physical)
+        });
         let provider_required = engine
             .store()
             .state()
@@ -300,6 +327,8 @@ impl Context {
             provider_required,
             provider: None,
             routing: None,
+            #[cfg(feature = "qualification")]
+            model_dispatch_observer: None,
             #[cfg(windows)]
             decisions: decision::Runtime::default(),
             #[cfg(windows)]
@@ -1077,6 +1106,11 @@ impl Context {
         let (deadline, retries) = retry.map_or((deadline, 0), |r| (Some(r.deadline), r.count));
         #[cfg(windows)]
         self.seed_decision_shadow(binding, &attempt);
+        #[cfg(feature = "qualification")]
+        self.qualification_model_dispatch_point(
+            super::model_dispatch_qualification::Point::BeforeTransport,
+            &attempt.id,
+        )?;
         Ok((attempt.id, body, deadline, retries))
     }
     pub fn response_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {

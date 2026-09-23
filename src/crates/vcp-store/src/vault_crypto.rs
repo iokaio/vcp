@@ -98,13 +98,28 @@ pub struct Restored {
 struct BoundedOutput {
     file: File,
     remaining: usize,
+    #[cfg(feature = "qualification")]
+    storage_full_after: Option<usize>,
 }
 impl Write for BoundedOutput {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        #[cfg(feature = "qualification")]
+        if self.storage_full_after == Some(0) {
+            return Err(std::io::ErrorKind::StorageFull.into());
+        }
         if bytes.len() > self.remaining {
             return Err(std::io::Error::other("ciphertext output limit"));
         }
+        #[cfg(feature = "qualification")]
+        let bytes = &bytes[..self
+            .storage_full_after
+            .unwrap_or(bytes.len())
+            .min(bytes.len())];
         let count = self.file.write(bytes)?;
+        #[cfg(feature = "qualification")]
+        if let Some(remaining) = &mut self.storage_full_after {
+            *remaining -= count;
+        }
         self.remaining -= count;
         Ok(count)
     }
@@ -147,12 +162,23 @@ fn regular(path: &Path) -> Result<()> {
 /// Checking this capability is not universal synchronization-program detection.
 pub struct PrivateStaging {
     directory: Arc<Directory>,
+    #[cfg(feature = "qualification")]
+    storage_full_after: Option<usize>,
 }
 impl PrivateStaging {
     pub fn open(directory: &Path, forbidden_roots: &[PathBuf]) -> Result<Self> {
         Ok(Self {
             directory: Arc::new(Directory::open(directory, forbidden_roots)?),
+            #[cfg(feature = "qualification")]
+            storage_full_after: None,
         })
+    }
+
+    /// Inject an I/O StorageFull after a bounded encrypted-file prefix. This is
+    /// qualification evidence for failure handling, not physical volume exhaustion.
+    #[cfg(feature = "qualification")]
+    pub fn qualify_storage_full_after(&mut self, bytes: Option<usize>) {
+        self.storage_full_after = bytes;
     }
 }
 
@@ -301,6 +327,8 @@ pub fn encrypt(
         .wrap_output(BoundedOutput {
             file,
             remaining: limits.ciphertext_bytes,
+            #[cfg(feature = "qualification")]
+            storage_full_after: staging.storage_full_after,
         })
         .map_err(|_| Error::Unavailable("ciphertext initialization failed"))?;
     encoder

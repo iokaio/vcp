@@ -81,6 +81,15 @@ unfinished objects even without a final canonical error event. Configured sync
 destinations are rejected before creating plaintext. Unconfigured third-party
 synchronization cannot be inferred from folder names.
 
+A deliberately stopped process can leave sealed partial stdout, stderr or child
+transcript bytes. Reopen permits new capture when that `retained-full-output/1`
+descriptor exactly matches its canonical acknowledgement and has no capture
+failure omission; the prior output remains explicitly aborted. Pending,
+unacknowledged, mismatched, failed and provider captures still fence admission.
+This does not settle uncertain effects or grant authority to replay them. The
+[P8-03 regression evidence](../evaluations/p8-history-security-followup-2026-09-22.md)
+records this distinction across both stores.
+
 Canonical format 1 uses bounded transactions (8 MiB), records (1 MiB), 100,000
 records and a 64 MiB materialized logical view. Reaching a bound returns a typed
 limit error; it never prunes work history. Capacity expansion requires an explicit

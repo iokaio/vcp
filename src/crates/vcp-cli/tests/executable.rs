@@ -10,8 +10,12 @@ mod packaged_crypto;
 mod packaged_history;
 #[path = "support/packaged_long_check.rs"]
 mod packaged_long_check;
+#[path = "support/packaged_mcp_history.rs"]
+mod packaged_mcp_history;
 #[path = "support/packaged_mcp_preflight.rs"]
 mod packaged_mcp_preflight;
+#[path = "support/packaged_sensitive_surfaces.rs"]
+mod packaged_sensitive_surfaces;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,

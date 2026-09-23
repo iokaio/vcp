@@ -72,8 +72,13 @@ For each supported environment run explicit `/pause`, inspect state while the CL
 The [local boundary audit](../evaluations/p8-local-recovery-boundary-map-2026-09-22.md)
 maps retained receipts before selecting the
 [bounded recovery increment](../evaluations/p8-local-recovery-increment-2026-09-22.md).
-Its limited native fault evidence supplements the existing matrix; broader
-recovery and production-package acceptance remain open.
+The [remaining local recovery increment](../evaluations/p8-local-recovery-followup-2026-09-22.md)
+adds forty independently observed process kills, bounded capacity failures,
+offline divergence, native/MCP content authority and an interrupted platform
+cloud-hydration helper followed by exact-package VCP restore and reopen. Its
+finite schedule supplements the existing matrix; physical-volume exhaustion,
+interruption while VCP restore itself is active and production-package acceptance
+remain open. Machine handoff stays owner-skipped.
 
 Apply [CR-10a / CC-08](22-cursor-improvements.md#cr-10a--qualify-existing-trust-boundaries)
 to the integrated native-tool, MCP and child paths. Exercise unsafe outside-root
@@ -97,6 +102,15 @@ On reopen, compare canonical records and complete artifact references with the a
 Start with every boundary individually, then combine selected realistic sequences such as pause during child output followed by backup copy interruption. Do not claim exhaustive interleavings. Keep failing seeds/barriers as repeatable regression cases; never repair a recovery run by deleting its data root.
 
 ## P8-03 — Full-history and encryption review
+
+The [local history/security follow-up](../evaluations/p8-history-security-followup-2026-09-22.md)
+records the sensitive-surface audit, packaged MCP compaction/reopen schedule,
+independent cryptographic verification and exact candidate identities. The MCP
+schedule exposed a startup defect: acknowledged partial process output was
+treated as an unresolved capture. The correction distinguishes verified,
+canonically acknowledged partial output from captures that must remain fenced.
+Execution status and remaining release limits are recorded in that report and
+its [surface map](../evaluations/p8-sensitive-surface-map-2026-09-22.md).
 
 Cover any records/artifacts added by the
 [selected workflow refinements](20-traceability.md#developer-workflow-follow-up-readiness):

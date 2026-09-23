@@ -20,6 +20,33 @@ use vcp_protocol::{canonical_bytes, digest_bytes};
 
 const MAX_ENTRIES: usize = 32;
 const MAX_CIPHERTEXT: usize = 65 * 1024 * 1024;
+
+#[cfg(feature = "qualification")]
+thread_local! {
+    static PRIVATE_WRITE_FAULT: std::cell::RefCell<Option<(PathBuf, usize)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Scoped qualification-only fault, confined to this thread and one exact path.
+/// It writes a bounded private prefix before returning injected StorageFull.
+#[cfg(feature = "qualification")]
+pub struct PrivateWriteFault {
+    previous: Option<(PathBuf, usize)>,
+    _thread: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+#[cfg(feature = "qualification")]
+impl Drop for PrivateWriteFault {
+    fn drop(&mut self) {
+        PRIVATE_WRITE_FAULT.with(|fault| *fault.borrow_mut() = self.previous.take());
+    }
+}
+#[cfg(feature = "qualification")]
+pub fn qualify_storage_full_at(path: PathBuf, prefix_bytes: usize) -> PrivateWriteFault {
+    let previous = PRIVATE_WRITE_FAULT.with(|fault| fault.replace(Some((path, prefix_bytes))));
+    PrivateWriteFault {
+        previous,
+        _thread: std::marker::PhantomData,
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stage {
@@ -98,6 +125,16 @@ pub(crate) fn immutable(path: &Path, bytes: &[u8]) -> Result<()> {
         return Err(Error::Conflict("restore private file differs"));
     }
     let temporary = path.with_extension(format!("{}.partial", TransactionId::new()));
+    #[cfg(feature = "qualification")]
+    if let Some(prefix_bytes) = PRIVATE_WRITE_FAULT.with(|fault| {
+        fault
+            .borrow()
+            .as_ref()
+            .and_then(|(target, prefix)| (target == path).then_some(*prefix))
+    }) {
+        private_paths::write_private(&temporary, &bytes[..prefix_bytes.min(bytes.len())])?;
+        return Err(std::io::Error::from(std::io::ErrorKind::StorageFull).into());
+    }
     private_paths::write_private(&temporary, bytes)?;
     if let Err(error) = fs::hard_link(&temporary, path) {
         let _ = fs::remove_file(&temporary);

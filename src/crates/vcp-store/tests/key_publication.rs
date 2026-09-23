@@ -219,6 +219,99 @@ fn rotation_preserves_old_recovery_but_revocation_replay_forks_and_deletion_floo
 }
 
 #[test]
+fn independently_advanced_offline_heads_reject_divergence_without_inventing_global_freshness() {
+    let mut f = fixture();
+    f._temp.disable_cleanup(true);
+    println!(
+        "P8-02 offline divergence evidence: {}",
+        f._temp.path().display()
+    );
+    let (keys, copy) = keys(&f);
+    let mut left = trust(&keys);
+    let mut right = trust(&keys);
+    let mut paths = Vec::new();
+    for (anchor, marker) in [(&mut left, "offline-left"), (&mut right, "offline-right")] {
+        let (manifest, bodies) = payload(marker.as_bytes().to_vec(), 1, None, 3);
+        let mut encrypted = anchor
+            .encrypt(&keys, &f.staging, manifest, bodies, 0, Limits::default())
+            .unwrap();
+        let admitted = anchor.admit(&encrypted, CommandId::new(), 0).unwrap();
+        let published = f
+            .vault
+            .publish(&mut encrypted, &admitted, &|| false, &|_| {})
+            .unwrap();
+        let path = f.vault_path.join(&published.object);
+        let verified = anchor
+            .verify_restore(&path, &copy, Limits::default())
+            .unwrap();
+        anchor.advance_after_restore(&verified, 0).unwrap();
+        paths.push(path);
+    }
+    assert_ne!(
+        left.configuration().checkpoint.parent,
+        right.configuration().checkpoint.parent
+    );
+    assert!(left
+        .verify_restore(&paths[1], &copy, Limits::default())
+        .is_err());
+    assert!(right
+        .verify_restore(&paths[0], &copy, Limits::default())
+        .is_err());
+    // A higher sequence alone cannot overcome a known divergent parent.
+    let (manifest, bodies) = payload(
+        b"right-descendant".to_vec(),
+        2,
+        right.configuration().checkpoint.parent.clone(),
+        3,
+    );
+    let mut encrypted = right
+        .encrypt(
+            &keys,
+            &f.staging,
+            manifest,
+            bodies,
+            right.configuration().revision,
+            Limits::default(),
+        )
+        .unwrap();
+    let admitted = right
+        .admit(&encrypted, CommandId::new(), right.configuration().revision)
+        .unwrap();
+    let published = f
+        .vault
+        .publish(&mut encrypted, &admitted, &|| false, &|_| {})
+        .unwrap();
+    let newer = f.vault_path.join(&published.object);
+    let before = canonical_bytes(left.configuration()).unwrap();
+    assert!(left
+        .verify_restore(&newer, &copy, Limits::default())
+        .is_err());
+    assert_eq!(canonical_bytes(left.configuration()).unwrap(), before);
+    assert!(right
+        .verify_restore(&newer, &copy, Limits::default())
+        .is_ok());
+    let fresh = trust(&keys);
+    assert!(!fresh.configuration().global_newest_known);
+    assert!(fresh
+        .verify_restore(&paths[0], &copy, Limits::default())
+        .is_ok());
+    assert!(fresh
+        .verify_restore(&paths[1], &copy, Limits::default())
+        .is_ok());
+    std::fs::write(
+        f._temp.path().join("offline-result.json"),
+        canonical_bytes(&serde_json::json!({
+            "pass": true, "same_sequence_divergence_refused": true,
+            "higher_sequence_wrong_parent_refused": true, "local_trust_unchanged_on_failure": true,
+            "fresh_offline_global_newest_known": false,
+            "scope": "independent local trust histories; no cloud transport or machine handoff"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
 fn finalized_ciphertext_only_publisher_is_immutable_and_retry_checks_the_exact_owned_object() {
     let f = fixture();
     let (keys, copy) = keys(&f);

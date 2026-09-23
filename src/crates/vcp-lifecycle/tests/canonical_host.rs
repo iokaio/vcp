@@ -14,6 +14,8 @@ use vcp_lifecycle::{
     foundation::{CanonicalHost, Config, ThreadBinding},
     integration::configure_fixture_provider,
 };
+#[path = "support/acknowledged_partial_capture.rs"]
+mod acknowledged_partial_capture;
 #[path = "support/authority_stream.rs"]
 mod authority_stream;
 #[cfg(windows)]
@@ -26,14 +28,14 @@ mod child_agents;
 #[path = "support/child_budget_race.rs"]
 mod child_budget_race;
 #[cfg(windows)]
-#[path = "support/child_graph_dispatch.rs"]
-mod child_graph_dispatch;
-#[cfg(windows)]
 #[path = "support/child_cleanup.rs"]
 mod child_cleanup;
 #[cfg(all(windows, feature = "qualification"))]
 #[path = "support/child_cleanup_receipt_fault.rs"]
 mod child_cleanup_receipt_fault;
+#[cfg(windows)]
+#[path = "support/child_graph_dispatch.rs"]
+mod child_graph_dispatch;
 #[cfg(windows)]
 #[path = "support/child_integration_fault.rs"]
 mod child_integration_fault;
@@ -51,6 +53,9 @@ mod coding;
 #[cfg(windows)]
 #[path = "support/coding_verification.rs"]
 mod coding_verification;
+#[cfg(windows)]
+#[path = "support/content_authority.rs"]
+mod content_authority;
 #[cfg(windows)]
 #[path = "support/context_continuity.rs"]
 mod context_continuity;
@@ -107,6 +112,9 @@ mod mcp_numeric;
 #[cfg(all(windows, feature = "qualification"))]
 #[path = "support/mcp_numeric_coding.rs"]
 mod mcp_numeric_coding;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/mcp_process_kill.rs"]
+mod mcp_process_kill;
 #[path = "support/memory_ingestion.rs"]
 mod memory_ingestion;
 #[cfg(windows)]

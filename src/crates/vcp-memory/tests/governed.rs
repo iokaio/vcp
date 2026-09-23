@@ -2095,6 +2095,22 @@ async fn retention_process_child() {
         Timestamp::new(300),
     )
     .unwrap();
+    if let Some(marker) = std::env::var_os("VCP_PRUNE_SUPERVISOR_MARKER") {
+        let evidence = std::path::PathBuf::from(marker)
+            .parent()
+            .unwrap()
+            .to_owned();
+        std::fs::write(
+            evidence.join("acknowledged.json"),
+            vcp_protocol::canonical_bytes(f.store.state()).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            evidence.join("claim.json"),
+            serde_json::to_vec(&f.proposal.claim).unwrap(),
+        )
+        .unwrap();
+    }
     f.store.observe(std::sync::Arc::new(move |actual| {
         let selected = match phase.as_str() {
             "tombstone" => Barrier::AfterCommit,
@@ -2104,6 +2120,14 @@ async fn retention_process_child() {
             _ => panic!("unknown phase"),
         };
         if actual == selected {
+            if let Some(marker) = std::env::var_os("VCP_PRUNE_SUPERVISOR_MARKER") {
+                use std::io::Write;
+                let mut file = std::fs::File::create(marker).unwrap();
+                file.write_all(phase.as_bytes()).unwrap();
+                file.sync_all().unwrap();
+                std::thread::sleep(std::time::Duration::from_secs(40));
+                panic!("independent prune supervisor did not terminate child");
+            }
             std::process::exit(73)
         }
     }));
@@ -2114,6 +2138,209 @@ async fn retention_process_child() {
         .await
         .unwrap();
     panic!("kill barrier not reached");
+}
+#[cfg(feature = "qualification")]
+#[tokio::test]
+async fn independently_observed_prune_kills_preserve_exclusion_and_exact_cleanup() {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+        time::{Duration, Instant},
+    };
+    use vcp_memory::retention::{self, PruneReceipt};
+    struct Child(std::process::Child);
+    impl Drop for Child {
+        fn drop(&mut self) {
+            if self.0.try_wait().ok().flatten().is_none() {
+                let _ = self.0.kill();
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while Instant::now() < deadline && matches!(self.0.try_wait(), Ok(None)) {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            }
+        }
+    }
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for phase in ["tombstone", "before_activation", "activation", "cleanup"] {
+            let evidence = tempfile::tempdir().unwrap().keep();
+            println!("P8-02 prune {backend:?}/{phase}: {}", evidence.display());
+            let root = evidence.join("canonical");
+            let marker = evidence.join("ready");
+            let mut child = Child(
+                Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "retention_process_child", "--nocapture"])
+                    .env("VCP_PRUNE_CHILD_ROOT", &root)
+                    .env(
+                        "VCP_PRUNE_CHILD_BACKEND",
+                        if backend == BackendKind::Files {
+                            "files"
+                        } else {
+                            "sqlite"
+                        },
+                    )
+                    .env("VCP_PRUNE_CHILD_PHASE", phase)
+                    .env("VCP_PRUNE_SUPERVISOR_MARKER", &marker)
+                    .stdin(Stdio::null())
+                    .stdout(std::fs::File::create(evidence.join("child.log")).unwrap())
+                    .stderr(std::fs::File::create(evidence.join("child.err")).unwrap())
+                    .spawn()
+                    .unwrap(),
+            );
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while std::fs::read_to_string(&marker).ok().as_deref() != Some(phase) {
+                assert!(
+                    child.0.try_wait().unwrap().is_none(),
+                    "child exited before barrier"
+                );
+                assert!(Instant::now() < deadline, "prune barrier deadline");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let mut receipt = std::fs::File::create(evidence.join("supervisor.json")).unwrap();
+            receipt
+                .write_all(
+                    &serde_json::to_vec(&serde_json::json!({
+                        "backend": backend, "barrier": phase, "observed": true,
+                        "prune_acknowledged": false, "child_pid": child.0.id()
+                    }))
+                    .unwrap(),
+                )
+                .unwrap();
+            receipt.sync_all().unwrap();
+            child.0.kill().unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                if let Some(status) = child.0.try_wait().unwrap() {
+                    assert!(!status.success());
+                    break;
+                }
+                assert!(Instant::now() < deadline, "prune child did not exit");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let mut store = Store::open(&root, backend, &[]).await.unwrap();
+            let access = Access {
+                workspace: WorkspaceId::parse("workspace").unwrap(),
+                actor: ActorId::parse("owner").unwrap(),
+                authority: AuthorityRevision::ZERO,
+                read: true,
+                write: true,
+                tasks: None,
+            };
+            let acknowledged: vcp_store::contract::State =
+                serde_json::from_slice(&std::fs::read(evidence.join("acknowledged.json")).unwrap())
+                    .unwrap();
+            for (key, record) in &acknowledged.records {
+                if record.workspace != access.workspace {
+                    assert!(
+                        store.state().records.get(key) == Some(record),
+                        "unselected workspace record changed"
+                    );
+                }
+            }
+            for (id, receipt) in &acknowledged.transactions {
+                assert!(
+                    store.state().transactions.get(id) == Some(receipt),
+                    "acknowledged transaction receipt lost"
+                );
+            }
+            let claim =
+                serde_json::from_slice(&std::fs::read(evidence.join("claim.json")).unwrap())
+                    .unwrap();
+            let hidden = history::query(&store, &access, &claim, None, None).unwrap();
+            assert!(!hidden.versions.is_empty());
+            assert!(hidden
+                .versions
+                .iter()
+                .all(|v| matches!(v.visibility, "pruned" | "purged")
+                    && v.version.is_none()
+                    && v.evidence.is_empty()
+                    && !v.applicable));
+            let job: PruneReceipt = store
+                .state()
+                .records
+                .values()
+                .find(|r| r.value["document_type"] == "vcp_retention_job_v1")
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert!(job.logical_unavailable);
+            let done = retention::cleanup(&mut store, &access, &job.id, Timestamp::new(600))
+                .await
+                .unwrap();
+            assert!(done.local_cleanup_complete);
+            let before_retry = store.state().clone();
+            let retry = retention::cleanup(&mut store, &access, &job.id, Timestamp::new(601))
+                .await
+                .unwrap();
+            assert!(retry.local_cleanup_complete && retry.rewrite_complete);
+            assert_eq!(retry.revision, done.revision.next().unwrap());
+            // Cleanup records each attempt. A retry may append its own receipt,
+            // but cannot change another record or repeat a redaction/rewrite.
+            for (key, record) in &before_retry.records {
+                if record.id != job.id {
+                    assert!(store.state().records.get(key) == Some(record));
+                }
+            }
+            assert!(store.state().events.starts_with(&before_retry.events));
+            for (id, receipt) in &before_retry.transactions {
+                assert!(store.state().transactions.get(id) == Some(receipt));
+            }
+            let state = store.state().clone();
+            store.close().await.unwrap();
+            let reopened = Store::open(&root, backend, &[]).await.unwrap();
+            assert_eq!(reopened.state(), &state);
+            let after_cleanup = history::query(&reopened, &access, &claim, None, None).unwrap();
+            assert_eq!(after_cleanup.versions.len(), hidden.versions.len());
+            assert!(after_cleanup
+                .versions
+                .iter()
+                .all(|v| v.visibility == "purged"
+                    && v.version.is_none()
+                    && v.evidence.is_empty()
+                    && !v.applicable));
+            for (key, record) in &acknowledged.records {
+                if record.workspace != access.workspace {
+                    assert!(
+                        reopened.state().records.get(key) == Some(record),
+                        "unselected workspace changed during cleanup"
+                    );
+                }
+            }
+            for (id, receipt) in &acknowledged.transactions {
+                assert!(
+                    reopened.state().transactions.get(id) == Some(receipt),
+                    "cleanup lost acknowledged receipt"
+                );
+            }
+            reopened.close().await.unwrap();
+            let mut paths = vec![root.clone()];
+            while let Some(path) = paths.pop() {
+                for entry in std::fs::read_dir(path).unwrap() {
+                    let entry = entry.unwrap();
+                    if entry.file_type().unwrap().is_dir() {
+                        paths.push(entry.path());
+                    } else {
+                        let bytes = std::fs::read(entry.path()).unwrap();
+                        assert!(
+                            !bytes
+                                .windows(b"kill-prune-sensitive-marker-2718".len())
+                                .any(|part| part == b"kill-prune-sensitive-marker-2718"),
+                            "purged bytes remain in canonical root"
+                        );
+                    }
+                }
+            }
+            std::fs::write(
+                evidence.join("result.json"),
+                serde_json::to_vec(&serde_json::json!({
+                    "pass": true, "backend": backend, "barrier": phase,
+                    "termination_observed": true, "exclusion_survives": true,
+                    "cleanup_retry_only_appends_its_own_receipt": true
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        }
+    }
 }
 #[cfg(feature = "qualification")]
 #[tokio::test]

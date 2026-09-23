@@ -889,6 +889,11 @@ impl Context {
             return self.unknown(binding, attempt, "provider response omitted observed cost");
         };
         let actor = self.actor();
+        #[cfg(feature = "qualification")]
+        self.qualification_model_dispatch_point(
+            crate::foundation::model_dispatch_qualification::Point::BeforeSettlement,
+            attempt,
+        )?;
         self.runtime.block_on(vcp_budget::observe(
             self.engine.store_mut(),
             UsageObservation {

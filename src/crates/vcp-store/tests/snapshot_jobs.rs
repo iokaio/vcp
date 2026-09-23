@@ -449,7 +449,10 @@ fn snapshot_process_child() {
     let target = std::env::var("VCP_SNAPSHOT_CHILD_PHASE").unwrap();
     let barrier = |phase: &str| {
         if target == phase {
-            std::fs::write(root.join(format!("{phase}.marker")), b"durable").unwrap();
+            use std::io::Write;
+            let mut marker = std::fs::File::create(root.join(format!("{phase}.marker"))).unwrap();
+            marker.write_all(b"durable").unwrap();
+            marker.sync_all().unwrap();
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
@@ -491,19 +494,53 @@ fn snapshot_process_child() {
         if store.state().watermark.get() == 0 {
             store.transact(initial()).await.unwrap();
             let spec = spec();
-            let mut writer = store.spool().create(spec).unwrap();
+            let mut writer = store.spool().create(spec.clone()).unwrap();
             for chunk in b"retained synthetic snapshot source"
                 .repeat(9000)
                 .chunks(vcp_store::artifact::CHUNK_BYTES)
             {
                 writer.write_chunk(chunk).unwrap();
             }
+            if std::env::var_os("VCP_SNAPSHOT_COMBINED_ARTIFACT").is_some() {
+                let pending = store.spool().inspect(&spec.id).unwrap();
+                store
+                    .transact(attach(store.state(), pending, None))
+                    .await
+                    .unwrap();
+            }
             let descriptor = writer.finalize().unwrap();
             drop(writer);
+            if std::env::var_os("VCP_SNAPSHOT_COMBINED_ARTIFACT").is_some() {
+                barrier("artifact_sealed");
+            }
             store
-                .transact(attach(store.state(), descriptor, None))
+                .transact(attach(
+                    store.state(),
+                    descriptor,
+                    std::env::var_os("VCP_SNAPSHOT_COMBINED_ARTIFACT").map(|_| Revision::ZERO),
+                ))
                 .await
                 .unwrap();
+        }
+        if std::env::var_os("VCP_SNAPSHOT_COMBINED_ARTIFACT").is_some() {
+            let pending: Vec<(ArtifactDescriptor, Revision)> = store
+                .state()
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Artifact)
+                .map(|row| (row.decode::<ArtifactDescriptor>().unwrap(), row.revision))
+                .filter(|(descriptor, _)| {
+                    descriptor.state == vcp_domain::artifact::CaptureState::Pending
+                })
+                .collect();
+            for (descriptor, revision) in pending {
+                let sealed = store.spool().inspect(&descriptor.spec.id).unwrap();
+                assert_eq!(sealed.state, vcp_domain::artifact::CaptureState::Complete);
+                store
+                    .transact(attach(store.state(), sealed, Some(revision)))
+                    .await
+                    .unwrap();
+            }
         }
         let job = if let Ok(job) = Jobs::inspect(&store, &id, &ws) {
             job
@@ -580,6 +617,218 @@ fn snapshot_process_child() {
         jobs.complete(&mut store, &ws, &receipt).await.unwrap();
         barrier("completed");
     });
+}
+
+#[test]
+fn artifact_owner_loss_then_interrupted_vault_copy_preserves_exact_history() {
+    use std::{
+        fs,
+        process::{Child, Command, Stdio},
+        time::{Duration, Instant},
+    };
+    struct Owned(Child);
+    impl Drop for Owned {
+        fn drop(&mut self) {
+            if matches!(self.0.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            let _ = self.0.kill();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while Instant::now() < deadline && matches!(self.0.try_wait(), Ok(None)) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let root = tempfile::tempdir().unwrap().keep();
+        println!(
+            "P8-02 combined artifact/vault {backend:?}: {}",
+            root.display()
+        );
+        for name in ["jobs", "stage", "vault", "recovery"] {
+            fs::create_dir(root.join(name)).unwrap();
+        }
+        let directory =
+            RecoveryDirectory::open(&root.join("recovery"), &[root.join("vault")]).unwrap();
+        let keys = LocalKeys::generate().unwrap();
+        let copy = keys.export_recovery(&directory).unwrap();
+        let keys = keys.verify_recovery(&copy).unwrap();
+        let trust = LocalTrust::enroll(
+            &keys,
+            workspace().id,
+            "a".repeat(64),
+            Checkpoint {
+                sequence: 0,
+                deletion: 0,
+                parent: None,
+            },
+        )
+        .unwrap();
+        let id = CommandId::new();
+        let mut original = None;
+        let mut inventory = None;
+        for phase in ["artifact_sealed", "partial", "completed"] {
+            let marker = root.join(format!("{phase}.marker"));
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let deadline_unix_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+                + 30_000;
+            let mut child = Owned(
+                Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "snapshot_process_child", "--nocapture"])
+                    .env("VCP_SNAPSHOT_CHILD_ROOT", &root)
+                    .env(
+                        "VCP_SNAPSHOT_CHILD_BACKEND",
+                        if backend == BackendKind::Files {
+                            "files"
+                        } else {
+                            "sqlite"
+                        },
+                    )
+                    .env("VCP_SNAPSHOT_CHILD_KEY", copy.id())
+                    .env("VCP_SNAPSHOT_CHILD_JOB", id.as_str())
+                    .env("VCP_SNAPSHOT_CHILD_PHASE", phase)
+                    .env("VCP_SNAPSHOT_COMBINED_ARTIFACT", "1")
+                    .stdin(Stdio::null())
+                    .stdout(fs::File::create(root.join(format!("{phase}.stdout"))).unwrap())
+                    .stderr(fs::File::create(root.join(format!("{phase}.stderr"))).unwrap())
+                    .spawn()
+                    .unwrap(),
+            );
+            while fs::read(&marker).ok().as_deref() != Some(b"durable") {
+                assert!(
+                    child.0.try_wait().unwrap().is_none(),
+                    "combined child exited before {phase}"
+                );
+                assert!(
+                    Instant::now() < deadline,
+                    "combined barrier deadline: {phase}"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            child.0.kill().unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                if let Some(status) = child.0.try_wait().unwrap() {
+                    assert!(!status.success());
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "combined child termination deadline"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let vault_objects: Vec<_> = fs::read_dir(root.join("vault"))
+                .unwrap()
+                .map(|p| p.unwrap().path())
+                .collect();
+            if phase != "artifact_sealed" {
+                assert_eq!(vault_objects.len(), 1);
+                let ciphertext = fs::read(&vault_objects[0]).unwrap();
+                assert!(ciphertext.starts_with(b"age-encryption.org/v1\n"));
+                assert!(!ciphertext
+                    .windows(b"retained synthetic snapshot source".len())
+                    .any(|p| p == b"retained synthetic snapshot source"));
+                fs::write(root.join(format!("{phase}.ciphertext-observation.json")), serde_json::to_vec(&serde_json::json!({"bytes":ciphertext.len(),"sha256":vcp_protocol::digest_bytes(&ciphertext),"age_header":true,"ordinary_marker_absent":true})).unwrap()).unwrap();
+                if phase == "partial" {
+                    assert!(trust
+                        .verify_restore(&vault_objects[0], &copy, Limits::default())
+                        .is_err());
+                }
+            }
+            runtime.block_on(async {
+                let store = Store::open(&root.join("canonical"), backend, &[root.join("vault")])
+                    .await
+                    .unwrap();
+                let descriptor: ArtifactDescriptor = store
+                    .state()
+                    .records
+                    .values()
+                    .find(|r| r.collection == Collection::Artifact)
+                    .unwrap()
+                    .decode()
+                    .unwrap();
+                let mut bytes = Vec::new();
+                store.spool().read(&descriptor, &mut bytes).unwrap();
+                assert_eq!(bytes, b"retained synthetic snapshot source".repeat(9000));
+                if phase == "artifact_sealed" {
+                    assert_eq!(
+                        descriptor.state,
+                        vcp_domain::artifact::CaptureState::Pending
+                    );
+                    original = Some(store.state().clone());
+                } else {
+                    assert_eq!(
+                        descriptor.state,
+                        vcp_domain::artifact::CaptureState::Complete
+                    );
+                    let baseline = original.as_ref().unwrap();
+                    assert!(store.state().events.starts_with(&baseline.events));
+                    for (transaction, receipt) in &baseline.transactions {
+                        assert!(store.state().transactions.get(transaction) == Some(receipt));
+                    }
+                    for (key, record) in &baseline.records {
+                        if record.collection != Collection::Artifact {
+                            assert!(store.state().records.get(key) == Some(record));
+                        }
+                    }
+                    let job = Jobs::inspect(&store, &id, &workspace().id).unwrap();
+                    if inventory.is_some() {
+                        assert_eq!(inventory, job.inventory);
+                    }
+                    inventory = job.inventory.clone();
+                    assert_eq!(
+                        job.stage,
+                        if phase == "partial" {
+                            Stage::Admitted
+                        } else {
+                            Stage::Published
+                        }
+                    );
+                }
+                store.close().await.unwrap();
+            });
+            fs::write(root.join(format!("{phase}.supervisor.json")), serde_json::to_vec(&serde_json::json!({"phase":phase,"backend":backend,"deadline_unix_ms":deadline_unix_ms,"barrier_observed":true,"termination_observed":true,"acknowledged_artifact_bytes_preserved":true,"external_dispatches":0})).unwrap()).unwrap();
+        }
+        let object = fs::read_dir(root.join("vault"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let restored = trust
+            .verify_restore(&object, &copy, Limits::default())
+            .unwrap();
+        let archive = Archive::decode(
+            restored.restored().payloads.clone(),
+            inventory.as_deref().unwrap(),
+        )
+        .unwrap();
+        for (id, receipt) in &original.as_ref().unwrap().transactions {
+            assert!(archive.state().transactions.get(id) == Some(receipt));
+        }
+        assert!(archive
+            .state()
+            .events
+            .starts_with(&original.as_ref().unwrap().events));
+        let artifact: ArtifactDescriptor = original
+            .as_ref()
+            .unwrap()
+            .records
+            .values()
+            .find(|row| row.collection == Collection::Artifact)
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(
+            archive.retained_artifact(&artifact.spec.id).unwrap(),
+            b"retained synthetic snapshot source".repeat(9000)
+        );
+    }
 }
 
 #[cfg(windows)]
