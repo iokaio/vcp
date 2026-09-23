@@ -36,6 +36,7 @@ mod memory;
 mod memory_query;
 mod provider;
 pub(super) mod public_connection;
+mod public_resume;
 mod public_rpc;
 mod reasoning;
 pub(super) mod recovery;
@@ -68,6 +69,15 @@ use vcp_store::{
 };
 type Failure = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, Failure>;
+pub(super) enum ResumeCommit {
+    Internal,
+    Public {
+        prepared: vcp_engine::public::PreparedPublicCommand,
+        access: Access,
+        connection: ControllerId,
+        token: vcp_engine::controller::ControllerToken,
+    },
+}
 type Job = Box<dyn FnOnce(&mut Context) + Send>;
 struct Inner {
     thread_id: std::thread::ThreadId,
@@ -608,7 +618,14 @@ impl Context {
         expected: Revision,
         fingerprint: vcp_domain::verification::Fingerprint,
     ) -> Result<CommandReceipt> {
-        self.resume_checked(binding, expected, fingerprint, &[], || Ok(()))
+        self.resume_checked(
+            binding,
+            expected,
+            fingerprint,
+            &[],
+            ResumeCommit::Internal,
+            || Ok(()),
+        )
     }
     fn resume_checked<T>(
         &mut self,
@@ -616,8 +633,12 @@ impl Context {
         expected: Revision,
         fingerprint: vcp_domain::verification::Fingerprint,
         idle_owned: &[(ToolRunId, ExecutionId)],
+        commit: ResumeCommit,
         final_check: impl FnOnce() -> Result<T>,
     ) -> Result<CommandReceipt> {
+        if let Some(receipt) = self.recheck_resume(&commit)? {
+            return Ok(receipt);
+        }
         if self.authority_pending {
             return Err("authority change is stopping work".into());
         }
@@ -710,7 +731,72 @@ impl Context {
                         | vcp_domain::effect::EffectState::OutcomeUnknown
                 )
             });
+        if let ResumeCommit::Public { access, .. } = &commit {
+            for row in self
+                .engine
+                .store()
+                .state()
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Approval)
+            {
+                let approval: Approval = row.decode()?;
+                if approval.scope.workspace == task.scope.workspace
+                    && approval.scope.session == task.scope.session
+                    && subtree.contains(&approval.scope.task)
+                    && approval.actor == access.actor
+                    && approval.controller.as_ref() == Some(self.engine.controller())
+                    && approval.owner_epoch == Some(self.engine.owner_epoch())
+                    && vcp_engine::questions::actionable(
+                        self.engine.store().state(),
+                        &approval,
+                        now(),
+                    )?
+                {
+                    return Err("answer pending questions before resume".into());
+                }
+            }
+            if !budget_current || !effects_reconciled {
+                return Err("resume requires current budget and reconciled effects".into());
+            }
+        }
         let _resume_guard = final_check()?;
+        let evidence = ResumeEvidence {
+            workspace_current: true,
+            policy_current: true,
+            budget_current,
+            effects_reconciled,
+            owner_current: true,
+        };
+        if let ResumeCommit::Public {
+            prepared,
+            access,
+            connection,
+            token,
+        } = commit
+        {
+            self.check_public_controller(&access, &connection, &token)?;
+            let host = HostFacts {
+                now: now(),
+                policy: vcp_engine::policy::optional(
+                    self.engine.store().state(),
+                    &self.config.workspace,
+                )?
+                .map_or(PolicyRevision::ZERO, |policy| policy.revision),
+                resume: Some(evidence),
+                may_execute: self.owner_alive,
+            };
+            let result = self
+                .runtime
+                .block_on(self.engine.commit_public_resume(prepared, &access, &host))
+                .map_err(Into::into);
+            if result.is_err() {
+                // Prevent already queued admissions from crossing an uncertain
+                // store outcome before the caller restores retained interruption.
+                self.authority_pending = true;
+            }
+            return result;
+        }
         self.command_with_resume(
             Command::Transition {
                 next: TaskState::Running,
@@ -720,13 +806,7 @@ impl Context {
             },
             Some(task.scope.task),
             expected,
-            Some(ResumeEvidence {
-                workspace_current: true,
-                policy_current: true,
-                budget_current,
-                effects_reconciled,
-                owner_current: true,
-            }),
+            Some(evidence),
         )
     }
     pub fn validate_binding(&self, binding: &ThreadBinding) -> Result<()> {

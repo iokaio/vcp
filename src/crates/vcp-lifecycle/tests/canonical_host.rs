@@ -150,6 +150,11 @@ mod public_connection;
 mod public_controller;
 #[path = "support/public_task_control.rs"]
 mod public_task_control;
+#[path = "support/public_resume.rs"]
+mod public_resume;
+#[cfg(windows)]
+#[path = "support/public_resume_mcp.rs"]
+mod public_resume_mcp;
 #[path = "support/public_rpc.rs"]
 mod public_rpc;
 #[path = "support/public_rpc_drain.rs"]

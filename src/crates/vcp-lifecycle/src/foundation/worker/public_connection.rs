@@ -30,6 +30,25 @@ pub(super) async fn await_release(
     }
 }
 
+/// Retained interruption alone does not release an idle MCP daemon's scheduler
+/// lease. Close owned connections before waiting for scheduler quiescence, while
+/// keeping host credentials and observer connections available for later use.
+pub(super) async fn drain_owned_dependencies(
+    host: &CanonicalHost,
+    deadline: Duration,
+) -> std::result::Result<(), String> {
+    tokio::time::timeout(deadline, async {
+        #[cfg(windows)]
+        host.disconnect_mcp().await?;
+        while host.scheduler.busy() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|_| "public dependency drain timed out")?
+}
+
 /// Not clonable: dropping the controlling connection owns its pause and release.
 /// Access is supplied by trusted local authentication, never request parameters.
 pub struct PublicConnection {
@@ -244,7 +263,7 @@ impl PublicConnection {
         let worker = self.host.worker.clone();
         self.release = Some(receiver.clone());
         let identity = self.host.public_identity.clone();
-        let scheduler = self.host.scheduler.clone();
+        let cleanup_host = self.host.clone();
         let deadline = self.host.runtime.0.deadline;
         let access = current.clone();
         let connection = self.connection.clone();
@@ -259,13 +278,9 @@ impl PublicConnection {
                     .wait()
                     .await
                     .map_err(|_| ControllerError::OutcomeUnknown)?;
-                tokio::time::timeout(deadline, async {
-                    while scheduler.busy() {
-                        tokio::time::sleep(Duration::from_millis(10)).await;
-                    }
-                })
-                .await
-                .map_err(|_| ControllerError::OutcomeUnknown)?;
+                drain_owned_dependencies(&cleanup_host, deadline)
+                    .await
+                    .map_err(|_| ControllerError::OutcomeUnknown)?;
                 worker
                     .run_cleanup(move |context| {
                         Ok((|| -> std::result::Result<_, ControllerError> {
@@ -517,7 +532,7 @@ impl PublicConnection {
         };
         let worker = self.host.worker.clone();
         let original_access = self.access.clone();
-        let scheduler = self.host.scheduler.clone();
+        let cleanup_host = self.host.clone();
         let deadline = self.host.runtime.0.deadline;
         let identity = self.host.public_identity.clone();
         let guard = CleanupGuard {
@@ -533,13 +548,7 @@ impl PublicConnection {
                         .await
                         .map_err(|error| format!("public owner drain: {error:?}"))?;
                 }
-                tokio::time::timeout(deadline, async {
-                    while scheduler.busy() {
-                        tokio::time::sleep(Duration::from_millis(10)).await;
-                    }
-                })
-                .await
-                .map_err(|_| "public scheduler drain timed out")?;
+                drain_owned_dependencies(&cleanup_host, deadline).await?;
                 worker.run_cleanup(move |context| {
                     let fresh = context.cleanup_access(&original_access)?;
                     let current = context.engine.controller_token(&fresh, &connection)?;

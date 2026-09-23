@@ -391,7 +391,7 @@ impl RpcHost for PublicConnection {
                 {
                     PublicAdmission::Replay(receipt) => {
                         return acceptance(&context.engine, &admitted_access, &receipt)
-                            .map(Admission::Reply)
+                            .map(Admission::Reply);
                     }
                     PublicAdmission::Ready(prepared) => prepared,
                 };
@@ -641,7 +641,7 @@ impl RpcHost for PublicConnection {
             } => (prepared, proof, waiter),
         };
         let worker = host.worker.clone();
-        let scheduler = host.scheduler.clone();
+        let cleanup_host = host.clone();
         let drain_deadline = host.runtime.0.deadline;
         let request = call.clone();
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -652,13 +652,13 @@ impl RpcHost for PublicConnection {
                 Some(waiter) => waiter.wait().await.is_ok(),
                 None => true,
             };
-            let deadline = tokio::time::Instant::now() + drain_deadline;
-            while drained && scheduler.busy() {
-                if tokio::time::Instant::now() >= deadline {
-                    drained = false;
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+            if drained {
+                drained = super::public_connection::drain_owned_dependencies(
+                    &cleanup_host,
+                    drain_deadline,
+                )
+                .await
+                .is_ok();
             }
             let completion_worker = worker.clone();
             let result = worker.run_cleanup(move |context| {

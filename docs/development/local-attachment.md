@@ -139,6 +139,39 @@ They do not claim compiled live execution/resume qualification. All 18 fast deli
 checks, affected Rust formatting and the existing both-store CLI stop/resume
 regression pass.
 
+## Durable canonical resume prerequisite
+
+`PublicConnection::resume_canonical` accepts a typed resume intent at the trusted
+native host boundary. It preserves the caller's durable command identity and
+checks current controller authority before replay. Replay precedes retained binding
+lookup, effect reconciliation, hold release and MCP proof collection. Host-local
+serialization prevents concurrent duplicates from repeating those observations.
+The same shared question-freshness predicates now serve CLI and host resume; old
+or expired approvals do not become a new resume blocker.
+
+A new acceptance requires a suspended task, current fingerprint and environment,
+remaining budget, reconciled effects, actionable questions answered, and a retained
+owner whose interruption and outstanding work permit continuation. The final
+lifecycle guard stays held across canonical acceptance. An uncertain commit seals
+admission for receipt reconciliation. The existing MCP exception still requires
+proof of the exact owned idle process and granted undelivered call, with slot and
+lifecycle guards retained through the decision.
+
+This primitive never creates a retained thread, submits a model turn or dispatches
+an approved tool call. `session/resume` remains unadvertised on the wire until the
+server owns submission and its crash/retry reconciliation. Its native qualification
+passes 80 engine/protocol tests and 19 public-host tests on Windows/Rust 1.95.0.
+Both stores cover concurrent same-key resume, stale authority, unfinished retained
+work, unknown effect liability and real MCP startup/call approvals. Independent
+markers prove canonical acceptance and replay do not submit a tool effect.
+
+The real MCP test exposed an idle daemon retaining its scheduler lease during
+public owner cleanup. Release, disconnect and steering now close owned MCP
+connections before waiting for scheduler quiescence, preserving host credentials
+for later use. Both explicit release and disconnect drain the actual fixture
+process. Existing CLI control and exact MCP approval regressions pass, as do all
+18 fast delivery checks. This prerequisite does not close P9-02.
+
 ## Remaining acceptance
 
 Native stdio and named-pipe attachment now have the bounded evidence below.

@@ -278,6 +278,7 @@ impl<S: CanonicalStore> Engine<S> {
             .map_err(|_| PublicError::InvalidParameters)?;
         let (scope, mutation) = match &call {
             Call::SessionCreate(p) => (&p.scope, &p.mutation),
+            Call::SessionResume(p) => (&p.scope, &p.mutation),
             Call::TurnSteer(p) => (&p.scope, &p.mutation),
             Call::ApprovalRespond(p) => (&p.scope, &p.mutation),
             Call::TaskCancel(p) => (&p.scope, &p.mutation),
@@ -344,6 +345,41 @@ impl<S: CanonicalStore> Engine<S> {
                         id: SessionId::parse(p.new_session.as_str())
                             .map_err(|_| PublicError::InvalidParameters)?,
                         fork_through: None,
+                    },
+                )
+            }
+            Call::SessionResume(p) => {
+                let task_id =
+                    TaskId::parse(p.task.as_str()).map_err(|_| PublicError::InvalidParameters)?;
+                let task: Task = state
+                    .record(Collection::Task, task_id.as_str(), &access.workspace)
+                    .map_err(|_| PublicError::Unavailable)?
+                    .decode()
+                    .map_err(|_| PublicError::Unavailable)?;
+                if task.scope.workspace != access.workspace
+                    || task.scope.session != access.session
+                    || task.scope.task != task_id
+                {
+                    return Err(PublicError::Unavailable);
+                }
+                if task.revision != expected
+                    || task.steering != steering
+                    || task.state.terminal()
+                    || task.state == TaskState::Running
+                    || task.redaction.is_some()
+                    || expected.next().is_err()
+                {
+                    return Err(PublicError::StaleState);
+                }
+                // Preparation checks canonical eligibility only. Environment,
+                // budget and effect reconciliation evidence belongs to the host
+                // immediately before the dedicated durable resume commit.
+                (
+                    Some(task_id),
+                    Command::Transition {
+                        next: TaskState::Running,
+                        reason: "public session resume".into(),
+                        verification: None,
                     },
                 )
             }
@@ -550,6 +586,9 @@ impl<S: CanonicalStore> Engine<S> {
         host: &HostFacts,
     ) -> Result<CommandReceipt, PublicError> {
         self.check_public_prepared(&prepared, access)?;
+        if matches!(prepared.call, Call::SessionResume(_)) {
+            return Err(PublicError::CapabilityUnavailable);
+        }
         // These commands require the live host to fence the selected retained
         // subtree before commit. Bare handle_public must not imply that fence.
         if prepared.controller.is_none()
@@ -569,6 +608,37 @@ impl<S: CanonicalStore> Engine<S> {
                 .handle_with_digest(current.command, access, host, Some(current.digest))
                 .await
                 .map_err(public_error),
+        }
+    }
+
+    /// Commit durable resume acceptance after trusted host revalidation. This
+    /// does not submit runtime work or grant ownership of an execution attempt.
+    /// The host must retain its final authority guard across this call.
+    pub async fn commit_public_resume(
+        &mut self,
+        prepared: PreparedPublicCommand,
+        access: &Access,
+        host: &HostFacts,
+    ) -> Result<CommandReceipt, PublicError> {
+        self.check_public_prepared(&prepared, access)?;
+        if prepared.controller.is_none() || !matches!(prepared.call, Call::SessionResume(_)) {
+            return Err(PublicError::CapabilityUnavailable);
+        }
+        match self.prepare_public(prepared.call, access, host)? {
+            PublicAdmission::Replay(receipt) => Ok(receipt),
+            PublicAdmission::Ready(current) => {
+                if !host.may_execute
+                    || !host
+                        .resume
+                        .as_ref()
+                        .is_some_and(|evidence| evidence.valid())
+                {
+                    return Err(PublicError::StaleState);
+                }
+                self.handle_with_digest(current.command, access, host, Some(current.digest))
+                    .await
+                    .map_err(public_error)
+            }
         }
     }
 
@@ -879,6 +949,284 @@ mod tests {
             .unwrap()
             .decode()
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn public_resume_requires_trusted_controlled_commit_and_preserves_retry_identity() {
+        for backend in [BackendKind::Sqlite, BackendKind::Files] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut engine = setup(temp.path(), backend).await;
+            let connection = ControllerId::new();
+            engine
+                .acquire_controller(&access(), &connection, CommandId::new(), None, facts().now)
+                .await
+                .unwrap();
+            let token = engine.controller_token(&access(), &connection).unwrap();
+            let task = task(&mut engine).await;
+            internal(
+                &mut engine,
+                Command::Transition {
+                    next: TaskState::Paused,
+                    reason: "suspended".into(),
+                    verification: None,
+                },
+                Some(task),
+                0,
+                0,
+            )
+            .await;
+            let call = Call::SessionResume(methods::SessionResume {
+                scope: scope(),
+                mutation: mutation("durable-resume", 1, 0),
+                task: id("task"),
+            });
+            let watermark = engine.store().state().watermark;
+            let prepare = |engine: &Engine<Store>| {
+                ready(
+                    engine
+                        .prepare_controlled_public(
+                            call.clone(),
+                            &access(),
+                            &facts(),
+                            &connection,
+                            &token,
+                        )
+                        .unwrap(),
+                )
+            };
+            assert_eq!(
+                engine
+                    .handle_public(call.clone(), &access(), &facts())
+                    .await,
+                Err(PublicError::CapabilityUnavailable)
+            );
+            let unbound = ready(
+                engine
+                    .prepare_public(call.clone(), &access(), &facts())
+                    .unwrap(),
+            );
+            assert_eq!(
+                engine
+                    .commit_public_resume(unbound, &access(), &facts())
+                    .await,
+                Err(PublicError::CapabilityUnavailable)
+            );
+            let prepared = prepare(&engine);
+            assert_eq!(
+                engine.commit_public(prepared, &access(), &facts()).await,
+                Err(PublicError::CapabilityUnavailable)
+            );
+            let prepared = prepare(&engine);
+            assert_eq!(
+                engine
+                    .commit_public_resume(prepared, &access(), &facts())
+                    .await,
+                Err(PublicError::StaleState)
+            );
+            let trusted = || HostFacts {
+                resume: Some(vcp_domain::task::ResumeEvidence {
+                    workspace_current: true,
+                    policy_current: true,
+                    budget_current: true,
+                    effects_reconciled: true,
+                    owner_current: true,
+                }),
+                ..facts()
+            };
+            for index in 0..6 {
+                let mut invalid = trusted();
+                let evidence = invalid.resume.as_mut().unwrap();
+                match index {
+                    0 => evidence.workspace_current = false,
+                    1 => evidence.policy_current = false,
+                    2 => evidence.budget_current = false,
+                    3 => evidence.effects_reconciled = false,
+                    4 => evidence.owner_current = false,
+                    _ => invalid.may_execute = false,
+                }
+                let prepared = prepare(&engine);
+                assert_eq!(
+                    engine
+                        .commit_public_resume(prepared, &access(), &invalid)
+                        .await,
+                    Err(PublicError::StaleState)
+                );
+            }
+            let mut revoked = access();
+            revoked.write = false;
+            let prepared = prepare(&engine);
+            assert_eq!(
+                engine
+                    .commit_public_resume(prepared, &revoked, &trusted())
+                    .await,
+                Err(PublicError::Access)
+            );
+            assert_eq!(engine.store().state().watermark, watermark);
+            let prepared = prepare(&engine);
+            let duplicate = prepare(&engine);
+            let receipt = engine
+                .commit_public_resume(prepared, &access(), &trusted())
+                .await
+                .unwrap();
+            assert_eq!(current_task(&engine).state, TaskState::Running);
+            assert_eq!(current_task(&engine).revision, Revision::new(2));
+            let watermark = engine.store().state().watermark;
+            // A second already-prepared waiter gets the original receipt even
+            // though its state revision is now old; it executes no new resume.
+            assert_eq!(
+                engine
+                    .commit_public_resume(duplicate, &access(), &facts())
+                    .await
+                    .unwrap(),
+                receipt
+            );
+            assert!(matches!(
+                engine.prepare_public(call.clone(), &revoked, &facts()),
+                Err(PublicError::Access)
+            ));
+            let mut changed = call.clone();
+            if let Call::SessionResume(p) = &mut changed {
+                p.task = id("other-task");
+            }
+            assert!(matches!(
+                engine.prepare_public(changed, &access(), &facts()),
+                Err(PublicError::CommandConflict)
+            ));
+            assert_eq!(engine.store().state().watermark, watermark);
+            engine.into_store().close().await.unwrap();
+            let reopened =
+                Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
+            assert!(
+                matches!(reopened.prepare_public(call.clone(), &access(), &facts()).unwrap(),
+                PublicAdmission::Replay(value) if value == receipt)
+            );
+            assert!(matches!(
+                reopened.prepare_controlled_public(call, &access(), &facts(), &connection, &token),
+                Err(PublicError::Access)
+            ));
+            assert_eq!(reopened.store().state().watermark, watermark);
+            reopened.into_store().close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn public_resume_rechecks_state_scope_and_controller_before_commit() {
+        for backend in [BackendKind::Sqlite, BackendKind::Files] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut engine = setup(temp.path(), backend).await;
+            let connection = ControllerId::new();
+            engine
+                .acquire_controller(&access(), &connection, CommandId::new(), None, facts().now)
+                .await
+                .unwrap();
+            let token = engine.controller_token(&access(), &connection).unwrap();
+            let task = task(&mut engine).await;
+            let call = Call::SessionResume(methods::SessionResume {
+                scope: scope(),
+                mutation: mutation("resume-fenced", 0, 0),
+                task: id("task"),
+            });
+            for (field, expected_error) in [
+                (0, PublicError::StaleState),
+                (1, PublicError::StaleState),
+                (2, PublicError::Access),
+            ] {
+                let mut wrong = call.clone();
+                if let Call::SessionResume(p) = &mut wrong {
+                    match field {
+                        0 => p.mutation.expected_revision = 1.into(),
+                        1 => p.mutation.steering_revision = 1.into(),
+                        _ => p.scope.session = id("another-session"),
+                    }
+                }
+                assert!(
+                    matches!(engine.prepare_public(wrong, &access(), &facts()), Err(error) if error == expected_error)
+                );
+            }
+            let stale = ready(
+                engine
+                    .prepare_controlled_public(
+                        call.clone(),
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token,
+                    )
+                    .unwrap(),
+            );
+            internal(
+                &mut engine,
+                Command::Transition {
+                    next: TaskState::Paused,
+                    reason: "state changed after admission".into(),
+                    verification: None,
+                },
+                Some(task.clone()),
+                0,
+                0,
+            )
+            .await;
+            let watermark = engine.store().state().watermark;
+            assert_eq!(
+                engine
+                    .commit_public_resume(stale, &access(), &facts())
+                    .await,
+                Err(PublicError::StaleState)
+            );
+            assert_eq!(engine.store().state().watermark, watermark);
+            let mut fresh = call;
+            if let Call::SessionResume(p) = &mut fresh {
+                p.mutation.expected_revision = 1.into();
+            }
+            let pending = ready(
+                engine
+                    .prepare_controlled_public(fresh, &access(), &facts(), &connection, &token)
+                    .unwrap(),
+            );
+            engine
+                .release_controller(
+                    &access(),
+                    &connection,
+                    CommandId::new(),
+                    &token,
+                    token.revision(),
+                    vcp_domain::controller::Reason::Released,
+                    facts().now,
+                )
+                .await
+                .unwrap();
+            let watermark = engine.store().state().watermark;
+            assert_eq!(
+                engine
+                    .commit_public_resume(pending, &access(), &facts())
+                    .await,
+                Err(PublicError::Access)
+            );
+            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(current_task(&engine).state, TaskState::Paused);
+            internal(
+                &mut engine,
+                Command::Transition {
+                    next: TaskState::Cancelled,
+                    reason: "terminal task".into(),
+                    verification: None,
+                },
+                Some(task),
+                1,
+                0,
+            )
+            .await;
+            let terminal = Call::SessionResume(methods::SessionResume {
+                scope: scope(),
+                mutation: mutation("terminal-resume", 2, 0),
+                task: id("task"),
+            });
+            assert!(matches!(
+                engine.prepare_public(terminal, &access(), &facts()),
+                Err(PublicError::StaleState)
+            ));
+            engine.into_store().close().await.unwrap();
+        }
     }
 
     #[tokio::test]
@@ -1548,12 +1896,13 @@ mod tests {
             );
             assert_eq!(locked.store().state().commands.len(), 2);
             let watermark = locked.store().state().watermark;
-            // Resume still requires its unimplemented live execution workflow;
-            // it must never become a bare transition through this adapter.
-            let unsupported = Call::SessionResume(methods::SessionResume {
+            // Fork remains unavailable through this adapter.
+            let unsupported = Call::SessionFork(methods::SessionFork {
                 scope: scope(),
                 mutation: mutation("unsafe-bare-transition", 0, 0),
-                task: id("task"),
+                new_session: id("forked-session"),
+                new_task: id("forked-task"),
+                through_turn: id("turn"),
             });
             assert_eq!(
                 locked.handle_public(unsupported, &access(), &facts()).await,

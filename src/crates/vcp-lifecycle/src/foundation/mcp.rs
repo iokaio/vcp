@@ -246,6 +246,25 @@ impl CanonicalHost {
         expected: Revision,
         fingerprint: vcp_domain::verification::Fingerprint,
     ) -> Result<CommandReceipt, String> {
+        self.resume_mcp_with_commit(
+            thread,
+            binding,
+            expected,
+            fingerprint,
+            worker::ResumeCommit::Internal,
+            None,
+        )
+    }
+
+    pub(super) fn resume_mcp_with_commit(
+        &self,
+        thread: ThreadId,
+        binding: ThreadBinding,
+        expected: Revision,
+        fingerprint: vcp_domain::verification::Fingerprint,
+        commit: worker::ResumeCommit,
+        public_attempt: Option<Arc<std::sync::atomic::AtomicBool>>,
+    ) -> Result<CommandReceipt, String> {
         let slots = self
             .mcp
             .slots
@@ -300,15 +319,33 @@ impl CanonicalHost {
             });
         }
         if proofs.is_empty() {
-            return self
-                .worker
-                .run(move |context| context.resume(&binding, expected, fingerprint));
+            let runtime = self.runtime.clone();
+            return self.worker.run(move |context| {
+                context.resume_with_runtime(
+                    &binding,
+                    thread,
+                    &runtime,
+                    expected,
+                    fingerprint,
+                    commit,
+                    public_attempt,
+                )
+            });
         }
         let runtime = self.runtime.clone();
         // Guards remain held until the worker has consumed these ephemeral
         // observations; no protocol IO can begin during the resume decision.
         let result = self.worker.run(move |context| {
-            context.resume_mcp_approval(&binding, thread, &runtime, expected, fingerprint, proofs)
+            context.resume_mcp_approval(
+                &binding,
+                thread,
+                &runtime,
+                expected,
+                fingerprint,
+                proofs,
+                commit,
+                public_attempt,
+            )
         });
         drop(guards);
         result
