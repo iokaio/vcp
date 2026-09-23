@@ -8,6 +8,7 @@ publish = false
 workspace = "../../third_party/codex/codex-rs"
 
 [dependencies]
+base64 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 uuid = { workspace = true, features = ["v4"] }
 thiserror = { workspace = true }

@@ -271,11 +271,12 @@ impl Context {
             prepared.revalidate()?;
             decision = self.tool_decision(binding, prepared)?;
         }
-        self.propose_authority(
+        self.propose_authority_with_changes(
             binding,
             prepared.authority(),
             &prepared.evidence()?,
             decision,
+            Some(prepared.changes()),
         )
     }
     pub fn propose_authority(
@@ -284,6 +285,21 @@ impl Context {
         prepared: &vcp_policy::Prepared,
         evidence: &[u8],
         decision: vcp_policy::Decision,
+    ) -> Result<(
+        ToolRunId,
+        ArtifactId,
+        vcp_policy::Decision,
+        Option<ApprovalId>,
+    )> {
+        self.propose_authority_with_changes(binding, prepared, evidence, decision, None)
+    }
+    fn propose_authority_with_changes(
+        &mut self,
+        binding: &ThreadBinding,
+        prepared: &vcp_policy::Prepared,
+        evidence: &[u8],
+        decision: vcp_policy::Decision,
+        changes: Option<&[vcp_tools::patch::Change]>,
     ) -> Result<(
         ToolRunId,
         ArtifactId,
@@ -315,6 +331,18 @@ impl Context {
             "vcp-prepared-tool-v2",
         )?;
         let effect = ToolRunId::new();
+        let mut proposals = vec![plan.spec.id.clone()];
+        if let Some(changes) = changes {
+            if let Some(diff) = self.capture_public_diff(
+                binding,
+                effect.clone(),
+                plan.spec.id.clone(),
+                prepared,
+                changes,
+            )? {
+                proposals.push(diff.spec.id);
+            }
+        }
         self.command(
             Command::ProposeEffect {
                 id: effect.clone(),
@@ -328,7 +356,7 @@ impl Context {
             &effect,
             EffectState::Validated,
             None,
-            vec![plan.spec.id.clone()],
+            proposals,
             "registered tool recorded prepared identity and current policy decision",
         )?;
         let mut question = None;

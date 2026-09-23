@@ -169,6 +169,10 @@ already include these changes; normal builds never apply patches.
     public JSON Schema contract. No external package versions or retained upstream
     implementation changes.
 
+38. `0038-p9-public-diff-workspace.patch` records the domain public diff codec and
+    compiled CLI fixture dependencies on the already locked base64 0.22.1 package.
+    No external package versions or retained upstream implementation changes.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

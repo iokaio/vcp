@@ -37,6 +37,7 @@ mod memory;
 mod memory_query;
 mod provider;
 pub(super) mod public_connection;
+mod public_diff;
 mod public_events;
 pub(super) mod public_resume;
 mod public_rpc;

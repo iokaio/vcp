@@ -25,6 +25,7 @@ const METHODS: &[&str] = &[
     "context/inspect",
     "routing/explain",
     "artifact/read",
+    "diff/read",
     "task/cancel",
     "turn/pause",
     "turn/cancel",
@@ -325,6 +326,13 @@ impl RpcHost for PublicConnection {
             return host
                 .worker
                 .run_cleanup(move |context| {
+                    if let Call::DiffRead(request) = &request {
+                        return Ok(context
+                            .engine
+                            .public_diff(&access, request)
+                            .map(ResultValue::Artifact)
+                            .map_err(vcp_engine::rpc::query_error));
+                    }
                     if let Call::ArtifactRead(request) = &request {
                         return Ok(context
                             .engine
