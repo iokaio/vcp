@@ -44,6 +44,7 @@ pub const APPROVAL_SOURCE_REVISIONS_CAPABILITY: &str = "approval/source-revision
 pub const MEMORY_INSPECTION_STATE_CAPABILITY: &str = "memory/inspection-state/1";
 pub const MEMORY_QUERY_SOURCES_CAPABILITY: &str = vcp_protocol::memory_query::CAPABILITY;
 pub const MEMORY_GOVERNANCE_CAPABILITY: &str = vcp_protocol::memory_governance::CAPABILITY;
+pub const SESSION_EXPORT_LOCAL_CAPABILITY: &str = "session/export-local/1";
 
 #[cfg(test)]
 mod approval_source_tests;
@@ -68,6 +69,9 @@ pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
     }
     if capabilities.contains("memory/query") {
         capabilities.insert(MEMORY_QUERY_SOURCES_CAPABILITY.to_owned());
+    }
+    if capabilities.contains("session/export") {
+        capabilities.insert(SESSION_EXPORT_LOCAL_CAPABILITY.to_owned());
     }
     if ["memory/propose", "memory/resolve", "memory/review"]
         .iter()
@@ -333,6 +337,16 @@ impl RpcSession {
                 Retry::Never,
                 None,
                 "memory query source capability was not negotiated",
+            ));
+        }
+        if matches!(call, Call::SessionExport(_))
+            && !self.negotiated.contains(SESSION_EXPORT_LOCAL_CAPABILITY)
+        {
+            return Err(application(
+                Code::CapabilityUnavailable,
+                Retry::Never,
+                call.command_id().cloned(),
+                "local export profile was not negotiated",
             ));
         }
         if matches!(

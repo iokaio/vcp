@@ -5,6 +5,7 @@ mod accounting_contract;
 pub mod artifact;
 mod backend;
 pub mod contract;
+pub mod export_contract;
 mod forecast_contract;
 mod fork_contract;
 pub mod keys;

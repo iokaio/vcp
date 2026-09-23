@@ -148,6 +148,8 @@ impl Engine<Store> {
             .map_err(|_| QueryError::Access)?
             .decode()
             .map_err(|_| QueryError::InvalidData)?;
+        vcp_store::export_contract::validate_read(state, access.authority, None, &artifact)
+            .map_err(|_| QueryError::Unavailable)?;
         for row in state.records.values().filter(|row| {
             row.collection == Collection::Tombstone && row.workspace == access.workspace
         }) {
