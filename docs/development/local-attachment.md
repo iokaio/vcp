@@ -286,6 +286,52 @@ checking. No paid provider qualification is implied. These increments do not clo
 the remaining P9-02 new-run/fork, inspection/governance adapters and acceptance
 scenarios, or establish P9-03 SDK compatibility.
 
+## Durable new-run execution
+
+Configured execution also supports `turn/start`. Its task must be the server's
+selected, unused root identity; its turn ID must be unused. Supply zero expected
+and steering revisions and the exact effective cap/currency, request ceiling and
+deadline from the trusted execution configuration. Caller objective, constraints
+and acceptance text become the canonical task. The host observes the native
+repository fingerprint and derives editing/check requirements from the profile.
+
+An optional top-level `root_task` string in the private controller launch frame
+selects an absent or existing root before host construction. Workspace/session
+and binding still come from the trusted descriptor. Existing selected tasks must
+be unredacted roots in that scope. Selection never changes the descriptor, creates
+a task, acquires a lease or begins execution. It remains fixed until host shutdown;
+observers cannot use this bootstrap override. Relaunch with the same selected root
+to inspect its original command and explicitly resume paused work.
+
+Acceptance atomically records the pending root, caller's queued turn, completed
+input reference, empty budget ledger and original receipt. Only a fresh accepted
+result permits owned retained construction, guarded activation and submission.
+The coding loop uses the accepted turn ID. Same-command replay returns before
+profile installation or construction; changed payloads conflict. Failure after
+acceptance holds work and requests a canonical pause while preserving the receipt;
+a failed pause commit remains fenced reconciliation work. The acceptance
+response proves durable intent, not successful execution.
+
+The accepted request ceiling is cumulative across root/child/helper attempts and
+reopen. Its deadline is absolute from acceptance. A changed profile or later CLI
+resume cannot enlarge either limit; shared admission rechecks them even before a
+coding loop exists. Suppressed creation evidence prevents admission rather than
+removing the limit. Receipt replay can still reconcile a run whose deadline passed.
+Legacy CLI roots retain their existing configured-window behavior. See
+[ADR-047](../adr/047-durable-public-run-start.md) for the admission contract.
+
+Native Windows/Rust 1.95.0 verification passed 98 engine/protocol tests, 30 live
+public-host tests and 91 CLI unit tests. Three compiled-process cases passed:
+the new both-store start test plus the existing resume/connected-pause and pipe
+owner-loss/reconnect tests. The start case proves exact caller IDs, atomic
+Pending/Queued facts, one patch effect, original-command conflict/replay,
+budget/controller/observer denial and restart without another provider dispatch.
+Host tests also prove expired acceptance remains replayable but cannot authorize
+a constructor. The ignored inherited-handle child entry is invoked by its parent
+test; the separate real-OneDrive qualification was not run. All 18 fast delivery
+checks and affected formatting/diff checks pass. Synthetic literal-loopback
+provider fixtures supplied this evidence; no paid provider was contacted.
+
 ## Snapshot and event recovery
 
 `session/snapshot` captures typed session/task state and registers an event cursor
@@ -356,16 +402,16 @@ invalidated by a real intervening canonical commit. No provider is configured.
 
 ## Remaining acceptance
 
-Native stdio and named-pipe attachment now have the bounded evidence below.
-Remaining real-process acceptance covers controller loss during active execution,
-connected task pause, explicit resume and crash/retry of execution effects.
-Offline attachment fixtures do not establish those execution cases.
+The preceding records qualify attachment, owned resume, connected pause,
+controller loss, retained inspection and bounded snapshot/event recovery within
+their stated test boundaries. Remaining work includes the other method adapters,
+pending-input reconnect, process crash after durable acceptance but before response,
+abandoned/slow consumer qualification and final CLI/API behavior parity.
 
-Capture snapshot plus cursor in one canonical worker operation and bridge to
-bounded live delivery without missing events. Slow consumers must receive a gap
-or disconnect without blocking writes. Retention and access changes remain
-explicit errors. P9-03 follows with SDK tests against the compiled server; P4-01
-then attaches the prepared extension UI through that SDK.
+Snapshot capture and cursor registration share a canonical worker boundary.
+Remaining process-level consumer tests must prove that gaps/disconnects release
+resources without blocking writes. P9-03 follows with SDK tests against the
+compiled server; P4-01 then attaches the prepared extension UI through that SDK.
 
 ## Controlled stdio launch
 
@@ -387,7 +433,7 @@ failures emit stderr diagnostics and close stdout without a CLI JSONL result.
 
 The server advertises implemented engine reads, controller methods, task/turn
 controls, snapshot/event recovery and artifact inspection. Configured execution
-adds `session/resume`. Request the required method capabilities during initialization.
+adds `session/resume` and `turn/start`. Request the required method capabilities during initialization.
 `controller/read` gives scoped revision/generation and ownership classification;
 it never discloses another actor's token. `controller/acquire` is explicit,
 `controller/release` drains and pauses while leaving the connection readable, and

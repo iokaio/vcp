@@ -159,6 +159,9 @@ mod public_resume_mcp;
 mod public_rpc;
 #[path = "support/public_rpc_drain.rs"]
 mod public_rpc_drain;
+#[cfg(windows)]
+#[path = "support/public_start.rs"]
+mod public_start;
 #[path = "support/public_task_control.rs"]
 mod public_task_control;
 #[path = "support/public_workspace.rs"]

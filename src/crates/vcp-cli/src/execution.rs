@@ -71,6 +71,21 @@ impl RetainedExecution {
         submit_identified(&self.host, &self.session, &self.scope).await
     }
 
+    /// Bind the caller's already accepted queued turn, then submit once. This
+    /// cannot create another canonical turn or grant task execution authority.
+    pub async fn submit_preaccepted(&self, turn: vcp_domain::TurnId) -> Result<String, String> {
+        let task = current(&self.host, &self.scope)?;
+        let text = task
+            .objectives
+            .last()
+            .ok_or("objective unavailable")?
+            .text
+            .clone();
+        self.host
+            .bind_preaccepted_coding_turn(self.session.id, turn, text.clone())?;
+        submit_text(&self.session, text).await
+    }
+
     /// Attempt completion only when canonical state permits it. Deferred
     /// preserves waiting/paused/budget-limited state. Callers retain their policy
     /// for rejected completion evidence (interactive pause versus batch failure).
@@ -111,6 +126,10 @@ async fn submit_identified(
         .text
         .clone();
     host.begin_coding_turn(session.id, text.clone())?;
+    submit_text(session, text).await
+}
+
+async fn submit_text(session: &Session, text: String) -> Result<String, String> {
     let submitted = session
         .thread
         .start_or_steer_turn(codex_core::TurnInputRequest::user_input(vec![

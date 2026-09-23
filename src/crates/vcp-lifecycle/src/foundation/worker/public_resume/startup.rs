@@ -35,6 +35,16 @@ impl Drop for PublicResumeStartup {
     }
 }
 
+#[derive(Clone)]
+enum Intent {
+    Resume(SessionResume),
+    #[cfg(windows)]
+    Start {
+        request: vcp_protocol::methods::TurnStart,
+        receipt: CommandReceipt,
+    },
+}
+
 struct Grant {
     host: super::super::super::CanonicalHost,
     access: Access,
@@ -45,7 +55,7 @@ struct Grant {
     workspace: PathBuf,
     consumed: AtomicBool,
     attached: AtomicBool,
-    request: SessionResume,
+    request: Intent,
 }
 impl std::fmt::Debug for Grant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -53,7 +63,7 @@ impl std::fmt::Debug for Grant {
     }
 }
 
-fn available(state: &crate::State) -> bool {
+pub(in crate::foundation::worker) fn available(state: &crate::State) -> bool {
     state.attached
         && !state.sealing
         && !state.owner_sealing
@@ -71,7 +81,7 @@ fn available(state: &crate::State) -> bool {
 
 fn check(
     context: &Context,
-    request: &SessionResume,
+    request: &Intent,
     access: &Access,
     connection: &ControllerId,
     token: &ControllerToken,
@@ -83,6 +93,14 @@ fn check(
     if context.authority_pending {
         return Err("authority change is stopping work".into());
     }
+    #[cfg(windows)]
+    if let Intent::Start { request, receipt } = request {
+        context.check_accepted_start(request, receipt, access, connection, token)?;
+        return Ok(());
+    }
+    let Intent::Resume(request) = request else {
+        return Err("unsupported constructor intent".into());
+    };
     let facts = HostFacts {
         now: now(),
         policy: PolicyRevision::ZERO,
@@ -101,6 +119,8 @@ fn check(
     ) {
         return Err("resume already accepted; constructor cannot repeat".into());
     }
+    #[cfg(windows)]
+    context.check_public_start_budget()?;
     Ok(())
 }
 
@@ -184,7 +204,7 @@ impl PublicConnection {
                 workspace,
                 consumed: AtomicBool::new(false),
                 attached: AtomicBool::new(false),
-                request: ticket.request(),
+                request: Intent::Resume(ticket.request()),
             }),
         })
     }
@@ -340,4 +360,74 @@ impl HostWorkAdmission for Grant {
             Ok(Box::new(crate::StartupPermit(runtime)) as Box<dyn Send>)
         })
     }
+}
+
+#[cfg(windows)]
+pub(in crate::foundation::worker) fn accepted_start(
+    connection: &PublicConnection,
+    request: vcp_protocol::methods::TurnStart,
+    receipt: CommandReceipt,
+    access: Access,
+    identity: ControllerId,
+    token: ControllerToken,
+) -> std::result::Result<PublicResumeStartup, String> {
+    let host = connection.host.clone();
+    let runtime = host.runtime.clone();
+    let bindings = host.bindings.clone();
+    let scheduler = host.scheduler.clone();
+    let nonce = Arc::new(());
+    let reserved = nonce.clone();
+    let request_check = request.clone();
+    let receipt_check = receipt.clone();
+    let access_check = access.clone();
+    let identity_check = identity.clone();
+    let token_check = token.clone();
+    let (scope, workspace) = host.worker.run(move |context| {
+        let proof = context.check_accepted_start(
+            &request_check,
+            &receipt_check,
+            &access_check,
+            &identity_check,
+            &token_check,
+        )?;
+        if scheduler.busy()
+            || !bindings
+                .lock()
+                .map_err(|_| "binding lock poisoned")?
+                .is_empty()
+        {
+            return Err("start requires a drained configured root".into());
+        }
+        let workspace = PathBuf::from(&context.config.binding.root).canonicalize()?;
+        let mut state = runtime.0.state.lock().map_err(|_| "lifecycle poisoned")?;
+        context.check_accepted_start(
+            &request_check,
+            &receipt_check,
+            &access_check,
+            &identity_check,
+            &token_check,
+        )?;
+        if !available(&state) || state.root_startup.is_some() {
+            return Err("start constructor is not drained".into());
+        }
+        state.advance().map_err(|e| format!("{e:?}"))?;
+        state.root_admission_held = true;
+        state.root_startup = Some(reserved);
+        state.checkpoint().map_err(|e| format!("{e:?}"))?;
+        Ok((proof.task.scope, workspace))
+    })?;
+    Ok(PublicResumeStartup {
+        grant: Arc::new(Grant {
+            host,
+            access,
+            connection: identity,
+            token,
+            nonce,
+            scope,
+            workspace,
+            consumed: AtomicBool::new(false),
+            attached: AtomicBool::new(false),
+            request: Intent::Start { request, receipt },
+        }),
+    })
 }

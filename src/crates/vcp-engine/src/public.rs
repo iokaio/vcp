@@ -17,7 +17,7 @@ use vcp_store::contract::{CanonicalStore, Collection, State};
 
 /// Current turn is ordered by retained canonical creation evidence, never an ID
 /// or the turn's independent revision counter. Missing chronology fails closed.
-pub(crate) fn current_public_turn(
+pub fn current_public_turn(
     state: &State,
     scope: &vcp_domain::workspace::Scope,
 ) -> Result<Option<Turn>, PublicError> {

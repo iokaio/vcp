@@ -76,6 +76,66 @@ impl Context {
         Ok(id)
     }
 
+    /// Bind the already accepted public turn. No second turn or capture is made.
+    pub fn bind_preaccepted_coding_turn(
+        &mut self,
+        binding: &ThreadBinding,
+        id: TurnId,
+        input: String,
+    ) -> Result<()> {
+        self.can_start(binding)?;
+        let state = self.engine.store().state();
+        let task: Task = state
+            .record(
+                Collection::Task,
+                binding.scope.task.as_str(),
+                &binding.scope.workspace,
+            )?
+            .decode()?;
+        let turn: Turn = state
+            .record(Collection::Turn, id.as_str(), &binding.scope.workspace)?
+            .decode()?;
+        let trigger: ArtifactDescriptor = state
+            .record(
+                Collection::Artifact,
+                turn.trigger.as_str(),
+                &binding.scope.workspace,
+            )?
+            .decode()?;
+        let current = vcp_engine::public::current_public_turn(state, &binding.scope)?;
+        if task.scope != binding.scope
+            || task.state != TaskState::Running
+            || task.redaction.is_some()
+            || turn.scope != binding.scope
+            || turn.id != id
+            || turn.state != TurnState::Queued
+            || turn.revision != Revision::ZERO
+            || turn.steering != task.steering
+            || turn.redaction.is_some()
+            || current.as_ref().map(|turn| &turn.id) != Some(&id)
+            || trigger.spec.scope != binding.scope
+            || trigger.state != CaptureState::Complete
+            || trigger.spec.schema != "coding-turn-input/1"
+            || trigger.spec.channel != Channel::Evidence
+            || trigger.length.get() != input.len() as u64
+            || trigger.sha256 != vcp_protocol::digest_bytes(input.as_bytes())
+            || input.is_empty()
+            || input.len() > 65_536
+            || input.contains('\0')
+        {
+            return Err("preaccepted coding turn proof mismatch".into());
+        }
+        let coding = self
+            .coding
+            .get_mut(&binding.scope.task)
+            .ok_or("coding setup missing")?;
+        if coding.turn.is_some() {
+            return Err("coding turn already bound".into());
+        }
+        coding.turn = Some(id);
+        Ok(())
+    }
+
     pub(crate) fn coding_stage(
         &mut self,
         binding: &ThreadBinding,

@@ -90,6 +90,12 @@ pub use worker::public_resume::{
     PublicResumeAdmission, PublicResumeOutcome, PublicResumeStartup, PublicResumeTicket,
 };
 
+#[cfg(windows)]
+pub use worker::public_start::{
+    PublicStartAdmission, PublicStartOutcome, PublicStartPreparation, PublicStartStartup,
+    PublicStartTicket,
+};
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {

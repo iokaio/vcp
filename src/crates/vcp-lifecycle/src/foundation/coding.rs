@@ -171,6 +171,21 @@ fn mcp_request(arguments: &str) -> Result<super::mcp::Request, String> {
 impl CanonicalHost {
     /// Record the actual submitted user input before asking the retained
     /// controller to start a turn. Request/tool callbacks advance its stages.
+    /// Trusted supervisor binding for a caller-selected, already accepted turn.
+    /// This does not capture another trigger or create another canonical turn.
+    pub fn bind_preaccepted_coding_turn(
+        &self,
+        thread: ThreadId,
+        turn: TurnId,
+        input: String,
+    ) -> Result<(), String> {
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.bind_preaccepted_coding_turn(&binding, turn, input))
+    }
+
+    /// Record the actual submitted user input before asking the retained
+    /// controller to start a turn.
     pub fn begin_coding_turn(&self, thread: ThreadId, input: String) -> Result<TurnId, String> {
         let binding = self.binding(thread)?;
         self.worker

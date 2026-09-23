@@ -58,7 +58,38 @@ fn selection(
             .as_ref()
             .ok_or("workspace identity requires rebind")?,
     )?;
-    Ok((lease, entry.config, data))
+    let mut config = entry.config;
+    if let Some(task) = &request.root_task {
+        if request.role != Role::Controller {
+            return Err("explicit root selection requires controller bootstrap".into());
+        }
+        // This is a selection for this new host lifetime, never a mutation of
+        // the durable descriptor or of an already running host's bindings.
+        config.root_task = task.clone();
+    }
+    Ok((lease, config, data))
+}
+
+fn selected_root(host: &CanonicalHost, config: &Config) -> Result<(), String> {
+    let state = host.snapshot()?;
+    let Some(row) = state.records.get(&vcp_store::contract::key(
+        Collection::Task,
+        config.root_task.as_str(),
+    )) else {
+        return Ok(());
+    };
+    let task: vcp_domain::task::Task = row.decode().map_err(|_| "selected root is unavailable")?;
+    if row.workspace != config.workspace
+        || task.scope.workspace != config.workspace
+        || task.scope.session != config.session
+        || task.scope.task != config.root_task
+        || task.root != config.root_task
+        || task.parent.is_some()
+        || task.redaction.is_some()
+    {
+        return Err("selected task is not a root in the bound session".into());
+    }
+    Ok(())
 }
 
 fn access(host: &CanonicalHost, config: &Config, role: Role) -> Result<Access, String> {
@@ -92,6 +123,12 @@ pub(super) async fn run(mut io: Framed) -> Result<(), String> {
     // This acquires the real canonical writer and performs crash recovery. No
     // provider request, root thread or task is created by attachment.
     let (host, owner) = CanonicalHost::open(config.clone())?;
+    if boot.request.root_task.is_some() {
+        if let Err(error) = selected_root(&host, &config) {
+            owner.close().await?;
+            return Err(error);
+        }
+    }
     let execution = boot
         .request
         .execution
