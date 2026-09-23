@@ -1,6 +1,6 @@
 {
   "schema": "p8-qualification-manifest/1",
-  "revision": "p8-seeded-boundaries-v5",
+  "revision": "p8-seeded-provider-children-v6",
   "description": "Bounded P8 readiness rows mapped to existing native Rust tests. A row without a command is an explicit qualification gap.",
   "workspace": "src/third_party/codex/codex-rs",
   "default_timeout_seconds": 1800,
@@ -505,6 +505,36 @@
       "requires": ["native_windows", "cargo"],
       "evidence": "Four fixed seeds on both stores drive reservation, unknown liability, late settlement, duplicate/stale observations and reopen through real budget APIs; no provider transport or fork claim",
       "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-budget", "--test", "seeded_accounting", "seeded_late_usage_traces_preserve_independent_liability_arithmetic", "--", "--nocapture", "--exact"]
+    },
+    {
+      "id": "p8-01-seeded-provider-bursts",
+      "work_item": "P8-01",
+      "area": "recovery",
+      "title": "Seeded loopback provider bursts match wire and liability observations",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Fixed seeds drive actual loopback responses, host retries and independent wire/attempt/fee oracles on both stores; no paid endpoint or packaged delegation claim",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--test", "canonical_host", "seeded_provider::seeded_provider_bursts_match_independent_wire_and_liability_oracle", "--", "--nocapture", "--exact"]
+    },
+    {
+      "id": "p8-01-seeded-provider-retry-pause",
+      "work_item": "P8-01",
+      "area": "recovery",
+      "title": "Seeded interrupted retry wait cannot replay an unknown send after reopen",
+      "required": true,
+      "requires": ["native_windows", "cargo"],
+      "evidence": "Predecessor-specific retry receipts coordinate explicit pause and cooperative reopen; actual wire counts and unknown liabilities remain independent observations",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--test", "canonical_host", "seeded_provider::seeded_provider_retry_pause_reopen_never_replays_unknown_send", "--", "--nocapture", "--exact"]
+    },
+    {
+      "id": "p8-01-seeded-child-graph",
+      "work_item": "P8-01",
+      "area": "recovery",
+      "title": "Seeded child stop and reopen preserve graph ownership and root liability",
+      "required": true,
+      "requires": ["native_windows", "cargo", "vcp_test_git"],
+      "evidence": "Four parameterized two-child seeded scenarios exercise allocation refusal, actual loopback sends, scoped stops and held recovery on both stores; distinct from conversation forks and packaged live delegation",
+      "command": ["cargo", "test", "--locked", "--offline", "-p", "vcp-lifecycle", "--test", "canonical_host", "child_graph_dispatch::seeded_child_graph::seeded_child_stop_reopen_preserves_graph_and_root_liability", "--", "--nocapture", "--exact"]
     }
   ]
 }

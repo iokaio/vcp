@@ -158,6 +158,9 @@ mod routing_effort;
 #[cfg(windows)]
 #[path = "support/routing_output.rs"]
 mod routing_output;
+#[cfg(windows)]
+#[path = "support/seeded_provider.rs"]
+mod seeded_provider;
 #[path = "support/seeded_traces.rs"]
 mod seeded_traces;
 #[path = "support/selected_reopen.rs"]

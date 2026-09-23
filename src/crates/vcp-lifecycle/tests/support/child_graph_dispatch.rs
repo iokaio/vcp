@@ -21,6 +21,9 @@ mod child_write_crash;
 #[path = "model_dispatch_crash.rs"]
 mod model_dispatch_crash;
 
+#[path = "seeded_child_graph.rs"]
+mod seeded_child_graph;
+
 struct Fixture {
     _temp: tempfile::TempDir,
     workspace: PathBuf,
