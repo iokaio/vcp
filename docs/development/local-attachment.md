@@ -1,9 +1,10 @@
 # Local attachment construction
 
 Owning item: P9-02. The protocol foundation is delivered in PR #134. This increment
-adds canonical controller-lease state, a live connection adapter and controlled
-Windows stdio launch. Named-pipe attachment, live subscriptions and the remaining
-execution adapters are still in construction.
+adds canonical controller-lease state, a live connection adapter, controlled
+Windows launch and named-pipe attachment to the same live writer. P9-02 remains
+in progress: pipe/reconnect qualification, live subscriptions and the remaining
+execution adapters are not accepted yet.
 
 ## Controller identity
 
@@ -112,11 +113,10 @@ test machine. Process-level endpoint authentication remains separate acceptance.
 
 ## Remaining acceptance
 
-Qualify native Windows pipe peer authentication, endpoint permissions and reconnect
-to the same live writer. Then prove real-process competing controllers, observer
-disconnect, controller loss during active execution, connected pause, explicit
-resume and crash/retry behavior. Controlled stdio process evidence does not stand
-in for these named-pipe and execution cases.
+Native stdio and named-pipe attachment now have the bounded evidence below.
+Remaining real-process acceptance covers controller loss during active execution,
+connected task pause, explicit resume and crash/retry of execution effects.
+Offline attachment fixtures do not establish those execution cases.
 
 Capture snapshot plus cursor in one canonical worker operation and bridge to
 bounded live delivery without missing events. Slow consumers must receive a gap
@@ -152,15 +152,65 @@ receipt replay and reconnect never acquire or resume automatically. Read/retry
 uses the original durable command identity. Replaying recovery after a later
 acquisition returns the original receipt without disturbing that acquisition.
 
-The bridge and its single stdio server share a lifetime. EOF closes the controlling
+With the default `stdio` transport, the bridge and its server share a lifetime. EOF closes the controlling
 connection and allows canonical cleanup before releasing the writer. Another
 launch against the same root fails while the first writer remains alive. A slow
 or invalid stream cannot grow an unbounded queue: frames have a 1 MiB payload
 ceiling, helper queues hold at most eight frames, and blocked output has a five
 second deadline. Only one RPC is dispatched at a time. Event subscriptions are not
-advertised. Native pipe/reconnect support will extend this lifetime separately.
+advertised. The optional pipe transport below retains the server independently
+after an authenticated bootstrap handoff.
 
-Native qualification uses the compiled production `vcp` binary in five process
+## Named-pipe attachment and reconnect
+
+Add `"transport":"windows_pipe"` to the launch frame to select the pipe service.
+The trusted bridge first launches and authenticates the server using the same
+inherited-handle bootstrap. The server creates a random local pipe endpoint with
+a current-user ACL and rejects remote clients. Before handing off child lifetime,
+the bridge authenticates that pipe against the held server process pin, connects
+successfully, and exchanges a challenge-bound handoff acknowledgement over the
+private bootstrap channel. Failed handoff retains owned child cleanup.
+
+The ready frame adds `attachment`, containing `endpoint`, `server` and a random
+`ticket`. A controller-ready frame also includes a distinct `observer_attachment`.
+Retain these objects in trusted client memory. Give an observer only the observer
+object; its ticket cannot request controller capability. The server does not write
+endpoint metadata or credentials into workspace files, discovery files, arguments
+or environment variables. Pipe names and PIDs alone are not authentication.
+
+To attach again, launch the same trusted absolute `vcp.exe local-bridge` and send
+a `vcp-local-attach/1` frame with `attachment` set to the retained object and `role`
+set to `controller` or `observer`. The bridge verifies the kernel-reported pipe
+server against the trusted process pin before sending its ticket. The server
+reads a bounded authentication frame, then synchronously impersonates the pipe
+client, checks the actual client process and token principal, and reverts before
+another await. The ticket's own role ceiling governs the new connection. After
+the new ready frame, perform public `initialize` again. Fresh authentication gives
+a new connection identity; it never acquires a controller lease or resumes work.
+
+Authenticated clients share one canonical host and writer. Disconnecting a
+controller still invalidates admission immediately, holds and pauses work, drains
+owned effects and releases its lease. Remaining observers continue reading. Once
+all authenticated connections and their cleanup have finished, the server retains
+its idle writer for 30 seconds to permit reconnect, then tears down. This retention
+does not grant execution time after controller loss. If that server has exited,
+its old attachment cannot authenticate a replacement; use a fresh trusted launch.
+Pipe pumps preserve prefetched authentication bytes and share the stdio frame,
+queue and synchronous loss-invalidation limits. Authentication and admitted clients
+are independently bounded to 16 concurrent connections each.
+
+Native Windows/Rust 1.95.0 qualification passed 20 local unit tests and eight
+compiled production-process tests (five stdio, three named-pipe). The pipe tests
+cover both-store competing controllers, observer isolation, explicit reacquisition,
+rejected pins/tickets/role escalation, observer-only launch, real 30-second idle
+writer release and dead attachment rejection. Native kernel checks include wrong
+expected SID/session fixtures; a separate foreign-user process was not exercised.
+No credentials, network provider or paid effects are needed. The 18-case fast
+delivery suite and affected Rust formatting checks pass. This qualifies the
+attachment increment, not the remaining P9-02 execution/event acceptance.
+
+The preceding stdio increment's native qualification uses the compiled production
+`vcp` binary in five process
 tests: both-store controller receipt replay and explicit release, both-store
 observer denial, writer exclusion/EOF cleanup, malformed or unproved bootstrap,
 and oversized protocol input after acquisition. They seed actual descriptors and
@@ -176,5 +226,5 @@ before notifying asynchronous dispatch. A gated active-stream host test exercise
 that interval before `disconnect()` runs; observer and stale loss signals cannot
 hold a newer owner. All 11 public-host tests and 71 engine/protocol tests pass on
 native Windows/Rust 1.95.0. Generated schemas/types, their nine generator contracts,
-and the 18-case fast delivery suite pass. Named-pipe identity and reconnect remain
-outside this stdio evidence.
+and the 18-case fast delivery suite pass. These counts describe the preceding
+stdio increment; they do not establish the new named-pipe/reconnect qualification.
