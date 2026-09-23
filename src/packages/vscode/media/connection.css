@@ -1,0 +1,19 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+:root { color-scheme: light dark; }
+body { margin: 0; padding: 12px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font: var(--vscode-font-size)/1.5 var(--vscode-font-family); }
+header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+h1 { font-size: 13px; font-weight: 600; margin: 0; }
+h2 { font-size: 11px; text-transform: uppercase; margin: 18px 0 6px; color: var(--vscode-descriptionForeground); }
+.badge { border: 1px solid var(--vscode-panel-border); border-radius: 3px; padding: 1px 6px; font-size: 11px; }
+#message { border-left: 2px solid var(--vscode-focusBorder); padding-left: 8px; }
+dl { display: grid; grid-template-columns: minmax(70px, 1fr) minmax(0, 2fr); gap: 6px 10px; }
+dt { color: var(--vscode-descriptionForeground); }
+dd { margin: 0; overflow-wrap: anywhere; }
+ul { margin: 0; padding-left: 18px; }
+li { margin: 4px 0; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 16px; }
+button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 1px solid transparent; padding: 5px 9px; font: inherit; cursor: pointer; }
+button:hover { background: var(--vscode-button-hoverBackground); }
+button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+.note { color: var(--vscode-descriptionForeground); font-size: 11px; margin-top: 16px; }

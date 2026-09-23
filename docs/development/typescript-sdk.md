@@ -65,4 +65,5 @@ Evidence logs are `artifacts/p9-sdk-clean-test.log` and
 `artifacts/p9-sdk-compiled-final-tests.log`. The tested server build identifier is
 `vcp/0.1.0`; generated schema SHA-256 is
 `b3cd81f5d6403c99b283e046b1b125323e79f3c9989b030de07a6419596173ac`.
-P4-01 can now implement the prepared extension connection UI through this SDK.
+P4-01 has begun with the [initial editor connection](editor-connection.md) through
+this SDK; complete editor acceptance remains separate.

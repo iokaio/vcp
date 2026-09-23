@@ -78,6 +78,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 
 - [ADR-055 - TypeScript local SDK](055-typescript-local-sdk.md): bounded typed calls, native attachment and explicit consumer cleanup.
 
+- [ADR-056 - Initial editor observer connection](056-editor-observer-connection.md): SDK-backed workspace view with explicit full-item prerequisites.
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.

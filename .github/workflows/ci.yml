@@ -32,8 +32,11 @@ jobs:
         run: |
           npm ci --prefix src/tests --ignore-scripts --no-audit --no-fund
           npm ci --prefix src/packages/sdk-ts --ignore-scripts --no-audit --no-fund
+          npm ci --prefix src/packages/vscode --ignore-scripts --no-audit --no-fund
       - name: Build and test the TypeScript SDK and examples
         run: npm test --prefix src/packages/sdk-ts
+      - name: Build and test the editor connection package
+        run: npm test --prefix src/packages/vscode
       - name: Run deterministic delivery checks
         shell: pwsh
         run: ./scripts/test.ps1 -Suite fast
@@ -77,12 +80,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm ci --prefix src/packages/sdk-ts --ignore-scripts --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm ci --prefix src/packages/vscode --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup toolchain install 1.95.0 --profile minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup toolchain install 1.98.0 --profile minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build and test the TypeScript SDK and examples on Windows
         run: npm test --prefix src/packages/sdk-ts
+      - name: Build and test the editor connection package on Windows
+        run: npm test --prefix src/packages/vscode
       - name: Run deterministic delivery checks on Windows
         run: ./scripts/test.ps1 -Suite fast
       - name: Verify imported Git modes and bytes
