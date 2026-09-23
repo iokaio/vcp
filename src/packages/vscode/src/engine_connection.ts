@@ -14,6 +14,8 @@ export interface ConnectionStatus {
   readonly role?: 'observer';
   readonly workspaceUri?: string;
   readonly workspaceRoot?: string;
+  readonly rootId?: string;
+  readonly bindingRevision?: Counter;
   readonly engineBuild?: string;
   readonly engineExecutable?: string;
   readonly protocolVersion?: string;
@@ -41,7 +43,7 @@ const LIMITATIONS = Object.freeze([
 const INITIALIZE: InitializeParams = {
   protocol_version: '1.0', client: { name: 'vcp-vscode', version: '0.1.0' },
   capabilities: ['approval/source-revisions/1'],
-  required_capabilities: ['jsonrpc/2.0', 'workspace/open', 'session/snapshot', 'events/unsubscribe'],
+  required_capabilities: ['jsonrpc/2.0', 'workspace/open', 'workspace/binding/1', 'session/snapshot', 'events/unsubscribe'],
 };
 function failureMessage(error: unknown): string {
   const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
@@ -118,6 +120,7 @@ export class EngineConnection {
     const workspaceReply = await client.call('workspace/open', { command_id: randomUUID(), host: host.id, root: selection.workspacePath }, { timeoutMs: timeoutMs() });
     const workspace: WorkspaceView = workspaceReply.value;
     if (workspace.workspace !== client.scope.workspace || workspace.host !== host.id || workspace.root !== selection.workspacePath) throw new Error('workspace binding mismatch');
+    if (workspace.root_id == null || workspace.binding_revision == null) throw new Error('workspace binding projection missing');
     let subscription: string | undefined;
     let cursor: string | undefined;
     let watermark: Counter | undefined;
@@ -155,7 +158,7 @@ export class EngineConnection {
     }
     if (!this.#current(generation) || this.#client !== client) return this.#status;
     if (!this.#map.bind(generation, selection.workspaceUri, workspace)) return this.#status;
-    return this.#publish({ phase: 'connected', generation, message: 'Connected as observer. Status reflects the captured engine snapshot.', editorTrusted: selection.workspaceTrusted, role: 'observer', workspaceUri: selection.workspaceUri, workspaceRoot: workspace.root, engineExecutable: selection.executable, engineBuild: client.initialized.engine_build, protocolVersion: client.initialized.protocol_version, host: Object.freeze({ ...host }), engineTrust: workspace.trust, scope: Object.freeze({ ...client.scope }), taskCount: tasks.size, pendingInputs: pending.size, watermark, limitations: LIMITATIONS });
+    return this.#publish({ phase: 'connected', generation, message: 'Connected as observer. Status reflects the captured engine snapshot.', editorTrusted: selection.workspaceTrusted, role: 'observer', workspaceUri: selection.workspaceUri, workspaceRoot: workspace.root, rootId: workspace.root_id, bindingRevision: workspace.binding_revision, engineExecutable: selection.executable, engineBuild: client.initialized.engine_build, protocolVersion: client.initialized.protocol_version, host: Object.freeze({ ...host }), engineTrust: workspace.trust, scope: Object.freeze({ ...client.scope }), taskCount: tasks.size, pendingInputs: pending.size, watermark, limitations: LIMITATIONS });
   }
   refresh(): Promise<ConnectionStatus> {
     if (this.#refresh) return this.#refresh;

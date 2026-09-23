@@ -45,6 +45,7 @@ pub const MEMORY_INSPECTION_STATE_CAPABILITY: &str = "memory/inspection-state/1"
 pub const MEMORY_QUERY_SOURCES_CAPABILITY: &str = vcp_protocol::memory_query::CAPABILITY;
 pub const MEMORY_GOVERNANCE_CAPABILITY: &str = vcp_protocol::memory_governance::CAPABILITY;
 pub const SESSION_EXPORT_LOCAL_CAPABILITY: &str = "session/export-local/1";
+pub const WORKSPACE_BINDING_CAPABILITY: &str = "workspace/binding/1";
 pub const MEMORY_RETENTION_CAPABILITY: &str = vcp_protocol::memory_retention::CAPABILITY;
 
 #[cfg(test)]
@@ -53,6 +54,8 @@ mod approval_source_tests;
 mod memory_inspection_tests;
 #[cfg(test)]
 mod memory_query_tests;
+#[cfg(test)]
+mod workspace_binding_tests;
 
 /// Presentation extensions require explicit negotiation and implemented methods.
 /// Method registration in the schema alone never advertises the extension.
@@ -73,6 +76,9 @@ pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
     }
     if capabilities.contains("session/export") {
         capabilities.insert(SESSION_EXPORT_LOCAL_CAPABILITY.to_owned());
+    }
+    if capabilities.contains("workspace/open") {
+        capabilities.insert(WORKSPACE_BINDING_CAPABILITY.to_owned());
     }
     if [
         "memory/forget",
@@ -399,6 +405,12 @@ impl RpcSession {
             ));
         }
         let mut result = host.call(call, access).await?;
+        if !self.negotiated.contains(WORKSPACE_BINDING_CAPABILITY) {
+            if let ResultValue::Workspace(view) = &mut result {
+                view.root_id = None;
+                view.binding_revision = None;
+            }
+        }
         if !self
             .negotiated
             .contains(APPROVAL_SOURCE_REVISIONS_CAPABILITY)
@@ -1010,6 +1022,14 @@ mod tests {
         handshake::{ConnectionLimits, ExecutionHost},
     };
     use vcp_store::{BackendKind, Store};
+
+    #[test]
+    fn workspace_binding_capability_requires_implemented_workspace_projection() {
+        assert!(!capabilities_for_methods(&["session/read".into()])
+            .contains(WORKSPACE_BINDING_CAPABILITY));
+        assert!(capabilities_for_methods(&["workspace/open".into()])
+            .contains(WORKSPACE_BINDING_CAPABILITY));
+    }
 
     struct ProbeHost {
         allowed: bool,

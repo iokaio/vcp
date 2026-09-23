@@ -23,6 +23,10 @@ records its read-only boundary and the native API prerequisites for full mapping
 trust/rebind and observer reload. This increment begins P4-01; the acceptance
 requirements below remain in force.
 
+The subsequent root/binding projection adds negotiated `workspace/binding/1`
+fields to `workspace/open` and uses them in the editor map and view. Engine-backed
+trust/rebind and authenticated observer reload remain required before acceptance.
+
 Implement launch/attach/version negotiation through the SDK, map VS Code roots to durable VCP identities and enforce workspace trust. Handle reload/disconnect and controlling versus observing clients according to P9's explicit owner contract.
 
 Test multiple roots with identical names, a moved root, untrusted workspace, missing/incompatible engine and extension reload during a pending question. Start with the qualified local Windows host; remote workspace support needs P10-04 environment adapters.

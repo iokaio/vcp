@@ -9,7 +9,8 @@ export interface WorkspaceBinding {
   readonly executionHost: string;
   readonly workspace: string;
   readonly root: string;
-  /** Engine workspace revision, not an invented root/binding revision. */
+  readonly rootId: string;
+  readonly bindingRevision: string;
   readonly workspaceRevision: string;
   readonly authorityRevision: string;
 }
@@ -28,7 +29,8 @@ export class WorkspaceMap {
   invalidate(): number { this.#bindings.clear(); return ++this.#generation; }
   bind(generation: number, folderUri: string, view: WorkspaceView): boolean {
     if (generation !== this.#generation) return false;
-    const value: WorkspaceBinding = Object.freeze({ folderUri, executionHost: view.host, workspace: view.workspace, root: view.root, workspaceRevision: view.revision, authorityRevision: view.authority_revision });
+    if (view.root_id == null || view.binding_revision == null) throw new Error('workspace binding projection missing');
+    const value: WorkspaceBinding = Object.freeze({ folderUri, executionHost: view.host, workspace: view.workspace, root: view.root, rootId: view.root_id, bindingRevision: view.binding_revision, workspaceRevision: view.revision, authorityRevision: view.authority_revision });
     this.#bindings.set(JSON.stringify([folderUri, view.host]), value);
     return true;
   }

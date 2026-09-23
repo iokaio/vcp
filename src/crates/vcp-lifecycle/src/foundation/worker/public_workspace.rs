@@ -86,6 +86,12 @@ impl PublicConnection {
                     Ok(methods::WorkspaceView {
                         workspace: id(workspace.id.as_str())?,
                         host: id(workspace.binding.host.as_str())?,
+                        // The canonical primary repository root uses this same
+                        // identity in tool_root, restore and child delegation.
+                        root_id: Some(id(RootId::parse(workspace.id.as_str())
+                            .map_err(|_| unavailable())?
+                            .as_str())?),
+                        binding_revision: Some(workspace.binding.revision.get().into()),
                         root: workspace.binding.root,
                         trust: match workspace.trust {
                             Trust::Trusted => methods::Trust::Trusted,

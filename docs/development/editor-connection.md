@@ -27,6 +27,15 @@ state and **Disconnect** closes the connection. Equal display names remain disti
 Editor trust and canonical engine trust are shown separately; restricted-mode
 observation cannot change either engine policy or task execution.
 
+The root/binding projection increment requires the negotiated
+`workspace/binding/1` capability. The map and Workspace view use the engine's
+opaque `root_id` and decimal-string `binding_revision`, alongside workspace and
+execution-host IDs. Binding revisions are independent of workspace and authority
+revisions and retain full integer precision. The current engine primary root uses
+the workspace's opaque identity; the extension consumes the returned value rather
+than deriving it. An older engine or an incomplete projection leaves the connection
+unavailable. Folder changes still invalidate the complete map.
+
 ## Development build
 
 The private extension package is `src/packages/vscode`. Its locked development
@@ -110,10 +119,31 @@ $env:VCP_TEST_CODE = 'C:\path\to\extracted\Code.exe'
 cargo +1.95.0 test --manifest-path src/third_party/codex/codex-rs/Cargo.toml --locked --offline -p vcp-cli --features qualification --test local_editor -- --ignored --nocapture
 ```
 
+## Root/binding projection qualification
+
+The projection increment passed 16 extension tests, 30 SDK tests (including the
+compiled examples), 32 protocol tests and three engine capability tests. The
+engine tests exercise initialized RPC serialization, strict legacy decoding,
+missing required capabilities and counters above JavaScript's exact integer
+range. The repository fast gate passed all 18 cases, manifest
+`d30a7cf3-2487-46e0-ad32-ffb6d17dc81a`.
+
+Both `public_workspace` lifecycle tests passed with the `qualification` feature,
+covering Files and SQLite. They verify exact counters, unchanged observer state,
+access rechecks and a stable root identity after reopening a durable rebind with
+its incremented binding revision. This is projection evidence; editor-driven
+moved-root reconciliation remains below.
+
+The native `local_editor` gate passed against VS Code 1.138.0 and Rust 1.95.0,
+checking actual `rootId` and `bindingRevision` for both stores in restricted mode.
+Canonical-state equality still proves that observation did not acquire a lease,
+answer the retained decision or resume execution. Evidence is
+`artifacts/p4-binding-editor.log` and `artifacts/p4-extension-host/result.json`.
+
 ## Remaining P4-01 acceptance
 
-The public API needs the actual root/binding projection, durable trust mutation
-and moved-root reconciliation, plus authenticated observer handoff across host
+The public API now exposes the actual root/binding projection. Durable trust mutation
+and moved-root reconciliation remain, plus authenticated observer handoff across host
 reload. The current UI does not fabricate these capabilities. Complete P4-01 also
 requires actual queued-tool trust revocation, moved-root identity preservation,
 reload during a pending question and observing reload while another controller
