@@ -148,6 +148,8 @@ mod provider_retries;
 mod public_connection;
 #[path = "support/public_controller.rs"]
 mod public_controller;
+#[path = "support/public_task_control.rs"]
+mod public_task_control;
 #[path = "support/public_rpc.rs"]
 mod public_rpc;
 #[path = "support/public_rpc_drain.rs"]

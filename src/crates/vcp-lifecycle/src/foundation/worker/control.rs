@@ -148,29 +148,7 @@ impl CanonicalHost {
                     None,
                 )?;
             }
-            let threads: Vec<_> = bindings
-                .lock()
-                .map_err(|_| "binding lock poisoned")?
-                .iter()
-                .filter(|(_, binding)| binding.scope == scope)
-                .map(|(id, _)| *id)
-                .collect();
-            if threads.is_empty() && current.state == TaskState::Running {
-                return Err("running task has no reachable retained owner".into());
-            }
-            for thread in threads {
-                let view = runtime
-                    .inspect(thread)
-                    .map_err(|e| format!("control owner: {e:?}"))?;
-                if !view.local_hold {
-                    // HoldWaiter cancellation does not cancel owned draining.
-                    drop(
-                        runtime
-                            .hold(thread, &view.revision)
-                            .map_err(|e| format!("control stop: {e:?}"))?,
-                    );
-                }
-            }
+            hold_task_stop(&runtime, &bindings, &context.config.root_task, &current)?;
             let receipt = context.runtime.block_on(context.engine.handle(
                 command,
                 &context.access,
@@ -184,4 +162,48 @@ impl CanonicalHost {
             Ok(receipt)
         })
     }
+}
+
+/// Shared stop admission for CLI and authenticated public commands. The caller
+/// validates canonical intent before this fences retained task descendants.
+/// Discarding a hold waiter never cancels owned interruption/draining.
+pub(super) fn hold_task_stop(
+    runtime: &Lifecycle,
+    bindings: &Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
+    root_task: &TaskId,
+    current: &Task,
+) -> Result<(), String> {
+    let threads: Vec<_> = bindings
+        .lock()
+        .map_err(|_| "binding lock poisoned")?
+        .iter()
+        .filter(|(_, binding)| binding.scope == current.scope)
+        .map(|(id, _)| *id)
+        .collect();
+    if threads.is_empty() && current.state == TaskState::Running {
+        return Err("running task has no reachable retained owner".into());
+    }
+    if &current.scope.task == root_task {
+        // Root construction may already own startup permits without a registered
+        // thread. Owner hold seals that admission too and owns its draining.
+        drop(
+            runtime
+                .hold_owner()
+                .map_err(|_| "retained root stop unavailable")?,
+        );
+        return Ok(());
+    }
+    for thread in threads {
+        let view = runtime
+            .inspect(thread)
+            .map_err(|_| "retained control owner unavailable")?;
+        if !view.local_hold {
+            drop(
+                runtime
+                    .hold(thread, &view.revision)
+                    .map_err(|_| "retained control stop unavailable")?,
+            );
+        }
+    }
+    Ok(())
 }

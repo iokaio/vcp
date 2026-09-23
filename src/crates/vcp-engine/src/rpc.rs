@@ -25,11 +25,12 @@ use vcp_protocol::{
 use vcp_store::contract::CanonicalStore;
 
 pub const MAX_BATCH: usize = 64;
-/// Task projection and live execution controls are not advertised by this adapter.
+/// Direct canonical reads and mutations; live controls require the lifecycle host.
 pub const METHODS: &[&str] = &[
     "session/create",
     "session/read",
     "session/list",
+    "task/read",
     "turn/steer",
     "approval/respond",
     "command/read",
@@ -368,6 +369,20 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                     _ => return Err(RpcError::internal_error()),
                 }
             }
+            Call::TaskRead(p) => {
+                check_scope(&p.scope, access)?;
+                let task =
+                    TaskId::parse(p.task.as_str()).map_err(|_| RpcError::invalid_params())?;
+                match engine
+                    .query(access, &Query::Task { task })
+                    .map_err(query_error)?
+                {
+                    QueryResult::Task { task, .. } => {
+                        ResultValue::Task(task_view(engine.store().state(), task)?)
+                    }
+                    _ => return Err(RpcError::internal_error()),
+                }
+            }
             Call::CommandRead(p) => {
                 check_scope(&p.scope, access)?;
                 let command = CommandId::parse(p.command_id.as_str())
@@ -440,6 +455,152 @@ fn session_view(session: Session) -> Result<methods::SessionView, RpcError> {
             .map(|value| id(value.as_str()))
             .transpose()?,
     })
+}
+/// Project only inspected canonical records in this task's scope. Pending inputs
+/// describe retained approval questions, not a promise that a response can still
+/// be admitted: expiry, ownership and policy are rechecked by approval/respond.
+/// There is no persisted addressable generic Question/Reconciliation input model;
+/// waiting state and unknown effects must not manufacture input identities.
+fn task_view(
+    state: &vcp_store::contract::State,
+    task: vcp_domain::task::Task,
+) -> Result<methods::TaskView, RpcError> {
+    use vcp_domain::{
+        effect::{Effect, EffectState},
+        task::TaskState,
+    };
+    use vcp_protocol::command::{Approval, ApprovalState};
+    use vcp_store::contract::Collection;
+    let invalid = || query_error(QueryError::InvalidData);
+    let mut pending_inputs = Vec::new();
+    let mut pending_bytes = 0usize;
+    // Known means every retained effect's disposition was inspected, not success.
+    // Old-steering effects are included: steering cannot erase uncertainty.
+    let mut effect_rank = 0;
+    for row in state
+        .records
+        .values()
+        .filter(|row| row.workspace == task.scope.workspace)
+    {
+        match row.collection {
+            Collection::Approval => {
+                let approval: Approval = row.decode().map_err(|_| invalid())?;
+                if approval.id.as_str() != row.id
+                    || approval.revision != row.revision
+                    || approval.scope.workspace != row.workspace
+                {
+                    return Err(invalid());
+                }
+                if approval.scope != task.scope
+                    || approval.steering != task.steering
+                    || approval.state != ApprovalState::Pending
+                {
+                    continue;
+                }
+                pending_bytes = pending_bytes.saturating_add(approval.operation_digest.len());
+                if pending_inputs.len() == 128 || pending_bytes > crate::query::MAX_RESULT_BYTES {
+                    return Err(query_error(QueryError::Limit));
+                }
+                pending_inputs.push(methods::PendingInput {
+                    id: id(approval.id.as_str())?,
+                    kind: methods::InputKind::Approval,
+                    revision: approval.revision.get().into(),
+                    operation_digest: Some(approval.operation_digest),
+                });
+            }
+            Collection::Effect => {
+                let effect: Effect = row.decode().map_err(|_| invalid())?;
+                if effect.id.as_str() != row.id
+                    || effect.revision != row.revision
+                    || effect.scope.workspace != row.workspace
+                {
+                    return Err(invalid());
+                }
+                if effect.scope != task.scope {
+                    continue;
+                }
+                let rank = if effect.redaction.is_some() {
+                    3
+                } else {
+                    match effect.state {
+                        EffectState::OutcomeUnknown | EffectState::DispatchRecorded => 3,
+                        EffectState::Failed | EffectState::Cancelled
+                            if !effect.observed_changes.is_empty() =>
+                        {
+                            2
+                        }
+                        EffectState::Proposed
+                        | EffectState::Validated
+                        | EffectState::Authorized
+                        | EffectState::Running => 1,
+                        EffectState::Succeeded | EffectState::Failed | EffectState::Cancelled => 0,
+                    }
+                };
+                effect_rank = effect_rank.max(rank);
+            }
+            _ => {}
+        }
+    }
+    let turn = match crate::public::current_public_turn(state, &task.scope) {
+        Ok(turn) => turn
+            .filter(|turn| turn.steering == task.steering)
+            .map(|turn| id(turn.id.as_str()))
+            .transpose()?,
+        // Retention can remove creation evidence. Null is an unknown selection,
+        // never an arbitrary opaque-ID or per-turn-revision ordering fallback.
+        Err(PublicError::Unavailable) => None,
+        Err(error) => return Err(public_error(error, None, false)),
+    };
+    let reason = if task.redaction.is_some() {
+        "Task content was removed.".to_owned()
+    } else {
+        task.reason
+    };
+    if reason.is_empty() {
+        return Err(invalid());
+    }
+    if reason.chars().count() > 4096 {
+        return Err(query_error(QueryError::Limit));
+    }
+    let view = methods::TaskView {
+        scope: methods::Scope {
+            workspace: id(task.scope.workspace.as_str())?,
+            session: id(task.scope.session.as_str())?,
+        },
+        task: id(task.scope.task.as_str())?,
+        root: id(task.root.as_str())?,
+        parent: task
+            .parent
+            .as_ref()
+            .map(|parent| id(parent.as_str()))
+            .transpose()?,
+        turn,
+        revision: task.revision.get().into(),
+        steering_revision: task.steering.get().into(),
+        state: match task.state {
+            TaskState::Pending => methods::TaskStatus::Pending,
+            TaskState::Running => methods::TaskStatus::Running,
+            TaskState::WaitingForInput => methods::TaskStatus::WaitingForInput,
+            TaskState::Blocked => methods::TaskStatus::Blocked,
+            TaskState::Paused => methods::TaskStatus::Paused,
+            TaskState::Completed => methods::TaskStatus::Completed,
+            TaskState::Failed => methods::TaskStatus::Failed,
+            TaskState::Cancelled => methods::TaskStatus::Cancelled,
+        },
+        reason,
+        pending_inputs,
+        effects: match effect_rank {
+            3 => methods::EffectStatus::Unknown,
+            2 => methods::EffectStatus::Partial,
+            1 => methods::EffectStatus::Pending,
+            _ => methods::EffectStatus::Known,
+        },
+    };
+    // A projection cannot silently truncate pending inputs or a large reason.
+    if jsonrpc::encode_frame(&view, crate::query::MAX_RESULT_BYTES).is_err() {
+        return Err(query_error(QueryError::Limit));
+    }
+    Ok(view)
 }
 /// Project a canonical receipt inside the host's serialized admission operation.
 /// Recheck current access and persisted identity even when the caller just wrote
@@ -837,7 +998,7 @@ mod tests {
         engine.into_store().close().await.unwrap();
     }
 
-    fn access() -> Access {
+    pub(super) fn access() -> Access {
         Access {
             actor: ActorId::parse("owner").unwrap(),
             workspace: WorkspaceId::parse("workspace").unwrap(),
@@ -848,7 +1009,7 @@ mod tests {
             bootstrap: true,
         }
     }
-    fn server() -> ServerInfo {
+    pub(super) fn server() -> ServerInfo {
         ServerInfo {
             engine_build: "fixture".into(),
             capabilities: METHODS
@@ -870,7 +1031,7 @@ mod tests {
             sandbox_capabilities: vec![],
         }
     }
-    async fn setup(path: &std::path::Path, backend: BackendKind) -> Engine<Store> {
+    pub(super) async fn setup(path: &std::path::Path, backend: BackendKind) -> Engine<Store> {
         let mut engine = Engine::new(Store::open(path, backend, &[]).await.unwrap()).unwrap();
         let access = access();
         let command = CommandEnvelope {
@@ -900,10 +1061,10 @@ mod tests {
             .unwrap();
         engine
     }
-    fn request(id: i64, method: &str, params: Value) -> Value {
+    pub(super) fn request(id: i64, method: &str, params: Value) -> Value {
         json!({"jsonrpc":"2.0","id":id,"method":method,"params":params})
     }
-    fn init() -> Value {
+    pub(super) fn init() -> Value {
         request(
             0,
             "initialize",
@@ -918,7 +1079,7 @@ mod tests {
         "mutation":{"command_id":"create-once","expected_revision":"0","steering_revision":"0"},"new_session":"created","configuration_revision":"0"}),
         )
     }
-    async fn send(
+    pub(super) async fn send(
         rpc: &mut RpcSession,
         engine: &mut Engine<Store>,
         grant: &Access,
@@ -951,7 +1112,7 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(initialized["result"]["methods"], json!(METHODS));
-            assert!(!initialized["result"]["methods"]
+            assert!(initialized["result"]["methods"]
                 .as_array()
                 .unwrap()
                 .contains(&json!("task/read")));
@@ -1126,7 +1287,7 @@ mod tests {
             "unsupported_version"
         );
         let mut wrong = init();
-        wrong["params"]["required_capabilities"] = json!(["task/read"]);
+        wrong["params"]["required_capabilities"] = json!(["task/cancel"]);
         assert_eq!(
             send(&mut rpc, &mut engine, &access(), wrong).await.unwrap()["error"]["data"]["kind"],
             "unsupported_capability"
@@ -1151,7 +1312,7 @@ mod tests {
                 &mut rpc,
                 &mut engine,
                 &access(),
-                request(11, "task/read", json!({}))
+                request(11, "task/cancel", json!({}))
             )
             .await
             .unwrap()["error"]["data"]["details"]["code"],
@@ -1264,3 +1425,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "rpc_task_tests.rs"]
+mod task_projection;

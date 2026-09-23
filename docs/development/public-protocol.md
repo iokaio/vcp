@@ -1,8 +1,9 @@
 # Public protocol construction reference
 
 Owning item: P9-01. Status: v1.0 protocol and bounded engine adapter accepted and
-delivered in [PR #134](https://github.com/iokaio/vcp/pull/134). No local server or SDK support is
-declared. [ADR-042](../adr/042-owner-directed-p8-closure.md) opens P9
+delivered in [PR #134](https://github.com/iokaio/vcp/pull/134).
+[Local attachment](local-attachment.md) is being implemented under P9-02; SDK
+support is not yet declared. [ADR-042](../adr/042-owner-directed-p8-closure.md) opens P9
 after owner-directed P8 closure; it does not qualify the API. The method names
 below come from [architecture section 5.3](../architecture/vcp-what.md#53-minimum-methods).
 Implementation and qualification remain governed by
@@ -19,8 +20,9 @@ imply a capability exists. A known but unavailable operation returns a structure
 capability error before mutation; an unknown method follows the selected JSON-RPC
 method-error contract.
 
-`vcp-engine::rpc::RpcSession` currently supports exactly `session/create`,
-`session/read`, `session/list`, `turn/steer`, `approval/respond` and `command/read`.
+The direct `vcp-engine::rpc::EngineRpcHost` supports `session/create`,
+`session/read`, `session/list`, `task/read`, `turn/steer`, `approval/respond` and
+`command/read`. `RpcSession` dispatches the selected host’s advertised methods.
 Its declared capabilities are the enabled method names plus `jsonrpc/2.0` and
 `durable-command/1`; configuration can remove methods but cannot add handlers or
 unimplemented capabilities. Generic handshake fixtures may negotiate other
@@ -30,16 +32,15 @@ declared capability strings to exercise negotiation; those fixtures do not exten
 The schema deliberately covers more methods and result shapes than this adapter
 executes. Remaining lifecycle/inspection adapters belong to the shared engine and
 P9-02 attachment work; editor observation/reconciliation also requires its owning
-P4 integration. No public transport exists yet. Native adapter parity tests do not
-establish Windows pipe authentication, process ownership or compiled-server SDK
-support.
+P4 integration. Native adapter parity tests are distinct from the compiled local
+transport evidence recorded in the attachment guide and from future SDK support.
 
 ## Optional controller capabilities (P9-02)
 
 The typed registry also defines `controller/read`, `controller/acquire`,
 `controller/release` and `controller/recover`. Each is a separate optional method
 capability. A live host must explicitly implement and advertise it; the direct
-engine adapter continues to advertise only its six existing methods. Initialization
+engine adapter continues to advertise its seven implemented methods. Initialization
 checks configured methods against both the typed registry and the selected host.
 
 All four methods carry the existing workspace/session `scope`. Acquire carries a
@@ -65,7 +66,7 @@ Acquisition never resumes work. Release must hold, pause and drain the owned wor
 before removing ownership, while leaving observer reads available. Current access
 is checked before receipt replay. Controller generation and revision are checked
 again when a decision or other mutation is admitted. Snapshot/event delivery and
-compiled endpoint authentication remain separate P9-02 acceptance requirements.
+remaining execution qualification remain separate P9-02 acceptance requirements.
 
 ## Canonical definitions and generated artifacts
 
@@ -196,12 +197,12 @@ resolved in the following section rather than inferred from a method's name.
 | `session/list` | Authorized workspace/session; O | Bound cursor, authority, deletion epoch and watermark; read | Implemented by `Engine::query(Query::Sessions)` and `RpcSession`; at most the one session visible to this grant | Workspace-wide discovery needs an explicit separate access contract |
 | `session/resume` | Workspace/session and affected task tree; C | Expected task/lifecycle revisions, current owner, policy, fingerprint and reconciled effects; durable | Accepted explicit resume and subsequent state events; `CanonicalHost::resume`, `Lifecycle::resume`, CLI `terminal::prepare_resume` | Shared orchestration of those steps and durable retry result; reconnect must not call resume |
 | `session/fork` | Source workspace/session/recorded turn and new session; C | Completed boundary, source visibility, new profile/budget authority; durable | New ancestry-linked session/task; `CreateSession { fork_through }`, `CreateTask { fork_origin }`, CLI `app/execute.rs`, worker `coding/fork.rs::fork_history` | Recoverable shared workflow across creation steps; authority, approvals and liabilities must not be inherited |
-| `task/read` | Workspace/session/task; O | Current scope and retention; read | Shared nonmutating `Engine::query(Query::Task)` exists; canonical task state | Typed public task projection is not advertised by `RpcSession`; retain pending/unknown detail |
-| `task/cancel` | Workspace/session/root task and descendants; C | Expected task/steering revisions and live owner; durable | Durable cancellation receipt, then observable drain/reconciliation; `CanonicalHost::control_envelope` and `stop` in `foundation/worker/control.rs` | Public operation/result lookup and lease binding; do not replace coordinated stop with bare `Transition` |
+| `task/read` | Workspace/session/task; O | Current scope and retention; read | Shared nonmutating `Engine::query(Query::Task)` exists; canonical task state | Implemented bounded task projection; pending approvals and effect uncertainty retained |
+| `task/cancel` | Workspace/session/root task and descendants; C | Expected task/steering revisions and live owner; durable | Durable cancellation receipt, then observable drain/reconciliation; `CanonicalHost::control_envelope` and `stop` in `foundation/worker/control.rs` | Implemented through authenticated live host and shared retained stop fence; durable receipt replay |
 | `turn/start` | Workspace/session/task/root budget; C | Profile/config, task, steering, policy and budget admission; durable | Durable task/turn acceptance followed by events; `CreateTask`, `StartTurn`, `CanonicalHost::begin_coding_turn`, CLI `Session::start` | Shared recoverable execution setup; record-only start must not be presented as retained-controller dispatch |
 | `turn/steer` | Workspace/session/task/turn; C | Nonterminal turn in task scope, expected steering/task revisions; durable | Implemented by `Engine::handle_public` through `Command::Steer`; durable guidance acceptance | Acceptance does not claim model consumption; execution-host integration remains separate |
-| `turn/pause` | Workspace/session/task/turn; C | Expected task/steering revisions and live owner; durable | Durable pause receipt; inspectors remain usable while work drains; `CanonicalHost::stop` | Explicit turn-to-task/tree semantics and lease binding |
-| `turn/cancel` | Workspace/session/task/turn; C | Expected task/steering revisions and live owner; durable | Durable cancel receipt and retained unknown/partial outcomes; `CanonicalHost::stop`, internal turn transitions | Define affected task/tree semantics; a terminal acknowledgment cannot erase unknown effects |
+| `turn/pause` | Workspace/session/task/turn; C | Expected task/steering revisions and live owner; durable | Durable pause receipt; inspectors remain usable while work drains; `CanonicalHost::stop` | Implemented for latest provable scoped turn: pause its task and hold retained descendants; lease remains current |
+| `turn/cancel` | Workspace/session/task/turn; C | Expected task/steering revisions and live owner; durable | Durable cancel receipt and retained unknown/partial outcomes; `CanonicalHost::stop`, internal turn transitions | Implemented for latest provable scoped turn: cancel its task and descendants; unknown effects remain retained |
 | `approval/respond` | Workspace/session/task/approval; C | Pending decision, operation digest, effect/policy/steering/authority/binding revisions and current engine owner; durable | Implemented by `Engine::handle_public` and `Command::Decide`; atomic acceptance/stale error | P9-02 attaches authenticated controller lease generation to host admission |
 | `command/read` | Workspace/session/command; O | Current access and retained correlated event proof of session scope; read | Implemented by `Engine::query(Query::Command)` and `RpcSession`; durable receipt/result | Pruned scope evidence returns unavailable; lookup does not grant retry or mutation authority |
 | `events/subscribe` | Workspace/session; O | Authorized after-sequence cursor and event schema; read/subscription identity | Ordered pages/notifications or explicit gap; `Engine::subscribe/events/unsubscribe`, `CanonicalHost::subscribe_events/events/unsubscribe_events` | Snapshot-plus-live handoff, bounded push queues, connection disposal and persistent reconnect semantics |

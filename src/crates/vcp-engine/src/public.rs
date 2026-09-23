@@ -13,7 +13,100 @@ use vcp_protocol::{
     command::{Approval, ApprovalState, Command, CommandEnvelope, CommandReceipt},
     methods::{ApprovalDecision, Call, Counter},
 };
-use vcp_store::contract::{CanonicalStore, Collection};
+use vcp_store::contract::{CanonicalStore, Collection, State};
+
+/// Current turn is ordered by retained canonical creation evidence, never an ID
+/// or the turn's independent revision counter. Missing chronology fails closed.
+pub(crate) fn current_public_turn(
+    state: &State,
+    scope: &vcp_domain::workspace::Scope,
+) -> Result<Option<Turn>, PublicError> {
+    let mut turns = std::collections::BTreeMap::new();
+    for row in state
+        .records
+        .values()
+        .filter(|row| row.collection == Collection::Turn && row.workspace == scope.workspace)
+    {
+        let turn: Turn = row.decode().map_err(|_| PublicError::Unavailable)?;
+        if &turn.scope == scope {
+            if turn.id.as_str() != row.id
+                || turn.revision != row.revision
+                || turn.redaction.is_some()
+            {
+                return Err(PublicError::Unavailable);
+            }
+            turns.insert(turn.id.clone(), turn);
+        }
+    }
+    if turns.is_empty() {
+        return Ok(None);
+    }
+    let mut created = std::collections::BTreeMap::new();
+    for envelope in &state.events {
+        let event = &envelope.event;
+        if event.workspace != scope.workspace
+            || event.session != scope.session
+            || event.task.as_ref() != Some(&scope.task)
+            || event.kind != vcp_protocol::event::EventKind::TurnTransition
+            || envelope.redaction.is_some()
+        {
+            continue;
+        }
+        if event
+            .data
+            .get("schema_version")
+            .and_then(serde_json::Value::as_u64)
+            != Some(1)
+        {
+            return Err(PublicError::Unavailable);
+        }
+        let facts = event
+            .data
+            .get("facts")
+            .and_then(serde_json::Value::as_array)
+            .ok_or(PublicError::Unavailable)?;
+        for fact in facts {
+            if fact.get("collection").and_then(serde_json::Value::as_str) != Some("turn") {
+                continue;
+            }
+            let revision: Revision = serde_json::from_value(
+                fact.get("revision")
+                    .cloned()
+                    .ok_or(PublicError::Unavailable)?,
+            )
+            .map_err(|_| PublicError::Unavailable)?;
+            if revision != Revision::ZERO {
+                continue;
+            }
+            let original: Turn =
+                serde_json::from_value(fact.get("value").cloned().ok_or(PublicError::Unavailable)?)
+                    .map_err(|_| PublicError::Unavailable)?;
+            if &original.scope != scope
+                || original.revision != Revision::ZERO
+                || original.state != TurnState::Queued
+                || original.cause != event.id
+                || fact.get("id").and_then(serde_json::Value::as_str) != Some(original.id.as_str())
+            {
+                return Err(PublicError::Unavailable);
+            }
+            if created.insert(original.id, envelope.sequence).is_some() {
+                return Err(PublicError::Unavailable);
+            }
+        }
+    }
+    if turns.keys().any(|id| !created.contains_key(id)) {
+        return Err(PublicError::Unavailable);
+    }
+    let newest = created
+        .iter()
+        .max_by_key(|(_, sequence)| **sequence)
+        .map(|(id, _)| id)
+        .ok_or(PublicError::Unavailable)?;
+    turns
+        .remove(newest)
+        .map(Some)
+        .ok_or(PublicError::Unavailable)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
@@ -187,6 +280,8 @@ impl<S: CanonicalStore> Engine<S> {
             Call::SessionCreate(p) => (&p.scope, &p.mutation),
             Call::TurnSteer(p) => (&p.scope, &p.mutation),
             Call::ApprovalRespond(p) => (&p.scope, &p.mutation),
+            Call::TaskCancel(p) => (&p.scope, &p.mutation),
+            Call::TurnPause(p) | Call::TurnCancel(p) => (&p.scope, &p.mutation),
             _ => return Err(PublicError::CapabilityUnavailable),
         };
         if scope.workspace.as_str() != access.workspace.as_str()
@@ -295,6 +390,74 @@ impl<S: CanonicalStore> Engine<S> {
                 (Some(task_id), Command::Steer { objective })
             }
 
+            Call::TaskCancel(_) | Call::TurnPause(_) | Call::TurnCancel(_) => {
+                let (requested_task, requested_turn, next, reason) = match &call {
+                    Call::TaskCancel(p) => (&p.task, None, TaskState::Cancelled, &p.reason),
+                    Call::TurnPause(p) => (&p.task, Some(&p.turn), TaskState::Paused, &p.reason),
+                    Call::TurnCancel(p) => {
+                        (&p.task, Some(&p.turn), TaskState::Cancelled, &p.reason)
+                    }
+                    _ => unreachable!(),
+                };
+                let task_id = TaskId::parse(requested_task.as_str())
+                    .map_err(|_| PublicError::InvalidParameters)?;
+                let task: Task = state
+                    .record(Collection::Task, task_id.as_str(), &access.workspace)
+                    .map_err(|_| PublicError::Unavailable)?
+                    .decode()
+                    .map_err(|_| PublicError::Unavailable)?;
+                if task.scope.workspace != access.workspace
+                    || task.scope.session != access.session
+                    || task.scope.task != task_id
+                {
+                    return Err(PublicError::Unavailable);
+                }
+                if task.revision != expected
+                    || task.steering != steering
+                    || task.redaction.is_some()
+                {
+                    return Err(PublicError::StaleState);
+                }
+                if let Some(requested_turn) = requested_turn {
+                    let turn =
+                        current_public_turn(state, &task.scope)?.ok_or(PublicError::Unavailable)?;
+                    if turn.id.as_str() != requested_turn.as_str()
+                        || turn.steering != steering
+                        || matches!(
+                            turn.state,
+                            TurnState::Completed | TurnState::Failed | TurnState::Cancelled
+                        )
+                    {
+                        return Err(PublicError::StaleState);
+                    }
+                }
+                if task.state == TaskState::Paused && next == TaskState::Paused {
+                    if reason.trim().is_empty() || reason.len() > 4096 {
+                        return Err(PublicError::InvalidParameters);
+                    }
+                } else {
+                    task.transition(
+                        &task.scope,
+                        expected,
+                        steering,
+                        next,
+                        EventId::new(),
+                        reason.clone(),
+                        None,
+                        None,
+                    )
+                    .map_err(|_| PublicError::StaleState)?;
+                }
+                (
+                    Some(task_id),
+                    Command::Transition {
+                        next,
+                        reason: reason.clone(),
+                        verification: None,
+                    },
+                )
+            }
+
             Call::ApprovalRespond(p) => {
                 let task_id =
                     TaskId::parse(p.task.as_str()).map_err(|_| PublicError::InvalidParameters)?;
@@ -387,6 +550,16 @@ impl<S: CanonicalStore> Engine<S> {
         host: &HostFacts,
     ) -> Result<CommandReceipt, PublicError> {
         self.check_public_prepared(&prepared, access)?;
+        // These commands require the live host to fence the selected retained
+        // subtree before commit. Bare handle_public must not imply that fence.
+        if prepared.controller.is_none()
+            && matches!(
+                prepared.call,
+                Call::TaskCancel(_) | Call::TurnPause(_) | Call::TurnCancel(_)
+            )
+        {
+            return Err(PublicError::CapabilityUnavailable);
+        }
         if prepared.controller.is_some() && matches!(prepared.call, Call::TurnSteer(_)) {
             return Err(PublicError::CapabilityUnavailable);
         }
@@ -672,6 +845,312 @@ mod tests {
             constraints: vec![],
             acceptance: vec![],
         })
+    }
+
+    fn stop_call(kind: &str, command: &str, revision: u64, turn: &str) -> Call {
+        if kind == "task" {
+            Call::TaskCancel(methods::TaskCancel {
+                scope: scope(),
+                mutation: mutation(command, revision, 0),
+                task: id("task"),
+                reason: "explicit stop".into(),
+            })
+        } else {
+            let control = methods::TurnControl {
+                scope: scope(),
+                mutation: mutation(command, revision, 0),
+                task: id("task"),
+                turn: id(turn),
+                reason: "explicit stop".into(),
+            };
+            if kind == "pause" {
+                Call::TurnPause(control)
+            } else {
+                Call::TurnCancel(control)
+            }
+        }
+    }
+
+    fn current_task(engine: &Engine<Store>) -> Task {
+        engine
+            .store()
+            .state()
+            .record(Collection::Task, "task", &access().workspace)
+            .unwrap()
+            .decode()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn public_stop_requires_controlled_commit_and_replays_without_repeating_transitions() {
+        for backend in [BackendKind::Sqlite, BackendKind::Files] {
+            for cancel in ["task", "turn"] {
+                let temp = tempfile::tempdir().unwrap();
+                let mut engine = setup(temp.path(), backend).await;
+                let connection = ControllerId::new();
+                engine
+                    .acquire_controller(&access(), &connection, CommandId::new(), None, facts().now)
+                    .await
+                    .unwrap();
+                let token = engine.controller_token(&access(), &connection).unwrap();
+                let task = task(&mut engine).await;
+                start_turn(&mut engine, &task).await;
+                let pause = stop_call("pause", "pause-public", 1, "turn");
+                let watermark = engine.store().state().watermark;
+                let unbound = ready(
+                    engine
+                        .prepare_public(pause.clone(), &access(), &facts())
+                        .unwrap(),
+                );
+                assert_eq!(
+                    engine.commit_public(unbound, &access(), &facts()).await,
+                    Err(PublicError::CapabilityUnavailable)
+                );
+                assert_eq!(engine.store().state().watermark, watermark);
+                let prepared = ready(
+                    engine
+                        .prepare_controlled_public(
+                            pause.clone(),
+                            &access(),
+                            &facts(),
+                            &connection,
+                            &token,
+                        )
+                        .unwrap(),
+                );
+                let receipt = engine
+                    .commit_public(prepared, &access(), &facts())
+                    .await
+                    .unwrap();
+                let paused = current_task(&engine);
+                assert_eq!(paused.state, TaskState::Paused);
+                assert_eq!(paused.revision, Revision::new(2));
+                let watermark = engine.store().state().watermark;
+                assert!(
+                    matches!(engine.prepare_controlled_public(pause.clone(), &access(), &facts(), &connection, &token).unwrap(), PublicAdmission::Replay(value) if value == receipt)
+                );
+                assert_eq!(engine.store().state().watermark, watermark);
+                let mut observer = access();
+                observer.write = false;
+                assert!(matches!(
+                    engine.prepare_public(pause.clone(), &observer, &facts()),
+                    Err(PublicError::Access)
+                ));
+                let mut changed = pause;
+                if let Call::TurnPause(p) = &mut changed {
+                    p.reason = "different semantics".into();
+                }
+                assert!(matches!(
+                    engine.prepare_controlled_public(
+                        changed,
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token
+                    ),
+                    Err(PublicError::CommandConflict)
+                ));
+                // New pause identity is acknowledged without changing an already-paused task.
+                let repeated = ready(
+                    engine
+                        .prepare_controlled_public(
+                            stop_call("pause", "repeat-pause", 2, "turn"),
+                            &access(),
+                            &facts(),
+                            &connection,
+                            &token,
+                        )
+                        .unwrap(),
+                );
+                engine
+                    .commit_public(repeated, &access(), &facts())
+                    .await
+                    .unwrap();
+                assert_eq!(current_task(&engine), paused);
+                let cancel = stop_call(cancel, "cancel-public", 2, "turn");
+                let prepared = ready(
+                    engine
+                        .prepare_controlled_public(
+                            cancel.clone(),
+                            &access(),
+                            &facts(),
+                            &connection,
+                            &token,
+                        )
+                        .unwrap(),
+                );
+                let receipt = engine
+                    .commit_public(prepared, &access(), &facts())
+                    .await
+                    .unwrap();
+                assert_eq!(current_task(&engine).state, TaskState::Cancelled);
+                let watermark = engine.store().state().watermark;
+                assert!(
+                    matches!(engine.prepare_controlled_public(cancel.clone(), &access(), &facts(), &connection, &token).unwrap(), PublicAdmission::Replay(value) if value == receipt)
+                );
+                assert_eq!(engine.store().state().watermark, watermark);
+                engine.into_store().close().await.unwrap();
+                let reopened =
+                    Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
+                assert!(
+                    matches!(reopened.prepare_public(cancel.clone(), &access(), &facts()).unwrap(), PublicAdmission::Replay(value) if value == receipt)
+                );
+                assert!(matches!(
+                    reopened.prepare_public(cancel, &observer, &facts()),
+                    Err(PublicError::Access)
+                ));
+                assert_eq!(reopened.store().state().watermark, watermark);
+                reopened.into_store().close().await.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn stop_targets_latest_creation_and_fails_closed_when_chronology_is_missing() {
+        for backend in [BackendKind::Sqlite, BackendKind::Files] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut engine = setup(temp.path(), backend).await;
+            let connection = ControllerId::new();
+            engine
+                .acquire_controller(&access(), &connection, CommandId::new(), None, facts().now)
+                .await
+                .unwrap();
+            let token = engine.controller_token(&access(), &connection).unwrap();
+            let task = task(&mut engine).await;
+            assert!(
+                current_public_turn(engine.store().state(), &current_task(&engine).scope)
+                    .unwrap()
+                    .is_none()
+            );
+            start_turn(&mut engine, &task).await;
+            internal(
+                &mut engine,
+                Command::AdvanceTurn {
+                    id: TurnId::parse("turn").unwrap(),
+                    next: TurnState::Paused,
+                    reason: "old turn suspended".into(),
+                },
+                Some(task.clone()),
+                0,
+                0,
+            )
+            .await;
+            internal(
+                &mut engine,
+                Command::StartTurn {
+                    id: TurnId::parse("a-newer-turn").unwrap(),
+                    trigger: ArtifactId::parse("trigger").unwrap(),
+                },
+                Some(task),
+                1,
+                0,
+            )
+            .await;
+            assert_eq!(
+                current_public_turn(engine.store().state(), &current_task(&engine).scope)
+                    .unwrap()
+                    .unwrap()
+                    .id
+                    .as_str(),
+                "a-newer-turn"
+            );
+            assert!(matches!(
+                engine.prepare_controlled_public(
+                    stop_call("pause", "obsolete", 1, "turn"),
+                    &access(),
+                    &facts(),
+                    &connection,
+                    &token
+                ),
+                Err(PublicError::StaleState)
+            ));
+            assert!(matches!(
+                engine.prepare_controlled_public(
+                    stop_call("pause", "missing-turn", 1, "other-task-turn"),
+                    &access(),
+                    &facts(),
+                    &connection,
+                    &token
+                ),
+                Err(PublicError::StaleState)
+            ));
+            assert!(matches!(
+                engine.prepare_controlled_public(
+                    stop_call("pause", "stale-task", 0, "a-newer-turn"),
+                    &access(),
+                    &facts(),
+                    &connection,
+                    &token
+                ),
+                Err(PublicError::StaleState)
+            ));
+            let mut wrong_scope = stop_call("task", "wrong-session", 1, "");
+            if let Call::TaskCancel(p) = &mut wrong_scope {
+                p.scope.session = id("other-session");
+            }
+            assert!(matches!(
+                engine.prepare_controlled_public(
+                    wrong_scope,
+                    &access(),
+                    &facts(),
+                    &connection,
+                    &token
+                ),
+                Err(PublicError::Access)
+            ));
+            let mut retained = engine.store().state().clone();
+            retained
+                .events
+                .retain(|event| event.event.kind != vcp_protocol::event::EventKind::TurnTransition);
+            assert_eq!(
+                current_public_turn(&retained, &current_task(&engine).scope),
+                Err(PublicError::Unavailable)
+            );
+            let prepared = ready(
+                engine
+                    .prepare_controlled_public(
+                        stop_call("pause", "current", 1, "a-newer-turn"),
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token,
+                    )
+                    .unwrap(),
+            );
+            engine
+                .commit_public(prepared, &access(), &facts())
+                .await
+                .unwrap();
+            // A stop prepared under an old lease cannot commit after release.
+            let pending = ready(
+                engine
+                    .prepare_controlled_public(
+                        stop_call("task", "lost-controller", 2, ""),
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token,
+                    )
+                    .unwrap(),
+            );
+            engine
+                .release_controller(
+                    &access(),
+                    &connection,
+                    CommandId::new(),
+                    &token,
+                    token.revision(),
+                    vcp_domain::controller::Reason::Released,
+                    facts().now,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                engine.commit_public(pending, &access(), &facts()).await,
+                Err(PublicError::Access)
+            );
+            assert_eq!(current_task(&engine).state, TaskState::Paused);
+        }
     }
 
     #[tokio::test]
@@ -1069,11 +1548,12 @@ mod tests {
             );
             assert_eq!(locked.store().state().commands.len(), 2);
             let watermark = locked.store().state().watermark;
-            let unsupported = Call::TaskCancel(methods::TaskCancel {
+            // Resume still requires its unimplemented live execution workflow;
+            // it must never become a bare transition through this adapter.
+            let unsupported = Call::SessionResume(methods::SessionResume {
                 scope: scope(),
                 mutation: mutation("unsafe-bare-transition", 0, 0),
                 task: id("task"),
-                reason: "stop".into(),
             });
             assert_eq!(
                 locked.handle_public(unsupported, &access(), &facts()).await,

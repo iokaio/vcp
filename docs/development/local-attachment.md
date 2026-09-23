@@ -3,7 +3,7 @@
 Owning item: P9-02. The protocol foundation is delivered in PR #134. This increment
 adds canonical controller-lease state, a live connection adapter, controlled
 Windows launch and named-pipe attachment to the same live writer. P9-02 remains
-in progress: pipe/reconnect qualification, live subscriptions and the remaining
+in progress: attachment is qualified; live subscriptions and the remaining
 execution adapters are not accepted yet.
 
 ## Controller identity
@@ -111,6 +111,34 @@ fixture proves startup drains before acceptance; a separate fixture rejects late
 root attachment after disconnect. These tests require no paid provider or external
 test machine. Process-level endpoint authentication remains separate acceptance.
 
+## Connected task controls
+
+The live host advertises `task/read`, `task/cancel`, `turn/pause` and `turn/cancel`.
+Reads expose scoped canonical task state, observed pending approvals and effect
+uncertainty. The current turn is selected from retained canonical turn-creation
+history; missing chronology yields a null turn rather than an invented ordering.
+Turn mutation requires the latest provable turn in that task and current steering.
+A stale, foreign or unprovable turn is rejected before retained execution is held.
+
+Turn pause pauses the selected task and holds its retained descendants. Turn cancel
+and task cancel cancel that task and its canonical descendants. Both use the same
+retained fence as CLI stop. Their receipt acknowledges durable intent, while owned
+interruption and effect reconciliation may still be draining. The authenticated
+connection and its controller lease remain live; reads and receipt reconciliation
+continue. Repeating a durable command returns its receipt without another hold.
+Acceptance and terminal task state do not settle unknown provider/tool liabilities.
+Resume is a separate explicit, revalidated operation and is not advertised yet.
+
+Native Windows/Rust 1.95.0 qualification passed 76 engine/protocol tests, 13
+public-host selections, and seven compiled process tests (five stdio attachment,
+two task-control cases exercising both stores). Active synthetic root/child streams
+prove hold, drain, replay and preserved uncertainty; no-root fixtures prove startup
+is sealed and late attachment rejected. Compiled offline fixtures prove scoped
+inspection, cancellation/replay, observer denial and a still-readable connection.
+They do not claim compiled live execution/resume qualification. All 18 fast delivery
+checks, affected Rust formatting and the existing both-store CLI stop/resume
+regression pass.
+
 ## Remaining acceptance
 
 Native stdio and named-pipe attachment now have the bounded evidence below.
@@ -142,8 +170,8 @@ authenticated server process pin and authorized scope. Then send the public
 `initialize` request. No workspace request runs before that handshake. Startup
 failures emit stderr diagnostics and close stdout without a CLI JSONL result.
 
-The server currently implements the six initial methods and four optional
-controller methods. Request the required method capabilities during initialization.
+The server implements seven engine methods, four optional controller methods
+and three live task/turn stop methods. Request the required method capabilities during initialization.
 `controller/read` gives scoped revision/generation and ownership classification;
 it never discloses another actor's token. `controller/acquire` is explicit,
 `controller/release` drains and pauses while leaving the connection readable, and
