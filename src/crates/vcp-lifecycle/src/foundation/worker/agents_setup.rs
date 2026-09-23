@@ -24,7 +24,7 @@ impl worker::Context {
     }
     pub(super) fn child_held_setup_access(&self, binding: &ThreadBinding) -> worker::Result<()> {
         self.validate_binding(binding)?;
-        if !self.owner_alive || self.authority_pending || self.interrupted_capture {
+        if !self.owner_alive || self.authority_pending || self.capture_admission_blocked() {
             return Err("child setup owner or capture recovery is unavailable".into());
         }
         self.child_assignment(&binding.scope.task)?

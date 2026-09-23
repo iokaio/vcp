@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Controlled local helper entry points. All bootstrap input travels over pipes.
+mod execution;
 mod framed;
 mod server;
 mod windows_identity;
@@ -48,6 +49,8 @@ struct LaunchRequest {
     role: Role,
     #[serde(default)]
     transport: Transport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution: Option<execution::Configuration>,
 }
 
 #[derive(Deserialize)]
@@ -192,6 +195,9 @@ async fn attach_bridge(mut client: Framed, request: AttachRequest) -> Result<(),
 }
 
 async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result<(), String> {
+    if let Some(execution) = &request.execution {
+        execution.validate(request.role)?;
+    }
     if request.data.is_none() {
         request.data = Some(crate::settings::default_data()?);
     }
@@ -325,6 +331,15 @@ async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result
             return Err("local shutdown required process recovery".into());
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let code = launched
+        .guard
+        .exit_code()
+        .map_err(|_| "local child exit status unavailable")?;
+    if code != 0 {
+        return Err(format!(
+            "local server exited with status 0x{code:08x}; reconcile pending commands"
+        ));
     }
     result
 }

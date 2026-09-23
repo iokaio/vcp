@@ -54,6 +54,14 @@ impl ChildGuard {
             _ => Err(io::Error::last_os_error()),
         }
     }
+    pub fn exit_code(&self) -> io::Result<u32> {
+        if !self.wait(0)? {
+            return Err(io::Error::other("local child is still running"));
+        }
+        let mut code = 0;
+        checked(unsafe { GetExitCodeProcess(self.process.as_raw_handle(), &mut code) })?;
+        Ok(code)
+    }
     pub fn terminate(&self) -> io::Result<()> {
         if self.wait(0)? {
             return Ok(());
@@ -439,7 +447,9 @@ mod tests {
         };
         child.guard.handoff();
         assert!(child.process.is_alive().unwrap());
+        assert!(cleanup.exit_code().is_err());
         cleanup.terminate().unwrap();
         assert!(!child.process.is_alive().unwrap());
+        assert_eq!(cleanup.exit_code().unwrap(), 1);
     }
 }

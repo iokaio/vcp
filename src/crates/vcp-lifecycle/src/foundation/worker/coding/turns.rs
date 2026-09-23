@@ -1,13 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Canonical stages of an explicitly submitted retained coding turn.
 use super::*;
+mod identity;
 
 impl Context {
     pub fn begin_coding_turn(&mut self, binding: &ThreadBinding, input: String) -> Result<TurnId> {
+        self.begin_coding_turn_identified(binding, input, TurnId::new())
+    }
+
+    pub fn begin_coding_turn_identified(
+        &mut self,
+        binding: &ThreadBinding,
+        input: String,
+        id: TurnId,
+    ) -> Result<TurnId> {
         self.can_start(binding)?;
         if input.trim().is_empty() || input.len() > 65_536 || input.contains('\0') {
             return Err("turn input must contain bounded UTF-8 text".into());
         }
+        identity::require_unused(self.engine.store().state(), &id)?;
         let previous = self
             .coding
             .get(&binding.scope.task)
@@ -50,7 +61,6 @@ impl Context {
             input.as_bytes(),
             "coding-turn-input/1",
         )?;
-        let id = TurnId::new();
         self.command(
             Command::StartTurn {
                 id: id.clone(),

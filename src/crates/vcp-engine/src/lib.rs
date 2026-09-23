@@ -7,11 +7,14 @@ pub mod command_handler;
 pub mod controller;
 pub mod policy;
 pub mod public;
+pub mod public_reads;
 pub mod query;
 pub mod questions;
 pub mod rpc;
+pub mod snapshot;
 mod subscription;
 pub use command_handler::{Access, Engine, HostFacts};
+pub use subscription::ProjectedEvents;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -148,8 +148,8 @@ mod provider_retries;
 mod public_connection;
 #[path = "support/public_controller.rs"]
 mod public_controller;
-#[path = "support/public_task_control.rs"]
-mod public_task_control;
+#[path = "support/public_events.rs"]
+mod public_events;
 #[path = "support/public_resume.rs"]
 mod public_resume;
 #[cfg(windows)]
@@ -159,6 +159,8 @@ mod public_resume_mcp;
 mod public_rpc;
 #[path = "support/public_rpc_drain.rs"]
 mod public_rpc_drain;
+#[path = "support/public_task_control.rs"]
+mod public_task_control;
 #[path = "support/response_boundary.rs"]
 mod response_boundary;
 #[cfg(windows)]

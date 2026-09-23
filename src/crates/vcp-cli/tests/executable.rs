@@ -18,6 +18,8 @@ mod packaged_mcp_history;
 mod packaged_mcp_preflight;
 #[path = "support/packaged_sensitive_surfaces.rs"]
 mod packaged_sensitive_surfaces;
+#[path = "support/public_execution.rs"]
+mod public_execution;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,

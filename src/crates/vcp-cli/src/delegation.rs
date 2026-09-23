@@ -121,6 +121,10 @@ pub async fn run(
     notices: tokio::sync::mpsc::Sender<String>,
 ) -> Result<tokio::task::JoinHandle<Result<(), String>>, String> {
     use codex_protocol::{protocol::EventMsg, user_input::UserInput};
+    // Cooperative ownership shared with terminal/batch supervisors. Session's
+    // retained thread remains accessible to trusted callers, so every event
+    // consumer must claim this guard before submitting or observing work.
+    let events = child.session.claim_events()?;
     let mut scope = scope.clone();
     scope.task = child.task.clone();
     let task: vcp_domain::task::Task = host
@@ -155,6 +159,7 @@ pub async fn run(
     };
     let session = child.session.clone();
     Ok(tokio::spawn(async move {
+        let _events = events;
         let outcome: Result<(), String> = async {
             loop {
                 let event = session

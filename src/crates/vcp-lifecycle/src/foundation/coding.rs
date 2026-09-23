@@ -176,6 +176,20 @@ impl CanonicalHost {
         self.worker
             .run(move |context| context.begin_coding_turn(&binding, input))
     }
+    /// Trusted owner supplies the canonical turn identity after its own durable
+    /// admission. This is not a public command/replay boundary or execution grant.
+    /// Existing identities are rejected before input capture, including identities
+    /// belonging to another scope. Retained event correlation IDs remain separate.
+    pub fn begin_coding_turn_identified(
+        &self,
+        thread: ThreadId,
+        input: String,
+        turn: TurnId,
+    ) -> Result<TurnId, String> {
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.begin_coding_turn_identified(&binding, input, turn))
+    }
     /// Explicit read grants for ancestor AGENTS.md files only. Configure after
     /// coding setup and before its first request or verification baseline.
     pub fn configure_instruction_roots(

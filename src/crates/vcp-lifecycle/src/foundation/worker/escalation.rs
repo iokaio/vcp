@@ -30,7 +30,7 @@ impl Context {
         input: crate::foundation::routing_state::declarations::Input,
     ) -> Result<serde_json::Value> {
         use crate::foundation::routing_state::declarations;
-        if self.interrupted_capture
+        if self.capture_admission_blocked()
             || self
                 .routing
                 .as_ref()

@@ -31,6 +31,7 @@ pub const METHODS: &[&str] = &[
     "session/read",
     "session/list",
     "task/read",
+    "usage/read",
     "turn/steer",
     "approval/respond",
     "command/read",
@@ -383,6 +384,9 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                     _ => return Err(RpcError::internal_error()),
                 }
             }
+            Call::UsageRead(p) => {
+                ResultValue::Usage(engine.public_usage(access, p).map_err(query_error)?)
+            }
             Call::CommandRead(p) => {
                 check_scope(&p.scope, access)?;
                 let command = CommandId::parse(p.command_id.as_str())
@@ -436,7 +440,7 @@ fn id(value: &str) -> Result<methods::Id, RpcError> {
         .try_into()
         .map_err(|_| RpcError::internal_error())
 }
-fn session_view(session: Session) -> Result<methods::SessionView, RpcError> {
+pub(crate) fn session_view(session: Session) -> Result<methods::SessionView, RpcError> {
     Ok(methods::SessionView {
         scope: methods::Scope {
             workspace: id(session.workspace.as_str())?,
@@ -461,7 +465,7 @@ fn session_view(session: Session) -> Result<methods::SessionView, RpcError> {
 /// be admitted: expiry, ownership and policy are rechecked by approval/respond.
 /// There is no persisted addressable generic Question/Reconciliation input model;
 /// waiting state and unknown effects must not manufacture input identities.
-fn task_view(
+pub(crate) fn task_view(
     state: &vcp_store::contract::State,
     task: vcp_domain::task::Task,
 ) -> Result<methods::TaskView, RpcError> {
@@ -688,7 +692,7 @@ fn application(
     }
     .into_rpc()
 }
-fn query_error(error: QueryError) -> RpcError {
+pub fn query_error(error: QueryError) -> RpcError {
     let (code, retry) = match error {
         QueryError::Access | QueryError::Unavailable => {
             (Code::PolicyDenied, Retry::AfterRevalidation)

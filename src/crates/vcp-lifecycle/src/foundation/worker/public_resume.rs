@@ -3,12 +3,52 @@
 use super::public_connection::PublicConnection;
 use super::*;
 use codex_protocol::ThreadId;
-use vcp_engine::public::PublicAdmission;
+use vcp_engine::public::{PublicAdmission, PublicError};
+use vcp_protocol::jsonrpc::RpcError;
 use vcp_protocol::methods::{Call, SessionResume};
+mod startup;
+pub use startup::PublicResumeStartup;
 
-enum Admission {
+pub enum PublicResumeAdmission {
     Replay(CommandReceipt),
-    Ready(ResumeCommit, Task),
+    Ready(PublicResumeTicket),
+}
+
+/// Opaque original admission identity. Moving it into commit cannot transfer
+/// controller authority; every use rechecks the original connection and lease.
+pub struct PublicResumeTicket {
+    commit: ResumeCommit,
+    task: Task,
+    startup_used: bool,
+}
+impl PublicResumeTicket {
+    pub fn scope(&self) -> &vcp_domain::workspace::Scope {
+        &self.task.scope
+    }
+    pub fn revision(&self) -> Revision {
+        self.task.revision
+    }
+    fn request(&self) -> SessionResume {
+        let ResumeCommit::Public { prepared, .. } = &self.commit else {
+            unreachable!()
+        };
+        let Call::SessionResume(request) = prepared.call() else {
+            unreachable!()
+        };
+        request.clone()
+    }
+}
+
+pub enum PublicResumeOutcome {
+    Replay(CommandReceipt),
+    Accepted(CommandReceipt),
+}
+impl PublicResumeOutcome {
+    pub fn into_receipt(self) -> CommandReceipt {
+        match self {
+            Self::Replay(receipt) | Self::Accepted(receipt) => receipt,
+        }
+    }
 }
 
 impl PublicConnection {
@@ -19,6 +59,154 @@ impl PublicConnection {
         request: SessionResume,
         current: &Access,
     ) -> std::result::Result<CommandReceipt, String> {
+        match self.prepare_resume(request, current)? {
+            PublicResumeAdmission::Replay(receipt) => Ok(receipt),
+            PublicResumeAdmission::Ready(ticket) => self
+                .resume_prepared(ticket, current)
+                .map(PublicResumeOutcome::into_receipt),
+        }
+    }
+
+    /// Authorized durable replay precedes any retained constructor or hold change.
+    pub fn prepare_resume(
+        &self,
+        request: SessionResume,
+        current: &Access,
+    ) -> std::result::Result<PublicResumeAdmission, String> {
+        self.prepare_resume_inner(request, current)
+    }
+
+    fn prepare_resume_inner(
+        &self,
+        request: SessionResume,
+        current: &Access,
+    ) -> std::result::Result<PublicResumeAdmission, String> {
+        self.prepare_resume_rpc(request, current)
+            .map_err(|error| error.message)
+    }
+
+    /// Typed wire preflight. Preserve conflict/stale/access distinctions before
+    /// allocating a constructor, installing a profile or changing retained holds.
+    pub fn prepare_resume_rpc(
+        &self,
+        request: SessionResume,
+        current: &Access,
+    ) -> std::result::Result<PublicResumeAdmission, RpcError> {
+        let operation = Some(request.mutation.command_id.clone());
+        let error = |error| vcp_engine::rpc::public_error(error, operation.clone(), false);
+        let (host, access, connection, token) = self
+            .rpc_context(current)
+            .map_err(|_| error(PublicError::Access))?;
+        let token = token.ok_or_else(|| error(PublicError::Access))?;
+        let nested_operation = operation.clone();
+        host.worker
+            .run(move |context| {
+                Ok(
+                    (|| -> std::result::Result<PublicResumeAdmission, RpcError> {
+                        let error = |error| {
+                            vcp_engine::rpc::public_error(error, nested_operation.clone(), false)
+                        };
+                        context
+                            .check_public_controller(&access, &connection, &token)
+                            .map_err(|_| error(PublicError::Access))?;
+                        let facts = HostFacts {
+                            now: now(),
+                            policy: vcp_engine::policy::optional(
+                                context.engine.store().state(),
+                                &context.config.workspace,
+                            )
+                            .map_err(|_| error(PublicError::Unavailable))?
+                            .map_or(PolicyRevision::ZERO, |policy| policy.revision),
+                            resume: None,
+                            may_execute: context.owner_alive,
+                        };
+                        let prepared = match context
+                            .engine
+                            .prepare_controlled_public(
+                                Call::SessionResume(request),
+                                &access,
+                                &facts,
+                                &connection,
+                                &token,
+                            )
+                            .map_err(error)?
+                        {
+                            PublicAdmission::Replay(receipt) => {
+                                return Ok(PublicResumeAdmission::Replay(receipt));
+                            }
+                            PublicAdmission::Ready(prepared) => prepared,
+                        };
+                        if context.authority_pending {
+                            return Err(error(PublicError::StaleState));
+                        }
+                        let task: Task = context
+                            .engine
+                            .store()
+                            .state()
+                            .record(
+                                Collection::Task,
+                                prepared
+                                    .task()
+                                    .ok_or_else(|| error(PublicError::InvalidParameters))?
+                                    .as_str(),
+                                &access.workspace,
+                            )
+                            .map_err(|_| error(PublicError::Unavailable))?
+                            .decode()
+                            .map_err(|_| error(PublicError::Unavailable))?;
+                        Ok(PublicResumeAdmission::Ready(PublicResumeTicket {
+                            commit: ResumeCommit::Public {
+                                prepared,
+                                access,
+                                connection,
+                                token,
+                            },
+                            task,
+                            startup_used: false,
+                        }))
+                    })(),
+                )
+            })
+            .map_err(|_| error(PublicError::OutcomeUnknown))?
+    }
+
+    fn check_resume_ticket(
+        &self,
+        ticket: &PublicResumeTicket,
+        current: &Access,
+    ) -> std::result::Result<(), String> {
+        let (_, access, connection, token) = self.rpc_context(current)?;
+        let ResumeCommit::Public {
+            access: original,
+            connection: original_connection,
+            token: original_token,
+            ..
+        } = &ticket.commit
+        else {
+            unreachable!()
+        };
+        if connection != *original_connection
+            || access.actor != original.actor
+            || access.workspace != original.workspace
+            || access.session != original.session
+            || access.authority != original.authority
+            || !token.is_some_and(|token| {
+                token.generation() == original_token.generation()
+                    && token.revision() == original_token.revision()
+            })
+        {
+            return Err("resume ticket authority changed".into());
+        }
+        Ok(())
+    }
+
+    /// Only Accepted may be scheduled for new submission by an owned supervisor.
+    /// Replay never authorizes a second submission, even with an old ready ticket.
+    pub fn resume_prepared(
+        &self,
+        ticket: PublicResumeTicket,
+        current: &Access,
+    ) -> std::result::Result<PublicResumeOutcome, String> {
         // Serialize durable replay with ephemeral MCP proof collection. This
         // lock never participates in connection-loss or lifecycle interruption.
         let _resume = self
@@ -26,57 +214,15 @@ impl PublicConnection {
             .public_resume
             .lock()
             .map_err(|_| "public resume lock poisoned")?;
-        let (host, access, connection, token) = self.rpc_context(current)?;
-        let token = token.ok_or("controller acquisition required")?;
-        let admission = host.worker.run(move |context| {
-            context.check_public_controller(&access, &connection, &token)?;
-            let facts = HostFacts {
-                now: now(),
-                policy: vcp_engine::policy::optional(
-                    context.engine.store().state(),
-                    &context.config.workspace,
-                )?
-                .map_or(PolicyRevision::ZERO, |policy| policy.revision),
-                resume: None,
-                may_execute: context.owner_alive,
-            };
-            let prepared = match context.engine.prepare_controlled_public(
-                Call::SessionResume(request),
-                &access,
-                &facts,
-                &connection,
-                &token,
-            )? {
-                PublicAdmission::Replay(receipt) => return Ok(Admission::Replay(receipt)),
-                PublicAdmission::Ready(prepared) => prepared,
-            };
-            if context.authority_pending {
-                return Err("authority change is stopping work".into());
+        self.check_resume_ticket(&ticket, current)?;
+        let ticket = match self.prepare_resume_inner(ticket.request(), current)? {
+            PublicResumeAdmission::Replay(receipt) => {
+                return Ok(PublicResumeOutcome::Replay(receipt));
             }
-            let task: Task = context
-                .engine
-                .store()
-                .state()
-                .record(
-                    Collection::Task,
-                    prepared.task().ok_or("resume task absent")?.as_str(),
-                    &access.workspace,
-                )?
-                .decode()?;
-            Ok(Admission::Ready(
-                ResumeCommit::Public {
-                    prepared,
-                    access,
-                    connection,
-                    token,
-                },
-                task,
-            ))
-        })?;
-        let (commit, task) = match admission {
-            Admission::Replay(receipt) => return Ok(receipt),
-            Admission::Ready(commit, task) => (commit, task),
+            PublicResumeAdmission::Ready(ticket) => ticket,
         };
+        let PublicResumeTicket { commit, task, .. } = ticket;
+        let host = self.host.clone();
         // A reconnect or replay never constructs or rebinds a retained owner.
         let (thread, binding) = {
             let bindings = host.bindings.lock().map_err(|_| "binding lock poisoned")?;
@@ -115,7 +261,7 @@ impl PublicConnection {
             host.worker.fence();
             drop(host.runtime.hold_owner());
         }
-        result
+        result.map(PublicResumeOutcome::Accepted)
     }
 }
 

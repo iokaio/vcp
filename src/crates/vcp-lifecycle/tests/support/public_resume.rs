@@ -4,10 +4,333 @@ use super::*;
 use codex_extension_api::TurnStartAdmission;
 use vcp_engine::{rpc::RpcHost, Access};
 use vcp_lifecycle::foundation::{CanonicalOwner, PublicConnection};
+use vcp_lifecycle::foundation::{PublicResumeAdmission, PublicResumeOutcome};
 use vcp_protocol::methods::{self, Call};
 
 fn id(value: &str) -> methods::Id {
     value.to_owned().try_into().unwrap()
+}
+
+fn ticket(admission: PublicResumeAdmission) -> vcp_lifecycle::foundation::PublicResumeTicket {
+    match admission {
+        PublicResumeAdmission::Ready(ticket) => ticket,
+        _ => panic!("expected new resume"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn trusted_execution_hold_survives_stale_stop_and_dropped_waiter() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let fixture = Fixture::new(backend).await;
+        let current = fixture.selected();
+        let stale = fixture
+            .host
+            .control_envelope(
+                CommandId::new(),
+                current.scope.task,
+                current.revision,
+                Command::Transition {
+                    next: TaskState::Paused,
+                    reason: "stale supervisor snapshot".into(),
+                    verification: None,
+                },
+            )
+            .unwrap();
+        fixture.pause_canonical();
+        drop(fixture.host.hold_execution().unwrap());
+        assert!(fixture.host.stop(stale).is_err());
+        assert!(
+            fixture
+                .host
+                .lifecycle()
+                .inspect(fixture.thread)
+                .unwrap()
+                .local_hold
+        );
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !fixture
+                .host
+                .lifecycle()
+                .inspect(fixture.thread)
+                .unwrap()
+                .interrupt_complete
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(fixture.selected().state, TaskState::Paused);
+        assert!(fixture.server.received_requests().await.unwrap().is_empty());
+        fixture.close().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_resume_ticket_replays_without_resubmission_and_rejects_changed_connection() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let fixture = Fixture::new(backend).await;
+        fixture.hold().await;
+        fixture.pause_canonical();
+        let request = fixture.request("ticket-once");
+        let mut stale = request.clone();
+        stale.mutation.expected_revision = u64::MAX.into();
+        assert_eq!(
+            fixture
+                .controller
+                .prepare_resume_rpc(stale, &fixture.current)
+                .err()
+                .unwrap(),
+            vcp_engine::rpc::public_error(
+                vcp_engine::public::PublicError::StaleState,
+                Some(request.mutation.command_id.clone()),
+                false
+            )
+        );
+        let mut observer = fixture.current.clone();
+        observer.write = false;
+        assert_eq!(
+            fixture
+                .controller
+                .prepare_resume_rpc(request.clone(), &observer)
+                .err()
+                .unwrap(),
+            vcp_engine::rpc::public_error(
+                vcp_engine::public::PublicError::Access,
+                Some(request.mutation.command_id.clone()),
+                false
+            )
+        );
+        let first = ticket(
+            fixture
+                .controller
+                .prepare_resume(request.clone(), &fixture.current)
+                .unwrap(),
+        );
+        let duplicate = ticket(
+            fixture
+                .controller
+                .prepare_resume(request.clone(), &fixture.current)
+                .unwrap(),
+        );
+        assert_eq!(first.scope().task, fixture.config.root_task);
+        let receipt = match fixture
+            .controller
+            .resume_prepared(first, &fixture.current)
+            .unwrap()
+        {
+            PublicResumeOutcome::Accepted(receipt) => receipt,
+            _ => panic!("first acceptance must own submission"),
+        };
+        fixture.hold().await;
+        let watermark = fixture.host.snapshot().unwrap().watermark;
+        let mut changed = request.clone();
+        changed.task = id("another-root");
+        assert_eq!(
+            fixture
+                .controller
+                .prepare_resume_rpc(changed, &fixture.current)
+                .err()
+                .unwrap(),
+            vcp_engine::rpc::public_error(
+                vcp_engine::public::PublicError::CommandConflict,
+                Some(request.mutation.command_id.clone()),
+                false
+            )
+        );
+        assert!(
+            matches!(fixture.controller.resume_prepared(duplicate, &fixture.current).unwrap(), PublicResumeOutcome::Replay(value) if value == receipt)
+        );
+        assert!(
+            matches!(fixture.controller.prepare_resume(request, &fixture.current).unwrap(), PublicResumeAdmission::Replay(value) if value == receipt)
+        );
+        assert_eq!(fixture.host.snapshot().unwrap().watermark, watermark);
+        assert!(
+            fixture
+                .host
+                .lifecycle()
+                .inspect(fixture.thread)
+                .unwrap()
+                .local_hold
+        );
+        fixture.pause_canonical();
+        let pending = ticket(
+            fixture
+                .controller
+                .prepare_resume(fixture.request("different-connection"), &fixture.current)
+                .unwrap(),
+        );
+        let other = fixture
+            .host
+            .public_connection(fixture.current.clone())
+            .unwrap();
+        assert!(other.resume_prepared(pending, &fixture.current).is_err());
+        drop(other);
+        assert!(fixture.server.received_requests().await.unwrap().is_empty());
+        fixture.close().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_resume_rearms_only_exact_drained_constructor_after_no_root_owner_loss() {
+    use codex_extension_api::HostWorkAdmission;
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = temporary.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let config = config(&temporary.path().join("canonical"), &workspace, backend);
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let access = Access {
+            actor: config.actor.clone(),
+            workspace: config.workspace.clone(),
+            session: config.session.clone(),
+            authority: AuthorityRevision::ZERO,
+            read: true,
+            write: true,
+            bootstrap: false,
+        };
+        let mut previous = host.public_connection(access.clone()).unwrap();
+        previous.acquire(CommandId::new(), None).unwrap();
+        let binding = task(&host, &config, config.root_task.clone(), None);
+        host.command(
+            Command::Transition {
+                next: TaskState::Paused,
+                reason: "explicit suspended fixture".into(),
+                verification: None,
+            },
+            Some(config.root_task.clone()),
+            Revision::new(1),
+        )
+        .unwrap();
+        let released = previous
+            .disconnect()
+            .unwrap()
+            .wait()
+            .await
+            .unwrap()
+            .unwrap();
+        let vcp_protocol::command::CommandResult::Accepted { revision } = released.result else {
+            panic!("controller release must be accepted");
+        };
+        let mut controller = host.public_connection(access.clone()).unwrap();
+        controller
+            .acquire(CommandId::new(), Some(revision))
+            .unwrap();
+        assert!(host
+            .lifecycle()
+            .authorize_startup(&workspace, None)
+            .is_err());
+        let selected: Task = host
+            .snapshot()
+            .unwrap()
+            .record(
+                Collection::Task,
+                config.root_task.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let request = methods::SessionResume {
+            scope: methods::Scope {
+                workspace: id(config.workspace.as_str()),
+                session: id(config.session.as_str()),
+            },
+            mutation: methods::Mutation {
+                command_id: id("first-root-resume"),
+                expected_revision: selected.revision.get().into(),
+                steering_revision: selected.steering.get().into(),
+            },
+            task: id(config.root_task.as_str()),
+        };
+        let mut first = ticket(controller.prepare_resume(request.clone(), &access).unwrap());
+        let first_start = controller
+            .authorize_resume_startup(&mut first, &access)
+            .unwrap();
+        let gate = first_start.work_admission();
+        assert!(controller
+            .authorize_resume_startup(&mut first, &access)
+            .is_err());
+        let permit = gate.admit_startup(&workspace, None).unwrap();
+        assert!(gate.admit_startup(&workspace, None).is_err());
+        drop(first_start);
+        let mut second = ticket(controller.prepare_resume(request.clone(), &access).unwrap());
+        assert!(controller
+            .authorize_resume_startup(&mut second, &access)
+            .is_err());
+        drop(permit);
+        let revoked = controller
+            .authorize_resume_startup(&mut second, &access)
+            .unwrap();
+        let revoked_gate = revoked.work_admission();
+        controller.loss_signal().invalidate();
+        assert!(revoked_gate.admit_startup(&workspace, None).is_err());
+        drop(revoked);
+        let released = controller
+            .disconnect()
+            .unwrap()
+            .wait()
+            .await
+            .unwrap()
+            .unwrap();
+        let vcp_protocol::command::CommandResult::Accepted { revision } = released.result else {
+            panic!("controller release must be accepted");
+        };
+        controller = host.public_connection(access.clone()).unwrap();
+        controller
+            .acquire(CommandId::new(), Some(revision))
+            .unwrap();
+        assert!(controller
+            .authorize_resume_startup(&mut second, &access)
+            .is_err());
+        let mut second = ticket(controller.prepare_resume(request.clone(), &access).unwrap());
+        let startup = controller
+            .authorize_resume_startup(&mut second, &access)
+            .unwrap();
+        let duplicate = ticket(controller.prepare_resume(request, &access).unwrap());
+        assert!(host
+            .lifecycle()
+            .authorize_startup(&workspace, None)
+            .is_err());
+        assert!(HostWorkAdmission::admit_startup(&host, &workspace, None).is_err());
+        let server = start_mock_server().await;
+        let mut registry = ExtensionRegistryBuilder::new();
+        registry.turn_start_admission(Arc::new(host.clone()));
+        registry.work_admission(startup.work_admission());
+        let retained = test_codex()
+            .with_extensions(Arc::new(registry.build()))
+            .with_auth(codex_login::CodexAuth::from_api_key(
+                "synthetic-resume-no-inference",
+            ))
+            .with_allowed_tools(AllowedTools(vec![]))
+            .with_config(move |config| {
+                config.cwd = workspace.try_into().unwrap();
+                configure_fixture_provider(config);
+            })
+            .build_with_auto_env(&server)
+            .await
+            .unwrap();
+        assert!(host
+            .lifecycle()
+            .attach_root(retained.codex.clone())
+            .is_err());
+        let thread = controller
+            .attach_resume_root(startup, retained.codex.clone(), binding, &access)
+            .unwrap();
+        assert!(host.lifecycle().inspect(thread).unwrap().local_hold);
+        let receipt = match controller.resume_prepared(second, &access).unwrap() {
+            PublicResumeOutcome::Accepted(receipt) => receipt,
+            _ => panic!("expected first acceptance"),
+        };
+        assert!(
+            matches!(controller.resume_prepared(duplicate, &access).unwrap(), PublicResumeOutcome::Replay(value) if value == receipt)
+        );
+        assert!(server.received_requests().await.unwrap().is_empty());
+        controller.disconnect().unwrap().wait().await.unwrap();
+        owner.close().await.unwrap();
+        retained.codex.shutdown_and_wait().await.unwrap();
+    }
 }
 struct Fixture {
     _temporary: tempfile::TempDir,

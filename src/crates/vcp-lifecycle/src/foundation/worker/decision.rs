@@ -177,7 +177,7 @@ impl Context {
         }
     }
     fn decision_setup_allowed(&self) -> Result<()> {
-        if !self.owner_alive || self.authority_pending || self.interrupted_capture {
+        if !self.owner_alive || self.authority_pending || self.capture_admission_blocked() {
             return Err("decision setup requires current canonical owner".into());
         }
         Ok(())

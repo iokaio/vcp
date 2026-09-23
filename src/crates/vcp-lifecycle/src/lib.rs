@@ -84,9 +84,13 @@ struct State {
     attached: bool,
     root: Option<ThreadId>,
     sealing: bool,
-    // A constructor interrupted before root attachment cannot safely be
-    // rebound without a per-constructor identity. Reopen recovers this case.
+    // Generic constructors interrupted before root attachment stay held. Only
+    // a new explicit resume constructor with its own identity can attach.
     root_admission_held: bool,
+    // Only an explicit, controller-bound resume constructor may use this grant.
+    // Generic startup/attachment remain held until that constructor attaches.
+    root_startup: Option<Arc<()>>,
+    root_hold_error: Option<Error>,
     owner_sealing: bool,
     owner_hold_waiters: Vec<oneshot::Sender<Result<(), Error>>>,
     entries: HashMap<ThreadId, Entry>,
@@ -308,6 +312,8 @@ impl Lifecycle {
                 root: None,
                 sealing: false,
                 root_admission_held: false,
+                root_startup: None,
+                root_hold_error: None,
                 owner_sealing: false,
                 owner_hold_waiters: Vec::new(),
                 entries: HashMap::new(),
@@ -618,6 +624,8 @@ impl Lifecycle {
         }
         state.advance()?;
         state.root_admission_held = true;
+        state.root_startup = None;
+        state.root_hold_error = None;
         state.sealing = true;
         state.owner_sealing = true;
         state.startups.clear();
@@ -780,6 +788,9 @@ impl Lifecycle {
         }
         .await;
         let mut state = self.0.state.lock().map_err(|_| Error::Poisoned)?;
+        if state.root.is_none() && state.root_admission_held {
+            state.root_hold_error = result.err();
+        }
         for id in selected {
             let entry = state.entries.get_mut(&id).unwrap();
             entry.interrupted = result.is_ok();

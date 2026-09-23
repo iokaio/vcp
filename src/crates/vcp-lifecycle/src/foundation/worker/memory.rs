@@ -6,7 +6,7 @@ impl Context {
         &mut self,
         context: vcp_memory::extraction::ExtractionContext,
     ) -> Result<Vec<vcp_memory::repository::MemoryCommit>> {
-        if !self.owner_alive || self.authority_pending || self.interrupted_capture {
+        if !self.owner_alive || self.authority_pending || self.capture_admission_blocked() {
             return Err("memory extraction is fenced".into());
         }
         let root: Task = self
@@ -112,7 +112,7 @@ impl Context {
     }
 
     pub fn memory_step(&mut self) -> Result<vcp_memory::runner::Progress> {
-        if !self.owner_alive || self.authority_pending || self.interrupted_capture {
+        if !self.owner_alive || self.authority_pending || self.capture_admission_blocked() {
             return Err("memory maintenance is fenced".into());
         }
         let Some(record) = self
@@ -143,7 +143,7 @@ impl Context {
     /// Preserve an admitted command's receipt even if independent maintenance
     /// fails. The failure remains canonical and cannot masquerade as progress.
     pub(super) fn memory_after_command(&mut self) {
-        if !self.owner_alive || self.authority_pending || self.interrupted_capture {
+        if !self.owner_alive || self.authority_pending || self.capture_admission_blocked() {
             return;
         }
         if self.memory_step().is_err() {

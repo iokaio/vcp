@@ -25,7 +25,7 @@ impl Context {
         if let Some(receipt) = self.recheck_resume(&commit)? {
             return Ok(receipt);
         }
-        if !self.owner_alive || self.authority_pending || self.interrupted_capture {
+        if !self.owner_alive || self.authority_pending || self.capture_admission_blocked() {
             return Err("MCP resume owner is fenced".into());
         }
         self.validate_binding(binding)?;

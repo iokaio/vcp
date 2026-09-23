@@ -16,6 +16,7 @@ mod agents_setup;
 mod authority;
 #[cfg(windows)]
 mod backup_checkpoint;
+mod capture_recovery;
 #[cfg(windows)]
 mod coding;
 #[cfg(feature = "qualification")]
@@ -36,7 +37,8 @@ mod memory;
 mod memory_query;
 mod provider;
 pub(super) mod public_connection;
-mod public_resume;
+mod public_events;
+pub(super) mod public_resume;
 mod public_rpc;
 mod reasoning;
 pub(super) mod recovery;
@@ -189,6 +191,7 @@ pub struct Context {
     streams: HashMap<AttemptId, LocalWriter>,
     outputs: HashMap<ArtifactId, (Scope, LocalWriter)>,
     interrupted_capture: bool,
+    response_recovery: Vec<ArtifactDescriptor>,
     owner_alive: bool,
     authority_pending: bool,
     public_mode: bool,
@@ -298,9 +301,21 @@ impl Context {
         // A deliberately stopped process can retain an acknowledged partial
         // stdout/stderr/transcript. It is history, not an interrupted capture
         // transaction. Only that exact terminal descriptor can clear this
-        // startup guard; pending, failed, provider and unacknowledged captures
-        // still require reconciliation.
-        let interrupted_capture = engine.store().spool().unfinished()?.iter().any(|physical| {
+        // startup guard. An exactly linked provider response with retained
+        // accounting permits inspection separately; unresolved provider work
+        // still blocks execution. Failed/unacknowledged captures remain fenced.
+        let unfinished = engine.store().spool().unfinished()?;
+        let response_recovery: Vec<_> = unfinished
+            .iter()
+            .filter(|physical| {
+                capture_recovery::response(engine.store().state(), physical).is_some()
+            })
+            .cloned()
+            .collect();
+        let interrupted_capture = unfinished.iter().any(|physical| {
+            if capture_recovery::response(engine.store().state(), physical).is_some() {
+                return false;
+            }
             physical.state != CaptureState::Aborted
                 || physical.spec.schema != "retained-full-output/1"
                 || !matches!(
@@ -338,6 +353,7 @@ impl Context {
             streams: HashMap::new(),
             outputs: HashMap::new(),
             interrupted_capture,
+            response_recovery,
             owner_alive: true,
             authority_pending: false,
             public_mode: false,
@@ -545,7 +561,7 @@ impl Context {
         if !self.local_memory_only {
             return self.can_start(binding);
         }
-        if !self.owner_alive || self.authority_pending || self.interrupted_capture {
+        if !self.owner_alive || self.authority_pending || self.capture_admission_blocked() {
             return Err("local memory owner is fenced or capture recovery is incomplete".into());
         }
         self.validate_binding(binding)?;
@@ -643,7 +659,7 @@ impl Context {
             return Err("authority change is stopping work".into());
         }
         self.validate_binding(binding)?;
-        if self.interrupted_capture {
+        if self.capture_admission_blocked() {
             return Err("capture recovery incomplete".into());
         }
         let task: Task = self
@@ -908,7 +924,7 @@ impl Context {
             return Err("canonical owner is closed".into());
         }
         self.validate_binding(binding)?;
-        if self.interrupted_capture {
+        if self.capture_admission_blocked() {
             return Err("unfinished capture requires reconciliation".into());
         }
         let provider_request = if self.provider_required {
@@ -1143,11 +1159,13 @@ impl Context {
                 return Err(error.into());
             }
         }
-        let response = self.engine.store().spool().create(self.spec(
+        let mut response_spec = self.spec(
             scope,
             Channel::Response,
             "responses-sse-observed-through-terminal/1",
-        ));
+        );
+        response_spec.source = capture_recovery::source(&attempt.id);
+        let response = self.engine.store().spool().create(response_spec);
         let response = match response {
             Ok(writer) => writer,
             Err(error) => {

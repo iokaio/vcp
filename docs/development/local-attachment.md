@@ -3,8 +3,9 @@
 Owning item: P9-02. The protocol foundation is delivered in PR #134. This increment
 adds canonical controller-lease state, a live connection adapter, controlled
 Windows launch and named-pipe attachment to the same live writer. P9-02 remains
-in progress: attachment is qualified; live subscriptions and the remaining
-execution adapters are not accepted yet.
+in progress: attachment, owned resume and bounded subscriptions have native
+incremental qualification below. Remaining method adapters
+and SDK acceptance are separate work.
 
 ## Controller identity
 
@@ -78,9 +79,9 @@ Connection loss invalidates admission immediately and starts interruption before
 waiting on the writer queue. It releases the durable lease only after owned
 draining; observers retain access to paused state. Reacquisition never resumes
 execution. If disconnection interrupts construction before the first retained root
-attaches, the host must be reopened before another root construction. This
-conservative startup restriction rejects late attachment from the interrupted
-constructor; it is separate from ordinary attached-root pause/resume.
+attaches, generic startup remains held. The owned-execution path below can mint a
+new constructor-specific grant only through explicit resume after draining; old
+constructors cannot use that grant or attach through the generic path.
 
 ## Prerequisite verification
 
@@ -127,7 +128,8 @@ interruption and effect reconciliation may still be draining. The authenticated
 connection and its controller lease remain live; reads and receipt reconciliation
 continue. Repeating a durable command returns its receipt without another hold.
 Acceptance and terminal task state do not settle unknown provider/tool liabilities.
-Resume is a separate explicit, revalidated operation and is not advertised yet.
+Resume is a separate explicit, revalidated operation, advertised only when the
+server has the owned execution configuration described below.
 
 Native Windows/Rust 1.95.0 qualification passed 76 engine/protocol tests, 13
 public-host selections, and seven compiled process tests (five stdio attachment,
@@ -158,8 +160,8 @@ proof of the exact owned idle process and granted undelivered call, with slot an
 lifecycle guards retained through the decision.
 
 This primitive never creates a retained thread, submits a model turn or dispatches
-an approved tool call. `session/resume` remains unadvertised on the wire until the
-server owns submission and its crash/retry reconciliation. Its native qualification
+an approved tool call. The bare adapter does not advertise `session/resume`; the
+owned-execution server adapter below adds submission. The primitive's native qualification
 passes 80 engine/protocol tests and 19 public-host tests on Windows/Rust 1.95.0.
 Both stores cover concurrent same-key resume, stale authority, unfinished retained
 work, unknown effect liability and real MCP startup/call approvals. Independent
@@ -171,6 +173,113 @@ connections before waiting for scheduler quiescence, preserving host credentials
 for later use. Both explicit release and disconnect drain the actual fixture
 process. Existing CLI control and exact MCP approval regressions pass, as do all
 18 fast delivery checks. This prerequisite does not close P9-02.
+
+## Owned local execution construction
+
+[ADR-045](../adr/045-owned-local-execution.md) selects the optional execution
+bootstrap and server-owned submission boundary. A controller launch may include
+`execution: {profile, provider_credential, credentials}` in its bounded private
+bootstrap frame. `profile` is an absolute trusted profile path; `credentials` maps
+configured MCP/decision names to credential material. Values remain memory-only
+and never enter attachment grants, workspace files, argv, inherited environment or
+logs. Missing named material fails closed; the server has no environment fallback.
+Ordinary launch without this object does not prepare or start a provider.
+
+The server pins profile bytes and checks the selected durable policy, workspace
+binding and model configuration. It supports execution of its configured root,
+not arbitrary task selection. Authentication and lease acquisition remain separate
+from explicit `session/resume`. Resume preflight returns an authorized receipt
+replay or an opaque original controller-bound ticket before session construction.
+The first constructor uses a one-use startup adapter while generic startup stays
+held; attachment rechecks its identity and authority and leaves the root held.
+The canonical resume commit then revalidates continuation and distinguishes new
+`Accepted` from `Replay`. Only new acceptance schedules a submission.
+
+The supervisor owns that operation independently of its response waiter and is
+the sole retained event consumer. Completion/abort handling is correlated with the
+identified submitted turn, so stale queued events cannot affect a later resume.
+Thread configuration is installed once after first acceptance. A durable receipt
+means acceptance, not successful submission or completion: clients inspect the
+current task/turn and command result. Submission failure pauses; replay and restart
+never automatically repeat execution. A subsequent explicit resume does not renew
+the server's configured execution window.
+
+The trusted coding host also accepts an explicit canonical turn identity, rejecting
+an existing identity in any scope before capturing input. Retained event correlation
+IDs remain separate. This shared primitive prepares new-run admission; it does not
+advertise `turn/start` or supply durable public acceptance by itself.
+
+Each new resume admission has a 30-second watchdog covering profile preparation,
+construction and submission. Receipt replay bypasses the watchdog.
+Expiry invalidates the controlling connection and seals admission while the owned
+future retains cleanup.
+After five further seconds without completion, the dedicated server exits. Shutdown
+uses the same bounded process fallback. This avoids dropping an unverified
+constructor future; forced termination requires canonical crash recovery and is
+not evidence that effects completed or liabilities cleared.
+
+Shutdown holds admission and drains the event consumer, then closes the canonical
+owner while its retained session remains alive. Only afterward does it shut down
+the retained thread. The bridge reports a nonzero server exit without forwarding
+private child diagnostics to the public transport.
+
+A deliberately interrupted provider response is readable after restart only with
+an exact canonical acknowledgement linking its physical descriptor to the attempt,
+reservation and retained ledger liability. Reads and command replay do not clear
+that liability. An unresolved acknowledged response still blocks new execution;
+failed, mismatched or unlinked captures retain the hard recovery fence.
+
+Native Windows/Rust 1.95.0 verification passes 89 engine/protocol tests, 25
+public-host selections, 91 CLI unit tests and 14 compiled local-process tests.
+The process tests cover stdio, named pipes, connected controls, snapshot replay,
+artifact/usage reads and two synthetic execution cases. The execution cases prove
+an actual file edit occurs once, connected pause remains readable, owner loss
+blocks work, and fresh-server receipt replay does not resend. A fresh resume after
+restart remains denied while provider liability is unresolved.
+
+Additional passing checks cover both-store real budget-service accounting and
+restart, ten audit-history tests, two capture-recovery proof tests, the seeded
+provider and child recovery matrices, two existing partial-capture regressions,
+and the shared noisy/quiet child event-owner regression. CLI unit output includes
+two ignored entries: an inherited-handle subprocess fixture invoked by its parent
+test, and the existing external OneDrive-root qualification, which was not run.
+All 18 fast delivery checks pass (manifest
+`artifacts/tests/9b7b7144-cbec-4b8c-8c76-f826e711c59e/manifest.json`), as do Rust
+formatting, compiled schema regeneration/drift checking and TypeScript 5.9.3 strict
+checking. No paid provider qualification is implied. These increments do not close
+the remaining P9-02 new-run/fork, inspection/governance adapters and acceptance
+scenarios, or establish P9-03 SDK compatibility.
+
+## Snapshot and event recovery
+
+`session/snapshot` captures typed session/task state and registers an event cursor
+at the same canonical sequence. Commits after capture are replayed by `events/next`.
+Pages hold at most 128 rows and 256 KiB. A changed source during snapshot pagination
+requires discarding partial pages and restarting. Event entries are invalidations
+with scoped evidence references, not raw canonical records or complete state deltas.
+Clients refresh snapshots to recover current state.
+
+Subscriptions are connection-owned pull cursors, limited to eight per connection
+and sixteen per engine. The cursor lifetime is 60 seconds; polling does not renew
+it. Each subscription retains only its immediately preceding response for an
+identical-token retry. Older, expired, unsubscribed or inaccessible cursors require
+resynchronization. Access and retention are checked before cached replies. Logical
+retention masks apply even before physical rewriting; gaps and incomplete evidence
+are explicit. Slow readers retain bounded pages rather than an unbounded event queue.
+Observer disposal releases cursors without fencing writes or pausing the controller.
+
+## Usage and artifact inspection
+
+`usage/read` returns the selected task's root ledger aggregate in exact decimal
+USD micros. Settled, reserved and unresolved amounts stay distinct; a missing ledger
+is an error. This is a current aggregate: a target may select only that root, and an
+inspection cursor is not supported.
+
+`artifact/read` revalidates task scope, current authority and retention, verifies
+the full retained hash, and returns at most 49,152 raw bytes encoded as Base64 per
+page. Offset and total length count raw bytes; the hash covers the full retained
+artifact. `complete` requires both the final range and a complete capture. An
+aborted or pending prefix can reach its retained length with `complete: false`.
 
 ## Remaining acceptance
 
@@ -203,8 +312,9 @@ authenticated server process pin and authorized scope. Then send the public
 `initialize` request. No workspace request runs before that handshake. Startup
 failures emit stderr diagnostics and close stdout without a CLI JSONL result.
 
-The server implements seven engine methods, four optional controller methods
-and three live task/turn stop methods. Request the required method capabilities during initialization.
+The server advertises implemented engine reads, controller methods, task/turn
+controls, snapshot/event recovery and artifact inspection. Configured execution
+adds `session/resume`. Request the required method capabilities during initialization.
 `controller/read` gives scoped revision/generation and ownership classification;
 it never discloses another actor's token. `controller/acquire` is explicit,
 `controller/release` drains and pauses while leaving the connection readable, and
@@ -218,9 +328,10 @@ connection and allows canonical cleanup before releasing the writer. Another
 launch against the same root fails while the first writer remains alive. A slow
 or invalid stream cannot grow an unbounded queue: frames have a 1 MiB payload
 ceiling, helper queues hold at most eight frames, and blocked output has a five
-second deadline. Only one RPC is dispatched at a time. Event subscriptions are not
-advertised. The optional pipe transport below retains the server independently
-after an authenticated bootstrap handoff.
+second deadline. Only one RPC is dispatched at a time. Clients use only the
+capabilities advertised by the current adapter; bounded event recovery retains
+the acceptance requirements above. The optional pipe transport retains the server
+independently after an authenticated bootstrap handoff.
 
 ## Named-pipe attachment and reconnect
 

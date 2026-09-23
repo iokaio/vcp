@@ -6,6 +6,16 @@ use vcp_protocol::command::CommandEnvelope;
 use vcp_store::contract::Collection;
 
 impl CanonicalHost {
+    /// Trusted host safety fence, independent of a task snapshot or command
+    /// revision. Dropping the waiter never cancels the owned interruption.
+    /// This grants no public command authority and has no wire method.
+    pub fn hold_execution(&self) -> Result<crate::HoldWaiter, String> {
+        self.runtime.hold_owner().map_err(|error| {
+            self.worker.fence();
+            format!("execution hold unavailable: {error:?}")
+        })
+    }
+
     /// Pull durable events through the engine's authenticated, bounded cursor.
     /// Rendering never keeps an unbounded producer queue or accesses the store.
     pub fn subscribe_events(

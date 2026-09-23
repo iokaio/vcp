@@ -11,6 +11,7 @@ pub mod ingestion;
 pub mod memory;
 pub mod policy;
 pub mod redaction;
+pub mod retention;
 pub mod retention_selector;
 pub mod revision;
 pub mod search;

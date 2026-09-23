@@ -246,11 +246,15 @@ impl Client {
         self.input.as_mut().unwrap().write_all(bytes).unwrap();
         self.input.as_mut().unwrap().flush().unwrap();
     }
+    #[track_caller]
     pub(crate) fn receive(&self) -> Value {
-        self.frames
-            .recv_timeout(Duration::from_secs(20))
-            .expect("bounded compiled process response")
-            .expect("pure protocol stdout")
+        match self.frames.recv_timeout(Duration::from_secs(20)) {
+            Ok(frame) => frame.expect("pure protocol stdout"),
+            Err(error) => panic!(
+                "bounded compiled process response: {error:?}; diagnostics: {}",
+                self.diagnostics.try_recv().unwrap_or_default()
+            ),
+        }
     }
     pub(crate) fn connect(fixture: &Fixture, role: &str) -> Self {
         let mut client = Self::spawn("local-bridge");
@@ -262,6 +266,7 @@ impl Client {
         assert!(ready["server"].is_object());
         client
     }
+    #[track_caller]
     pub(crate) fn rpc(&mut self, request: u64, method: &str, params: Value) -> Value {
         self.send(json!({"jsonrpc":"2.0","id":request,"method":method,"params":params}));
         let response = self.receive();
