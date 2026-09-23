@@ -1405,12 +1405,14 @@ impl State {
             {
                 return Err(Error::Corruption("command digest"));
             }
-            if transaction.events.iter().any(|e| {
-                e.workspace != input.workspace
-                    || e.session != input.session
-                    || e.correlation != input.command
-            }) {
-                return Err(Error::Access);
+            if crate::fork_contract::marked(transaction)
+                || transaction.events.iter().any(|e| {
+                    e.workspace != input.workspace
+                        || e.session != input.session
+                        || e.correlation != input.command
+                })
+            {
+                crate::fork_contract::validate(self, transaction)?;
             }
             let key = command_key(&input.workspace, &input.command);
             if result.commands.contains_key(&key) {

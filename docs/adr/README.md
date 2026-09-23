@@ -58,6 +58,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 
 - [ADR-045 - Owned local execution](045-owned-local-execution.md): explicit resume, retained event ownership and bounded shutdown.
 
+- [ADR-046 - Atomic metadata session forks](046-atomic-metadata-session-forks.md): historical boundaries, paired genesis and source-scoped receipts.
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.

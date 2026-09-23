@@ -16,6 +16,7 @@ use vcp_protocol::{
 const METHODS: &[&str] = &[
     "workspace/open",
     "session/create",
+    "session/fork",
     "session/read",
     "session/snapshot",
     "session/list",

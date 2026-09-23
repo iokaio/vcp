@@ -5,6 +5,7 @@ pub mod agents;
 pub mod capture;
 pub mod command_handler;
 pub mod controller;
+mod fork;
 pub mod policy;
 pub mod public;
 pub mod public_evidence;
@@ -27,6 +28,8 @@ pub enum Error {
     Target,
     #[error("operation requires current host evidence")]
     Host,
+    #[error("canonical target evidence is unavailable in the authorized scope")]
+    Unavailable,
     #[error("domain: {0}")]
     Domain(#[from] vcp_domain::Error),
     #[error("canonical store: {0}")]

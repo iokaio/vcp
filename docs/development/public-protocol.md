@@ -20,7 +20,7 @@ imply a capability exists. A known but unavailable operation returns a structure
 capability error before mutation; an unknown method follows the selected JSON-RPC
 method-error contract.
 
-The direct `vcp-engine::rpc::EngineRpcHost` supports `session/create`,
+The direct `vcp-engine::rpc::EngineRpcHost` supports `session/create`, `session/fork`,
 `session/read`, `session/list`, `task/read`, `usage/read`, `context/inspect`,
 `routing/explain`, `turn/steer`, `approval/respond` and
 `command/read`. `RpcSession` dispatches the selected host’s advertised methods.
@@ -41,7 +41,7 @@ transport evidence recorded in the attachment guide and from future SDK support.
 The typed registry also defines `controller/read`, `controller/acquire`,
 `controller/release` and `controller/recover`. Each is a separate optional method
 capability. A live host must explicitly implement and advertise it; the direct
-engine adapter continues to advertise its seven implemented methods. Initialization
+engine adapter advertises only its implemented methods listed above. Initialization
 checks configured methods against both the typed registry and the selected host.
 
 All four methods carry the existing workspace/session `scope`. Acquire carries a
@@ -197,7 +197,7 @@ resolved in the following section rather than inferred from a method's name.
 | `session/read` | Workspace/session; O | Current scope and retention; read | Implemented by `Engine::query(Query::Session)` and `RpcSession`; snapshot with watermark | No broader session authority inferred |
 | `session/list` | Authorized workspace/session; O | Bound cursor, authority, deletion epoch and watermark; read | Implemented by `Engine::query(Query::Sessions)` and `RpcSession`; at most the one session visible to this grant | Workspace-wide discovery needs an explicit separate access contract |
 | `session/resume` | Workspace/session and affected task tree; C | Expected task/lifecycle revisions, current owner, policy, fingerprint and reconciled effects; durable | Accepted explicit resume and subsequent state events; `CanonicalHost::resume`, `Lifecycle::resume`, CLI `terminal::prepare_resume` | Shared orchestration of those steps and durable retry result; reconnect must not call resume |
-| `session/fork` | Source workspace/session/recorded turn and new session; C | Completed boundary, source visibility, new profile/budget authority; durable | New ancestry-linked session/task; `CreateSession { fork_through }`, `CreateTask { fork_origin }`, CLI `app/execute.rs`, worker `coding/fork.rs::fork_history` | Recoverable shared workflow across creation steps; authority, approvals and liabilities must not be inherited |
+| `session/fork` | Source workspace/session/completed turn; C | Current source access, retained boundary, distinct unused target IDs, zero create/steering revisions; durable | Atomic ancestry-linked session and pending task through `Command::ForkSession`; source-scoped receipt and target genesis | Implemented metadata fork ([ADR-046](../adr/046-atomic-metadata-session-forks.md)); later execution requires explicit selection and fresh profile/budget authority; approvals and liabilities are not inherited |
 | `task/read` | Workspace/session/task; O | Current scope and retention; read | Shared nonmutating `Engine::query(Query::Task)` exists; canonical task state | Implemented bounded task projection; pending approvals and effect uncertainty retained |
 | `task/cancel` | Workspace/session/root task and descendants; C | Expected task/steering revisions and live owner; durable | Durable cancellation receipt, then observable drain/reconciliation; `CanonicalHost::control_envelope` and `stop` in `foundation/worker/control.rs` | Implemented through authenticated live host and shared retained stop fence; durable receipt replay |
 | `turn/start` | Workspace/session/task/root budget; C | Profile/config, task, steering, policy and budget admission; durable | Durable task/turn acceptance followed by events; `CreateTask`, `StartTurn`, `CanonicalHost::begin_coding_turn`, CLI `Session::start` | Shared recoverable execution setup; record-only start must not be presented as retained-controller dispatch |

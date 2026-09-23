@@ -4,6 +4,7 @@ pub mod artifact;
 mod backend;
 pub mod contract;
 mod forecast_contract;
+mod fork_contract;
 pub mod keys;
 pub mod migration;
 pub mod portable_snapshot;

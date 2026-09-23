@@ -203,6 +203,7 @@ impl PublicPauseProof {
 fn public_error(error: crate::Error) -> PublicError {
     match error {
         crate::Error::Access => PublicError::Access,
+        crate::Error::Unavailable => PublicError::Unavailable,
         crate::Error::Owner
         | crate::Error::Target
         | crate::Error::Host
@@ -278,6 +279,7 @@ impl<S: CanonicalStore> Engine<S> {
             .map_err(|_| PublicError::InvalidParameters)?;
         let (scope, mutation) = match &call {
             Call::SessionCreate(p) => (&p.scope, &p.mutation),
+            Call::SessionFork(p) => (&p.scope, &p.mutation),
             Call::SessionResume(p) => (&p.scope, &p.mutation),
             Call::TurnSteer(p) => (&p.scope, &p.mutation),
             Call::ApprovalRespond(p) => (&p.scope, &p.mutation),
@@ -332,6 +334,29 @@ impl<S: CanonicalStore> Engine<S> {
             paused_revision.unwrap_or(Revision::new(number(&mutation.expected_revision)?));
         let steering = SteeringRevision::new(number(&mutation.steering_revision)?);
         let (task, payload) = match &call {
+            Call::SessionFork(p) => {
+                if expected != Revision::ZERO || steering != SteeringRevision::ZERO {
+                    return Err(PublicError::StaleState);
+                }
+                let target_session = SessionId::parse(p.new_session.as_str())
+                    .map_err(|_| PublicError::InvalidParameters)?;
+                let target_task = TaskId::parse(p.new_task.as_str())
+                    .map_err(|_| PublicError::InvalidParameters)?;
+                let through = TurnId::parse(p.through_turn.as_str())
+                    .map_err(|_| PublicError::InvalidParameters)?;
+                crate::fork::available_targets(state, &target_session, &target_task)
+                    .map_err(public_error)?;
+                crate::fork::source(state, &access.workspace, &access.session, &through)
+                    .map_err(public_error)?;
+                (
+                    None,
+                    Command::ForkSession {
+                        id: target_session,
+                        task: target_task,
+                        through_turn: through,
+                    },
+                )
+            }
             Call::SessionCreate(p) => {
                 if expected != Revision::ZERO
                     || steering != SteeringRevision::ZERO
@@ -1896,13 +1921,12 @@ mod tests {
             );
             assert_eq!(locked.store().state().commands.len(), 2);
             let watermark = locked.store().state().watermark;
-            // Fork remains unavailable through this adapter.
-            let unsupported = Call::SessionFork(methods::SessionFork {
+            // Export still requires its own shared durable workflow.
+            let unsupported = Call::SessionExport(methods::SessionExport {
                 scope: scope(),
                 mutation: mutation("unsafe-bare-transition", 0, 0),
-                new_session: id("forked-session"),
-                new_task: id("forked-task"),
-                through_turn: id("turn"),
+                task: None,
+                capture: methods::CaptureScope::VisibleHistory,
             });
             assert_eq!(
                 locked.handle_public(unsupported, &access(), &facts()).await,
