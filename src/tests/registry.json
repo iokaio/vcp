@@ -39,8 +39,8 @@
   },
   "cases": {
     "p8-qualification": {
-      "task_ids": ["P8-01", "P8-02", "P8-03"],
-      "args": ["--test", "src/tests/contracts/p8-qualification-runner.test.cjs", "src/tests/contracts/p8-envelope-oracle.test.cjs"],
+      "task_ids": ["P8-01", "P8-02", "P8-03", "P8-05"],
+      "args": ["--test", "src/tests/contracts/p8-qualification-runner.test.cjs", "src/tests/contracts/p8-envelope-oracle.test.cjs", "src/tests/contracts/p805-owner-runner.test.cjs", "src/tests/contracts/production-interactive-runner.test.cjs", "src/tests/contracts/p805-owner-integration.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 60000,
