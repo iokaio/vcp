@@ -28,7 +28,12 @@ fn selected(host: &CanonicalHost, config: &Config) -> Task {
 async fn public_rpc_active_stream_drain_survives_waiter_loss_and_rejects_owner_loss_or_capture_fault(
 ) {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
-        for scenario in ["dropped-waiter", "connection-lost", "capture-fault"] {
+        for scenario in [
+            "dropped-waiter",
+            "connection-lost",
+            "capture-fault",
+            "signal-before-disconnect",
+        ] {
             let temp = tempfile::tempdir().unwrap();
             let workspace = temp.path().join("workspace");
             std::fs::create_dir(&workspace).unwrap();
@@ -154,6 +159,7 @@ async fn public_rpc_active_stream_drain_survives_waiter_loss_and_rejects_owner_l
                 constraints: vec![],
                 acceptance: vec![],
             });
+            let signal = controller.loss_signal();
             let mut pending = Box::pin(controller.call(call.clone(), &current));
             std::future::poll_fn(|context| match pending.as_mut().poll(context) {
                 Poll::Pending => Poll::Ready(()),
@@ -181,6 +187,22 @@ async fn public_rpc_active_stream_drain_survives_waiter_loss_and_rejects_owner_l
                     .unwrap()
                     .is_err());
                 drop(output);
+                controller.disconnect().unwrap().wait().await.unwrap();
+            } else if scenario == "signal-before-disconnect" {
+                // The blocking pipe pump can detect loss before the async
+                // dispatcher gets scheduled to drop this request/connection.
+                signal.invalidate();
+                drop(drain_gate);
+                assert!(tokio::time::timeout(Duration::from_secs(10), pending)
+                    .await
+                    .unwrap()
+                    .is_err());
+                assert!(!host
+                    .snapshot()
+                    .unwrap()
+                    .commands
+                    .values()
+                    .any(|receipt| receipt.command == command));
                 controller.disconnect().unwrap().wait().await.unwrap();
             } else {
                 // Cancelling the JSON-RPC receiver must not cancel host-owned completion.

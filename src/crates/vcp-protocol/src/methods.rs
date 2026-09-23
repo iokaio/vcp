@@ -146,6 +146,23 @@ dto!(Mutation {
     expected_revision: Counter,
     steering_revision: Counter
 });
+// Controller authority is authenticated host state, never a caller-supplied
+// actor, connection ID, lease token, or steering revision.
+dto!(ControllerRead { scope: Scope });
+dto!(ControllerAcquire { scope: Scope, command_id: Id, expected_revision: Option<Counter> });
+dto!(ControllerRelease {
+    scope: Scope,
+    command_id: Id,
+    expected_revision: Counter,
+    generation: Counter
+});
+dto!(ControllerRecover {
+    scope: Scope,
+    command_id: Id,
+    expected_revision: Counter,
+    generation: Counter
+});
+
 dto!(WorkspaceOpen {
     command_id: Id,
     host: Id,
@@ -315,6 +332,10 @@ macro_rules! calls {
     };
 }
 calls! {
+    ControllerRead(ControllerRead) => "controller/read",
+    ControllerAcquire(ControllerAcquire) => "controller/acquire",
+    ControllerRelease(ControllerRelease) => "controller/release",
+    ControllerRecover(ControllerRecover) => "controller/recover",
     WorkspaceOpen(WorkspaceOpen) => "workspace/open",
     SessionCreate(SessionCreate) => "session/create",
     SessionRead(SessionRead) => "session/read",
@@ -382,7 +403,19 @@ impl Call {
         }
     }
     pub fn is_mutation(&self) -> bool {
-        self.mutation().is_some() || matches!(self, Self::WorkspaceOpen(_))
+        self.command_id().is_some()
+    }
+
+    /// Durable operation identity, including host controller operations whose
+    /// revision contract has no task steering counter.
+    pub fn command_id(&self) -> Option<&Id> {
+        match self {
+            Self::WorkspaceOpen(p) => Some(&p.command_id),
+            Self::ControllerAcquire(p) => Some(&p.command_id),
+            Self::ControllerRelease(p) => Some(&p.command_id),
+            Self::ControllerRecover(p) => Some(&p.command_id),
+            _ => self.mutation().map(|mutation| &mutation.command_id),
+        }
     }
 
     /// Bind the authenticated principal, exact version, scope and semantics;
@@ -463,6 +496,12 @@ impl Call {
             return Err("method byte limit");
         }
         match self {
+            Self::ControllerRelease(p) if p.generation.as_str() == "0" => {
+                Err("controller generation must be positive")
+            }
+            Self::ControllerRecover(p) if p.generation.as_str() == "0" => {
+                Err("controller generation must be positive")
+            }
             Self::WorkspaceOpen(p) => text(&p.root, 32768),
             Self::SessionList(p) => {
                 page(p.limit)?;
@@ -551,6 +590,15 @@ enumeration!(InputKind {
 });
 enumeration!(Trust { Untrusted, Trusted });
 dto!(PendingInput { id: Id, kind: InputKind, revision: Counter, operation_digest: Option<String> });
+// Relative to the authenticated connection, never a reusable ownership grant.
+enumeration!(ControllerOwnership {
+    Unclaimed,
+    ThisConnection,
+    OtherConnection,
+    PreviousProcess,
+    Released
+});
+dto!(ControllerView { scope: Scope, revision: Option<Counter>, generation: Counter, ownership: ControllerOwnership, watermark: Counter });
 dto!(TaskView { scope: Scope, task: Id, root: Id, parent: Option<Id>, turn: Option<Id>, revision: Counter, steering_revision: Counter, state: TaskStatus, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] reason: String, pending_inputs: Vec<PendingInput>, effects: EffectStatus });
 dto!(SessionView { scope: Scope, revision: Counter, configuration_revision: Counter, fork_origin: Option<Id>, fork_through: Option<Id> });
 dto!(WorkspaceView {
@@ -642,6 +690,7 @@ dto!(ExportView {
 )]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ResultValue {
+    Controller(ControllerView),
     Workspace(WorkspaceView),
     Session(SessionView),
     Sessions(SessionPage),
@@ -749,6 +798,53 @@ mod tests {
     fn params() -> serde_json::Value {
         json!({"scope":{"workspace":"ws","session":"s"},"mutation":{"command_id":"cmd","expected_revision":"18446744073709551615","steering_revision":"0"},"new_session":"next","configuration_revision":"0"})
     }
+    #[test]
+    fn controller_params_have_exact_revision_identity_and_no_wire_authority() {
+        let scope = json!({"workspace":"ws","session":"s"});
+        let acquire = json!({"scope":scope,"command_id":"acquire","expected_revision":null});
+        let first = Call::decode("controller/acquire", acquire.clone()).unwrap();
+        assert!(first.is_mutation());
+        assert_eq!(first.command_id().unwrap().as_str(), "acquire");
+        assert!(first.mutation().is_none());
+        let read = Call::decode("controller/read", json!({"scope":scope})).unwrap();
+        assert!(!read.is_mutation());
+        assert!(read.command_id().is_none());
+        for field in ["actor", "connection", "token", "write", "steering_revision"] {
+            let mut injected = acquire.clone();
+            injected[field] = json!("forged");
+            assert!(Call::decode("controller/acquire", injected).is_err());
+        }
+        let mut changed = acquire;
+        changed["expected_revision"] = json!("0");
+        assert_ne!(
+            first.digest("actor").unwrap(),
+            Call::decode("controller/acquire", changed)
+                .unwrap()
+                .digest("actor")
+                .unwrap()
+        );
+        for method in ["controller/release", "controller/recover"] {
+            let params = json!({"scope":scope,"command_id":"control","expected_revision":"18446744073709551615","generation":"9223372036854775808"});
+            let call = Call::decode(method, params.clone()).unwrap();
+            assert!(call.is_mutation());
+            assert_eq!(call.command_id().unwrap().as_str(), "control");
+            for bad in [
+                json!(0),
+                json!("0"),
+                json!("01"),
+                json!("18446744073709551616"),
+            ] {
+                let mut invalid = params.clone();
+                invalid["generation"] = bad;
+                assert!(Call::decode(method, invalid).is_err());
+            }
+            let mut missing = params;
+            missing.as_object_mut().unwrap().remove("expected_revision");
+            assert!(Call::decode(method, missing).is_err());
+        }
+        assert!(serde_json::from_value::<ControllerOwnership>(json!("future_owner")).is_err());
+    }
+
     #[test]
     fn schema_envelope_roundtrip_preserves_present_null_id_and_rejects_null_params() {
         for value in [

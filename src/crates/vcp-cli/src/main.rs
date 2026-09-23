@@ -36,6 +36,13 @@ fn main() -> std::process::ExitCode {
 }
 
 async fn run() -> std::process::ExitCode {
+    #[cfg(windows)]
+    if vcp_cli::local::requested() {
+        return match vcp_cli::local::run().await {
+            Ok(code) => code.into(),
+            Err(error) => configuration_failure(&error),
+        };
+    }
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(error) => {
@@ -80,6 +87,10 @@ async fn run() -> std::process::ExitCode {
 
 fn configuration_failure(error: &str) -> std::process::ExitCode {
     eprintln!("vcp: {error}");
+    #[cfg(windows)]
+    if vcp_cli::local::requested() {
+        return 2.into();
+    }
     let conditions = Conditions {
         invalid_configuration: true,
         ..Default::default()

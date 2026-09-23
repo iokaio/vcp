@@ -146,6 +146,8 @@ mod process_broker;
 mod provider_retries;
 #[path = "support/public_connection.rs"]
 mod public_connection;
+#[path = "support/public_controller.rs"]
+mod public_controller;
 #[path = "support/public_rpc.rs"]
 mod public_rpc;
 #[path = "support/public_rpc_drain.rs"]

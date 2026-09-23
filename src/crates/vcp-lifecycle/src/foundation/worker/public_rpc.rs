@@ -1,22 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Public dispatch through the existing serialized host and owned lifecycle.
-use super::public_connection::PublicConnection;
+use super::public_connection::{await_release, PublicConnection};
 use super::*;
 use vcp_engine::{
+    controller::ControllerError,
     public::{PreparedPublicCommand, PublicAdmission, PublicPauseProof},
-    rpc::{acceptance, public_error, EngineRpcHost, RpcHost, METHODS},
+    rpc::{acceptance, public_error, EngineRpcHost, RpcHost},
 };
 use vcp_protocol::{
     errors::{ApplicationError, Code, Retry},
     jsonrpc::RpcError,
-    methods::{Call, ResultValue},
+    methods::{self, Call, ResultValue},
 };
+
+const METHODS: &[&str] = &[
+    "session/create",
+    "session/read",
+    "session/list",
+    "turn/steer",
+    "approval/respond",
+    "command/read",
+    "controller/read",
+    "controller/acquire",
+    "controller/release",
+    "controller/recover",
+];
 
 fn failure(code: Code, retry: Retry, call: &Call, explanation: &str) -> RpcError {
     ApplicationError {
         code,
         retry,
-        operation: call.mutation().map(|mutation| mutation.command_id.clone()),
+        operation: call.command_id().cloned(),
         explanation: explanation.into(),
         reconciliation: None,
     }
@@ -43,6 +57,197 @@ enum Admission {
         proof: PublicPauseProof,
         waiter: Option<crate::HoldWaiter>,
     },
+}
+
+fn controller_error(error: ControllerError, call: &Call) -> RpcError {
+    let (code, retry, explanation) = match error {
+        ControllerError::Access => (
+            Code::PolicyDenied,
+            Retry::AfterRevalidation,
+            "current controller access denied",
+        ),
+        ControllerError::Held => (
+            Code::VersionConflict,
+            Retry::AfterRevalidation,
+            "another controller owns the session",
+        ),
+        ControllerError::Stale => (
+            Code::AuthorityStale,
+            Retry::AfterRevalidation,
+            "controller ownership or revision changed",
+        ),
+        ControllerError::CommandConflict => (
+            Code::CommandConflict,
+            Retry::Never,
+            "controller command identity conflicts",
+        ),
+        ControllerError::RunningTasks => (
+            Code::VersionConflict,
+            Retry::AfterRevalidation,
+            "session tasks require an owned pause",
+        ),
+        ControllerError::InvalidOperation => (
+            Code::PolicyDenied,
+            Retry::Never,
+            "invalid controller operation",
+        ),
+        ControllerError::InvalidState => (
+            Code::StoreUnavailable,
+            Retry::AfterRevalidation,
+            "controller state unavailable",
+        ),
+        ControllerError::OutcomeUnknown => (
+            Code::OutcomeUnknown,
+            Retry::ReconcileOriginal,
+            "controller outcome requires reconciliation",
+        ),
+    };
+    failure(code, retry, call, explanation)
+}
+
+impl PublicConnection {
+    async fn controller_call(
+        &mut self,
+        call: Call,
+        current: &Access,
+    ) -> std::result::Result<ResultValue, RpcError> {
+        call.validate()
+            .map_err(|_| controller_error(ControllerError::InvalidOperation, &call))?;
+        let scope = match &call {
+            Call::ControllerRead(p) => &p.scope,
+            Call::ControllerAcquire(p) => &p.scope,
+            Call::ControllerRelease(p) => &p.scope,
+            Call::ControllerRecover(p) => &p.scope,
+            _ => return Err(RpcError::internal_error()),
+        };
+        if scope.workspace.as_str() != current.workspace.as_str()
+            || scope.session.as_str() != current.session.as_str()
+        {
+            return Err(controller_error(ControllerError::Access, &call));
+        }
+        let revision = |value: &methods::Counter| {
+            value
+                .as_str()
+                .parse::<u64>()
+                .map(Revision::new)
+                .map_err(|_| controller_error(ControllerError::InvalidOperation, &call))
+        };
+        let access = current.clone();
+        let connection = self.connection.clone();
+        let receipt = match &call {
+            Call::ControllerRead(p) => {
+                let scope = p.scope.clone();
+                return self
+                    .host
+                    .worker
+                    .run_cleanup(move |context| {
+                        Ok((|| -> std::result::Result<_, ControllerError> {
+                            let lease = context.engine.read_controller(&access)?;
+                            let ownership = match lease
+                                .as_ref()
+                                .and_then(|lease| lease.holder.as_ref())
+                            {
+                                None if lease.is_none() => methods::ControllerOwnership::Unclaimed,
+                                None => methods::ControllerOwnership::Released,
+                                Some(holder)
+                                    if holder.process_owner != *context.engine.controller()
+                                        || holder.owner_epoch != context.engine.owner_epoch() =>
+                                {
+                                    methods::ControllerOwnership::PreviousProcess
+                                }
+                                Some(holder)
+                                    if holder.connection == connection
+                                        && holder.actor == access.actor =>
+                                {
+                                    methods::ControllerOwnership::ThisConnection
+                                }
+                                Some(_) => methods::ControllerOwnership::OtherConnection,
+                            };
+                            Ok(ResultValue::Controller(methods::ControllerView {
+                                scope,
+                                revision: lease.as_ref().map(|lease| lease.revision.get().into()),
+                                generation: lease
+                                    .as_ref()
+                                    .map_or(0, |lease| lease.generation.get())
+                                    .into(),
+                                ownership,
+                                watermark: context.engine.store().state().watermark.get().into(),
+                            }))
+                        })())
+                    })
+                    .map_err(|_| controller_error(ControllerError::OutcomeUnknown, &call))?
+                    .map_err(|error| controller_error(error, &call));
+            }
+            Call::ControllerAcquire(p) => {
+                let command = CommandId::parse(p.command_id.as_str())
+                    .map_err(|_| RpcError::internal_error())?;
+                let expected = p.expected_revision.as_ref().map(revision).transpose()?;
+                self.acquire_current(current, command, expected)
+                    .map_err(|error| controller_error(error, &call))?
+            }
+            Call::ControllerRelease(p) => {
+                let command = CommandId::parse(p.command_id.as_str())
+                    .map_err(|_| RpcError::internal_error())?;
+                let receiver = self
+                    .release_current(
+                        current,
+                        command,
+                        revision(&p.expected_revision)?,
+                        revision(&p.generation)?,
+                    )
+                    .map_err(|error| controller_error(error, &call))?;
+                await_release(receiver)
+                    .await
+                    .map_err(|error| controller_error(error, &call))?
+            }
+            Call::ControllerRecover(p) => {
+                let command = CommandId::parse(p.command_id.as_str())
+                    .map_err(|_| RpcError::internal_error())?;
+                let expected = revision(&p.expected_revision)?;
+                let generation = revision(&p.generation)?;
+                self.host
+                    .worker
+                    .run(move |context| {
+                        if !access.write {
+                            return Ok(Err(ControllerError::Access));
+                        }
+                        match context.engine.controller_recover_receipt(
+                            &access,
+                            &connection,
+                            &command,
+                            expected,
+                            generation,
+                        ) {
+                            Ok(Some(receipt)) => return Ok(Ok(receipt)),
+                            Err(error) => return Ok(Err(error)),
+                            Ok(None) => (),
+                        }
+                        if !context.owner_alive
+                            || context.authority_pending
+                            || context.public_controller.is_some()
+                        {
+                            return Ok(Err(ControllerError::Held));
+                        }
+                        Ok(context.runtime.block_on(context.engine.recover_controller(
+                            &access,
+                            &connection,
+                            command,
+                            expected,
+                            generation,
+                            now(),
+                        )))
+                    })
+                    .map_err(|_| controller_error(ControllerError::OutcomeUnknown, &call))?
+                    .map_err(|error| controller_error(error, &call))?
+            }
+            _ => return Err(RpcError::internal_error()),
+        };
+        let access = current.clone();
+        self.host
+            .worker
+            .run_cleanup(move |context| Ok(acceptance(&context.engine, &access, &receipt)))
+            .map_err(|_| controller_error(ControllerError::OutcomeUnknown, &call))?
+    }
 }
 
 impl RpcHost for PublicConnection {
@@ -76,6 +281,15 @@ impl RpcHost for PublicConnection {
                 "current public connection access denied",
             )
         })?;
+        if matches!(
+            call,
+            Call::ControllerRead(_)
+                | Call::ControllerAcquire(_)
+                | Call::ControllerRelease(_)
+                | Call::ControllerRecover(_)
+        ) {
+            return self.controller_call(call, current).await;
+        }
         if !call.is_mutation() {
             let request = call.clone();
             return host

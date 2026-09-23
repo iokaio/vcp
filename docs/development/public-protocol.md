@@ -34,6 +34,39 @@ P4 integration. No public transport exists yet. Native adapter parity tests do n
 establish Windows pipe authentication, process ownership or compiled-server SDK
 support.
 
+## Optional controller capabilities (P9-02)
+
+The typed registry also defines `controller/read`, `controller/acquire`,
+`controller/release` and `controller/recover`. Each is a separate optional method
+capability. A live host must explicitly implement and advertise it; the direct
+engine adapter continues to advertise only its six existing methods. Initialization
+checks configured methods against both the typed registry and the selected host.
+
+All four methods carry the existing workspace/session `scope`. Acquire carries a
+durable `command_id` and optional `expected_revision`: null or absence means no
+previous lease; a decimal revision identifies an existing released lease. Release
+and recover carry `command_id`, exact decimal `expected_revision` and positive
+`generation`. Recovery is explicit stale-process cleanup, never takeover of a live
+owner. These operations do not use a task steering revision. Unknown fields,
+including actor, connection, token or write claims, are rejected. Authentication
+supplies the principal and connection; initialization cannot grant ownership.
+
+Mutations return the existing durable `acceptance` result. `controller/read`
+returns `kind: controller` with scope, nullable lease revision, generation, watermark
+and ownership relative to this authenticated connection: `unclaimed`,
+`this_connection`, `other_connection`, `previous_process` or `released`. An absent
+lease has null revision and generation zero. This view is observation, not a token.
+Reconnect does not inherit the previous connection's lease. Reconcile an uncertain
+mutation through its original command identity; never infer ownership from an old
+acceptance. Canonical lease commands retain the engine's connection/process-bound
+identity rather than accepting a caller-supplied digest.
+
+Acquisition never resumes work. Release must hold, pause and drain the owned work
+before removing ownership, while leaving observer reads available. Current access
+is checked before receipt replay. Controller generation and revision are checked
+again when a decision or other mutation is admitted. Snapshot/event delivery and
+compiled endpoint authentication remain separate P9-02 acceptance requirements.
+
 ## Canonical definitions and generated artifacts
 
 The Rust wire DTOs in `vcp-protocol/src/methods.rs`, handshake, errors and JSON-RPC
