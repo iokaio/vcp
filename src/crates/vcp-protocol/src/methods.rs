@@ -361,6 +361,8 @@ calls! {
     DiffRead(DiffRead) => "diff/read",
     ContextInspect(Inspect) => "context/inspect",
     RoutingExplain(Inspect) => "routing/explain",
+    PolicyRead(crate::policy_inspection::Request) => "policy/read",
+    RoutingStatus(crate::routing_inspection::Request) => "routing/status",
     UsageRead(Inspect) => "usage/read",
     HistoryQuery(crate::history::Query) => "history/query",
     MemoryHistory(crate::memory_history::Request) => "memory/history",
@@ -558,6 +560,8 @@ impl Call {
             }
             Self::HistoryQuery(p) => crate::history::validate_query(p),
             Self::MemoryHistory(p) => crate::memory_history::validate_request(p),
+            Self::PolicyRead(p) => crate::policy_inspection::validate_request(p),
+            Self::RoutingStatus(p) => crate::routing_inspection::validate_request(p),
             Self::MemoryQuery(p) => {
                 page(p.limit)?;
                 text(&p.query, 16384)
@@ -818,6 +822,8 @@ pub enum ResultValue {
     Memory(MemoryPage),
     History(crate::history::Page),
     MemoryHistory(crate::memory_history::Page),
+    Policy(crate::policy_inspection::Page),
+    RoutingStatus(crate::routing_inspection::Page),
     MemoryQuery(crate::memory_query::Page),
     MemoryReview(crate::memory_governance::ReviewView),
     MemoryReviewed(crate::memory_governance::ReviewResult),

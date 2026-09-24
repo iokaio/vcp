@@ -121,6 +121,8 @@ test('committed schema is bound to compiled canonical sources and all generated 
     'src/crates/vcp-protocol/src/memory_query.rs',
     'src/crates/vcp-protocol/src/memory_retention.rs',
     'src/crates/vcp-protocol/src/methods.rs',
+    'src/crates/vcp-protocol/src/policy_inspection.rs',
+    'src/crates/vcp-protocol/src/routing_inspection.rs',
     'src/third_party/codex/codex-rs/Cargo.lock',
   ];
   assert.deepEqual(Object.keys(provenance.sources).sort(), expected, nativeRegenerate);

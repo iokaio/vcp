@@ -1,6 +1,6 @@
 # Architecture decision records
 
-The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) retains the original 20 decision subjects and subsequent engineering decisions, now 60 records. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
+The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) retains the original 20 decision subjects and subsequent engineering decisions, now 61 records. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
 
 ADR-013 records the committed-source repository convention and maintenance evidence. Other records distinguish confirmed scope, qualified P0 mechanisms and unresolved production gates. The [P0 handoff](../evaluations/p0-06-handoff.md) consolidates the bounded engineering evidence; it does not claim human sign-off or release qualification.
 
@@ -86,6 +86,7 @@ ADR-013 records the committed-source repository convention and maintenance evide
 
 - [ADR-059 - Versioned editor edits](059-versioned-editor-edits.md): connection-scoped observations, per-file version fences and durable uncertain receipts.
 - [ADR-060 - Governed inspector queries](060-governed-inspector-queries.md): bounded history and memory pages with current access and retention checks.
+- [ADR-061 - Policy and routing inspection](061-policy-routing-inspection.md): bounded observations distinguish stored policy, effective constraints and grant provenance.
 
 ## Maintaining a decision
 

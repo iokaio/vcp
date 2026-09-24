@@ -18,6 +18,22 @@ test('Counter is an exact canonical u64 string and request IDs are safe', () => 
   for (const id of [Number.MAX_SAFE_INTEGER + 1, 1.5, true]) assert.throws(() => validateWire('RequestId', id));
 });
 
+test('routing quality observations preserve the canonical unsigned 16-bit range', () => {
+  const policy = {
+    id: 'policy', parent_id: null, profile: 'low', quality_floor_bps: 7000,
+    minimum_samples: 1, maximum_evidence_age_ms: '9007199254740993',
+    deny_data_collection: true, require_zdr: true, ordering: ['quality'], pin: null,
+    input_tokens: null, output_tokens: null, reasoning_effort: null,
+    retrieval_limits: null, escalation_limits: null, broader_task_class: null,
+    allowed_models_count: '1', allowed_endpoints_count: '1',
+    allowed_groups_count: '1', pin_fallback_count: '0',
+  };
+  validateWire('RoutingStatusPolicySummary', policy);
+  for (const quality_floor_bps of [-1, 65536, 0.5, '7000']) {
+    assert.throws(() => validateWire('RoutingStatusPolicySummary', { ...policy, quality_floor_bps }));
+  }
+});
+
 test('workspace binding projection accepts legacy shape and preserves opaque IDs and exact counters', () => {
   const legacy = { workspace: 'ws', host: 'host', root: 'C:\\project', trust: 'untrusted', revision: '13', authority_revision: '7' };
   validateWire('WorkspaceView', legacy);

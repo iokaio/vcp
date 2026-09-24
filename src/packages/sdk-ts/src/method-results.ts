@@ -33,6 +33,8 @@ export const RESULT_KINDS = {
   'diff/read': ['artifact'],
   'context/inspect': ['evidence'],
   'routing/explain': ['evidence'],
+  'policy/read': ['policy'],
+  'routing/status': ['routing_status'],
   'usage/read': ['usage'],
   'history/query': ['history'],
   'memory/history': ['memory_history'],
@@ -58,6 +60,8 @@ export type Reply<M extends Method> = Extract<ResultValue, { kind: typeof RESULT
 
 /** Extra mandatory profiles, in addition to the advertised method itself. */
 export const REQUIRED_PROFILES: Readonly<Partial<Record<Method, readonly string[]>>> = Object.freeze({
+  'policy/read': Object.freeze(['policy/inspection/1']),
+  'routing/status': Object.freeze(['routing/status/1']),
   'history/query': Object.freeze(['history/query/1']),
   'memory/history': Object.freeze(['memory/history/1']),
   'editor/context': Object.freeze(['editor/prepared-edits/1']),

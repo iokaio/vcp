@@ -43,6 +43,8 @@ mod public_editor;
 mod public_events;
 mod public_export;
 mod public_history;
+mod public_policy;
+mod public_routing_inspection;
 mod public_memory;
 mod public_memory_history;
 mod public_memory_query;

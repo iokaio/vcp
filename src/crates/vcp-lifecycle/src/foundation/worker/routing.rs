@@ -145,7 +145,7 @@ impl Context {
         ))
     }
 
-    fn routing_ceilings(&self) -> Result<Option<routing::Policy>> {
+    pub(super) fn routing_ceilings(&self) -> Result<Option<routing::Policy>> {
         self.routing
             .as_ref()
             .map(|runtime| {

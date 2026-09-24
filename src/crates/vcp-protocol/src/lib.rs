@@ -13,7 +13,9 @@ pub mod memory_query;
 pub mod memory_retention;
 pub mod methods;
 pub mod persisted_json;
+pub mod policy_inspection;
 pub mod redaction;
+pub mod routing_inspection;
 pub mod subscription;
 pub mod version;
 
