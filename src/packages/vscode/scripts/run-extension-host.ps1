@@ -17,7 +17,7 @@ $runtimeRoot=$runtimeRoots[0].FullName
 $env:PATH="$runtimeRoot;$env:PATH"
 $runtimeFiles=@($codeItem)+@(Get-ChildItem -LiteralPath $runtimeRoot -File -Filter '*.dll')
 @{version=$codeItem.VersionInfo.ProductVersion;runtime=$runtimeRoot;files=@($runtimeFiles | ForEach-Object { @{name=$_.Name;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} })} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $inputSpec.runtimeEvidence
-$launchArguments=@('--new-window','--disable-extensions','--skip-welcome','--skip-release-notes','--skip-add-to-recently-opened','--disable-updates','--disable-gpu',"--user-data-dir=`"$($inputSpec.userData)`"","--extensions-dir=`"$($inputSpec.extensions)`"","--extensionDevelopmentPath=`"$($inputSpec.extension)`"","--extensionTestsPath=`"$($inputSpec.runner)`"","`"$($inputSpec.workspaceFile)`"")
+$launchArguments=@('--new-window','--disable-extensions','--skip-welcome','--skip-release-notes','--skip-add-to-recently-opened','--disable-updates','--disable-gpu',"--user-data-dir=`"$($inputSpec.userData)`"","--extensions-dir=`"$($inputSpec.extensions)`"","--extensionDevelopmentPath=`"$($inputSpec.extension)`"","--extensionDevelopmentPath=`"$($inputSpec.driver)`"","`"$($inputSpec.workspaceFile)`"")
 $process=Start-Process -FilePath $inputSpec.code -ArgumentList $launchArguments -WorkingDirectory $inputSpec.userData -WindowStyle Hidden -PassThru -RedirectStandardOutput $inputSpec.stdout -RedirectStandardError $inputSpec.stderr
 try {
   if(-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'Owned extension-host deadline exceeded' }

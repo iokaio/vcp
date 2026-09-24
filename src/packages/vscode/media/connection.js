@@ -3,7 +3,7 @@
   'use strict';
   const vscode = acquireVsCodeApi();
   const element = id => document.getElementById(id);
-  for (const action of ['connect', 'disconnect', 'refresh']) element(action).addEventListener('click', () => vscode.postMessage({ action }));
+  for (const action of ['connect', 'control', 'attach', 'reconcile', 'grant', 'revoke', 'disconnect', 'refresh']) element(action).addEventListener('click', () => vscode.postMessage({ action }));
   const text = value => typeof value === 'string' ? value.slice(0, 32768) : typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : 'unavailable';
   window.addEventListener('message', event => {
     const message = event.data;
@@ -12,7 +12,7 @@
     element('phase').textContent = text(status.phase);
     element('message').textContent = text(status.message);
     const rows = [
-      ['Engine', status.engineBuild], ['Executable', status.engineExecutable], ['Protocol', status.protocolVersion], ['Role', status.role === 'observer' ? 'observer (read-only)' : undefined],
+      ['Engine', status.engineBuild], ['Executable', status.engineExecutable], ['Protocol', status.protocolVersion], ['Role', status.role === 'observer' ? 'observer (read-only)' : status.role === 'controller' ? 'controller' : undefined],
       ['Host', status.host ? `${text(status.host.platform)} · ${text(status.host.id)}` : undefined],
       ['Folder URI', status.workspaceUri], ['Canonical root', status.workspaceRoot],
       ['Root ID', status.rootId], ['Binding revision', status.bindingRevision],
@@ -33,6 +33,9 @@
     element('connect').disabled = status.phase === 'connecting';
     element('refresh').disabled = status.phase !== 'connected';
     element('disconnect').disabled = status.phase === 'disconnected';
+    for (const action of ['control', 'attach', 'reconcile']) element(action).disabled = status.phase === 'connecting';
+    element('grant').disabled = status.phase !== 'connected' || status.role !== 'controller' || !status.editorTrusted;
+    element('revoke').disabled = status.phase !== 'connected' || status.role !== 'controller';
   });
   vscode.postMessage({ action: 'ready' });
 })();

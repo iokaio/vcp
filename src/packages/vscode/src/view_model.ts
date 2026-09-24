@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-export type ViewAction = 'connect' | 'disconnect' | 'refresh';
+export type ViewAction = 'connect' | 'control' | 'attach' | 'reconcile' | 'grant' | 'revoke' | 'disconnect' | 'refresh';
 export type ViewMessage = ViewAction | 'ready';
 /** Closed messages never carry paths, IDs, commands, credentials or HTML. */
 export function parseViewMessage(value: unknown): ViewMessage | undefined {
@@ -8,7 +8,7 @@ export function parseViewMessage(value: unknown): ViewMessage | undefined {
   const descriptor = Object.getOwnPropertyDescriptor(value, 'action');
   if (!descriptor?.enumerable || !('value' in descriptor)) return undefined;
   const action: unknown = descriptor.value;
-  return action === 'connect' || action === 'disconnect' || action === 'refresh' || action === 'ready' ? action : undefined;
+  return action === 'connect' || action === 'control' || action === 'attach' || action === 'reconcile' || action === 'grant' || action === 'revoke' || action === 'disconnect' || action === 'refresh' || action === 'ready' ? action : undefined;
 }
 
 function escape(value: string): string {
@@ -22,6 +22,8 @@ export function connectionHtml(cspSource: string, styleUri: string, scriptUri: s
   <p id="message" role="status" aria-live="polite">Choose an initialized local workspace to inspect.</p>
   <dl id="details"></dl><h2>Connection limits</h2><ul id="limitations"></ul>
   <div class="actions"><button id="connect" type="button">Connect…</button><button id="refresh" type="button" disabled>Refresh</button><button id="disconnect" type="button" disabled>Disconnect</button></div>
-  <p class="note">Local Windows · observer · read-only. Connections never start or resume a task.</p>
+  <div class="actions"><button id="control" type="button">Connect for trust changes…</button><button id="attach" type="button">Observe existing engine…</button><button id="reconcile" type="button">Reconcile moved root…</button></div>
+  <div class="actions"><button id="grant" type="button" disabled>Trust engine workspace</button><button id="revoke" type="button" disabled>Revoke engine trust</button></div>
+  <p class="note">Local Windows. Trust changes pause work and release control. Reload restores observation only. Tasks require deliberate resume.</p>
   <script nonce="${escape(nonce)}" src="${escape(scriptUri)}"></script></body></html>`;
 }

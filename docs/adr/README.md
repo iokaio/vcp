@@ -1,6 +1,6 @@
 # Architecture decision records
 
-The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) retains the original 20 decision subjects and subsequent engineering decisions, now 28 records. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
+The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) retains the original 20 decision subjects and subsequent engineering decisions, now 57 records. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
 
 ADR-013 records the committed-source repository convention and maintenance evidence. Other records distinguish confirmed scope, qualified P0 mechanisms and unresolved production gates. The [P0 handoff](../evaluations/p0-06-handoff.md) consolidates the bounded engineering evidence; it does not claim human sign-off or release qualification.
 
@@ -79,6 +79,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 - [ADR-055 - TypeScript local SDK](055-typescript-local-sdk.md): bounded typed calls, native attachment and explicit consumer cleanup.
 
 - [ADR-056 - Initial editor observer connection](056-editor-observer-connection.md): SDK-backed workspace view with explicit full-item prerequisites.
+
+- [ADR-057 - Editor trust and observer recovery](057-editor-trust-and-observer-recovery.md): controller trust commands, explicit moved-root reconciliation and authenticated observer handoff.
 
 ## Maintaining a decision
 

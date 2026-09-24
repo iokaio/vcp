@@ -16,6 +16,7 @@ fn launch(fixture: &Fixture, role: &str) -> (Client, Value) {
     let mut client = Client::spawn("local-bridge");
     let mut request = fixture.bootstrap(role);
     request["transport"] = json!("windows_pipe");
+    request["observer_reconnect"] = json!(true);
     client.send(request);
     let ready = client.receive();
     assert_eq!(ready["schema"], "vcp-local-ready/1");
@@ -29,7 +30,7 @@ fn launch(fixture: &Fixture, role: &str) -> (Client, Value) {
 }
 fn attach(attachment: &Value, role: &str) -> Client {
     let mut client = Client::spawn("local-bridge");
-    client.send(json!({"schema":"vcp-local-attach/1","attachment":attachment,"role":role}));
+    client.send(json!({"schema":"vcp-local-attach/1","attachment":attachment,"role":role,"observer_reconnect":true}));
     let ready = client.receive();
     assert_eq!(ready["schema"], "vcp-local-ready/1");
     assert_eq!(ready["role"], role);
@@ -46,6 +47,121 @@ fn attach(attachment: &Value, role: &str) -> Client {
         }
     }
     client
+}
+
+fn reconnect(reference: &Value) -> Client {
+    let mut client = Client::spawn("local-bridge");
+    client.send(json!({"schema":"vcp-local-observer-reconnect/1","observer_reconnect":reference}));
+    let ready = client.receive();
+    assert_eq!(ready["schema"], "vcp-local-ready/1");
+    assert_eq!(ready["role"], "observer");
+    assert_eq!(ready["observer_reconnect"], *reference);
+    assert!(ready["observer_attachment"].is_null());
+    client
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn compiled_legacy_bootstrap_keeps_original_ready_shape_until_opted_in() {
+    let fixture = Fixture::new(BackendKind::Files).await;
+    let mut owner = Client::spawn("local-bridge");
+    let mut request = fixture.bootstrap("controller");
+    request["transport"] = json!("windows_pipe");
+    owner.send(request);
+    let ready = owner.receive();
+    assert!(ready.get("observer_reconnect").is_none());
+    assert_eq!(ready.as_object().unwrap().len(), 6);
+    owner.initialize();
+    for opt_in in [None, Some(false), Some(true)] {
+        let mut observer = Client::spawn("local-bridge");
+        let mut request = json!({"schema":"vcp-local-attach/1","attachment":ready["observer_attachment"],"role":"observer"});
+        if let Some(value) = opt_in {
+            request["observer_reconnect"] = json!(value);
+        }
+        observer.send(request);
+        let attached = observer.receive();
+        assert_eq!(
+            attached.get("observer_reconnect").is_some(),
+            opt_in == Some(true)
+        );
+        assert_eq!(
+            attached.as_object().unwrap().len(),
+            if opt_in == Some(true) { 6 } else { 5 }
+        );
+        observer.initialize();
+        assert!(observer.finish().await.0.success());
+    }
+    assert!(owner.finish().await.0.success());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn compiled_observer_reload_uses_nonsecret_reference_without_disturbing_controller() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let fixture = Fixture::new(backend).await;
+        let (mut controller, ready) = launch(&fixture, "controller");
+        controller.initialize();
+        accepted(&controller.rpc(
+            2,
+            "controller/acquire",
+            json!({"scope":fixture.scope(),"command_id":"reload-owner","expected_revision":null}),
+        ));
+        let held = read_controller(&mut controller, &fixture, 3);
+        let reference = ready["observer_reconnect"].clone();
+        assert_eq!(reference.as_object().unwrap().len(), 3);
+        assert!(reference.get("ticket").is_none());
+        // Same SID/session is insufficient: this test binary is not the trusted
+        // CLI executable. Direct pipe clients cannot use a discovered reference.
+        {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut impostor = tokio::net::windows::named_pipe::ClientOptions::new()
+                .open(reference["endpoint"].as_str().unwrap())
+                .unwrap();
+            let hello =
+                json!({"schema":"vcp-local-pipe-observer-reconnect/1","scope":fixture.scope()});
+            impostor
+                .write_all(format!("{hello}\n").as_bytes())
+                .await
+                .unwrap();
+            let mut byte = [0];
+            let result = tokio::time::timeout(Duration::from_secs(10), impostor.read(&mut byte))
+                .await
+                .unwrap();
+            assert!(
+                result.is_err() || matches!(result, Ok(0)),
+                "untrusted executable must receive no readiness"
+            );
+        }
+        // Only the nonsecret reference survives each independent helper process.
+        for attempt in 0..2 {
+            let mut observer = reconnect(&reference);
+            observer.initialize();
+            assert_eq!(
+                observer.rpc(2, "session/read", json!({"scope":fixture.scope()}))["result"]["kind"],
+                "session"
+            );
+            assert!(observer.rpc(3, "controller/acquire", json!({"scope":fixture.scope(),"command_id":format!("reload-escalation-{attempt}"),"expected_revision":held["revision"]})).get("error").is_some());
+            assert!(observer.finish().await.0.success());
+            assert_eq!(read_controller(&mut controller, &fixture, 4), held);
+        }
+        for field in ["created", "scope", "file", "principal"] {
+            let mut changed = reference.clone();
+            match field {
+                "created" => changed["server"]["created"] = json!("0"),
+                "scope" => changed["scope"]["session"] = json!("wrong-session"),
+                "file" => changed["server"]["file"]["index"] = json!("0"),
+                _ => changed["server"]["principal"]["session"] = json!(u32::MAX),
+            }
+            let mut rejected = Client::spawn("local-bridge");
+            rejected.send(
+                json!({"schema":"vcp-local-observer-reconnect/1","observer_reconnect":changed}),
+            );
+            assert!(!rejected.rejected().await.0.success(), "{field}");
+            assert_eq!(read_controller(&mut controller, &fixture, 5), held);
+        }
+        let mut elevated = Client::spawn("local-bridge");
+        elevated.send(json!({"schema":"vcp-local-observer-reconnect/1","observer_reconnect":reference,"role":"controller"}));
+        assert!(!elevated.rejected().await.0.success());
+        assert!(controller.finish().await.0.success());
+    }
 }
 async fn refused(attachment: &Value, role: &str, secrets: &[&str]) {
     let mut client = Client::spawn("local-bridge");

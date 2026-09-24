@@ -4,8 +4,8 @@ import type { Id } from '@vcp/protocol';
 
 export { Client, OperationError } from './client.js';
 export type { CallOptions } from './client.js';
-export { launchLocal, attachLocal } from './local.js';
-export type { LaunchOptions, AttachOptions, LocalAttachment } from './local.js';
+export { launchLocal, attachLocal, reconnectObserverLocal } from './local.js';
+export type { LaunchOptions, AttachOptions, LocalAttachment, ReconnectObserverOptions, ObserverReconnectReference } from './local.js';
 export { EventStream } from './subscriptions.js';
 export type { StreamOptions } from './subscriptions.js';
 export { SdkError, RpcFailure, classifyRpcError } from './errors.js';
@@ -17,3 +17,5 @@ export type * from '@vcp/protocol';
 export function newCommandId(): Id {
   return randomUUID();
 }
+export { rebindLocal } from './rebind.js';
+export type { RebindOptions, RebindResult } from './rebind.js';

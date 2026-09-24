@@ -10,8 +10,10 @@ import { validateWire } from './validation.js';
 declare const opaque: unique symbol;
 export type LocalAttachment = { readonly [opaque]: true };
 type Pin = { pid: number; created: string; principal: { sid: number[]; session: number }; image: string; file: { volume: number; index: string } };
+export type ObserverReconnectReference = { endpoint: string; server: Pin; scope: Scope };
+export type ReconnectObserverOptions = { executable: string; reference: ObserverReconnectReference; initialize?: InitializeParams };
 type Attachment = { endpoint: string; server: Pin; ticket: string };
-type Ready = { schema: 'vcp-local-ready/1'; server: Pin; scope: Scope; role: Role; attachment?: Attachment; observer_attachment?: Attachment };
+type Ready = { schema: 'vcp-local-ready/1'; server: Pin; scope: Scope; role: Role; attachment?: Attachment; observer_attachment?: Attachment; observer_reconnect?: ObserverReconnectReference };
 const handles = new WeakMap<LocalAttachment, { attachment: Attachment; role: Role; scope: Scope }>();
 export type LaunchOptions = {
   executable: string; workspace: string; data?: string | null; role: Role;
@@ -48,7 +50,7 @@ function attachment(value: unknown, server: Pin): Attachment {
 }
 /** Native authentication remains authoritative; this validates only the private bootstrap shape. */
 export function validateReady(value: unknown, role: Role, expectedScope?: Scope): Ready {
-  const row = object(value, ['schema', 'server', 'scope', 'role'], ['attachment', 'observer_attachment']);
+  const row = object(value, ['schema', 'server', 'scope', 'role'], ['attachment', 'observer_attachment', 'observer_reconnect']);
   if (row.schema !== 'vcp-local-ready/1' || row.role !== role) throw new SdkError('MALFORMED_PEER', 'bootstrap version or role mismatch');
   const server = pin(row.server); validateWire('Scope', row.scope);
   const scope = row.scope as Scope;
@@ -58,7 +60,18 @@ export function validateReady(value: unknown, role: Role, expectedScope?: Scope)
     if (role !== 'controller') throw new SdkError('MALFORMED_PEER', 'observer received elevated attachment fields');
     attachment(row.observer_attachment, server);
   }
+  if (row.observer_reconnect !== undefined) {
+    const reference = validateObserverReconnectReference(row.observer_reconnect);
+    if (JSON.stringify(reference.server) !== JSON.stringify(server) || reference.scope.workspace !== scope.workspace || reference.scope.session !== scope.session) throw new SdkError('MALFORMED_PEER', 'observer reference identity mismatch');
+  }
   return value as Ready;
+}
+/** A discovery reference contains no authority; the native bridge authenticates both peers. */
+export function validateObserverReconnectReference(value: unknown): ObserverReconnectReference {
+  const row = object(value, ['endpoint', 'server', 'scope']);
+  pin(row.server); validateWire('Scope', row.scope);
+  if (typeof row.endpoint !== 'string' || !/^\\\\\.\\pipe\\vcp-local-[a-fA-F0-9]{64}$/.test(row.endpoint)) throw new SdkError('MALFORMED_PEER', 'invalid observer endpoint');
+  return structuredClone(value) as ObserverReconnectReference;
 }
 function handle(value: Attachment | undefined, role: Role, scope: Scope): LocalAttachment | undefined {
   if (!value) return undefined;
@@ -140,7 +153,7 @@ async function open(executable: string, bootstrap: unknown, role: Role, initiali
   const bridge = new Bridge(executable, bootstrap);
   try {
     const ready = validateReady(await bridge.ready, role, scope);
-    return await Client.connect(bridge, ready.scope, role, initialize, handle(ready.attachment, role, ready.scope), handle(ready.observer_attachment, 'observer', ready.scope));
+    return await Client.connect(bridge, ready.scope, role, initialize, handle(ready.attachment, role, ready.scope), handle(ready.observer_attachment, 'observer', ready.scope), ready.observer_reconnect);
   } catch (error) { await bridge.close(); throw error; }
 }
 export function launchLocal(options: LaunchOptions): Promise<Client> {
@@ -148,7 +161,7 @@ export function launchLocal(options: LaunchOptions): Promise<Client> {
   if (options.role !== 'observer' && options.role !== 'controller') throw new SdkError('INVALID_ARGUMENT', 'invalid local role');
   if (options.execution) absolute(options.execution.profile, 'execution profile');
   return open(options.executable, {
-    schema: 'vcp-local-bootstrap/1', workspace: options.workspace, data: options.data ?? null, role: options.role,
+    schema: 'vcp-local-bootstrap/1', observer_reconnect: true, workspace: options.workspace, data: options.data ?? null, role: options.role,
     ...(options.transport === undefined ? {} : { transport: options.transport }), ...(options.rootTask === undefined ? {} : { root_task: options.rootTask }),
     ...(options.execution === undefined ? {} : { execution: { profile: options.execution.profile, provider_credential: options.execution.providerCredential, ...(options.execution.credentials === undefined ? {} : { credentials: options.execution.credentials }) } }),
   }, options.role, options.initialize);
@@ -156,5 +169,10 @@ export function launchLocal(options: LaunchOptions): Promise<Client> {
 export function attachLocal(options: AttachOptions): Promise<Client> {
   const stored = handles.get(options.attachment);
   if (!stored) throw new SdkError('INVALID_ARGUMENT', 'attachment must originate from an authenticated local client');
-  return open(options.executable, { schema: 'vcp-local-attach/1', attachment: stored.attachment, role: stored.role }, stored.role, options.initialize, stored.scope);
+  return open(options.executable, { schema: 'vcp-local-attach/1', observer_reconnect: true, attachment: stored.attachment, role: stored.role }, stored.role, options.initialize, stored.scope);
+}
+
+export function reconnectObserverLocal(options: ReconnectObserverOptions): Promise<Client> {
+  const reference = validateObserverReconnectReference(options.reference);
+  return open(options.executable, { schema: 'vcp-local-observer-reconnect/1', observer_reconnect: reference }, 'observer', options.initialize, reference.scope);
 }

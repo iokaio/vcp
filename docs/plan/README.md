@@ -2,8 +2,9 @@
 
 Current progression (September 23): P8 is closed by
 [owner direction](../adr/042-owner-directed-p8-closure.md), with its recorded
-qualification gaps retained. P9-01 → P9-02 → P9-03 are complete; P4-01 has begun
-with the [initial editor connection](../development/editor-connection.md).
+qualification gaps retained. P9-01 → P9-02 → P9-03 and P4-01 are complete.
+[Editor connection acceptance](../development/editor-connection.md#p4-01-acceptance)
+qualifies trust, moved roots and observer reload; P4-02 task/child views are next.
 
 Plan revision 14 — September 21, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded

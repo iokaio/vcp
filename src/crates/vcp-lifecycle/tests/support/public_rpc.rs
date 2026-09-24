@@ -29,6 +29,93 @@ fn scope(config: &Config) -> methods::Scope {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_workspace_trust_requires_controller_and_current_binding_and_replays_once() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let config = config(&temp.path().join("canonical"), &workspace, backend);
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let current = access(&config, true);
+        let mut controller = host.public_connection(current.clone()).unwrap();
+        let mut observer = host.public_connection(access(&config, false)).unwrap();
+        let call = Call::WorkspaceSetTrust(methods::WorkspaceSetTrust {
+            scope: scope(&config),
+            mutation: methods::Mutation {
+                command_id: id("trust-once"),
+                expected_revision: 0.into(),
+                steering_revision: 0.into(),
+            },
+            expected_binding_revision: 0.into(),
+            trusted: true,
+        });
+        assert!(controller.call(call.clone(), &current).await.is_err());
+        controller.acquire(CommandId::new(), None).unwrap();
+        assert!(observer
+            .call(call.clone(), &access(&config, false))
+            .await
+            .is_err());
+        for mismatch in 0..3 {
+            let mut stale = call.clone();
+            if let Call::WorkspaceSetTrust(p) = &mut stale {
+                match mismatch {
+                    0 => p.expected_binding_revision = 1.into(),
+                    1 => p.mutation.expected_revision = 1.into(),
+                    _ => p.mutation.steering_revision = 1.into(),
+                }
+            }
+            assert!(controller.call(stale, &current).await.is_err());
+        }
+        let result = controller.call(call.clone(), &current).await.unwrap();
+        let state: vcp_domain::workspace::Workspace = host
+            .snapshot()
+            .unwrap()
+            .record(
+                Collection::Workspace,
+                config.workspace.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(state.trust, Trust::Trusted);
+        assert_eq!(state.revision, Revision::new(1));
+        assert_eq!(state.binding.revision, Revision::ZERO);
+        let current = Access {
+            authority: state.authority,
+            ..current
+        };
+        assert!(controller.call(call.clone(), &current).await.is_err());
+        controller.disconnect().unwrap().wait().await.unwrap();
+        let mut controller = host.public_connection(current.clone()).unwrap();
+        let lease = host
+            .snapshot()
+            .unwrap()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Access)
+            .find_map(|row| row.decode::<vcp_domain::controller::Lease>().ok())
+            .unwrap();
+        controller
+            .acquire(CommandId::new(), Some(lease.revision))
+            .unwrap();
+        assert_eq!(
+            controller.call(call.clone(), &current).await.unwrap(),
+            result
+        );
+        let mut conflict = call;
+        if let Call::WorkspaceSetTrust(p) = &mut conflict {
+            p.trusted = false;
+        }
+        assert!(controller.call(conflict, &current).await.is_err());
+        observer.disconnect().unwrap().wait().await.unwrap();
+        controller.disconnect().unwrap().wait().await.unwrap();
+        owner.close().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn public_rpc_reads_remain_scoped_and_mutations_require_live_controller() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         let temp = tempfile::tempdir().unwrap();

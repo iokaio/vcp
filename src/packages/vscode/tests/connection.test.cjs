@@ -39,7 +39,7 @@ test('observer uses initialized identities, actual trust/pending data and cleans
   assert.deepEqual(state.scope, scope); assert.equal(state.host.id, 'actual-host'); assert.equal(state.engineBuild, 'actual-build'); assert.equal(state.workspaceRoot, root);
   assert.equal(state.engineExecutable, selection.executable); assert.equal(state.bindingRevision, '9007199254740993'); assert.equal(state.rootId, 'actual-root');
   assert.ok(launches[0].initialize.required_capabilities.includes('workspace/binding/1'));
-  assert.equal(launches[0].role, 'observer'); assert.equal(launches[0].transport, 'stdio'); assert.equal(launches[0].execution, undefined);
+  assert.equal(launches[0].role, 'observer'); assert.equal(launches[0].transport, 'windows_pipe'); assert.equal(launches[0].execution, undefined);
   for (let i = 0; i < 12; i++) await connection.refresh();
   assert.equal(client.calls.filter(c => c.method === 'events/unsubscribe').length, 13);
   assert.ok(client.calls.every(c => ['workspace/open', 'session/snapshot', 'events/unsubscribe'].includes(c.method)));
@@ -143,4 +143,141 @@ test('map distinguishes same-name and nested roots by URI plus engine host and r
   assert.equal(map.get(a, 'actual-host').workspaceRevision, '13');
   map.invalidate();
   assert.equal(map.get(a, 'actual-host'), undefined); assert.equal(map.bind(generation, a, workspace), false);
+});
+
+test('reload restores only the saved observer and never launches on stale or mismatched recovery', async () => {
+  const { profile } = require('../dist/recovery.js');
+  const reference = { endpoint: 'native-verified', server: { pid: 7 }, scope };
+  const saved = { folderUri: selection.workspaceUri, profile: profile(selection), reference };
+  const observer = fake(); observer.observerReconnectReference = () => reference;
+  const stored = []; let launches = 0; let reconnects = 0;
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: async () => { launches++; return fake(); }, reconnect: async options => { reconnects++; assert.deepEqual(options.reference, reference); return observer; }, saveRecovery: async value => stored.push(value) });
+  await connection.restore({ ...selection, executable: 'C:\\other\\vcp.exe' }, saved);
+  assert.equal(reconnects, 0);
+  assert.equal((await connection.restore(selection, saved)).role, 'observer');
+  assert.equal(launches, 0); assert.equal(connection.state().pendingInputs, 1);
+  assert.equal(observer.calls.some(call => call.method === 'controller/acquire'), false);
+  await connection.dispose(); assert.deepEqual(stored.at(-1), saved);
+  const stale = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: async () => { launches++; return fake(); }, reconnect: async () => { throw Error('stale native process'); } });
+  assert.equal((await stale.restore(selection, saved)).phase, 'unavailable');
+  assert.equal(launches, 0); await stale.dispose();
+});
+
+function controlled(gate) {
+  const client = fake(); const base = client.call;
+  const reference = { endpoint: 'native-verified', server: { pid: 7 }, scope };
+  client.observerReconnectReference = () => reference;
+  client.call = async function (method, params, options) {
+    if (['controller/read', 'controller/acquire', 'workspace/setTrust'].includes(method)) {
+      this.calls.push({ method, params });
+      if (method === 'controller/read') return { kind: 'controller', value: { revision: '9', ownership: 'this_connection' } };
+      if (method === 'workspace/setTrust' && gate) await gate.promise;
+      return { kind: 'acceptance', value: {} };
+    }
+    return base.call(this, method, params, options);
+  };
+  return client;
+}
+
+test('explicit trust command uses observed revisions once and releases stale control after commit', async () => {
+  const gate = deferred(); const controller = controlled(gate); const observer = fake();
+  const saved = [];
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: async options => { assert.equal(options.role, 'controller'); return controller; }, reconnect: async () => observer, saveRecovery: async value => saved.push(value) });
+  assert.equal((await connection.connect(selection, 'controller')).role, 'controller');
+  assert.equal(controller.calls.find(call => call.method === 'controller/acquire').params.expected_revision, '9');
+  const first = connection.setTrust(true); const duplicate = connection.setTrust(true); assert.equal(first, duplicate);
+  const request = controller.calls.find(call => call.method === 'workspace/setTrust');
+  assert.equal(request.params.expected_binding_revision, workspace.binding_revision);
+  assert.equal(request.params.mutation.expected_revision, workspace.revision);
+  assert.equal(request.params.mutation.steering_revision, '0'); assert.equal(request.params.trusted, true);
+  gate.resolve(); assert.equal((await first).role, 'observer'); assert.equal(controller.disposed, 1);
+  assert.equal(controller.calls.filter(call => call.method === 'workspace/setTrust').length, 1);
+  await assert.rejects(connection.setTrust(false));
+  await connection.disconnect(); assert.equal(saved.at(-1), undefined); await connection.dispose();
+});
+
+test('editor revocation fences an outstanding grant and never restores its late result', async () => {
+  const gate = deferred(); const controller = controlled(gate); let reconnected = false;
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: async () => controller, reconnect: async () => { reconnected = true; return fake(); } });
+  await connection.connect(selection, 'controller'); const pending = connection.setTrust(true);
+  await connection.editorTrustChanged(false); assert.equal(controller.disposed, 1);
+  gate.resolve(); await pending;
+  assert.equal(connection.state().phase, 'disconnected'); assert.equal(connection.state().editorTrusted, false); assert.equal(reconnected, false);
+  await connection.dispose();
+});
+
+test('restricted controller can revoke but cannot grant; observer trust changes never mutate another owner', async () => {
+  const controller = controlled(); const observer = fake();
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: async () => controller, reconnect: async () => observer });
+  await connection.connect({ ...selection, workspaceTrusted: false }, 'controller');
+  await assert.rejects(connection.setTrust(true)); await connection.setTrust(false);
+  assert.equal(controller.calls.find(call => call.method === 'workspace/setTrust').params.trusted, false);
+  await connection.editorTrustChanged(true); await connection.editorTrustChanged(false);
+  assert.equal(observer.calls.some(call => call.method === 'workspace/setTrust'), false);
+  await connection.dispose();
+});
+
+test('moved-root reconciliation uses selected native identity and never connects after stale selection', async () => {
+  const gate = deferred(); const calls = []; let launches = 0;
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, rebind: async options => { calls.push(options); await gate.promise; return { workspace: scope.workspace, root }; }, launch: async () => { launches++; return fake(); } });
+  const pending = connection.reconcile(selection, scope.workspace); await tick();
+  assert.equal(calls[0].workspaceId, scope.workspace); assert.equal(calls[0].workspace, root);
+  await connection.invalidate('changed'); gate.resolve(); await pending;
+  assert.equal(launches, 0); await connection.dispose();
+});
+
+test('opposite trust requests fence control instead of silently reusing an in-flight grant', async () => {
+  const gate = deferred(); const controller = controlled(gate);
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: async () => controller });
+  await connection.connect(selection, 'controller');
+  const grant = connection.setTrust(true); const revoked = await connection.setTrust(false);
+  assert.equal(revoked.phase, 'disconnected'); assert.equal(controller.disposed, 1);
+  gate.resolve(); await grant; assert.equal(connection.state().phase, 'disconnected'); await connection.dispose();
+});
+
+test('trust revoked during launch cannot be overwritten by captured trusted selection', async () => {
+  const launch = deferred(); const controller = controlled();
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: () => launch.promise });
+  const pending = connection.connect(selection, 'controller'); await tick();
+  await connection.editorTrustChanged(false); launch.resolve(controller); await pending;
+  assert.equal(connection.state().editorTrusted, false); assert.equal(connection.state().phase, 'disconnected');
+  assert.equal(controller.calls.some(call => call.method === 'controller/acquire'), false);
+  await assert.rejects(connection.setTrust(true)); await connection.dispose();
+});
+
+test('failed observer reconnect retains discovery and malformed recovery cannot supply a workspace default', async () => {
+  const { profile, recovery } = require('../dist/recovery.js');
+  const reference = { endpoint: 'native-verified', server: { pid: 7 }, scope };
+  const saved = { folderUri: selection.workspaceUri, profile: profile(selection), reference };
+  let stored = saved;
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: async () => { throw Error('must not launch'); }, reconnect: async () => { throw Error('temporary unavailable'); }, saveRecovery: async value => { stored = value; } });
+  await connection.restore(selection, saved); await connection.dispose(); assert.deepEqual(stored, saved);
+  assert.deepEqual(recovery(saved), saved);
+  for (const reference of [{}, { scope: {} }, { ...saved.reference, ticket: 'secret' }, { ...saved.reference, scope: { workspace: 'bad/id', session: 's' } }]) assert.equal(recovery({ ...saved, reference }), undefined);
+});
+
+test('lease loss and unknown trust outcome stop claiming controller state', async () => {
+  for (const mode of ['lease', 'mutation']) {
+    const controller = controlled(); const base = controller.call;
+    const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: async () => controller });
+    await connection.connect(selection, 'controller');
+    controller.call = async function (method, params, options) {
+      if (mode === 'lease' && method === 'controller/read') return { kind: 'controller', value: { revision: '10', ownership: 'other_connection' } };
+      if (mode === 'mutation' && method === 'workspace/setTrust') throw Error('lost acknowledgement');
+      return base.call(this, method, params, options);
+    };
+    if (mode === 'lease') assert.equal((await connection.refresh()).phase, 'unavailable');
+    else await assert.rejects(connection.setTrust(false));
+    assert.equal(connection.state().role, undefined); assert.equal(controller.disposed, 1);
+    await connection.dispose();
+  }
+});
+
+test('refresh re-resolves the selected folder and invalidates a redirected mapping', async () => {
+  let resolved = root; const client = fake();
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async path => { assert.equal(path, selection.workspacePath); return resolved; }, launch: async () => client });
+  await connection.connect(selection); resolved = 'C:\\different-root';
+  assert.equal((await connection.refresh()).phase, 'unavailable');
+  assert.equal(connection.state().rootId, undefined); assert.equal(client.disposed, 1);
+  await connection.dispose();
 });

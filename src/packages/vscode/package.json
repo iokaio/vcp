@@ -1,7 +1,7 @@
 {
   "name": "vcp-local",
   "displayName": "VCP Local",
-  "description": "Read-only connection to an initialized local VCP workspace.",
+  "description": "Local VCP workspace connection, trust and recovery.",
   "publisher": "vcp",
   "version": "0.1.0",
   "private": true,
@@ -10,12 +10,12 @@
   "engines": { "vscode": "1.138.0" },
   "extensionKind": ["ui"],
   "main": "./dist/extension.js",
-  "activationEvents": ["onView:vcp.connection", "onCommand:vcp.connect", "onCommand:vcp.refreshConnection", "onCommand:vcp.disconnect"],
+  "activationEvents": ["onView:vcp.connection","onCommand:vcp.connect","onCommand:vcp.refreshConnection","onCommand:vcp.disconnect","onCommand:vcp.connectController","onCommand:vcp.attachObserver","onCommand:vcp.reconcileRoot","onCommand:vcp.grantTrust","onCommand:vcp.revokeTrust","onStartupFinished"],
   "capabilities": {
     "virtualWorkspaces": { "supported": false, "description": "VCP currently connects only to local Windows file workspaces." },
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "Only read-only inspection is available. This extension does not start tasks or apply project changes.",
+      "description": "Observation, explicit root reconciliation and trust revocation are available. Tasks and project edits are not started.",
       "restrictedConfigurations": ["vcp.engineExecutable", "vcp.dataDirectory"]
     }
   },
@@ -23,7 +23,12 @@
     "commands": [
       { "command": "vcp.connect", "title": "VCP: Connect to Local Workspace" },
       { "command": "vcp.refreshConnection", "title": "VCP: Refresh Connection" },
-      { "command": "vcp.disconnect", "title": "VCP: Disconnect" }
+      { "command": "vcp.disconnect", "title": "VCP: Disconnect" },
+      {"command":"vcp.connectController","title":"VCP: Connect for Workspace Trust Changes"},
+      {"command":"vcp.attachObserver","title":"VCP: Observe Existing Engine"},
+      {"command":"vcp.reconcileRoot","title":"VCP: Reconcile Moved Root"},
+      {"command":"vcp.grantTrust","title":"VCP: Trust Engine Workspace"},
+      {"command":"vcp.revokeTrust","title":"VCP: Revoke Engine Workspace Trust"}
     ],
     "viewsContainers": { "activitybar": [{ "id": "vcp", "title": "VCP", "icon": "media/vcp.svg" }] },
     "views": { "vcp": [{ "type": "webview", "id": "vcp.connection", "name": "Workspace" }] },

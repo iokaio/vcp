@@ -1,6 +1,6 @@
 # 18 — Deferred VS Code client
 
-Status: P4-01 in progress after owner-directed P8 closure and completed P9. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
+Status: P4-01 accepted after owner-directed P8 closure and completed P9; P4-02 is next. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
 
 ## Code organization
 
@@ -20,12 +20,15 @@ license, installation support or proof of safe document application.
 The [initial observer connection](../development/editor-connection.md) connects the
 prepared workspace UI through the SDK. [ADR-056](../adr/056-editor-observer-connection.md)
 records its read-only boundary and the native API prerequisites for full mapping,
-trust/rebind and observer reload. This increment begins P4-01; the acceptance
-requirements below remain in force.
+trust/rebind and observer reload. These prerequisites are now implemented and
+qualified under [ADR-057](../adr/057-editor-trust-and-observer-recovery.md).
 
 The subsequent root/binding projection adds negotiated `workspace/binding/1`
 fields to `workspace/open` and uses them in the editor map and view. Engine-backed
-trust/rebind and authenticated observer reload remain required before acceptance.
+trust/rebind and authenticated observer reload complete P4-01. The
+[acceptance evidence](../development/editor-connection.md#p4-01-acceptance)
+covers actual editor reload with pending input and another client's controller,
+moved-root identity, restricted trust and queued-work revocation.
 
 Implement launch/attach/version negotiation through the SDK, map VS Code roots to durable VCP identities and enforce workspace trust. Handle reload/disconnect and controlling versus observing clients according to P9's explicit owner contract.
 

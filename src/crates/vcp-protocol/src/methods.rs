@@ -169,6 +169,12 @@ dto!(WorkspaceOpen {
     #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 32768)))]
     root: String
 });
+dto!(WorkspaceSetTrust {
+    scope: Scope,
+    mutation: Mutation,
+    expected_binding_revision: Counter,
+    trusted: bool
+});
 dto!(SessionCreate {
     scope: Scope,
     mutation: Mutation,
@@ -338,6 +344,7 @@ calls! {
     ControllerRelease(ControllerRelease) => "controller/release",
     ControllerRecover(ControllerRecover) => "controller/recover",
     WorkspaceOpen(WorkspaceOpen) => "workspace/open",
+    WorkspaceSetTrust(WorkspaceSetTrust) => "workspace/setTrust",
     SessionCreate(SessionCreate) => "session/create",
     SessionRead(SessionRead) => "session/read",
     SessionSnapshot(SessionSnapshotRead) => "session/snapshot",
@@ -391,6 +398,7 @@ impl Call {
 
     pub fn mutation(&self) -> Option<&Mutation> {
         match self {
+            Self::WorkspaceSetTrust(p) => Some(&p.mutation),
             Self::SessionCreate(p) => Some(&p.mutation),
             Self::SessionResume(p) => Some(&p.mutation),
             Self::SessionFork(p) => Some(&p.mutation),

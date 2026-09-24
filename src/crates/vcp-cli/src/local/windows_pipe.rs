@@ -2,7 +2,7 @@
 //! Private Windows pipe bootstrap. Authenticate before starting protocol pumps.
 use super::{
     windows_identity::{self, HeldProcess, Principal},
-    Attachment, Role,
+    Attachment, ObserverReconnect, Role,
 };
 use serde::{Deserialize, Serialize};
 use std::{mem::size_of, ptr::null_mut, time::Duration};
@@ -22,6 +22,7 @@ use windows_sys::Win32::{
 };
 
 const SCHEMA: &str = "vcp-local-pipe-auth/1";
+const RECONNECT: &str = "vcp-local-pipe-observer-reconnect/1";
 const AUTH_LIMIT: usize = 16 * 1024;
 const DEADLINE: Duration = Duration::from_secs(10);
 const PREFIX: &str = r"\\.\pipe\vcp-local-";
@@ -32,6 +33,13 @@ struct Hello {
     schema: String,
     ticket: String,
     role: Role,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ObserverHello {
+    schema: String,
+    scope: vcp_protocol::methods::Scope,
 }
 
 fn endpoint(value: &str) -> Result<(), String> {
@@ -155,8 +163,42 @@ pub(super) async fn connect(
     attachment: &Attachment,
     role: Role,
 ) -> Result<BufReader<NamedPipeClient>, String> {
-    endpoint(&attachment.endpoint)?;
     ticket(&attachment.ticket).ok_or("invalid local attachment credential")?;
+    connect_frame(
+        attachment,
+        &Hello {
+            schema: SCHEMA.into(),
+            ticket: attachment.ticket.clone(),
+            role,
+        },
+    )
+    .await
+}
+
+pub(super) async fn reconnect_observer(
+    reference: &ObserverReconnect,
+) -> Result<BufReader<NamedPipeClient>, String> {
+    // Reuse kernel pin validation; no credential is read from the reference.
+    let attachment = Attachment {
+        endpoint: reference.endpoint.clone(),
+        server: reference.server.clone(),
+        ticket: String::new(),
+    };
+    connect_frame(
+        &attachment,
+        &ObserverHello {
+            schema: RECONNECT.into(),
+            scope: reference.scope.clone(),
+        },
+    )
+    .await
+}
+
+async fn connect_frame(
+    attachment: &Attachment,
+    hello: &impl Serialize,
+) -> Result<BufReader<NamedPipeClient>, String> {
+    endpoint(&attachment.endpoint)?;
     let own = HeldProcess::current()
         .and_then(|process| process.pin())
         .map_err(|_| "local client identity unavailable")?;
@@ -181,12 +223,8 @@ pub(super) async fn connect(
         };
         let process = windows_identity::verify_pipe_server(&stream, &attachment.server)
             .map_err(|_| "local server pin denied")?;
-        let mut frame = serde_json::to_vec(&Hello {
-            schema: SCHEMA.into(),
-            ticket: attachment.ticket.clone(),
-            role,
-        })
-        .map_err(|_| "local authentication encoding failed")?;
+        let mut frame =
+            serde_json::to_vec(hello).map_err(|_| "local authentication encoding failed")?;
         if frame.len() > AUTH_LIMIT {
             return Err("local authentication frame too large".into());
         }
@@ -210,7 +248,8 @@ pub(super) async fn connect(
 
 /// Call after server.connect(). Authentication is bounded and preserves any
 /// prefetched protocol bytes. Caller emits Ready only after public connection setup.
-pub(super) async fn authenticate_server(
+#[cfg(test)]
+async fn authenticate_server(
     stream: NamedPipeServer,
     principal: &Principal,
     expected_ticket: &str,
@@ -221,10 +260,22 @@ pub(super) async fn authenticate_server(
 
 /// Distinct observer/controller credentials retain their own role ceilings.
 /// Evaluate every configured grant; a match never borrows another grant's role.
-pub(super) async fn authenticate_server_grants(
+#[cfg(test)]
+async fn authenticate_server_grants(
     stream: NamedPipeServer,
     principal: &Principal,
     grants: &[(&str, Role)],
+) -> Result<(BufReader<NamedPipeServer>, Role), String> {
+    authenticate_server_access(stream, principal, grants, None).await
+}
+
+/// Ticket grants retain their role ceilings. Discovery reconnect additionally
+/// requires the same live executable identity and can only grant scoped reads.
+pub(super) async fn authenticate_server_access(
+    stream: NamedPipeServer,
+    principal: &Principal,
+    grants: &[(&str, Role)],
+    observer_scope: Option<&vcp_protocol::methods::Scope>,
 ) -> Result<(BufReader<NamedPipeServer>, Role), String> {
     if grants.is_empty() || grants.len() > 2 {
         return Err("invalid server attachment grants".into());
@@ -261,6 +312,22 @@ pub(super) async fn authenticate_server_grants(
                 .map_err(|_| "local client identity denied")?
         {
             return Err("local client principal denied".into());
+        }
+        if let Ok(hello) = serde_json::from_slice::<ObserverHello>(&frame) {
+            let own = HeldProcess::current()
+                .and_then(|process| process.pin())
+                .map_err(|_| "local server identity unavailable")?;
+            if hello.schema != RECONNECT
+                || observer_scope != Some(&hello.scope)
+                || peer.pin.image != own.image
+                || peer.pin.file != own.file
+            {
+                return Err("local observer identity or scope denied".into());
+            }
+            peer.process
+                .validate(&peer.pin)
+                .map_err(|_| "local observer exited during authentication")?;
+            return Ok(Role::Observer);
         }
         let hello: Hello =
             serde_json::from_slice(&frame).map_err(|_| "invalid local authentication frame")?;

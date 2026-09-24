@@ -67,3 +67,15 @@ repository's native Windows qualification environment and built SDK/examples.
 Neither an SDK unit test nor a TypeScript check establishes native attachment
 security or provider qualification. Detailed results belong in the
 [public protocol guide](../../../docs/development/public-protocol.md).
+
+P4-01 adds `observerReconnectReference()` for pipe connections. Persist this
+non-secret reference outside project-controlled settings and use
+`reconnectObserverLocal({executable, reference, initialize})` after reload. Native
+peer authentication issues fresh observer authority; this never recovers a
+controller token or starts another writer. A stale reference fails explicitly.
+
+`rebindLocal({executable, workspace, workspaceId, data})` performs one explicit
+CLI reconciliation of retained history before attachment. It requires the active
+owner to close, preserves exact string revisions, and returns no private descriptor
+path. Failure or timeout never retries; inspect current state before retrying.
+`workspace/setTrust` remains a revision-checked controller mutation through `call`.

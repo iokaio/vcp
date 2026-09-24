@@ -381,6 +381,27 @@ when an artifact range is read.
 
 ## Existing workspace lookup
 
+### Trust and recovery extensions for P4-01
+
+`workspace/setTrust` requires an authenticated controller with a current lease.
+Its `scope`, `mutation.command_id`, workspace `mutation.expected_revision`, zero
+`mutation.steering_revision`, `expected_binding_revision` and `trusted` boolean
+enter the owned authority-change flow. Admission is fenced and the task tree is
+paused and drained before the final controller/revision recheck and commit.
+The reply is an `acceptance`; trust changes invalidate the old controller token.
+Use `command/read` and current workspace reads to reconcile. A new mutation needs
+explicit fresh control. Observers cannot use this method.
+
+`vcp-local-bootstrap/1` and `vcp-local-attach/1` accept the optional bootstrap flag
+`observer_reconnect: true`. Only opted-in clients receive the non-secret readiness
+reference. `vcp-local-observer-reconnect/1` accepts that reference and grants
+observer access after live kernel peer/executable/principal/scope checks. It does
+not consume a controller ticket, acquire a lease or launch another writer. See
+[ADR-057](../adr/057-editor-trust-and-observer-recovery.md) for the native boundary
+and the [editor guide](editor-connection.md) for qualification and idle limits.
+
+### Selected binding projection
+
 `workspace/open` can observe the binding already selected by trusted launch,
 including from an observer connection. Its host and root must exactly match that
 binding's host ID and canonical root spelling. The initialize response reports the
