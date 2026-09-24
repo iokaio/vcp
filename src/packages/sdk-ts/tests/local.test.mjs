@@ -17,6 +17,14 @@ test('forged or serialized attachment handles rejected before process creation',
  assert.throws(()=>launchLocal({executable:'vcp.exe',workspace:'relative',role:'observer'}),e=>e.code==='INVALID_ARGUMENT');
 });
 
+test('publisher bootstrap accepts only explicit controller profile selection, never key values',()=>{
+ const base={executable:'C:\\vcp.exe',workspace:'C:\\workspace',role:'controller'};
+ for(const publisher of [null,{}, {profile:'relative'}, {profile:'C:\\private\\publisher.json',key:'secret'}, {profile:'C:\\private\\publisher.json',automatic:true}]) {
+   assert.throws(()=>launchLocal({...base,publisher}),e=>e.code==='INVALID_ARGUMENT');
+ }
+ assert.throws(()=>launchLocal({...base,role:'observer',publisher:{profile:'C:\\private\\publisher.json'}}),e=>e.code==='INVALID_ARGUMENT');
+});
+
 test('observer reconnect references are serializable hints with exact bounded noncredential fields', async () => {
  const {validateObserverReconnectReference,reconnectObserverLocal}=await import('../dist/local.js');
  const reference={endpoint:'\\\\.\\pipe\\vcp-local-'+ 'a'.repeat(64),server:pin,scope:ready.scope};

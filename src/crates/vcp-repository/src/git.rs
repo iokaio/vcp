@@ -7,6 +7,7 @@ use tokio::io::AsyncReadExt;
 
 pub struct Git {
     executable: PathBuf,
+    _executable_pin: Option<path::HeldPath>,
     environment: BTreeMap<OsString, OsString>,
     timeout: Duration,
     output_limit: usize,
@@ -64,10 +65,26 @@ impl Git {
         }
         Ok(Self {
             executable,
+            _executable_pin: None,
             environment,
             timeout,
             output_limit,
         })
+    }
+    /// Bind an explicitly selected native executable to this capability's full
+    /// lifetime, including detached observations after its original loader exits.
+    #[cfg(windows)]
+    pub fn with_executable_pin(mut self, pin: path::HeldPath) -> Result<Self> {
+        let current = path::native::open(&self.executable, false)?;
+        if path::native::identity(&current)? != pin.native_identity
+            || path::native::final_path(&current)? != path::native::final_path(&pin.file)?
+            || path::native::info(&pin.file)?.nNumberOfLinks != 1
+        {
+            return Err(Error::Stale);
+        }
+        self.executable = path::native::final_path(&pin.file)?;
+        self._executable_pin = Some(pin);
+        Ok(self)
     }
     async fn run(&self, root: &Root, args: &[&str]) -> Result<(bool, Vec<u8>)> {
         let _held = root.hold(None, true)?;
@@ -361,4 +378,70 @@ pub fn parse_status(bytes: &[u8]) -> Result<Vec<Change>> {
     }
     result.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(result)
+}
+
+#[cfg(all(test, windows))]
+mod pin_tests {
+    use super::*;
+    fn root(path: &Path) -> Root {
+        Root::open(
+            RootIdentity {
+                workspace: WorkspaceId::parse("pin-workspace").unwrap(),
+                root: RootId::parse("pin-root").unwrap(),
+                repository: "fixture".into(),
+                worktree: "fixture".into(),
+                binding: Revision::ZERO,
+            },
+            path,
+        )
+        .unwrap()
+    }
+    #[test]
+    fn executable_pin_follows_git_lifetime_and_rejects_other_identity_or_alias() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = temporary.path().canonicalize().unwrap();
+        let executable = directory.join("git.exe");
+        let other = directory.join("other.exe");
+        std::fs::write(&executable, b"not executed").unwrap();
+        std::fs::write(&other, b"not executed").unwrap();
+        let root = root(&directory);
+        let git = Git::new(
+            executable.clone(),
+            BTreeMap::new(),
+            Duration::from_secs(1),
+            1024,
+        )
+        .unwrap();
+        assert!(git
+            .with_executable_pin(root.hold(Some(Path::new("other.exe")), false).unwrap())
+            .is_err());
+        let git = Git::new(
+            executable.clone(),
+            BTreeMap::new(),
+            Duration::from_secs(1),
+            1024,
+        )
+        .unwrap()
+        .with_executable_pin(root.hold(Some(Path::new("git.exe")), false).unwrap())
+        .unwrap();
+        let owner = std::sync::Arc::new(git);
+        let background = owner.clone();
+        drop(owner);
+        assert!(std::fs::write(&executable, b"replacement").is_err());
+        assert!(std::fs::rename(&executable, directory.join("moved.exe")).is_err());
+        drop(background);
+        std::fs::write(&executable, b"replacement").unwrap();
+        let alias = directory.join("alias.exe");
+        std::fs::hard_link(&executable, &alias).unwrap();
+        let git = Git::new(
+            executable.clone(),
+            BTreeMap::new(),
+            Duration::from_secs(1),
+            1024,
+        )
+        .unwrap();
+        assert!(git
+            .with_executable_pin(root.hold(Some(Path::new("git.exe")), false).unwrap())
+            .is_err());
+    }
 }

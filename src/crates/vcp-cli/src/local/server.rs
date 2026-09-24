@@ -119,6 +119,9 @@ pub(super) async fn run(mut io: Framed) -> Result<(), String> {
     if let Some(execution) = &boot.request.execution {
         execution.validate(boot.request.role)?;
     }
+    if let Some(publisher) = &boot.request.publisher {
+        publisher.validate(boot.request.role)?;
+    }
     let (_selection, config, data) = selection(&boot.request)?;
     // This acquires the real canonical writer and performs crash recovery. No
     // provider request, root thread or task is created by attachment.
@@ -128,6 +131,12 @@ pub(super) async fn run(mut io: Framed) -> Result<(), String> {
             owner.close().await?;
             return Err(error);
         }
+    }
+    // Explicit host selection only. Attach/reconnect have no publisher field;
+    // profile/key errors never become bootstrap logs, RPC failures or auto-retries.
+    if let Some(selection) = boot.request.publisher.take() {
+        let _publisher_loaded =
+            crate::backup::publisher::install(&host, &data, selection.profile).await;
     }
     let execution = boot
         .request

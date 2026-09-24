@@ -383,6 +383,13 @@ ephemeral preview lookup, and receipt access never grants report content access.
 See [ADR-062](../adr/062-editor-optimizer-commands.md) for the authorization and
 reconciliation contract and [qualification status](editor-inspectors.md).
 
+The optional `backup/publisher/1` profile exposes scoped status, create, read,
+retry and cancel through the native encrypted publisher. Acceptance records
+durable intent before checkpoint capture; it is not publication or cloud-transfer
+confirmation. Recovery material stays in the explicitly configured native host.
+See [ADR-063](../adr/063-editor-encrypted-publisher.md) and
+[the native publisher profile](encrypted-publisher.md).
+
 ## ACP consideration
 
 An ACP adapter was considered as an additional client surface. The native VCP

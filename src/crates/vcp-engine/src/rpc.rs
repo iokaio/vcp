@@ -92,6 +92,12 @@ pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
     if ["routing/reportCapture", "routing/reportRead", "routing/preview", "routing/apply", "routing/rollback"].iter().any(|method| capabilities.contains(*method)) {
         capabilities.insert(vcp_protocol::routing_optimizer::CAPABILITY.to_owned());
     }
+    if ["backup/status", "backup/create", "backup/read", "backup/retry", "backup/cancel"]
+        .iter()
+        .any(|method| capabilities.contains(*method))
+    {
+        capabilities.insert(vcp_protocol::backup_publisher::CAPABILITY.to_owned());
+    }
     if capabilities.contains("session/export") {
         capabilities.insert(SESSION_EXPORT_LOCAL_CAPABILITY.to_owned());
     }
@@ -394,6 +400,7 @@ impl RpcSession {
             ));
         }
         let inspector_profile = match &call {
+            Call::BackupStatus(_) | Call::BackupCreate(_) | Call::BackupRead(_) | Call::BackupRetry(_) | Call::BackupCancel(_) => Some(vcp_protocol::backup_publisher::CAPABILITY),
             Call::HistoryQuery(_) => Some(vcp_protocol::history::CAPABILITY),
             Call::MemoryHistory(_) => Some(vcp_protocol::memory_history::CAPABILITY),
             Call::PolicyRead(_) => Some(vcp_protocol::policy_inspection::CAPABILITY),

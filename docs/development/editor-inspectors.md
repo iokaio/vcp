@@ -1,7 +1,7 @@
 # Editor inspectors
 
 Work item: [P4-04](../plan/18-deferred-vscode.md#p4-04--inspectors).
-Status: history/memory, policy/routing queries and optimizer command prerequisites accepted.
+Status: history/memory, policy/routing, optimizer and encrypted publisher API prerequisites accepted.
 P4-04 acceptance remains open.
 [ADR-060](../adr/060-governed-inspector-queries.md) records the query boundary.
 
@@ -168,3 +168,39 @@ Qualify CLI parity, large pages, purged artifacts, restricted scope, policy chan
 between preview and apply, hostile links and actual webview reload. Provider and
 recovery secrets must remain outside webview messages and persistence. A cloud
 export must use the existing encrypted publisher; `session/export` is local only.
+
+## Encrypted publisher prerequisite
+
+[ADR-063](../adr/063-editor-encrypted-publisher.md) defines the public boundary
+for the existing native encrypted publisher. [Native profile selection and API
+usage](encrypted-publisher.md) keep recovery material outside editor messages.
+The API prerequisite is accepted. Native protocol tests passed (26 existing plus
+3 publisher cases), all 73 engine tests passed, and schema generation contracts
+passed. The SDK passed 35 tests and the extension passed 108 regression tests.
+
+Both-store lifecycle tests passed: atomic caller/session intent and receipt,
+lost-reply reopen and exact replay, conflicts, opaque capability replacement,
+source/stage/copy authority loss, and deterministic public disconnect or cancel
+before the background capture first runs. Real adapter publication, completed
+retry without a second vault copy, and published-plus-cancelled-intent status
+passed. The existing native dirty/untracked/generation backup regression passed.
+
+Native loader tests passed for explicit controller selection, bounded external
+profiles, redirected/hard-linked file rejection, and key/Git file guards. A
+separate repository test proved the executable guard survives its initial owner
+through a background Arc and rejects another file identity or alias. The selected
+single-link Git for this qualification was `C:/Program Files/Git/bin/git.exe`.
+
+The actual CLI/SDK fixture passed on Files and SQLite (65.06 seconds). It created
+one encrypted local object, verified decryption and writer signature against the
+independently trusted published-head digest, preserved another connection's
+controller ownership during observer reconnection, and reopened without loaded
+keys to recover the original receipt and job metadata. Default SDK initialization
+negotiated the publisher and workspace-binding profiles. No provider requests or
+Attempt records were created. Cloud transfer remained unknown and the public
+restore-verification field remained not observed; no restore activation occurred.
+
+The final fast suite passed all 18 cases. Independent review identified and fixed
+file-guard lifetime gaps and checked authorization, cancellation ordering and
+receipt ownership. Inspector presentation, renderer mutation controls and actual
+webview reload qualification remain open.

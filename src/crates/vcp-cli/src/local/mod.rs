@@ -72,6 +72,61 @@ struct LaunchRequest {
     root_task: Option<vcp_domain::TaskId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     execution: Option<execution::Configuration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    publisher: Option<PublisherSelection>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublisherSelection {
+    profile: PathBuf,
+}
+impl PublisherSelection {
+    fn validate(&self, role: Role) -> Result<(), String> {
+        if role != Role::Controller
+            || !self.profile.is_absolute()
+            || self.profile.as_os_str().len() > 32768
+        {
+            return Err(
+                "explicit native publisher requires controller and absolute host profile".into(),
+            );
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod publisher_tests {
+    use super::*;
+    #[test]
+    fn publisher_bootstrap_is_explicit_controller_only_and_omitted_by_default() {
+        let old = serde_json::json!({"schema":BOOTSTRAP,"workspace":"C:/workspace","data":null,"role":"observer"});
+        let request: LaunchRequest = serde_json::from_value(old.clone()).unwrap();
+        assert!(request.publisher.is_none());
+        assert!(serde_json::to_value(&request)
+            .unwrap()
+            .get("publisher")
+            .is_none());
+        let mut selected = old;
+        selected["publisher"] = serde_json::json!({"profile":"C:/private/publisher.json"});
+        let request: LaunchRequest = serde_json::from_value(selected.clone()).unwrap();
+        assert!(request
+            .publisher
+            .as_ref()
+            .unwrap()
+            .validate(request.role)
+            .is_err());
+        selected["role"] = serde_json::json!("controller");
+        let request: LaunchRequest = serde_json::from_value(selected.clone()).unwrap();
+        assert!(request
+            .publisher
+            .as_ref()
+            .unwrap()
+            .validate(request.role)
+            .is_ok());
+        selected["publisher"]["key"] = serde_json::json!("never wire key material");
+        assert!(serde_json::from_value::<LaunchRequest>(selected).is_err());
+    }
 }
 
 #[derive(Deserialize)]
@@ -243,6 +298,9 @@ async fn attach_bridge(mut client: Framed, request: AttachRequest) -> Result<(),
 }
 
 async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result<(), String> {
+    if let Some(publisher) = &request.publisher {
+        publisher.validate(request.role)?;
+    }
     if request.root_task.is_some() && request.role != Role::Controller {
         return Err("explicit root selection requires controller bootstrap".into());
     }

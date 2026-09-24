@@ -119,3 +119,17 @@ CLI reconciliation of retained history before attachment. It requires the active
 owner to close, preserves exact string revisions, and returns no private descriptor
 path. Failure or timeout never retries; inspect current state before retrying.
 `workspace/setTrust` remains a revision-checked controller mutation through `call`.
+
+Encrypted local publication uses the optional `backup/publisher/1` profile. Select
+`publisher: {profile: 'C:\\private\\publisher.json'}` only on an explicit
+controller `launchLocal` call. The strict native profile contains `version: 1`
+and absolute `key`/`git` references; recovery bytes never enter SDK arguments.
+Existing independent enrollment and backup configuration select the vault.
+See [native profile setup](../../../docs/development/encrypted-publisher.md).
+
+`backup/create` durably accepts intent; `backup/read` separately reports local
+publication, checkpoint and cleanup. Use `command/read` for uncertain acceptance.
+Attach and observer reconnect never load keys or acquire control. A restarted
+server starts without a capability. Local encrypted publication does not prove
+cloud transfer or restore. Explicit selection requires the profile negotiation;
+older engines remain usable when the optional selection is omitted.

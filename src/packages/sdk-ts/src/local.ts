@@ -6,6 +6,7 @@ import { Client, type ClientTransport, type Role } from './client.js';
 import { LineDecoder, encodeFrame } from './codec.js';
 import { SdkError } from './errors.js';
 import { validateWire } from './validation.js';
+import { RESULT_KINDS, REQUIRED_PROFILES } from './method-results.js';
 
 declare const opaque: unique symbol;
 export type LocalAttachment = { readonly [opaque]: true };
@@ -19,6 +20,8 @@ export type LaunchOptions = {
   executable: string; workspace: string; data?: string | null; role: Role;
   transport?: 'stdio' | 'windows_pipe'; rootTask?: Id;
   execution?: { profile: string; providerCredential: string; credentials?: Record<string, string> };
+  /** Explicit native host profile; no recovery key bytes enter this bootstrap. */
+  publisher?: { profile: string };
   initialize?: InitializeParams;
 };
 export type AttachOptions = { executable: string; attachment: LocalAttachment; initialize?: InitializeParams };
@@ -160,11 +163,24 @@ export function launchLocal(options: LaunchOptions): Promise<Client> {
   absolute(options.workspace, 'workspace'); if (options.data !== undefined && options.data !== null) absolute(options.data, 'data');
   if (options.role !== 'observer' && options.role !== 'controller') throw new SdkError('INVALID_ARGUMENT', 'invalid local role');
   if (options.execution) absolute(options.execution.profile, 'execution profile');
+  let initialize = options.initialize;
+  if (options.publisher !== undefined) {
+    if (options.role !== 'controller') throw new SdkError('INVALID_ARGUMENT', 'publisher selection requires controller launch');
+    try { object(options.publisher, ['profile']); } catch { throw new SdkError('INVALID_ARGUMENT', 'invalid publisher selection'); }
+    absolute(options.publisher.profile, 'publisher profile');
+    const base = initialize ?? {
+      protocol_version: '1.0', client: { name: '@vcp/sdk', version: '0.1.0' },
+      capabilities: [...new Set([...Object.keys(RESULT_KINDS), ...Object.values(REQUIRED_PROFILES).flat(), 'jsonrpc/2.0', 'durable-command/1', 'approval/source-revisions/1', 'memory/inspection-state/1'])], required_capabilities: [],
+    };
+    const profiles = ['backup/publisher/1', 'workspace/binding/1'];
+    initialize = { ...base, capabilities: [...new Set([...base.capabilities, ...profiles])], required_capabilities: [...new Set([...(base.required_capabilities ?? []), ...profiles])] };
+  }
   return open(options.executable, {
     schema: 'vcp-local-bootstrap/1', observer_reconnect: true, workspace: options.workspace, data: options.data ?? null, role: options.role,
     ...(options.transport === undefined ? {} : { transport: options.transport }), ...(options.rootTask === undefined ? {} : { root_task: options.rootTask }),
     ...(options.execution === undefined ? {} : { execution: { profile: options.execution.profile, provider_credential: options.execution.providerCredential, ...(options.execution.credentials === undefined ? {} : { credentials: options.execution.credentials }) } }),
-  }, options.role, options.initialize);
+    ...(options.publisher === undefined ? {} : { publisher: { profile: options.publisher.profile } }),
+  }, options.role, initialize);
 }
 export function attachLocal(options: AttachOptions): Promise<Client> {
   const stored = handles.get(options.attachment);

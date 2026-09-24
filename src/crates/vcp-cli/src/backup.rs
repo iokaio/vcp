@@ -10,6 +10,8 @@ use vcp_store::{
 };
 
 type Result<T> = std::result::Result<T, String>;
+#[cfg(windows)]
+pub(crate) mod publisher;
 
 #[derive(Debug, Subcommand)]
 pub enum Backup {
@@ -109,7 +111,6 @@ pub async fn create_on_host(
     data: &Path,
     request: CreateRequest,
 ) -> Result<serde_json::Value> {
-    use std::sync::Arc;
     if !crate::selection::operation_id(request.operation.as_str()) {
         return Err("opaque backup operation UUID required".into());
     }
@@ -120,44 +121,21 @@ pub async fn create_on_host(
         }
     }
     host.unload_backup()?;
-    let config = host.backup_configuration()?;
-    let data = data.to_owned();
-    let retained = request.clone();
-    let (capabilities, git, automatic) = tokio::task::spawn_blocking(move || -> Result<_> {
-        let workspace = Path::new(&config.binding.root);
-        let roots = forbidden(workspace, &config.canonical_root, &[])?;
-        let path = crate::settings::local_path(&trust_path(&data, &config.workspace), workspace)?;
-        let trust = TrustStore::open(&path, &roots).map_err(|e| e.to_string())?;
-        let setup =
-            vcp_lifecycle::foundation::backup::setup(&trust)?.ok_or("backup is not configured")?;
-        let mut exclusions = forbidden(workspace, &config.canonical_root, &setup.sync_roots)?;
-        exclusions.extend([path, setup.staging.clone(), setup.vault.clone()]);
-        let keys = verified_key(&retained.key, &exclusions)?;
-        let git = vcp_repository::git::Git::new(
-            retained.git,
-            ["PATH", "SystemRoot", "WINDIR", "TEMP", "TMP"]
-                .into_iter()
-                .filter_map(|name| {
-                    std::env::var_os(name).map(|value| (std::ffi::OsString::from(name), value))
-                })
-                .collect(),
-            std::time::Duration::from_secs(30),
-            8 * 1024 * 1024,
-        )
-        .map_err(|e| e.to_string())?;
-        let automatic = setup.automatic;
-        let capabilities = vcp_lifecycle::foundation::backup_run::Capabilities::open(
-            trust,
-            keys,
-            &setup,
-            workspace,
-            &config.canonical_root,
-        )?;
-        Ok((Arc::new(capabilities), Arc::new(git), automatic))
-    })
-    .await
-    .map_err(|_| "backup key loading worker stopped")??;
-    host.load_backup(capabilities, git, automatic)?;
+    let loaded = publisher::load(
+        host,
+        data,
+        publisher::Selection::Direct {
+            key: request.key.clone(),
+            git: request.git.clone(),
+        },
+    )
+    .await?;
+    host.load_backup_with_revision(
+        loaded.capabilities,
+        loaded.git,
+        loaded.automatic,
+        loaded.revision,
+    )?;
     serde_json::to_value(host.start_backup(request.operation, request.retry)?)
         .map_err(|e| e.to_string())
 }

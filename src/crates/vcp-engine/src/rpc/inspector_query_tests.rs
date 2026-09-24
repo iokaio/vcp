@@ -92,6 +92,31 @@ async fn inspector_profiles_gate_dispatch_and_recheck_current_access() {
             vcp_protocol::routing_optimizer::CAPABILITY,
             json!({"scope":{"workspace":"workspace","session":"session"},"mutation":{"command_id":"rollback","expected_revision":"0","steering_revision":"0"},"expected_binding_revision":"0","preview_id":"preview","preview_sha256":"a".repeat(64)}),
         ),
+        (
+            "backup/status",
+            vcp_protocol::backup_publisher::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"}}),
+        ),
+        (
+            "backup/read",
+            vcp_protocol::backup_publisher::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"operation":"00000000-0000-0000-0000-000000000001"}),
+        ),
+        (
+            "backup/create",
+            vcp_protocol::backup_publisher::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"mutation":{"command_id":"00000000-0000-0000-0000-000000000002","expected_revision":"0","steering_revision":"0"},"expected_binding_revision":"0","capability":"opaque","expected_capability_generation":"1"}),
+        ),
+        (
+            "backup/retry",
+            vcp_protocol::backup_publisher::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"mutation":{"command_id":"00000000-0000-0000-0000-000000000002","expected_revision":"0","steering_revision":"0"},"expected_binding_revision":"0","capability":"opaque","expected_capability_generation":"1","operation":"00000000-0000-0000-0000-000000000001","expected_operation_revision":"0","expected_job_revision":"1"}),
+        ),
+        (
+            "backup/cancel",
+            vcp_protocol::backup_publisher::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"mutation":{"command_id":"00000000-0000-0000-0000-000000000002","expected_revision":"0","steering_revision":"0"},"expected_binding_revision":"0","operation":"00000000-0000-0000-0000-000000000001","expected_operation_revision":"0","expected_job_revision":null}),
+        ),
     ] {
         for negotiated in [false, true] {
             let mut host = Host {
