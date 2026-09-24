@@ -30,6 +30,14 @@ $runtimeFiles=@($codeItem)+@(Get-ChildItem -LiteralPath $runtimeRoot -File -Filt
 $sharedData=Join-Path $inputSpec.userData 'shared-data'
 New-Item -ItemType Directory -Force -Path $sharedData | Out-Null
 $launchArguments=@('--new-window','--skip-welcome','--skip-release-notes','--skip-add-to-recently-opened','--disable-updates','--disable-gpu',"--user-data-dir=`"$($inputSpec.userData)`"","--shared-data-dir=`"$sharedData`"","--extensions-dir=`"$($inputSpec.extensions)`"")
+if($null -ne $inputSpec.cdp) {
+  if($inputSpec.cdp -isnot [bool]) { throw 'CDP qualification selection must be boolean' }
+  if($inputSpec.cdp) {
+    # Fixture-only renderer inspection. Chromium chooses an ephemeral loopback
+    # port and writes discovery to this owned private user-data directory.
+    $launchArguments+=@('--remote-debugging-address=127.0.0.1','--remote-debugging-port=0')
+  }
+}
 # Development windows do not register a durable backup path in the pinned editor.
 # Dirty-buffer reload qualification therefore uses ordinary extensions copied into
 # the fixture's private extensions directory, with no development-host switches.

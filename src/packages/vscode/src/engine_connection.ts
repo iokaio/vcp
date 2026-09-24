@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { randomUUID } from 'node:crypto';
 import type { Client, Counter, InitializeParams, LaunchOptions, AttachOptions, LocalAttachment, ReconnectObserverOptions, RebindOptions, RebindResult, Scope, Trust, WorkspaceView } from '@vcp/sdk' with { 'resolution-mode': 'import' };
-import { connectionRestriction, type ConnectionSelection } from './trust.js';
+import { connectionRestriction, publisherProfileRestriction, type ConnectionSelection } from './trust.js';
 import { canonicalWorkspaceRoot, WorkspaceMap } from './workspace_map.js';
 import { profile, type Recovery } from './recovery.js';
 
@@ -48,7 +48,10 @@ const LIMITATIONS = Object.freeze([
 ]);
 const INITIALIZE: InitializeParams = {
   protocol_version: '1.0', client: { name: 'vcp-vscode', version: '0.1.0' },
-  capabilities: ['approval/source-revisions/1', 'controller/read', 'controller/acquire', 'workspace/setTrust', 'task/presentation', 'task/read', 'usage/read', 'events/next', 'command/read', 'approval/respond', 'turn/start', 'turn/steer', 'turn/pause', 'task/cancel', 'session/resume', 'artifact/read', 'editor/prepared-edits/1', 'editor/context', 'editor/prepare', 'editor/changeRead', 'editor/dispatch', 'editor/changeResult'],
+  capabilities: ['approval/source-revisions/1', 'controller/read', 'controller/acquire', 'workspace/setTrust', 'task/presentation', 'task/read', 'usage/read', 'events/next', 'command/read', 'approval/respond', 'turn/start', 'turn/steer', 'turn/pause', 'task/cancel', 'session/resume', 'artifact/read', 'editor/prepared-edits/1', 'editor/context', 'editor/prepare', 'editor/changeRead', 'editor/dispatch', 'editor/changeResult',
+    'history/query/1', 'history/query', 'memory/query-sources/1', 'memory/query', 'memory/history/1', 'memory/history', 'context/inspect', 'routing/explain',
+    'policy/inspection/1', 'policy/read', 'routing/status/1', 'routing/status', 'routing/optimizer/1', 'routing/reportCapture', 'routing/reportRead', 'routing/preview', 'routing/apply', 'routing/rollback',
+    'memory/retention/1', 'memory/forgetPreview', 'memory/forgetPreviewRead', 'memory/forget', 'memory/forgetRead', 'backup/publisher/1', 'backup/status', 'backup/create', 'backup/read', 'backup/retry', 'backup/cancel'],
   required_capabilities: ['jsonrpc/2.0', 'workspace/open', 'workspace/binding/1', 'session/snapshot', 'events/unsubscribe'],
 };
 function failureMessage(error: unknown): string {
@@ -109,7 +112,15 @@ export class EngineConnection {
     void pending.finally(() => this.#starts.delete(pending)).catch(() => {});
     return pending;
   }
-  async #connect(selection: Selection, previousStarts: Promise<ConnectionStatus>[], role: 'observer' | 'controller', saved?: Recovery, execution?: Pick<LaunchOptions, 'execution' | 'rootTask'>): Promise<ConnectionStatus> {
+  connectPublisher(selection: Selection, publisherProfile: string): Promise<ConnectionStatus> {
+    const restriction = publisherProfileRestriction(selection, publisherProfile, this.#deps.platform ?? process.platform);
+    if (restriction) return Promise.reject(new Error(restriction));
+    const pending = this.#connect(selection, [...this.#starts], 'controller', undefined, { publisher: {profile: publisherProfile} });
+    this.#starts.add(pending);
+    void pending.finally(() => this.#starts.delete(pending)).catch(() => {});
+    return pending;
+  }
+  async #connect(selection: Selection, previousStarts: Promise<ConnectionStatus>[], role: 'observer' | 'controller', saved?: Recovery, execution?: Pick<LaunchOptions, 'execution' | 'rootTask' | 'publisher'>): Promise<ConnectionStatus> {
     if (this.#disposed) return this.#status;
     const selected = { ...selection };
     const generation = this.#map.invalidate();

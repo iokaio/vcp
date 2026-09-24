@@ -41,3 +41,22 @@ test('disconnect cancels a pending folder-picker intent before it can launch', a
   assert.equal(launched, 0);
   for (const disposable of disposables) disposable.dispose();
 });
+
+test('publisher command uses an explicit native file picker and drops a cancelled selection intent', async () => {
+  const platform=Object.getOwnPropertyDescriptor(process,'platform');Object.defineProperty(process,'platform',{value:'win32',configurable:true});
+  try {
+    const commands=new Map(), calls=[]; const noop=()=>({dispose(){}});
+    const folder={name:'project',uri:{toString:()=> 'file:///C:/project',fsPath:'C:\\project'}};
+    let finish;const picker=new Promise(resolve=>{finish=resolve;});
+    vscode.commands={registerCommand:(id,handler)=>{commands.set(id,handler);return noop();}};
+    vscode.env={};vscode.workspace={workspaceFolders:[folder],isTrusted:true,getConfiguration:()=>({inspect:key=>key==='engineExecutable'?{globalValue:'C:\\trusted\\vcp.exe',workspaceValue:'C:\\project\\evil.exe'}:{}}),onDidChangeWorkspaceFolders:noop,onDidGrantWorkspaceTrust:noop,onDidChangeConfiguration:noop};
+    vscode.window={showOpenDialog:options=>{assert.equal(options.canSelectMany,false);return picker;},showErrorMessage:async()=>{}};
+    const connection={state:()=>({phase:'disconnected'}),connectPublisher:async(...args)=>calls.push(args),disconnect:async()=>{}};
+    const disposables=registerCommands(connection,{appendLine(){}});
+    const pending=commands.get('vcp.connectPublisherController')(folder.uri.toString());await commands.get('vcp.disconnect')();finish([{scheme:'file',authority:'',fsPath:'C:\\private\\publisher.json'}]);await pending;assert.equal(calls.length,0);
+    vscode.window.showOpenDialog=async()=>[{scheme:'file',authority:'',fsPath:'C:\\private\\publisher.json'}];
+    await commands.get('vcp.connectPublisherController')(folder.uri.toString());assert.equal(calls.length,1);assert.equal(calls[0][1],'C:\\private\\publisher.json');assert.equal(calls[0][0].executable,'C:\\trusted\\vcp.exe');assert.equal(calls[0][0].publisher,undefined);
+    let prompted=0;vscode.workspace.isTrusted=false;vscode.window.showOpenDialog=async()=>{prompted++;return[];};await commands.get('vcp.connectPublisherController')(folder.uri.toString());assert.equal(prompted,0);assert.equal(calls.length,1);
+    for(const disposable of disposables)disposable.dispose();
+  } finally { Object.defineProperty(process,'platform',platform); }
+});

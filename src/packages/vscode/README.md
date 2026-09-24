@@ -16,6 +16,17 @@ P4-03 versioned edits are accepted for the qualified Windows/editor envelope. **
 
 Source changes invalidate review and cancel eligible undispatched proposals. Use a fresh draft to replan. **Inspect Editor Change Outcomes** queries durable identities without replaying uncertain edits. **Refresh Editor Observations** refreshes tracked metadata and reconciles pending close commands; known close revision conflicts have bounded retries, while unknown outcomes receive only original-command reads. Reload restores observation, discards transient previews and never reapplies an edit. Active buffers remain unverified by disk-only checks until exact actual-close retirement. See [the workflow and qualification limits](../../../docs/development/editor-edits.md).
 
+The Inspectors view provides bounded history, memory versions, evidence, cost,
+policy, routing, optimization, pruning and encrypted publication views. Every
+page and artifact read goes through the engine's current access checks. Hidden
+views and reload discard content and previews. Select a synchronized task for
+task-scoped queries. Observers can create read-only pruning previews; applying
+them requires controller authority. Controller actions require explicit review and retain only
+command references for reconciliation; a reload never repeats a mutation.
+Encrypted publication concerns the whole workspace and reports local publication
+separately from cloud transfer and restore verification. P4-04 native inspector
+qualification passed on Files and SQLite; see [its acceptance record](../../../docs/development/editor-inspectors.md#p4-04-acceptance).
+
 ## Build and qualify
 
 `npm ci` installs the exact locked TypeScript 5.9.3, Node 24.10.1 types and VS Code 1.138.0 types. `npm test` builds the SDK/extension and runs portable bounded-connection/UI/package checks. `npm run stage` creates `artifacts/p4-vscode-extension`, including actual SDK distribution and protocol schema with no development links. No separate runtime npm dependency, provider gateway or engine binary is bundled.

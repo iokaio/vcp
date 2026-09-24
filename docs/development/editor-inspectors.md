@@ -1,8 +1,8 @@
 # Editor inspectors
 
 Work item: [P4-04](../plan/18-deferred-vscode.md#p4-04--inspectors).
-Status: history/memory, policy/routing, optimizer and encrypted publisher API prerequisites accepted.
-P4-04 acceptance remains open.
+Status: P4-04 accepted on Windows with VS Code 1.138.0 and both Files and SQLite.
+Packaging and large-history startup qualification remain P4-05 work.
 [ADR-060](../adr/060-governed-inspector-queries.md) records the query boundary.
 
 ## History and memory query increment
@@ -157,17 +157,79 @@ comes from the configured lifecycle host. Fixtures are
 Existing provider send fences were inspected; this increment does not claim a
 newly exercised provider send race.
 
-## Remaining P4-04 acceptance
+## P4-04 acceptance
 
-Connect the qualified query and optimizer APIs to the editor. Present
-history, memory, evidence, cost certainty and pruning previews with bounded reads,
-opaque actions and explicit current versus historical state. Recheck permission
-for every artifact/page and clear transient views on access/retention changes.
+The inspector UI is implemented under
+[ADR-064](../adr/064-editor-inspector-views.md). Its nine tabs use the qualified
+engine APIs, bounded pages and artifact ranges, opaque actions, current access
+checks and transient content. Exact policy previews fail closed if the complete
+review exceeds the display bound. Mutation journals retain nonsecret original
+command identities before submission and reconcile receipts without replay.
+Host prompts also open existing reports, jobs and backups by bounded ID. Pruning
+previews remain connection-local and expire after 60 seconds: an observer may
+create and page its own authorized preview, while another connection's preview
+is unavailable. Applying pruning still requires current controller authority.
+The initial policy-edit control supports input tokens, output tokens and quality
+floor. It is not a complete policy authoring interface: the engine still supplies
+the complete prior, persisted and effective policy for exact review and rollback.
 
-Qualify CLI parity, large pages, purged artifacts, restricted scope, policy changes
-between preview and apply, hostile links and actual webview reload. Provider and
-recovery secrets must remain outside webview messages and persistence. A cloud
-export must use the existing encrypted publisher; `session/export` is local only.
+Pruning command IDs and job IDs are distinct. A received pruning result supplies
+the job reference retained for later inspection. If that result is lost,
+`command/read` can recover acceptance but does not supply a job reference; the
+editor must report that limitation instead of inventing a job ID.
+
+The first actual installed-editor read qualification passed on Files and SQLite
+(95.01 seconds) using VS Code 1.138.0 and an external controller. Real renderer
+clicks covered paged history with native query parity, 33 retained memory
+versions, multi-range hostile artifact text, policy/routing, explicit unavailable
+cost, hidden-view recreation and workbench reload. The external client retained
+control, no mutation was replayed, and the editor's persisted state contained no
+artifact sentinel. This read fixture does not qualify positive cost or mutation
+controls; separate native fixtures qualify them below.
+
+The configured execution-host renderer fixture passed on Files and SQLite
+(76.08 seconds). It displayed an actual settled 100-micro-unit charge, captured
+an optimization report, reviewed and applied a policy edit, rejected an old
+preview exactly once after a competing native publication, and reviewed and
+applied rollback. Reopening canonical storage confirmed policy revision 3. The
+competing publication used a real RPC on the same authenticated controller;
+delivery of actual event replies was delayed to keep the stale review visible.
+This exercises the native CLI host rather than starting a second canonical
+writer. Only the fixture's synthetic loopback provider was called. Its scoped
+pruning request returned the actual policy denial, displayed no stale review,
+and submitted no forget command.
+
+The encrypted publisher renderer fixture passed on Files and SQLite (104.99
+seconds). A deliberate native profile dialog and actual publication click
+created one encrypted object, published job and original command receipt per
+backend. Independent known-head verification checked decryption and writer
+signature. The job released source pins; cloud transfer remained unknown and
+restore verification remained not observed. Actual workbench reload changed
+the extension-host PID, recovered observation and read the original receipt and
+job without reacquiring control, republishing or loading keys. Private profile
+references and recovery-key text were absent from editor state. No provider
+requests or attempt records were created by this fixture.
+
+The final extended observer renderer fixture passed on both stores (161.29 seconds).
+It retained another client's controller ownership through actual editor reload,
+created its own read-only pruning preview, rejected another connection's preview,
+and rejected a preview after actual engine expiry (the 60-second wait runs once
+on Files). An external controller purged an eligible artifact: displayed bytes
+cleared, the old DOM action issued no artifact read, fresh preview reads rejected
+stale state, and hide/reveal/reload did not recover purged text. Trust revocation
+cleared presentation before reauthorization; any subsequently displayed historical
+observation came from a fresh authorized engine read. Revocation does not make
+otherwise permitted historical observation permanently unavailable.
+
+Portable extension tests passed (157 tests), including mismatched pruning-job
+reply rejection, and the repository fast gate passed
+all 18 cases. Native tests use private installed extension profiles and the
+compiled engine, with actual renderer clicks and engine replies. They do not
+inject inspector results or use paid providers. These results accept P4-04 within
+the stated Windows/editor envelope; other operating systems and remote editors
+remain unqualified. Package installation, upgrades and the larger startup corpus
+remain P4-05 work. Cloud export uses the encrypted publisher; `session/export`
+remains local only.
 
 ## Encrypted publisher prerequisite
 
@@ -202,5 +264,5 @@ restore-verification field remained not observed; no restore activation occurred
 
 The final fast suite passed all 18 cases. Independent review identified and fixed
 file-guard lifetime gaps and checked authorization, cancellation ordering and
-receipt ownership. Inspector presentation, renderer mutation controls and actual
-webview reload qualification remain open.
+receipt ownership. The subsequent inspector presentation, renderer mutation and
+actual webview reload evidence is recorded in the P4-04 acceptance section above.

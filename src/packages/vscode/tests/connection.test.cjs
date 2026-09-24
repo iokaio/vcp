@@ -343,3 +343,35 @@ test('revocation fences delayed execution launch without publishing its credenti
   assert(!JSON.stringify(states).includes('private-secret')); assert(!JSON.stringify(saved).includes('private-secret'));
   await connection.dispose();
 });
+
+test('publisher profile is explicit controller-only launch input and never persisted or reloaded', async () => {
+  const launches=[], saved=[], states=[]; const client=controlled();
+  const connection=new EngineConnection({platform:'win32',canonicalize:async()=>root,launch:async options=>{launches.push(options);return client;},saveRecovery:async value=>saved.push(value),publish:value=>states.push(value)});
+  const path='C:\\trusted-private\\publisher.json';
+  assert.equal((await connection.connectPublisher(selection,path)).role,'controller');
+  assert.deepEqual(launches[0].publisher,{profile:path});assert.equal(launches[0].execution,undefined);assert.equal(launches[0].role,'controller');
+  assert.ok(!JSON.stringify(saved).includes(path));assert.ok(!JSON.stringify(states).includes(path));
+  const recovery=saved.at(-1);await connection.dispose();
+  const reconnects=[];let starts=0;const observer=fake();
+  const restored=new EngineConnection({platform:'win32',canonicalize:async()=>root,launch:async()=>{starts++;throw Error('no fallback');},reconnect:async options=>{reconnects.push(options);return observer;}});
+  await restored.restore(selection,recovery);assert.equal(starts,0);assert.equal(restored.state().role,'observer');assert.equal(reconnects[0].publisher,undefined);
+  assert.ok(!observer.calls.some(c=>c.method==='controller/acquire'));await restored.dispose();
+});
+
+test('publisher profile outside native local trust boundaries is rejected before side effects', async () => {
+  let starts=0;const connection=new EngineConnection({platform:'win32',canonicalize:async()=>{starts++;return root;},launch:async()=>{starts++;return controlled();},saveRecovery:async()=>{starts++;}});
+  for(const [selected,path] of [[{...selection,workspaceTrusted:false},'C:\\trusted\\profile.json'],[selection,'C:\\work\\project\\profile.json'],[selection,'c:\\WORK\\project\\nested\\..\\profile.json'],[selection,'relative.json'],[selection,'\\\\server\\share\\profile.json'],[{...selection,remoteName:'ssh-remote'},'C:\\trusted\\profile.json']]) await assert.rejects(connection.connectPublisher(selected,path));
+  assert.equal(starts,0);await connection.dispose();
+});
+
+test('publisher profile may live in registry data root; native loader resolves canonical-store exclusions', () => {
+  const {publisherProfileRestriction}=require('../dist/trust.js');
+  assert.equal(publisherProfileRestriction({...selection,dataPath:'C:\\vcp-data'},'C:\\vcp-data\\publisher.json','win32'),undefined);
+});
+
+test('publisher profile launch never reuses old controller attachment or falls back on failure', async () => {
+  let attaches=0;const launches=[];const first=controlled();first.attachment=()=>({opaque:'old-owner'});
+  const connection=new EngineConnection({platform:'win32',canonicalize:async()=>root,launch:async options=>{launches.push(options);if(launches.length>1)throw Error('native profile unavailable');return first;},attach:async()=>{attaches++;return controlled();}});
+  await connection.connect(selection,'controller');const state=await connection.connectPublisher(selection,'C:\\private\\profile.json');
+  assert.equal(state.phase,'unavailable');assert.equal(attaches,0);assert.equal(launches.length,2);assert.equal(launches[0].publisher,undefined);assert.ok(!state.message.includes('profile.json'));await connection.dispose();
+});
