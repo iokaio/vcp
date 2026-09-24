@@ -75,3 +75,16 @@ test('missing development tools produce not_run without starting upstream stages
     if (process.platform === 'win32') assert.match(record.reason, /Install VCP development tools/);
   } finally { fixture.cleanup(); }
 });
+
+test('G04 coverage is separate from the baseline and requires all pinned hook assertions', () => {
+  const { suites } = require('../fixtures/gemini/hooks-upstream.json');
+  const core = path.resolve('synthetic-core');
+  const report = { success: true, numTotalTests: 59, numPassedTests: 59, numFailedTests: 0,
+    numFailedTestSuites: 0, numPendingTests: 0, numTodoTests: 0,
+    testResults: Object.entries(suites).map(([name, count]) => ({ name: path.join(core, name),
+      status: 'passed', assertionResults: Array.from({ length: count }, () => ({ status: 'passed', failureMessages: [] })) })) };
+  assert.deepEqual(validateResults(report, core, suites), { suites: 3, tests: 59, status: 'pass' });
+  assert.throws(() => validateResults(report, core), /Gemini/);
+  report.testResults[0].assertionResults[0].status = 'pending';
+  assert.throws(() => validateResults(report, core, suites), /Gemini/);
+});

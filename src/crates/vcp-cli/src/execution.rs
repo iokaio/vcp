@@ -10,6 +10,16 @@ use vcp_domain::{
 use vcp_lifecycle::foundation::CanonicalHost;
 use vcp_store::contract::Collection;
 
+pub fn event_for_turn(event: &Event, turn: &str) -> bool {
+    use codex_protocol::protocol::EventMsg;
+    event.id == turn
+        && match &event.msg {
+            EventMsg::TurnComplete(end) => end.turn_id == turn,
+            EventMsg::TurnAborted(end) => end.turn_id.as_deref().is_none_or(|id| id == turn),
+            _ => true,
+        }
+}
+
 fn current(host: &CanonicalHost, scope: &Scope) -> Result<Task, String> {
     let task: Task = host
         .snapshot()?
@@ -38,7 +48,52 @@ pub enum Completion {
     Rejected(String),
 }
 
+/// A bounded lifecycle operation owns no event receiver. The caller retains its
+/// single event owner and must fence admission before draining a pending job.
+pub enum LifecycleResult {
+    Submitted(String),
+    Completed(Completion),
+}
+
+pub struct LifecycleJob(tokio::task::JoinHandle<Result<LifecycleResult, String>>);
+
+impl LifecycleJob {
+    pub async fn poll(pending: &mut Option<Self>) -> Result<LifecycleResult, String> {
+        match pending.as_mut() {
+            Some(job) => job.result().await,
+            None => std::future::pending().await,
+        }
+    }
+
+    pub async fn result(&mut self) -> Result<LifecycleResult, String> {
+        (&mut self.0).await.map_err(|error| error.to_string())?
+    }
+}
+
 impl RetainedExecution {
+    pub fn start_submission(&self, accepted: Option<vcp_domain::TurnId>) -> LifecycleJob {
+        let host = self.host.clone();
+        let session = self.session.clone();
+        let scope = self.scope.clone();
+        LifecycleJob(tokio::spawn(async move {
+            let turn = match accepted {
+                Some(turn) => submit_preaccepted(&host, &session, &scope, turn).await?,
+                None => submit_identified(&host, &session, &scope).await?,
+            };
+            Ok(LifecycleResult::Submitted(turn))
+        }))
+    }
+
+    pub fn start_completion(&self) -> LifecycleJob {
+        let host = self.host.clone();
+        let session = self.session.clone();
+        let scope = self.scope.clone();
+        LifecycleJob(tokio::spawn(async move {
+            complete(&host, &session, &scope)
+                .await
+                .map(LifecycleResult::Completed)
+        }))
+    }
     pub fn claim(host: &CanonicalHost, session: &Session, scope: &Scope) -> Result<Self, String> {
         if session.scope() != scope {
             return Err("retained execution scope mismatch".into());
@@ -60,48 +115,58 @@ impl RetainedExecution {
             .await
             .map_err(|e| e.to_string())
     }
+}
 
-    pub async fn submit(&self) -> Result<(), String> {
-        self.submit_identified().await.map(|_| ())
-    }
+async fn submit_preaccepted(
+    host: &CanonicalHost,
+    session: &Session,
+    scope: &Scope,
+    turn: vcp_domain::TurnId,
+) -> Result<String, String> {
+    host.start_lifecycle_hooks(session.id).await?;
+    let task = current(host, scope)?;
+    let text = task
+        .objectives
+        .last()
+        .ok_or("objective unavailable")?
+        .text
+        .clone();
+    host.bind_preaccepted_coding_turn(session.id, turn, text.clone())?;
+    submit_text(session, text).await
+}
 
-    /// Retained submission identity binds an event owner across explicit resumes;
-    /// queued events from an older interrupted turn cannot complete new work.
-    pub async fn submit_identified(&self) -> Result<String, String> {
-        submit_identified(&self.host, &self.session, &self.scope).await
+/// Attempt completion only when canonical state permits it. Deferred
+/// preserves waiting/paused/budget-limited state. Callers retain their policy
+/// for rejected completion evidence (interactive pause versus batch failure).
+async fn complete(
+    host: &CanonicalHost,
+    session: &Session,
+    scope: &Scope,
+) -> Result<Completion, String> {
+    let outcome = Outcome::read(host, scope)?;
+    if outcome.task.state != TaskState::Running
+        || outcome.conditions.required_input
+        || outcome.conditions.budget_exhausted
+    {
+        return Ok(Completion::Deferred);
     }
-
-    /// Bind the caller's already accepted queued turn, then submit once. This
-    /// cannot create another canonical turn or grant task execution authority.
-    pub async fn submit_preaccepted(&self, turn: vcp_domain::TurnId) -> Result<String, String> {
-        let task = current(&self.host, &self.scope)?;
-        let text = task
-            .objectives
-            .last()
-            .ok_or("objective unavailable")?
-            .text
-            .clone();
-        self.host
-            .bind_preaccepted_coding_turn(self.session.id, turn, text.clone())?;
-        submit_text(&self.session, text).await
+    let hooks = match host.complete_lifecycle_hooks(session.id).await {
+        Ok(hooks) => hooks,
+        Err(error) => return Ok(Completion::Rejected(error)),
+    };
+    if !hooks.is_empty() {
+        eprintln!(
+            "{}",
+            crate::terminal::sanitize(
+                &vcp_lifecycle::foundation::hooks::adapters::presentation(&hooks).to_string(),
+                8192
+            )
+        );
     }
-
-    /// Attempt completion only when canonical state permits it. Deferred
-    /// preserves waiting/paused/budget-limited state. Callers retain their policy
-    /// for rejected completion evidence (interactive pause versus batch failure).
-    pub fn complete(&self) -> Result<Completion, String> {
-        let outcome = Outcome::read(&self.host, &self.scope)?;
-        if outcome.task.state != TaskState::Running
-            || outcome.conditions.required_input
-            || outcome.conditions.budget_exhausted
-        {
-            return Ok(Completion::Deferred);
-        }
-        Ok(match self.host.complete_coding_turn(self.session.id) {
-            Ok(_) => Completion::Completed,
-            Err(error) => Completion::Rejected(error),
-        })
-    }
+    Ok(match host.complete_coding_turn(session.id) {
+        Ok(_) => Completion::Completed,
+        Err(error) => Completion::Rejected(error),
+    })
 }
 
 /// Submit an already admitted task. The canonical host checks turn admission;
@@ -118,6 +183,7 @@ async fn submit_identified(
     if session.scope() != scope {
         return Err("retained execution scope mismatch".into());
     }
+    host.start_lifecycle_hooks(session.id).await?;
     let task = current(host, scope)?;
     let text = task
         .objectives

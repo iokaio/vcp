@@ -168,6 +168,12 @@ fn mcp_request(arguments: &str) -> Result<super::mcp::Request, String> {
         ),
     }
 }
+fn check_hook_tool_boundary(name: &str, authorization_hooks: bool) -> Result<(), String> {
+    if authorization_hooks && matches!(name, "vcp_mcp" | "vcp_verify") {
+        return Err(format!("{name} is unavailable with configured before_tool_authorization hooks: version 1 supports native file/process authorization and rewrites only; the operation was not dispatched"));
+    }
+    Ok(())
+}
 impl CanonicalHost {
     /// Record the actual submitted user input before asking the retained
     /// controller to start a turn. Request/tool callbacks advance its stages.
@@ -234,8 +240,11 @@ impl CanonicalHost {
     }
     pub fn configure_coding(&self, thread: ThreadId, config: CodingConfig) -> Result<(), String> {
         let binding = self.binding(thread)?;
-        self.worker
-            .run(move |context| context.configure_coding(&binding, config))
+        let required = self.has_model_hooks(thread)?;
+        self.worker.run(move |context| {
+            context.configure_coding(&binding, config)?;
+            context.require_coding_hook_gate(&binding, required)
+        })
     }
 }
 struct Wrapper {
@@ -243,6 +252,107 @@ struct Wrapper {
     thread: ThreadId,
     name: String,
     definition: Value,
+}
+impl Wrapper {
+    fn pause_after_hook_failure(&self) -> Result<(), String> {
+        let binding = self.host.binding(self.thread)?;
+        self.host
+            .worker
+            .run_cleanup(move |context| {
+                let task: vcp_domain::task::Task = context
+                    .engine
+                    .store()
+                    .state()
+                    .record(
+                        vcp_store::contract::Collection::Task,
+                        binding.scope.task.as_str(),
+                        &binding.scope.workspace,
+                    )?
+                    .decode()?;
+                if task.state == vcp_domain::task::TaskState::Running {
+                    context.command(
+                        Command::Transition {
+                            next: vcp_domain::task::TaskState::Paused,
+                            reason: "post-action hook blocked; inspect receipt before continuing"
+                                .into(),
+                            verification: None,
+                        },
+                        Some(binding.scope.task),
+                        task.revision,
+                    )?;
+                }
+                Ok(())
+            })
+            .inspect_err(|_| self.host.worker.fence())
+    }
+    fn rewritten_paths_ready(
+        &self,
+        normalized: &vcp_models::stream::Call,
+        outcomes: &[super::hooks::HookOutcome],
+    ) -> Result<bool, String> {
+        let Some(rewrite) = outcomes
+            .iter()
+            .find_map(|o| o.receipt.output.as_ref().and_then(|o| o.rewrite.as_ref()))
+        else {
+            return Ok(true);
+        };
+        let binding = self.host.binding(self.thread)?;
+        let mut selected = normalized.clone();
+        selected.name = rewrite.tool.clone();
+        selected.arguments = rewrite.arguments.clone();
+        self.host
+            .worker
+            .run(move |context| context.select_coding_paths(&binding, &selected))
+    }
+    async fn completed_hooks(
+        &self,
+        event: vcp_extensions::hooks::registry::HookEvent,
+        identity: String,
+        evidence: Vec<ArtifactId>,
+        payload: Value,
+        sources: &mut Vec<ArtifactId>,
+    ) -> Value {
+        if self.host.mcp_connections_present() {
+            match self.host.has_event_hooks(self.thread, event) {
+                Ok(false) => return json!([]),
+                result => {
+                    let error = result.err().unwrap_or_else(|| "configured completion hook cannot execute while an MCP connection owns the process broker; disconnect and inspect before continuing".into());
+                    let pause_error = self.pause_after_hook_failure().err();
+                    return json!({"error":error,"blocked":true,"affected_effect_already_completed":true,"pause_error":pause_error});
+                }
+            }
+        }
+        match self
+            .host
+            .gate_event(
+                self.thread,
+                event,
+                identity.clone(),
+                identity,
+                0,
+                evidence,
+                payload,
+            )
+            .await
+        {
+            Ok(outcomes) => {
+                sources.extend(outcomes.iter().map(|o| o.artifact.clone()));
+                let presentation = super::hooks::adapters::presentation(&outcomes);
+                if outcomes.iter().any(|o| {
+                    o.receipt.status == vcp_extensions::hooks::receipt::HookStatus::Blocked
+                }) {
+                    let pause_error = self.pause_after_hook_failure().err();
+                    json!({"blocked":true,"affected_effect_already_completed":true,"outcomes":presentation,"pause_error":pause_error})
+                } else {
+                    presentation
+                }
+            }
+            Err(error) => {
+                let pause_error = self.pause_after_hook_failure().err();
+                json!({"error":error,"blocked":true,"affected_effect_already_completed":true,"pause_error":pause_error})
+            }
+        }
+    }
 }
 impl ToolContributor for CanonicalHost {
     fn tools(
@@ -318,13 +428,21 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     return Ok(json!({"executed":false,"reason":"New instruction scope selected. Review the refreshed context before issuing this operation again."}));
                 }
                 if self.name == "vcp_mcp" {
+                    check_hook_tool_boundary(&self.name, self.host.has_tool_hooks(self.thread)?)?;
                     let request = mcp_request(&arguments)?;
                     let provenance = mcp_provenance.ok_or("MCP requires the originating verified model context")?;
                     let outcome = self.host.mcp_control_provenance(self.thread, request, provenance).await?;
                     sources.extend(outcome.artifacts);
-                    return Ok(outcome.value);
+                    let after_hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterToolCompletion,
+                        format!("mcp-after-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes())), vec![], json!({"tool":"vcp_mcp"}), &mut sources).await;
+                    if after_hooks.as_array().is_some_and(Vec::is_empty) { return Ok(outcome.value); }
+                    let mut value = outcome.value;
+                    if let Some(object) = value.as_object_mut() { object.insert("after_hooks".into(), after_hooks); }
+                    else { value = json!({"result":value,"after_hooks":after_hooks}); }
+                    return Ok(value);
                 }
                 if self.name == "vcp_verify" {
+                    check_hook_tool_boundary(&self.name, self.host.has_tool_hooks(self.thread)?)?;
                     #[derive(serde::Deserialize)]
                     #[serde(deny_unknown_fields)]
                     struct Input { citations: Vec<ArtifactId> }
@@ -332,36 +450,73 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     let report = self.host.verify(self.thread, input.citations).await?;
                     sources.extend(report.outputs.clone());
                     sources.extend(report.checks.iter().map(|c| c.output.clone()));
-                    return Ok(json!({"verification":report,"complete":false}));
+                    let hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterVerification,
+                        format!("verify-{}", call.call_id), vec![], json!({"tool":"vcp_verify"}), &mut sources).await;
+                    let after_hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterToolCompletion,
+                        format!("verify-after-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes())), vec![], json!({"tool":"vcp_verify"}), &mut sources).await;
+                    return Ok(json!({"verification":report,"complete":false,"hooks":hooks,"after_hooks":after_hooks}));
                 }
                 if self.host.mcp_connections_present() {
                     return Err("Disconnect MCP servers before native tools; an MCP connection is still active".into());
                 }
                 if self.name == "vcp_exec" {
                     let request = vcp_tools::process::Request::from_arguments(&arguments).map_err(|e| e.to_string())?;
-                    let proposal = self.host.prepare_process(self.thread, request)?;
+                    let (proposal, before_hooks) = self.host.prepare_gated_process(self.thread, request,
+                        format!("before-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes()))).await?;
+                    sources.extend(before_hooks.iter().map(|o| o.artifact.clone()));
+                    if !self.rewritten_paths_ready(&normalized, &before_hooks)? {
+                        self.host.cancel_queued_effect(binding.clone(), proposal.effect().clone(), "rewritten instruction scope needs refresh".into())?;
+                        return Ok(json!({"executed":false,"reason":"Hook rewrite selected new instruction scope; review refreshed context before requesting the operation again.","hooks":super::hooks::adapters::presentation(&before_hooks)}));
+                    }
+                    let before_hooks = super::hooks::adapters::presentation(&before_hooks);
                     if !matches!(proposal.decision, vcp_policy::Decision::Allow { .. }) {
-                        return Ok(json!({"executed":false,"decision":format!("{:?}", proposal.decision),"question":proposal.question,"effect":proposal.effect()}));
+                        return Ok(json!({"executed":false,"decision":format!("{:?}", proposal.decision),"question":proposal.question,"effect":proposal.effect(),"before_hooks":before_hooks}));
                     }
                     let outcome = self.host.schedule_process(proposal).await?.wait().await?;
                     sources.extend([outcome.evidence.spec.id.clone(), outcome.stdout.spec.id.clone(), outcome.stderr.spec.id.clone()]);
+                    let after_hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterToolCompletion,
+                        format!("after-{}", outcome.effect), vec![outcome.evidence.spec.id.clone()],
+                        json!({"tool":self.name,"effect":outcome.effect,"exit_code":outcome.exit_code,"reason":outcome.reason}), &mut sources).await;
                     return Ok(json!({"effect":outcome.effect,"evidence":outcome.evidence.spec.id,"exit_code":outcome.exit_code,"reason":outcome.reason,
+                        "before_hooks":before_hooks,"after_hooks":after_hooks,
                         "stdout":{"artifact":outcome.stdout.spec.id,"bytes":outcome.stdout.length,"tail":outcome.stdout_presentation.tail,"decoding":outcome.stdout_presentation,"truncated":outcome.stdout.length.get()>outcome.stdout_tail.len() as u64},
                         "stderr":{"artifact":outcome.stderr.spec.id,"bytes":outcome.stderr.length,"tail":outcome.stderr_presentation.tail,"decoding":outcome.stderr_presentation,"truncated":outcome.stderr.length.get()>outcome.stderr_tail.len() as u64}}));
                 }
                 let request = vcp_tools::Request::from_call(&self.name, &arguments).map_err(|e| e.to_string())?;
-                let proposal = self.host.prepare_tool(self.thread, request)?;
+                let (proposal, before_hooks) = self.host.prepare_gated_tool(self.thread, request,
+                    serde_json::from_str(&arguments).map_err(|e| e.to_string())?, format!("before-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes()))).await?;
+                sources.extend(before_hooks.iter().map(|o| o.artifact.clone()));
+                if !self.rewritten_paths_ready(&normalized, &before_hooks)? {
+                    self.host.cancel_queued_effect(binding.clone(), proposal.effect().clone(), "rewritten instruction scope needs refresh".into())?;
+                    return Ok(json!({"executed":false,"reason":"Hook rewrite selected new instruction scope; review refreshed context before requesting the operation again.","hooks":super::hooks::adapters::presentation(&before_hooks)}));
+                }
+                let before_hooks = super::hooks::adapters::presentation(&before_hooks);
                 if !matches!(proposal.decision, vcp_policy::Decision::Allow { .. }) {
-                    return Ok(json!({"executed":false,"decision":format!("{:?}", proposal.decision),"question":proposal.question,"effect":proposal.effect()}));
+                    return Ok(json!({"executed":false,"decision":format!("{:?}", proposal.decision),"question":proposal.question,"effect":proposal.effect(),"before_hooks":before_hooks}));
                 }
                 let outcome = self.host.schedule_tool(proposal).await?;
                 sources.push(outcome.evidence.spec.id.clone());
-                Ok(json!({"effect":outcome.effect,"evidence":outcome.evidence.spec.id,"result":outcome.result}))
+                let after_hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterToolCompletion,
+                    format!("after-{}", outcome.effect), vec![outcome.evidence.spec.id.clone()],
+                    json!({"tool":self.name,"effect":outcome.effect}), &mut sources).await;
+                Ok(json!({"effect":outcome.effect,"evidence":outcome.evidence.spec.id,"result":outcome.result,"before_hooks":before_hooks,"after_hooks":after_hooks}))
             }.await;
-            let result = match result {
+            let mut result = match result {
                 Ok(result) => result,
                 Err(error) => json!({"error":error,"complete":false}),
             };
+            // Disabled hooks preserve the existing tool response contract.
+            for field in ["hooks", "before_hooks", "after_hooks"] {
+                if result
+                    .get(field)
+                    .and_then(Value::as_array)
+                    .is_some_and(Vec::is_empty)
+                {
+                    if let Some(object) = result.as_object_mut() {
+                        object.remove(field);
+                    }
+                }
+            }
             let recorded = result.clone();
             self.host
                 .worker
@@ -378,6 +533,24 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
 #[cfg(test)]
 mod mcp_content_tests {
     use super::*;
+    #[test]
+    fn unsupported_tool_paths_cannot_bypass_configured_authorization_hooks() {
+        for tool in ["vcp_mcp", "vcp_verify"] {
+            assert!(check_hook_tool_boundary(tool, true)
+                .unwrap_err()
+                .contains("not dispatched"));
+            assert!(check_hook_tool_boundary(tool, false).is_ok());
+        }
+        for tool in [
+            "vcp_exec",
+            "vcp_read",
+            "vcp_list",
+            "vcp_search",
+            "vcp_patch",
+        ] {
+            assert!(check_hook_tool_boundary(tool, true).is_ok());
+        }
+    }
     #[test]
     fn wrapper_preserves_content_selectors_and_original_argument_bytes() {
         let uri = format!("file:///server/{}", "x".repeat(300));

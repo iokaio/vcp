@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "revision": "6a466a7e2fe2b1255752c1e74f69b31f0216084d",
+  "responsibility": "G04",
+  "attribution": "Behavioral observations from Gemini CLI, Copyright 2025 Google LLC, Apache-2.0; executable assertions remain in the pinned upstream test files.",
+  "suites": {
+    "src/hooks/hookRegistry.test.ts": 24,
+    "src/hooks/hookPlanner.test.ts": 10,
+    "src/hooks/hookRunner.test.ts": 25
+  },
+  "observations": {
+    "registry": "Trusted project configuration and enabled extensions are registered; invalid definitions are skipped; hooks may be enabled by friendly name.",
+    "planner": "Tool-name regex matching has literal fallback; trigger matching is exact; identical name/command pairs deduplicate, preserving first entry.",
+    "runner": "Sequential hooks continue after failure; successful outputs modify the next input; malformed JSON is accepted as text and exit 0/1 maps to allow; exit 2 maps to deny; double-encoded JSON is accepted."
+  },
+  "limitations": ["Mocked processes and collaborators, not operating-system confinement or effect recovery.", "This fixture contains upstream expectations only; VCP contracts are deliberately separate."]
+}

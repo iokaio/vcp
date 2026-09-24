@@ -78,6 +78,15 @@ pub trait HostWorkPermit: Send {
 }
 
 pub trait HostWorkAdmission: std::fmt::Debug + Send + Sync {
+    /// VCP: executable lifecycle preparation must await outside synchronous
+    /// canonical admission. This grants no permit; admit_model still fences it.
+    fn prepare_model(
+        &self,
+        _thread: ThreadId,
+        _purpose: HostModelPurpose,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
     /// VCP: defer tool construction until the complete response is admitted.
     /// A failed/interrupted stream discards pending calls without dispatch.
     fn requires_completed_response(&self) -> bool {

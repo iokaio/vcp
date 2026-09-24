@@ -50,16 +50,16 @@ function verifySource(source, expected) {
   if (git(['status', '--porcelain=v1', '--untracked-files=all']).trim()) throw Error('Gemini baseline requires a clean checkout');
   return { commit: expected.commit, tree: expected.tree, git: git(['--version']).trim() };
 }
-function validateResults(report, core) {
-  const total = Object.values(SUITES).reduce((a, b) => a + b, 0);
+function validateResults(report, core, suites = SUITES) {
+  const total = Object.values(suites).reduce((a, b) => a + b, 0);
   if (report.success !== true || report.numTotalTests !== total || report.numPassedTests !== total ||
       report.numFailedTests !== 0 || report.numFailedTestSuites !== 0 || report.numPendingTests !== 0 || report.numTodoTests !== 0 ||
-      !Array.isArray(report.testResults) || report.testResults.length !== Object.keys(SUITES).length || report.snapshot?.failure) throw Error('Incomplete or failing Gemini test result');
+      !Array.isArray(report.testResults) || report.testResults.length !== Object.keys(suites).length || report.snapshot?.failure) throw Error('Incomplete or failing Gemini test result');
   const seen = new Set();
   for (const suite of report.testResults) {
     const relative = path.relative(core, suite.name).split(path.sep).join('/');
-    if (!Object.hasOwn(SUITES, relative) || seen.has(relative) || suite.status !== 'passed' ||
-        suite.assertionResults?.length !== SUITES[relative] || suite.assertionResults.some(item => item.status !== 'passed' || item.failureMessages?.length)) throw Error('Unexpected or incomplete Gemini suite: ' + relative);
+    if (!Object.hasOwn(suites, relative) || seen.has(relative) || suite.status !== 'passed' ||
+        suite.assertionResults?.length !== suites[relative] || suite.assertionResults.some(item => item.status !== 'passed' || item.failureMessages?.length)) throw Error('Unexpected or incomplete Gemini suite: ' + relative);
     seen.add(relative);
   }
   return { suites: seen.size, tests: total, status: 'pass' };

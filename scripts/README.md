@@ -1,5 +1,12 @@
 # Build and test scripts
 
+`test-hooks.ps1` runs P10-01 pure hook contracts, lifecycle adapters and native
+both-store marker/owner-kill tests, followed by the existing CLI contract,
+executable, terminal and local-service acceptance suites. It builds the required
+delegation adapter example before executable tests. Its manifest binds source hashes and
+actual passing test counts. `upstream/test-gemini-hooks.cjs` separately
+qualifies the pinned G04 upstream subset. See [lifecycle hooks](../docs/development/hooks.md).
+
 `test-context.ps1` runs 27 native repository/context and foundational type contracts
 with bounded Git observations and real artifact stores. See [P2 context](../docs/development/p2-context.md).
 `test-provider.ps1` runs 21 provider/context contracts and the retained absolute

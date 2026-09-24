@@ -145,6 +145,9 @@ mod portable_vectors;
 #[cfg(windows)]
 #[path = "support/process_broker.rs"]
 mod process_broker;
+#[cfg(windows)]
+#[path = "support/hooks.rs"]
+mod hooks;
 #[path = "support/provider_retries.rs"]
 mod provider_retries;
 #[path = "support/public_connection.rs"]

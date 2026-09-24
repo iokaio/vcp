@@ -88,6 +88,9 @@ pub(crate) fn install_thread(
     thread: codex_protocol::ThreadId,
     profile: &Profile,
 ) -> Result<(), String> {
+    if !profile.hooks.is_empty() {
+        host.configure_hooks(thread, profile.hooks.clone())?;
+    }
     host.configure_verification(
         thread,
         vcp_lifecycle::foundation::verification::VerificationConfig {

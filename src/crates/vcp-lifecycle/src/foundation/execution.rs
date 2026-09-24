@@ -110,6 +110,61 @@ pub struct PreparedProcessOutcome {
     pub evidence: ArtifactDescriptor,
 }
 impl CanonicalHost {
+    /// Only an approval-pending hook still held by this live owner may cross an
+    /// explicit pause/resume generation. No dispatched or reconstructed effect
+    /// can acquire a refreshed process capability.
+    pub(super) fn refresh_pending_hook_generation(
+        &self,
+        proposal: &mut ProcessProposal,
+        hook: vcp_extensions::hooks::planner::PlannedHook,
+    ) -> Result<(), String> {
+        let generation = scheduler::generation(&self.runtime, proposal.thread)?;
+        if proposal.generation == generation {
+            return Ok(());
+        }
+        if proposal.question.is_none() {
+            return Err("hook generation refresh requires its live approval proposal".into());
+        }
+        let binding = proposal.binding.clone();
+        let prepared = proposal.prepared.clone();
+        let effect = proposal.effect.clone();
+        let controller = proposal.controller.clone();
+        let owner = proposal.owner;
+        self.worker.run(move |context| {
+            context.check_hook_result(&binding, &hook)?;
+            let current: Effect = context
+                .engine
+                .store()
+                .state()
+                .record(
+                    Collection::Effect,
+                    effect.as_str(),
+                    &binding.scope.workspace,
+                )?
+                .decode()?;
+            if current.state != EffectState::Validated
+                || current.execution.is_some()
+                || current.scope != binding.scope
+                || current.operation_digest != prepared.authority().digest()
+                || context.engine.controller() != &controller
+                || context.engine.owner_epoch() != owner
+                || !matches!(
+                    context.process_decision(&binding, &prepared)?,
+                    vcp_policy::Decision::Allow { .. }
+                )
+            {
+                return Err(
+                    "pending hook cannot refresh a dispatched, foreign or unauthorized capability"
+                        .into(),
+                );
+            }
+            let _pins = prepared.pin()?;
+            Ok(())
+        })?;
+        scheduler::check_generation(&self.runtime, proposal.thread, generation)?;
+        proposal.generation = generation;
+        Ok(())
+    }
     /// Trusted configuration only. Profiles are deliberately absent after
     /// reopening; portable history cannot recreate native execution authority.
     pub fn configure_process_profile(&self, profile: Profile) -> Result<(), String> {
@@ -120,6 +175,14 @@ impl CanonicalHost {
         &self,
         thread: ThreadId,
         request: Request,
+    ) -> Result<ProcessProposal, String> {
+        self.prepare_process_with_hooks(thread, request, vec![])
+    }
+    pub(super) fn prepare_process_with_hooks(
+        &self,
+        thread: ThreadId,
+        request: Request,
+        hooks: Vec<super::hooks::HookOutcome>,
     ) -> Result<ProcessProposal, String> {
         let generation = scheduler::generation(&self.runtime, thread)?;
         let binding = self.binding(thread)?;
@@ -135,6 +198,7 @@ impl CanonicalHost {
                     decision = context.process_decision(&scoped, &prepared)?;
                     Some(pins)
                 };
+                context.check_hook_outcomes(&scoped, &hooks)?;
                 let (effect, plan, decision, question) = context.propose_authority(
                     &scoped,
                     prepared.authority(),

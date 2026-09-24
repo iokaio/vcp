@@ -130,10 +130,14 @@ impl Supervisor {
         state.configured = true;
         let expires = self.execution_expiry(&profile)?;
         state.deadline = Some(expires);
-        let turn = execution
-            .submit_preaccepted(TurnId::parse(turn.as_str()).map_err(|_| "invalid accepted turn")?)
-            .await?;
-        state.pump = Some(pump(self.host.clone(), scope, execution, turn, expires));
+        let turn = TurnId::parse(turn.as_str()).map_err(|_| "invalid accepted turn")?;
+        state.pump = Some(pump(
+            self.host.clone(),
+            scope,
+            execution,
+            Some(turn),
+            expires,
+        ));
         Ok(())
     }
 }

@@ -183,6 +183,10 @@
     {
       "path": "src/third_party/patches/codex/0038-p9-public-diff-workspace.patch",
       "sha256": "ab02f460e1f5dc232f28c95de2d8b4f013464b2bf1233d5f2a5c84199abb64d0"
+    },
+    {
+      "path": "src/third_party/patches/codex/0039-p10-async-hook-preparation.patch",
+      "sha256": "cf8deea0b2424dd3843cc96fc715cc7e5fc39f7e7362e093072a71ec1d9c7a24"
     }
   ],
   "licenses": [

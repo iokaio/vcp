@@ -5,14 +5,14 @@ const { spawnSync } = require('node:child_process');
 const { SUITES, parseArgs, outsideSource, verifySource, validateResults } = require('../../src/tests/support/gemini-baseline.cjs');
 const { digest, sourceIdentity, writeManifest, runSuite, parseSelection } = require('../../src/tests/support/harness.cjs');
 
-async function main(argv) {
+async function main(argv, profile = { task_id: 'P0-07', suites: SUITES }) {
   const options = parseArgs(argv);
   const { source, outputRoot } = outsideSource(options['--source'], options['--output-root']);
   const repository = path.resolve(__dirname, '../..');
   const directory = path.join(outputRoot, crypto.randomUUID());
   fs.mkdirSync(directory, { recursive: true });
   const file = path.join(directory, 'manifest.json');
-  const record = { schema_version: 1, task_id: 'P0-07', candidate: 'gemini-cli', status: 'prepared',
+  const record = { schema_version: 1, task_id: profile.task_id, candidate: 'gemini-cli', status: 'prepared',
     candidate_commit: null, candidate_tree: null, started_at: new Date().toISOString(),
     node: process.version, platform: process.platform, os_release: os.release(), stages: [],
     limitations: ['Pinned upstream unit tests with mocked SDK/transports; no VCP port, live-provider or OS-enforcement qualification.'] };
@@ -38,6 +38,13 @@ async function main(argv) {
     record.runner_sha256 = digest(fs.readFileSync(__filename));
     record.harness_sha256 = digest(fs.readFileSync(path.join(repository, 'src/tests/support/harness.cjs')));
     record.policy_sha256 = digest(fs.readFileSync(path.join(repository, 'src/tests/support/gemini-baseline.cjs')));
+    record.suites = profile.suites;
+    if (profile.fixture) {
+      const fixture = fs.readFileSync(profile.fixture);
+      if (JSON.parse(fixture).revision !== expected.commit) throw Error('Fixture revision differs from the candidate pin');
+      record.fixture_sha256 = digest(fixture);
+      record.profile_runner_sha256 = digest(fs.readFileSync(profile.runner));
+    }
     record.package_lock_sha256 = digest(fs.readFileSync(path.join(source, 'package-lock.json')));
     const core = path.join(source, 'packages/core');
     const required = ['node_modules/vitest/vitest.mjs', 'node_modules/typescript/bin/tsc'];
@@ -56,12 +63,12 @@ async function main(argv) {
     if (!options.prepare && ['src/generated/git-commit.ts', 'dist/index.js'].some(p => !fs.existsSync(path.join(core, p)))) {
       notRun('Run this explicit qualification command with --prepare to generate metadata and compile core'); return 3;
     }
-    phases.push({ id: 'tests', root: core, args: ['../../node_modules/vitest/vitest.mjs', 'run', ...Object.keys(SUITES),
+    phases.push({ id: 'tests', root: core, args: ['../../node_modules/vitest/vitest.mjs', 'run', ...Object.keys(profile.suites),
       '--coverage.enabled=false', '--maxWorkers=2', '--reporter=default', '--reporter=json', '--outputFile.json=' + reportFile] });
     record.status = 'running'; save();
     for (const phase of phases) {
       const registry = { schema_version: 1, suites: { qualification: [phase.id] }, cases: { [phase.id]: {
-        args: phase.args, task_ids: ['P0-07'], backends: ['none'], requires: [], timeout_ms: 600000, max_output_bytes: 16 * 1024 * 1024
+        args: phase.args, task_ids: [profile.task_id], backends: ['none'], requires: [], timeout_ms: 600000, max_output_bytes: 16 * 1024 * 1024
       } } };
       const result = await runSuite({ root: phase.root, registry, selection: parseSelection(['--suite', 'qualification'], registry),
         outputRoot: path.join(directory, 'stages'), source: record.source, signal: controller.signal, isolation,
@@ -70,7 +77,7 @@ async function main(argv) {
       save();
       if (result.exitCode !== 0) { record.status = result.manifest.status; record.exit_code = result.exitCode; return result.exitCode; }
     }
-    record.result = validateResults(JSON.parse(fs.readFileSync(reportFile)), core);
+    record.result = validateResults(JSON.parse(fs.readFileSync(reportFile)), core, profile.suites);
     record.result_sha256 = digest(fs.readFileSync(reportFile));
     verifySource(source, expected);
     record.status = 'pass'; record.exit_code = 0;
@@ -84,6 +91,7 @@ async function main(argv) {
     console.log(JSON.stringify({ status: record.status, tests: record.result?.tests, manifest: file }));
   }
 }
-main(process.argv.slice(2)).then(code => { process.exitCode = code; }).catch(error => {
+module.exports = { main };
+if (require.main === module) main(process.argv.slice(2)).then(code => { process.exitCode = code; }).catch(error => {
   console.error('Gemini qualification failed: ' + error.message); process.exitCode = 2;
 });

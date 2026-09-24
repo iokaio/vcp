@@ -12,6 +12,7 @@ those terms and record attributed ports when source is actually included.
 | G01 tool invocation | `packages/core/src/tools/tools.ts` and `tools.test.ts`; `ToolInvocation`, `BaseToolInvocation`, `DeclarativeTool`, `ToolResult` | Neutral canonical arguments, prepared effects, current permission ceiling and receipts |
 | G02 scheduling | `packages/core/src/scheduler/scheduler.ts`, `scheduler.test.ts`, `policy.ts` | Root-owned scheduling; cancellation, conflicts and out-of-order results must not bypass VCP authority/budget |
 | G03 policy | `packages/core/src/policy/policy-engine.ts`, `policy-engine.test.ts`, `types.ts`, `stable-stringify.ts` | Preserve compatible decision behavior with explicit argument hashes; model text never grants authority |
+| G04 hooks | `packages/core/src/hooks/hookRegistry.ts`, `hookPlanner.ts`, `hookRunner.ts`, `types.ts` and the three corresponding test suites | P10-01 scoped, bounded, durable execution; strict outputs and fresh authorization after rewrites |
 | G06 skills/MCP | `packages/core/src/skills/skillLoader.ts`, `skillManager.ts`, `tools/mcp-client.ts`, `mcp-tool.ts` | Candidate seams only; VCP trust, endpoint/auth and cancellation contracts still govern |
 
 The [native boundary report](../../../docs/evaluations/p0-07-gemini-baseline.md)
@@ -37,7 +38,9 @@ adapters recorded below. Preserve provider-independent behavior while
 excluding SDK-specific types and implicit provider/telemetry routes. Any retained
 code needs its complete selected dependency/license closure at import time.
 
-Hooks and editor utilities remain deferred research. Node is comparison tooling;
+Editor utilities remain deferred research. G04 has a separate P10-01 qualification
+profile and [deliberate adaptation record](../../../docs/development/p10-hooks-upstream.md).
+Node is comparison tooling;
 this candidate does not add a second production engine or relax the OpenRouter,
 local-embedding, one-store or one-ledger requirements.
 

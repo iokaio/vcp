@@ -23,6 +23,8 @@ pub mod decision;
 #[cfg(windows)]
 mod execution;
 #[cfg(windows)]
+pub mod hooks;
+#[cfg(windows)]
 pub mod local_memory;
 #[cfg(windows)]
 pub mod mcp;
@@ -138,6 +140,11 @@ pub struct CanonicalHost {
     bindings: Arc<Mutex<HashMap<ThreadId, ThreadBinding>>>,
     scheduler: Arc<Scheduler>,
     public_identity: Arc<Mutex<Option<(ControllerId, Revision)>>>,
+    #[cfg(windows)]
+    hook_pending: Arc<Mutex<HashMap<String, hooks::HookProposal>>>,
+    #[cfg(windows)]
+    hook_registry:
+        Arc<Mutex<HashMap<ThreadId, Vec<vcp_extensions::hooks::registry::HookDefinition>>>>,
     public_resume: Arc<Mutex<()>>,
     backup: Arc<Mutex<Option<backup_manager::Loaded>>>,
     #[cfg(windows)]
@@ -315,6 +322,10 @@ impl CanonicalHost {
                 bindings: Arc::new(Mutex::new(HashMap::new())),
                 scheduler: Arc::new(Scheduler::default()),
                 public_identity: Arc::new(Mutex::new(None)),
+                #[cfg(windows)]
+                hook_pending: Arc::new(Mutex::new(HashMap::new())),
+                #[cfg(windows)]
+                hook_registry: Arc::new(Mutex::new(HashMap::new())),
                 public_resume: Arc::new(Mutex::new(())),
                 #[cfg(windows)]
                 mcp,
@@ -656,6 +667,21 @@ impl Drop for ModelPermit {
     }
 }
 impl HostWorkAdmission for CanonicalHost {
+    fn prepare_model(
+        &self,
+        thread: ThreadId,
+        purpose: HostModelPurpose,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+        Box::pin(async move {
+            #[cfg(windows)]
+            if purpose == HostModelPurpose::Turn {
+                self.model_lifecycle_hooks(thread).await?;
+            }
+            #[cfg(not(windows))]
+            let _ = (thread, purpose);
+            Ok(())
+        })
+    }
     #[cfg(windows)]
     fn admit_tool(
         &self,
