@@ -40,6 +40,8 @@ const METHODS: &[&str] = &[
     #[cfg(windows)]
     "editor/changeResult",
     "memory/inspect",
+    "history/query",
+    "memory/history",
     "memory/query",
     "memory/propose",
     "memory/resolve",
@@ -418,6 +420,16 @@ impl RpcHost for PublicConnection {
             return self
                 .memory_inspect(request, current)
                 .map(ResultValue::Memory);
+        }
+        if let Call::HistoryQuery(request) = &call {
+            return self
+                .history_query(request, current)
+                .map(ResultValue::History);
+        }
+        if let Call::MemoryHistory(request) = &call {
+            return self
+                .memory_history(request, current)
+                .map(ResultValue::MemoryHistory);
         }
         #[cfg(windows)]
         if matches!(call, Call::EditorContext(_) | Call::EditorPrepare(_) | Call::EditorChangeRead(_)

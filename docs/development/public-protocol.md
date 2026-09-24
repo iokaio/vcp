@@ -72,6 +72,22 @@ is checked before receipt replay. Controller generation and revision are checked
 again when a decision or other mutation is admitted. Snapshot/event delivery and
 remaining execution qualification remain separate P9-02 acceptance requirements.
 
+## Governed inspector queries (P4-04)
+
+The lifecycle host advertises independent profiles `history/query/1` and
+`memory/history/1` with their corresponding methods. The direct engine adapter
+does not advertise handlers it cannot execute. Both methods are observer reads
+with current scope, access and retention checks on every page. They neither
+acquire control nor persist reports. Continuations freeze the selected history
+boundary but do not preserve obsolete permission or removed content.
+
+History returns sanitized event metadata, availability and bounded backlinks,
+never internal event facts. Memory history returns bounded version summaries
+with explicit evidence, currentness and retention states. Exact counters remain
+decimal strings. See [ADR-060](../adr/060-governed-inspector-queries.md) and the
+[inspector query contract](editor-inspectors.md) for qualification and remaining UI
+acceptance.
+
 ## Canonical definitions and generated artifacts
 
 The Rust wire DTOs in `vcp-protocol/src/methods.rs`, handshake, errors and JSON-RPC

@@ -48,6 +48,14 @@ clean dirty flag nor an absent document list retires them. See the
 model selection, approval summaries and evidence. Handle unavailable fields and
 fresh-page requirements explicitly; see the [editor task contract](../../../docs/development/editor-tasks.md).
 
+`history/query` and `memory/history` require their respective `/1` profiles and
+return `history` and `memory_history` envelopes. Follow `next_cursor` unchanged;
+each page checks current access and retention. History is limited to the attached
+session, including taskless events when no task is selected. Memory versions use
+a stable sequence window with current evidence and retention states. Summaries
+and links may be explicitly truncated; full evidence requires authorized artifact
+range reads. See the [inspector query contract](../../../docs/development/editor-inspectors.md).
+
 Mutations require an explicitly acquired controller and the caller's durable
 command identity. `newCommandId()` creates an identity only when called. After an
 interruption, use `reconcile({scope, command_id})` and retain the original payload

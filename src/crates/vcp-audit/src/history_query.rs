@@ -70,6 +70,37 @@ pub struct Page {
     pub search_scope: String,
 }
 pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
+    query_scoped(state, access, query, None)
+}
+/// The editor's authenticated session ceiling is applied before masks, search,
+/// and row projection; it cannot be widened by a selector or cursor.
+pub fn query_session(
+    state: &State,
+    access: &Access,
+    query: &Query,
+    session: &SessionId,
+) -> Result<Page> {
+    query_scoped(state, access, query, Some(session))
+}
+fn query_scoped(
+    state: &State,
+    access: &Access,
+    query: &Query,
+    session: Option<&SessionId>,
+) -> Result<Page> {
+    let session_tasks = session.map(|session| {
+        state
+            .records
+            .values()
+            .filter(|row| {
+                row.collection == Collection::Task
+                    && row.workspace == access.workspace
+                    && row.value["scope"]["session"].as_str() == Some(session.as_str())
+                    && row.value["redaction"].is_null()
+            })
+            .map(|row| row.id.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+    });
     let workspace = history::authorize(state, access)?;
     let selector = query.selector.clone().normalized()?;
     // Reject unsupported capabilities across the whole tree, including a branch
@@ -103,11 +134,19 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
         &query.artifact,
         query.expand_compacted,
     ))?);
+    let query_digest = match session {
+        Some(session) => digest_bytes(&canonical_bytes(&(&query_digest, session))?),
+        None => query_digest,
+    };
     let access_digest = digest_bytes(&canonical_bytes(&(
         &access.workspace,
         access.authority,
         &access.tasks,
     ))?);
+    let access_digest = match &session_tasks {
+        Some(tasks) => digest_bytes(&canonical_bytes(&(&access_digest, tasks))?),
+        None => access_digest,
+    };
     // Current task status is mutable metadata, unlike event facts. If requested,
     // bind its projection so a transition cannot silently skip an older match.
     fn task_status(tree: &Tree) -> bool {
@@ -175,15 +214,22 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
     let mut rows = Vec::new();
     let mut gaps = Vec::new();
     let mut bytes = 0usize;
-    for envelope in state
-        .events
-        .iter()
-        .skip(cursor.after as usize)
-        .take((cursor.end - cursor.after).min(512) as usize)
+    for envelope in
+        state.events.iter().skip(cursor.after as usize).take(
+            (cursor.end - cursor.after).min(if session.is_some() { 64 } else { 512 }) as usize,
+        )
     {
         cursor.after += 1;
         let e = &envelope.event;
-        if e.workspace != access.workspace || !history::allows(access, e.task.as_ref()) {
+        if e.workspace != access.workspace
+            || session.is_some_and(|session| session != &e.session)
+            || session_tasks.as_ref().is_some_and(|tasks| {
+                e.task
+                    .as_ref()
+                    .is_some_and(|task| !tasks.contains(task.as_str()))
+            })
+            || !history::allows(access, e.task.as_ref())
+        {
             continue;
         }
         if let Some(mask) = masks.iter().find(|m| {
@@ -269,7 +315,9 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
             continue;
         }
         let mut shown = event;
-        let truncated = serialized.len() > 8192 || (compacted && !query.expand_compacted);
+        let truncated = serialized.len() > 8192
+            || (compacted && !query.expand_compacted)
+            || (session.is_some() && shown.event.artifacts.len() > 128);
         if truncated {
             shown.event.data =
                 serde_json::json!({"visibility":"bounded_history_summary","full_event_id":e.id});
@@ -285,7 +333,13 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
             "retained_raw_history"
         };
         let mut artifact_links = Vec::new();
-        for id in &shown.event.artifacts {
+        for id in
+            shown
+                .event
+                .artifacts
+                .iter()
+                .take(if session.is_some() { 128 } else { usize::MAX })
+        {
             let descriptor = state
                 .records
                 .get(&vcp_store::contract::key(Collection::Artifact, id.as_str()));
@@ -294,6 +348,13 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
                     continue;
                 }
                 let value: vcp_domain::artifact::ArtifactDescriptor = row.decode()?;
+                if session.is_some_and(|session| session != &value.spec.scope.session)
+                    || session_tasks
+                        .as_ref()
+                        .is_some_and(|tasks| !tasks.contains(value.spec.scope.task.as_str()))
+                {
+                    continue;
+                }
                 if !history::allows(access, Some(&value.spec.scope.task)) {
                     continue;
                 }
@@ -353,7 +414,15 @@ pub fn query(state: &State, access: &Access, query: &Query) -> Result<Page> {
         .iter()
         .skip(cursor.end as usize)
         .filter(|e| {
-            e.event.workspace == access.workspace && history::allows(access, e.event.task.as_ref())
+            e.event.workspace == access.workspace
+                && session.is_none_or(|session| session == &e.event.session)
+                && session_tasks.as_ref().is_none_or(|tasks| {
+                    e.event
+                        .task
+                        .as_ref()
+                        .is_none_or(|task| tasks.contains(task.as_str()))
+                })
+                && history::allows(access, e.event.task.as_ref())
         })
         .count() as u64;
     Ok(Page{workspace:access.workspace.clone(),selector,kind:"raw_history".into(),source_watermark:cursor.watermark,newer_events,rows,gaps,

@@ -191,6 +191,15 @@ pub fn origin_links(
     access: &Access,
     origins: &std::collections::BTreeSet<EventId>,
 ) -> Result<(Vec<OriginLink>, bool)> {
+    origin_links_with_check(store, access, origins, &|| Ok(()))
+}
+pub fn origin_links_with_check(
+    store: &Store,
+    access: &Access,
+    origins: &std::collections::BTreeSet<EventId>,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<(Vec<OriginLink>, bool)> {
+    check()?;
     if origins.len() > 128 {
         return Err(Error::Invalid("origin navigation limit".into()));
     }
@@ -201,6 +210,7 @@ pub fn origin_links(
             && row.collection == Collection::Claim
             && row.value["document_type"] == "vcp_memory_version_v1"
     }) {
+        check()?;
         if !row.value["proposal"]["origins"]
             .as_array()
             .is_some_and(|ids| {
@@ -226,6 +236,7 @@ pub fn origin_links(
             .iter()
             .filter(|id| origins.contains(*id))
         {
+            check()?;
             if links.len() == 128 {
                 return Ok((links, true));
             }
@@ -254,6 +265,21 @@ pub fn window(
     after: MemorySeq,
     limit: usize,
 ) -> Result<(ClaimHistory, MemorySeq, bool)> {
+    window_with_check(store, access, claim, at, after, limit, None, &|| Ok(()))
+}
+/// Cooperative bounded window with explicit current representation evidence.
+#[allow(clippy::too_many_arguments)]
+pub fn window_with_check(
+    store: &Store,
+    access: &Access,
+    claim: &ClaimId,
+    at: Option<MemorySeq>,
+    after: MemorySeq,
+    limit: usize,
+    fingerprint: Option<&Fingerprint>,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<(ClaimHistory, MemorySeq, bool)> {
+    check()?;
     if !(1..=32).contains(&limit) {
         return Err(Error::Invalid("memory window limit must be 1..32".into()));
     }
@@ -267,6 +293,7 @@ pub fn window(
         .values()
         .filter(|row| row.workspace == access.workspace && row.collection == Collection::Claim)
     {
+        check()?;
         let (seq, id, outcome, full, redacted) = if row.value["document_type"]
             == "vcp_memory_version_v1"
             && row.value["proposal"]["claim"].as_str() == Some(claim.as_str())
@@ -329,11 +356,11 @@ pub fn window(
         access,
         claim,
         Some(upper),
-        None,
+        fingerprint,
         full,
         Some(purged),
         Some(current.map(|(_, id)| id)),
-        &|| Ok(()),
+        check,
     )?;
     Ok((history, upper, more))
 }

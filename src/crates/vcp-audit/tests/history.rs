@@ -207,6 +207,144 @@ fn access() -> Access {
         tasks: None,
     }
 }
+
+#[tokio::test]
+async fn session_browser_bounds_large_artifact_lists_before_projection_and_scopes_every_window() {
+    use vcp_audit::history_query::{self, Query};
+    use vcp_domain::retention_selector::{Criterion, Selector, Tree};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut fixture = fixture(directory.path(), backend).await;
+        let source = engine_access();
+        let event = EventInput {
+            id: EventId::new(),
+            workspace: source.workspace.clone(),
+            session: source.session.clone(),
+            task: None,
+            actor: source.actor.clone(),
+            correlation: CommandId::new(),
+            causation: None,
+            timestamp: Timestamp::new(100),
+            kind: EventKind::Diagnostic,
+            artifacts: vec![fixture.request.spec.id.clone(); 256],
+            data: serde_json::json!({"large_event_marker":"retained"}),
+            metadata: None,
+        };
+        let event_id = event.id.clone();
+        let before = fixture.engine.store().state().watermark;
+        fixture
+            .engine
+            .store_mut()
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark: before,
+                mutations: vec![],
+                events: vec![event],
+                command: None,
+            })
+            .await
+            .unwrap();
+        let mut request = Query {
+            selector: Selector {
+                schema_version: 1,
+                tree: Tree::Match(Criterion::Workspace(source.workspace.clone())),
+            },
+            text: Some("large_event_marker".into()),
+            limit: 1,
+            cursor: None,
+            artifact: None,
+            expand_compacted: false,
+        };
+        let page = history_query::query_session(
+            fixture.engine.store().state(),
+            &access(),
+            &request,
+            &source.session,
+        )
+        .unwrap();
+        assert_eq!(page.rows.len(), 1);
+        assert_eq!(page.rows[0].event.event.id, event_id);
+        assert!(page.rows[0].event.event.task.is_none());
+        assert!(page.rows[0].content_truncated);
+        assert_eq!(page.rows[0].artifact_links.len(), 128);
+        let cli =
+            history_query::query(fixture.engine.store().state(), &access(), &request).unwrap();
+        assert_eq!(
+            cli.rows[0].artifact_links.len(),
+            256,
+            "existing CLI query is unchanged"
+        );
+        request.text = None;
+        let first = history_query::query_session(
+            fixture.engine.store().state(),
+            &access(),
+            &request,
+            &source.session,
+        )
+        .unwrap();
+        request.cursor = first.next_cursor;
+        let foreign = SessionId::new();
+        assert!(matches!(
+            history_query::query_session(
+                fixture.engine.store().state(),
+                &access(),
+                &request,
+                &foreign
+            ),
+            Err(Error::Restart(_))
+        ));
+        let mut state = fixture.engine.store().state().clone();
+        let mut foreign_event = state.events.last().unwrap().clone();
+        foreign_event.event.id = EventId::new();
+        foreign_event.event.session = foreign.clone();
+        foreign_event.event.data = serde_json::json!({"foreign_secret":"never match"});
+        state.events.push(foreign_event);
+        let page =
+            history_query::query_session(&state, &access(), &request, &source.session).unwrap();
+        assert_eq!(page.newer_events, 0);
+        request.cursor = None;
+        request.text = Some("foreign_secret".into());
+        let page =
+            history_query::query_session(&state, &access(), &request, &source.session).unwrap();
+        assert!(page.rows.is_empty());
+        assert!(page.gaps.is_empty());
+        // A taskless event never lends its session authority to a foreign
+        // artifact descriptor, even when that descriptor shares a workspace.
+        let mut foreign_artifact = fixture.engine.store().state().clone();
+        foreign_artifact
+            .records
+            .get_mut(&key(Collection::Artifact, fixture.request.spec.id.as_str()))
+            .unwrap()
+            .value["spec"]["scope"]["session"] = serde_json::json!(foreign);
+        request.text = Some("large_event_marker".into());
+        let page =
+            history_query::query_session(&foreign_artifact, &access(), &request, &source.session)
+                .unwrap();
+        assert_eq!(page.rows.len(), 1);
+        assert!(page.rows[0].artifact_links.is_empty());
+        request.text = None;
+        request.selector.tree = Tree::Match(Criterion::Task(fixture.root.clone()));
+        let first =
+            history_query::query_session(&state, &access(), &request, &source.session).unwrap();
+        assert!(!first.rows.is_empty());
+        state
+            .records
+            .get_mut(&key(Collection::Task, fixture.root.as_str()))
+            .unwrap()
+            .value["redaction"] =
+            serde_json::json!({"deletion":"1","original_digest":"a".repeat(64)});
+        let hidden =
+            history_query::query_session(&state, &access(), &request, &source.session).unwrap();
+        assert!(hidden.rows.is_empty());
+        assert!(hidden.gaps.is_empty());
+        request.cursor = first.next_cursor;
+        assert!(request.cursor.is_some());
+        assert!(matches!(
+            history_query::query_session(&state, &access(), &request, &source.session),
+            Err(Error::Restart(_))
+        ));
+    }
+}
 fn scope(id: &TaskId) -> Scope {
     Scope {
         workspace: engine_access().workspace,
