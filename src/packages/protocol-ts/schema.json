@@ -1,5 +1,5 @@
 {
-  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"153b9bc2b04fc372c22f79264c8724a4236cd8eb51be799585659842c903abf6\",\"src/crates/vcp-protocol/src/editor.rs\":\"4957eec00d2f1a5e4ebde7f3edec853e467e90911c9913e275209cdbb642b806\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"527437e1aaec18775c44f1aff22a62419f9c36ff5b6d952d43efe3c28f2fc93c\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"fcf486b49c1fdb150f72617dc3b7dc61cee5627bcf10453c82542da34d89f462\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
+  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"1e8ae519a37e636bff183dc592321edb3e93c12862691e26e307e53c7c4e173e\",\"src/crates/vcp-protocol/src/editor.rs\":\"4957eec00d2f1a5e4ebde7f3edec853e467e90911c9913e275209cdbb642b806\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/history.rs\":\"4e495b3e3f27511bb87b9aee3376eacef218fa7235f8658fe3533827fa8c6f31\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"9c9682b929c4aa8bcc6aae15669fa423aa0887dfa62416f1a63e356f47163cab\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_history.rs\":\"365fa8f5fc7e1af7fb846b68703e1a06596f3417978ce8026412baa1750b5d47\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"a15545cb5f7db9e2ed5fc0537975b3479e9955d3cd88ea2f7546821cf2cadbf0\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
@@ -881,6 +881,44 @@
             },
             "params": {
               "$ref": "#/definitions/Inspect"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "history/query"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/HistoryQuery"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "memory/history"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/MemoryHistoryRequest"
             }
           },
           "required": [
@@ -3307,6 +3345,338 @@
       ],
       "type": "object"
     },
+    "HistoryArtifactLink": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/definitions/Id"
+        },
+        "original_bytes": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "availability",
+        "id"
+      ],
+      "type": "object"
+    },
+    "HistoryClaimLink": {
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "$ref": "#/definitions/Id"
+        },
+        "memory_sequence": {
+          "$ref": "#/definitions/Counter"
+        },
+        "origin": {
+          "$ref": "#/definitions/Id"
+        },
+        "version": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "claim",
+        "memory_sequence",
+        "origin",
+        "version"
+      ],
+      "type": "object"
+    },
+    "HistoryGap": {
+      "additionalProperties": false,
+      "properties": {
+        "first": {
+          "$ref": "#/definitions/Counter"
+        },
+        "last": {
+          "$ref": "#/definitions/Counter"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "session": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "first",
+        "last",
+        "reason",
+        "session"
+      ],
+      "type": "object"
+    },
+    "HistoryMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
+    "HistoryPage": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_links": {
+          "items": {
+            "$ref": "#/definitions/HistoryClaimLink"
+          },
+          "type": "array"
+        },
+        "claim_links_truncated": {
+          "type": "boolean"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "gaps": {
+          "items": {
+            "$ref": "#/definitions/HistoryGap"
+          },
+          "type": "array"
+        },
+        "newer_events": {
+          "$ref": "#/definitions/Counter"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_watermark": {
+          "$ref": "#/definitions/Counter"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/definitions/HistoryRow"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "search_scope": {
+          "type": "string"
+        },
+        "source_watermark": {
+          "$ref": "#/definitions/Counter"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "claim_links",
+        "claim_links_truncated",
+        "complete",
+        "gaps",
+        "newer_events",
+        "observed_watermark",
+        "rows",
+        "scope",
+        "search_scope",
+        "source_watermark"
+      ],
+      "type": "object"
+    },
+    "HistoryQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cursor": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expand_compacted": {
+          "type": "boolean"
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "selector": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Selector"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "expand_compacted",
+        "limit",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "HistoryRow": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/definitions/Id"
+        },
+        "artifacts": {
+          "items": {
+            "$ref": "#/definitions/HistoryArtifactLink"
+          },
+          "type": "array"
+        },
+        "command_id": {
+          "$ref": "#/definitions/Id"
+        },
+        "compacted": {
+          "type": "boolean"
+        },
+        "content_truncated": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "#/definitions/Id"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HistoryMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recall_excluded": {
+          "type": "boolean"
+        },
+        "sequence": {
+          "$ref": "#/definitions/Counter"
+        },
+        "session": {
+          "$ref": "#/definitions/Id"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timestamp_ms": {
+          "$ref": "#/definitions/Counter"
+        },
+        "visibility": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "artifacts",
+        "command_id",
+        "compacted",
+        "content_truncated",
+        "id",
+        "kind",
+        "recall_excluded",
+        "sequence",
+        "session",
+        "timestamp_ms",
+        "visibility"
+      ],
+      "type": "object"
+    },
     "Id": {
       "maxLength": 96,
       "minLength": 1,
@@ -3745,6 +4115,126 @@
         "preview_digest",
         "scope",
         "task"
+      ],
+      "type": "object"
+    },
+    "MemoryHistoryPage": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            }
+          ],
+          "description": "Stable immutable memory-sequence upper bound, not event sequence."
+        },
+        "claim": {
+          "$ref": "#/definitions/Id"
+        },
+        "complete": {
+          "description": "Exhausted this version window; not a claim that evidence is available.",
+          "type": "boolean"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "versions": {
+          "items": {
+            "$ref": "#/definitions/MemoryHistoryVersion"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "at",
+        "claim",
+        "complete",
+        "scope",
+        "task",
+        "versions",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    "MemoryHistoryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "$ref": "#/definitions/Id"
+        },
+        "cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 32,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "claim",
+        "limit",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
+    "MemoryHistoryVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "content_truncated": {
+          "type": "boolean"
+        },
+        "finding": {
+          "$ref": "#/definitions/MemoryFinding"
+        },
+        "origins": {
+          "description": "Retained canonical origin event IDs; unavailable rows reveal no links.",
+          "items": {
+            "$ref": "#/definitions/Id"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "presentation_compacted": {
+          "type": "boolean"
+        },
+        "recall_excluded": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "content_truncated",
+        "finding",
+        "origins",
+        "presentation_compacted",
+        "recall_excluded"
       ],
       "type": "object"
     },
@@ -4869,6 +5359,44 @@
             },
             "value": {
               "$ref": "#/definitions/MemoryPage"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "history"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/HistoryPage"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "memory_history"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/MemoryHistoryPage"
             }
           },
           "required": [

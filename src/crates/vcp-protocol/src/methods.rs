@@ -362,6 +362,8 @@ calls! {
     ContextInspect(Inspect) => "context/inspect",
     RoutingExplain(Inspect) => "routing/explain",
     UsageRead(Inspect) => "usage/read",
+    HistoryQuery(crate::history::Query) => "history/query",
+    MemoryHistory(crate::memory_history::Request) => "memory/history",
     MemoryQuery(MemoryQuery) => "memory/query",
     MemoryInspect(MemoryInspect) => "memory/inspect",
     MemoryPropose(crate::memory_governance::ProposeParams) => "memory/propose",
@@ -554,6 +556,8 @@ impl Call {
                 }
                 Ok(())
             }
+            Self::HistoryQuery(p) => crate::history::validate_query(p),
+            Self::MemoryHistory(p) => crate::memory_history::validate_request(p),
             Self::MemoryQuery(p) => {
                 page(p.limit)?;
                 text(&p.query, 16384)
@@ -812,6 +816,8 @@ pub enum ResultValue {
     Artifact(ArtifactRange),
     Evidence(EvidencePage),
     Memory(MemoryPage),
+    History(crate::history::Page),
+    MemoryHistory(crate::memory_history::Page),
     MemoryQuery(crate::memory_query::Page),
     MemoryReview(crate::memory_governance::ReviewView),
     MemoryReviewed(crate::memory_governance::ReviewResult),

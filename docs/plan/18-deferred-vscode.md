@@ -1,6 +1,6 @@
 # 18 — Deferred VS Code client
 
-Status: P4-01 through P4-03 accepted after owner-directed P8 closure and completed P9; P4-04 inspectors are next. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
+Status: P4-01 through P4-03 accepted after owner-directed P8 closure and completed P9; P4-04 inspector query prerequisites are in progress. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
 
 ## Code organization
 
@@ -140,6 +140,9 @@ disk observations with engine receipts. Follow
 and [current completion evidence](../architecture/vcp-what.md#44-completion-contract).
 
 ## P4-04 — Inspectors
+
+Status: history/memory query prerequisite accepted; remaining APIs and UI in progress. See [the current increment](../development/editor-inspectors.md)
+and [ADR-060](../adr/060-governed-inspector-queries.md); full UI acceptance remains open.
 
 Expose full history/memory/evidence, cost/policy/routing, optimization proposals and pruning previews through engine query services. Respect current retention/access for historic content; do not cache purged text indefinitely in webview state. Cloud export still uses the encrypted engine publisher.
 
