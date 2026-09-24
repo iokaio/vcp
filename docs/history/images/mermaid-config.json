@@ -1,0 +1,14 @@
+{
+  "theme": "neutral",
+  "themeVariables": {
+    "fontFamily": "Segoe UI, Arial, sans-serif",
+    "fontSize": "15px",
+    "noteBkgColor": "#fff8c5",
+    "noteTextColor": "#222",
+    "noteBorderColor": "#d4a72c"
+  },
+  "flowchart": {
+    "htmlLabels": true,
+    "curve": "basis"
+  }
+}

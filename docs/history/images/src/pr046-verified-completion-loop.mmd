@@ -1,0 +1,13 @@
+flowchart TD
+  req["Sealed request (auto-assembled context: objective, scoped instructions, tool pairs)"] --> resp["Captured, validated, accounted completed response"]
+  resp --> kind{"Response contents"}
+  kind -- "prepared tools (read/list/search/patch/process)" --> brokers["Prepared brokers under current authority"]
+  brokers --> req
+  kind -- "vcp_verify alone" --> verify["Run owner-configured checks; capture evidence"]
+  kind -- "vcp_verify mixed with other calls" --> unexec["Durable unexecuted results"]
+  unexec --> req
+  verify --> req
+  kind -- "final prose" --> drain["Retained work drains; driver calls complete_coding_turn"]
+  drain --> check{"Latest verification passed and sources, authority, evidence access, effects still current?"}
+  check -- yes --> done["Completed (cost refresh captured if only accounting changed)"]
+  check -- no --> notdone["Completion refused (failed / not-run / stale)"]

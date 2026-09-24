@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant X as VS Code extension
+    participant E as Engine (public_editor)
+    participant S as Canonical store (editor schema v2)
+    X->>E: observe buffer (open identity, version, text hash, root + binding rev)
+    E->>S: record observation + native disk evidence
+    X->>E: prepare immutable change (task authority)
+    loop each file
+        X->>E: request per-file admission
+        E->>S: commit dispatch intent
+        E-->>X: edit for exact version
+        X->>X: recheck mapping, trust, version, hash · TextEditor.edit
+        alt typing race / stale
+            X-->>E: rejected (user text preserved)
+        else applied
+            X-->>E: applied (before/after version + hash)
+        end
+        E->>S: per-file receipt (applied / rejected / unknown)
+    end
+    Note over X,S: Reload reconciles durable IDs · edits never replayed

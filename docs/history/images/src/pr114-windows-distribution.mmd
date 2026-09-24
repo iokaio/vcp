@@ -1,0 +1,13 @@
+flowchart LR
+  A["scripts/package.ps1 build"] --> B["package-inventory.cjs exact payload inventory"]
+  A --> C["package-models.ps1 explicit model provisioning"]
+  A --> D["Recorded build provenance"]
+  B --> E["Unsigned ZIP candidate"]
+  C --> E
+  D --> E
+  E --> F["package-install.ps1 standalone installer"]
+  F --> G{"Root owned, not redirected, compatible format, no unexpected payload or lock?"}
+  G -- no --> H["Refuse; bounded recoverable state"]
+  G -- yes --> I["Install / upgrade / rollback / uninstall"]
+  I --> J["Workspace, history, keys, vault data preserved"]
+  E --> K["p8-qualification-runner.cjs native matrix"]

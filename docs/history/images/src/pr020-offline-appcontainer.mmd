@@ -1,0 +1,20 @@
+flowchart LR
+  W["test-embeddings.ps1 -Offline"]
+  L["Parent-owned local listener (private IPv4)"]
+  C1["Unrestricted control 1"]
+  C2["Unrestricted control 2"]
+  AC["Zero-capability AppContainer"]
+  Q["vcp-embedding qualify helper"]
+  A["Verified MiniLM asset copies"]
+  O["trace-offline-embeddings.cjs observer"]
+  W --> L
+  W --> C1
+  W --> C2
+  W --> AC
+  AC --> Q
+  A --> Q
+  C1 -->|"connect succeeds"| L
+  C2 -->|"connect succeeds"| L
+  Q -.->|"connect must fail"| L
+  L -->|"exactly 2 connections"| O
+  Q -->|"vectors vs reference, token, isolation diagnostics"| O

@@ -1,0 +1,13 @@
+flowchart TD
+  C["Immutable model catalog + routing policy"] --> EL["Deterministic eligibility (vcp-models routing/validation)"]
+  EL --> ORD["Cost ordering (routing/selection)"]
+  ORD --> ADM["Admission: revalidate policy, evidence, authority, root liability"]
+  ADM --> PIN["Per-attempt model and price pin"]
+  PIN --> ATT["Coding attempt via provider worker"]
+  ATT -->|"retry"| PIN
+  ATT -->|"failure within bounds"| ESC["Bounded escalation (vcp-models escalation)"]
+  ESC --> HO["Fresh handoff to next eligible model"]
+  HO --> ADM
+  ATT --> RS["Canonical routing state (routing_state.rs)"]
+  RS --> OPT["Local optimizer: report / interview / preview / apply / rollback"]
+  OPT -->|"applied policy revision"| C

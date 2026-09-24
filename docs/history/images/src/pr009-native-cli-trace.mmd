@@ -1,0 +1,14 @@
+flowchart LR
+  TR["scripts/upstream/trace-cli.cjs (runner)"]
+  CLI["Built codex.exe (unmodified baseline)"]
+  LP["Loopback scripted provider fixtures (5 cases)"]
+  WS["Synthetic workspace files"]
+  OB["Independent observer"]
+  EV["Manifest and evidence (artifacts/cli-trace)"]
+  TR -->|"launch per case"| CLI
+  CLI -->|"HTTP requests: 200, 503 retry, 401"| LP
+  CLI -->|"apply_patch / tool effects"| WS
+  CLI -->|"JSONL completion/failure events"| OB
+  LP -->|"request counts, tool receipts"| OB
+  WS -->|"file bytes"| OB
+  OB --> EV

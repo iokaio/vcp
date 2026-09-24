@@ -1,0 +1,9 @@
+flowchart TD
+  A["Stop request or interruption for an active child"] --> B{"Source?"}
+  B -- "Deliberate pause / cancel of one child" --> C{"Live ownership, independent runtime hold and canonical child/root state agree?"}
+  C -- yes --> D["Interrupt child only"]
+  D --> E["Root and unrelated siblings keep running"]
+  D --> F["Full unknown request liability retained"]
+  C -- no --> G["Pause root"]
+  B -- "Unexpected disconnect / owner loss" --> G
+  G --> H["Children held; recovery via explicit resume"]

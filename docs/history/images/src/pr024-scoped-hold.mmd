@@ -1,0 +1,11 @@
+stateDiagram-v2
+  [*] --> Admitting
+  Admitting --> Sealed: hold(instance, revision) on node
+  Sealed --> Draining: deny new admission for subtree
+  Draining --> Interrupting: issued permits drained
+  Draining --> HeldFailed: drain timeout
+  Interrupting --> Held: interrupt_for_host returned for all
+  Interrupting --> HeldFailed: missing controller or error
+  HeldFailed --> Interrupting: retry interruption
+  Held --> Admitting: explicit readmit (current revision)
+  Held --> Held: parent readmit keeps independent child hold

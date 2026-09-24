@@ -1,0 +1,12 @@
+flowchart LR
+  M["Model tool call"] --> H["Canonical host MCP foundation"]
+  T["Terminal /mcp control"] --> H
+  H --> ID["Identity check: registration, connection generation, schema digest, catalog revision"]
+  ID --> AV["Exact argument validation + current source permissions"]
+  AV --> AP["Approval (resume only for idle owned server)"]
+  AP --> IN["Durable intent recorded"]
+  IN --> PB["Canonical process broker + owned duplex stdio"]
+  PB --> S["Configured local MCP server"]
+  S -->|"response"| RC["Durable effect receipt"]
+  PB -->|"lost response"| UK["Unknown outcome retained, no replay"]
+  AP -->|"conflict or abandonment"| CX["Cancel definitely-unsent proposal"]

@@ -1,0 +1,14 @@
+sequenceDiagram
+  participant C as Retained Codex controller
+  participant H as Canonical host (vcp-lifecycle foundation)
+  participant S as Canonical store + ledger
+  participant P as HTTP transport / provider
+  C->>H: work admission for HTTP attempt (root, helper, compaction, child)
+  H->>S: capture final request body artifact
+  H->>S: reserve shared funds + record send intent
+  H->>P: send request
+  P-->>H: response stream
+  H->>S: capture full response bytes before parsing/display limits
+  H->>S: settle usage or retain unknown liability
+  H-->>C: parsed response
+  Note over H,S: capture failure fences work · owner loss pauses<br/>tasks · reopen keeps uncertain effects/charges, no<br/>automatic replay

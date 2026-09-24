@@ -1,0 +1,14 @@
+flowchart LR
+  EV["Retained canonical events and records (Files / SQLite)"] --> OBS["canonical-action-observation/2 (turn, effect, attempt, verification)"]
+  SET["Immutable budget settlements"] -->|"typed settlement reference"| OBS
+  OBS --> FIT["Source-bound first-order fit (ADR-032)"]
+  OBS --> CMP["Held-out 1st vs 2nd order comparison (ADR-033)"]
+  OBS --> RW["Exact attempt reward mapping (ADR-034)"]
+  KER["vcp-models::markov kernels (counts, smoothing, absorbing chain, log-likelihood)"] --> FIT
+  KER --> CMP
+  FIT --> INS["Local optimization inspection"]
+  CMP --> INS
+  RW --> INS
+  INS -->|"selected reward scalar only"| CON["Consumed-value record (ADR-035)"]
+  CON -->|"replay without refit"| REP["Past consumer decision"]
+  FIT -.->|"unqualified, unpersisted; cannot serve routing"| X["Routing (not connected)"]

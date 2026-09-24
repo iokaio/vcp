@@ -1,0 +1,12 @@
+flowchart LR
+  Q["vcp memory search (read-only)"] --> E["Canonical eligibility: workspace/task/root/path/symbol filters"]
+  E --> L["Tantivy lexical component"]
+  E --> V["DiskANN vector component"]
+  QE["Admitted local query embedding (CPU MiniLM)"] --> V
+  G["Published search generation (P5-05 active pointer)"] --- L
+  G --- V
+  L --> F["Deterministic lexical/vector fusion"]
+  V --> F
+  F --> RC["Host recheck: authority, deletion, actual source files"]
+  RC --> P["Bounded passages rebuilt from current canonical evidence"]
+  P --> O["Result with provenance, freshness, explicit degradation"]
