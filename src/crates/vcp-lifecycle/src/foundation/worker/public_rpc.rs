@@ -23,6 +23,7 @@ const METHODS: &[&str] = &[
     "session/list",
     "session/export",
     "task/read",
+    "task/presentation",
     "usage/read",
     "context/inspect",
     "routing/explain",
@@ -453,6 +454,25 @@ impl RpcHost for PublicConnection {
                             .engine
                             .public_diff(&access, request)
                             .map(ResultValue::Artifact)
+                            .map_err(vcp_engine::rpc::query_error));
+                    }
+                    if let Call::TaskPresentation(request) = &request {
+                        return Ok(context
+                            .engine
+                            .public_presentation_with_content(&access, request, now())
+                            .and_then(|mut page| {
+                                super::public_presentation::model(
+                                    context, &access, request, &mut page,
+                                );
+                                if serde_json::to_vec(&page)
+                                    .map_err(|_| vcp_engine::query::QueryError::InvalidData)?
+                                    .len()
+                                    > vcp_engine::query::MAX_RESULT_BYTES
+                                {
+                                    return Err(vcp_engine::query::QueryError::Limit);
+                                }
+                                Ok(ResultValue::Presentation(page))
+                            })
                             .map_err(vcp_engine::rpc::query_error));
                     }
                     if let Call::ArtifactRead(request) = &request {

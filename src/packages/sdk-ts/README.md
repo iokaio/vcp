@@ -34,6 +34,10 @@ calls can return a gap; callers must handle it explicitly. Exact counters and
 money remain decimal strings. Optional method profiles are negotiated before use.
 Unsupported editor methods stay unavailable until their owning implementation.
 
+`task/presentation` provides bounded, access-checked task/child details, retained
+model selection, approval summaries and evidence. Handle unavailable fields and
+fresh-page requirements explicitly; see the [editor task contract](../../../docs/development/editor-tasks.md).
+
 Mutations require an explicitly acquired controller and the caller's durable
 command identity. `newCommandId()` creates an identity only when called. After an
 interruption, use `reconcile({scope, command_id})` and retain the original payload

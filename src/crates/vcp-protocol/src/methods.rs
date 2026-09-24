@@ -352,6 +352,7 @@ calls! {
     SessionResume(SessionResume) => "session/resume",
     SessionFork(SessionFork) => "session/fork",
     TaskRead(TaskRead) => "task/read",
+    TaskPresentation(Inspect) => "task/presentation",
     TaskCancel(TaskCancel) => "task/cancel",
     TurnStart(TurnStart) => "turn/start",
     TurnSteer(TurnSteer) => "turn/steer",
@@ -563,7 +564,10 @@ impl Call {
                     Ok(())
                 }
             }
-            Self::ContextInspect(p) | Self::RoutingExplain(p) | Self::UsageRead(p) => {
+            Self::TaskPresentation(p)
+            | Self::ContextInspect(p)
+            | Self::RoutingExplain(p)
+            | Self::UsageRead(p) => {
                 page(p.limit)?;
                 if let Some(c) = &p.cursor {
                     text(c, 4096)?;
@@ -668,6 +672,65 @@ enumeration!(OperationOutcome {
     Cancelled,
     Failed
 });
+// Bounded presentation text. Truncation never silently implies complete content.
+dto!(PresentationText {
+    #[cfg_attr(feature = "schema", schemars(length(max = 4096)))]
+    text: String,
+    truncated: bool
+});
+enumeration!(PresentationSource {
+    Observed,
+    Unavailable
+});
+dto!(PresentationModel { id: Option<PresentationText>, group: Option<PresentationText>, source: PresentationSource });
+dto!(PresentationQuestion {
+    input: PendingInput,
+    effect: Id,
+    expires_at: Counter,
+    actionable: bool,
+    summary: PresentationText
+});
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields, rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub enum PresentationRow {
+    Effect {
+        id: Id,
+        task: Id,
+        state: String,
+        reason: PresentationText,
+        #[cfg_attr(feature = "schema", schemars(length(max = 16)))]
+        evidence: Vec<EvidenceReference>,
+    },
+    Evidence {
+        id: Id,
+        task: Id,
+        schema: String,
+        #[cfg_attr(feature = "schema", schemars(length(max = 16)))]
+        evidence: Vec<EvidenceReference>,
+    },
+    Commentary {
+        id: Id,
+        task: Id,
+        turn: Option<Id>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        evidence: Option<EvidenceReference>,
+        text: PresentationText,
+    },
+}
+// Each page is an authorized current canonical cut; cursors become stale on writes.
+// Commentary is unavailable unless an explicitly supported retained text projection exists.
+dto!(TaskPresentation {
+    task: TaskView, watermark: Counter, objective: Option<PresentationText>,
+    #[cfg_attr(feature = "schema", schemars(length(max = 64)))] objective_constraints: Option<Vec<String>>,
+    #[cfg_attr(feature = "schema", schemars(length(max = 64)))] objective_acceptance: Option<Vec<String>>,
+    model: PresentationModel, role: Option<PresentationText>, model_policy: Option<PresentationText>,
+    commentary: PresentationSource,
+    #[cfg_attr(feature = "schema", schemars(length(max = 128)))] questions: Vec<PresentationQuestion>,
+    #[cfg_attr(feature = "schema", schemars(length(max = 128)))] rows: Vec<PresentationRow>,
+    #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] next_cursor: Option<String>,
+    complete: bool
+});
 dto!(UsageView {
     scope: Scope,
     task: Id,
@@ -753,6 +816,7 @@ pub enum ResultValue {
     Session(SessionView),
     Sessions(SessionPage),
     Task(TaskView),
+    Presentation(TaskPresentation),
     Acceptance(Acceptance),
     Usage(UsageView),
     Artifact(ArtifactRange),

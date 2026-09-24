@@ -12,6 +12,7 @@ pub mod public_diff;
 pub mod public_evidence;
 pub mod public_export;
 pub mod public_reads;
+pub mod public_presentation;
 pub mod public_start;
 pub mod query;
 pub mod questions;

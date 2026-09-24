@@ -1,6 +1,6 @@
 # 18 — Deferred VS Code client
 
-Status: P4-01 accepted after owner-directed P8 closure and completed P9; P4-02 is next. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
+Status: P4-01 and P4-02 accepted after owner-directed P8 closure and completed P9; P4-03 is next. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
 
 ## Code organization
 
@@ -62,6 +62,12 @@ while a different controller owns the task. Assert actual dispatch and workspace
 scope, not only extension activation or a connected icon.
 
 ## P4-02 — Task and child views
+
+Accepted under [ADR-058](../adr/058-editor-task-presentation.md).
+The [access-checked presentation API and bounded editor view](../development/editor-tasks.md#qualification)
+passed portable and actual-editor qualification, including CLI parity, dropped
+subscriptions, stale/duplicate actions and durable reload. Evidence limits are
+recorded with the acceptance results.
 
 Display objective, current status, model/group/cost, steering, questions, tool/evidence links and attributed child commentary from the same events as the CLI. Bound webview messages and sanitize external content/links. Question responses carry durable IDs and revision checks.
 

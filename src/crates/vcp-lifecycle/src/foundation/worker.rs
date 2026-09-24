@@ -46,6 +46,7 @@ mod public_memory_review;
 mod public_retention;
 pub(super) mod public_resume;
 mod public_rpc;
+mod public_presentation;
 #[cfg(windows)]
 pub(super) mod public_start;
 mod public_workspace;

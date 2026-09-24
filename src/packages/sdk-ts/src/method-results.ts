@@ -19,6 +19,7 @@ export const RESULT_KINDS = {
   'session/resume': ['acceptance'],
   'session/fork': ['acceptance'],
   'task/read': ['task'],
+  'task/presentation': ['presentation'],
   'task/cancel': ['acceptance'],
   'turn/start': ['acceptance'],
   'turn/steer': ['acceptance'],

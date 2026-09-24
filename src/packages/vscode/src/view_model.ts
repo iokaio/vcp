@@ -22,7 +22,7 @@ export function connectionHtml(cspSource: string, styleUri: string, scriptUri: s
   <p id="message" role="status" aria-live="polite">Choose an initialized local workspace to inspect.</p>
   <dl id="details"></dl><h2>Connection limits</h2><ul id="limitations"></ul>
   <div class="actions"><button id="connect" type="button">Connect…</button><button id="refresh" type="button" disabled>Refresh</button><button id="disconnect" type="button" disabled>Disconnect</button></div>
-  <div class="actions"><button id="control" type="button">Connect for trust changes…</button><button id="attach" type="button">Observe existing engine…</button><button id="reconcile" type="button">Reconcile moved root…</button></div>
+  <div class="actions"><button id="control" type="button">Connect as controller…</button><button id="attach" type="button">Observe existing engine…</button><button id="reconcile" type="button">Reconcile moved root…</button></div>
   <div class="actions"><button id="grant" type="button" disabled>Trust engine workspace</button><button id="revoke" type="button" disabled>Revoke engine trust</button></div>
   <p class="note">Local Windows. Trust changes pause work and release control. Reload restores observation only. Tasks require deliberate resume.</p>
   <script nonce="${escape(nonce)}" src="${escape(scriptUri)}"></script></body></html>`;
