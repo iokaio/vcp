@@ -57,6 +57,16 @@ async fn inspector_profiles_gate_dispatch_and_recheck_current_access() {
             vcp_protocol::memory_history::CAPABILITY,
             json!({"scope":{"workspace":"workspace","session":"session"},"task":"task","claim":"claim","limit":1,"cursor":null}),
         ),
+        (
+            "policy/read",
+            vcp_protocol::policy_inspection::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"task":"task","section":"denials","limit":1,"cursor":null}),
+        ),
+        (
+            "routing/status",
+            vcp_protocol::routing_inspection::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"task":"task","section":"catalog","limit":1,"cursor":null}),
+        ),
     ] {
         for negotiated in [false, true] {
             let mut host = Host {

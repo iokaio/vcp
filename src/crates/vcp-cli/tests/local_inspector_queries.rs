@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(all(windows, feature = "qualification"))]
-//! Actual SDK history and governed memory queries; no provider or editor is launched.
+//! Actual SDK history, memory, policy and routing reads; no provider or editor is launched.
 #[path = "support/local_fixture.rs"]
 mod local_fixture;
 use local_fixture::*;
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::Write,
     path::PathBuf,
     process::{Command, Stdio},
@@ -151,7 +151,7 @@ async fn seed(fixture: &Fixture) -> serde_json::Value {
         })
         .await
         .unwrap();
-    let access = vcp_memory::access::Access {
+    let mut access = vcp_memory::access::Access {
         workspace: task.scope.workspace.clone(),
         actor: fixture.config.actor.clone(),
         authority: AuthorityRevision::ZERO,
@@ -250,6 +250,8 @@ async fn seed(fixture: &Fixture) -> serde_json::Value {
         }
     }
     assert_eq!(versions.len(), 33);
+    let (next, inspection) = seed_inspection(fixture, store, &mut access, &task).await;
+    store = next;
     let history_access = vcp_audit::history::Access {
         workspace: access.workspace.clone(),
         authority: access.authority,
@@ -284,10 +286,260 @@ async fn seed(fixture: &Fixture) -> serde_json::Value {
             break;
         }
     }
-    let input = json!({"executable":env!("CARGO_BIN_EXE_vcp"),"workspace":fixture.workspace,"data":fixture.data,"scope":fixture.scope(),"task":fixture.config.root_task,"claim":proposal.claim,"artifact":artifact.spec.id,"origin":origin,"versions":versions,"history":history,"watermark":store.state().watermark.get().to_string()});
+    let input = json!({"executable":env!("CARGO_BIN_EXE_vcp"),"workspace":fixture.workspace,"data":fixture.data,"scope":fixture.scope(),"task":fixture.config.root_task,"claim":proposal.claim,"artifact":artifact.spec.id,"origin":origin,"versions":versions,"history":history,"watermark":store.state().watermark.get().to_string(),"inspection":inspection});
     store.close().await.unwrap();
     input
 }
+
+async fn seed_inspection(
+    fixture: &Fixture,
+    store: vcp_store::Store,
+    access: &mut vcp_memory::access::Access,
+    task: &Task,
+) -> (vcp_store::Store, Value) {
+    use vcp_domain::policy::{
+        Autonomy, Denial, EffectClass, Grant, GrantScope, GrantTarget, Policy, RuleOrigin,
+    };
+    use vcp_models::routing;
+    use vcp_protocol::command::{Command as EngineCommand, CommandEnvelope};
+    let mut engine = vcp_engine::Engine::new(store).unwrap();
+    let mut caller = vcp_engine::Access {
+        actor: access.actor.clone(),
+        workspace: access.workspace.clone(),
+        session: fixture.config.session.clone(),
+        authority: access.authority,
+        read: true,
+        write: true,
+        bootstrap: false,
+    };
+    let envelope = |engine: &vcp_engine::Engine<vcp_store::Store>,
+                    caller: &vcp_engine::Access,
+                    payload| CommandEnvelope {
+        version: 1,
+        id: CommandId::new(),
+        workspace: caller.workspace.clone(),
+        session: caller.session.clone(),
+        task: None,
+        caller: caller.actor.clone(),
+        controller: engine.controller().clone(),
+        owner_epoch: engine.owner_epoch(),
+        expected: Revision::ZERO,
+        steering: SteeringRevision::ZERO,
+        payload,
+    };
+    let policy = Policy {
+        workspace: access.workspace.clone(),
+        revision: PolicyRevision::ZERO,
+        mode: Autonomy::Ask,
+        denials: (0..2)
+            .map(|i| Denial {
+                id: format!("native-denial-{i}"),
+                origin: RuleOrigin::User,
+                reason: "private-denial-reason-marker".into(),
+                effects: BTreeSet::from([EffectClass::Publish]),
+                tool: Some(format!("private-tool-{i}")),
+                roots: BTreeSet::from([RootId::parse(access.workspace.as_str()).unwrap()]),
+                paths: vec![format!("private-path-{i}")],
+            })
+            .collect(),
+        workspace_roots: BTreeSet::from([RootId::parse(access.workspace.as_str()).unwrap()]),
+        automatic_effects: BTreeSet::new(),
+        timeout_ceiling_ms: Units::new(12345),
+        output_ceiling_bytes: ByteCount::new(54321),
+    };
+    engine
+        .handle(
+            envelope(
+                &engine,
+                &caller,
+                EngineCommand::SetPolicy {
+                    policy: policy.clone(),
+                },
+            ),
+            &caller,
+            &vcp_engine::HostFacts::inspect(Timestamp::new(1000)),
+        )
+        .await
+        .unwrap();
+    let workspace: vcp_domain::workspace::Workspace = engine
+        .store()
+        .state()
+        .record(
+            Collection::Workspace,
+            access.workspace.as_str(),
+            &access.workspace,
+        )
+        .unwrap()
+        .decode()
+        .unwrap();
+    caller.authority = workspace.authority;
+    access.authority = workspace.authority;
+    let mut grants = Vec::new();
+    for index in 0..3 {
+        let grant = Grant {
+            id: GrantId::parse(format!("native-grant-{index}")).unwrap(),
+            actor: caller.actor.clone(),
+            scope: if index == 2 {
+                GrantScope::Workspace {
+                    workspace: access.workspace.clone(),
+                }
+            } else {
+                GrantScope::Task {
+                    scope: task.scope.clone(),
+                }
+            },
+            host: workspace.binding.host.clone(),
+            binding: workspace.binding.revision,
+            authority: workspace.authority,
+            policy: policy.revision,
+            expires_at: Timestamp::new(u64::MAX),
+            target: GrantTarget::Exact {
+                digest: if index == 0 {
+                    "a".repeat(64)
+                } else {
+                    "b".repeat(64)
+                },
+            },
+            origin: RuleOrigin::User,
+            reason: "private-grant-reason-marker".into(),
+            revoked: index == 1,
+            revision: Revision::ZERO,
+            approval: None,
+        };
+        engine
+            .handle(
+                envelope(
+                    &engine,
+                    &caller,
+                    EngineCommand::SetGrant {
+                        grant: grant.clone(),
+                    },
+                ),
+                &caller,
+                &vcp_engine::HostFacts::inspect(Timestamp::new(1000)),
+            )
+            .await
+            .unwrap();
+        grants.push(grant);
+    }
+    let mut store = engine.into_store();
+    let routing_policy = routing::Policy {
+        schema_version: 1,
+        id: String::new(),
+        parent: None,
+        profile: routing::Profile::Low,
+        allowed_models: BTreeSet::from(["native-model-a".into(), "native-model-b".into()]),
+        allowed_endpoints: BTreeSet::from(["native-endpoint".into()]),
+        allowed_groups: BTreeSet::from([routing::Group::Low]),
+        quality_floor_bps: 7000,
+        minimum_samples: 10,
+        maximum_evidence_age_ms: 9007199254740993,
+        deny_data_collection: true,
+        require_zdr: true,
+        ordering: vec![
+            routing::Preference::TotalCost,
+            routing::Preference::Latency,
+            routing::Preference::Quality,
+            routing::Preference::Capability,
+        ],
+        pin: None,
+        broader_task_class: None,
+        output_tokens: Some(Units::new(321)),
+        input_tokens: Some(Units::new(654)),
+        escalation_limits: None,
+        reasoning_effort: None,
+        retrieval_limits: None,
+    }
+    .seal()
+    .unwrap();
+    let published = vcp_lifecycle::foundation::routing_state::initialize_policy(
+        &mut store,
+        access,
+        routing_policy.clone(),
+        Timestamp::new(1001),
+    )
+    .await
+    .unwrap();
+    let catalog = routing::CatalogRevision::create(
+        None,
+        Timestamp::new(1002),
+        None,
+        ["native-model-a", "native-model-b"]
+            .into_iter()
+            .map(|model| routing::Candidate {
+                identity: routing::ModelEndpoint {
+                    model: model.into(),
+                    endpoint: "native-endpoint".into(),
+                },
+                availability: routing::State::Unknown,
+                reasons: vec!["private-candidate-reason-marker".into()],
+                provenance: vec![routing::Provenance {
+                    source: "private-catalog-source-marker".into(),
+                    sha256: "c".repeat(64),
+                    observed_at: Timestamp::new(1002),
+                    effective_at: None,
+                    limitations: vec![],
+                }],
+                capabilities: BTreeMap::new(),
+                snapshot: None,
+                compatibility: vec![],
+                memberships: vec![],
+            })
+            .collect(),
+    )
+    .unwrap();
+    let mut writer = store
+        .spool()
+        .create(ArtifactSpec {
+            id: ArtifactId::new(),
+            scope: task.scope.clone(),
+            media_type: "application/json".into(),
+            schema: "routing-catalog/1".into(),
+            source: "private-raw-catalog-marker".into(),
+            channel: Channel::Evidence,
+            retention: "history".into(),
+            omissions: vec![],
+        })
+        .unwrap();
+    writer
+        .write_chunk(&serde_json::to_vec(&catalog).unwrap())
+        .unwrap();
+    let raw = writer.finalize().unwrap();
+    drop(writer);
+    store
+        .transact(Transaction {
+            id: TransactionId::new(),
+            expected_watermark: store.state().watermark,
+            mutations: vec![Mutation::Put {
+                expected: None,
+                record: Record::typed(
+                    Collection::Artifact,
+                    raw.spec.id.as_str(),
+                    access.workspace.clone(),
+                    Revision::ZERO,
+                    &raw,
+                )
+                .unwrap(),
+            }],
+            events: vec![],
+            command: None,
+        })
+        .await
+        .unwrap();
+    let registry = vcp_lifecycle::foundation::routing_state::publish_registry(
+        &mut store,
+        access,
+        None,
+        catalog.clone(),
+        raw.spec.id,
+        Timestamp::new(1002),
+    )
+    .await
+    .unwrap();
+    let expected = json!({"authority":workspace.authority.get().to_string(),"actor":caller.actor,"policy":policy,"grants":grants,"routing":routing_policy,"routing_revision":published.revision.get().to_string(),"catalog":catalog,"catalog_revision":registry.revision.get().to_string()});
+    (store, expected)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn compiled_sdk_inspector_queries_match_governed_cli_queries_without_mutation() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {

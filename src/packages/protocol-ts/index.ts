@@ -28,7 +28,7 @@ export type Bound = { "inclusive": boolean; "instant": InstantSpec; };
 
 export type Budget = { "cap_micros": Counter; "currency": Currency; "deadline_seconds": number; "max_requests": number; };
 
-export type Call = ({ "method": ("controller/read" & string); "params": ControllerRead; } | { "method": ("controller/acquire" & string); "params": ControllerAcquire; } | { "method": ("controller/release" & string); "params": ControllerRelease; } | { "method": ("controller/recover" & string); "params": ControllerRecover; } | { "method": ("workspace/open" & string); "params": WorkspaceOpen; } | { "method": ("workspace/setTrust" & string); "params": WorkspaceSetTrust; } | { "method": ("session/create" & string); "params": SessionCreate; } | { "method": ("session/read" & string); "params": SessionRead; } | { "method": ("session/snapshot" & string); "params": SessionSnapshotRead; } | { "method": ("session/list" & string); "params": SessionList; } | { "method": ("session/resume" & string); "params": SessionResume; } | { "method": ("session/fork" & string); "params": SessionFork; } | { "method": ("task/read" & string); "params": TaskRead; } | { "method": ("task/presentation" & string); "params": Inspect; } | { "method": ("task/cancel" & string); "params": TaskCancel; } | { "method": ("turn/start" & string); "params": TurnStart; } | { "method": ("turn/steer" & string); "params": TurnSteer; } | { "method": ("turn/pause" & string); "params": TurnControl; } | { "method": ("turn/cancel" & string); "params": TurnControl; } | { "method": ("approval/respond" & string); "params": ApprovalRespond; } | { "method": ("events/subscribe" & string); "params": EventsSubscribe; } | { "method": ("events/next" & string); "params": EventsNext; } | { "method": ("events/unsubscribe" & string); "params": EventsUnsubscribe; } | { "method": ("artifact/read" & string); "params": ArtifactRead; } | { "method": ("diff/read" & string); "params": DiffRead; } | { "method": ("context/inspect" & string); "params": Inspect; } | { "method": ("routing/explain" & string); "params": Inspect; } | { "method": ("usage/read" & string); "params": Inspect; } | { "method": ("history/query" & string); "params": HistoryQuery; } | { "method": ("memory/history" & string); "params": MemoryHistoryRequest; } | { "method": ("memory/query" & string); "params": MemoryQuery; } | { "method": ("memory/inspect" & string); "params": MemoryInspect; } | { "method": ("memory/propose" & string); "params": ProposeParams; } | { "method": ("memory/resolve" & string); "params": ResolveParams; } | { "method": ("memory/review" & string); "params": ReviewRead; } | { "method": ("memory/forget" & string); "params": MemoryForget; } | { "method": ("memory/forgetPreview" & string); "params": PreviewRequest; } | { "method": ("memory/forgetPreviewRead" & string); "params": PreviewPageRequest; } | { "method": ("memory/forgetRead" & string); "params": JobRead; } | { "method": ("editor/context" & string); "params": EditorContext; } | { "method": ("editor/prepare" & string); "params": EditorPrepare; } | { "method": ("editor/changeRead" & string); "params": EditorChangeRead; } | { "method": ("editor/dispatch" & string); "params": EditorDispatch; } | { "method": ("editor/changeResult" & string); "params": EditorChangeResult; } | { "method": ("session/export" & string); "params": SessionExport; } | { "method": ("command/read" & string); "params": CommandRead; });
+export type Call = ({ "method": ("controller/read" & string); "params": ControllerRead; } | { "method": ("controller/acquire" & string); "params": ControllerAcquire; } | { "method": ("controller/release" & string); "params": ControllerRelease; } | { "method": ("controller/recover" & string); "params": ControllerRecover; } | { "method": ("workspace/open" & string); "params": WorkspaceOpen; } | { "method": ("workspace/setTrust" & string); "params": WorkspaceSetTrust; } | { "method": ("session/create" & string); "params": SessionCreate; } | { "method": ("session/read" & string); "params": SessionRead; } | { "method": ("session/snapshot" & string); "params": SessionSnapshotRead; } | { "method": ("session/list" & string); "params": SessionList; } | { "method": ("session/resume" & string); "params": SessionResume; } | { "method": ("session/fork" & string); "params": SessionFork; } | { "method": ("task/read" & string); "params": TaskRead; } | { "method": ("task/presentation" & string); "params": Inspect; } | { "method": ("task/cancel" & string); "params": TaskCancel; } | { "method": ("turn/start" & string); "params": TurnStart; } | { "method": ("turn/steer" & string); "params": TurnSteer; } | { "method": ("turn/pause" & string); "params": TurnControl; } | { "method": ("turn/cancel" & string); "params": TurnControl; } | { "method": ("approval/respond" & string); "params": ApprovalRespond; } | { "method": ("events/subscribe" & string); "params": EventsSubscribe; } | { "method": ("events/next" & string); "params": EventsNext; } | { "method": ("events/unsubscribe" & string); "params": EventsUnsubscribe; } | { "method": ("artifact/read" & string); "params": ArtifactRead; } | { "method": ("diff/read" & string); "params": DiffRead; } | { "method": ("context/inspect" & string); "params": Inspect; } | { "method": ("routing/explain" & string); "params": Inspect; } | { "method": ("policy/read" & string); "params": PolicyRead; } | { "method": ("routing/status" & string); "params": RoutingStatusRequest; } | { "method": ("usage/read" & string); "params": Inspect; } | { "method": ("history/query" & string); "params": HistoryQuery; } | { "method": ("memory/history" & string); "params": MemoryHistoryRequest; } | { "method": ("memory/query" & string); "params": MemoryQuery; } | { "method": ("memory/inspect" & string); "params": MemoryInspect; } | { "method": ("memory/propose" & string); "params": ProposeParams; } | { "method": ("memory/resolve" & string); "params": ResolveParams; } | { "method": ("memory/review" & string); "params": ReviewRead; } | { "method": ("memory/forget" & string); "params": MemoryForget; } | { "method": ("memory/forgetPreview" & string); "params": PreviewRequest; } | { "method": ("memory/forgetPreviewRead" & string); "params": PreviewPageRequest; } | { "method": ("memory/forgetRead" & string); "params": JobRead; } | { "method": ("editor/context" & string); "params": EditorContext; } | { "method": ("editor/prepare" & string); "params": EditorPrepare; } | { "method": ("editor/changeRead" & string); "params": EditorChangeRead; } | { "method": ("editor/dispatch" & string); "params": EditorDispatch; } | { "method": ("editor/changeResult" & string); "params": EditorChangeResult; } | { "method": ("session/export" & string); "params": SessionExport; } | { "method": ("command/read" & string); "params": CommandRead; });
 
 export type Candidate = { "applicability": Applicability; "claim": Id; "correction_reason"?: (string | null); "evidence": Array<Evidence>; "origins": Array<Id>; "predecessor"?: (Id | null); "predicate": string; "retention": string; "statement": string; "subject": string; "value": ClaimValue; };
 
@@ -220,6 +220,40 @@ export type Page = { "canonical_watermark": Counter; "complete": boolean; "degra
 
 export type PendingInput = { "effect_revision"?: (Counter | null); "id": Id; "kind": InputKind; "operation_digest"?: (string | null); "policy_revision"?: (Counter | null); "revision": Counter; };
 
+export type PolicyAssessment = ("operation_not_evaluated" & string);
+
+export type PolicyDenial = { "effects": Array<PolicyEffect>; "id": PolicyText; "layer": PolicyLayer; "origin": PolicyOrigin; "path_count": Counter; "paths": Array<PolicyText>; "reason": PolicyText; "roots": Array<Id>; "tool"?: (PolicyText | null); };
+
+export type PolicyEffect = (("read" | "write" | "execute" | "network" | "install" | "publish" | "opaque") & string);
+
+export type PolicyGrant = { "actor": Id; "approval"?: (Id | null); "authority_revision": Counter; "binding_revision": Counter; "current_matches": PolicyGrantMatches; "expires_at_ms": Counter; "host": Id; "id": Id; "inherited_from"?: (Id | null); "origin": PolicyOrigin; "policy_revision": Counter; "reason": PolicyText; "revision": Counter; "revoked": boolean; "scope": PolicyGrantScope; "target": PolicyGrantTarget; };
+
+export type PolicyGrantMatches = { "authority": boolean; "binding": boolean; "host": boolean; "not_revoked": boolean; "policy": boolean; "unexpired": boolean; };
+
+export type PolicyGrantScope = ({ "kind": ("workspace" & string); "workspace": Id; } | { "kind": ("session" & string); "scope": Scope; } | { "kind": ("task" & string); "scope": Scope; "task": Id; });
+
+export type PolicyGrantTarget = ({ "kind": ("exact" & string); "operation_sha256": string; } | { "arguments_sha256": string; "effects": Array<PolicyEffect>; "kind": ("configured" & string); "output_ceiling_bytes": Counter; "path_count": Counter; "paths": Array<PolicyText>; "roots": Array<Id>; "schema_sha256": string; "timeout_ceiling_ms": Counter; "tool": PolicyText; });
+
+export type PolicyGrantVisibility = ("task_and_inherited_only" & string);
+
+export type PolicyLayer = (("host" | "canonical") & string);
+
+export type PolicyMode = (("plan" | "ask" | "workspace" | "autonomous") & string);
+
+export type PolicyOrigin = (("host" | "user") & string);
+
+export type PolicyPage = { "assessment": PolicyAssessment; "authority_revision": Counter; "binding_revision": Counter; "complete": boolean; "deletion_revision": Counter; "effective": TaskEffectivePolicy; "grant_visibility": PolicyGrantVisibility; "host": Id; "next_cursor"?: (string | null); "observed_at_ms": Counter; "persisted"?: (PolicySummary | null); "rows": Array<PolicyRow>; "scope": Scope; "section": PolicySection; "steering_revision": Counter; "task": Id; "task_revision": Counter; "task_state": TaskStatus; "trust": Trust; "watermark": Counter; };
+
+export type PolicyRead = { "cursor"?: (string | null); "limit": number; "scope": Scope; "section": PolicySection; "task": Id; };
+
+export type PolicyRow = ({ "kind": ("denial" & string); "value": PolicyDenial; } | { "kind": ("grant" & string); "value": PolicyGrant; });
+
+export type PolicySection = (("denials" | "grants") & string);
+
+export type PolicySummary = { "automatic_effects": Array<PolicyEffect>; "mode": PolicyMode; "output_ceiling_bytes": Counter; "revision": Counter; "timeout_ceiling_ms": Counter; "workspace_roots": Array<Id>; };
+
+export type PolicyText = { "text": string; "truncated": boolean; };
+
 export type Position = { "character": number; "line": number; };
 
 export type PresentationModel = { "group"?: (PresentationText | null); "id"?: (PresentationText | null); "source": PresentationSource; };
@@ -256,7 +290,7 @@ export type ResolveParams = (LegacyResolve | TypedResolve);
 
 export type ResultEnvelope = { "id": RequestId; "jsonrpc": JsonRpcVersion; "result": unknown; };
 
-export type ResultValue = ({ "kind": ("snapshot" & string); "value": SessionSnapshot; } | { "kind": ("controller" & string); "value": ControllerView; } | { "kind": ("workspace" & string); "value": WorkspaceView; } | { "kind": ("session" & string); "value": SessionView; } | { "kind": ("sessions" & string); "value": SessionPage; } | { "kind": ("task" & string); "value": TaskView; } | { "kind": ("presentation" & string); "value": TaskPresentation; } | { "kind": ("editor_context" & string); "value": ContextView; } | { "kind": ("editor_change" & string); "value": ChangeView; } | { "kind": ("editor_dispatch" & string); "value": DispatchView; } | { "kind": ("acceptance" & string); "value": Acceptance; } | { "kind": ("usage" & string); "value": UsageView; } | { "kind": ("artifact" & string); "value": ArtifactRange; } | { "kind": ("evidence" & string); "value": EvidencePage; } | { "kind": ("memory" & string); "value": MemoryPage; } | { "kind": ("history" & string); "value": HistoryPage; } | { "kind": ("memory_history" & string); "value": MemoryHistoryPage; } | { "kind": ("memory_query" & string); "value": Page; } | { "kind": ("memory_review" & string); "value": ReviewView; } | { "kind": ("memory_reviewed" & string); "value": ReviewResult; } | { "kind": ("retention_preview" & string); "value": PreviewPage; } | { "kind": ("retention" & string); "value": JobView; } | { "kind": ("forgotten" & string); "value": ForgetResult; } | { "kind": ("events" & string); "value": EventBatch; } | { "kind": ("gap" & string); "value": EventGap; } | { "kind": ("export" & string); "value": ExportView; } | { "kind": ("unsubscribed" & string); "value": { "subscription": Id; }; });
+export type ResultValue = ({ "kind": ("snapshot" & string); "value": SessionSnapshot; } | { "kind": ("controller" & string); "value": ControllerView; } | { "kind": ("workspace" & string); "value": WorkspaceView; } | { "kind": ("session" & string); "value": SessionView; } | { "kind": ("sessions" & string); "value": SessionPage; } | { "kind": ("task" & string); "value": TaskView; } | { "kind": ("presentation" & string); "value": TaskPresentation; } | { "kind": ("editor_context" & string); "value": ContextView; } | { "kind": ("editor_change" & string); "value": ChangeView; } | { "kind": ("editor_dispatch" & string); "value": DispatchView; } | { "kind": ("acceptance" & string); "value": Acceptance; } | { "kind": ("usage" & string); "value": UsageView; } | { "kind": ("artifact" & string); "value": ArtifactRange; } | { "kind": ("evidence" & string); "value": EvidencePage; } | { "kind": ("memory" & string); "value": MemoryPage; } | { "kind": ("history" & string); "value": HistoryPage; } | { "kind": ("memory_history" & string); "value": MemoryHistoryPage; } | { "kind": ("policy" & string); "value": PolicyPage; } | { "kind": ("routing_status" & string); "value": RoutingStatusPage; } | { "kind": ("memory_query" & string); "value": Page; } | { "kind": ("memory_review" & string); "value": ReviewView; } | { "kind": ("memory_reviewed" & string); "value": ReviewResult; } | { "kind": ("retention_preview" & string); "value": PreviewPage; } | { "kind": ("retention" & string); "value": JobView; } | { "kind": ("forgotten" & string); "value": ForgetResult; } | { "kind": ("events" & string); "value": EventBatch; } | { "kind": ("gap" & string); "value": EventGap; } | { "kind": ("export" & string); "value": ExportView; } | { "kind": ("unsubscribed" & string); "value": { "subscription": Id; }; });
 
 export type Retry = ((("never" | "after_input" | "after_revalidation") & string) | ("reconcile_original" & string));
 
@@ -267,6 +301,60 @@ export type ReviewRead = { "scope": Scope; "submission": Id; "task": Id; };
 export type ReviewResult = { "acceptance": Acceptance; "candidate_digest": string; "disposition": ReviewDisposition; "governed_proposal"?: (Id | null); "indexing"?: (Indexing | null); "resolution"?: (Resolution | null); "submission": Id; "version"?: (Id | null); };
 
 export type ReviewView = { "candidate": Candidate; "candidate_digest": string; "decision"?: (MemoryDecision | null); "decision_command"?: (Id | null); "disposition": ReviewDisposition; "governed_proposal"?: (Id | null); "guards": Guards; "indexing"?: (Indexing | null); "reason"?: (string | null); "resolution"?: (Resolution | null); "scope": Scope; "submission": Id; "submission_command": Id; "task": Id; "version"?: (Id | null); };
+
+export type RoutingStatusAvailability = (("supported" | "unsupported" | "unknown") & string);
+
+export type RoutingStatusEffective = ({ "ceilings_sha256": string; "policy": RoutingStatusPolicySummary; "state": ("observed" & string); } | { "reason": RoutingStatusEffectiveReason; "state": ("unavailable" & string); });
+
+export type RoutingStatusEffectiveReason = (("not_configured" | "host_unconfigured") & string);
+
+export type RoutingStatusEffort = (("minimal" | "low" | "medium" | "high") & string);
+
+export type RoutingStatusEntry = ({ "kind": ("allowed_model" & string); "value": string; } | { "kind": ("allowed_endpoint" & string); "value": string; } | { "kind": ("allowed_group" & string); "value": RoutingStatusGroup; } | { "endpoint": string; "kind": ("pin_fallback" & string); "model": string; });
+
+export type RoutingStatusEscalationLimits = { "max_quality_switches"?: (number | null); "max_total_attempts"?: (number | null); "max_transport_retries"?: (number | null); "minimum_repeated_failures"?: (number | null); };
+
+export type RoutingStatusGroup = (("frontier" | "high" | "medium" | "low") & string);
+
+export type RoutingStatusIdentity = { "endpoint": string; "model": string; };
+
+export type RoutingStatusOptimizer = { "preferences": RoutingStatusPreferences; "preview": RoutingStatusPreview; "remote_advice": RoutingStatusRemoteAdvice; "report_capture": RoutingStatusReportCapture; };
+
+export type RoutingStatusPage = { "authority_revision": Counter; "binding_revision": Counter; "complete": boolean; "deletion_revision": Counter; "effective": RoutingStatusEffective; "next_cursor"?: (string | null); "observed_at_ms": Counter; "optimizer": RoutingStatusOptimizer; "persisted"?: (RoutingStatusPublishedPolicy | null); "registry": RoutingStatusRegistry; "rows": Array<RoutingStatusRow>; "scope": Scope; "section": RoutingStatusSection; "task": Id; "watermark": Counter; };
+
+export type RoutingStatusPolicySummary = { "allowed_endpoints_count": Counter; "allowed_groups_count": Counter; "allowed_models_count": Counter; "broader_task_class"?: (RoutingStatusText | null); "deny_data_collection": boolean; "escalation_limits"?: (RoutingStatusEscalationLimits | null); "id": string; "input_tokens"?: (Counter | null); "maximum_evidence_age_ms": Counter; "minimum_samples": number; "ordering": Array<RoutingStatusPreference>; "output_tokens"?: (Counter | null); "parent_id"?: (string | null); "pin"?: (RoutingStatusIdentity | null); "pin_fallback_count": Counter; "profile": RoutingStatusProfile; "quality_floor_bps": number; "reasoning_effort"?: (RoutingStatusEffort | null); "require_zdr": boolean; "retrieval_limits"?: (RoutingStatusRetrievalLimits | null); };
+
+export type RoutingStatusPreference = (("total_cost" | "latency" | "quality" | "capability") & string);
+
+export type RoutingStatusPreferences = ("workspace_authority_required" & string);
+
+export type RoutingStatusPreview = (("host_ceilings_required" | "separate_authorized_operation") & string);
+
+export type RoutingStatusProfile = (("low" | "med" | "high") & string);
+
+export type RoutingStatusPublishedPolicy = { "actor": Id; "authority_revision": Counter; "parent_revision"?: (Counter | null); "policy": RoutingStatusPolicySummary; "published_at_ms": Counter; "revision": Counter; };
+
+export type RoutingStatusRegistry = ({ "catalog_id": string; "effective_at_ms"?: (Counter | null); "observed_at_ms": Counter; "revision": Counter; "source": EvidenceReference; "source_availability": RoutingStatusSourceAvailability; "source_task": Id; "state": ("observed" & string); } | { "reason": RoutingStatusRegistryReason; "state": ("unavailable" & string); });
+
+export type RoutingStatusRegistryReason = (("not_configured" | "restricted" | "source_unavailable") & string);
+
+export type RoutingStatusRemoteAdvice = ("disabled" & string);
+
+export type RoutingStatusReportCapture = ("explicit_mutation_required" & string);
+
+export type RoutingStatusRepresentation = (("persisted" | "effective") & string);
+
+export type RoutingStatusRequest = { "cursor"?: (string | null); "limit": number; "scope": Scope; "section": RoutingStatusSection; "task": Id; };
+
+export type RoutingStatusRetrievalLimits = { "bytes": Counter; "results": number; "tokens": Counter; };
+
+export type RoutingStatusRow = ({ "entry": RoutingStatusEntry; "kind": ("policy_entry" & string); "representation": RoutingStatusRepresentation; } | { "availability": RoutingStatusAvailability; "capability_count": Counter; "compatibility_count": Counter; "endpoint": string; "groups": Array<RoutingStatusGroup>; "kind": ("candidate" & string); "model": string; "provenance_count": Counter; "reasons": Array<RoutingStatusText>; "reasons_truncated": boolean; "role_evidence_count": Counter; });
+
+export type RoutingStatusSection = (("policy_entries" | "catalog") & string);
+
+export type RoutingStatusSourceAvailability = ("retained_metadata_only" & string);
+
+export type RoutingStatusText = { "text": string; "truncated": boolean; };
 
 export type RpcError = { "code": number; "data"?: (ErrorData | null); "message": string; };
 
@@ -303,6 +391,12 @@ export type Status = ({ "kind": ("task" & string); "value": TaskStatus; } | { "k
 export type Target = ({ "id": string; "kind": ("record" & string); } | { "id": Id; "kind": ("event" & string); });
 
 export type TaskCancel = { "mutation": Mutation; "reason": string; "scope": Scope; "task": Id; };
+
+export type TaskEffectivePolicy = ({ "host_denial_count": Counter; "policy": PolicySummary; "source": TaskPolicySource; "state": ("observed" & string); } | { "reason": TaskPolicyUnavailable; "state": ("unavailable" & string); });
+
+export type TaskPolicySource = (("workspace" | "child_inherited") & string);
+
+export type TaskPolicyUnavailable = (("policy_absent" | "binding_unavailable" | "child_scope_unavailable") & string);
 
 export type TaskPresentation = { "commentary": PresentationSource; "complete": boolean; "model": PresentationModel; "model_policy"?: (PresentationText | null); "next_cursor"?: (string | null); "objective"?: (PresentationText | null); "objective_acceptance"?: (Array<string> | null); "objective_constraints"?: (Array<string> | null); "questions": Array<PresentationQuestion>; "role"?: (PresentationText | null); "rows": Array<PresentationRow>; "task": TaskView; "watermark": Counter; };
 

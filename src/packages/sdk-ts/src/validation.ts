@@ -20,7 +20,7 @@ function inspect(schema: Schema): void {
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return invalidSchema();
   for (const key of Object.keys(schema)) if (!allowed.has(key)) invalidSchema();
   if (own(schema, '$ref')) resolve(schema['$ref']);
-  if (own(schema, 'format') && !['uint32', 'int16', 'int32'].includes(schema['format'] as string)) invalidSchema();
+  if (own(schema, 'format') && !['uint16', 'uint32', 'int16', 'int32'].includes(schema['format'] as string)) invalidSchema();
   if (own(schema, 'pattern')) {
     if (typeof schema['pattern'] !== 'string') invalidSchema();
     try { regexes.set(schema, new RegExp(schema['pattern'] as string, 'u')); } catch { invalidSchema(); }
@@ -132,6 +132,7 @@ export function validateWire(definition: string, value: unknown): void {
       if (typeof current['minimum'] === 'number' && item < current['minimum']) return false;
       if (typeof current['maximum'] === 'number' && item > current['maximum']) return false;
       const format = current['format'];
+      if (format === 'uint16' && (!Number.isInteger(item) || item < 0 || item > 65535)) return false;
       if (format === 'uint32' && (!Number.isInteger(item) || item < 0 || item > 4294967295)) return false;
       if (format === 'int32' && (!Number.isInteger(item) || item < -2147483648 || item > 2147483647)) return false;
       if (format === 'int16' && (!Number.isInteger(item) || item < -32768 || item > 32767)) return false;

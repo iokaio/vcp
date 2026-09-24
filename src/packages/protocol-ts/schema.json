@@ -1,5 +1,5 @@
 {
-  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"1e8ae519a37e636bff183dc592321edb3e93c12862691e26e307e53c7c4e173e\",\"src/crates/vcp-protocol/src/editor.rs\":\"4957eec00d2f1a5e4ebde7f3edec853e467e90911c9913e275209cdbb642b806\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/history.rs\":\"4e495b3e3f27511bb87b9aee3376eacef218fa7235f8658fe3533827fa8c6f31\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"9c9682b929c4aa8bcc6aae15669fa423aa0887dfa62416f1a63e356f47163cab\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_history.rs\":\"365fa8f5fc7e1af7fb846b68703e1a06596f3417978ce8026412baa1750b5d47\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"a15545cb5f7db9e2ed5fc0537975b3479e9955d3cd88ea2f7546821cf2cadbf0\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
+  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"2c445f347290034baf5ac529d0988e58045c0e56f721b256cdb5f70a185f50ba\",\"src/crates/vcp-protocol/src/editor.rs\":\"4957eec00d2f1a5e4ebde7f3edec853e467e90911c9913e275209cdbb642b806\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/history.rs\":\"4e495b3e3f27511bb87b9aee3376eacef218fa7235f8658fe3533827fa8c6f31\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"ebdc400258137f4e04fc33e55aa914cff6e6984eb92c82bb05c303ede81a3799\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_history.rs\":\"365fa8f5fc7e1af7fb846b68703e1a06596f3417978ce8026412baa1750b5d47\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"6e3d9b7cceb64c63f69f02bcfc93a8d1d83c79e1302f21ecaa0b684aef75ea82\",\"src/crates/vcp-protocol/src/policy_inspection.rs\":\"c0f892bd54c9afed18ebb9c601a786473712da50daabae76d01541bbab4fa7ed\",\"src/crates/vcp-protocol/src/routing_inspection.rs\":\"e68845d67d449d1f622dc9f6eaceb67d70e2d6d099f5e94661decd2de336f80b\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
@@ -862,6 +862,44 @@
             },
             "params": {
               "$ref": "#/definitions/Inspect"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "policy/read"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/PolicyRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "routing/status"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/RoutingStatusRequest"
             }
           },
           "required": [
@@ -4539,6 +4577,623 @@
       ],
       "type": "object"
     },
+    "PolicyAssessment": {
+      "enum": [
+        "operation_not_evaluated"
+      ],
+      "type": "string"
+    },
+    "PolicyDenial": {
+      "additionalProperties": false,
+      "properties": {
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/PolicyEffect"
+          },
+          "maxItems": 7,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/definitions/PolicyText"
+        },
+        "layer": {
+          "$ref": "#/definitions/PolicyLayer"
+        },
+        "origin": {
+          "$ref": "#/definitions/PolicyOrigin"
+        },
+        "path_count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "paths": {
+          "items": {
+            "$ref": "#/definitions/PolicyText"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "reason": {
+          "$ref": "#/definitions/PolicyText"
+        },
+        "roots": {
+          "items": {
+            "$ref": "#/definitions/Id"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PolicyText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "effects",
+        "id",
+        "layer",
+        "origin",
+        "path_count",
+        "paths",
+        "reason",
+        "roots"
+      ],
+      "type": "object"
+    },
+    "PolicyEffect": {
+      "enum": [
+        "read",
+        "write",
+        "execute",
+        "network",
+        "install",
+        "publish",
+        "opaque"
+      ],
+      "type": "string"
+    },
+    "PolicyGrant": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/definitions/Id"
+        },
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "authority_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "current_matches": {
+          "$ref": "#/definitions/PolicyGrantMatches"
+        },
+        "expires_at_ms": {
+          "$ref": "#/definitions/Counter"
+        },
+        "host": {
+          "$ref": "#/definitions/Id"
+        },
+        "id": {
+          "$ref": "#/definitions/Id"
+        },
+        "inherited_from": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "origin": {
+          "$ref": "#/definitions/PolicyOrigin"
+        },
+        "policy_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "reason": {
+          "$ref": "#/definitions/PolicyText"
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "revoked": {
+          "type": "boolean"
+        },
+        "scope": {
+          "$ref": "#/definitions/PolicyGrantScope"
+        },
+        "target": {
+          "$ref": "#/definitions/PolicyGrantTarget"
+        }
+      },
+      "required": [
+        "actor",
+        "authority_revision",
+        "binding_revision",
+        "current_matches",
+        "expires_at_ms",
+        "host",
+        "id",
+        "origin",
+        "policy_revision",
+        "reason",
+        "revision",
+        "revoked",
+        "scope",
+        "target"
+      ],
+      "type": "object"
+    },
+    "PolicyGrantMatches": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "type": "boolean"
+        },
+        "binding": {
+          "type": "boolean"
+        },
+        "host": {
+          "type": "boolean"
+        },
+        "not_revoked": {
+          "type": "boolean"
+        },
+        "policy": {
+          "type": "boolean"
+        },
+        "unexpired": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "authority",
+        "binding",
+        "host",
+        "not_revoked",
+        "policy",
+        "unexpired"
+      ],
+      "type": "object"
+    },
+    "PolicyGrantScope": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "workspace"
+              ],
+              "type": "string"
+            },
+            "workspace": {
+              "$ref": "#/definitions/Id"
+            }
+          },
+          "required": [
+            "kind",
+            "workspace"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "session"
+              ],
+              "type": "string"
+            },
+            "scope": {
+              "$ref": "#/definitions/Scope"
+            }
+          },
+          "required": [
+            "kind",
+            "scope"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "task"
+              ],
+              "type": "string"
+            },
+            "scope": {
+              "$ref": "#/definitions/Scope"
+            },
+            "task": {
+              "$ref": "#/definitions/Id"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "task"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PolicyGrantTarget": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "exact"
+              ],
+              "type": "string"
+            },
+            "operation_sha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "operation_sha256"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "arguments_sha256": {
+              "type": "string"
+            },
+            "effects": {
+              "items": {
+                "$ref": "#/definitions/PolicyEffect"
+              },
+              "maxItems": 7,
+              "type": "array"
+            },
+            "kind": {
+              "enum": [
+                "configured"
+              ],
+              "type": "string"
+            },
+            "output_ceiling_bytes": {
+              "$ref": "#/definitions/Counter"
+            },
+            "path_count": {
+              "$ref": "#/definitions/Counter"
+            },
+            "paths": {
+              "items": {
+                "$ref": "#/definitions/PolicyText"
+              },
+              "maxItems": 16,
+              "type": "array"
+            },
+            "roots": {
+              "items": {
+                "$ref": "#/definitions/Id"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            "schema_sha256": {
+              "type": "string"
+            },
+            "timeout_ceiling_ms": {
+              "$ref": "#/definitions/Counter"
+            },
+            "tool": {
+              "$ref": "#/definitions/PolicyText"
+            }
+          },
+          "required": [
+            "arguments_sha256",
+            "effects",
+            "kind",
+            "output_ceiling_bytes",
+            "path_count",
+            "paths",
+            "roots",
+            "schema_sha256",
+            "timeout_ceiling_ms",
+            "tool"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PolicyGrantVisibility": {
+      "enum": [
+        "task_and_inherited_only"
+      ],
+      "type": "string"
+    },
+    "PolicyLayer": {
+      "enum": [
+        "host",
+        "canonical"
+      ],
+      "type": "string"
+    },
+    "PolicyMode": {
+      "enum": [
+        "plan",
+        "ask",
+        "workspace",
+        "autonomous"
+      ],
+      "type": "string"
+    },
+    "PolicyOrigin": {
+      "enum": [
+        "host",
+        "user"
+      ],
+      "type": "string"
+    },
+    "PolicyPage": {
+      "additionalProperties": false,
+      "properties": {
+        "assessment": {
+          "$ref": "#/definitions/PolicyAssessment"
+        },
+        "authority_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "deletion_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "effective": {
+          "$ref": "#/definitions/TaskEffectivePolicy"
+        },
+        "grant_visibility": {
+          "$ref": "#/definitions/PolicyGrantVisibility"
+        },
+        "host": {
+          "$ref": "#/definitions/Id"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_at_ms": {
+          "$ref": "#/definitions/Counter"
+        },
+        "persisted": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PolicySummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/definitions/PolicyRow"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "section": {
+          "$ref": "#/definitions/PolicySection"
+        },
+        "steering_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "task_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "task_state": {
+          "$ref": "#/definitions/TaskStatus"
+        },
+        "trust": {
+          "$ref": "#/definitions/Trust"
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "assessment",
+        "authority_revision",
+        "binding_revision",
+        "complete",
+        "deletion_revision",
+        "effective",
+        "grant_visibility",
+        "host",
+        "observed_at_ms",
+        "rows",
+        "scope",
+        "section",
+        "steering_revision",
+        "task",
+        "task_revision",
+        "task_state",
+        "trust",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    "PolicyRead": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 32,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "section": {
+          "$ref": "#/definitions/PolicySection"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "limit",
+        "scope",
+        "section",
+        "task"
+      ],
+      "type": "object"
+    },
+    "PolicyRow": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "denial"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/PolicyDenial"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "grant"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/PolicyGrant"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PolicySection": {
+      "enum": [
+        "denials",
+        "grants"
+      ],
+      "type": "string"
+    },
+    "PolicySummary": {
+      "additionalProperties": false,
+      "properties": {
+        "automatic_effects": {
+          "items": {
+            "$ref": "#/definitions/PolicyEffect"
+          },
+          "maxItems": 7,
+          "type": "array"
+        },
+        "mode": {
+          "$ref": "#/definitions/PolicyMode"
+        },
+        "output_ceiling_bytes": {
+          "$ref": "#/definitions/Counter"
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "timeout_ceiling_ms": {
+          "$ref": "#/definitions/Counter"
+        },
+        "workspace_roots": {
+          "items": {
+            "$ref": "#/definitions/Id"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "automatic_effects",
+        "mode",
+        "output_ceiling_bytes",
+        "revision",
+        "timeout_ceiling_ms",
+        "workspace_roots"
+      ],
+      "type": "object"
+    },
+    "PolicyText": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text",
+        "truncated"
+      ],
+      "type": "object"
+    },
     "Position": {
       "additionalProperties": false,
       "properties": {
@@ -5410,6 +6065,44 @@
           "properties": {
             "kind": {
               "enum": [
+                "policy"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/PolicyPage"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "routing_status"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/RoutingStatusPage"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
                 "memory_query"
               ],
               "type": "string"
@@ -5819,6 +6512,807 @@
         "submission",
         "submission_command",
         "task"
+      ],
+      "type": "object"
+    },
+    "RoutingStatusAvailability": {
+      "enum": [
+        "supported",
+        "unsupported",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusEffective": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ceilings_sha256": {
+              "type": "string"
+            },
+            "policy": {
+              "$ref": "#/definitions/RoutingStatusPolicySummary"
+            },
+            "state": {
+              "enum": [
+                "observed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "ceilings_sha256",
+            "policy",
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "$ref": "#/definitions/RoutingStatusEffectiveReason"
+            },
+            "state": {
+              "enum": [
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RoutingStatusEffectiveReason": {
+      "enum": [
+        "not_configured",
+        "host_unconfigured"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusEffort": {
+      "enum": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusEntry": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "allowed_model"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "allowed_endpoint"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "allowed_group"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/RoutingStatusGroup"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "pin_fallback"
+              ],
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "endpoint",
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RoutingStatusEscalationLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_quality_switches": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_total_attempts": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_transport_retries": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "minimum_repeated_failures": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RoutingStatusGroup": {
+      "enum": [
+        "frontier",
+        "high",
+        "medium",
+        "low"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "endpoint",
+        "model"
+      ],
+      "type": "object"
+    },
+    "RoutingStatusOptimizer": {
+      "additionalProperties": false,
+      "properties": {
+        "preferences": {
+          "$ref": "#/definitions/RoutingStatusPreferences"
+        },
+        "preview": {
+          "$ref": "#/definitions/RoutingStatusPreview"
+        },
+        "remote_advice": {
+          "$ref": "#/definitions/RoutingStatusRemoteAdvice"
+        },
+        "report_capture": {
+          "$ref": "#/definitions/RoutingStatusReportCapture"
+        }
+      },
+      "required": [
+        "preferences",
+        "preview",
+        "remote_advice",
+        "report_capture"
+      ],
+      "type": "object"
+    },
+    "RoutingStatusPage": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "deletion_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "effective": {
+          "$ref": "#/definitions/RoutingStatusEffective"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_at_ms": {
+          "$ref": "#/definitions/Counter"
+        },
+        "optimizer": {
+          "$ref": "#/definitions/RoutingStatusOptimizer"
+        },
+        "persisted": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RoutingStatusPublishedPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "registry": {
+          "$ref": "#/definitions/RoutingStatusRegistry"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/definitions/RoutingStatusRow"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "section": {
+          "$ref": "#/definitions/RoutingStatusSection"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "authority_revision",
+        "binding_revision",
+        "complete",
+        "deletion_revision",
+        "effective",
+        "observed_at_ms",
+        "optimizer",
+        "registry",
+        "rows",
+        "scope",
+        "section",
+        "task",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    "RoutingStatusPolicySummary": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_endpoints_count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "allowed_groups_count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "allowed_models_count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "broader_task_class": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RoutingStatusText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deny_data_collection": {
+          "type": "boolean"
+        },
+        "escalation_limits": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RoutingStatusEscalationLimits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maximum_evidence_age_ms": {
+          "$ref": "#/definitions/Counter"
+        },
+        "minimum_samples": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ordering": {
+          "items": {
+            "$ref": "#/definitions/RoutingStatusPreference"
+          },
+          "type": "array"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pin": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RoutingStatusIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pin_fallback_count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "profile": {
+          "$ref": "#/definitions/RoutingStatusProfile"
+        },
+        "quality_floor_bps": {
+          "format": "uint16",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reasoning_effort": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RoutingStatusEffort"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "require_zdr": {
+          "type": "boolean"
+        },
+        "retrieval_limits": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RoutingStatusRetrievalLimits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "allowed_endpoints_count",
+        "allowed_groups_count",
+        "allowed_models_count",
+        "deny_data_collection",
+        "id",
+        "maximum_evidence_age_ms",
+        "minimum_samples",
+        "ordering",
+        "pin_fallback_count",
+        "profile",
+        "quality_floor_bps",
+        "require_zdr"
+      ],
+      "type": "object"
+    },
+    "RoutingStatusPreference": {
+      "enum": [
+        "total_cost",
+        "latency",
+        "quality",
+        "capability"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusPreferences": {
+      "enum": [
+        "workspace_authority_required"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusPreview": {
+      "enum": [
+        "host_ceilings_required",
+        "separate_authorized_operation"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusProfile": {
+      "enum": [
+        "low",
+        "med",
+        "high"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusPublishedPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/definitions/Id"
+        },
+        "authority_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "parent_revision": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "policy": {
+          "$ref": "#/definitions/RoutingStatusPolicySummary"
+        },
+        "published_at_ms": {
+          "$ref": "#/definitions/Counter"
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "actor",
+        "authority_revision",
+        "policy",
+        "published_at_ms",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "RoutingStatusRegistry": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "catalog_id": {
+              "type": "string"
+            },
+            "effective_at_ms": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "observed_at_ms": {
+              "$ref": "#/definitions/Counter"
+            },
+            "revision": {
+              "$ref": "#/definitions/Counter"
+            },
+            "source": {
+              "$ref": "#/definitions/EvidenceReference"
+            },
+            "source_availability": {
+              "$ref": "#/definitions/RoutingStatusSourceAvailability"
+            },
+            "source_task": {
+              "$ref": "#/definitions/Id"
+            },
+            "state": {
+              "enum": [
+                "observed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "catalog_id",
+            "observed_at_ms",
+            "revision",
+            "source",
+            "source_availability",
+            "source_task",
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "$ref": "#/definitions/RoutingStatusRegistryReason"
+            },
+            "state": {
+              "enum": [
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RoutingStatusRegistryReason": {
+      "enum": [
+        "not_configured",
+        "restricted",
+        "source_unavailable"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusRemoteAdvice": {
+      "enum": [
+        "disabled"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusReportCapture": {
+      "enum": [
+        "explicit_mutation_required"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusRepresentation": {
+      "enum": [
+        "persisted",
+        "effective"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 32,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "section": {
+          "$ref": "#/definitions/RoutingStatusSection"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "limit",
+        "scope",
+        "section",
+        "task"
+      ],
+      "type": "object"
+    },
+    "RoutingStatusRetrievalLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "$ref": "#/definitions/Counter"
+        },
+        "results": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "bytes",
+        "results",
+        "tokens"
+      ],
+      "type": "object"
+    },
+    "RoutingStatusRow": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "$ref": "#/definitions/RoutingStatusEntry"
+            },
+            "kind": {
+              "enum": [
+                "policy_entry"
+              ],
+              "type": "string"
+            },
+            "representation": {
+              "$ref": "#/definitions/RoutingStatusRepresentation"
+            }
+          },
+          "required": [
+            "entry",
+            "kind",
+            "representation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "$ref": "#/definitions/RoutingStatusAvailability"
+            },
+            "capability_count": {
+              "$ref": "#/definitions/Counter"
+            },
+            "compatibility_count": {
+              "$ref": "#/definitions/Counter"
+            },
+            "endpoint": {
+              "type": "string"
+            },
+            "groups": {
+              "items": {
+                "$ref": "#/definitions/RoutingStatusGroup"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "enum": [
+                "candidate"
+              ],
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "provenance_count": {
+              "$ref": "#/definitions/Counter"
+            },
+            "reasons": {
+              "items": {
+                "$ref": "#/definitions/RoutingStatusText"
+              },
+              "type": "array"
+            },
+            "reasons_truncated": {
+              "type": "boolean"
+            },
+            "role_evidence_count": {
+              "$ref": "#/definitions/Counter"
+            }
+          },
+          "required": [
+            "availability",
+            "capability_count",
+            "compatibility_count",
+            "endpoint",
+            "groups",
+            "kind",
+            "model",
+            "provenance_count",
+            "reasons",
+            "reasons_truncated",
+            "role_evidence_count"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RoutingStatusSection": {
+      "enum": [
+        "policy_entries",
+        "catalog"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusSourceAvailability": {
+      "enum": [
+        "retained_metadata_only"
+      ],
+      "type": "string"
+    },
+    "RoutingStatusText": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text",
+        "truncated"
       ],
       "type": "object"
     },
@@ -6360,6 +7854,71 @@
         "task"
       ],
       "type": "object"
+    },
+    "TaskEffectivePolicy": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "host_denial_count": {
+              "$ref": "#/definitions/Counter"
+            },
+            "policy": {
+              "$ref": "#/definitions/PolicySummary"
+            },
+            "source": {
+              "$ref": "#/definitions/TaskPolicySource"
+            },
+            "state": {
+              "enum": [
+                "observed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "host_denial_count",
+            "policy",
+            "source",
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "$ref": "#/definitions/TaskPolicyUnavailable"
+            },
+            "state": {
+              "enum": [
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TaskPolicySource": {
+      "enum": [
+        "workspace",
+        "child_inherited"
+      ],
+      "type": "string"
+    },
+    "TaskPolicyUnavailable": {
+      "enum": [
+        "policy_absent",
+        "binding_unavailable",
+        "child_scope_unavailable"
+      ],
+      "type": "string"
     },
     "TaskPresentation": {
       "additionalProperties": false,

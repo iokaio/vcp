@@ -88,6 +88,13 @@ decimal strings. See [ADR-060](../adr/060-governed-inspector-queries.md) and the
 [inspector query contract](editor-inspectors.md) for qualification and remaining UI
 acceptance.
 
+The policy/routing increment adds `policy/read` with `policy/inspection/1` and
+`routing/status` with `routing/status/1`. These scoped observer projections
+distinguish stored policy, observed effective limits and historical grant facts.
+They never invoke owner controls or capture optimizer reports. See
+[ADR-061](../adr/061-policy-routing-inspection.md) for authority and provenance
+boundaries; full inspector and optimizer qualification remains separate.
+
 ## Canonical definitions and generated artifacts
 
 The Rust wire DTOs in `vcp-protocol/src/methods.rs`, handshake, errors and JSON-RPC

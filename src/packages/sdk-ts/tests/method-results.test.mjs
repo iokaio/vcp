@@ -6,7 +6,7 @@ import { RESULT_KINDS, REQUIRED_PROFILES } from '../dist/method-results.js';
 
 test('every canonical method has an audited result mapping', () => {
   const methods = schema.definitions.Call.oneOf.map(branch => branch.properties.method.enum[0]);
-  assert.equal(methods.length, 46);
+  assert.equal(methods.length, 48);
   assert.deepEqual(Object.keys(RESULT_KINDS).sort(), methods.sort());
   const kinds = new Set(schema.definitions.ResultValue.oneOf.map(branch => branch.properties.kind.enum[0]));
   for (const [method, replies] of Object.entries(RESULT_KINDS)) {
@@ -32,4 +32,8 @@ test('controller receipts and stream unions match dispatcher envelopes', () => {
   assert.deepEqual(REQUIRED_PROFILES['history/query'], ['history/query/1']);
   assert.deepEqual(RESULT_KINDS['memory/history'], ['memory_history']);
   assert.deepEqual(REQUIRED_PROFILES['memory/history'], ['memory/history/1']);
+  assert.deepEqual(RESULT_KINDS['policy/read'], ['policy']);
+  assert.deepEqual(REQUIRED_PROFILES['policy/read'], ['policy/inspection/1']);
+  assert.deepEqual(RESULT_KINDS['routing/status'], ['routing_status']);
+  assert.deepEqual(REQUIRED_PROFILES['routing/status'], ['routing/status/1']);
 });

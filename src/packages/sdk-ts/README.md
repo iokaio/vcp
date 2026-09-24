@@ -56,6 +56,14 @@ a stable sequence window with current evidence and retention states. Summaries
 and links may be explicitly truncated; full evidence requires authorized artifact
 range reads. See the [inspector query contract](../../../docs/development/editor-inspectors.md).
 
+`policy/read` negotiates `policy/inspection/1` and returns a `policy` envelope;
+`routing/status` negotiates `routing/status/1` and returns `routing_status`.
+Both read the current task context and invalidate continuations when relevant
+policy or host facts change. Grant observations never authorize dispatch. Stored
+routing policy is separate from host-effective policy, which can be unavailable.
+Registry source references are metadata observations; use `artifact/read` for
+fresh authorization and retained-byte verification.
+
 Mutations require an explicitly acquired controller and the caller's durable
 command identity. `newCommandId()` creates an identity only when called. After an
 interruption, use `reconcile({scope, command_id})` and retain the original payload

@@ -1,7 +1,8 @@
 # Editor inspectors
 
 Work item: [P4-04](../plan/18-deferred-vscode.md#p4-04--inspectors).
-Status: history/memory query prerequisite accepted; P4-04 acceptance remains open.
+Status: history/memory and policy/routing query prerequisites accepted.
+P4-04 acceptance remains open.
 [ADR-060](../adr/060-governed-inspector-queries.md) records the query boundary.
 
 ## History and memory query increment
@@ -63,6 +64,43 @@ History pages are at most 64 KiB, with at most 128 artifact links per event and
 bounded metadata. A multirow request exceeding the byte cap returns an explicit
 resource-limit error; restart with a smaller limit. Truncation never implies that
 omitted links or metadata are absent from the canonical history.
+
+## Policy and routing query increment
+
+`policy/read` negotiates `policy/inspection/1`. It separates stored policy,
+observed task-effective constraints and exact task or authorized inherited grant
+provenance. Shared grant details remain restricted. Expiry, revocation and
+revision matches are facts, never an operation admission decision. Missing live
+binding evidence is explicit unavailability; inspection cannot reconstruct it.
+
+`routing/status` negotiates `routing/status/1`. Stored policy is distinct from
+the effective policy under this host's configured ceilings. Catalog observations
+require current source scope and retention. A `retained_metadata_only` source
+reference attests metadata, not the existence or integrity of retained bytes;
+`artifact/read` performs its existing verification before returning content.
+
+Both methods use at most 32 rows and 64 KiB per page. Continuations bind current
+scope, authority and relevant policy/configuration evidence. Neither route calls
+owner controls, captures a report, invokes a provider or exposes raw invocations,
+catalog source bytes, interview answers or credentials. See
+[ADR-061](../adr/061-policy-routing-inspection.md).
+
+Qualification passed: protocol 26 plus the routing wire integration test,
+engine 73, schema generation 9, SDK 34, extension 108 and fast delivery 18 passed.
+Policy and routing tests passed on both stores: exact inherited revision pins,
+foreign/shared grant exclusion, expiry/revocation, 40-candidate catalog paging,
+host ceiling changes and source retention between pages. Scoped rows preserve
+provenance without invocation payloads or raw catalog bytes.
+
+Compiled-host SDK qualification passed on Files and SQLite in 23.80 seconds:
+each backend returned two denials, two exact task grants and two catalog
+candidates over bounded pages, alongside 43 history rows and 33 memory versions.
+The shared workspace grant was excluded, unavailable effective host policy was
+explicit, and exact counters, scope/cursor rejection and unchanged complete
+canonical state were verified. The native fixture remains
+`vcp-cli/tests/local_inspector_queries.rs`. Fast delivery evidence is
+`8e6d93c5-5054-45fa-bf88-bed16eb10dc2`; required SDK/extension regressions were
+rerun after adding explicit unsigned 16-bit validation.
 
 ## Remaining P4-04 acceptance
 

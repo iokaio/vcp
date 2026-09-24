@@ -27,6 +27,8 @@ const METHODS: &[&str] = &[
     "usage/read",
     "context/inspect",
     "routing/explain",
+    "policy/read",
+    "routing/status",
     "artifact/read",
     "diff/read",
     #[cfg(windows)]
@@ -430,6 +432,14 @@ impl RpcHost for PublicConnection {
             return self
                 .memory_history(request, current)
                 .map(ResultValue::MemoryHistory);
+        }
+        if let Call::PolicyRead(request) = &call {
+            return self.policy_read(request, current).map(ResultValue::Policy);
+        }
+        if let Call::RoutingStatus(request) = &call {
+            return self
+                .routing_status(request, current)
+                .map(ResultValue::RoutingStatus);
         }
         #[cfg(windows)]
         if matches!(call, Call::EditorContext(_) | Call::EditorPrepare(_) | Call::EditorChangeRead(_)
