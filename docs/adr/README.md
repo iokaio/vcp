@@ -88,6 +88,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 - [ADR-060 - Governed inspector queries](060-governed-inspector-queries.md): bounded history and memory pages with current access and retention checks.
 - [ADR-061 - Policy and routing inspection](061-policy-routing-inspection.md): bounded observations distinguish stored policy, effective constraints and grant provenance.
 
+- [ADR-062 - Reconciled editor optimizer commands](062-editor-optimizer-commands.md): actor-bound atomic report capture and policy publication, exact previews and durable reconciliation.
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.

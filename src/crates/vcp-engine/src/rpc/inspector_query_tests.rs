@@ -67,6 +67,31 @@ async fn inspector_profiles_gate_dispatch_and_recheck_current_access() {
             vcp_protocol::routing_inspection::CAPABILITY,
             json!({"scope":{"workspace":"workspace","session":"session"},"task":"task","section":"catalog","limit":1,"cursor":null}),
         ),
+        (
+            "routing/reportCapture",
+            vcp_protocol::routing_optimizer::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"mutation":{"command_id":"capture","expected_revision":"0","steering_revision":"0"},"expected_binding_revision":"0","coverage":"session","window":{"from":null,"until":"100"}}),
+        ),
+        (
+            "routing/reportRead",
+            vcp_protocol::routing_optimizer::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"report":"capture","section":"summary","limit":1,"cursor":null}),
+        ),
+        (
+            "routing/preview",
+            vcp_protocol::routing_optimizer::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"expected_policy_revision":"1","proposal":{"kind":"rollback","target_revision":"0"}}),
+        ),
+        (
+            "routing/apply",
+            vcp_protocol::routing_optimizer::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"mutation":{"command_id":"apply","expected_revision":"0","steering_revision":"0"},"expected_binding_revision":"0","preview_id":"preview","preview_sha256":"a".repeat(64)}),
+        ),
+        (
+            "routing/rollback",
+            vcp_protocol::routing_optimizer::CAPABILITY,
+            json!({"scope":{"workspace":"workspace","session":"session"},"mutation":{"command_id":"rollback","expected_revision":"0","steering_revision":"0"},"expected_binding_revision":"0","preview_id":"preview","preview_sha256":"a".repeat(64)}),
+        ),
     ] {
         for negotiated in [false, true] {
             let mut host = Host {

@@ -371,6 +371,18 @@ P9-03 [SDK qualification](typescript-sdk.md) now covers compiled local clients,
 retry, cancellation, disposal and gap recovery. Its record separates package
 checks, native execution and delayed-response delivery evidence.
 
+## Optimizer commands
+
+The optional `routing/optimizer/1` profile governs report capture/read, tagged
+apply or rollback previews, and durable apply/rollback commands. Captures use
+their command ID as public report identity. Mutations require the authenticated
+controller and current workspace/binding preconditions; preview and policy
+publication also require trusted workspace state and actual host ceilings.
+The standard command receipt is atomic with publication. Exact replay precedes
+ephemeral preview lookup, and receipt access never grants report content access.
+See [ADR-062](../adr/062-editor-optimizer-commands.md) for the authorization and
+reconciliation contract and [qualification status](editor-inspectors.md).
+
 ## ACP consideration
 
 An ACP adapter was considered as an additional client surface. The native VCP

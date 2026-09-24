@@ -141,8 +141,10 @@ and [current completion evidence](../architecture/vcp-what.md#44-completion-cont
 
 ## P4-04 — Inspectors
 
-Status: history/memory query prerequisite accepted; remaining APIs and UI in progress. See [the current increment](../development/editor-inspectors.md)
-and [ADR-060](../adr/060-governed-inspector-queries.md); full UI acceptance remains open.
+Status: history/memory and policy/routing queries plus optimizer commands accepted;
+inspector UI and encrypted publisher integration remain in progress. See
+[the current increment](../development/editor-inspectors.md) and
+[ADR-062](../adr/062-editor-optimizer-commands.md); full acceptance remains open.
 
 Expose full history/memory/evidence, cost/policy/routing, optimization proposals and pruning previews through engine query services. Respect current retention/access for historic content; do not cache purged text indefinitely in webview state. Cloud export still uses the encrypted engine publisher.
 

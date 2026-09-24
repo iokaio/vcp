@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: Apache-2.0
+// Actual host/SDK calls. Seeded policy is retained; this reopened host has no ceilings.
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {launchLocal} from '../dist/index.js';
+let raw='';for await(const chunk of process.stdin)raw+=chunk;const input=JSON.parse(raw);
+const capabilities=['workspace/open','workspace/binding/1','workspace/setTrust','controller/read','controller/acquire','command/read','task/read','routing/status','routing/status/1','routing/optimizer/1','routing/reportCapture','routing/reportRead','routing/preview','routing/apply','routing/rollback'];
+const initialize={protocol_version:'1.0',client:{name:'native-optimizer',version:'1'},capabilities,required_capabilities:capabilities};
+const owned=[];const value=(reply,kind)=>{assert.equal(reply.kind,kind);return reply.value;};
+const launch=async role=>{const client=await launchLocal({executable:input.executable,workspace:input.workspace,data:input.data,role,transport:'stdio',initialize});owned.push(client);return client;};
+const workspace=async client=>value(await client.call('workspace/open',{command_id:randomUUID(),host:client.initialized.execution_host.id,root:input.root}),'workspace');
+const mutation=async(client,command_id)=>{const w=await workspace(client);return {scope:input.scope,mutation:{command_id,expected_revision:w.revision,steering_revision:'0'},expected_binding_revision:w.binding_revision};};
+const read=async(client,report,section='summary',cursor=null)=>value(await client.call('routing/reportRead',{scope:input.scope,report,section,limit:1,cursor}),'routing_report');
+const currentPolicy=async client=>value(await client.call('routing/status',{scope:input.scope,task:input.task,section:'policy_entries',limit:1,cursor:null}),'routing_status').persisted.revision;
+try {
+  const limited=await launchLocal({executable:input.executable,workspace:input.workspace,data:input.data,role:'observer',transport:'stdio',initialize:{...initialize,capabilities:['routing/reportRead'],required_capabilities:['routing/reportRead']}});owned.push(limited);
+  await assert.rejects(read(limited,'missing-report'));await limited.dispose();
+  process.stderr.write('phase: optimizer report host\n');
+  const client=await launch('controller');
+  process.stderr.write('phase: acquire controller\n');
+  value(await client.call('controller/acquire',{scope:input.scope,command_id:'optimizer-owner',expected_revision:null}),'acceptance');
+  const window={from:null,until:'18446744073709551615'};
+  process.stderr.write('phase: workspace projection\n');
+  const capture={...await mutation(client,'optimizer-session-report'),window,coverage:'session'};
+  process.stderr.write('phase: session capture\n');
+  const captured=await client.call('routing/reportCapture',capture);value(captured,'acceptance');
+  assert.deepEqual(await client.call('routing/reportCapture',capture),captured);
+  await assert.rejects(client.call('routing/reportCapture',{...capture,coverage:'workspace'}));
+  const workspaceCapture={...await mutation(client,'optimizer-workspace-report'),window,coverage:'workspace'};
+  const workspaceReceipt=await client.call('routing/reportCapture',workspaceCapture);value(workspaceReceipt,'acceptance');
+  const summary=await read(client,'optimizer-session-report');assert.equal(summary.coverage,'session');assert.equal(summary.window.until,'18446744073709551615');assert.equal(summary.rows[0].kind,'summary');assert.equal(summary.rows[0].counts.attempts,'0');
+  await assert.rejects(read(client,'missing-report'));
+  await assert.rejects(client.call('routing/reportRead',{scope:{...input.scope,session:'foreign-session'},report:'optimizer-session-report',section:'summary',limit:1,cursor:null}));
+  let cursor=null,pages=0,sources=[];do{const page=await read(client,'optimizer-session-report','sources',cursor);assert.equal(page.watermark,summary.watermark);sources.push(...page.rows);cursor=page.next_cursor;assert(++pages<100);if(cursor)await assert.rejects(read(client,'optimizer-session-report','uncertainty',cursor));}while(cursor);
+  assert(sources.some(row=>row.kind==='source_task'&&row.task===input.task));
+  for(const section of ['cohorts','uncertainty','forecast']){const page=await read(client,'optimizer-session-report',section);assert.equal(typeof page.cutoff,'string');assert.equal(page.watermark,summary.watermark);}
+  const base=await currentPolicy(client);assert.equal(base,'0');
+  const request={scope:input.scope,expected_policy_revision:base,proposal:{kind:'apply',report:'optimizer-session-report',edits:[{field:'quality_floor_bps',value:7500}]}};
+  await assert.rejects(client.call('routing/preview',request),error=>error.classification?.applicationCode==='CAPABILITY_UNAVAILABLE');
+  const absent={...await mutation(client,'optimizer-no-preview'),preview_id:'absent-preview',preview_sha256:'a'.repeat(64)};
+  await assert.rejects(client.call('routing/apply',absent));
+  await assert.rejects(client.call('routing/rollback',absent));
+  await client.dispose();
+  process.stderr.write('phase: observer receipt recovery\n');
+  const observer=await launch('observer');
+  for(const [command_id,receipt]of [['optimizer-session-report',captured],['optimizer-workspace-report',workspaceReceipt]])assert.deepEqual(await observer.call('command/read',{scope:input.scope,command_id}),receipt);
+  await read(observer,'optimizer-session-report');
+  await assert.rejects(read(observer,'optimizer-workspace-report'));
+  await assert.rejects(observer.call('routing/apply',absent));await assert.rejects(observer.call('routing/preview',request));
+  await observer.dispose();
+  const reopened=await launch('controller');
+  const lease=value(await reopened.call('controller/read',{scope:input.scope}),'controller');
+  value(await reopened.call('controller/acquire',{scope:input.scope,command_id:'optimizer-reopened-owner',expected_revision:lease.revision}),'acceptance');
+  assert.deepEqual(await reopened.call('routing/reportCapture',capture),captured,'accepted capture replay survives reload');
+  await assert.rejects(reopened.call('routing/preview',request));
+  assert.equal(value(await reopened.call('task/read',{scope:input.scope,task:input.task}),'task').state,'paused');
+  const beforeRevocation=await read(reopened,'optimizer-session-report','sources');assert(beforeRevocation.next_cursor);
+  value(await reopened.call('workspace/setTrust',{...await mutation(reopened,'optimizer-revoke-trust'),trusted:false}),'acceptance');
+  await reopened.dispose();
+  const revoked=await launch('observer');
+  await assert.rejects(read(revoked,'optimizer-session-report','sources',beforeRevocation.next_cursor));
+  await assert.rejects(read(revoked,'optimizer-session-report'));
+  process.stdout.write(JSON.stringify({ok:true,report_pages:pages,receipts:2,policy_revision:'0',provider_dispatches:0,authority_revocation_between_pages:true}));
+}finally{for(const client of owned.reverse())await client.dispose().catch(()=>{});}

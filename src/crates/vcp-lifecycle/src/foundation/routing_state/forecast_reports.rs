@@ -82,7 +82,9 @@ fn source_access(
     store: &Store,
     access: &Access,
     value: &forecasts::Report,
+    check: &dyn Fn() -> Result<()>,
 ) -> Result<BTreeSet<TaskId>> {
+    check()?;
     authorize(store, access, false)?;
     if store.state().events.len() > 100_000 || store.state().records.len() > 100_000 {
         return Err("saved forecast source validation exceeds bounded view".into());
@@ -121,6 +123,7 @@ fn source_access(
         return Err("saved forecast source selector access changed".into());
     }
     for reference in &value.references {
+        check()?;
         if !recall_allowed(
             store.state(),
             &access.workspace,
@@ -160,6 +163,7 @@ fn source_access(
         .map(|e| (&e.event.id, e))
         .collect();
     for id in &value.source_events {
+        check()?;
         let event = events.get(id).ok_or("saved forecast event unavailable")?;
         if event.event.workspace != access.workspace
             || event.redaction.is_some()
@@ -189,7 +193,44 @@ pub(super) async fn save(
     report: OptimizationReport,
     now: Timestamp,
 ) -> Result<OptimizationReport> {
-    save_inner(store, access, report, now, false).await
+    save_inner(store, access, report, now, false, None).await
+}
+struct PublicCapture<'a> {
+    command: &'a super::public_optimizer::Command,
+    coverage: super::public_optimizer::Coverage,
+    check: &'a super::public_optimizer::Check<'a>,
+    failure: std::cell::RefCell<Option<super::public_optimizer::Error>>,
+}
+pub(super) async fn save_public(
+    store: &mut Store,
+    access: &Access,
+    report: OptimizationReport,
+    command: &super::public_optimizer::Command,
+    coverage: super::public_optimizer::Coverage,
+    now: Timestamp,
+    check: &super::public_optimizer::Check<'_>,
+    interrupt: bool,
+) -> super::public_optimizer::PublicResult<super::public_optimizer::Commit> {
+    let context = PublicCapture {
+        command,
+        coverage,
+        check,
+        failure: std::cell::RefCell::new(None),
+    };
+    if save_inner(store, access, report, now, interrupt, Some(&context))
+        .await
+        .is_err()
+    {
+        let failure = context.failure.into_inner();
+        if failure == Some(super::public_optimizer::Error::OutcomeUnknown) {
+            return Err(super::public_optimizer::Error::OutcomeUnknown);
+        }
+        check()?;
+        return Err(failure.unwrap_or(super::public_optimizer::Error::Unavailable));
+    }
+    super::public_optimizer::replay(store, access, command)
+        .map_err(|_| super::public_optimizer::Error::OutcomeUnknown)?
+        .ok_or(super::public_optimizer::Error::OutcomeUnknown)
 }
 
 /// Inject a failure after artifact finalization but before canonical publication.
@@ -202,7 +243,7 @@ pub async fn qualification_interrupt_after_spool(
     now: Timestamp,
 ) -> Result<OptimizationReport> {
     let report = super::report(store, access, window)?;
-    save_inner(store, access, report, now, true).await
+    save_inner(store, access, report, now, true, None).await
 }
 
 async fn save_inner(
@@ -211,27 +252,38 @@ async fn save_inner(
     mut report: OptimizationReport,
     now: Timestamp,
     interrupt: bool,
+    public: Option<&PublicCapture<'_>>,
 ) -> Result<OptimizationReport> {
+    let check = || {
+        public.map_or(Ok(()), |p| {
+            (p.check)().map_err(|_| "optimizer interrupted".to_owned())
+        })
+    };
+    check()?;
     authorize(store, access, true)?;
     report.forecast = None;
-    let forecast = match forecasts::observe(store, access, report.window.clone()) {
+    let forecast = match forecasts::observe_with_check(store, access, report.window.clone(), &check)
+    {
         Ok(forecast) => forecast,
         Err(_) => {
             report.uncertainty.push("Forecast unavailable: canonical action evidence is incomplete or exceeds analysis bounds.".into());
-            return save_snapshot(store, access, report, now).await;
+            return save_snapshot(store, access, report, now, public).await;
         }
     };
-    let compaction = compaction_diagnostics::observe(store, access, report.window.clone())?;
+    check()?;
+    let compaction =
+        compaction_diagnostics::observe_with_check(store, access, report.window.clone(), &check)?;
+    check()?;
     let combined = dependencies(&forecast, &compaction);
-    let tasks = match source_access(store, access, &combined) {
+    let tasks = match source_access(store, access, &combined, &check) {
         Ok(tasks) => tasks,
         Err(_) => {
             report.uncertainty.push("Forecast unavailable: current source access or retention does not permit a source-linked snapshot.".into());
-            return save_snapshot(store, access, report, now).await;
+            return save_snapshot(store, access, report, now, public).await;
         }
     };
     let Some(first) = tasks.iter().next() else {
-        return save_snapshot(store, access, report, now).await;
+        return save_snapshot(store, access, report, now, public).await;
     };
     let task: Task = store
         .state()
@@ -262,6 +314,7 @@ async fn save_inner(
     };
     let mut writer = store.spool().create(spec).map_err(err)?;
     for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
+        check()?;
         writer.write_chunk(chunk).map_err(err)?;
     }
     let descriptor = writer.finalize().map_err(err)?;
@@ -343,24 +396,44 @@ async fn save_inner(
         data: serde_json::json!({"schema_version":1,"facts":[{"collection":"artifact","id":descriptor.spec.id,"revision":Revision::ZERO,"value":descriptor}]}),
         metadata: None,
     };
+    let mutations = vec![
+        Mutation::Put {
+            record: manifest_record,
+            expected: None,
+        },
+        Mutation::Put {
+            record: artifact,
+            expected: None,
+        },
+        Mutation::Put {
+            record: report_record,
+            expected: None,
+        },
+    ];
+    if let Some(public) = public {
+        super::public_optimizer::commit_report(
+            store,
+            access,
+            public.command,
+            public.coverage,
+            &report,
+            mutations,
+            vec![event],
+            now,
+            public.check,
+        )
+        .await
+        .map_err(|error| {
+            public.failure.replace(Some(error));
+            "public optimizer publication failed".to_owned()
+        })?;
+        return Ok(report);
+    }
     store
         .transact(Transaction {
             id: TransactionId::new(),
             expected_watermark: store.state().watermark,
-            mutations: vec![
-                Mutation::Put {
-                    record: manifest_record,
-                    expected: None,
-                },
-                Mutation::Put {
-                    record: artifact,
-                    expected: None,
-                },
-                Mutation::Put {
-                    record: report_record,
-                    expected: None,
-                },
-            ],
+            mutations,
             events: vec![event],
             command: None,
         })
@@ -374,8 +447,31 @@ async fn save_snapshot(
     access: &Access,
     report: OptimizationReport,
     now: Timestamp,
+    public: Option<&PublicCapture<'_>>,
 ) -> Result<OptimizationReport> {
     let record = row(access, report.id.clone(), Revision::ZERO, &report)?;
+    if let Some(public) = public {
+        super::public_optimizer::commit_report(
+            store,
+            access,
+            public.command,
+            public.coverage,
+            &report,
+            vec![Mutation::Put {
+                record,
+                expected: None,
+            }],
+            vec![],
+            now,
+            public.check,
+        )
+        .await
+        .map_err(|error| {
+            public.failure.replace(Some(error));
+            "public optimizer publication failed".to_owned()
+        })?;
+        return Ok(report);
+    }
     commit(
         store,
         access,
@@ -405,6 +501,15 @@ pub fn load_saved(
     access: &Access,
     report: &OptimizationReport,
 ) -> Result<Option<SavedForecast>> {
+    load_saved_with_check(store, access, report, &|| Ok(()))
+}
+pub fn load_saved_with_check(
+    store: &Store,
+    access: &Access,
+    report: &OptimizationReport,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<Option<SavedForecast>> {
+    check()?;
     authorize(store, access, false)?;
     let Some(pin) = &report.forecast else {
         return Ok(None);
@@ -448,6 +553,7 @@ pub fn load_saved(
     // This loader checks the source-task manifest before and after decoding.
     let mut bytes = Vec::new();
     store.spool().read(&descriptor, &mut bytes).map_err(err)?;
+    check()?;
     if digest_bytes(&bytes) != pin.digest {
         return Err("saved forecast digest differs".into());
     }
@@ -470,6 +576,7 @@ pub fn load_saved(
             store,
             access,
             &dependencies(&document.forecast, &document.compaction),
+            check,
         )? != pin.source_tasks
     {
         return Err("saved forecast source binding differs".into());

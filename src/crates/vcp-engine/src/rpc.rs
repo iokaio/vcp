@@ -89,6 +89,9 @@ pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
     if capabilities.contains("routing/status") {
         capabilities.insert(vcp_protocol::routing_inspection::CAPABILITY.to_owned());
     }
+    if ["routing/reportCapture", "routing/reportRead", "routing/preview", "routing/apply", "routing/rollback"].iter().any(|method| capabilities.contains(*method)) {
+        capabilities.insert(vcp_protocol::routing_optimizer::CAPABILITY.to_owned());
+    }
     if capabilities.contains("session/export") {
         capabilities.insert(SESSION_EXPORT_LOCAL_CAPABILITY.to_owned());
     }
@@ -395,6 +398,8 @@ impl RpcSession {
             Call::MemoryHistory(_) => Some(vcp_protocol::memory_history::CAPABILITY),
             Call::PolicyRead(_) => Some(vcp_protocol::policy_inspection::CAPABILITY),
             Call::RoutingStatus(_) => Some(vcp_protocol::routing_inspection::CAPABILITY),
+            Call::RoutingReportCapture(_) | Call::RoutingReportRead(_) | Call::RoutingPreview(_)
+                | Call::RoutingApply(_) | Call::RoutingRollback(_) => Some(vcp_protocol::routing_optimizer::CAPABILITY),
             _ => None,
         };
         if inspector_profile.is_some_and(|profile| !self.negotiated.contains(profile)) {

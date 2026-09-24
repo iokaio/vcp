@@ -61,6 +61,7 @@ pub struct PublicConnection {
     pub(super) connected: Arc<AtomicBool>,
     pub(super) subscriptions: Arc<Mutex<super::public_events::Subscriptions>>,
     pub(super) retention_previews: Arc<Mutex<super::public_retention::Previews>>,
+    pub(super) optimizer_previews: Arc<Mutex<super::public_optimizer::Previews>>,
     #[cfg(windows)]
     pub(super) editor_state: Arc<Mutex<super::public_editor::EditorState>>,
     release: Option<ReleaseReceiver>,
@@ -189,6 +190,7 @@ impl CanonicalHost {
             connected: Arc::new(AtomicBool::new(true)),
             subscriptions: Arc::new(Mutex::new(super::public_events::Subscriptions::default())),
             retention_previews: Arc::new(Mutex::new(super::public_retention::Previews::default())),
+            optimizer_previews: Arc::new(Mutex::new(super::public_optimizer::Previews::default())),
             #[cfg(windows)]
             editor_state: Arc::new(Mutex::new(super::public_editor::EditorState::default())),
             release: None,
@@ -477,6 +479,9 @@ impl PublicConnection {
             editor.clear();
         }
         if let Ok(mut previews) = self.retention_previews.lock() {
+            previews.clear();
+        }
+        if let Ok(mut previews) = self.optimizer_previews.lock() {
             previews.clear();
         }
         self.clear_public_events();

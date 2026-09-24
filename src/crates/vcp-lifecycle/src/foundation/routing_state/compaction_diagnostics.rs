@@ -149,7 +149,16 @@ fn pin(descriptor: &ArtifactDescriptor) -> ArtifactPin {
 /// Rebuild from authorized artifacts and canonical submission intents. This is
 /// a read-only description, not evidence that a provider received the request.
 pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Report> {
-    let source = transitions::observe(store, access, window.clone())?;
+    observe_with_check(store, access, window, &|| Ok(()))
+}
+pub fn observe_with_check(
+    store: &Store,
+    access: &Access,
+    window: HistoryWindow,
+    cooperate: &dyn Fn() -> Result<()>,
+) -> Result<Report> {
+    cooperate()?;
+    let source = transitions::observe_with_check(store, access, window.clone(), cooperate)?;
     let mut report = Report {
         schema_version: 1, id: String::new(), workspace: source.workspace.clone(), authority: source.authority,
         deletion: source.deletion, window, cutoff: source.cutoff, source_tasks: source.source_tasks.clone(), transition_evidence: source.id.clone(),
@@ -166,6 +175,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
     let mut total = 0usize;
     let mut seen = BTreeSet::new();
     for envelope in &store.state().events {
+        cooperate()?;
         let event = &envelope.event;
         if event.workspace != access.workspace
             || event.timestamp >= report.window.until
@@ -186,6 +196,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
             continue;
         }
         for id in &event.artifacts {
+            cooperate()?;
             let Ok(record) =
                 store
                     .state()
@@ -274,8 +285,10 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
         }
     }
     for manifest in manifests {
+        cooperate()?;
         let mut matches = Vec::new();
         for attempt in &attempts {
+            cooperate()?;
             if attempt.redaction.is_some()
                 || attempt.role != RequestRole::Main
                 || attempt.scope != manifest.value.revisions.scope
@@ -357,11 +370,13 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
     }
     let mut use_counts = BTreeMap::new();
     for item in &submitted {
+        cooperate()?;
         *use_counts.entry(item.attempt.clone()).or_insert(0usize) += 1;
     }
     submitted.retain(|item| use_counts[&item.attempt] == 1);
     submitted.sort_by_key(|s| s.watermark);
     for projection in projections {
+        cooperate()?;
         let mut entry = Entry {
             projection: pin(&projection.descriptor),
             task: projection.descriptor.spec.scope.task.clone(),

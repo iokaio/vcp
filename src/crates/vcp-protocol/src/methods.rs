@@ -363,6 +363,11 @@ calls! {
     RoutingExplain(Inspect) => "routing/explain",
     PolicyRead(crate::policy_inspection::Request) => "policy/read",
     RoutingStatus(crate::routing_inspection::Request) => "routing/status",
+    RoutingReportCapture(crate::routing_optimizer::ReportCapture) => "routing/reportCapture",
+    RoutingReportRead(crate::routing_optimizer::ReportRead) => "routing/reportRead",
+    RoutingPreview(crate::routing_optimizer::PreviewRequest) => "routing/preview",
+    RoutingApply(crate::routing_optimizer::Apply) => "routing/apply",
+    RoutingRollback(crate::routing_optimizer::Rollback) => "routing/rollback",
     UsageRead(Inspect) => "usage/read",
     HistoryQuery(crate::history::Query) => "history/query",
     MemoryHistory(crate::memory_history::Request) => "memory/history",
@@ -402,6 +407,9 @@ impl Call {
     pub fn mutation(&self) -> Option<&Mutation> {
         match self {
             Self::WorkspaceSetTrust(p) => Some(&p.mutation),
+            Self::RoutingReportCapture(p) => Some(&p.mutation),
+            Self::RoutingApply(p) => Some(&p.mutation),
+            Self::RoutingRollback(p) => Some(&p.mutation),
             Self::SessionCreate(p) => Some(&p.mutation),
             Self::SessionResume(p) => Some(&p.mutation),
             Self::SessionFork(p) => Some(&p.mutation),
@@ -562,6 +570,11 @@ impl Call {
             Self::MemoryHistory(p) => crate::memory_history::validate_request(p),
             Self::PolicyRead(p) => crate::policy_inspection::validate_request(p),
             Self::RoutingStatus(p) => crate::routing_inspection::validate_request(p),
+            Self::RoutingReportCapture(p) => p.validate(),
+            Self::RoutingReportRead(p) => p.validate(),
+            Self::RoutingPreview(p) => p.validate(),
+            Self::RoutingApply(p) => p.validate(),
+            Self::RoutingRollback(p) => p.validate(),
             Self::MemoryQuery(p) => {
                 page(p.limit)?;
                 text(&p.query, 16384)
@@ -824,6 +837,8 @@ pub enum ResultValue {
     MemoryHistory(crate::memory_history::Page),
     Policy(crate::policy_inspection::Page),
     RoutingStatus(crate::routing_inspection::Page),
+    RoutingReport(crate::routing_optimizer::ReportPage),
+    RoutingPreview(crate::routing_optimizer::PreviewView),
     MemoryQuery(crate::memory_query::Page),
     MemoryReview(crate::memory_governance::ReviewView),
     MemoryReviewed(crate::memory_governance::ReviewResult),

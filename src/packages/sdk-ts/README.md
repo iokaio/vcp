@@ -58,6 +58,16 @@ range reads. See the [inspector query contract](../../../docs/development/editor
 
 `policy/read` negotiates `policy/inspection/1` and returns a `policy` envelope;
 `routing/status` negotiates `routing/status/1` and returns `routing_status`.
+
+Optimizer clients negotiate `routing/optimizer/1` with each requested method.
+`routing/reportCapture`, `routing/apply` and `routing/rollback` return standard
+durable acceptances; reconcile their original IDs after a lost reply.
+`routing/reportRead` returns `routing_report`, using the capture command ID as
+report identity. `routing/preview` returns `routing_preview`, including exact
+proposed and effective values. Preview handles expire and do not survive reload.
+Mutations pin workspace/binding revisions; previews separately pin policy
+revision. A policy acceptance revision must not become the next workspace
+precondition. These methods do not dispatch provider work.
 Both read the current task context and invalidate continuations when relevant
 policy or host facts change. Grant observations never authorize dispatch. Stored
 routing policy is separate from host-effective policy, which can be unavailable.

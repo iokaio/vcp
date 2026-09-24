@@ -11,6 +11,7 @@ pub mod forecast_reports;
 pub mod forecasts;
 pub mod local_stall;
 pub mod observations;
+pub mod public_optimizer;
 pub mod rewards;
 pub mod transitions;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -249,6 +250,15 @@ pub struct ObservedMetrics {
 /// Snapshot of the current canonical view, restricted to tasks with retained
 /// events in the window. It never fabricates historical state from current rows.
 pub fn report(store: &Store, access: &Access, window: HistoryWindow) -> Result<OptimizationReport> {
+    report_with_check(store, access, window, &|| Ok(()))
+}
+pub fn report_with_check(
+    store: &Store,
+    access: &Access,
+    window: HistoryWindow,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<OptimizationReport> {
+    check()?;
     authorize(store, access, false)?;
     if store.state().records.len() > 100_000 || store.state().events.len() > 100_000 {
         return Err("optimization history scan exceeds 100000 canonical rows/events".into());
@@ -266,17 +276,17 @@ pub fn report(store: &Store, access: &Access, window: HistoryWindow) -> Result<O
         .map_err(err)?
         .decode()
         .map_err(err)?;
-    let events: Vec<_> = store
-        .state()
-        .events
-        .iter()
-        .filter(|e| {
-            e.event.workspace == access.workspace
-                && e.event.timestamp < window.until
-                && window.from.is_none_or(|from| e.event.timestamp >= from)
-                && e.event.task.as_ref().is_some_and(|t| access.allows_task(t))
-        })
-        .collect();
+    let mut events = Vec::new();
+    for e in &store.state().events {
+        check()?;
+        if e.event.workspace == access.workspace
+            && e.event.timestamp < window.until
+            && window.from.is_none_or(|from| e.event.timestamp >= from)
+            && e.event.task.as_ref().is_some_and(|t| access.allows_task(t))
+        {
+            events.push(e);
+        }
+    }
     let tasks: BTreeSet<_> = events.iter().filter_map(|e| e.event.task.clone()).collect();
     let mut counts = Counts::default();
     let mut observed = ObservedMetrics {
@@ -288,6 +298,7 @@ pub fn report(store: &Store, access: &Access, window: HistoryWindow) -> Result<O
     };
     let mut cohorts = BTreeMap::new();
     for task_id in &tasks {
+        check()?;
         let task: Task = store
             .state()
             .record(Collection::Task, task_id.as_str(), &access.workspace)
@@ -311,6 +322,7 @@ pub fn report(store: &Store, access: &Access, window: HistoryWindow) -> Result<O
         .filter(|r| r.workspace == access.workspace && r.collection == Collection::Attempt)
     {
         let attempt: Attempt = record.decode().map_err(err)?;
+        check()?;
         if !tasks.contains(&attempt.scope.task) {
             continue;
         }
@@ -360,6 +372,7 @@ pub fn report(store: &Store, access: &Access, window: HistoryWindow) -> Result<O
         .filter(|r| r.workspace == access.workspace && r.collection == Collection::Reservation)
     {
         let reservation: Reservation = record.decode().map_err(err)?;
+        check()?;
         if tasks.contains(&reservation.scope.task) {
             let amount = counts
                 .reserved_liability_micros
@@ -377,6 +390,7 @@ pub fn report(store: &Store, access: &Access, window: HistoryWindow) -> Result<O
             && e.redaction.is_none()
             && e.event.task.as_ref().is_some_and(|t| tasks.contains(t))
     }) {
+        check()?;
         if event.event.kind == EventKind::ObjectiveChanged {
             observed.objective_change_events += 1;
         }
@@ -397,6 +411,7 @@ pub fn report(store: &Store, access: &Access, window: HistoryWindow) -> Result<O
         }
     }
     for (id, from) in submitted {
+        check()?;
         if let Some(until) = finished.get(&id) {
             if let Some(elapsed) = until.get().checked_sub(from.get()) {
                 observed.submission_to_final_usage_ms.push(elapsed);
@@ -414,6 +429,7 @@ pub fn report(store: &Store, access: &Access, window: HistoryWindow) -> Result<O
         .filter(|r| r.workspace == access.workspace && r.collection == Collection::Verification)
     {
         let verification: vcp_domain::verification::Verification = record.decode().map_err(err)?;
+        check()?;
         if !tasks.contains(&verification.scope.task) {
             continue;
         }
@@ -480,6 +496,15 @@ pub async fn save_report(
     forecast_reports::save(store, access, value, now).await
 }
 pub fn load_report(store: &Store, access: &Access, id: &str) -> Result<OptimizationReport> {
+    load_report_with_check(store, access, id, &|| Ok(()))
+}
+pub fn load_report_with_check(
+    store: &Store,
+    access: &Access,
+    id: &str,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<OptimizationReport> {
+    check()?;
     let report: OptimizationReport = read(store, access, id)?.ok_or("report not found")?;
     let workspace: Workspace = store
         .state()
@@ -503,6 +528,7 @@ pub fn load_report(store: &Store, access: &Access, id: &str) -> Result<Optimizat
         return Err("report evidence access changed; refresh report".into());
     }
     for id in &report.evidence {
+        check()?;
         if !store.state().events.iter().any(|e| {
             &e.event.id == id
                 && e.event.workspace == access.workspace
@@ -512,7 +538,8 @@ pub fn load_report(store: &Store, access: &Access, id: &str) -> Result<Optimizat
             return Err("report evidence unavailable; refresh report".into());
         }
     }
-    forecast_reports::load(store, access, &report)?;
+    forecast_reports::load_saved_with_check(store, access, &report, check)?;
+    check()?;
     Ok(report)
 }
 
@@ -1049,12 +1076,24 @@ pub fn preview(
     selected: Vec<Edit>,
     ceilings: &Policy,
 ) -> Result<Preview> {
+    preview_with_check(store, access, report_id, selected, ceilings, &|| Ok(()))
+}
+pub fn preview_with_check(
+    store: &Store,
+    access: &Access,
+    report_id: &str,
+    selected: Vec<Edit>,
+    ceilings: &Policy,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<Preview> {
+    check()?;
     global_write(store, access)?;
-    let report = load_report(store, access, report_id)?;
+    let report = load_report_with_check(store, access, report_id, check)?;
     let current = current_policy(store, access)?.ok_or("routing policy not configured")?;
     let mut policy = current.value.clone();
     let mut fields = BTreeSet::new();
     for edit in &selected {
+        check()?;
         if !fields.insert(edit.key()) {
             return Err("duplicate proposal field".into());
         }
@@ -1107,6 +1146,7 @@ pub fn preview(
     }
     policy.parent = Some(current.value.id.clone());
     policy = policy.seal().map_err(err)?;
+    check()?;
     Ok(Preview {
         base: current.revision,
         report: report.id,

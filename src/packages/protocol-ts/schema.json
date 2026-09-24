@@ -1,5 +1,5 @@
 {
-  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"2c445f347290034baf5ac529d0988e58045c0e56f721b256cdb5f70a185f50ba\",\"src/crates/vcp-protocol/src/editor.rs\":\"4957eec00d2f1a5e4ebde7f3edec853e467e90911c9913e275209cdbb642b806\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/history.rs\":\"4e495b3e3f27511bb87b9aee3376eacef218fa7235f8658fe3533827fa8c6f31\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"ebdc400258137f4e04fc33e55aa914cff6e6984eb92c82bb05c303ede81a3799\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_history.rs\":\"365fa8f5fc7e1af7fb846b68703e1a06596f3417978ce8026412baa1750b5d47\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"6e3d9b7cceb64c63f69f02bcfc93a8d1d83c79e1302f21ecaa0b684aef75ea82\",\"src/crates/vcp-protocol/src/policy_inspection.rs\":\"c0f892bd54c9afed18ebb9c601a786473712da50daabae76d01541bbab4fa7ed\",\"src/crates/vcp-protocol/src/routing_inspection.rs\":\"e68845d67d449d1f622dc9f6eaceb67d70e2d6d099f5e94661decd2de336f80b\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
+  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"0864ba722af892895c2172bf0d93e80ac3c9ef08d8e3a241cb6f08a64d948490\",\"src/crates/vcp-protocol/src/editor.rs\":\"4957eec00d2f1a5e4ebde7f3edec853e467e90911c9913e275209cdbb642b806\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/history.rs\":\"4e495b3e3f27511bb87b9aee3376eacef218fa7235f8658fe3533827fa8c6f31\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"eb8b07e8692329f6a54e47479eea3c9277955326a07e8c932a87ec7d0136e35f\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_history.rs\":\"365fa8f5fc7e1af7fb846b68703e1a06596f3417978ce8026412baa1750b5d47\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"4d9af57e39528bb9f1ea08779b63dc91b09c77fbf586a5ddf10d259bc31fb3a9\",\"src/crates/vcp-protocol/src/policy_inspection.rs\":\"c0f892bd54c9afed18ebb9c601a786473712da50daabae76d01541bbab4fa7ed\",\"src/crates/vcp-protocol/src/routing_inspection.rs\":\"e68845d67d449d1f622dc9f6eaceb67d70e2d6d099f5e94661decd2de336f80b\",\"src/crates/vcp-protocol/src/routing_optimizer.rs\":\"0e3c9897bee7f797f17b4ade485e6aa004e7a609075036e43ff8bdf79b6cb0bc\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
@@ -900,6 +900,101 @@
             },
             "params": {
               "$ref": "#/definitions/RoutingStatusRequest"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "routing/reportCapture"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/RoutingOptimizerReportCapture"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "routing/reportRead"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/RoutingOptimizerReportRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "routing/preview"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/RoutingOptimizerPreviewRequest"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "routing/apply"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/RoutingOptimizerApply"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "routing/rollback"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/RoutingOptimizerRollback"
             }
           },
           "required": [
@@ -6103,6 +6198,44 @@
           "properties": {
             "kind": {
               "enum": [
+                "routing_report"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/RoutingOptimizerReportPage"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "routing_preview"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/RoutingOptimizerPreviewView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
                 "memory_query"
               ],
               "type": "string"
@@ -6512,6 +6645,1278 @@
         "submission",
         "submission_command",
         "task"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerApply": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "preview_id": {
+          "$ref": "#/definitions/Id"
+        },
+        "preview_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "expected_binding_revision",
+        "mutation",
+        "preview_id",
+        "preview_sha256",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerAssessment": {
+      "enum": [
+        "not_dispatch_authority"
+      ],
+      "type": "string"
+    },
+    "RoutingOptimizerCohort": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_policy": {
+          "$ref": "#/definitions/Counter"
+        },
+        "catalog": {
+          "$ref": "#/definitions/RoutingStatusText"
+        },
+        "count": {
+          "$ref": "#/definitions/Counter"
+        },
+        "model": {
+          "$ref": "#/definitions/RoutingStatusText"
+        },
+        "provider": {
+          "$ref": "#/definitions/RoutingStatusText"
+        },
+        "role": {
+          "$ref": "#/definitions/RoutingStatusText"
+        },
+        "routing_policy": {
+          "$ref": "#/definitions/RoutingStatusText"
+        },
+        "size": {
+          "$ref": "#/definitions/RoutingStatusText"
+        },
+        "task_class": {
+          "$ref": "#/definitions/RoutingStatusText"
+        }
+      },
+      "required": [
+        "authority_policy",
+        "catalog",
+        "count",
+        "model",
+        "provider",
+        "role",
+        "routing_policy",
+        "size",
+        "task_class"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "abandoned": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attempts": {
+          "$ref": "#/definitions/Counter"
+        },
+        "cancelled": {
+          "$ref": "#/definitions/Counter"
+        },
+        "child_tasks": {
+          "$ref": "#/definitions/Counter"
+        },
+        "completed": {
+          "$ref": "#/definitions/Counter"
+        },
+        "failed": {
+          "$ref": "#/definitions/Counter"
+        },
+        "known_spend": {
+          "items": {
+            "$ref": "#/definitions/RoutingOptimizerMoney"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "pruned_tasks": {
+          "$ref": "#/definitions/Counter"
+        },
+        "reserved_liability": {
+          "items": {
+            "$ref": "#/definitions/RoutingOptimizerMoney"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "retries": {
+          "$ref": "#/definitions/Counter"
+        },
+        "supporting_attempts": {
+          "$ref": "#/definitions/Counter"
+        },
+        "tasks": {
+          "$ref": "#/definitions/Counter"
+        },
+        "uncertain_attempts": {
+          "$ref": "#/definitions/Counter"
+        },
+        "unfinished": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "attempts",
+        "cancelled",
+        "child_tasks",
+        "completed",
+        "failed",
+        "known_spend",
+        "pruned_tasks",
+        "reserved_liability",
+        "retries",
+        "supporting_attempts",
+        "tasks",
+        "uncertain_attempts",
+        "unfinished"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerCoverage": {
+      "enum": [
+        "session",
+        "workspace"
+      ],
+      "type": "string"
+    },
+    "RoutingOptimizerEdit": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "retrieval_limits"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/RoutingStatusRetrievalLimits"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "input_tokens"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "escalation_max_transport_retries"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "escalation_max_quality_switches"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "escalation_max_total_attempts"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "escalation_minimum_repeated_failures"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "reasoning_effort"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/RoutingStatusEffort"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "output_tokens"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "profile"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/RoutingStatusProfile"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "ordering"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/definitions/RoutingStatusPreference"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "quality_floor_bps"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "format": "uint16",
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "minimum_samples"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "format": "uint32",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "maximum_evidence_age_ms"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/Counter"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "allowed_models"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 64,
+              "type": "array"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "allowed_endpoints"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 64,
+              "type": "array"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "allowed_groups"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/definitions/RoutingStatusGroup"
+              },
+              "maxItems": 4,
+              "type": "array"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "pin"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/RoutingOptimizerPin"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RoutingOptimizerField": {
+      "enum": [
+        "retrieval_limits",
+        "input_tokens",
+        "escalation_max_transport_retries",
+        "escalation_max_quality_switches",
+        "escalation_max_total_attempts",
+        "escalation_minimum_repeated_failures",
+        "reasoning_effort",
+        "output_tokens",
+        "profile",
+        "ordering",
+        "quality_floor_bps",
+        "minimum_samples",
+        "maximum_evidence_age_ms",
+        "allowed_models",
+        "allowed_endpoints",
+        "allowed_groups",
+        "pin",
+        "deny_data_collection",
+        "require_zdr",
+        "broader_task_class"
+      ],
+      "type": "string"
+    },
+    "RoutingOptimizerMoney": {
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "maxLength": 16,
+          "minLength": 1,
+          "type": "string"
+        },
+        "micros": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "currency",
+        "micros"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerObserved": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts_without_complete_latency": {
+          "$ref": "#/definitions/Counter"
+        },
+        "latency_samples": {
+          "$ref": "#/definitions/Counter"
+        },
+        "objective_change_events": {
+          "$ref": "#/definitions/Counter"
+        },
+        "pruned_attempts": {
+          "$ref": "#/definitions/Counter"
+        },
+        "pruned_events": {
+          "$ref": "#/definitions/Counter"
+        },
+        "pruned_verifications": {
+          "$ref": "#/definitions/Counter"
+        },
+        "submission_to_final_usage_p50_ms": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "submission_to_final_usage_p95_ms": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verification_checks_failed": {
+          "$ref": "#/definitions/Counter"
+        },
+        "verification_checks_not_run": {
+          "$ref": "#/definitions/Counter"
+        },
+        "verification_checks_passed": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "attempts_without_complete_latency",
+        "latency_samples",
+        "objective_change_events",
+        "pruned_attempts",
+        "pruned_events",
+        "pruned_verifications",
+        "verification_checks_failed",
+        "verification_checks_not_run",
+        "verification_checks_passed"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerOperation": {
+      "enum": [
+        "apply",
+        "rollback"
+      ],
+      "type": "string"
+    },
+    "RoutingOptimizerPin": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate": {
+          "$ref": "#/definitions/RoutingStatusIdentity"
+        },
+        "fallback_candidates": {
+          "items": {
+            "$ref": "#/definitions/RoutingStatusIdentity"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidate",
+        "fallback_candidates"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerPreviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_policy_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "proposal": {
+          "$ref": "#/definitions/RoutingOptimizerProposal"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "expected_policy_revision",
+        "proposal",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerPreviewView": {
+      "additionalProperties": false,
+      "properties": {
+        "assessment": {
+          "$ref": "#/definitions/RoutingOptimizerAssessment"
+        },
+        "authority_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "base_policy_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "ceilings_sha256": {
+          "type": "string"
+        },
+        "changed": {
+          "items": {
+            "$ref": "#/definitions/RoutingOptimizerField"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "clamped": {
+          "items": {
+            "$ref": "#/definitions/RoutingOptimizerField"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "deletion_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "effective": {
+          "$ref": "#/definitions/RoutingOptimizerReviewedPolicy"
+        },
+        "expires_in_ms": {
+          "format": "uint32",
+          "maximum": 60000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "operation": {
+          "$ref": "#/definitions/RoutingOptimizerOperation"
+        },
+        "persisted": {
+          "$ref": "#/definitions/RoutingOptimizerReviewedPolicy"
+        },
+        "preview_id": {
+          "$ref": "#/definitions/Id"
+        },
+        "preview_sha256": {
+          "type": "string"
+        },
+        "prior": {
+          "$ref": "#/definitions/RoutingOptimizerReviewedPolicy"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "selected": {
+          "items": {
+            "$ref": "#/definitions/RoutingOptimizerEdit"
+          },
+          "maxItems": 17,
+          "type": "array"
+        },
+        "target_policy_revision": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uncertainty": {
+          "items": {
+            "$ref": "#/definitions/RoutingStatusText"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "uncertainty_truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "assessment",
+        "authority_revision",
+        "base_policy_revision",
+        "binding_revision",
+        "ceilings_sha256",
+        "changed",
+        "clamped",
+        "deletion_revision",
+        "effective",
+        "expires_in_ms",
+        "operation",
+        "persisted",
+        "preview_id",
+        "preview_sha256",
+        "prior",
+        "scope",
+        "selected",
+        "uncertainty",
+        "uncertainty_truncated"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerProposal": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "edits": {
+              "items": {
+                "$ref": "#/definitions/RoutingOptimizerEdit"
+              },
+              "maxItems": 17,
+              "minItems": 1,
+              "type": "array"
+            },
+            "kind": {
+              "enum": [
+                "apply"
+              ],
+              "type": "string"
+            },
+            "report": {
+              "$ref": "#/definitions/Id"
+            }
+          },
+          "required": [
+            "edits",
+            "kind",
+            "report"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "rollback"
+              ],
+              "type": "string"
+            },
+            "target_revision": {
+              "$ref": "#/definitions/Counter"
+            }
+          },
+          "required": [
+            "kind",
+            "target_revision"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RoutingOptimizerReportCapture": {
+      "additionalProperties": false,
+      "properties": {
+        "coverage": {
+          "$ref": "#/definitions/RoutingOptimizerCoverage"
+        },
+        "expected_binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "window": {
+          "$ref": "#/definitions/RoutingOptimizerWindow"
+        }
+      },
+      "required": [
+        "coverage",
+        "expected_binding_revision",
+        "mutation",
+        "scope",
+        "window"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerReportPage": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "cohort_denominator": {
+          "$ref": "#/definitions/RoutingStatusText"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "coverage": {
+          "$ref": "#/definitions/RoutingOptimizerCoverage"
+        },
+        "cutoff": {
+          "$ref": "#/definitions/Counter"
+        },
+        "deletion_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "next_cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "report": {
+          "$ref": "#/definitions/Id"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/definitions/RoutingOptimizerReportRow"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "section": {
+          "$ref": "#/definitions/RoutingOptimizerReportSection"
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        },
+        "window": {
+          "$ref": "#/definitions/RoutingOptimizerWindow"
+        }
+      },
+      "required": [
+        "authority_revision",
+        "binding_revision",
+        "cohort_denominator",
+        "complete",
+        "coverage",
+        "cutoff",
+        "deletion_revision",
+        "report",
+        "rows",
+        "scope",
+        "section",
+        "watermark",
+        "window"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerReportRead": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 32,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "report": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "section": {
+          "$ref": "#/definitions/RoutingOptimizerReportSection"
+        }
+      },
+      "required": [
+        "limit",
+        "report",
+        "scope",
+        "section"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerReportRow": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "counts": {
+              "$ref": "#/definitions/RoutingOptimizerCounts"
+            },
+            "kind": {
+              "enum": [
+                "summary"
+              ],
+              "type": "string"
+            },
+            "observed": {
+              "$ref": "#/definitions/RoutingOptimizerObserved"
+            }
+          },
+          "required": [
+            "counts",
+            "kind",
+            "observed"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "cohort"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/RoutingOptimizerCohort"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "uncertainty"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "$ref": "#/definitions/RoutingStatusText"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "source_task"
+              ],
+              "type": "string"
+            },
+            "task": {
+              "$ref": "#/definitions/Id"
+            }
+          },
+          "required": [
+            "kind",
+            "task"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "event": {
+              "$ref": "#/definitions/Id"
+            },
+            "kind": {
+              "enum": [
+                "source_event"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "$ref": "#/definitions/Id"
+            },
+            "kind": {
+              "enum": [
+                "forecast"
+              ],
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "source_manifest": {
+              "$ref": "#/definitions/Id"
+            },
+            "source_task_count": {
+              "$ref": "#/definitions/Counter"
+            }
+          },
+          "required": [
+            "artifact",
+            "kind",
+            "sha256",
+            "source_manifest",
+            "source_task_count"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RoutingOptimizerReportSection": {
+      "enum": [
+        "summary",
+        "cohorts",
+        "uncertainty",
+        "sources",
+        "forecast"
+      ],
+      "type": "string"
+    },
+    "RoutingOptimizerReviewedPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_endpoints": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "allowed_groups": {
+          "items": {
+            "$ref": "#/definitions/RoutingStatusGroup"
+          },
+          "maxItems": 4,
+          "type": "array"
+        },
+        "allowed_models": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "pin_fallback": {
+          "items": {
+            "$ref": "#/definitions/RoutingStatusIdentity"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "summary": {
+          "$ref": "#/definitions/RoutingStatusPolicySummary"
+        }
+      },
+      "required": [
+        "allowed_endpoints",
+        "allowed_groups",
+        "allowed_models",
+        "pin_fallback",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerRollback": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "preview_id": {
+          "$ref": "#/definitions/Id"
+        },
+        "preview_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "expected_binding_revision",
+        "mutation",
+        "preview_id",
+        "preview_sha256",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "RoutingOptimizerWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "until": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "until"
       ],
       "type": "object"
     },
