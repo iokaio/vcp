@@ -29,6 +29,16 @@ const METHODS: &[&str] = &[
     "routing/explain",
     "artifact/read",
     "diff/read",
+    #[cfg(windows)]
+    "editor/context",
+    #[cfg(windows)]
+    "editor/prepare",
+    #[cfg(windows)]
+    "editor/changeRead",
+    #[cfg(windows)]
+    "editor/dispatch",
+    #[cfg(windows)]
+    "editor/changeResult",
     "memory/inspect",
     "memory/query",
     "memory/propose",
@@ -408,6 +418,11 @@ impl RpcHost for PublicConnection {
             return self
                 .memory_inspect(request, current)
                 .map(ResultValue::Memory);
+        }
+        #[cfg(windows)]
+        if matches!(call, Call::EditorContext(_) | Call::EditorPrepare(_) | Call::EditorChangeRead(_)
+            | Call::EditorDispatch(_) | Call::EditorChangeResult(_)) {
+            return self.editor_call(call, current);
         }
         if let Call::SessionExport(request) = &call {
             return self

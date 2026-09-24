@@ -30,6 +30,7 @@ test('A-B-A profile navigation reuses the journal writer and late receipts prese
       if (request === './engine_connection.js') return { EngineConnection };
       if (request === './task_session.js') return { TaskSession };
       if (request === './task_panel.js') return { TaskPanel: View };
+      if (request === './editor_workflow.js') return { EditorWorkflow: class extends View { registrations() { return []; } connectionChanged() {} } };
       if (request === './connection_view.js') return { ConnectionView: View };
       if (request === './commands.js') return { registerCommands: () => [], selectionForFolder: () => { throw Error('unexpected automatic selection'); } };
     }

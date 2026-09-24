@@ -38,6 +38,8 @@ mod memory_query;
 mod provider;
 pub(super) mod public_connection;
 mod public_diff;
+#[cfg(windows)]
+mod public_editor;
 mod public_events;
 mod public_export;
 mod public_memory;

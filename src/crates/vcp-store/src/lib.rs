@@ -52,3 +52,5 @@ pub enum Error {
     Database(#[from] sqlx::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
+
+mod editor_contract;

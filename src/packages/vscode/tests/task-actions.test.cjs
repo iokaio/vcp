@@ -147,6 +147,18 @@ test('pause and explicit resume use task revision without inventing automatic co
   assert.equal(resume.task, task.task); assert.equal(resume.mutation.expected_revision, task.revision);
 });
 
+test('held task with only stale questions offers explicit resume without treating cancellation as user approval', async () => {
+  const held = { ...task, turn: null };
+  const f = fixture({ call: async method => method === 'task/read' ? { kind: 'task', value: held } : undefined });
+  assert.equal(f.actions.register(held, undefined, [{ input: task.pending_inputs[0], actionable: true, expires_at: '1000' }]).some(action => action.operation === 'resume'), false);
+  assert.equal(f.actions.register(held).some(action => action.operation === 'resume'), false);
+  const actions = f.actions.register(held, undefined, [{ input: task.pending_inputs[0], actionable: false, expires_at: '1000' }]);
+  assert.deepEqual(f.calls, []);
+  await f.dispatch(actions.find(action => action.operation === 'resume'));
+  assert.equal(f.calls.filter(call => call.method === 'session/resume').length, 1);
+  assert.equal(f.calls.some(call => call.method === 'approval/respond'), false);
+});
+
 test('stale engine errors invalidate action; reconciliation gaps preserve a known acceptance', async () => {
   const f = fixture({ call: async method => { if (method === 'approval/respond') throw { code: 'rpc', classification: { applicationCode: 'APPROVAL_STALE', retry: 'after_revalidation' } }; } });
   const action = f.register()[0]; await assert.rejects(f.dispatch(action), /rejected/);

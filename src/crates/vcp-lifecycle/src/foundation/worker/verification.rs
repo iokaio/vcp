@@ -715,12 +715,17 @@ impl Context {
         let current_revisions = self.context_revisions(binding);
         let after = self.verification_observe(binding);
         let mut issues = Vec::new();
+        let (editor_buffers, buffers_unverified) = self.editor_verification_buffers(binding)?;
         let fresh = current_revisions
             .as_ref()
             .is_ok_and(|r| *r == run.revisions)
             && after
                 .as_ref()
-                .is_ok_and(|(_, after)| after.manifest == run.before.manifest);
+                .is_ok_and(|(_, after)| after.manifest == run.before.manifest)
+            && !buffers_unverified;
+        if buffers_unverified {
+            issues.push("checks covered native disk only; dirty or uncertain editor buffers require reconciliation".into());
+        }
         if !fresh {
             issues.push(
                 "check evidence is stale: source, task or authority changed during verification"
@@ -818,7 +823,9 @@ impl Context {
             "before":run.before.manifest,"after":after.as_ref().ok().map(|(_,o)| &o.manifest),
             "observation_error":after.as_ref().err().map(ToString::to_string),"changed_paths":changed,"editing":editing,
             "accepted_revisions":run.revisions,"cost":cost,"accounting_digest":accounting,"ledger":self.verification_ledger()?,
-            "scope":"bounded native disk sources; no editor buffers; excluded files and external dynamic dependencies are not qualified",
+            "scope":"bounded native disk sources; editor buffers are not executed; excluded files and external dynamic dependencies are not qualified",
+            "representation":"disk_only", "editor_buffers_unverified":buffers_unverified,
+            "editor_buffers_fingerprint":editor_buffers,
             "source_artifacts":outputs,"applicability":if fresh {"current"} else {"stale"}
         }))?, "verification-result/1")?;
         outputs.push(report.spec.id);
@@ -826,7 +833,7 @@ impl Context {
         outputs.dedup();
         let fingerprint = Fingerprint {
             repository: run.before.digest,
-            buffers: vcp_protocol::digest_bytes(b"no-editor-buffers/native-cli-v1"),
+            buffers: editor_buffers,
             environment: run.environment,
         };
         let verification = Verification {
@@ -889,6 +896,9 @@ impl Context {
         id: &VerificationId,
     ) -> Result<CommandReceipt> {
         let revisions = self.context_revisions(binding)?;
+        if self.editor_verification_buffers(binding)?.1 {
+            return Err("disk-only evidence cannot complete a task with dirty or uncertain editor buffers".into());
+        }
         // Effects in another task do not necessarily advance this task's
         // revision. Recheck the entire canonical workspace at the commit fence.
         for record in self

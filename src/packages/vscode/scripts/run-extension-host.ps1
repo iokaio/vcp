@@ -29,7 +29,14 @@ $runtimeFiles=@($codeItem)+@(Get-ChildItem -LiteralPath $runtimeRoot -File -Filt
 @{version=$codeItem.VersionInfo.ProductVersion;runtime=$runtimeRoot;files=@($runtimeFiles | ForEach-Object { @{name=$_.Name;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} })} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $inputSpec.runtimeEvidence
 $sharedData=Join-Path $inputSpec.userData 'shared-data'
 New-Item -ItemType Directory -Force -Path $sharedData | Out-Null
-$launchArguments=@('--new-window','--disable-extensions','--skip-welcome','--skip-release-notes','--skip-add-to-recently-opened','--disable-updates','--disable-gpu',"--user-data-dir=`"$($inputSpec.userData)`"","--shared-data-dir=`"$sharedData`"","--extensions-dir=`"$($inputSpec.extensions)`"","--extensionDevelopmentPath=`"$($inputSpec.extension)`"","--extensionDevelopmentPath=`"$($inputSpec.driver)`"","`"$($inputSpec.workspaceFile)`"")
+$launchArguments=@('--new-window','--skip-welcome','--skip-release-notes','--skip-add-to-recently-opened','--disable-updates','--disable-gpu',"--user-data-dir=`"$($inputSpec.userData)`"","--shared-data-dir=`"$sharedData`"","--extensions-dir=`"$($inputSpec.extensions)`"")
+# Development windows do not register a durable backup path in the pinned editor.
+# Dirty-buffer reload qualification therefore uses ordinary extensions copied into
+# the fixture's private extensions directory, with no development-host switches.
+if($inputSpec.installed -ne $true) {
+  $launchArguments+=@('--disable-extensions',"--extensionDevelopmentPath=`"$($inputSpec.extension)`"","--extensionDevelopmentPath=`"$($inputSpec.driver)`"")
+}
+$launchArguments+="`"$($inputSpec.workspaceFile)`""
 # Children inherit this owned launcher's error mode. Failed native startup must
 # report through the exit status/logs, not interrupt the user with system dialogs.
 $previousErrorMode=[VcpEditorQualificationNative]::SetErrorMode(3)

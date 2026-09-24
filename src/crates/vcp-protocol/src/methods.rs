@@ -308,15 +308,10 @@ dto!(MemoryForget {
     )]
     preview_digest: String
 });
-dto!(EditorContext { scope: Scope, mutation: Mutation, task: Id, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 16)))] documents: Vec<DocumentObservation> });
-dto!(DocumentObservation { host: Id, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 32768)))] uri: String, version: Counter, #[cfg_attr(feature = "schema", schemars(regex(pattern = "^[0-9a-f]{64}(?![\\s\\S])")))] content_sha256: String, dirty: bool, #[cfg_attr(feature = "schema", schemars(length(max = 65536)))] content: Option<String>, #[cfg_attr(feature = "schema", schemars(regex(pattern = "^[0-9a-f]{64}(?![\\s\\S])")))] disk_sha256: Option<String> });
-dto!(EditorChangeResult { scope: Scope, mutation: Mutation, task: Id, change: Id, outcome: EditorOutcome, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 16)))] documents: Vec<DocumentObservation> });
-enumeration!(EditorOutcome {
-    Applied,
-    Rejected,
-    Partial,
-    Unknown
-});
+pub use crate::editor::{
+    DocumentObservation, EditorChangeRead, EditorChangeResult, EditorContext, EditorDispatch,
+    EditorOutcome, EditorPrepare,
+};
 dto!(SessionExport { scope: Scope, mutation: Mutation, task: Option<Id>, capture: CaptureScope });
 enumeration!(CaptureScope {
     VisibleHistory,
@@ -377,6 +372,9 @@ calls! {
     MemoryForgetPreviewRead(crate::memory_retention::PreviewPageRequest) => "memory/forgetPreviewRead",
     MemoryForgetRead(crate::memory_retention::JobRead) => "memory/forgetRead",
     EditorContext(EditorContext) => "editor/context",
+    EditorPrepare(EditorPrepare) => "editor/prepare",
+    EditorChangeRead(EditorChangeRead) => "editor/changeRead",
+    EditorDispatch(EditorDispatch) => "editor/dispatch",
     EditorChangeResult(EditorChangeResult) => "editor/changeResult",
     SessionExport(SessionExport) => "session/export",
     CommandRead(CommandRead) => "command/read",
@@ -412,6 +410,8 @@ impl Call {
             Self::MemoryResolve(p) => Some(p.mutation()),
             Self::MemoryForget(p) => Some(&p.mutation),
             Self::EditorContext(p) => Some(&p.mutation),
+            Self::EditorPrepare(p) => Some(&p.mutation),
+            Self::EditorDispatch(p) => Some(&p.mutation),
             Self::EditorChangeResult(p) => Some(&p.mutation),
             Self::SessionExport(p) => Some(&p.mutation),
             _ => None,
@@ -480,26 +480,6 @@ impl Call {
             }
             for v in constraints.iter().chain(acceptance) {
                 text(v, 4096)?;
-            }
-            Ok(())
-        }
-        fn documents(values: &[DocumentObservation]) -> Result<(), &'static str> {
-            if values.is_empty() || values.len() > 16 {
-                return Err("document limit");
-            }
-            for v in values {
-                text(&v.uri, 32768)?;
-                digest(&v.content_sha256)?;
-                if let Some(hash) = &v.disk_sha256 {
-                    digest(hash)?;
-                }
-                if let Some(content) = &v.content {
-                    if content.len() > 65536
-                        || crate::digest_bytes(content.as_bytes()) != v.content_sha256
-                    {
-                        return Err("document content mismatch");
-                    }
-                }
             }
             Ok(())
         }
@@ -583,8 +563,15 @@ impl Call {
             Self::MemoryForget(p) => digest(&p.preview_digest),
             Self::MemoryForgetPreview(p) => p.validate(),
             Self::MemoryForgetPreviewRead(p) => p.validate(),
-            Self::EditorContext(p) => documents(&p.documents),
-            Self::EditorChangeResult(p) => documents(&p.documents),
+            Self::EditorContext(p) => crate::editor::validate_context(p),
+            Self::EditorPrepare(p) => crate::editor::validate_prepare(p),
+            Self::EditorDispatch(p) if p.file >= 16 => Err("editor file limit"),
+            Self::EditorChangeResult(p) => {
+                if p.file >= 16 {
+                    return Err("editor file limit");
+                }
+                crate::editor::validate_document(&p.document)
+            }
             _ => Ok(()),
         }
     }
@@ -817,6 +804,9 @@ pub enum ResultValue {
     Sessions(SessionPage),
     Task(TaskView),
     Presentation(TaskPresentation),
+    EditorContext(crate::editor::ContextView),
+    EditorChange(crate::editor::ChangeView),
+    EditorDispatch(crate::editor::DispatchView),
     Acceptance(Acceptance),
     Usage(UsageView),
     Artifact(ArtifactRange),

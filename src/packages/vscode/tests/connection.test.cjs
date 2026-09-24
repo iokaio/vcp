@@ -281,3 +281,65 @@ test('refresh re-resolves the selected folder and invalidates a redirected mappi
   assert.equal(connection.state().rootId, undefined); assert.equal(client.disposed, 1);
   await connection.dispose();
 });
+
+test('execution launch is explicit, carries only requested root/profile and never reuses inspection control', async () => {
+  const inspection = controlled(), executionClient = controlled();
+  inspection.attachment = () => ({ opaque: 'inspection-only' });
+  const launches = [], published = [], saved = []; let attaches = 0;
+  const execution = { profile: 'C:\\trusted\\execution.json', providerCredential: 'test-only-provider-secret', credentials: { helper: 'test-only-helper-secret' } };
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root,
+    launch: async options => { launches.push(options); return launches.length === 1 ? inspection : executionClient; },
+    attach: async () => { attaches++; throw Error('execution must not reuse inspection attachment'); },
+    publish: state => published.push(state), saveRecovery: async value => saved.push(value) });
+  await connection.connect(selection, 'controller');
+  const state = await connection.connectExecution(selection, execution, 'explicit-new-root');
+  assert.equal(state.phase, 'connected'); assert.equal(state.role, 'controller'); assert.equal(inspection.disposed, 1);
+  assert.equal(attaches, 0); assert.equal(launches.length, 2); assert.equal(launches[0].execution, undefined);
+  assert.equal(launches[1].rootTask, 'explicit-new-root'); assert.deepEqual(launches[1].execution, execution);
+  assert.equal(launches[1].role, 'controller'); assert.equal(launches[1].transport, 'windows_pipe');
+  assert.equal(executionClient.calls.filter(call => call.method === 'controller/acquire').length, 1);
+  assert(!executionClient.calls.some(call => ['turn/start','turn/steer','session/resume'].includes(call.method)));
+  for (const secret of [execution.providerCredential, execution.credentials.helper, execution.profile]) {
+    assert(!JSON.stringify(published).includes(secret)); assert(!JSON.stringify(saved).includes(secret));
+  }
+  assert(saved.at(-1)?.reference); assert.equal(saved.at(-1).execution, undefined); assert.equal(saved.at(-1).rootTask, undefined);
+  await connection.dispose();
+});
+
+test('execution refuses an untrusted editor before persistence, root lookup or process launch', async () => {
+  let sideEffects = 0;
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => { sideEffects++; return root; },
+    launch: async () => { sideEffects++; return controlled(); }, saveRecovery: async () => { sideEffects++; } });
+  await assert.rejects(connection.connectExecution({ ...selection, workspaceTrusted: false }, { profile: 'p', providerCredential: 'secret' }, 'root'), /trusted editor/);
+  assert.equal(sideEffects, 0); assert.equal(connection.currentClient(), undefined); await connection.dispose();
+});
+
+test('reload after execution reconnects only as observer without restoring credentials or acquiring control', async () => {
+  const original = controlled(), saved = [];
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root, launch: async () => original, saveRecovery: async value => saved.push(value) });
+  await connection.connectExecution(selection, { profile: 'execution-profile', providerCredential: 'secret-execution-token' }, 'selected-root');
+  const recovery = saved.at(-1); await connection.dispose();
+  const observer = fake(), reconnects = []; let starts = 0;
+  const restored = new EngineConnection({ platform: 'win32', canonicalize: async () => root,
+    launch: async () => { starts++; throw Error('reload cannot start execution'); },
+    attach: async () => { starts++; throw Error('reload cannot restore controller attachment'); },
+    reconnect: async options => { reconnects.push(options); return observer; } });
+  const state = await restored.restore(selection, recovery);
+  assert.equal(state.phase, 'connected'); assert.equal(state.role, 'observer'); assert.equal(starts, 0);
+  assert.equal(reconnects.length, 1); assert.equal(reconnects[0].execution, undefined); assert.equal(reconnects[0].rootTask, undefined);
+  assert(!JSON.stringify(reconnects).includes('secret-execution-token'));
+  assert(!observer.calls.some(call => ['controller/acquire','turn/start','session/resume'].includes(call.method)));
+  await restored.dispose();
+});
+
+test('revocation fences delayed execution launch without publishing its credentials or admitting work', async () => {
+  const gate = deferred(), client = controlled(), states = [], saved = [];
+  const connection = new EngineConnection({ platform: 'win32', canonicalize: async () => root,
+    launch: async () => gate.promise, publish: value => states.push(value), saveRecovery: async value => saved.push(value) });
+  const pending = connection.connectExecution(selection, { profile: 'private-profile', providerCredential: 'private-secret' }, 'root');
+  await tick(); await connection.editorTrustChanged(false); gate.resolve(client); await pending;
+  assert.equal(connection.state().phase, 'disconnected'); assert.equal(connection.state().editorTrusted, false);
+  assert.equal(client.disposed, 1); assert.equal(client.calls.length, 0);
+  assert(!JSON.stringify(states).includes('private-secret')); assert(!JSON.stringify(saved).includes('private-secret'));
+  await connection.dispose();
+});

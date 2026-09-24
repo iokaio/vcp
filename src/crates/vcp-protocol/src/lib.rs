@@ -61,3 +61,5 @@ pub fn canonical_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, serde_json::E
     }
     serde_json::to_vec(&canonical(serde_json::to_value(value)?))
 }
+
+pub mod editor;

@@ -8,9 +8,11 @@ import { TaskActions } from './task_actions.js';
 import { TaskSession } from './task_session.js';
 import { TaskPanel } from './task_panel.js';
 import { parseTaskPanelMessage, type TaskPanelState } from './task_view_model.js';
+import { EditorWorkflow } from './editor_workflow.js';
 
 let active: EngineConnection | undefined;
 let activeTasks: TaskSession | undefined;
+let activeEditor: EditorWorkflow | undefined;
 export interface ExtensionApi { getConnectionState(): ConnectionStatus; getTaskState(): TaskPanelState | undefined; dispatchTaskMessage(message: unknown): Promise<void> }
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
@@ -24,6 +26,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   let taskPanel: TaskPanel | undefined;
   let tasks: TaskSession | undefined;
   let taskProfile: string | undefined;
+  let editorWorkflow: EditorWorkflow | undefined;
   // A late command receipt still owns its profile's journal after navigation.
   // Reuse that writer on A→B→A rather than creating competing saved snapshots.
   const actionProfiles = new Map<string, TaskActions>();
@@ -38,6 +41,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       statusBar.text = status.phase === 'connected' ? `$(eye) VCP: ${status.role}` : status.phase === 'connecting' ? '$(sync~spin) VCP: connecting' : '$(plug) VCP: disconnected';
       statusBar.tooltip = status.message;
       view?.publish(status);
+      editorWorkflow?.connectionChanged(status);
       const client = connection.currentClient(); const selectedProfile = connection.profileKey();
       if (client && selectedProfile && selectedProfile !== taskProfile) {
         tasks?.dispose(); taskProfile = selectedProfile;
@@ -66,6 +70,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   const commands = { connect: 'vcp.connect', control: 'vcp.connectController', attach: 'vcp.attachObserver', reconcile: 'vcp.reconcileRoot', grant: 'vcp.grantTrust', revoke: 'vcp.revokeTrust', disconnect: 'vcp.disconnect', refresh: 'vcp.refreshConnection' } as const;
   view = new ConnectionView(context.extensionUri, connection.state(), action => Promise.resolve(vscode.commands.executeCommand(commands[action])));
   taskPanel = new TaskPanel(context.extensionUri, async message => { await tasks?.dispatch(message); });
+  editorWorkflow = new EditorWorkflow(connection, context, () => tasks?.state());
+  activeEditor = editorWorkflow;
+  context.subscriptions.push(editorWorkflow, ...editorWorkflow.registrations());
   context.subscriptions.push(output, statusBar, view, taskPanel, vscode.window.registerWebviewViewProvider('vcp.connection', view), vscode.window.registerWebviewViewProvider('vcp.tasks', taskPanel), ...registerCommands(connection, output, () => recovery(context.workspaceState.get<unknown>(recoveryKey))));
   statusBar.text = '$(plug) VCP: disconnected';
   statusBar.tooltip = 'Connect explicitly to inspect an initialized local VCP workspace.';
@@ -78,6 +85,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
 }
 
 export async function deactivate(): Promise<void> {
+  activeEditor?.dispose(); activeEditor = undefined;
   activeTasks?.dispose(); activeTasks = undefined;
   const connection = active;
   active = undefined;

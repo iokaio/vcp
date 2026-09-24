@@ -277,6 +277,8 @@ impl Context {
             &prepared.evidence()?,
             decision,
             Some(prepared.changes()),
+            false,
+            None,
         )
     }
     pub fn propose_authority(
@@ -291,7 +293,35 @@ impl Context {
         vcp_policy::Decision,
         Option<ApprovalId>,
     )> {
-        self.propose_authority_with_changes(binding, prepared, evidence, decision, None)
+        self.propose_authority_with_changes(
+            binding, prepared, evidence, decision, None, false, None,
+        )
+    }
+    /// Multi-file editor preparation persists all validated files before asking.
+    /// Deferring a question grants no dispatch authority; every file is checked
+    /// again against current policy and approval immediately before dispatch.
+    pub(super) fn propose_editor_authority(
+        &mut self,
+        binding: &ThreadBinding,
+        prepared: &vcp_policy::Prepared,
+        evidence: &[u8],
+        decision: vcp_policy::Decision,
+        effect: ToolRunId,
+    ) -> Result<(
+        ToolRunId,
+        ArtifactId,
+        vcp_policy::Decision,
+        Option<ApprovalId>,
+    )> {
+        self.propose_authority_with_changes(
+            binding,
+            prepared,
+            evidence,
+            decision,
+            None,
+            true,
+            Some(effect),
+        )
     }
     fn propose_authority_with_changes(
         &mut self,
@@ -300,6 +330,8 @@ impl Context {
         evidence: &[u8],
         decision: vcp_policy::Decision,
         changes: Option<&[vcp_tools::patch::Change]>,
+        defer_question: bool,
+        effect_id: Option<ToolRunId>,
     ) -> Result<(
         ToolRunId,
         ArtifactId,
@@ -307,6 +339,39 @@ impl Context {
         Option<ApprovalId>,
     )> {
         self.can_start(binding)?;
+        let effect = effect_id.unwrap_or_else(ToolRunId::new);
+        let existing = self
+            .engine
+            .store()
+            .state()
+            .records
+            .get(&key(Collection::Effect, effect.as_str()))
+            .map(Record::decode::<Effect>)
+            .transpose()?;
+        if let Some(existing) = &existing {
+            if existing.scope != binding.scope || existing.operation_digest != prepared.digest() {
+                return Err("prepared effect identity conflicts".into());
+            }
+            if existing.state == EffectState::Validated {
+                let plan = existing
+                    .observed_changes
+                    .iter()
+                    .find(|id| {
+                        self.engine
+                            .store()
+                            .state()
+                            .record(Collection::Artifact, id.as_str(), &binding.scope.workspace)
+                            .and_then(Record::decode::<ArtifactDescriptor>)
+                            .is_ok_and(|artifact| artifact.spec.schema == "vcp-prepared-tool-v2")
+                    })
+                    .cloned()
+                    .ok_or("prepared effect evidence unavailable")?;
+                return Ok((effect, plan, decision, None));
+            }
+            if existing.state != EffectState::Proposed {
+                return Err("prepared effect is no longer available for proposal".into());
+            }
+        }
         let task: Task = self
             .engine
             .store()
@@ -330,7 +395,6 @@ impl Context {
             }))?,
             "vcp-prepared-tool-v2",
         )?;
-        let effect = ToolRunId::new();
         let mut proposals = vec![plan.spec.id.clone()];
         if let Some(changes) = changes {
             if let Some(diff) = self.capture_public_diff(
@@ -343,14 +407,16 @@ impl Context {
                 proposals.push(diff.spec.id);
             }
         }
-        self.command(
-            Command::ProposeEffect {
-                id: effect.clone(),
-                operation_digest: prepared.digest().into(),
-            },
-            Some(binding.scope.task.clone()),
-            task.revision,
-        )?;
+        if existing.is_none() {
+            self.command(
+                Command::ProposeEffect {
+                    id: effect.clone(),
+                    operation_digest: prepared.digest().into(),
+                },
+                Some(binding.scope.task.clone()),
+                task.revision,
+            )?;
+        }
         self.tool_advance(
             binding,
             &effect,
@@ -361,7 +427,7 @@ impl Context {
         )?;
         let mut question = None;
         match &decision {
-            vcp_policy::Decision::Question { .. } => {
+            vcp_policy::Decision::Question { .. } if !defer_question => {
                 let operation = prepared.operation();
                 let id = ApprovalId::new();
                 self.command(
@@ -400,5 +466,64 @@ impl Context {
             _ => (),
         }
         Ok((effect, plan.spec.id, decision, question))
+    }
+
+    pub(super) fn ask_editor_authority(
+        &mut self,
+        binding: &ThreadBinding,
+        prepared: &vcp_policy::Prepared,
+        effect: &ToolRunId,
+    ) -> Result<()> {
+        let task: Task = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Task,
+                binding.scope.task.as_str(),
+                &binding.scope.workspace,
+            )?
+            .decode()?;
+        let current: Effect = self
+            .engine
+            .store()
+            .state()
+            .record(
+                Collection::Effect,
+                effect.as_str(),
+                &binding.scope.workspace,
+            )?
+            .decode()?;
+        if current.scope != binding.scope
+            || current.operation_digest != prepared.digest()
+            || current.state != EffectState::Validated
+        {
+            return Err("editor approval effect differs from prepared operation".into());
+        }
+        let operation = prepared.operation();
+        self.command(
+            Command::Ask {
+                approval: Approval {
+                    id: ApprovalId::new(),
+                    scope: binding.scope.clone(),
+                    effect: effect.clone(),
+                    effect_revision: current.revision,
+                    steering: task.steering,
+                    operation_digest: prepared.digest().into(),
+                    actor: self.config.actor.clone(),
+                    policy: operation.policy,
+                    expires_at: Timestamp::new(now().get().saturating_add(300_000)),
+                    state: ApprovalState::Pending,
+                    revision: Revision::ZERO,
+                    controller: Some(self.engine.controller().clone()),
+                    owner_epoch: Some(self.engine.owner_epoch()),
+                    authority: Some(operation.authority),
+                    binding: Some(operation.binding),
+                },
+            },
+            Some(binding.scope.task.clone()),
+            current.revision,
+        )?;
+        Ok(())
     }
 }

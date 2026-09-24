@@ -109,6 +109,7 @@ test('committed schema is bound to compiled canonical sources and all generated 
   const expected = [
     'src/crates/vcp-protocol/Cargo.toml',
     'src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs',
+    'src/crates/vcp-protocol/src/editor.rs',
     'src/crates/vcp-protocol/src/errors.rs',
     'src/crates/vcp-protocol/src/handshake.rs',
     'src/crates/vcp-protocol/src/jsonrpc.rs',

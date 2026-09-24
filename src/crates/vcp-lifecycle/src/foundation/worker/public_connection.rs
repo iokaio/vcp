@@ -61,6 +61,8 @@ pub struct PublicConnection {
     pub(super) connected: Arc<AtomicBool>,
     pub(super) subscriptions: Arc<Mutex<super::public_events::Subscriptions>>,
     pub(super) retention_previews: Arc<Mutex<super::public_retention::Previews>>,
+    #[cfg(windows)]
+    pub(super) editor_state: Arc<Mutex<super::public_editor::EditorState>>,
     release: Option<ReleaseReceiver>,
 }
 
@@ -187,6 +189,8 @@ impl CanonicalHost {
             connected: Arc::new(AtomicBool::new(true)),
             subscriptions: Arc::new(Mutex::new(super::public_events::Subscriptions::default())),
             retention_previews: Arc::new(Mutex::new(super::public_retention::Previews::default())),
+            #[cfg(windows)]
+            editor_state: Arc::new(Mutex::new(super::public_editor::EditorState::default())),
             release: None,
         })
     }
@@ -468,6 +472,10 @@ impl PublicConnection {
     fn begin_disconnect(&self) -> std::result::Result<PublicDisconnect, String> {
         // Seal retained admission before cursor cleanup can wait on the writer.
         self.loss_signal().invalidate();
+        #[cfg(windows)]
+        if let Ok(mut editor) = self.editor_state.lock() {
+            editor.clear();
+        }
         if let Ok(mut previews) = self.retention_previews.lock() {
             previews.clear();
         }

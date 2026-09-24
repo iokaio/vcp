@@ -10,7 +10,7 @@
   "engines": { "vscode": "1.138.0" },
   "extensionKind": ["ui"],
   "main": "./dist/extension.js",
-  "activationEvents": ["onView:vcp.connection","onView:vcp.tasks","onCommand:vcp.connect","onCommand:vcp.refreshConnection","onCommand:vcp.disconnect","onCommand:vcp.connectController","onCommand:vcp.attachObserver","onCommand:vcp.reconcileRoot","onCommand:vcp.grantTrust","onCommand:vcp.revokeTrust","onStartupFinished"],
+  "activationEvents": ["onView:vcp.connection","onView:vcp.tasks","onCommand:vcp.connect","onCommand:vcp.refreshConnection","onCommand:vcp.disconnect","onCommand:vcp.connectController","onCommand:vcp.attachObserver","onCommand:vcp.reconcileRoot","onCommand:vcp.grantTrust","onCommand:vcp.revokeTrust","onStartupFinished","onCommand:vcp.startEditorTask","onCommand:vcp.createEditDraft","onCommand:vcp.reviewEditorDrafts","onCommand:vcp.applyEditorChanges","onCommand:vcp.inspectEditorChanges","onCommand:vcp.refreshEditorObservations"],
   "capabilities": {
     "virtualWorkspaces": { "supported": false, "description": "VCP currently connects only to local Windows file workspaces." },
     "untrustedWorkspaces": {
@@ -28,7 +28,13 @@
       {"command":"vcp.attachObserver","title":"VCP: Observe Existing Engine"},
       {"command":"vcp.reconcileRoot","title":"VCP: Reconcile Moved Root"},
       {"command":"vcp.grantTrust","title":"VCP: Trust Engine Workspace"},
-      {"command":"vcp.revokeTrust","title":"VCP: Revoke Engine Workspace Trust"}
+      {"command":"vcp.revokeTrust","title":"VCP: Revoke Engine Workspace Trust"},
+      {"command":"vcp.startEditorTask","title":"VCP: Start Execution-backed Task"},
+      {"command":"vcp.createEditDraft","title":"VCP: Create Editor Draft"},
+      {"command":"vcp.reviewEditorDrafts","title":"VCP: Review Editor Drafts"},
+      {"command":"vcp.applyEditorChanges","title":"VCP: Apply Reviewed Editor Changes"},
+      {"command":"vcp.inspectEditorChanges","title":"VCP: Inspect Editor Change Outcomes"},
+      {"command":"vcp.refreshEditorObservations","title":"VCP: Refresh Editor Observations"}
     ],
     "viewsContainers": { "activitybar": [{ "id": "vcp", "title": "VCP", "icon": "media/vcp.svg" }] },
     "views": { "vcp": [{ "type": "webview", "id": "vcp.connection", "name": "Workspace" }, { "type": "webview", "id": "vcp.tasks", "name": "Tasks" }] },

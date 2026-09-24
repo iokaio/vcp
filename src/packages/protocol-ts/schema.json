@@ -1,5 +1,5 @@
 {
-  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"7c0de523ccbabb45cda92c5efc8b2c30a0d93cab8e87f53eab99bf0eff23d182\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"5352f2e75347bd52c3e182ef371c5acdda4732a7a41a3b72c1e985fb1ad5d864\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"91d33723bdb587211d613d28c9edc5dbd5bfb8fe820214c6ed8211019e5f9d61\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
+  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"153b9bc2b04fc372c22f79264c8724a4236cd8eb51be799585659842c903abf6\",\"src/crates/vcp-protocol/src/editor.rs\":\"4957eec00d2f1a5e4ebde7f3edec853e467e90911c9913e275209cdbb642b806\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"527437e1aaec18775c44f1aff22a62419f9c36ff5b6d952d43efe3c28f2fc93c\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"fcf486b49c1fdb150f72617dc3b7dc61cee5627bcf10453c82542da34d89f462\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
@@ -1084,6 +1084,63 @@
           "properties": {
             "method": {
               "enum": [
+                "editor/prepare"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/EditorPrepare"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "editor/changeRead"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/EditorChangeRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "editor/dispatch"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/EditorDispatch"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
                 "editor/changeResult"
               ],
               "type": "string"
@@ -1223,6 +1280,66 @@
         "visible_history_and_artifacts"
       ],
       "type": "string"
+    },
+    "ChangeView": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "buffers_unverified": {
+          "type": "boolean"
+        },
+        "change": {
+          "$ref": "#/definitions/Id"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/definitions/FileView"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "generation": {
+          "$ref": "#/definitions/Id"
+        },
+        "policy_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "root": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "steering_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "authority_revision",
+        "binding_revision",
+        "buffers_unverified",
+        "change",
+        "files",
+        "generation",
+        "policy_revision",
+        "revision",
+        "root",
+        "scope",
+        "steering_revision",
+        "task"
+      ],
+      "type": "object"
     },
     "CheckOutcome": {
       "oneOf": [
@@ -1620,6 +1737,30 @@
         "maximum_pending_requests",
         "maximum_subscriber_queue_bytes",
         "maximum_subscriptions"
+      ],
+      "type": "object"
+    },
+    "ContextView": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "$ref": "#/definitions/Id"
+        },
+        "observations": {
+          "items": {
+            "$ref": "#/definitions/Observation"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "generation",
+        "observations",
+        "revision"
       ],
       "type": "object"
     },
@@ -2024,6 +2165,54 @@
       ],
       "type": "string"
     },
+    "Diagnostics": {
+      "additionalProperties": false,
+      "properties": {
+        "collector": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "count": {
+          "format": "uint32",
+          "maximum": 64,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_at": {
+          "$ref": "#/definitions/Counter"
+        },
+        "observed_document_version": {
+          "$ref": "#/definitions/Counter"
+        },
+        "producer_document_version": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "collector",
+        "count",
+        "observed_at",
+        "observed_document_version",
+        "sha256",
+        "truncated"
+      ],
+      "type": "object"
+    },
     "DiffRead": {
       "additionalProperties": false,
       "properties": {
@@ -2055,9 +2244,38 @@
       ],
       "type": "object"
     },
+    "DispatchView": {
+      "additionalProperties": false,
+      "properties": {
+        "apply": {
+          "type": "boolean"
+        },
+        "change": {
+          "$ref": "#/definitions/ChangeView"
+        },
+        "execution": {
+          "$ref": "#/definitions/Id"
+        },
+        "file": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "apply",
+        "change",
+        "execution",
+        "file"
+      ],
+      "type": "object"
+    },
     "DocumentObservation": {
       "additionalProperties": false,
       "properties": {
+        "capture": {
+          "type": "boolean"
+        },
         "content": {
           "maxLength": 65536,
           "type": [
@@ -2069,6 +2287,17 @@
           "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
           "type": "string"
         },
+        "diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Diagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "dirty": {
           "type": "boolean"
         },
@@ -2079,8 +2308,33 @@
             "null"
           ]
         },
+        "encoding": {
+          "$ref": "#/definitions/Encoding"
+        },
+        "eol": {
+          "$ref": "#/definitions/EndOfLine"
+        },
         "host": {
           "$ref": "#/definitions/Id"
+        },
+        "language": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "open_id": {
+          "$ref": "#/definitions/Id"
+        },
+        "relative_path": {
+          "maxLength": 32768,
+          "minLength": 1,
+          "type": "string"
+        },
+        "selections": {
+          "items": {
+            "$ref": "#/definitions/Range2"
+          },
+          "maxItems": 32,
+          "type": "array"
         },
         "uri": {
           "maxLength": 32768,
@@ -2092,11 +2346,38 @@
         }
       },
       "required": [
+        "capture",
         "content_sha256",
         "dirty",
+        "encoding",
+        "eol",
         "host",
+        "language",
+        "open_id",
+        "relative_path",
+        "selections",
         "uri",
         "version"
+      ],
+      "type": "object"
+    },
+    "EditorChangeRead": {
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "change",
+        "scope",
+        "task"
       ],
       "type": "object"
     },
@@ -2106,13 +2387,20 @@
         "change": {
           "$ref": "#/definitions/Id"
         },
-        "documents": {
-          "items": {
-            "$ref": "#/definitions/DocumentObservation"
-          },
-          "maxItems": 16,
-          "minItems": 1,
-          "type": "array"
+        "document": {
+          "$ref": "#/definitions/DocumentObservation"
+        },
+        "execution": {
+          "$ref": "#/definitions/Id"
+        },
+        "file": {
+          "format": "uint32",
+          "maximum": 15,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation": {
+          "$ref": "#/definitions/Id"
         },
         "mutation": {
           "$ref": "#/definitions/Mutation"
@@ -2129,7 +2417,10 @@
       },
       "required": [
         "change",
-        "documents",
+        "document",
+        "execution",
+        "file",
+        "generation",
         "mutation",
         "outcome",
         "scope",
@@ -2140,12 +2431,19 @@
     "EditorContext": {
       "additionalProperties": false,
       "properties": {
+        "closed": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/Id"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
         "documents": {
           "items": {
             "$ref": "#/definitions/DocumentObservation"
           },
           "maxItems": 16,
-          "minItems": 1,
           "type": "array"
         },
         "mutation": {
@@ -2166,14 +2464,81 @@
       ],
       "type": "object"
     },
+    "EditorDispatch": {
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "$ref": "#/definitions/Id"
+        },
+        "file": {
+          "format": "uint32",
+          "maximum": 15,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation": {
+          "$ref": "#/definitions/Id"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "change",
+        "file",
+        "generation",
+        "mutation",
+        "scope",
+        "task"
+      ],
+      "type": "object"
+    },
     "EditorOutcome": {
       "enum": [
         "applied",
         "rejected",
-        "partial",
         "unknown"
       ],
       "type": "string"
+    },
+    "EditorPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/definitions/FileEdits"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "generation": {
+          "$ref": "#/definitions/Id"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "task": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "files",
+        "generation",
+        "mutation",
+        "scope",
+        "task"
+      ],
+      "type": "object"
     },
     "EffectStatus": {
       "enum": [
@@ -2181,6 +2546,23 @@
         "known",
         "partial",
         "unknown"
+      ],
+      "type": "string"
+    },
+    "Encoding": {
+      "enum": [
+        "unknown",
+        "utf8",
+        "utf8_bom",
+        "utf16_le",
+        "utf16_be"
+      ],
+      "type": "string"
+    },
+    "EndOfLine": {
+      "enum": [
+        "lf",
+        "crlf"
       ],
       "type": "string"
     },
@@ -2640,6 +3022,147 @@
         "complete",
         "scope",
         "visibility_manifest"
+      ],
+      "type": "object"
+    },
+    "FileEdits": {
+      "additionalProperties": false,
+      "properties": {
+        "edits": {
+          "items": {
+            "$ref": "#/definitions/TextEdit"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "type": "array"
+        },
+        "observation": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "edits",
+        "observation"
+      ],
+      "type": "object"
+    },
+    "FileState": {
+      "enum": [
+        "prepared",
+        "dispatched",
+        "applied",
+        "rejected",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "FileView": {
+      "additionalProperties": false,
+      "properties": {
+        "after_sha256": {
+          "type": "string"
+        },
+        "content_sha256": {
+          "type": "string"
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "disk_fingerprint": {
+          "type": "string"
+        },
+        "disk_sha256": {
+          "type": "string"
+        },
+        "edits_digest": {
+          "type": "string"
+        },
+        "effect": {
+          "$ref": "#/definitions/Id"
+        },
+        "execution": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "file": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host": {
+          "$ref": "#/definitions/Id"
+        },
+        "observation": {
+          "$ref": "#/definitions/Id"
+        },
+        "observed_observation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observed_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_version": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "open_id": {
+          "$ref": "#/definitions/Id"
+        },
+        "operation_digest": {
+          "type": "string"
+        },
+        "relative_path": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/FileState"
+        },
+        "uri": {
+          "type": "string"
+        },
+        "version": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "after_sha256",
+        "content_sha256",
+        "dirty",
+        "disk_fingerprint",
+        "disk_sha256",
+        "edits_digest",
+        "effect",
+        "file",
+        "host",
+        "observation",
+        "open_id",
+        "operation_digest",
+        "relative_path",
+        "state",
+        "uri",
+        "version"
       ],
       "type": "object"
     },
@@ -3345,6 +3868,40 @@
       ],
       "type": "object"
     },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disk_fingerprint": {
+          "type": "string"
+        },
+        "document": {
+          "$ref": "#/definitions/DocumentObservation"
+        },
+        "id": {
+          "$ref": "#/definitions/Id"
+        },
+        "root": {
+          "$ref": "#/definitions/Id"
+        }
+      },
+      "required": [
+        "disk_fingerprint",
+        "document",
+        "id",
+        "root"
+      ],
+      "type": "object"
+    },
     "OperationOutcome": {
       "enum": [
         "accepted",
@@ -3489,6 +4046,26 @@
         "id",
         "kind",
         "revision"
+      ],
+      "type": "object"
+    },
+    "Position": {
+      "additionalProperties": false,
+      "properties": {
+        "character": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "line": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "character",
+        "line"
       ],
       "type": "object"
     },
@@ -3907,6 +4484,22 @@
       ],
       "type": "object"
     },
+    "Range2": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "$ref": "#/definitions/Position"
+        },
+        "start": {
+          "$ref": "#/definitions/Position"
+        }
+      },
+      "required": [
+        "end",
+        "start"
+      ],
+      "type": "object"
+    },
     "RequestEnvelope": {
       "additionalProperties": false,
       "properties": {
@@ -4124,6 +4717,63 @@
             },
             "value": {
               "$ref": "#/definitions/TaskPresentation"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "editor_context"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/ContextView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "editor_change"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/ChangeView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "editor_dispatch"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/DispatchView"
             }
           },
           "required": [
@@ -5380,6 +6030,23 @@
         "state",
         "steering_revision",
         "task"
+      ],
+      "type": "object"
+    },
+    "TextEdit": {
+      "additionalProperties": false,
+      "properties": {
+        "range": {
+          "$ref": "#/definitions/Range2"
+        },
+        "text": {
+          "maxLength": 65536,
+          "type": "string"
+        }
+      },
+      "required": [
+        "range",
+        "text"
       ],
       "type": "object"
     },
