@@ -49,6 +49,9 @@ pub struct Profile {
     pub max_transport_retries: u32,
     pub deadline_seconds: u32,
     pub processes: Vec<ProcessProfile>,
+    /// Executable hooks are explicit trusted owner configuration, never imports.
+    #[serde(default)]
+    pub hooks: Vec<vcp_extensions::hooks::registry::HookDefinition>,
     pub checks: Vec<vcp_tools::verification::Requirement>,
     #[cfg(feature = "qualification")]
     pub qualification_endpoint: Option<String>,
@@ -511,6 +514,15 @@ impl Profile {
             .any(|check| !names.contains(&check.profile))
         {
             return Err("verification requires an explicit executable profile".into());
+        }
+        if self.hooks.len() > 128 {
+            return Err("hook registry ceiling exceeded".into());
+        }
+        for hook in &self.hooks {
+            hook.validate().map_err(|e| e.to_string())?;
+            if !names.contains(&hook.command.profile) {
+                return Err("hook requires an explicit executable profile".into());
+            }
         }
         validate_check_durations(&self.checks, &processes, self.deadline_seconds)?;
         crate::mcp::validate(&self.mcp, &names)?;

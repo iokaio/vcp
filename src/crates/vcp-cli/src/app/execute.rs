@@ -360,6 +360,7 @@ pub(super) async fn execute(
             } else {
                 TaskState::Cancelled
             };
+            drop(signal_host.hold_execution());
             let _ = stop(&signal_host, &signal_config, next);
             if !interactive {
                 break;
@@ -369,6 +370,7 @@ pub(super) async fn execute(
     // From here onward, errors must finish this durable task, never append an
     // unrelated configuration result after acceptance.
     let mut shadow = crate::decision::Driver::default();
+    let mut lifecycle_pending = None;
     let execution=async{
         output.emit(&correlation,Some(&scope),Payload::Accepted{receipt:&accepted}).await?;
         if let Ok(notice) = host.history_retention(vcp_lifecycle::foundation::history_retention::Request::Notice) {
@@ -403,26 +405,66 @@ pub(super) async fn execute(
             let mut input=crate::input::ControlInput::new(std::io::BufReader::new(std::io::stdin())).map_err(|e|e.to_string())?;let host=host.clone();
             Some(AbortOnDrop(tokio::spawn(async move{while let Ok(Some(reply))=input.next(&host).await{if reply.result.is_err(){eprintln!("vcp: structured control rejected");}}})))
         }else{None};
-        execution_owner.submit().await?;
         let mut tick=tokio::time::interval(Duration::from_millis(250));
         let deadline=tokio::time::sleep(Duration::from_secs(u64::from(profile.deadline_seconds)));tokio::pin!(deadline);
+        lifecycle_pending=Some(execution_owner.start_submission(None));
+        let mut active_turn=None;
         loop{tokio::select!{
-            event=execution_owner.next_event()=>{
+            event=execution_owner.next_event(), if lifecycle_pending.is_none() && active_turn.is_some()=>{
                 let event=event.map_err(|e|e.to_string())?;
+                if !active_turn.as_ref().is_some_and(|turn: &String|crate::execution::event_for_turn(&event,turn)) {continue;}
                 if matches!(event.msg,codex_protocol::protocol::EventMsg::TurnComplete(_)){
                     shadow.cancel().await;
-                    if let crate::execution::Completion::Rejected(error)=execution_owner.complete()?{
-                        eprintln!("vcp: completion evidence rejected: {error}");
-                        let task=task_from(&host.snapshot()?,&config.workspace,&config.root_task)?;
-                        if task.state==TaskState::Running{host.command(Command::Transition{next:TaskState::Failed,reason:"retained turn ended without current completion evidence".into(),verification:None},Some(config.root_task.clone()),task.revision)?;}
-                    }break;
+                    lifecycle_pending=Some(execution_owner.start_completion());
                 }
             }
-            _=tick.tick()=>{let outcome=crate::outcome::Outcome::read(&host,&scope)?;if outcome.task.state!=TaskState::Running||outcome.conditions.required_input{break;}if let Some(notice)=shadow.poll(&host,session.id).await{eprintln!("vcp: {notice}");}after=output.drain_events(&host,&correlation,after).await?;}
+            lifecycle_result=crate::execution::LifecycleJob::poll(&mut lifecycle_pending)=>{
+                lifecycle_pending=None;
+                    match lifecycle_result {
+                        Ok(crate::execution::LifecycleResult::Submitted(turn))=>{active_turn=Some(turn);},
+                        Ok(crate::execution::LifecycleResult::Completed(crate::execution::Completion::Rejected(error)))=>{
+                            eprintln!("vcp: completion evidence rejected: {error}");
+                            let task=task_from(&host.snapshot()?,&config.workspace,&config.root_task)?;
+                            if task.state==TaskState::Running{host.command(Command::Transition{next:TaskState::Failed,reason:"retained turn ended without current completion evidence".into(),verification:None},Some(config.root_task.clone()),task.revision)?;}
+                            break;
+                        },
+                        Ok(crate::execution::LifecycleResult::Completed(_))=>break,
+                        Err(error)=>{
+                            if task_from(&host.snapshot()?,&config.workspace,&config.root_task)?.state==TaskState::Running{return Err(error);}
+                            break;
+                        },
+                    }
+                }
+            _=tick.tick()=>{
+                let outcome=crate::outcome::Outcome::read(&host,&scope)?;
+                if outcome.conditions.required_input {
+                    break;
+                }
+                if outcome.task.state!=TaskState::Running{break;}
+                if lifecycle_pending.is_none() {if let Some(notice)=shadow.poll(&host,session.id).await{eprintln!("vcp: {notice}");}}
+                after=output.drain_events(&host,&correlation,after).await?;
+            }
             _=&mut deadline=>{stop(&host,&config,TaskState::Paused)?;break;}
         }}Ok(())
     }.await;
     shadow.cancel().await;
+    if !interactive
+        && crate::outcome::Outcome::read(&host, &scope)
+            .is_ok_and(|outcome| outcome.conditions.required_input)
+    {
+        eprintln!("vcp: approval required; one-shot execution will close this owner. Use an interactive terminal or local attachment for live hook approval and explicit resume; inspect durable evidence before recovery.");
+    }
+    if let Some(mut job) = lifecycle_pending {
+        drop(host.hold_execution());
+        if host
+            .snapshot()
+            .and_then(|state| task_from(&state, &config.workspace, &config.root_task))
+            .is_ok_and(|task| task.state == TaskState::Running)
+        {
+            let _ = stop(&host, &config, TaskState::Paused);
+        }
+        let _ = job.result().await;
+    }
     if execution.is_err() {
         eprintln!("vcp: execution stopped; inspect the durable task for recovery");
     }

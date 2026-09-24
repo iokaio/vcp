@@ -445,15 +445,8 @@ impl Supervisor {
         }
         // Only a new durable acceptance can submit work. Canonical admission
         // independently rechecks controller loss between commit and submission.
-        let turn = match execution.submit_identified().await {
-            Ok(turn) => turn,
-            Err(_) => {
-                pause(&self.host, &scope);
-                return Ok(receipt);
-            }
-        };
         let expires = state.deadline.ok_or("execution deadline unavailable")?;
-        state.pump = Some(pump(self.host.clone(), scope, execution, turn, expires));
+        state.pump = Some(pump(self.host.clone(), scope, execution, None, expires));
         Ok(receipt)
     }
 
@@ -502,16 +495,29 @@ fn pump(
     host: CanonicalHost,
     scope: Scope,
     mut execution: crate::execution::RetainedExecution,
-    turn: String,
+    accepted: Option<TurnId>,
     expires: tokio::time::Instant,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let deadline = tokio::time::sleep_until(expires);
         tokio::pin!(deadline);
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
+        let mut pending = Some(execution.start_submission(accepted));
+        let mut turn = None;
         loop {
             tokio::select! {
                 _ = &mut deadline => { pause(&host, &scope); break; }
+                result = crate::execution::LifecycleJob::poll(&mut pending) => {
+                    pending=None;
+                        match result {
+                            Ok(crate::execution::LifecycleResult::Submitted(id)) => turn=Some(id),
+                            Ok(crate::execution::LifecycleResult::Completed(crate::execution::Completion::Rejected(_))) | Err(_) => {
+                                if selected(&host,&scope).is_ok_and(|task|task.state==TaskState::Running) {pause(&host,&scope);}
+                                break;
+                            },
+                            Ok(crate::execution::LifecycleResult::Completed(_)) => break,
+                        }
+                    }
                 _ = tick.tick() => {
                     match selected(&host, &scope) {
                         Ok(task) if task.state == TaskState::Running => {}
@@ -519,11 +525,10 @@ fn pump(
                         Err(_) => { pause(&host, &scope); break; }
                     }
                 }
-                event = execution.next_event() => match event {
-                    Ok(event) if event_for_turn(&event, &turn) => match event.msg {
+                event = execution.next_event(), if pending.is_none() && turn.is_some() => match event {
+                    Ok(event) if turn.as_ref().is_some_and(|turn|event_for_turn(&event, turn)) => match event.msg {
                         codex_protocol::protocol::EventMsg::TurnComplete(_) => {
-                            if matches!(execution.complete(), Err(_) | Ok(crate::execution::Completion::Rejected(_))) { pause(&host, &scope); }
-                            break;
+                            pending=Some(execution.start_completion());
                         }
                         codex_protocol::protocol::EventMsg::TurnAborted(_) | codex_protocol::protocol::EventMsg::Error(_) => { pause(&host, &scope); break; }
                         _ => {}
@@ -532,6 +537,12 @@ fn pump(
                     Err(_) => { pause(&host, &scope); break; }
                 }
             }
+        }
+        if let Some(mut job) = pending {
+            if selected(&host, &scope).is_ok_and(|task| task.state == TaskState::Running) {
+                pause(&host, &scope);
+            }
+            let _ = job.result().await;
         }
     })
 }

@@ -49,6 +49,14 @@ impl CanonicalHost {
         thread: ThreadId,
         request: vcp_tools::Request,
     ) -> Result<ToolProposal, String> {
+        self.prepare_tool_with_hooks(thread, request, vec![])
+    }
+    pub(super) fn prepare_tool_with_hooks(
+        &self,
+        thread: ThreadId,
+        request: vcp_tools::Request,
+        hooks: Vec<super::hooks::HookOutcome>,
+    ) -> Result<ToolProposal, String> {
         let generation = scheduler::generation(&self.runtime, thread)?;
         let binding = self.binding(thread)?;
         let scoped = binding.clone();
@@ -71,9 +79,10 @@ impl CanonicalHost {
         })?;
         let scoped = binding.clone();
         let proposed = prepared.clone();
-        let (effect, plan, decision, question) = self
-            .worker
-            .run(move |context| context.tool_propose(&scoped, &proposed))?;
+        let (effect, plan, decision, question) = self.worker.run(move |context| {
+            context.check_hook_outcomes(&scoped, &hooks)?;
+            context.tool_propose(&scoped, &proposed)
+        })?;
         Ok(ToolProposal {
             thread,
             binding,

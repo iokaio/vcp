@@ -31,6 +31,8 @@ mod escalation;
 #[cfg(windows)]
 mod execution;
 #[cfg(windows)]
+mod hooks;
+#[cfg(windows)]
 mod mcp;
 mod memory;
 #[cfg(windows)]

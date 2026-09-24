@@ -123,3 +123,12 @@ pre-launch active-process limit for owned VCP jobs. Existing upstream callers
 are unchanged. The original broker uses this for both pipes and terminals;
 see [process limits](../../../docs/development/p2-process.md#native-launch-and-limits).
 The source revision, license and external dependency pins are unchanged.
+
+Patch 0039 adds the P10-01 asynchronous `HostWorkAdmission::prepare_model`
+callback and awaits it in the retained HTTP request path before synchronous
+admission. VCP runs executable context/compaction hooks outside the store worker;
+the callback itself grants no transport permit. Already-accounted transport retries
+retain the existing permit and do not replay the hook. The default implementation
+preserves existing callers. Native captured-request and retry tests exercise this
+seam separately from the Gemini behavioral fixtures. The patch and result inventory
+reconstruct exactly from the current immutable Codex pin, without new dependencies.

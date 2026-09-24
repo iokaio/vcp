@@ -1728,24 +1728,25 @@ impl ModelClientSession {
                         .admit_retry(&mut body)
                         .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?,
                 )
+            } else if let Some(gate) = self.client.host_work.as_ref() {
+                let purpose = match responses_metadata.request_kind {
+                    Some(crate::responses_metadata::CodexResponsesRequestKind::Compaction(_)) => {
+                        codex_extension_api::HostModelPurpose::Compaction
+                    }
+                    Some(crate::responses_metadata::CodexResponsesRequestKind::Memory) => {
+                        codex_extension_api::HostModelPurpose::Memory
+                    }
+                    _ => codex_extension_api::HostModelPurpose::Turn,
+                };
+                gate.prepare_model(self.client.state.thread_id, purpose)
+                    .await
+                    .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
+                Some(
+                    gate.admit_model(self.client.state.thread_id, &mut body, purpose)
+                        .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?,
+                )
             } else {
-                self.client
-                    .host_work
-                    .as_ref()
-                    .map(|gate| {
-                        let purpose = match responses_metadata.request_kind {
-                            Some(
-                                crate::responses_metadata::CodexResponsesRequestKind::Compaction(_),
-                            ) => codex_extension_api::HostModelPurpose::Compaction,
-                            Some(crate::responses_metadata::CodexResponsesRequestKind::Memory) => {
-                                codex_extension_api::HostModelPurpose::Memory
-                            }
-                            _ => codex_extension_api::HostModelPurpose::Turn,
-                        };
-                        gate.admit_model(self.client.state.thread_id, &mut body, purpose)
-                    })
-                    .transpose()
-                    .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?
+                None
             };
             let response_capture = host_permit
                 .as_ref()

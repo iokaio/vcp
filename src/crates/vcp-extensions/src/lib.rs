@@ -3,6 +3,7 @@
 pub mod activation;
 pub mod catalog;
 pub mod discovery;
+pub mod hooks;
 pub mod mcp;
 pub mod skill_manifest;
 

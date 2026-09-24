@@ -89,7 +89,7 @@ Each linked task supplies code organization, implementation increments and testi
 | P9-01 Public protocol | P8-05, P1-02 | [Implementation and tests](17-deferred-api-and-sdk.md#p9-01--public-protocol) | [Public wire and initial adapter contract](../development/public-protocol.md), [schema/identity decision](../adr/043-public-protocol-schema-and-identity.md), [PR #134](https://github.com/iokaio/vcp/pull/134); 58 native tests, eight generator contracts, TypeScript and 13 independent schema fixtures; remaining live methods belong to P9-02 | Complete |
 | P9-02 Server/attach | P9-01 | [Implementation and tests](17-deferred-api-and-sdk.md#p9-02--local-server-and-attachment) | [Native acceptance record](../development/local-attachment.md#p9-02-acceptance-and-next-dependency): authenticated attachment, leases, owned execution and pause/loss, pending input, durable retry, snapshot/event recovery, bounded readers, CLI/API parity, scoped inspection/governance/export/physical forgetting; [ADR-054](../adr/054-scoped-public-retention.md) records final both-store bridge and real MCP qualification. Editor adapters belong to P4 and SDK consumer qualification to P9-03. | Complete |
 | P9-03 TypeScript SDK | P9-02 | [Implementation and tests](17-deferred-api-and-sdk.md#p9-03--sdk) | [SDK qualification](../development/typescript-sdk.md), [ADR-055](../adr/055-typescript-local-sdk.md): 29 package/runtime tests, clean offline build/consumer, four compiled tests on both stores, seven runnable examples, original-command/effect evidence and explicit cancellation/disposal boundaries | Complete |
-| P10-01 Hooks | P8-05, P7-03 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-01--hooks) | E16/R06 timeout, recursion, rewrite and recovery cases | Planned |
+| P10-01 Hooks | P8-05, P7-03 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-01--hooks) | [E16/R06 timeout, recursion, rewrite and recovery evidence](../evaluations/p10-01-hooks.md) | Complete |
 | P10-02 Configuration imports | P8-05, P7-01/03 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-02--configuration-import) | Unsupported fields reported; imported data grants no authority | Planned |
 | P10-03 Optional observers | P8-05, P7-06 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-03--optional-observers) | Measured benefit, root cost and intervention-rate accounting | Planned |
 | P10-04 Other environments | P8-05 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-04--other-execution-environments) | Separate per-host path/process/credential and installation matrices | Planned |
@@ -275,7 +275,7 @@ The [research experiment matrix](../architecture/othertools.md#202-required-expe
 | E13 Memory governance | 08, 09, 10, 15 | None required |
 | E14 Storage/index recovery | 03, 08, 09, 15 | None required |
 | E15 Worktree integration | 14 | None required |
-| E16 Extension failure | 13: MCP and skill lifecycle | 19: hooks/importers |
+| E16 Extension failure | 13: MCP and skill lifecycle; 19: hooks | 19: importers |
 | E17 Trace inspection/export | 02, 07, 10, 11, 15 | 18: editor presentation parity |
 | E18 Install/upgrade | 03, 11, 15: Windows CLI/data | 18, 19: editor/other hosts |
 | E19 Routed strategy value | 12, 15 | 19: observer value comparison |
@@ -298,7 +298,7 @@ The [research experiment matrix](../architecture/othertools.md#202-required-expe
 | R03 | 01, 06, 13 | Effective VCP policy distinct from upstream matches |
 | R04 | 01, 06, 15; later 19 | Actual Windows execution/packaging; other hosts later |
 | R05 | 01, 05, 06, 12 | Normalized tools/provider/scheduler with budget and effect discipline |
-| R06 | 01, 13; later 19 | Skills/MCP now; hook/import semantics later |
+| R06 | 01, 13, 19 | Skills/MCP and hooks now; import semantics later |
 | R07 | 02, 04, 08, 12 | Context continuity, full capture, local memory and charged helpers |
 | R08 | 01, 15 and every selected-component change | Pinned source/notices, retained tests and update rehearsal |
 

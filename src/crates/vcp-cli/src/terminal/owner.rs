@@ -160,6 +160,8 @@ pub async fn run(
     let mut mcp_pending: Option<crate::mcp::Running> = None;
     let mut shadow = crate::decision::Driver::default();
     let mut active = true;
+    let mut lifecycle_pending = Some(execution.start_submission(None));
+    let mut active_turn = None;
     let mut child_review_pending = false;
     let mut followed: Option<TaskId> = None;
     let mut delegation_pending: Option<
@@ -189,7 +191,6 @@ pub async fn run(
     let mut cleanup_pending: Option<tokio::task::JoinHandle<Result<CleanupOutcome, String>>> = None;
     let mut cleanup_previews = std::collections::BTreeMap::new();
     let result = async {
-    submit(host, session, scope).await?;
     let mut tick = tokio::time::interval(Duration::from_millis(200));
     let deadline = tokio::time::sleep(Duration::from_secs(u64::from(seconds)));
     tokio::pin!(deadline);
@@ -212,9 +213,11 @@ pub async fn run(
                     Input::Cancel => {stop(host,scope,TaskState::Cancelled)?; return Ok("Task cancelled.".into());}
                     Input::Exit => {stop(host,scope,TaskState::Paused)?; return Ok("exit".into());}
                     Input::Resume => {
-                        if pending.is_some() || mcp_pending.is_some() || shadow.active() || active {return Err("wait for the current turn, steering, shadow evaluation and MCP control to drain before /resume".into());}
+                        if lifecycle_pending.is_some() || pending.is_some() || mcp_pending.is_some() || shadow.active() || active {return Err("wait for the current turn, lifecycle hooks, steering, shadow evaluation and MCP control to drain before /resume".into());}
                         if expired {return Err("execution deadline reached; reopen explicitly to renew the execution window".into());}
-                        resume(host,session,scope).await?; active=true; child_review_pending=false; "Resumed after revalidation.".into()
+                        let expected=current(host,scope)?.revision;
+                        prepare_resume(host,session,scope,expected)?;
+                        active_turn=None; lifecycle_pending=Some(execution.start_submission(None)); active=true; child_review_pending=false; "Resume requested after revalidation; lifecycle hooks are pending.".into()
                     }
                     Input::Answer{id,allow} => {answer(host,scope,id,allow)?; "Answer recorded. Use /resume deliberately; no work was dispatched by the answer.".into()}
                     Input::Steer(text) => {
@@ -375,8 +378,9 @@ pub async fn run(
                 }) }.await;
                 match result { Ok(message) if message=="exit"=>return Ok(()), Ok(message)=>notice=message, Err(error)=>notice=format!("Command rejected: {error}") }
             }
-            event = execution.next_event() => {
+            event = execution.next_event(), if lifecycle_pending.is_none() && active_turn.is_some() => {
                 let event=event.map_err(|e|e.to_string())?;
+                if !active_turn.as_ref().is_some_and(|turn: &String|crate::execution::event_for_turn(&event,turn)) {continue;}
                 if let EventMsg::AgentMessageContentDelta(message)=&event.msg {
                     if commentary_item!=message.item_id {
                         commentary_item=message.item_id.clone();
@@ -392,6 +396,7 @@ pub async fn run(
                 if matches!(event.msg,EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_)) {
                     shadow.cancel().await;
                     active=false;
+                    active_turn=None;
                     let child_work=host.snapshot()?.records.values().filter(|r|r.collection==Collection::Task && r.workspace==scope.workspace)
                         .filter_map(|r|r.decode::<Task>().ok()).any(|t|t.scope.session==scope.session && t.root==scope.task && t.scope.task!=scope.task && !t.state.terminal());
                     if matches!(event.msg,EventMsg::TurnAborted(_)) {
@@ -401,14 +406,24 @@ pub async fn run(
                         child_review_pending=true;
                         notice="Parent turn ended while children remain active or paused. Inspect /agents; parent completion still requires integrated verification.".into();
                     } else {
-                        if let crate::execution::Completion::Rejected(error)=execution.complete()? {
-                            stop(host,scope,TaskState::Paused)?;
-                            notice=format!("Completion evidence unavailable; task paused: {error}");
-                        }
+                        lifecycle_pending=Some(execution.start_completion());
                     }
                 }
             }
             update=child_updates.recv()=>{if let Some(update)=update {notice=update;}}
+            outcome = crate::execution::LifecycleJob::poll(&mut lifecycle_pending) => {
+                    lifecycle_pending=None;
+                    match outcome {
+                        Ok(crate::execution::LifecycleResult::Submitted(turn))=>{active_turn=Some(turn);},
+                        Ok(crate::execution::LifecycleResult::Completed(crate::execution::Completion::Rejected(error))) | Err(error)=>{
+                            active=false;
+                            active_turn=None;
+                            if current(host,scope)?.state==TaskState::Running {stop(host,scope,TaskState::Paused)?;}
+                            notice=format!("Lifecycle operation stopped; inspect current state before explicit /resume: {error}");
+                        },
+                        Ok(crate::execution::LifecycleResult::Completed(_))=>{active=false;},
+                    }
+                }
             _ = tick.tick() => {
                 if cleanup_pending.as_ref().is_some_and(|job|job.is_finished()) {
                     notice=match cleanup_pending.take().ok_or("cleanup operation missing")?.await.map_err(|e|e.to_string())? {
@@ -468,7 +483,7 @@ pub async fn run(
                         notice="Child turns are terminal. Review their evidence and any integration, then /resume for current parent verification and completion.".into();
                     }
                 }
-                if active && current(host,scope)?.state == TaskState::Running {
+                if active && lifecycle_pending.is_none() && current(host,scope)?.state == TaskState::Running {
                     if let Some(message) = shadow.poll(host,session.id).await { notice=message.into(); }
                 } else {
                     shadow.cancel().await;
@@ -527,6 +542,13 @@ pub async fn run(
     }
     }.await;
     shadow.cancel().await;
+    if let Some(mut job) = lifecycle_pending {
+        drop(host.hold_execution());
+        if current(host, scope).is_ok_and(|task| !task.state.terminal()) {
+            let _ = stop(host, scope, TaskState::Paused);
+        }
+        let _ = job.result().await;
+    }
     // Fence descendant and integration admission before dropping observers.
     // An already dispatched blocking edit can outlive its async waiter.
     if delegation_pending.is_some()

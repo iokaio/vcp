@@ -8,6 +8,7 @@ mod turns;
 use super::*;
 use crate::foundation::coding::CodingConfig;
 use codex_extension_api::{AllowedTools, ToolName};
+use std::collections::BTreeMap;
 use vcp_context::{
     manifest::{Content, Kind, Part, Revisions, Trust as ContextTrust},
     selection::{assemble, Utf8ByteCeiling},
@@ -23,6 +24,10 @@ pub(super) struct Loop {
     operating: Part,
     history: Vec<Part>,
     history_sources: Vec<ArtifactId>,
+    hook_parts: BTreeMap<ArtifactId, (vcp_extensions::hooks::planner::PlannedHook, Part)>,
+    hook_gate_required: bool,
+    hook_gate: Option<HookGate>,
+    hook_retry_gate: Option<HookGate>,
     pairs: u64,
     revisions: Option<Revisions>,
     calls: Vec<Eligible>,
@@ -30,6 +35,12 @@ pub(super) struct Loop {
     final_response: Option<Vec<ArtifactId>>,
     continuity: Option<continuity::Continuity>,
     instruction_parents: Option<Vec<vcp_repository::Root>>,
+}
+#[derive(Clone)]
+struct HookGate {
+    identity: String,
+    compact: bool,
+    outcomes: Vec<crate::foundation::hooks::HookOutcome>,
 }
 struct Eligible {
     attempt: AttemptId,
@@ -48,6 +59,141 @@ struct Pair {
 }
 
 impl Context {
+    pub fn require_coding_hook_gate(
+        &mut self,
+        binding: &ThreadBinding,
+        required: bool,
+    ) -> Result<()> {
+        self.can_start(binding)?;
+        if let Some(state) = self.coding.get_mut(&binding.scope.task) {
+            state.hook_gate_required = required;
+            state.hook_gate = None;
+            state.hook_retry_gate = None;
+        }
+        Ok(())
+    }
+    pub fn arm_coding_hook_gate(
+        &mut self,
+        binding: &ThreadBinding,
+        identity: String,
+        compact: bool,
+        outcomes: Vec<crate::foundation::hooks::HookOutcome>,
+    ) -> Result<()> {
+        if self.coding_hook_boundary(binding)? != Some((identity.clone(), compact)) {
+            return Err("hook context boundary changed during asynchronous preparation".into());
+        }
+        self.check_hook_outcomes(binding, &outcomes)?;
+        let state = self
+            .coding
+            .get_mut(&binding.scope.task)
+            .ok_or("coding setup missing")?;
+        state.hook_gate = Some(HookGate {
+            identity,
+            compact,
+            outcomes,
+        });
+        Ok(())
+    }
+    pub fn publish_hook_context(
+        &mut self,
+        binding: &ThreadBinding,
+        outcomes: Vec<crate::foundation::hooks::HookOutcome>,
+    ) -> Result<()> {
+        self.can_start(binding)?;
+        if !self.coding.contains_key(&binding.scope.task) {
+            return Ok(());
+        }
+        for mut outcome in outcomes {
+            let canonical = self
+                .hook_artifact(&binding.scope, &outcome.artifact, 2 * 1024 * 1024)?
+                .ok_or("hook publication receipt missing")?;
+            if serde_json::from_slice::<vcp_extensions::hooks::receipt::HookReceipt>(&canonical)?
+                != outcome.receipt
+            {
+                return Err("hook publication receipt mismatch".into());
+            }
+            let plan_id = ArtifactId::parse(format!("hook-plan-{}", outcome.receipt.identity))?;
+            let bytes = self
+                .hook_artifact(&binding.scope, &plan_id, 1024 * 1024)?
+                .ok_or("hook publication reservation missing")?;
+            let reserved: serde_json::Value = serde_json::from_slice(&bytes)?;
+            let plan: vcp_extensions::hooks::planner::PlannedHook =
+                serde_json::from_value(reserved["plan"].clone())?;
+            plan.validate(vcp_extensions::hooks::input::HookLimits::default())?;
+            self.check_hook_result(binding, &plan)?;
+            let state = &self.coding[&binding.scope.task];
+            if state.hook_parts.contains_key(&outcome.artifact) {
+                continue;
+            }
+            if state.hook_parts.len() >= 256 {
+                return Err("hook context receipt ceiling".into());
+            }
+            // Duplicate delivery may reconstruct a fresh owner's in-memory
+            // projection; this map, not transport delivery, owns publication.
+            outcome.duplicate = false;
+            let id = outcome.artifact.clone();
+            let text = String::from_utf8(canonical_bytes(
+                &crate::foundation::hooks::adapters::presentation(&[outcome]),
+            )?)?;
+            let prior: u64 = self.coding[&binding.scope.task]
+                .hook_parts
+                .values()
+                .map(|(_, p)| p.source_length.get())
+                .sum();
+            if prior.saturating_add(text.len() as u64) > 1024 * 1024 {
+                return Err("hook context byte ceiling".into());
+            }
+            let part = self.coding_part(
+                &binding.scope,
+                Kind::Evidence,
+                ContextTrust::Untrusted,
+                Content::Text { text },
+            )?;
+            self.coding
+                .get_mut(&binding.scope.task)
+                .unwrap()
+                .hook_parts
+                .insert(id, (plan, part));
+        }
+        Ok(())
+    }
+    pub fn coding_hook_boundary(&self, binding: &ThreadBinding) -> Result<Option<(String, bool)>> {
+        self.can_start(binding)?;
+        let Some(state) = self.coding.get(&binding.scope.task) else {
+            return Ok(None);
+        };
+        let mut revisions = self.context_revisions(binding)?;
+        // Approval pause/resume changes task state, not the admitted input.
+        revisions.task_state = Revision::ZERO;
+        // The CLI creates a new canonical turn on explicit resume. Bind the
+        // actual captured user bytes rather than that fresh correlation ID so
+        // approved pending hooks remain the same operation across such resume.
+        let input_digest = state
+            .turn
+            .as_ref()
+            .map(|id| -> Result<String> {
+                let turn: Turn = self
+                    .engine
+                    .store()
+                    .state()
+                    .record(Collection::Turn, id.as_str(), &binding.scope.workspace)?
+                    .decode()?;
+                if turn.scope != binding.scope {
+                    return Err("hook turn scope mismatch".into());
+                }
+                Ok(vcp_protocol::digest_bytes(
+                    &self.coding_artifact(&turn.trigger)?,
+                ))
+            })
+            .transpose()?;
+        let identity = vcp_protocol::digest_bytes(&canonical_bytes(&(
+            input_digest,
+            state.pairs,
+            &state.history_sources,
+            revisions,
+        ))?);
+        Ok(Some((identity, self.coding_compaction_planned(binding)?)))
+    }
     pub(super) fn coding_remaining(&self) -> Option<Duration> {
         self.coding
             .values()
@@ -323,6 +469,10 @@ impl Context {
                 operating,
                 history,
                 history_sources,
+                hook_parts: BTreeMap::new(),
+                hook_gate_required: false,
+                hook_gate: None,
+                hook_retry_gate: None,
                 pairs: pairs.len() as u64,
                 revisions: None,
                 calls: vec![],
@@ -336,6 +486,59 @@ impl Context {
     }
     pub(super) fn assemble_coding_context(&mut self, binding: &ThreadBinding) -> Result<()> {
         self.can_start(binding)?;
+        if self
+            .coding
+            .get(&binding.scope.task)
+            .is_some_and(|state| state.hook_gate_required)
+        {
+            let retry = self
+                .provider
+                .as_ref()
+                .is_some_and(|provider| provider.retries.contains_key(&binding.scope.task));
+            let state = self
+                .coding
+                .get_mut(&binding.scope.task)
+                .ok_or("coding setup missing")?;
+            let gate = state
+                .hook_gate
+                .take()
+                .or_else(|| retry.then(|| state.hook_retry_gate.clone()).flatten())
+                .ok_or("asynchronous hook context gate required before model admission")?;
+            let current = self.coding_hook_boundary(binding)?;
+            if !current.is_some_and(|(identity, compact)| {
+                identity == gate.identity
+                    && (compact == gate.compact || (retry && gate.compact && !compact))
+            }) {
+                return Err("hook context boundary changed before model admission".into());
+            }
+            self.check_hook_outcomes(binding, &gate.outcomes)?;
+            self.coding
+                .get_mut(&binding.scope.task)
+                .unwrap()
+                .hook_retry_gate = Some(gate);
+        }
+        // Retain durable historical receipts, but never carry their live context
+        // across changed steering, policy, profile or executable identities.
+        let stale: Vec<_> = self
+            .coding
+            .get(&binding.scope.task)
+            .map(|state| {
+                state
+                    .hook_parts
+                    .iter()
+                    .filter_map(|(id, (plan, _))| {
+                        self.check_hook_result(binding, plan)
+                            .err()
+                            .map(|_| id.clone())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(state) = self.coding.get_mut(&binding.scope.task) {
+            for id in stale {
+                state.hook_parts.remove(&id);
+            }
+        }
         self.coding_stage(
             binding,
             TurnState::AssemblingContext,
@@ -361,6 +564,11 @@ impl Context {
             self.coding_artifact(source)?;
         }
         let mut parts = vec![state.operating.clone()];
+        for (receipt, (_, part)) in &state.hook_parts {
+            self.coding_artifact(receipt)?;
+            self.coding_artifact(&part.artifact)?;
+            parts.push(part.clone());
+        }
         parts.extend(state.history.clone());
         // Apply the most conservative read ceiling of every registered tool.
         // This prevents selecting a less restrictive tool name to read context.

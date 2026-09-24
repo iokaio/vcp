@@ -1,0 +1,67 @@
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 8bf5cfd6..ad98f950 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -1728,24 +1728,25 @@ impl ModelClientSession {
+                         .admit_retry(&mut body)
+                         .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?,
+                 )
++            } else if let Some(gate) = self.client.host_work.as_ref() {
++                let purpose = match responses_metadata.request_kind {
++                    Some(crate::responses_metadata::CodexResponsesRequestKind::Compaction(_)) => {
++                        codex_extension_api::HostModelPurpose::Compaction
++                    }
++                    Some(crate::responses_metadata::CodexResponsesRequestKind::Memory) => {
++                        codex_extension_api::HostModelPurpose::Memory
++                    }
++                    _ => codex_extension_api::HostModelPurpose::Turn,
++                };
++                gate.prepare_model(self.client.state.thread_id, purpose)
++                    .await
++                    .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
++                Some(
++                    gate.admit_model(self.client.state.thread_id, &mut body, purpose)
++                        .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?,
++                )
+             } else {
+-                self.client
+-                    .host_work
+-                    .as_ref()
+-                    .map(|gate| {
+-                        let purpose = match responses_metadata.request_kind {
+-                            Some(
+-                                crate::responses_metadata::CodexResponsesRequestKind::Compaction(_),
+-                            ) => codex_extension_api::HostModelPurpose::Compaction,
+-                            Some(crate::responses_metadata::CodexResponsesRequestKind::Memory) => {
+-                                codex_extension_api::HostModelPurpose::Memory
+-                            }
+-                            _ => codex_extension_api::HostModelPurpose::Turn,
+-                        };
+-                        gate.admit_model(self.client.state.thread_id, &mut body, purpose)
+-                    })
+-                    .transpose()
+-                    .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?
++                None
+             };
+             let response_capture = host_permit
+                 .as_ref()
+diff --git a/codex-rs/ext/extension-api/src/work_admission.rs b/codex-rs/ext/extension-api/src/work_admission.rs
+index a7891cda..e1eec7f6 100644
+--- a/codex-rs/ext/extension-api/src/work_admission.rs
++++ b/codex-rs/ext/extension-api/src/work_admission.rs
+@@ -78,6 +78,15 @@ pub trait HostWorkPermit: Send {
+ }
+ 
+ pub trait HostWorkAdmission: std::fmt::Debug + Send + Sync {
++    /// VCP: executable lifecycle preparation must await outside synchronous
++    /// canonical admission. This grants no permit; admit_model still fences it.
++    fn prepare_model(
++        &self,
++        _thread: ThreadId,
++        _purpose: HostModelPurpose,
++    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
++        Box::pin(async { Ok(()) })
++    }
+     /// VCP: defer tool construction until the complete response is admitted.
+     /// A failed/interrupted stream discards pending calls without dispatch.
+     fn requires_completed_response(&self) -> bool {

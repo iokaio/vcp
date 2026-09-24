@@ -94,6 +94,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 
 - [ADR-064 - Governed editor inspector views](064-editor-inspector-views.md): transient authorized pages, exact reviews and durable command references.
 
+- [ADR-065 - Governed lifecycle hooks](065-governed-lifecycle-hooks.md): versioned broker execution, fresh rewrite authority and durable deduplication.
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.

@@ -127,6 +127,8 @@ jobs:
           } finally { Pop-Location }
       - name: Qualify pinned Gemini boundaries on Windows
         run: node scripts/upstream/test-gemini.cjs --source artifacts/upstream/gemini-candidate --output-root artifacts/gemini-qualification --prepare
+      - name: Qualify pinned Gemini G04 hooks separately
+        run: node scripts/upstream/test-gemini-hooks.cjs --source artifacts/upstream/gemini-candidate --output-root artifacts/gemini-hooks-qualification --prepare
       - name: Qualify local CPU embeddings and corpus retrieval
         run: |
           $modelRoot = Join-Path $env:RUNNER_TEMP ('vcp-minilm-' + [guid]::NewGuid().ToString())
@@ -141,6 +143,8 @@ jobs:
         run: ./scripts/build.ps1 -Mode BoundaryTests -Jobs 2
       - name: Test native continuation admission and retained drain
         run: ./scripts/build.ps1 -Mode LifecycleTests -Jobs 2
+      - name: Qualify governed hooks and unchanged CLI behavior
+        run: ./scripts/test-hooks.ps1 -TargetRoot artifacts/codex-target -Jobs 2
       - name: Test committed local-memory libraries and dependency boundary
         run: ./scripts/build.ps1 -Component Munarium -Mode BoundaryTests -TargetRoot artifacts/munarium-target -Jobs 2
       - name: Trace native CLI against the local scripted provider
@@ -157,9 +161,12 @@ jobs:
             artifacts/codex-reconstructed.json
             artifacts/munarium-reconstructed.json
             artifacts/gemini-qualification/
+            artifacts/gemini-hooks-qualification/
+            artifacts/hooks/
             artifacts/embeddings/
             artifacts/local-memory/
             !artifacts/gemini-qualification/**/synthetic-home/**
+            !artifacts/gemini-hooks-qualification/**/synthetic-home/**
             !artifacts/local-memory/**/profile/**
             !artifacts/embeddings/**/private/**
             !artifacts/build/**/profile/**

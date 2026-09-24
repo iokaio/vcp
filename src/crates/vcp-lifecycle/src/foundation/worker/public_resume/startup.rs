@@ -290,6 +290,15 @@ impl PublicConnection {
 }
 
 impl HostWorkAdmission for Grant {
+    fn prepare_model(
+        &self,
+        thread: ThreadId,
+        purpose: HostModelPurpose,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = std::result::Result<(), String>> + Send + '_>,
+    > {
+        self.host.prepare_model(thread, purpose)
+    }
     fn requires_completed_response(&self) -> bool {
         self.host.requires_completed_response()
     }

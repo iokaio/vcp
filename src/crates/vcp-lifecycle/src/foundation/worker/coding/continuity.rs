@@ -9,6 +9,26 @@ pub(super) struct Continuity {
     facts_digest: Option<String>,
 }
 impl Context {
+    /// Pure preflight used by the async hook adapter; no projection is published.
+    pub(super) fn coding_compaction_planned(&self, binding: &ThreadBinding) -> Result<bool> {
+        let Some(state) = self.coding.get(&binding.scope.task) else {
+            return Ok(false);
+        };
+        let Some(setup) = &state.continuity else {
+            return Ok(false);
+        };
+        let identity =
+            vcp_protocol::digest_bytes(&canonical_bytes(&(&state.history, &setup.config))?);
+        if setup.no_gain.as_ref() == Some(&identity) {
+            return Ok(false);
+        }
+        Ok(compaction::compact(
+            &state.history,
+            &self.context_revisions(binding)?,
+            &setup.config,
+        )?
+        .is_some())
+    }
     pub fn configure_continuity(&mut self, binding: &ThreadBinding, config: Config) -> Result<()> {
         self.can_start(binding)?;
         compaction::compact(&[], &self.context_revisions(binding)?, &config)?;

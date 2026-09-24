@@ -1,6 +1,6 @@
 # 19 — Deferred hooks, importers, observers and execution environments
 
-Status: deferred. Owns P10-01 through P10-04. Every item starts after P8-05 and its more specific prerequisites in the ledger. These are independently prioritized extensions, not a reason to postpone the first Windows CLI.
+Status: P10-01 complete; P10-02 through P10-04 remain deferred. Every item starts after P8-05 and its more specific prerequisites in the ledger. These are independently prioritized extensions, not a reason to postpone the first Windows CLI.
 
 The proposed [extension design](../architecture/routing-extensions-design.md#deferred-hook-import-and-observer-contracts)
 and [execution-host design](../architecture/deferred-clients-design.md#execution-host-contract)
@@ -11,6 +11,13 @@ new compatibility. These designs do not select upstream revisions, enable featur
 or supply operating-system evidence.
 
 ## P10-01 — Hooks
+
+Completed 2026-09-24: [version 1 contract](../development/hooks.md),
+[ADR-065](../adr/065-governed-lifecycle-hooks.md),
+[native qualification](../evaluations/p10-01-hooks.md) and
+[independent G04 evidence](../evaluations/p10-01-gemini-hooks.md).
+Authorization rewrites cover native file/process requests; unsupported MCP and
+verification gates fail closed. Other execution hosts remain P10-04 work.
 
 Code organization: `vcp-extensions/hooks/{registry,planner,input,runner,result,receipt}` with engine lifecycle adapters and the existing execution broker. Adapt qualified Gemini G04 registry/planner/runner behavior while preserving VCP authority and durability.
 
