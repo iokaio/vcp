@@ -29,6 +29,11 @@ const METHODS: &[&str] = &[
     "routing/explain",
     "policy/read",
     "routing/status",
+    #[cfg(windows)] "backup/status",
+    #[cfg(windows)] "backup/create",
+    #[cfg(windows)] "backup/read",
+    #[cfg(windows)] "backup/retry",
+    #[cfg(windows)] "backup/cancel",
     "routing/reportCapture",
     "routing/reportRead",
     "routing/preview",
@@ -445,6 +450,10 @@ impl RpcHost for PublicConnection {
             return self
                 .routing_status(request, current)
                 .map(ResultValue::RoutingStatus);
+        }
+        #[cfg(windows)]
+        if matches!(call, Call::BackupStatus(_) | Call::BackupCreate(_) | Call::BackupRead(_) | Call::BackupRetry(_) | Call::BackupCancel(_)) {
+            return self.backup_call(call, current);
         }
         if matches!(call, Call::RoutingReportCapture(_) | Call::RoutingReportRead(_)
             | Call::RoutingPreview(_) | Call::RoutingApply(_) | Call::RoutingRollback(_)) {

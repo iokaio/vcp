@@ -20,6 +20,73 @@ use vcp_store::{
 };
 
 type Result<T> = std::result::Result<T, String>;
+/// Additional authority for a public background operation. Tokens and native
+/// handles remain captured by the authenticated adapter, never serialized.
+#[derive(Clone)]
+pub(crate) struct PublicFence {
+    authorize: Arc<dyn Fn(&super::worker::Context) -> Result<()> + Send + Sync>,
+    cancelled: Arc<dyn Fn() -> bool + Send + Sync>,
+    invalid: Arc<AtomicBool>,
+}
+impl PublicFence {
+    pub(crate) fn new(
+        authorize: impl Fn(&super::worker::Context) -> Result<()> + Send + Sync + 'static,
+        cancelled: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            authorize: Arc::new(authorize),
+            cancelled: Arc::new(cancelled),
+            invalid: Arc::new(AtomicBool::new(false)),
+        }
+    }
+    pub(crate) fn cancelled(&self) -> bool {
+        if (self.cancelled)() {
+            self.invalid.store(true, Ordering::Release);
+        }
+        self.invalid.load(Ordering::Acquire)
+    }
+    pub(crate) fn check(&self, context: &super::worker::Context) -> Result<()> {
+        if self.cancelled() {
+            return Err("public backup authority cancelled".into());
+        }
+        if (self.authorize)(context).is_err() {
+            self.invalid.store(true, Ordering::Release);
+            return Err("public backup authority changed".into());
+        }
+        Ok(())
+    }
+    /// Only call outside the canonical worker and manager lock. Copy/encryption
+    /// loops poll fresh serialized authority, not merely the initial RPC lease.
+    pub(crate) fn poll(&self, worker: &super::worker::Worker) -> bool {
+        if self.cancelled() {
+            return true;
+        }
+        let fence = self.clone();
+        if worker
+            .run_cleanup(move |context| {
+                fence.check(context)?;
+                Ok(())
+            })
+            .is_err()
+        {
+            self.invalid.store(true, Ordering::Release);
+        }
+        self.cancelled()
+    }
+}
+pub(crate) fn check_fence(
+    fence: Option<&PublicFence>,
+    context: &super::worker::Context,
+) -> Result<()> {
+    fence.map_or(Ok(()), |fence| fence.check(context))
+}
+fn stopped(
+    cancelled: &AtomicBool,
+    fence: Option<&PublicFence>,
+    worker: &super::worker::Worker,
+) -> bool {
+    cancelled.load(Ordering::Acquire) || fence.is_some_and(|fence| fence.poll(worker))
+}
 pub struct Capabilities {
     trust: Mutex<TrustStore>,
     keys: VerifiedKeys,
@@ -159,11 +226,23 @@ impl CanonicalHost {
         git: Arc<vcp_repository::git::Git>,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Inputs> {
+        self.capture_backup_inputs_fenced(git, cancelled, None)
+            .await
+    }
+    #[cfg(windows)]
+    pub(crate) async fn capture_backup_inputs_fenced(
+        &self,
+        git: Arc<vcp_repository::git::Git>,
+        cancelled: Arc<AtomicBool>,
+        fence: Option<PublicFence>,
+    ) -> Result<Inputs> {
         check(&cancelled)?;
         let checkpoint = self
-            .capture_backup_checkpoint(git, cancelled.clone())
+            .capture_backup_checkpoint_fenced(git, cancelled.clone(), fence.clone())
             .await?;
-        let (snapshot, access, path, active) = self.worker.run(|context| {
+        let authority = fence.clone();
+        let (snapshot, access, path, active) = self.worker.run(move |context| {
+            check_fence(authority.as_ref(), context)?;
             let cut = context.backup_cut()?;
             let state = context.engine.store().state();
             let active = state
@@ -192,8 +271,10 @@ impl CanonicalHost {
             ))
         })?;
         let stop = cancelled.clone();
+        let authority = fence.clone();
+        let worker = self.worker.clone();
         let recovered = tokio::task::spawn_blocking(move || -> Result<_> {
-            if stop.load(Ordering::Acquire) {
+            if stopped(&stop, authority.as_ref(), &worker) {
                 return Err("backup cancelled".into());
             }
             if active.is_none() || !path.exists() {
@@ -205,7 +286,7 @@ impl CanonicalHost {
             );
             let recovery = publisher
                 .recover_snapshot_with_check(&snapshot, &access, &|| {
-                    if stop.load(Ordering::Acquire) {
+                    if stopped(&stop, authority.as_ref(), &worker) {
                         Err(vcp_memory::Error::Access)
                     } else {
                         Ok(())
@@ -223,8 +304,13 @@ impl CanonicalHost {
         let mut generations = Vec::new();
         if let Some((publisher, view)) = recovered {
             generations.push(
-                self.capture_backup_generation(publisher, view, cancelled.clone())
-                    .await?,
+                self.capture_backup_generation_fenced(
+                    publisher,
+                    view,
+                    cancelled.clone(),
+                    fence.clone(),
+                )
+                .await?,
             );
         }
         check(&cancelled)?;
@@ -242,10 +328,23 @@ impl CanonicalHost {
         inputs: Option<Inputs>,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Job> {
+        self.publish_backup_fenced(capabilities, operation, inputs, cancelled, None)
+            .await
+    }
+    pub(crate) async fn publish_backup_fenced(
+        &self,
+        capabilities: Arc<Capabilities>,
+        operation: CommandId,
+        inputs: Option<Inputs>,
+        cancelled: Arc<AtomicBool>,
+        fence: Option<PublicFence>,
+    ) -> Result<Job> {
         let _cancel = CancelOnDrop(cancelled.clone());
         check(&cancelled)?;
         let id = operation.clone();
+        let authority = fence.clone();
         let (existing, capture) = self.worker.run(move |context| {
+            check_fence(authority.as_ref(), context)?;
             #[cfg(windows)]
             context.backup_cut()?;
             let store = context.engine.store_mut();
@@ -269,9 +368,13 @@ impl CanonicalHost {
         } else {
             let capture = capture.ok_or("backup input capture missing")?;
             let stop = cancelled.clone();
+            let authority = fence.clone();
+            let poll_worker = self.worker.clone();
             let prepared = tokio::task::spawn_blocking(move || {
-                Jobs::prepare_inputs(capture, &|| stop.load(Ordering::Acquire))
-                    .map_err(|e| e.to_string())
+                Jobs::prepare_inputs(capture, &|| {
+                    stopped(&stop, authority.as_ref(), &poll_worker)
+                })
+                .map_err(|e| e.to_string())
             })
             .await
             .map_err(|_| "backup input validation worker stopped")??;
@@ -279,7 +382,9 @@ impl CanonicalHost {
             let caps = capabilities.clone();
             let id = operation.clone();
             let stop = cancelled.clone();
+            let authority = fence.clone();
             self.worker.run(move |context| {
+                check_fence(authority.as_ref(), context)?;
                 if stop.load(Ordering::Acquire) {
                     return Err("backup cancelled before durable input admission".into());
                 }
@@ -305,21 +410,29 @@ impl CanonicalHost {
         if job.stage == Stage::Captured {
             let caps = capabilities.clone();
             let cut = job.clone();
+            let authority = fence.clone();
             let capture = self.worker.run(move |context| {
+                check_fence(authority.as_ref(), context)?;
                 Ok(caps.jobs.resume_capture(context.engine.store(), &cut)?)
             })?;
             let caps = capabilities.clone();
             let stop = cancelled.clone();
+            let authority = fence.clone();
+            let poll_worker = self.worker.clone();
             let prepared = tokio::task::spawn_blocking(move || {
                 caps.jobs
-                    .prepare_detached(capture, &|| stop.load(Ordering::Acquire))
+                    .prepare_detached(capture, &|| {
+                        stopped(&stop, authority.as_ref(), &poll_worker)
+                    })
                     .map_err(|e| e.to_string())
             })
             .await
             .map_err(|_| "backup archive worker stopped")??;
             check(&cancelled)?;
             let caps = capabilities.clone();
+            let authority = fence.clone();
             job = self.worker.run(move |context| {
+                check_fence(authority.as_ref(), context)?;
                 Ok(context.runtime.block_on(caps.jobs.accept_prepared(
                     context.engine.store_mut(),
                     &context.config.workspace,
@@ -331,11 +444,13 @@ impl CanonicalHost {
             let caps = capabilities.clone();
             let cut = job.clone();
             let stop = cancelled.clone();
+            let authority = fence.clone();
+            let poll_worker = self.worker.clone();
             let encrypted = tokio::task::spawn_blocking(move || {
                 let trust = caps.trust.lock().map_err(|_| "backup trust unavailable")?;
                 caps.jobs
                     .encrypt(&cut, trust.trust(), &caps.keys, &caps.staging, &|| {
-                        stop.load(Ordering::Acquire)
+                        stopped(&stop, authority.as_ref(), &poll_worker)
                     })
                     .map_err(|e| e.to_string())
             })
@@ -343,7 +458,9 @@ impl CanonicalHost {
             .map_err(|_| "backup encryption worker stopped")??;
             check(&cancelled)?;
             let caps = capabilities.clone();
+            let authority = fence.clone();
             job = self.worker.run(move |context| {
+                check_fence(authority.as_ref(), context)?;
                 Ok(context.runtime.block_on(caps.jobs.accept_encrypted(
                     context.engine.store_mut(),
                     &context.config.workspace,
@@ -365,7 +482,9 @@ impl CanonicalHost {
             .map_err(|_| "backup admission preparation worker stopped")??;
             let caps = capabilities.clone();
             let stop = cancelled.clone();
+            let authority = fence.clone();
             let (admitted, mut encrypted, permit) = self.worker.run(move |context| {
+                check_fence(authority.as_ref(), context)?;
                 #[cfg(windows)]
                 context.backup_cut()?;
                 if stop.load(Ordering::Acquire) {
@@ -384,6 +503,9 @@ impl CanonicalHost {
             let worker = self.worker.clone();
             let id = operation.clone();
             let stop = cancelled.clone();
+            let authority = fence.clone();
+            let record_authority = fence.clone();
+            let poll_worker = self.worker.clone();
             let receipt = tokio::task::spawn_blocking(move || {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -397,6 +519,7 @@ impl CanonicalHost {
                         move |identity| async move {
                             worker
                                 .run(move |context| {
+                                    check_fence(record_authority.as_ref(), context)?;
                                     context.runtime.block_on(recorder.jobs.record_copy(
                                         context.engine.store_mut(),
                                         &id,
@@ -411,7 +534,7 @@ impl CanonicalHost {
                                     )
                                 })
                         },
-                        &|| stop.load(Ordering::Acquire),
+                        &|| stopped(&stop, authority.as_ref(), &poll_worker),
                         &|_| {},
                     ))
                     .map_err(|failure| format!("backup publication incomplete: {failure:?}"))
@@ -491,3 +614,6 @@ impl CanonicalHost {
         Ok(job)
     }
 }
+
+#[cfg(all(test, windows))]
+mod tests;

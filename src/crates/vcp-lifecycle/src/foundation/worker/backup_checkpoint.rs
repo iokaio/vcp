@@ -10,7 +10,9 @@ impl Context {
         cut: Cut,
         files: vcp_memory::publication::SnapshotFiles,
         cancelled: &AtomicBool,
+        fence: Option<&super::super::backup_run::PublicFence>,
     ) -> Result<vcp_store::snapshot_inputs::GenerationInput> {
+        super::super::backup_run::check_fence(fence, self)?;
         let current = self.backup_cut()?;
         let manifest = files.manifest();
         let canonical: vcp_domain::search::Generation = self
@@ -37,6 +39,7 @@ impl Context {
         let mut records = Vec::new();
         let mut captured = std::collections::BTreeMap::new();
         for (name, bytes) in files.files() {
+            super::super::backup_run::check_fence(fence, self)?;
             if cancelled.load(Ordering::Acquire) {
                 return Err("backup generation capture cancelled".into());
             }
@@ -46,6 +49,7 @@ impl Context {
                 "vcp-backup-generation-component/1",
                 Some(&manifest.id),
                 &mut records,
+                fence,
             )?;
             let row = records
                 .last_mut()
@@ -83,6 +87,7 @@ impl Context {
             events: vec![],
             command: None,
         };
+        super::super::backup_run::check_fence(fence, self)?;
         if cancelled.load(Ordering::Acquire) {
             return Err("backup generation capture cancelled before admission".into());
         }
@@ -142,8 +147,11 @@ impl Context {
         &mut self,
         prepared: Prepared,
         cancelled: &AtomicBool,
+        fence: Option<&super::super::backup_run::PublicFence>,
     ) -> Result<Checkpoint> {
+        super::super::backup_run::check_fence(fence, self)?;
         let current = self.backup_cut()?;
+        super::super::backup_run::check_fence(fence, self)?;
         if cancelled.load(Ordering::Acquire)
             || current.controller != prepared.cut.controller
             || current.epoch != prepared.cut.epoch
@@ -176,11 +184,17 @@ impl Context {
         let mut associations = Vec::new();
         let mut records = Vec::new();
         for source in observation.sources {
+            super::super::backup_run::check_fence(fence, self)?;
             if cancelled.load(Ordering::Acquire) {
                 return Err("backup source capture cancelled".into());
             }
-            let id =
-                self.backup_artifact(scope, &source.bytes, "vcp-workspace-source/1", &mut records)?;
+            let id = self.backup_artifact(
+                scope,
+                &source.bytes,
+                "vcp-workspace-source/1",
+                &mut records,
+                fence,
+            )?;
             associations.push(serde_json::json!({"artifact":id,"version":source.version}));
             if sources.insert(source.version.path, id).is_some() {
                 return Err("duplicate backup source path".into());
@@ -192,24 +206,28 @@ impl Context {
                 &git.status,
                 "vcp-workspace-git-status/1",
                 &mut records,
+                fence,
             )?,
             index: self.backup_artifact(
                 scope,
                 &git.index,
                 "vcp-workspace-git-index/1",
                 &mut records,
+                fence,
             )?,
             staged_diff: self.backup_artifact(
                 scope,
                 &git.staged_diff,
                 "vcp-workspace-git-staged/1",
                 &mut records,
+                fence,
             )?,
             unstaged_diff: self.backup_artifact(
                 scope,
                 &git.unstaged_diff,
                 "vcp-workspace-git-unstaged/1",
                 &mut records,
+                fence,
             )?,
         };
         observation
@@ -222,6 +240,7 @@ impl Context {
             &canonical_bytes(&payload)?,
             "vcp-workspace-checkpoint/1",
             &mut records,
+            fence,
         )?;
         records
             .last_mut()
@@ -253,6 +272,7 @@ impl Context {
             }],
             command: None,
         };
+        super::super::backup_run::check_fence(fence, self)?;
         if cancelled.load(Ordering::Acquire) {
             return Err("backup checkpoint cancelled before admission".into());
         }
@@ -271,8 +291,9 @@ impl Context {
         bytes: &[u8],
         schema: &str,
         records: &mut Vec<Record>,
+        fence: Option<&super::super::backup_run::PublicFence>,
     ) -> Result<ArtifactId> {
-        self.backup_artifact_for_generation(scope, bytes, schema, None, records)
+        self.backup_artifact_for_generation(scope, bytes, schema, None, records, fence)
     }
     fn backup_artifact_for_generation(
         &mut self,
@@ -281,7 +302,9 @@ impl Context {
         schema: &str,
         generation: Option<&GenerationId>,
         records: &mut Vec<Record>,
+        fence: Option<&super::super::backup_run::PublicFence>,
     ) -> Result<ArtifactId> {
+        super::super::backup_run::check_fence(fence, self)?;
         if bytes.len() > 4 * 1024 * 1024 {
             return Err("backup artifact exceeds qualified bound".into());
         }
@@ -291,8 +314,10 @@ impl Context {
         }
         let mut writer = self.engine.store().spool().create(spec)?;
         for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
+            super::super::backup_run::check_fence(fence, self)?;
             writer.write_chunk(chunk)?;
         }
+        super::super::backup_run::check_fence(fence, self)?;
         let descriptor = writer.finalize()?;
         if descriptor.state != CaptureState::Complete {
             return Err("backup artifact capture incomplete".into());

@@ -1,5 +1,5 @@
 {
-  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"0864ba722af892895c2172bf0d93e80ac3c9ef08d8e3a241cb6f08a64d948490\",\"src/crates/vcp-protocol/src/editor.rs\":\"4957eec00d2f1a5e4ebde7f3edec853e467e90911c9913e275209cdbb642b806\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/history.rs\":\"4e495b3e3f27511bb87b9aee3376eacef218fa7235f8658fe3533827fa8c6f31\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"eb8b07e8692329f6a54e47479eea3c9277955326a07e8c932a87ec7d0136e35f\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_history.rs\":\"365fa8f5fc7e1af7fb846b68703e1a06596f3417978ce8026412baa1750b5d47\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"4d9af57e39528bb9f1ea08779b63dc91b09c77fbf586a5ddf10d259bc31fb3a9\",\"src/crates/vcp-protocol/src/policy_inspection.rs\":\"c0f892bd54c9afed18ebb9c601a786473712da50daabae76d01541bbab4fa7ed\",\"src/crates/vcp-protocol/src/routing_inspection.rs\":\"e68845d67d449d1f622dc9f6eaceb67d70e2d6d099f5e94661decd2de336f80b\",\"src/crates/vcp-protocol/src/routing_optimizer.rs\":\"0e3c9897bee7f797f17b4ade485e6aa004e7a609075036e43ff8bdf79b6cb0bc\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
+  "$comment": "{\"format\":\"vcp-schema-sources/1\",\"sources\":{\"src/crates/vcp-protocol/Cargo.toml\":\"deffd6d6a330ac2d8f41e2fef670a72450979bf2063e64faf48320b534ad9379\",\"src/crates/vcp-protocol/src/backup_publisher.rs\":\"cfaeb8a29b919c94160260a2b3d919ec1effc7db2b1168904e49617d5387bf49\",\"src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs\":\"eb4ad8526aad059be7bb0fd61e68514b91167bf55bb9d3cf20c436c431d1b6d0\",\"src/crates/vcp-protocol/src/editor.rs\":\"4957eec00d2f1a5e4ebde7f3edec853e467e90911c9913e275209cdbb642b806\",\"src/crates/vcp-protocol/src/errors.rs\":\"ce81460c373420f560bf655d26199b33d71ebebdbc2c1b073d555980861bca18\",\"src/crates/vcp-protocol/src/handshake.rs\":\"83e638a67b58cd811bc26c1b02f96a59ce58bc8ee1f3286e86720014f764ae67\",\"src/crates/vcp-protocol/src/history.rs\":\"4e495b3e3f27511bb87b9aee3376eacef218fa7235f8658fe3533827fa8c6f31\",\"src/crates/vcp-protocol/src/jsonrpc.rs\":\"03f75ac14ed5dd3e0dfa2bcc3b36eac50d93a7cf736ab894dbfbdbacb3a3af83\",\"src/crates/vcp-protocol/src/lib.rs\":\"79a3f4dcb53858e45c2d9946c2c3e5fa8d11c83af400f44f28e978d0d96b67b4\",\"src/crates/vcp-protocol/src/memory.rs\":\"1eb49f81bfe157ac295fc674a8522600b513cd5ae39f1ad59a7c0d46e4c191de\",\"src/crates/vcp-protocol/src/memory_governance.rs\":\"40854bda395b4e491b7f7a42cc783882627481bc687e50a79e15fa5dda06748b\",\"src/crates/vcp-protocol/src/memory_history.rs\":\"365fa8f5fc7e1af7fb846b68703e1a06596f3417978ce8026412baa1750b5d47\",\"src/crates/vcp-protocol/src/memory_query.rs\":\"ccd631abddd8e05d08b8e510f53e959ac43241c73279b7c71c6f134f22c93d7d\",\"src/crates/vcp-protocol/src/memory_retention.rs\":\"1cd6f2c1984de9abee584bb9219a3df5a3e290ece282c6e20792e508ad9d582b\",\"src/crates/vcp-protocol/src/methods.rs\":\"1685b0ed01a51c7f2b4aa5ad720f09d20a182961748ac3a4d5ad52d7c008c836\",\"src/crates/vcp-protocol/src/policy_inspection.rs\":\"c0f892bd54c9afed18ebb9c601a786473712da50daabae76d01541bbab4fa7ed\",\"src/crates/vcp-protocol/src/routing_inspection.rs\":\"e68845d67d449d1f622dc9f6eaceb67d70e2d6d099f5e94661decd2de336f80b\",\"src/crates/vcp-protocol/src/routing_optimizer.rs\":\"0e3c9897bee7f797f17b4ade485e6aa004e7a609075036e43ff8bdf79b6cb0bc\",\"src/third_party/codex/codex-rs/Cargo.lock\":\"842103d7e8b418507bf99ebca819a8df7464122b4549c1545f3f8024903730ef\"}}",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
@@ -306,6 +306,418 @@
         "offset",
         "scope",
         "task"
+      ],
+      "type": "object"
+    },
+    "BackupPublisherCancel": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "expected_job_revision": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected_operation_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "operation": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "expected_binding_revision",
+        "expected_operation_revision",
+        "mutation",
+        "operation",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "BackupPublisherCapability": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "configuration_revision": {
+              "$ref": "#/definitions/Counter"
+            },
+            "generation": {
+              "$ref": "#/definitions/Counter"
+            },
+            "reference": {
+              "$ref": "#/definitions/Id"
+            },
+            "state": {
+              "enum": [
+                "loaded"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "configuration_revision",
+            "generation",
+            "reference",
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "$ref": "#/definitions/BackupPublisherCapabilityReason"
+            },
+            "state": {
+              "enum": [
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "BackupPublisherCapabilityReason": {
+      "enum": [
+        "not_loaded",
+        "unsupported",
+        "configuration_unavailable"
+      ],
+      "type": "string"
+    },
+    "BackupPublisherCheckpoint": {
+      "enum": [
+        "pending",
+        "matched",
+        "reconciliation_required",
+        "not_observed"
+      ],
+      "type": "string"
+    },
+    "BackupPublisherCleanup": {
+      "enum": [
+        "pending",
+        "complete",
+        "reconciliation_required"
+      ],
+      "type": "string"
+    },
+    "BackupPublisherCloudTransfer": {
+      "enum": [
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "BackupPublisherCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "$ref": "#/definitions/Id"
+        },
+        "expected_binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "expected_capability_generation": {
+          "$ref": "#/definitions/Counter"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "capability",
+        "expected_binding_revision",
+        "expected_capability_generation",
+        "mutation",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "BackupPublisherDestination": {
+      "enum": [
+        "local_encrypted_vault"
+      ],
+      "type": "string"
+    },
+    "BackupPublisherFailureReason": {
+      "enum": [
+        "source_changed",
+        "authorization_changed",
+        "capability_unavailable",
+        "staging_conflict",
+        "publication_unknown",
+        "checkpoint_pending",
+        "cleanup_pending",
+        "interrupted"
+      ],
+      "type": "string"
+    },
+    "BackupPublisherJobView": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "cancel_requested": {
+          "type": "boolean"
+        },
+        "checkpoint": {
+          "$ref": "#/definitions/BackupPublisherCheckpoint"
+        },
+        "cleanup": {
+          "$ref": "#/definitions/BackupPublisherCleanup"
+        },
+        "cloud_transfer": {
+          "$ref": "#/definitions/BackupPublisherCloudTransfer"
+        },
+        "deletion_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BackupPublisherFailureReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "job_revision": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "local_publication": {
+          "$ref": "#/definitions/BackupPublisherLocalPublication"
+        },
+        "operation": {
+          "$ref": "#/definitions/Id"
+        },
+        "phase": {
+          "$ref": "#/definitions/BackupPublisherPhase"
+        },
+        "restore_verification": {
+          "$ref": "#/definitions/BackupPublisherRestoreVerification"
+        },
+        "revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "snapshot_watermark": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_pins": {
+          "$ref": "#/definitions/BackupPublisherSourcePins"
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "authority_revision",
+        "cancel_requested",
+        "checkpoint",
+        "cleanup",
+        "cloud_transfer",
+        "deletion_revision",
+        "local_publication",
+        "operation",
+        "phase",
+        "restore_verification",
+        "revision",
+        "scope",
+        "source_pins",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    "BackupPublisherLocalPublication": {
+      "enum": [
+        "not_observed",
+        "in_progress",
+        "published",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "BackupPublisherPhase": {
+      "enum": [
+        "queued",
+        "preparing",
+        "captured",
+        "archive_ready",
+        "ciphertext_ready",
+        "admitted",
+        "published",
+        "cancelled",
+        "interrupted",
+        "reconciliation_required"
+      ],
+      "type": "string"
+    },
+    "BackupPublisherRead": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "operation",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "BackupPublisherRestoreVerification": {
+      "enum": [
+        "not_observed"
+      ],
+      "type": "string"
+    },
+    "BackupPublisherRetry": {
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "$ref": "#/definitions/Id"
+        },
+        "expected_binding_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "expected_capability_generation": {
+          "$ref": "#/definitions/Counter"
+        },
+        "expected_job_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "expected_operation_revision": {
+          "$ref": "#/definitions/Counter"
+        },
+        "mutation": {
+          "$ref": "#/definitions/Mutation"
+        },
+        "operation": {
+          "$ref": "#/definitions/Id"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "capability",
+        "expected_binding_revision",
+        "expected_capability_generation",
+        "expected_job_revision",
+        "expected_operation_revision",
+        "mutation",
+        "operation",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "BackupPublisherSourcePins": {
+      "enum": [
+        "not_observed",
+        "held",
+        "released"
+      ],
+      "type": "string"
+    },
+    "BackupPublisherStatusRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
+    "BackupPublisherStatusView": {
+      "additionalProperties": false,
+      "properties": {
+        "active_operation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "busy": {
+          "type": "boolean"
+        },
+        "capability": {
+          "$ref": "#/definitions/BackupPublisherCapability"
+        },
+        "cloud_transfer": {
+          "$ref": "#/definitions/BackupPublisherCloudTransfer"
+        },
+        "destination": {
+          "$ref": "#/definitions/BackupPublisherDestination"
+        },
+        "restore_verification": {
+          "$ref": "#/definitions/BackupPublisherRestoreVerification"
+        },
+        "scope": {
+          "$ref": "#/definitions/Scope"
+        },
+        "watermark": {
+          "$ref": "#/definitions/Counter"
+        }
+      },
+      "required": [
+        "busy",
+        "capability",
+        "cloud_transfer",
+        "destination",
+        "restore_verification",
+        "scope",
+        "watermark"
       ],
       "type": "object"
     },
@@ -843,6 +1255,101 @@
             },
             "params": {
               "$ref": "#/definitions/Inspect"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "backup/status"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/BackupPublisherStatusRequest"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "backup/create"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/BackupPublisherCreate"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "backup/read"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/BackupPublisherRead"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "backup/retry"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/BackupPublisherRetry"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "enum": [
+                "backup/cancel"
+              ],
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/BackupPublisherCancel"
             }
           },
           "required": [
@@ -6185,6 +6692,44 @@
             },
             "value": {
               "$ref": "#/definitions/RoutingStatusPage"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "backup_status"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/BackupPublisherStatusView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "backup_job"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/BackupPublisherJobView"
             }
           },
           "required": [

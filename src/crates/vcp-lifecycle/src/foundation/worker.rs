@@ -46,6 +46,8 @@ mod public_history;
 mod public_policy;
 mod public_routing_inspection;
 mod public_optimizer;
+#[cfg(windows)]
+mod public_backup;
 mod public_memory;
 mod public_memory_history;
 mod public_memory_query;

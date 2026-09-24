@@ -108,6 +108,7 @@ test('committed schema is bound to compiled canonical sources and all generated 
   assert.ok(provenance.sources && typeof provenance.sources === 'object' && !Array.isArray(provenance.sources), nativeRegenerate);
   const expected = [
     'src/crates/vcp-protocol/Cargo.toml',
+    'src/crates/vcp-protocol/src/backup_publisher.rs',
     'src/crates/vcp-protocol/src/bin/vcp-protocol-schema.rs',
     'src/crates/vcp-protocol/src/editor.rs',
     'src/crates/vcp-protocol/src/errors.rs',

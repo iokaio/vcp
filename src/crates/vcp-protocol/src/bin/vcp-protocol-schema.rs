@@ -7,6 +7,10 @@ use std::io::{self, Write};
 // Windows/Linux checkouts without blessing a stale exporter after source edits.
 const SOURCES: &[(&str, &str)] = &[
     (
+        "src/crates/vcp-protocol/src/backup_publisher.rs",
+        include_str!("../backup_publisher.rs"),
+    ),
+    (
         "src/crates/vcp-protocol/src/routing_optimizer.rs",
         include_str!("../routing_optimizer.rs"),
     ),
