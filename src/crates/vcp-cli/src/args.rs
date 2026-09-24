@@ -39,6 +39,12 @@ pub struct Cli {
 }
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Preview and apply explicit foreign configuration subsets without inference.
+    #[cfg(windows)]
+    Config {
+        #[command(subcommand)]
+        command: crate::config_import::ConfigCommand,
+    },
     Doctor(crate::doctor::Doctor),
     #[cfg(windows)]
     Restore(crate::restore::Restore),
@@ -287,6 +293,8 @@ impl ValidatedCli {
 }
 
 pub enum ValidatedCommand {
+    #[cfg(windows)]
+    ConfigImport(crate::config_import::Command),
     WorkspaceTrust {
         workspace: WorkspaceId,
         expected: vcp_domain::Revision,
@@ -329,6 +337,10 @@ impl Cli {
         let command = match self.command {
             None => ValidatedCommand::Discover,
             Some(command) => match command {
+                #[cfg(windows)]
+                Command::Config {
+                    command: crate::config_import::ConfigCommand::Import { command },
+                } => ValidatedCommand::ConfigImport(command),
                 Command::Doctor(request) => ValidatedCommand::Doctor(request),
                 #[cfg(windows)]
                 Command::Restore(request) => ValidatedCommand::Restore(request),

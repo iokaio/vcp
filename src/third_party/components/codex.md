@@ -132,3 +132,9 @@ retain the existing permit and do not replay the hook. The default implementatio
 preserves existing callers. Native captured-request and retry tests exercise this
 seam separately from the Gemini behavioral fixtures. The patch and result inventory
 reconstruct exactly from the current immutable Codex pin, without new dependencies.
+
+Patch 0040 records the P10-02 `vcp-extensions` dependency on the workspace's
+already selected TOML 0.9.11+spec-1.1.0 parser. The single lockfile dependency edge
+adds no package or version change and changes no retained upstream implementation.
+The ordered patch and resulting file inventory reconstruct from the same immutable
+Codex pin; import parsing and persistence remain original VCP code.

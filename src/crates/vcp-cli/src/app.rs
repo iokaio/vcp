@@ -285,6 +285,19 @@ async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, Strin
 }
 
 pub async fn run(cli: Cli) -> Result<u8, String> {
+    if let Some(crate::args::Command::Config {
+        command: crate::config_import::ConfigCommand::Import { command },
+    }) = &cli.command
+    {
+        let profile = cli
+            .config
+            .as_deref()
+            .ok_or("configuration import requires explicit --config")?;
+        return command_result(
+            cli.format,
+            crate::config_import::execute(command, profile, &cli.workspace)?,
+        );
+    }
     if let Some(crate::args::Command::Doctor(request)) = &cli.command {
         let data = cli
             .data_dir

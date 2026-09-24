@@ -1,5 +1,9 @@
 # Build and test scripts
 
+`test-imports.ps1` qualifies P10-02 parsers, native immutable preference revisions,
+CLI preview/apply/rollback and interruption recovery, then CLI/terminal/local
+regressions. See [configuration imports](../docs/development/configuration-imports.md).
+
 `test-hooks.ps1` runs P10-01 pure hook contracts, lifecycle adapters and native
 both-store marker/owner-kill tests, followed by the existing CLI contract,
 executable, terminal and local-service acceptance suites. It builds the required

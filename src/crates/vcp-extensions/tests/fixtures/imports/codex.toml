@@ -1,0 +1,4 @@
+[mcp_servers.docs]
+url = "https://example.invalid/mcp"
+enabled_tools = ["read"]
+tool_timeout_sec = 2
