@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Invoked by the native Rust fixture; stdin contains bounded launch metadata.
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { launchLocal, attachLocal } from '../dist/index.js';
+import { launchLocal, attachLocal, reconnectObserverLocal } from '../dist/index.js';
 import * as examples from '../examples-dist/index.js';
 import { connectGated } from './delivery-gate.mjs';
 
@@ -96,7 +97,7 @@ export async function pendingScenario(input) {
   try {
     const first=await launchLocal({executable:input.executable,workspace:input.workspace,data:input.data,role:'controller',transport:'windows_pipe',rootTask:input.task,execution:{profile:input.profile,providerCredential:input.credential},initialize:init}); owned.push(first);
     const attachment=first.attachment();
-    const observer=await attachLocal({executable:input.executable,attachment:first.observerAttachment(),initialize:init}); owned.push(observer);
+    let observer=await attachLocal({executable:input.executable,attachment:first.observerAttachment(),initialize:init}); owned.push(observer);
     value(await first.call('controller/acquire',{scope:input.scope,command_id:'sdk-pending-owner',expected_revision:null}),'acceptance');
     const original={scope:input.scope,mutation:{command_id:'sdk-start-once',expected_revision:'0',steering_revision:'0'},task:input.task,turn:input.turn,objective:'Change value.txt once and verify it',constraints:[],acceptance:['value.txt contains 42'],budget:{cap_micros:'1000000',currency:'USD',max_requests:8,deadline_seconds:300}};
     const started=await examples.startAndInspect(first,original);
@@ -106,6 +107,25 @@ export async function pendingScenario(input) {
     for(let i=0;i<500;i++){pending=await read(observer);if(pending.pending_inputs.length)break;await pause(20);}
     assert(pending.pending_inputs.length);
     assert.deepEqual(await examples.inspectPendingInput(observer,{scope:input.scope,task:input.task}),pending.pending_inputs);
+    const reference=observer.observerReconnectReference();
+    const serialized=JSON.stringify(reference);
+    assert(!serialized.includes('ticket'));
+    const beforeReload=await lease(first);
+    await observer.dispose();
+    await new Promise((resolve,reject)=>{
+      const child=spawn(process.execPath,[fileURLToPath(new URL('./observer-reload.mjs',import.meta.url))],{shell:false,windowsHide:true,stdio:['pipe','pipe','pipe']});
+      let output='';const timer=setTimeout(()=>{child.kill();reject(new Error('observer reload deadline'));},20000);
+      child.once('error',error=>{clearTimeout(timer);reject(error);});child.stdin.on('error',()=>{});child.stdout.on('data',chunk=>{output+=chunk;if(output.length>1024){child.kill();reject(new Error('oversized reload output'));}});child.stderr.on('data',()=>{});
+      child.once('close',code=>{clearTimeout(timer);try{assert.equal(code,0);assert.equal(output,'ok');resolve();}catch(error){reject(error);}});
+      child.stdin.end(JSON.stringify({executable:input.executable,reference:JSON.parse(serialized),initialize:init,task:input.task,pending:pending.pending_inputs}));
+    });
+    observer=await reconnectObserverLocal({executable:input.executable,reference,initialize:init});owned.push(observer);
+    const afterReload=await lease(first);
+    // A live controller can append provider accounting while observation reloads.
+    // The lease identity/generation/revision must remain exactly unchanged.
+    assert.deepEqual({...afterReload,watermark:undefined},{...beforeReload,watermark:undefined});
+    assert(BigInt(afterReload.watermark)>=BigInt(beforeReload.watermark));
+    assert.deepEqual((await read(first)).pending_inputs,pending.pending_inputs);
     const question=pending.pending_inputs[0];
     assert.equal(typeof question.effect_revision,'string'); assert.equal(typeof question.policy_revision,'string');
     const answer={scope:input.scope,task:input.task,mutation:{command_id:'sdk-deny-once',expected_revision:question.revision,steering_revision:pending.steering_revision},approval:question.id,operation_digest:question.operation_digest,effect_revision:question.effect_revision,policy_revision:question.policy_revision,decision:'deny'};

@@ -16,3 +16,16 @@ test('forged or serialized attachment handles rejected before process creation',
  for(const attachment of [{},JSON.parse('{}'),null])assert.throws(()=>attachLocal({executable:'C:\\vcp.exe',attachment}),e=>e.code==='INVALID_ARGUMENT');
  assert.throws(()=>launchLocal({executable:'vcp.exe',workspace:'relative',role:'observer'}),e=>e.code==='INVALID_ARGUMENT');
 });
+
+test('observer reconnect references are serializable hints with exact bounded noncredential fields', async () => {
+ const {validateObserverReconnectReference,reconnectObserverLocal}=await import('../dist/local.js');
+ const reference={endpoint:'\\\\.\\pipe\\vcp-local-'+ 'a'.repeat(64),server:pin,scope:ready.scope};
+ const copy=validateObserverReconnectReference(JSON.parse(JSON.stringify(reference)));
+ assert.deepEqual(copy,reference); copy.server.principal.sid[0]=99; assert.equal(reference.server.principal.sid[0],1);
+ assert.deepEqual(validateReady({...ready,observer_reconnect:reference},'controller').observer_reconnect,reference);
+ for(const bad of [{...reference,ticket:'secret'},{...reference,role:'controller'},{...reference,endpoint:'\\\\remote\\pipe\\vcp-local-'+ 'a'.repeat(64)},{...reference,scope:{...ready.scope,token:'secret'}},{...reference,server:{...pin,extra:'secret'}}]) {
+  assert.throws(()=>validateObserverReconnectReference(bad));
+  assert.throws(()=>reconnectObserverLocal({executable:'C:\\vcp.exe',reference:bad}));
+ }
+ assert.throws(()=>validateReady({...ready,observer_reconnect:{...reference,scope:{...ready.scope,workspace:'other'}}},'controller'));
+});

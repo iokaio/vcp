@@ -11,6 +11,7 @@ export const RESULT_KINDS = {
   'controller/release': ['acceptance'],
   'controller/recover': ['acceptance'],
   'workspace/open': ['workspace'],
+  'workspace/setTrust': ['acceptance'],
   'session/create': ['acceptance'],
   'session/read': ['session'],
   'session/snapshot': ['snapshot', 'gap'],

@@ -189,25 +189,26 @@ struct PipeGrants {
 }
 
 fn ready(config: &Config, role: Role, grants: Option<&PipeGrants>) -> Result<Ready, String> {
+    let scope = vcp_protocol::methods::Scope {
+        workspace: config
+            .workspace
+            .as_str()
+            .to_owned()
+            .try_into()
+            .map_err(|_| "invalid workspace")?,
+        session: config
+            .session
+            .as_str()
+            .to_owned()
+            .try_into()
+            .map_err(|_| "invalid session")?,
+    };
     Ok(Ready {
         schema: READY.into(),
         server: HeldProcess::current()
             .and_then(|process| process.pin())
             .map_err(|_| "server identity unavailable")?,
-        scope: vcp_protocol::methods::Scope {
-            workspace: config
-                .workspace
-                .as_str()
-                .to_owned()
-                .try_into()
-                .map_err(|_| "invalid workspace")?,
-            session: config
-                .session
-                .as_str()
-                .to_owned()
-                .try_into()
-                .map_err(|_| "invalid session")?,
-        },
+        scope: scope.clone(),
         role,
         attachment: grants.map(|grants| {
             if role == Role::Observer {
@@ -219,6 +220,11 @@ fn ready(config: &Config, role: Role, grants: Option<&PipeGrants>) -> Result<Rea
         observer_attachment: grants
             .filter(|_| role == Role::Controller)
             .map(|grants| grants.observer.clone()),
+        observer_reconnect: grants.map(|grants| ObserverReconnect {
+            endpoint: grants.primary.endpoint.clone(),
+            server: grants.primary.server.clone(),
+            scope,
+        }),
     })
 }
 
@@ -447,12 +453,13 @@ async fn supervise(
                 let grants = grants.clone();
                 let mut stopped = client_stop.clone();
                 tasks.spawn(async move {
+                    let Ok(ready) = ready(&config, Role::Observer, Some(&grants)) else { return; };
                     let tickets = [(grants.primary.ticket.as_str(), grants.maximum_role),
                         (grants.observer.ticket.as_str(), Role::Observer)];
                     let authenticated = tokio::select! {
                         biased;
                         _ = stopped.wait_for(|stopped| *stopped) => return,
-                        authenticated = windows_pipe::authenticate_server_grants(stream, &grants.primary.server.principal, &tickets) => authenticated,
+                        authenticated = windows_pipe::authenticate_server_access(stream, &grants.primary.server.principal, &tickets, Some(&ready.scope)) => authenticated,
                     };
                     let Ok((stream, role)) = authenticated else { return; };
                     let Ok(_client) = clients.try_acquire_owned() else { return; };

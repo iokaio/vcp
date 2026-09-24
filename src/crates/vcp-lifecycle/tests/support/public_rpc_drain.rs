@@ -423,3 +423,174 @@ async fn public_rpc_without_root_drains_admitted_startup_before_steering() {
         owner.close().await.unwrap();
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_rpc_workspace_trust_revocation_drains_queued_startup() {
+    use codex_extension_api::HostWorkAdmission;
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let config = config(&temp.path().join("canonical"), &workspace, backend);
+        // Retain an actual trigger in a previous host, then reopen with no live
+        // bindings or retained root. The new server must still drain startup.
+        let (seed, seed_owner) = CanonicalHost::open(config.clone()).unwrap();
+        seed.command(
+            Command::SetWorkspaceTrust {
+                trust: Trust::Trusted,
+            },
+            None,
+            Revision::ZERO,
+        )
+        .unwrap();
+        let binding = task(&seed, &config, config.root_task.clone(), None);
+        let seed_thread = codex_protocol::ThreadId::new();
+        seed.register(seed_thread, binding).unwrap();
+        let trigger = seed
+            .capture(
+                seed_thread,
+                Channel::Evidence,
+                b"queued startup trust revocation".to_vec(),
+            )
+            .unwrap();
+        seed_owner.close().await.unwrap();
+        drop(seed);
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let current = Access {
+            actor: config.actor.clone(),
+            workspace: config.workspace.clone(),
+            session: config.session.clone(),
+            authority: AuthorityRevision::new(1),
+            read: true,
+            write: true,
+            bootstrap: false,
+        };
+        let mut controller = host.public_connection(current.clone()).unwrap();
+        controller.acquire(CommandId::new(), None).unwrap();
+        let before = selected(&host, &config);
+        assert_eq!(before.state, TaskState::Paused);
+        let turn = TurnId::parse("queued-no-root").unwrap();
+        host.command(
+            Command::StartTurn {
+                id: turn.clone(),
+                trigger: trigger.spec.id,
+            },
+            Some(config.root_task.clone()),
+            before.revision,
+        )
+        .unwrap();
+        let queued: Turn = host
+            .snapshot()
+            .unwrap()
+            .record(Collection::Turn, turn.as_str(), &config.workspace)
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(queued.state, TurnState::Queued);
+        assert!(host.lifecycle().root().unwrap().is_none());
+        host.lifecycle()
+            .authorize_startup(&workspace, None)
+            .unwrap();
+        let startup = host.admit_startup(&workspace, None).unwrap();
+        let command = CommandId::parse("revoke-no-root").unwrap();
+        let call = Call::WorkspaceSetTrust(methods::WorkspaceSetTrust {
+            scope: methods::Scope {
+                workspace: id(config.workspace.as_str()),
+                session: id(config.session.as_str()),
+            },
+            mutation: methods::Mutation {
+                command_id: id(command.as_str()),
+                expected_revision: 1.into(),
+                steering_revision: 0.into(),
+            },
+            expected_binding_revision: 0.into(),
+            trusted: false,
+        });
+        let mut pending = Box::pin(controller.call(call.clone(), &current));
+        std::future::poll_fn(|context| match pending.as_mut().poll(context) {
+            Poll::Pending => Poll::Ready(()),
+            Poll::Ready(result) => {
+                panic!("trust revocation completed before startup drain: {result:?}")
+            }
+        })
+        .await;
+        drop(pending);
+        assert_eq!(selected(&host, &config).steering, before.steering);
+        assert!(!host
+            .snapshot()
+            .unwrap()
+            .commands
+            .values()
+            .any(|receipt| receipt.command == command));
+        assert!(host
+            .lifecycle()
+            .authorize_startup(&workspace, None)
+            .is_err());
+        assert!(host.admit_startup(&workspace, None).is_err());
+        drop(startup);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !host
+                .snapshot()
+                .unwrap()
+                .commands
+                .values()
+                .any(|receipt| receipt.command == command)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let after = selected(&host, &config);
+        assert_eq!(after.state, TaskState::Paused);
+        assert_eq!(after.steering, before.steering);
+        let workspace_state: vcp_domain::workspace::Workspace = host
+            .snapshot()
+            .unwrap()
+            .record(
+                Collection::Workspace,
+                config.workspace.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(workspace_state.trust, Trust::Untrusted);
+        let current = Access {
+            authority: workspace_state.authority,
+            ..current
+        };
+        assert!(controller.call(call, &current).await.is_err());
+        controller
+            .call(
+                Call::CommandRead(methods::CommandRead {
+                    scope: methods::Scope {
+                        workspace: id(config.workspace.as_str()),
+                        session: id(config.session.as_str()),
+                    },
+                    command_id: id(command.as_str()),
+                }),
+                &current,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            host.snapshot()
+                .unwrap()
+                .commands
+                .values()
+                .filter(|receipt| receipt.command == command)
+                .count(),
+            1
+        );
+        assert!(host.lifecycle().root().unwrap().is_none());
+        assert!(host
+            .lifecycle()
+            .authorize_startup(&workspace, None)
+            .is_err());
+        assert!(host.admit_startup(&workspace, None).is_err());
+        controller.disconnect().unwrap().wait().await.unwrap();
+        owner.close().await.unwrap();
+    }
+}

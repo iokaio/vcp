@@ -1,6 +1,6 @@
 # 20 — Work-item, requirement and test traceability
 
-Status: implementation and qualification in progress. Ownership inventory from architecture draft 0.4 and the task headings in this directory, with developer-workflow evidence aligned on September 22, 2026. All 68 architecture items have exactly one implementation owner: 56 first-release items and 12 deferred items (P4, P9 and P10). The evidence-linked rows below record completed P0–P3, P5, P6 and P7 boundaries. P7-04/05/06 completion includes the passing final source-bound native gate; P8 is now closed by owner direction with qualification gaps retained; P9 is complete and P4-01 has begun. Task dependency IDs remain unchanged.
+Status: implementation and qualification in progress. Ownership inventory from architecture draft 0.4 and the task headings in this directory, with developer-workflow evidence aligned on September 22, 2026. All 68 architecture items have exactly one implementation owner: 56 first-release items and 12 deferred items (P4, P9 and P10). The evidence-linked rows below record completed P0–P3, P5, P6 and P7 boundaries. P7-04/05/06 completion includes the passing final source-bound native gate; P8 is now closed by owner direction with qualification gaps retained; P9 and P4-01 are complete. Task dependency IDs remain unchanged.
 
 Use this ledger with [the segment index](README.md) and [the shared test guide](16-test-fixtures-and-acceptance.md). Dependencies below retain the architecture's exact IDs; slash suffixes share the preceding phase, and an ellipsis denotes an inclusive range. A whole segment is not an additional dependency.
 
@@ -14,7 +14,7 @@ acceptance, preserving the earlier failed runs and separate focused repairs.
 
 P8-01 through P8-05 are complete by [owner-directed closure](../adr/042-owner-directed-p8-closure.md), not by full
 qualification. Their open-evidence descriptions remain factual limitations.
-P9-01, P9-02 and P9-03 are complete. P4-01 is in progress.
+P9-01, P9-02 and P9-03 are complete. P4-01 is complete; P4-02 is next.
 
 The [production qualification supplement](../evaluations/p8-production-qualification-2026-09-22.md)
 adds an exact optimized artifact, bounded startup observations, selected package
@@ -54,7 +54,7 @@ Each linked task supplies code organization, implementation increments and testi
 | P3-04 Workspace continuation | P3-01, P2-07 | [Implementation and tests](07-cli-and-inspection.md#p3-04--workspace-continuation) | [Native continuation evidence](../development/p3-continuation.md): revision-bound chooser, explicit resume, current instructions, partial children/effects/accounting and trust-revoking local rebind; U06 | Complete |
 | P3-05 History and pruning CLI | P3-03, P5-07 | [Implementation and tests](10-history-and-pruning.md#p3-05--browsing-and-cli-controls) | U05; [native history/prune controls and stable authorized paging](../development/p3-history.md#qualification) | Complete |
 | P3-06 Portable environment CLI | P3-04, P5-09/10 | [Implementation and tests](11-encrypted-portability.md#p3-06--user-commands-and-diagnostics) | U04; no secret in model prompts/logs/argv, missing-key/setup failures actionable, published ciphertext distinguished from verified restore; [actual two-Windows U04 passed](../development/p3-onedrive-qualification.md) | Complete |
-| P4-01 Engine connection | P9-02/03 | [Implementation and tests](18-deferred-vscode.md#p4-01--connection-and-workspace-mapping) | [Observer connection and root/binding projection](../development/editor-connection.md); trust/rebind/reload acceptance remains open | In_progress |
+| P4-01 Engine connection | P9-02/03 | [Implementation and tests](18-deferred-vscode.md#p4-01--connection-and-workspace-mapping) | [Connection, trust, moved roots and observer reload acceptance](../development/editor-connection.md#p4-01-acceptance) | Complete |
 | P4-02 Session/child views | P4-01 | [Implementation and tests](18-deferred-vscode.md#p4-02--task-and-child-views) | E01 parity with established CLI behavior | Planned |
 | P4-03 Versioned edits | P4-01, P2-04 | [Implementation and tests](18-deferred-vscode.md#p4-03--versioned-document-edits) | E05/R02 dirty-buffer and concurrent typing tests | Planned |
 | P4-04 Inspectors | P4-02, P3-03/05 | [Implementation and tests](18-deferred-vscode.md#p4-04--inspectors) | Capture/access parity and safe webview messaging | Planned |

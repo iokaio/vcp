@@ -40,6 +40,23 @@ struct Attachment {
     ticket: String,
 }
 
+/// A discovery hint, never a credential. Kernel peer authentication is required
+/// on every reconnect, and this path can grant only observer access.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ObserverReconnect {
+    endpoint: String,
+    server: ProcessPin,
+    scope: vcp_protocol::methods::Scope,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReconnectRequest {
+    schema: String,
+    observer_reconnect: ObserverReconnect,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LaunchRequest {
@@ -49,6 +66,8 @@ struct LaunchRequest {
     role: Role,
     #[serde(default)]
     transport: Transport,
+    #[serde(default)]
+    observer_reconnect: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     root_task: Option<vcp_domain::TaskId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -61,6 +80,8 @@ struct AttachRequest {
     schema: String,
     attachment: Attachment,
     role: Role,
+    #[serde(default)]
+    observer_reconnect: bool,
 }
 
 #[derive(Deserialize)]
@@ -68,6 +89,7 @@ struct AttachRequest {
 enum BridgeRequest {
     Launch(LaunchRequest),
     Attach(AttachRequest),
+    Reconnect(ReconnectRequest),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -91,6 +113,8 @@ struct Ready {
     attachment: Option<Attachment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     observer_attachment: Option<Attachment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    observer_reconnect: Option<ObserverReconnect>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -176,7 +200,26 @@ async fn bridge(mut client: Framed) -> Result<(), String> {
     match bootstrap::<BridgeRequest>(&mut client).await? {
         BridgeRequest::Launch(request) => launch_bridge(client, request).await,
         BridgeRequest::Attach(request) => attach_bridge(client, request).await,
+        BridgeRequest::Reconnect(request) => reconnect_bridge(client, request).await,
     }
+}
+
+async fn reconnect_bridge(mut client: Framed, request: ReconnectRequest) -> Result<(), String> {
+    if request.schema != "vcp-local-observer-reconnect/1" {
+        return Err("invalid observer reconnect bootstrap".into());
+    }
+    let reference = request.observer_reconnect;
+    let mut server = Framed::from_async(windows_pipe::reconnect_observer(&reference).await?);
+    let ready: Ready = bootstrap(&mut server).await?;
+    if ready.schema != READY
+        || ready.server != reference.server
+        || ready.scope != reference.scope
+        || ready.role != Role::Observer
+    {
+        return Err("observer reconnect identity or scope denied".into());
+    }
+    client.send_value(&ready).await?;
+    forward(&mut client, &mut server).await
 }
 
 async fn attach_bridge(mut client: Framed, request: AttachRequest) -> Result<(), String> {
@@ -185,12 +228,15 @@ async fn attach_bridge(mut client: Framed, request: AttachRequest) -> Result<(),
     }
     let mut server =
         Framed::from_async(windows_pipe::connect(&request.attachment, request.role).await?);
-    let ready: Ready = bootstrap(&mut server).await?;
+    let mut ready: Ready = bootstrap(&mut server).await?;
     if ready.schema != READY
         || ready.server != request.attachment.server
         || ready.role != request.role
     {
         return Err("pipe attachment identity denied".into());
+    }
+    if !request.observer_reconnect {
+        ready.observer_reconnect = None;
     }
     client.send_value(&ready).await?;
     forward(&mut client, &mut server).await
@@ -234,6 +280,7 @@ async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result
         return Err("launched identity denied".into());
     }
     let role = request.role;
+    let observer_reconnect = request.observer_reconnect;
     let transport = request.transport;
     let challenge: String = windows_launch::random_bytes::<32>()
         .map_err(|_| "local entropy unavailable")?
@@ -259,7 +306,7 @@ async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result
                 request,
             })
             .await?;
-        let reply: BootstrapReply = bootstrap(&mut child).await?;
+        let mut reply: BootstrapReply = bootstrap(&mut child).await?;
         launched
             .process
             .validate(&expected)
@@ -271,6 +318,11 @@ async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result
             || reply.ready.role != role
         {
             return Err("local server authentication denied".into());
+        }
+        // Existing SDKs strictly decode ready/1. Project the additive discovery
+        // reference only when this client explicitly opted in at bootstrap.
+        if !observer_reconnect {
+            reply.ready.observer_reconnect = None;
         }
         if transport == Transport::WindowsPipe {
             let attachment = reply

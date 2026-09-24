@@ -6,7 +6,7 @@ import { RESULT_KINDS, REQUIRED_PROFILES, type Method, type Params, type Reply }
 import { validateWire } from './validation.js';
 import { EventStream, snapshotPages, type StreamOptions } from './subscriptions.js';
 import type { EventsSubscribe } from '@vcp/protocol';
-import type { LocalAttachment } from './local.js';
+import { validateObserverReconnectReference, type ObserverReconnectReference, type LocalAttachment } from './local.js';
 
 export type Role = 'observer' | 'controller';
 export type CallOptions = { signal?: AbortSignal; timeoutMs?: number };
@@ -65,15 +65,17 @@ export class Client {
   #streams = new Set<EventStream>();
   #attachment: LocalAttachment | undefined;
   #observer: LocalAttachment | undefined;
-  private constructor(transport: ClientTransport, scope: Scope, role: Role, attachment?: LocalAttachment, observer?: LocalAttachment) {
+  #observerReference: ObserverReconnectReference | undefined;
+  private constructor(transport: ClientTransport, scope: Scope, role: Role, attachment?: LocalAttachment, observer?: LocalAttachment, observerReference?: ObserverReconnectReference) {
     validateWire('Scope', scope);
     this.scope = freeze(structuredClone(scope)); this.role = role;
+    if (observerReference) this.#observerReference = validateObserverReconnectReference(observerReference);
     this.#transport = transport; this.#attachment = attachment; this.#observer = observer;
     this.#remove = transport.listen(value => this.#receive(value), () => this.#fail('TRANSPORT_INTERRUPTED'));
   }
   /** Internal factory; launchLocal and attachLocal establish authenticated bootstrap first. */
-  static async connect(transport: ClientTransport, scope: Scope, role: Role, params?: InitializeParams, attachment?: LocalAttachment, observer?: LocalAttachment): Promise<Client> {
-    const client = new Client(transport, scope, role, attachment, observer);
+  static async connect(transport: ClientTransport, scope: Scope, role: Role, params?: InitializeParams, attachment?: LocalAttachment, observer?: LocalAttachment, observerReference?: ObserverReconnectReference): Promise<Client> {
+    const client = new Client(transport, scope, role, attachment, observer, observerReference);
     try {
       const request = params ?? {
         protocol_version: '1.0', client: { name: '@vcp/sdk', version: '0.1.0' },
@@ -95,6 +97,10 @@ export class Client {
   attachment(): LocalAttachment {
     if (!this.#attachment) throw new SdkError('CAPABILITY_UNAVAILABLE', 'attachment unavailable for this transport');
     return this.#attachment;
+  }
+  observerReconnectReference(): ObserverReconnectReference {
+    if (!this.#observerReference) throw new SdkError('CAPABILITY_UNAVAILABLE', 'observer reconnection unavailable');
+    return validateObserverReconnectReference(this.#observerReference);
   }
   observerAttachment(): LocalAttachment {
     if (!this.#observer) throw new SdkError('CAPABILITY_UNAVAILABLE', 'observer attachment unavailable');

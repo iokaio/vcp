@@ -291,7 +291,9 @@ pub(super) fn authenticate_pipe_client(pipe: &impl AsHandle) -> io::Result<Authe
     Ok(AuthenticatedPeer { process, pin })
 }
 
-/// expected comes ONLY from trusted controlled launch, never endpoint discovery.
+/// Expected is either a controlled launch pin or an untrusted observer discovery
+/// hint already constrained to the client's own executable identity/principal.
+/// The hint alone grants no authority; validate every field against kernel state.
 /// Keep the returned process alive in the connection object, and recheck at auth completion.
 pub(super) fn verify_pipe_server(
     pipe: &impl AsHandle,

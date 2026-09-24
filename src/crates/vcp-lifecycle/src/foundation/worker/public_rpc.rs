@@ -15,6 +15,7 @@ use vcp_protocol::{
 
 const METHODS: &[&str] = &[
     "workspace/open",
+    "workspace/setTrust",
     "session/create",
     "session/fork",
     "session/read",
@@ -79,9 +80,89 @@ enum Admission {
     Reply(ResultValue),
     Drain {
         prepared: PreparedPublicCommand,
-        proof: PublicPauseProof,
+        proof: Option<PublicPauseProof>,
         waiter: Option<crate::HoldWaiter>,
     },
+}
+
+fn authority_task(
+    record: &Record,
+    access: &Access,
+    task_id: &TaskId,
+) -> std::result::Result<Task, RpcError> {
+    let task: Task = record.decode().map_err(|_| RpcError::internal_error())?;
+    if record.collection != Collection::Task
+        || record.workspace != access.workspace
+        || record.id != task_id.as_str()
+        || task.scope.workspace != access.workspace
+        || task.scope.session != access.session
+        || task.scope.task != *task_id
+        || task.revision != record.revision
+    {
+        return Err(RpcError::internal_error());
+    }
+    Ok(task)
+}
+
+#[test]
+fn workspace_authority_task_rejects_foreign_scope_and_record_identity() {
+    let access = Access {
+        actor: ActorId::new(),
+        workspace: WorkspaceId::new(),
+        session: SessionId::new(),
+        authority: AuthorityRevision::ZERO,
+        read: true,
+        write: true,
+        bootstrap: false,
+    };
+    let task_id = TaskId::new();
+    let task = Task {
+        scope: Scope {
+            workspace: access.workspace.clone(),
+            session: access.session.clone(),
+            task: task_id.clone(),
+        },
+        root: task_id.clone(),
+        parent: None,
+        fork_origin: None,
+        revision: Revision::ZERO,
+        steering: SteeringRevision::ZERO,
+        objectives: vec![],
+        state: TaskState::Paused,
+        fingerprint: vcp_domain::verification::Fingerprint {
+            repository: "a".repeat(64),
+            buffers: "b".repeat(64),
+            environment: "c".repeat(64),
+        },
+        editing: false,
+        required_checks: vec![],
+        cause: EventId::new(),
+        reason: "fixture".into(),
+        redaction: None,
+    };
+    let record = Record {
+        collection: Collection::Task,
+        id: task_id.to_string(),
+        workspace: access.workspace.clone(),
+        revision: Revision::ZERO,
+        value: serde_json::to_value(&task).unwrap(),
+        references: Default::default(),
+    };
+    assert!(authority_task(&record, &access, &task_id).is_ok());
+    for mismatch in 0..6 {
+        let mut wrong = record.clone();
+        let mut wrong_task = task.clone();
+        match mismatch {
+            0 => wrong.workspace = WorkspaceId::new(),
+            1 => wrong.id = TaskId::new().to_string(),
+            2 => wrong_task.scope.workspace = WorkspaceId::new(),
+            3 => wrong_task.scope.session = SessionId::new(),
+            4 => wrong_task.scope.task = TaskId::new(),
+            _ => wrong_task.revision = Revision::new(1),
+        }
+        wrong.value = serde_json::to_value(wrong_task).unwrap();
+        assert!(authority_task(&wrong, &access, &task_id).is_err());
+    }
 }
 
 fn controller_error(error: ControllerError, call: &Call) -> RpcError {
@@ -544,7 +625,10 @@ impl RpcHost for PublicConnection {
                             )
                         })?;
                 }
-                if !matches!(prepared.payload(), Command::Steer { .. }) {
+                if !matches!(
+                    prepared.payload(),
+                    Command::Steer { .. } | Command::SetWorkspaceTrust { .. }
+                ) {
                     let receipt = context
                         .runtime
                         .block_on(
@@ -573,23 +657,27 @@ impl RpcHost for PublicConnection {
                 let task_id = prepared
                     .task()
                     .cloned()
-                    .ok_or_else(RpcError::internal_error)?;
-                let selected: Task = context
+                    .unwrap_or_else(|| context.config.root_task.clone());
+                let selected: Option<Task> = context
                     .engine
                     .store()
                     .state()
-                    .record(
-                        Collection::Task,
-                        task_id.as_str(),
-                        &admitted_access.workspace,
-                    )
-                    .and_then(Record::decode)
-                    .map_err(|_| RpcError::internal_error())?;
+                    .records
+                    .get(&key(Collection::Task, task_id.as_str()))
+                    .map(|record| authority_task(record, &admitted_access, &task_id))
+                    .transpose()?;
+                if selected.is_none() && !matches!(prepared.call(), Call::WorkspaceSetTrust(_)) {
+                    return Err(RpcError::internal_error());
+                }
                 let attached = !bindings
                     .lock()
                     .map_err(|_| RpcError::internal_error())?
                     .is_empty();
-                if selected.state == TaskState::Running && !attached {
+                if selected
+                    .as_ref()
+                    .is_some_and(|task| task.state == TaskState::Running)
+                    && !attached
+                {
                     return Err(failure(
                         Code::CapabilityUnavailable,
                         Retry::AfterRevalidation,
@@ -614,29 +702,37 @@ impl RpcHost for PublicConnection {
                     "call":prepared.call(),"state":"stopping; command not applied"
                 }))
                 .map_err(|_| RpcError::internal_error())?;
-                context
-                    .capture(
-                        &selected.scope,
-                        Channel::Evidence,
-                        &intent,
-                        "vcp-public-authority-intent/1",
-                    )
-                    .map_err(|_| {
-                        failure(
-                            Code::OutcomeUnknown,
-                            Retry::ReconcileOriginal,
-                            &request,
-                            "authority intent capture requires reconciliation",
+                if let Some(selected) = &selected {
+                    context
+                        .capture(
+                            &selected.scope,
+                            Channel::Evidence,
+                            &intent,
+                            "vcp-public-authority-intent/1",
                         )
-                    })?;
-                let proof = context
-                    .runtime
-                    .block_on(context.engine.pause_public_for_authority(
-                        &prepared,
-                        &admitted_access,
-                        &facts,
-                    ))
-                    .map_err(|error| public_error(error, operation.clone(), false))?;
+                        .map_err(|_| {
+                            failure(
+                                Code::OutcomeUnknown,
+                                Retry::ReconcileOriginal,
+                                &request,
+                                "authority intent capture requires reconciliation",
+                            )
+                        })?;
+                }
+                let proof = if matches!(prepared.call(), Call::WorkspaceSetTrust(_)) {
+                    None
+                } else {
+                    Some(
+                        context
+                            .runtime
+                            .block_on(context.engine.pause_public_for_authority(
+                                &prepared,
+                                &admitted_access,
+                                &facts,
+                            ))
+                            .map_err(|error| public_error(error, operation.clone(), false))?,
+                    )
+                };
                 let tasks = context
                     .engine
                     .store()
@@ -652,7 +748,7 @@ impl RpcHost for PublicConnection {
                     .map_err(|_| RpcError::internal_error())?;
                 for task in tasks {
                     if task.scope.session == admitted_access.session
-                        && task.scope.task != task_id
+                        && (proof.is_none() || task.scope.task != task_id)
                         && !task.state.terminal()
                         && task.state != TaskState::Paused
                     {
@@ -768,21 +864,45 @@ impl RpcHost for PublicConnection {
                             )
                         })?;
                     let facts = facts(context).map_err(|_| RpcError::internal_error())?;
-                    let receipt = context
-                        .runtime
-                        .block_on(
+                    let workspace_authority = proof.is_none();
+                    let receipt = match proof {
+                        Some(proof) => context.runtime.block_on(
                             context
                                 .engine
                                 .commit_public_after_pause(prepared, proof, &access, &facts),
+                        ),
+                        None => context.runtime.block_on(
+                            context
+                                .engine
+                                .commit_public_workspace_authority(prepared, &access, &facts),
+                        ),
+                    }
+                    .map_err(|error| {
+                        public_error(
+                            error,
+                            request.mutation().map(|value| value.command_id.clone()),
+                            false,
                         )
-                        .map_err(|error| {
-                            public_error(
-                                error,
-                                request.mutation().map(|value| value.command_id.clone()),
-                                false,
+                    })?;
+                    let mut result_access = access.clone();
+                    if workspace_authority {
+                        let workspace: Workspace = context
+                            .engine
+                            .store()
+                            .state()
+                            .record(
+                                Collection::Workspace,
+                                access.workspace.as_str(),
+                                &access.workspace,
                             )
-                        })?;
-                    acceptance(&context.engine, &access, &receipt)
+                            .and_then(Record::decode)
+                            .map_err(|_| RpcError::internal_error())?;
+                        result_access.authority = workspace.authority;
+                        // Host maintenance follows durable authority; client
+                        // credentials remain stale until explicit refresh.
+                        context.access.authority = workspace.authority;
+                    }
+                    acceptance(&context.engine, &result_access, &receipt)
                 })();
                 context.clear_authority_pending();
                 Ok(result)

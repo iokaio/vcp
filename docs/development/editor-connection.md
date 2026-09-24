@@ -1,31 +1,58 @@
-# Initial VS Code connection
+# VS Code workspace connection
 
-Work item: P4-01, first connection increment. P8 is closed by
+Work item: P4-01. P8 is closed by
 [owner direction](../adr/042-owner-directed-p8-closure.md), and P9-01 through P9-03
-are complete. This increment begins the editor integration described in
-[ADR-056](../adr/056-editor-observer-connection.md). It does not accept all P4-01
-requirements.
+are complete. [ADR-056](../adr/056-editor-observer-connection.md) records the initial
+observer increment; [ADR-057](../adr/057-editor-trust-and-observer-recovery.md)
+records the subsequent trust and recovery boundary.
 
 ## Connection boundary
 
 The extension connects the prepared workspace/connection presentation to the
-TypeScript SDK and authenticated local engine. Connection is explicit, scoped to
-one selected existing workspace and read-only. Configuration comes from the user,
+TypeScript SDK and authenticated local engine. Initial connection is explicit and
+scoped to one selected existing workspace. Observation is the default; controller
+acquisition for trust changes is explicit. Configuration comes from User settings,
 never a project-suggested executable. The extension exposes actual engine state
 and closes stale connections when selected roots change.
 
 Engine absence, failed negotiation, unavailable store and mismatched workspace
 state leave the extension disconnected with an actionable bounded diagnostic.
 Refreshing a view cannot acquire control, answer a decision or resume a task.
-Only the extension's own SDK connection is disposed.
+Only the extension's own SDK connection is disposed. A saved observer reference
+can authenticate to the same live engine after reload, without starting a writer,
+acquiring control or replaying commands. It contains no ticket or credentials.
 
 Set `vcp.engineExecutable` in VS Code **User settings** to the trusted absolute
 `vcp.exe` path. Set `vcp.dataDirectory` there if the initialized workspace uses a
 different data directory from the engine default. Open the VCP activity-bar view,
 choose **Connect**, and select the folder by its full URI. **Refresh** reads current
 state and **Disconnect** closes the connection. Equal display names remain distinct.
-Editor trust and canonical engine trust are shown separately; restricted-mode
-observation cannot change either engine policy or task execution.
+Editor trust and canonical engine trust are shown separately. **Connect for trust
+changes** explicitly acquires an available controller lease. **Trust engine
+workspace** requires editor trust; **Revoke engine trust** remains available in
+restricted mode to the controller. Both operations pause and drain owned work and
+return the editor to observation. Granting editor trust alone never grants engine
+trust. Losing the editor controller during a trust-revocation reload fences its
+queued work. An observing editor cannot alter another controller's trust or lease.
+
+**Reconcile moved root** selects the destination by URI and asks for the existing
+workspace ID. Close its engine owner first; disconnected pipe engines retain the
+writer for 30 seconds. Native reconciliation preserves identity/history, advances
+binding revision, resets trust and leaves tasks paused. An active owner causes
+refusal. The extension never reads private workspace descriptors.
+
+**Observe existing engine** accepts a non-secret reference from
+`Client.observerReconnectReference()`. Reload persists that reference with the
+selected URI and User-profile digest, then re-authenticates native process and
+executable identity and queries fresh pending state. It does not persist the
+process-local `LocalAttachment` or controller credentials. Profile changes or a
+dead/replaced server require explicit connection; no fallback launches a writer.
+Explicit Disconnect clears recovery. The native 30-second idle interval also
+limits reload recovery when no other client keeps the server alive.
+
+This extension/SDK requires the native observer-reconnect bootstrap opt-in. Older
+engines fail closed; older SDKs keep their original readiness response when using
+the new engine. P4-05 owns packaged compatibility and upgrade qualification.
 
 The root/binding projection increment requires the negotiated
 `workspace/binding/1` capability. The map and Workspace view use the engine's
@@ -140,15 +167,44 @@ Canonical-state equality still proves that observation did not acquire a lease,
 answer the retained decision or resume execution. Evidence is
 `artifacts/p4-binding-editor.log` and `artifacts/p4-extension-host/result.json`.
 
-## Remaining P4-01 acceptance
+## P4-01 acceptance
 
-The public API now exposes the actual root/binding projection. Durable trust mutation
-and moved-root reconciliation remain, plus authenticated observer handoff across host
-reload. The current UI does not fabricate these capabilities. Complete P4-01 also
-requires actual queued-tool trust revocation, moved-root identity preservation,
-reload during a pending question and observing reload while another controller
-survives. These requirements remain in the
-[owning contract](../plan/18-deferred-vscode.md#p4-01--connection-and-workspace-mapping).
+P4-01 is accepted on the qualified local Windows host. The final native editor
+gate passed against VS Code 1.138.0 with Node 24.18.1 and Rust 1.95.0. It used one
+editor launch with normal persistent workspace storage and observed a different
+extension-host process after `workbench.action.reloadWindow`. The isolated
+development driver replaces `--extensionTestsPath`, which selects in-memory
+storage and cannot qualify durable recovery. Editor trust and sandbox settings
+were not weakened.
+
+The gate preserves exact canonical state for two identically named roots using
+Files and SQLite. A physically moved root retains workspace/root identity,
+increments its binding revision, resets trust, and keeps its task paused and
+question pending. In restricted editor trust, granting engine trust is rejected;
+explicit revocation increments canonical workspace revision and authority and
+returns the editor to observation. A real observer reload automatically restores
+the pending question while an external client's controller lease remains unchanged.
+
+Final verification passed 26 extension tests, 33 SDK tests and TypeScript builds,
+32 protocol tests, five native pipe tests, the scope-identity unit test and two
+trust lifecycle tests, including queued-startup revocation and drain. The compiled
+SDK pending-question test passed across both stores with a fresh observer process;
+it compares controller authority exactly and checks the independent global store
+watermark for monotonicity. The repository fast gate passed all 18 cases (manifest
+`5a896785-e0a8-408b-9071-dcb2076f4fe3`).
+
+Native evidence is `artifacts/p4-editor-final.log`,
+`artifacts/p4-extension-host/result.json`, `artifacts/p4-sdk-pending-final.log`,
+`artifacts/p4-pipe-final.log`, `artifacts/p4-protocol-final.log`,
+`artifacts/p4-trust-scope-final.log` and `artifacts/p4-trust-final.log`.
+The [owning contract](../plan/18-deferred-vscode.md#p4-01--connection-and-workspace-mapping)
+and [ADR-057](../adr/057-editor-trust-and-observer-recovery.md) define the scope:
+local Windows only, explicit controller acquisition, no automatic mutation replay,
+and observer recovery subject to the server's existing 30-second idle retention.
+Switching a self-launched observer-only engine to an explicit controller connection
+can therefore require waiting for that idle shutdown and retrying. The observer
+reference cannot upgrade its role; another live controller must release ownership
+before a replacement engine can open the workspace.
 
 Full task/child views and approval actions belong to P4-02, prepared document
 changes to P4-03, inspectors to P4-04 and clean installation/update compatibility

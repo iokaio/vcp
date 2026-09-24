@@ -278,6 +278,7 @@ impl<S: CanonicalStore> Engine<S> {
         call.validate()
             .map_err(|_| PublicError::InvalidParameters)?;
         let (scope, mutation) = match &call {
+            Call::WorkspaceSetTrust(p) => (&p.scope, &p.mutation),
             Call::SessionCreate(p) => (&p.scope, &p.mutation),
             Call::SessionFork(p) => (&p.scope, &p.mutation),
             Call::SessionResume(p) => (&p.scope, &p.mutation),
@@ -334,6 +335,32 @@ impl<S: CanonicalStore> Engine<S> {
             paused_revision.unwrap_or(Revision::new(number(&mutation.expected_revision)?));
         let steering = SteeringRevision::new(number(&mutation.steering_revision)?);
         let (task, payload) = match &call {
+            Call::WorkspaceSetTrust(p) => {
+                if expected != workspace.revision
+                    || number(&p.expected_binding_revision)? != workspace.binding.revision.get()
+                    || steering != SteeringRevision::ZERO
+                {
+                    return Err(PublicError::StaleState);
+                }
+                workspace
+                    .revision
+                    .next()
+                    .map_err(|_| PublicError::StaleState)?;
+                workspace
+                    .authority
+                    .next()
+                    .map_err(|_| PublicError::StaleState)?;
+                (
+                    None,
+                    Command::SetWorkspaceTrust {
+                        trust: if p.trusted {
+                            vcp_domain::workspace::Trust::Trusted
+                        } else {
+                            vcp_domain::workspace::Trust::Untrusted
+                        },
+                    },
+                )
+            }
             Call::SessionFork(p) => {
                 if expected != Revision::ZERO || steering != SteeringRevision::ZERO {
                     return Err(PublicError::StaleState);
@@ -611,6 +638,9 @@ impl<S: CanonicalStore> Engine<S> {
         host: &HostFacts,
     ) -> Result<CommandReceipt, PublicError> {
         self.check_public_prepared(&prepared, access)?;
+        if matches!(prepared.call, Call::WorkspaceSetTrust(_)) {
+            return Err(PublicError::CapabilityUnavailable);
+        }
         if matches!(prepared.call, Call::SessionResume(_)) {
             return Err(PublicError::CapabilityUnavailable);
         }
@@ -625,6 +655,27 @@ impl<S: CanonicalStore> Engine<S> {
             return Err(PublicError::CapabilityUnavailable);
         }
         if prepared.controller.is_some() && matches!(prepared.call, Call::TurnSteer(_)) {
+            return Err(PublicError::CapabilityUnavailable);
+        }
+        match self.prepare_public(prepared.call, access, host)? {
+            PublicAdmission::Replay(receipt) => Ok(receipt),
+            PublicAdmission::Ready(current) => self
+                .handle_with_digest(current.command, access, host, Some(current.digest))
+                .await
+                .map_err(public_error),
+        }
+    }
+
+    /// Commit a workspace trust command after the host has held and drained the
+    /// entire owner. The host keeps the authority fence through this commit.
+    pub async fn commit_public_workspace_authority(
+        &mut self,
+        prepared: PreparedPublicCommand,
+        access: &Access,
+        host: &HostFacts,
+    ) -> Result<CommandReceipt, PublicError> {
+        self.check_public_prepared(&prepared, access)?;
+        if prepared.controller.is_none() || !matches!(prepared.call, Call::WorkspaceSetTrust(_)) {
             return Err(PublicError::CapabilityUnavailable);
         }
         match self.prepare_public(prepared.call, access, host)? {
