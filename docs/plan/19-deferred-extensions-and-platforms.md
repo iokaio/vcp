@@ -1,6 +1,6 @@
 # 19 — Deferred hooks, importers, observers and execution environments
 
-Status: P10-01 complete; P10-02 through P10-04 remain deferred. Every item starts after P8-05 and its more specific prerequisites in the ledger. These are independently prioritized extensions, not a reason to postpone the first Windows CLI.
+Status: P10-01 and P10-02 complete; P10-03 and P10-04 remain deferred. Every item starts after P8-05 and its more specific prerequisites in the ledger. These are independently prioritized extensions, not a reason to postpone the first Windows CLI.
 
 The proposed [extension design](../architecture/routing-extensions-design.md#deferred-hook-import-and-observer-contracts)
 and [execution-host design](../architecture/deferred-clients-design.md#execution-host-contract)
@@ -58,6 +58,14 @@ independent of first-release skill discovery.
 Exit: hooks can fail without bypassing authority, replaying uncertain effects, hiding cost or wedging the session; supported events/schemas and deliberate upstream differences are documented.
 
 ## P10-02 — Configuration import
+
+Completed 2026-09-24: [supported-field matrix and commands](../development/configuration-imports.md),
+[ADR-066](../adr/066-versioned-configuration-imports.md) and
+[qualification evidence](../evaluations/p10-02-configuration-imports.md).
+The pinned Codex/Gemini subset imports restrictions for existing MCP registrations.
+Skills, hooks, provider/credential and authority imports remain explicit exclusions.
+Native profiles are preserved; immutable preference revisions provide preview,
+selected-field apply and rollback under current native ceilings.
 
 Code organization: `vcp-extensions/import/{codex,gemini,normalize,preview,apply,compatibility}` with versioned supported-field maps and source provenance. Read import formats as data; never execute imported commands while parsing.
 

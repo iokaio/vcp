@@ -145,6 +145,8 @@ jobs:
         run: ./scripts/build.ps1 -Mode LifecycleTests -Jobs 2
       - name: Qualify governed hooks and unchanged CLI behavior
         run: ./scripts/test-hooks.ps1 -TargetRoot artifacts/codex-target -Jobs 2
+      - name: Qualify configuration import publication and rollback
+        run: ./scripts/test-imports.ps1 -TargetRoot artifacts/codex-target -Jobs 2
       - name: Test committed local-memory libraries and dependency boundary
         run: ./scripts/build.ps1 -Component Munarium -Mode BoundaryTests -TargetRoot artifacts/munarium-target -Jobs 2
       - name: Trace native CLI against the local scripted provider
@@ -163,6 +165,7 @@ jobs:
             artifacts/gemini-qualification/
             artifacts/gemini-hooks-qualification/
             artifacts/hooks/
+            artifacts/imports/
             artifacts/embeddings/
             artifacts/local-memory/
             !artifacts/gemini-qualification/**/synthetic-home/**

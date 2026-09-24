@@ -1,0 +1,12 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 15d854cc..449767db 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17585,6 +17585,7 @@ dependencies = [
+  "serde_json",
+  "tempfile",
+  "thiserror 2.0.18",
++ "toml 0.9.11+spec-1.1.0",
+  "vcp-domain",
+  "vcp-protocol",
+  "vcp-repository",

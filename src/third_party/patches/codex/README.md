@@ -182,6 +182,11 @@ already include these changes; normal builds never apply patches.
     receipts remain mandatory. No runtime, credential discovery or shell route is
     added to retained code.
 
+40. `0040-p10-config-import-toml.patch` records the original `vcp-extensions`
+    package's dependency on the already selected TOML 0.9.11+spec-1.1.0 parser
+    for P10-02 configuration imports. Only the package dependency edge changes;
+    no external package version or retained upstream implementation changes.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

@@ -189,9 +189,18 @@ pub fn within(path: &Path, root: &Path) -> bool {
 }
 
 pub fn load(path: &Path, workspace: &Path) -> Result<Profile, String> {
+    #[cfg(not(windows))]
     let path = local_path(path, workspace)?;
-    let profile: Profile = serde_json::from_slice(&read_bounded(&path, 256 * 1024)?)
-        .map_err(|_| "invalid user profile or unknown setting")?;
+    #[cfg(windows)]
+    let (bytes, imported) = crate::config_import::store::read(
+        &std::path::absolute(path).map_err(|_| "profile path unavailable")?,
+        workspace,
+    )?;
+    #[cfg(not(windows))]
+    let bytes = read_bounded(&path, 256 * 1024)?;
+    #[allow(unused_mut)]
+    let mut profile: Profile =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid user profile or unknown setting")?;
     if profile.version != 1
         || profile
             .workspace
@@ -200,6 +209,13 @@ pub fn load(path: &Path, workspace: &Path) -> Result<Profile, String> {
             != workspace
     {
         return Err("profile version or workspace binding does not match".into());
+    }
+    #[cfg(windows)]
+    if let Some(imported) = imported {
+        if imported.base_sha256 != vcp_protocol::digest_bytes(&bytes) {
+            return Err("native profile changed since import; review config import preview or rollback-preview before using its imported preferences".into());
+        }
+        crate::config_import::materialize(&mut profile, &imported.preferences)?;
     }
     Ok(profile)
 }

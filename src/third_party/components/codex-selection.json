@@ -187,6 +187,10 @@
     {
       "path": "src/third_party/patches/codex/0039-p10-async-hook-preparation.patch",
       "sha256": "cf8deea0b2424dd3843cc96fc715cc7e5fc39f7e7362e093072a71ec1d9c7a24"
+    },
+    {
+      "path": "src/third_party/patches/codex/0040-p10-config-import-toml.patch",
+      "sha256": "09f5afc2110b27fbdd0a70548e0f9bc8e38b5148a999df2e9ec153b247920b96"
     }
   ],
   "licenses": [

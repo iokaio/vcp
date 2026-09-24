@@ -10,6 +10,8 @@ pub mod backup_triggers;
 pub mod binding;
 pub mod continuation;
 #[cfg(windows)]
+pub mod config_import;
+#[cfg(windows)]
 pub mod control;
 #[cfg(windows)]
 pub mod decision;
