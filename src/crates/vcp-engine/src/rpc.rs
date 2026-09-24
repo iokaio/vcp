@@ -32,6 +32,7 @@ pub const METHODS: &[&str] = &[
     "session/read",
     "session/list",
     "task/read",
+    "task/presentation",
     "usage/read",
     "context/inspect",
     "routing/explain",
@@ -532,6 +533,11 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                     _ => return Err(RpcError::internal_error()),
                 }
             }
+            Call::TaskPresentation(p) => ResultValue::Presentation(
+                engine
+                    .public_presentation(access, p, self.facts.now)
+                    .map_err(query_error)?,
+            ),
             Call::UsageRead(p) => {
                 ResultValue::Usage(engine.public_usage(access, p).map_err(query_error)?)
             }

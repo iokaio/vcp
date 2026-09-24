@@ -10,7 +10,7 @@
   "engines": { "vscode": "1.138.0" },
   "extensionKind": ["ui"],
   "main": "./dist/extension.js",
-  "activationEvents": ["onView:vcp.connection","onCommand:vcp.connect","onCommand:vcp.refreshConnection","onCommand:vcp.disconnect","onCommand:vcp.connectController","onCommand:vcp.attachObserver","onCommand:vcp.reconcileRoot","onCommand:vcp.grantTrust","onCommand:vcp.revokeTrust","onStartupFinished"],
+  "activationEvents": ["onView:vcp.connection","onView:vcp.tasks","onCommand:vcp.connect","onCommand:vcp.refreshConnection","onCommand:vcp.disconnect","onCommand:vcp.connectController","onCommand:vcp.attachObserver","onCommand:vcp.reconcileRoot","onCommand:vcp.grantTrust","onCommand:vcp.revokeTrust","onStartupFinished"],
   "capabilities": {
     "virtualWorkspaces": { "supported": false, "description": "VCP currently connects only to local Windows file workspaces." },
     "untrustedWorkspaces": {
@@ -24,14 +24,14 @@
       { "command": "vcp.connect", "title": "VCP: Connect to Local Workspace" },
       { "command": "vcp.refreshConnection", "title": "VCP: Refresh Connection" },
       { "command": "vcp.disconnect", "title": "VCP: Disconnect" },
-      {"command":"vcp.connectController","title":"VCP: Connect for Workspace Trust Changes"},
+      {"command":"vcp.connectController","title":"VCP: Connect as Controller"},
       {"command":"vcp.attachObserver","title":"VCP: Observe Existing Engine"},
       {"command":"vcp.reconcileRoot","title":"VCP: Reconcile Moved Root"},
       {"command":"vcp.grantTrust","title":"VCP: Trust Engine Workspace"},
       {"command":"vcp.revokeTrust","title":"VCP: Revoke Engine Workspace Trust"}
     ],
     "viewsContainers": { "activitybar": [{ "id": "vcp", "title": "VCP", "icon": "media/vcp.svg" }] },
-    "views": { "vcp": [{ "type": "webview", "id": "vcp.connection", "name": "Workspace" }] },
+    "views": { "vcp": [{ "type": "webview", "id": "vcp.connection", "name": "Workspace" }, { "type": "webview", "id": "vcp.tasks", "name": "Tasks" }] },
     "configuration": {
       "title": "VCP",
       "properties": {

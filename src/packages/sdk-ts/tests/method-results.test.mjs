@@ -6,7 +6,7 @@ import { RESULT_KINDS, REQUIRED_PROFILES } from '../dist/method-results.js';
 
 test('every canonical method has an audited result mapping; editor success remains unavailable', () => {
   const methods = schema.definitions.Call.oneOf.map(branch => branch.properties.method.enum[0]);
-  assert.equal(methods.length, 40);
+  assert.equal(methods.length, 41);
   assert.deepEqual(Object.keys(RESULT_KINDS).sort(), methods.sort());
   const kinds = new Set(schema.definitions.ResultValue.oneOf.map(branch => branch.properties.kind.enum[0]));
   for (const [method, replies] of Object.entries(RESULT_KINDS)) {
@@ -18,6 +18,7 @@ test('every canonical method has an audited result mapping; editor success remai
 
 test('controller receipts and stream unions match dispatcher envelopes', () => {
   assert.deepEqual(RESULT_KINDS['controller/read'], ['controller']);
+  assert.deepEqual(RESULT_KINDS['task/presentation'], ['presentation']);
   for (const method of ['controller/acquire', 'controller/release', 'controller/recover', 'command/read']) assert.deepEqual(RESULT_KINDS[method], ['acceptance']);
   assert.deepEqual(RESULT_KINDS['session/snapshot'], ['snapshot', 'gap']);
   for (const method of ['events/subscribe', 'events/next']) assert.deepEqual(RESULT_KINDS[method], ['events', 'gap']);

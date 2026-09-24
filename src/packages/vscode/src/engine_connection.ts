@@ -41,14 +41,14 @@ export interface ConnectionDependencies {
   now?(): number;
 }
 const LIMITATIONS = Object.freeze([
-  'Task controls are not available in this version.',
+  'Task views require a matching engine; task control requires explicit controller ownership.',
   'Connect to an existing initialized workspace.',
   'Moved roots require explicit reconciliation after the active owner closes.',
   'Reload restores observation only; control and task resume remain explicit.',
 ]);
 const INITIALIZE: InitializeParams = {
   protocol_version: '1.0', client: { name: 'vcp-vscode', version: '0.1.0' },
-  capabilities: ['approval/source-revisions/1', 'controller/read', 'controller/acquire', 'workspace/setTrust'],
+  capabilities: ['approval/source-revisions/1', 'controller/read', 'controller/acquire', 'workspace/setTrust', 'task/presentation', 'task/read', 'usage/read', 'events/next', 'command/read', 'approval/respond', 'turn/steer', 'turn/pause', 'task/cancel', 'session/resume', 'artifact/read'],
   required_capabilities: ['jsonrpc/2.0', 'workspace/open', 'workspace/binding/1', 'session/snapshot', 'events/unsubscribe'],
 };
 function failureMessage(error: unknown): string {
@@ -75,6 +75,8 @@ export class EngineConnection {
   #status: ConnectionStatus = Object.freeze({ phase: 'disconnected', generation: 0, message: 'Select an initialized workspace and connect explicitly.', editorTrusted: false, limitations: LIMITATIONS });
   constructor(dependencies: ConnectionDependencies) { this.#deps = dependencies; }
   state(): ConnectionStatus { return this.#status; }
+  currentClient(): ConnectionClient | undefined { return this.#status.phase === 'connected' ? this.#client : undefined; }
+  profileKey(): string | undefined { return this.#selection ? profile(this.#selection) : undefined; }
   #publish(status: ConnectionStatus): ConnectionStatus {
     this.#status = Object.freeze(status);
     this.#deps.publish?.(this.#status);

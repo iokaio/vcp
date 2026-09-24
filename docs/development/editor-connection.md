@@ -11,7 +11,7 @@ records the subsequent trust and recovery boundary.
 The extension connects the prepared workspace/connection presentation to the
 TypeScript SDK and authenticated local engine. Initial connection is explicit and
 scoped to one selected existing workspace. Observation is the default; controller
-acquisition for trust changes is explicit. Configuration comes from User settings,
+acquisition is explicit. Configuration comes from User settings,
 never a project-suggested executable. The extension exposes actual engine state
 and closes stale connections when selected roots change.
 
@@ -27,8 +27,8 @@ Set `vcp.engineExecutable` in VS Code **User settings** to the trusted absolute
 different data directory from the engine default. Open the VCP activity-bar view,
 choose **Connect**, and select the folder by its full URI. **Refresh** reads current
 state and **Disconnect** closes the connection. Equal display names remain distinct.
-Editor trust and canonical engine trust are shown separately. **Connect for trust
-changes** explicitly acquires an available controller lease. **Trust engine
+Editor trust and canonical engine trust are shown separately. **Connect as
+controller** explicitly acquires an available controller lease. **Trust engine
 workspace** requires editor trust; **Revoke engine trust** remains available in
 restricted mode to the controller. Both operations pause and drain owned work and
 return the editor to observation. Granting editor trust alone never grants engine
@@ -209,3 +209,6 @@ before a replacement engine can open the workspace.
 Full task/child views and approval actions belong to P4-02, prepared document
 changes to P4-03, inspectors to P4-04 and clean installation/update compatibility
 to P4-05. No VSIX or extension-marketplace release is published here.
+
+The subsequent [task and child view](editor-tasks.md) has its own P4-02
+implementation and qualification evidence.
