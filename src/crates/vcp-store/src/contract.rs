@@ -259,6 +259,9 @@ impl Record {
         if crate::forecast_contract::kind(self) {
             return crate::forecast_contract::shape(self);
         }
+        if crate::editor_contract::kind(self)? {
+            return crate::editor_contract::shape(self);
+        }
         if crate::snapshot_jobs::kind(self) {
             return crate::snapshot_jobs::shape(self);
         }
@@ -508,6 +511,7 @@ impl Record {
             refs.extend(agents_contract::references(self)?);
             return Ok(refs);
         }
+        if crate::editor_contract::kind(self)? { refs.extend(crate::editor_contract::references(self)?); return Ok(refs); }
         if let Some(kind) = self.memory_kind()? {
             use vcp_domain::memory::*;
             if let Some(scope) = self.task_scope()? {
@@ -702,6 +706,7 @@ impl Record {
         Ok(refs)
     }
     pub(crate) fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
+        if crate::editor_contract::kind(self)? { return Ok(Some(crate::editor_contract::scope(self)?)); }
         if agents_contract::kind(self)? {
             return Ok(Some(self.decode::<vcp_domain::agents::TaskGraph>()?.scope));
         }
@@ -1305,6 +1310,7 @@ impl State {
                             ingestion_contract::transition(previous, record)?;
                             search_contract::transition(previous, record)?;
                             agents_contract::transition(previous, record)?;
+                            crate::editor_contract::transition(previous, record)?;
                             crate::snapshot_jobs::transition(previous, record)?;
                             if previous.immutable_memory()? {
                                 return Err(Error::Conflict("immutable memory evidence"));
@@ -1358,6 +1364,15 @@ impl State {
                 }
                 Mutation::DropProjection { id, expected } => {
                     let key = key(Collection::Projection, id);
+                    if self
+                        .records
+                        .get(&key)
+                        .map(crate::editor_contract::kind)
+                        .transpose()?
+                        .unwrap_or(false)
+                    {
+                        return Err(Error::Conflict("durable editor authority cannot be dropped"));
+                    }
                     if self
                         .records
                         .get(&key)

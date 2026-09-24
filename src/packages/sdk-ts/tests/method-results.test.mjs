@@ -4,15 +4,16 @@ import test from 'node:test';
 import schema from '@vcp/protocol/schema.json' with { type: 'json' };
 import { RESULT_KINDS, REQUIRED_PROFILES } from '../dist/method-results.js';
 
-test('every canonical method has an audited result mapping; editor success remains unavailable', () => {
+test('every canonical method has an audited result mapping', () => {
   const methods = schema.definitions.Call.oneOf.map(branch => branch.properties.method.enum[0]);
-  assert.equal(methods.length, 41);
+  assert.equal(methods.length, 44);
   assert.deepEqual(Object.keys(RESULT_KINDS).sort(), methods.sort());
   const kinds = new Set(schema.definitions.ResultValue.oneOf.map(branch => branch.properties.kind.enum[0]));
   for (const [method, replies] of Object.entries(RESULT_KINDS)) {
     assert.ok(Object.isFrozen(replies));
     assert.ok(replies.every(kind => kinds.has(kind)));
-    assert.equal(replies.length === 0, method.startsWith('editor/'));
+    assert.ok(replies.length > 0);
+    if (method.startsWith('editor/')) assert.deepEqual(REQUIRED_PROFILES[method], ['editor/prepared-edits/1']);
   }
 });
 

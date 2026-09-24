@@ -1,6 +1,6 @@
 # 18 — Deferred VS Code client
 
-Status: P4-01 and P4-02 accepted after owner-directed P8 closure and completed P9; P4-03 is next. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
+Status: P4-01 through P4-03 accepted after owner-directed P8 closure and completed P9; P4-04 inspectors are next. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
 
 ## Code organization
 
@@ -96,6 +96,10 @@ subscriptions. Follow [presentation design](../architecture/deferred-clients-des
 and [visible delegation](../architecture/vcp-what.md#166-visible-sub-agent-work).
 
 ## P4-03 — Versioned document edits
+
+Status: accepted after full native engine/editor qualification on Files and SQLite.
+See [the implemented contract and evidence](../development/editor-edits.md)
+and [ADR-059](../adr/059-versioned-editor-edits.md).
 
 Capture selected/dirty document content with URI, version, scope and artifact reference. Prepare edits against expected document versions and disk state. Revalidate at apply and record actual application receipts; concurrent typing causes a conflict/replan rather than silent overwrite.
 

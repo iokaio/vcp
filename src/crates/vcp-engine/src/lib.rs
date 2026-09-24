@@ -46,3 +46,5 @@ pub enum Error {
     Policy(#[from] vcp_policy::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
+
+pub mod editor;

@@ -6,7 +6,9 @@ qualification gaps retained. P9-01 → P9-02 → P9-03, P4-01 and P4-02 are comp
 [Editor connection acceptance](../development/editor-connection.md#p4-01-acceptance)
 qualifies trust, moved roots and observer reload;
 [task/child view acceptance](../development/editor-tasks.md#qualification) qualifies
-presentation, guarded actions and recovery. P4-03 versioned edits are next.
+presentation, guarded actions and recovery. P4-03 versioned edits are accepted
+with [native qualification](../development/editor-edits.md#qualification).
+P4-04 inspectors are next.
 
 Plan revision 14 — September 21, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded

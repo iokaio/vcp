@@ -43,8 +43,11 @@ export const RESULT_KINDS = {
   'memory/forgetPreview': ['retention_preview'],
   'memory/forgetPreviewRead': ['retention_preview'],
   'memory/forgetRead': ['retention'],
-  'editor/context': [],
-  'editor/changeResult': [],
+  'editor/context': ['editor_context'],
+  'editor/prepare': ['editor_change'],
+  'editor/changeRead': ['editor_change'],
+  'editor/dispatch': ['editor_dispatch'],
+  'editor/changeResult': ['editor_change'],
   'session/export': ['export'],
   'command/read': ['acceptance'],
 } as const satisfies Record<Method, readonly ResultValue['kind'][]>;
@@ -53,6 +56,11 @@ export type Reply<M extends Method> = Extract<ResultValue, { kind: typeof RESULT
 
 /** Extra mandatory profiles, in addition to the advertised method itself. */
 export const REQUIRED_PROFILES: Readonly<Partial<Record<Method, readonly string[]>>> = Object.freeze({
+  'editor/context': Object.freeze(['editor/prepared-edits/1']),
+  'editor/prepare': Object.freeze(['editor/prepared-edits/1']),
+  'editor/changeRead': Object.freeze(['editor/prepared-edits/1']),
+  'editor/dispatch': Object.freeze(['editor/prepared-edits/1']),
+  'editor/changeResult': Object.freeze(['editor/prepared-edits/1']),
   'memory/inspect': Object.freeze(['memory/inspection-state/1']),
   'memory/query': Object.freeze(['memory/query-sources/1']),
   'memory/propose': Object.freeze(['memory/governance/1']),

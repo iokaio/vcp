@@ -48,7 +48,7 @@ const LIMITATIONS = Object.freeze([
 ]);
 const INITIALIZE: InitializeParams = {
   protocol_version: '1.0', client: { name: 'vcp-vscode', version: '0.1.0' },
-  capabilities: ['approval/source-revisions/1', 'controller/read', 'controller/acquire', 'workspace/setTrust', 'task/presentation', 'task/read', 'usage/read', 'events/next', 'command/read', 'approval/respond', 'turn/steer', 'turn/pause', 'task/cancel', 'session/resume', 'artifact/read'],
+  capabilities: ['approval/source-revisions/1', 'controller/read', 'controller/acquire', 'workspace/setTrust', 'task/presentation', 'task/read', 'usage/read', 'events/next', 'command/read', 'approval/respond', 'turn/start', 'turn/steer', 'turn/pause', 'task/cancel', 'session/resume', 'artifact/read', 'editor/prepared-edits/1', 'editor/context', 'editor/prepare', 'editor/changeRead', 'editor/dispatch', 'editor/changeResult'],
   required_capabilities: ['jsonrpc/2.0', 'workspace/open', 'workspace/binding/1', 'session/snapshot', 'events/unsubscribe'],
 };
 function failureMessage(error: unknown): string {
@@ -102,7 +102,14 @@ export class EngineConnection {
     void pending.finally(() => this.#starts.delete(pending)).catch(() => {});
     return pending;
   }
-  async #connect(selection: Selection, previousStarts: Promise<ConnectionStatus>[], role: 'observer' | 'controller', saved?: Recovery): Promise<ConnectionStatus> {
+  connectExecution(selection: Selection, execution: NonNullable<LaunchOptions['execution']>, rootTask: string): Promise<ConnectionStatus> {
+    if (!selection.workspaceTrusted) return Promise.reject(new Error('trusted editor required'));
+    const pending = this.#connect(selection, [...this.#starts], 'controller', undefined, { execution, rootTask });
+    this.#starts.add(pending);
+    void pending.finally(() => this.#starts.delete(pending)).catch(() => {});
+    return pending;
+  }
+  async #connect(selection: Selection, previousStarts: Promise<ConnectionStatus>[], role: 'observer' | 'controller', saved?: Recovery, execution?: Pick<LaunchOptions, 'execution' | 'rootTask'>): Promise<ConnectionStatus> {
     if (this.#disposed) return this.#status;
     const selected = { ...selection };
     const generation = this.#map.invalidate();
@@ -122,10 +129,10 @@ export class EngineConnection {
       if (saved) {
         if (!this.#deps.reconnect) throw new Error('observer reconnect unavailable');
         client = await this.#deps.reconnect({ executable: selected.executable, reference: saved.reference, initialize: structuredClone(INITIALIZE) });
-      } else if (role === 'controller' && this.#controller?.folderUri === selected.workspaceUri && this.#controller.profile === profile(selected) && this.#deps.attach) {
+      } else if (!execution && role === 'controller' && this.#controller?.folderUri === selected.workspaceUri && this.#controller.profile === profile(selected) && this.#deps.attach) {
         client = await this.#deps.attach({ executable: selected.executable, attachment: this.#controller.attachment, initialize: structuredClone(INITIALIZE) });
       } else {
-        client = await this.#deps.launch({ executable: selected.executable, workspace: root, ...(selected.dataPath === undefined ? {} : { data: selected.dataPath }), role, transport: 'windows_pipe', initialize: structuredClone(INITIALIZE) });
+        client = await this.#deps.launch({ executable: selected.executable, workspace: root, ...(selected.dataPath === undefined ? {} : { data: selected.dataPath }), role, transport: 'windows_pipe', initialize: structuredClone(INITIALIZE), ...execution });
       }
       if (!this.#current(generation)) { await client.dispose(); return this.#status; }
       this.#client = client; this.#selection = selected;

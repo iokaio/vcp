@@ -28,11 +28,13 @@ export type Bound = { "inclusive": boolean; "instant": InstantSpec; };
 
 export type Budget = { "cap_micros": Counter; "currency": Currency; "deadline_seconds": number; "max_requests": number; };
 
-export type Call = ({ "method": ("controller/read" & string); "params": ControllerRead; } | { "method": ("controller/acquire" & string); "params": ControllerAcquire; } | { "method": ("controller/release" & string); "params": ControllerRelease; } | { "method": ("controller/recover" & string); "params": ControllerRecover; } | { "method": ("workspace/open" & string); "params": WorkspaceOpen; } | { "method": ("workspace/setTrust" & string); "params": WorkspaceSetTrust; } | { "method": ("session/create" & string); "params": SessionCreate; } | { "method": ("session/read" & string); "params": SessionRead; } | { "method": ("session/snapshot" & string); "params": SessionSnapshotRead; } | { "method": ("session/list" & string); "params": SessionList; } | { "method": ("session/resume" & string); "params": SessionResume; } | { "method": ("session/fork" & string); "params": SessionFork; } | { "method": ("task/read" & string); "params": TaskRead; } | { "method": ("task/presentation" & string); "params": Inspect; } | { "method": ("task/cancel" & string); "params": TaskCancel; } | { "method": ("turn/start" & string); "params": TurnStart; } | { "method": ("turn/steer" & string); "params": TurnSteer; } | { "method": ("turn/pause" & string); "params": TurnControl; } | { "method": ("turn/cancel" & string); "params": TurnControl; } | { "method": ("approval/respond" & string); "params": ApprovalRespond; } | { "method": ("events/subscribe" & string); "params": EventsSubscribe; } | { "method": ("events/next" & string); "params": EventsNext; } | { "method": ("events/unsubscribe" & string); "params": EventsUnsubscribe; } | { "method": ("artifact/read" & string); "params": ArtifactRead; } | { "method": ("diff/read" & string); "params": DiffRead; } | { "method": ("context/inspect" & string); "params": Inspect; } | { "method": ("routing/explain" & string); "params": Inspect; } | { "method": ("usage/read" & string); "params": Inspect; } | { "method": ("memory/query" & string); "params": MemoryQuery; } | { "method": ("memory/inspect" & string); "params": MemoryInspect; } | { "method": ("memory/propose" & string); "params": ProposeParams; } | { "method": ("memory/resolve" & string); "params": ResolveParams; } | { "method": ("memory/review" & string); "params": ReviewRead; } | { "method": ("memory/forget" & string); "params": MemoryForget; } | { "method": ("memory/forgetPreview" & string); "params": PreviewRequest; } | { "method": ("memory/forgetPreviewRead" & string); "params": PreviewPageRequest; } | { "method": ("memory/forgetRead" & string); "params": JobRead; } | { "method": ("editor/context" & string); "params": EditorContext; } | { "method": ("editor/changeResult" & string); "params": EditorChangeResult; } | { "method": ("session/export" & string); "params": SessionExport; } | { "method": ("command/read" & string); "params": CommandRead; });
+export type Call = ({ "method": ("controller/read" & string); "params": ControllerRead; } | { "method": ("controller/acquire" & string); "params": ControllerAcquire; } | { "method": ("controller/release" & string); "params": ControllerRelease; } | { "method": ("controller/recover" & string); "params": ControllerRecover; } | { "method": ("workspace/open" & string); "params": WorkspaceOpen; } | { "method": ("workspace/setTrust" & string); "params": WorkspaceSetTrust; } | { "method": ("session/create" & string); "params": SessionCreate; } | { "method": ("session/read" & string); "params": SessionRead; } | { "method": ("session/snapshot" & string); "params": SessionSnapshotRead; } | { "method": ("session/list" & string); "params": SessionList; } | { "method": ("session/resume" & string); "params": SessionResume; } | { "method": ("session/fork" & string); "params": SessionFork; } | { "method": ("task/read" & string); "params": TaskRead; } | { "method": ("task/presentation" & string); "params": Inspect; } | { "method": ("task/cancel" & string); "params": TaskCancel; } | { "method": ("turn/start" & string); "params": TurnStart; } | { "method": ("turn/steer" & string); "params": TurnSteer; } | { "method": ("turn/pause" & string); "params": TurnControl; } | { "method": ("turn/cancel" & string); "params": TurnControl; } | { "method": ("approval/respond" & string); "params": ApprovalRespond; } | { "method": ("events/subscribe" & string); "params": EventsSubscribe; } | { "method": ("events/next" & string); "params": EventsNext; } | { "method": ("events/unsubscribe" & string); "params": EventsUnsubscribe; } | { "method": ("artifact/read" & string); "params": ArtifactRead; } | { "method": ("diff/read" & string); "params": DiffRead; } | { "method": ("context/inspect" & string); "params": Inspect; } | { "method": ("routing/explain" & string); "params": Inspect; } | { "method": ("usage/read" & string); "params": Inspect; } | { "method": ("memory/query" & string); "params": MemoryQuery; } | { "method": ("memory/inspect" & string); "params": MemoryInspect; } | { "method": ("memory/propose" & string); "params": ProposeParams; } | { "method": ("memory/resolve" & string); "params": ResolveParams; } | { "method": ("memory/review" & string); "params": ReviewRead; } | { "method": ("memory/forget" & string); "params": MemoryForget; } | { "method": ("memory/forgetPreview" & string); "params": PreviewRequest; } | { "method": ("memory/forgetPreviewRead" & string); "params": PreviewPageRequest; } | { "method": ("memory/forgetRead" & string); "params": JobRead; } | { "method": ("editor/context" & string); "params": EditorContext; } | { "method": ("editor/prepare" & string); "params": EditorPrepare; } | { "method": ("editor/changeRead" & string); "params": EditorChangeRead; } | { "method": ("editor/dispatch" & string); "params": EditorDispatch; } | { "method": ("editor/changeResult" & string); "params": EditorChangeResult; } | { "method": ("session/export" & string); "params": SessionExport; } | { "method": ("command/read" & string); "params": CommandRead; });
 
 export type Candidate = { "applicability": Applicability; "claim": Id; "correction_reason"?: (string | null); "evidence": Array<Evidence>; "origins": Array<Id>; "predecessor"?: (Id | null); "predicate": string; "retention": string; "statement": string; "subject": string; "value": ClaimValue; };
 
 export type CaptureScope = (("visible_history" | "visible_history_and_artifacts") & string);
+
+export type ChangeView = { "authority_revision": Counter; "binding_revision": Counter; "buffers_unverified": boolean; "change": Id; "files": Array<FileView>; "generation": Id; "policy_revision": Counter; "revision": Counter; "root": Id; "scope": Scope; "steering_revision": Counter; "task": Id; };
 
 export type CheckOutcome = ({ "status": ("passed" & string); } | { "reason": string; "status": ("failed" & string); } | { "reason": string; "status": ("not_run" & string); });
 
@@ -49,6 +51,8 @@ export type CommandPurpose = (("test" | "build") & string);
 export type CommandRead = { "command_id": Id; "scope": Scope; };
 
 export type ConnectionLimits = { "maximum_frame_bytes": number; "maximum_pending_requests": number; "maximum_subscriber_queue_bytes": number; "maximum_subscriptions": number; };
+
+export type ContextView = { "generation": Id; "observations": Array<Observation>; "revision": Counter; };
 
 export type ControllerAcquire = { "command_id": Id; "expected_revision"?: (Counter | null); "scope": Scope; };
 
@@ -68,17 +72,31 @@ export type Criterion = ({ "kind": ("date" & string); "value": TimeWindow; } | {
 
 export type Currency = ("USD" & string);
 
+export type Diagnostics = { "collector": string; "count": number; "observed_at": Counter; "observed_document_version": Counter; "producer_document_version"?: (Counter | null); "sha256": string; "truncated": boolean; };
+
 export type DiffRead = { "change": Id; "length": number; "offset": Counter; "scope": Scope; "task": Id; };
 
-export type DocumentObservation = { "content"?: (string | null); "content_sha256": string; "dirty": boolean; "disk_sha256"?: (string | null); "host": Id; "uri": string; "version": Counter; };
+export type DispatchView = { "apply": boolean; "change": ChangeView; "execution": Id; "file": number; };
 
-export type EditorChangeResult = { "change": Id; "documents": Array<DocumentObservation>; "mutation": Mutation; "outcome": EditorOutcome; "scope": Scope; "task": Id; };
+export type DocumentObservation = { "capture": boolean; "content"?: (string | null); "content_sha256": string; "diagnostics"?: (Diagnostics | null); "dirty": boolean; "disk_sha256"?: (string | null); "encoding": Encoding; "eol": EndOfLine; "host": Id; "language": string; "open_id": Id; "relative_path": string; "selections": Array<Range2>; "uri": string; "version": Counter; };
 
-export type EditorContext = { "documents": Array<DocumentObservation>; "mutation": Mutation; "scope": Scope; "task": Id; };
+export type EditorChangeRead = { "change": Id; "scope": Scope; "task": Id; };
 
-export type EditorOutcome = (("applied" | "rejected" | "partial" | "unknown") & string);
+export type EditorChangeResult = { "change": Id; "document": DocumentObservation; "execution": Id; "file": number; "generation": Id; "mutation": Mutation; "outcome": EditorOutcome; "scope": Scope; "task": Id; };
+
+export type EditorContext = { "closed"?: Array<Id>; "documents": Array<DocumentObservation>; "mutation": Mutation; "scope": Scope; "task": Id; };
+
+export type EditorDispatch = { "change": Id; "file": number; "generation": Id; "mutation": Mutation; "scope": Scope; "task": Id; };
+
+export type EditorOutcome = (("applied" | "rejected" | "unknown") & string);
+
+export type EditorPrepare = { "files": Array<FileEdits>; "generation": Id; "mutation": Mutation; "scope": Scope; "task": Id; };
 
 export type EffectStatus = (("pending" | "known" | "partial" | "unknown") & string);
+
+export type Encoding = (("unknown" | "utf8" | "utf8_bom" | "utf16_le" | "utf16_be") & string);
+
+export type EndOfLine = (("lf" | "crlf") & string);
 
 export type ErrorData = { "details": unknown; "kind": string; };
 
@@ -115,6 +133,12 @@ export type EvidenceStatus = (("verified" | "observed" | "inferred" | "unverifie
 export type ExecutionHost = { "id": string; "platform": string; };
 
 export type ExportView = { "artifact": Id; "complete": boolean; "scope": Scope; "visibility_manifest": Id; };
+
+export type FileEdits = { "edits": Array<TextEdit>; "observation": Id; };
+
+export type FileState = (("prepared" | "dispatched" | "applied" | "rejected" | "unknown") & string);
+
+export type FileView = { "after_sha256": string; "content_sha256": string; "dirty": boolean; "disk_fingerprint": string; "disk_sha256": string; "edits_digest": string; "effect": Id; "execution"?: (Id | null); "file": number; "host": Id; "observation": Id; "observed_observation"?: (Id | null); "observed_sha256"?: (string | null); "observed_version"?: (Counter | null); "open_id": Id; "operation_digest": string; "relative_path": string; "state": FileState; "uri": string; "version": Counter; };
 
 export type Finding = { "content": string; "end": Counter; "evidence": Array<Id>; "evidence_status": EvidenceStatus; "outcome": Outcome; "rank": number; "record_id": string; "root": Id; "source": Source; "source_sha256": string; "start": Counter; "trimmed": boolean; };
 
@@ -166,6 +190,8 @@ export type MemoryQuery = { "limit": number; "query": string; "scope": Scope; "t
 
 export type Mutation = { "command_id": Id; "expected_revision": Counter; "steering_revision": Counter; };
 
+export type Observation = { "artifact"?: (Id | null); "disk_fingerprint": string; "document": DocumentObservation; "id": Id; "root": Id; };
+
 export type OperationOutcome = (("accepted" | "waiting_for_input" | "partial" | "unknown" | "completed" | "cancelled" | "failed") & string);
 
 export type Outcome = (("accepted" | "disputed" | "rejected" | "awaiting_review") & string);
@@ -173,6 +199,8 @@ export type Outcome = (("accepted" | "disputed" | "rejected" | "awaiting_review"
 export type Page = { "canonical_watermark": Counter; "complete": boolean; "degraded": Array<string>; "findings": Array<Finding>; "generation"?: (Id | null); "generation_watermark"?: (Counter | null); "rebuild_required": boolean; "scope": Scope; "sequence": Counter; "task": Id; "truncated": boolean; };
 
 export type PendingInput = { "effect_revision"?: (Counter | null); "id": Id; "kind": InputKind; "operation_digest"?: (string | null); "policy_revision"?: (Counter | null); "revision": Counter; };
+
+export type Position = { "character": number; "line": number; };
 
 export type PresentationModel = { "group"?: (PresentationText | null); "id"?: (PresentationText | null); "source": PresentationSource; };
 
@@ -196,6 +224,8 @@ export type ProposeParams = (LegacyPropose | TypedPropose);
 
 export type Range = { "end": Counter; "start": Counter; };
 
+export type Range2 = { "end": Position; "start": Position; };
+
 export type RequestEnvelope = { "id"?: RequestId; "jsonrpc": JsonRpcVersion; "method": string; "params"?: WireParams; };
 
 export type RequestId = (string | number | null);
@@ -206,7 +236,7 @@ export type ResolveParams = (LegacyResolve | TypedResolve);
 
 export type ResultEnvelope = { "id": RequestId; "jsonrpc": JsonRpcVersion; "result": unknown; };
 
-export type ResultValue = ({ "kind": ("snapshot" & string); "value": SessionSnapshot; } | { "kind": ("controller" & string); "value": ControllerView; } | { "kind": ("workspace" & string); "value": WorkspaceView; } | { "kind": ("session" & string); "value": SessionView; } | { "kind": ("sessions" & string); "value": SessionPage; } | { "kind": ("task" & string); "value": TaskView; } | { "kind": ("presentation" & string); "value": TaskPresentation; } | { "kind": ("acceptance" & string); "value": Acceptance; } | { "kind": ("usage" & string); "value": UsageView; } | { "kind": ("artifact" & string); "value": ArtifactRange; } | { "kind": ("evidence" & string); "value": EvidencePage; } | { "kind": ("memory" & string); "value": MemoryPage; } | { "kind": ("memory_query" & string); "value": Page; } | { "kind": ("memory_review" & string); "value": ReviewView; } | { "kind": ("memory_reviewed" & string); "value": ReviewResult; } | { "kind": ("retention_preview" & string); "value": PreviewPage; } | { "kind": ("retention" & string); "value": JobView; } | { "kind": ("forgotten" & string); "value": ForgetResult; } | { "kind": ("events" & string); "value": EventBatch; } | { "kind": ("gap" & string); "value": EventGap; } | { "kind": ("export" & string); "value": ExportView; } | { "kind": ("unsubscribed" & string); "value": { "subscription": Id; }; });
+export type ResultValue = ({ "kind": ("snapshot" & string); "value": SessionSnapshot; } | { "kind": ("controller" & string); "value": ControllerView; } | { "kind": ("workspace" & string); "value": WorkspaceView; } | { "kind": ("session" & string); "value": SessionView; } | { "kind": ("sessions" & string); "value": SessionPage; } | { "kind": ("task" & string); "value": TaskView; } | { "kind": ("presentation" & string); "value": TaskPresentation; } | { "kind": ("editor_context" & string); "value": ContextView; } | { "kind": ("editor_change" & string); "value": ChangeView; } | { "kind": ("editor_dispatch" & string); "value": DispatchView; } | { "kind": ("acceptance" & string); "value": Acceptance; } | { "kind": ("usage" & string); "value": UsageView; } | { "kind": ("artifact" & string); "value": ArtifactRange; } | { "kind": ("evidence" & string); "value": EvidencePage; } | { "kind": ("memory" & string); "value": MemoryPage; } | { "kind": ("memory_query" & string); "value": Page; } | { "kind": ("memory_review" & string); "value": ReviewView; } | { "kind": ("memory_reviewed" & string); "value": ReviewResult; } | { "kind": ("retention_preview" & string); "value": PreviewPage; } | { "kind": ("retention" & string); "value": JobView; } | { "kind": ("forgotten" & string); "value": ForgetResult; } | { "kind": ("events" & string); "value": EventBatch; } | { "kind": ("gap" & string); "value": EventGap; } | { "kind": ("export" & string); "value": ExportView; } | { "kind": ("unsubscribed" & string); "value": { "subscription": Id; }; });
 
 export type Retry = ((("never" | "after_input" | "after_revalidation") & string) | ("reconcile_original" & string));
 
@@ -261,6 +291,8 @@ export type TaskRead = { "scope": Scope; "task": Id; };
 export type TaskStatus = (("pending" | "running" | "waiting_for_input" | "blocked" | "paused" | "completed" | "failed" | "cancelled") & string);
 
 export type TaskView = { "effects": EffectStatus; "parent"?: (Id | null); "pending_inputs": Array<PendingInput>; "reason": string; "revision": Counter; "root": Id; "scope": Scope; "state": TaskStatus; "steering_revision": Counter; "task": Id; "turn"?: (Id | null); };
+
+export type TextEdit = { "range": Range2; "text": string; };
 
 export type TimeWindow = { "lower"?: (Bound | null); "upper"?: (Bound | null); };
 

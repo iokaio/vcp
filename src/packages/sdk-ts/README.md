@@ -32,7 +32,17 @@ discovery records or a substitute for native peer authentication.
 Calls retain their generated `{kind, value}` result envelope. Snapshot and event
 calls can return a gap; callers must handle it explicitly. Exact counters and
 money remain decimal strings. Optional method profiles are negotiated before use.
-Unsupported editor methods stay unavailable until their owning implementation.
+The `editor/prepared-edits/1` profile negotiates all five editor methods:
+`editor/context`, `editor/prepare`, `editor/changeRead`, `editor/dispatch` and
+`editor/changeResult`. Context and mutations require current controller authority;
+preparation and dispatch additionally require a real running execution task.
+Observations and replacement text remain connection-local unless explicitly
+captured. Durable change records contain metadata and per-file outcomes.
+Persist the prepare command ID (also the change ID) before sending. A recovered
+dispatch returns `apply: false`, never permission to repeat application. Context
+`closed` IDs attest actual closure of exact current observations; neither a
+clean dirty flag nor an absent document list retires them. See the
+[versioned editor contract and native qualification](../../../docs/development/editor-edits.md).
 
 `task/presentation` provides bounded, access-checked task/child details, retained
 model selection, approval summaries and evidence. Handle unavailable fields and

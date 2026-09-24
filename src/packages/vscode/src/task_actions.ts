@@ -101,7 +101,9 @@ export class TaskActions {
         add('steer', 'Send guidance');
         if (task.state !== 'paused') add('pause', 'Pause');
       }
-      if (task.state === 'paused') add('resume', 'Resume');
+      const staleQuestionsOnly = questions !== undefined && task.pending_inputs.every(input => input.kind === 'approval'
+        && questions.some(question => question.input.id === input.id && question.input.revision === input.revision && !question.actionable));
+      if (task.state === 'paused' || (['waiting_for_input', 'blocked'].includes(task.state) && staleQuestionsOnly)) add('resume', 'Resume');
       add('cancel', 'Cancel task');
     }
     return actions;

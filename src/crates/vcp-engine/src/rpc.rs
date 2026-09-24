@@ -82,6 +82,18 @@ pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
         capabilities.insert(WORKSPACE_BINDING_CAPABILITY.to_owned());
     }
     if [
+        "editor/context",
+        "editor/prepare",
+        "editor/changeRead",
+        "editor/dispatch",
+        "editor/changeResult",
+    ]
+    .iter()
+    .all(|method| capabilities.contains(*method))
+    {
+        capabilities.insert(vcp_protocol::editor::CAPABILITY.to_owned());
+    }
+    if [
         "memory/forget",
         "memory/forgetPreview",
         "memory/forgetPreviewRead",
@@ -348,6 +360,22 @@ impl RpcSession {
             request.params.clone().unwrap_or(Value::Null),
         )
         .map_err(|_| RpcError::invalid_params())?;
+        if matches!(
+            call,
+            Call::EditorContext(_)
+                | Call::EditorPrepare(_)
+                | Call::EditorChangeRead(_)
+                | Call::EditorDispatch(_)
+                | Call::EditorChangeResult(_)
+        ) && !self.negotiated.contains(vcp_protocol::editor::CAPABILITY)
+        {
+            return Err(application(
+                Code::CapabilityUnavailable,
+                Retry::Never,
+                call.command_id().cloned(),
+                "prepared editor capability was not negotiated",
+            ));
+        }
         if matches!(call, Call::MemoryQuery(_))
             && !self.negotiated.contains(MEMORY_QUERY_SOURCES_CAPABILITY)
         {
@@ -1035,6 +1063,28 @@ mod tests {
             .contains(WORKSPACE_BINDING_CAPABILITY));
         assert!(capabilities_for_methods(&["workspace/open".into()])
             .contains(WORKSPACE_BINDING_CAPABILITY));
+    }
+
+    #[test]
+    fn prepared_editor_capability_requires_every_hosted_method() {
+        let all = [
+            "editor/context",
+            "editor/prepare",
+            "editor/changeRead",
+            "editor/dispatch",
+            "editor/changeResult",
+        ]
+        .map(str::to_owned);
+        assert!(capabilities_for_methods(&all).contains(vcp_protocol::editor::CAPABILITY));
+        for missing in 0..all.len() {
+            let partial = all
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != missing)
+                .map(|(_, method)| method.clone())
+                .collect::<Vec<_>>();
+            assert!(!capabilities_for_methods(&partial).contains(vcp_protocol::editor::CAPABILITY));
+        }
     }
 
     struct ProbeHost {
