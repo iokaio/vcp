@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Current progression (September 23): P8 is closed by
+Current progression (September 24): P8 is closed by
 [owner direction](../adr/042-owner-directed-p8-closure.md), with its recorded
 qualification gaps retained. P9-01 → P9-02 → P9-03, P4-01 and P4-02 are complete.
 [Editor connection acceptance](../development/editor-connection.md#p4-01-acceptance)
@@ -9,7 +9,7 @@ qualifies trust, moved roots and observer reload;
 presentation, guarded actions and recovery. P4-03 versioned edits are accepted
 with [native qualification](../development/editor-edits.md#qualification).
 P4-04 inspectors are accepted with [native renderer evidence](../development/editor-inspectors.md#p4-04-acceptance).
-P4-05 packaging and compatibility is next.
+P4-05 packaging and compatibility is [accepted with native package evidence](../development/editor-packaging.md).
 
 Plan revision 14 — September 21, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded

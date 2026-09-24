@@ -30,10 +30,17 @@ provider.
 
 The supported profile is protocol/event/schema 1.0 and native bootstrap/ready/attach
 version 1 on Windows. Each client negotiates methods and their required profiles.
-The SDK exposes all generated method parameter types; unimplemented editor methods
-have no SDK success type and are not advertised by the local host. P4 owns their
-eventual implementation. Node 24.21.0 is the native local qualification version;
+The SDK exposes generated method parameter types and validated result envelopes;
+editor and inspector features require their negotiated methods and profiles.
+Unavailable capabilities are not inferred from an engine version label.
+Node 24.21.0 is the native local qualification version;
 required CI also builds and tests the package on Node 24.10.0.
+
+P4-05 permits 65 seconds for a new local launch's readiness, covering the native
+60-second aggregate startup bound and outer transport overhead. Attach/reconnect
+readiness and initialization retain 10-second bounds. This accommodates canonical
+replay without increasing ordinary RPC deadlines; see the
+[packaged startup evidence](editor-packaging.md#qualification-record).
 
 `RpcFailure.classification` exposes known application categories, retry guidance
 and original operation identity while `.error` retains the bounded structured RPC

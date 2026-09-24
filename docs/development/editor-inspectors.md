@@ -2,7 +2,8 @@
 
 Work item: [P4-04](../plan/18-deferred-vscode.md#p4-04--inspectors).
 Status: P4-04 accepted on Windows with VS Code 1.138.0 and both Files and SQLite.
-Packaging and large-history startup qualification remain P4-05 work.
+Packaging and large-history startup qualification are recorded in the accepted
+[P4-05 increment](editor-packaging.md).
 [ADR-060](../adr/060-governed-inspector-queries.md) records the query boundary.
 
 ## History and memory query increment
@@ -56,9 +57,11 @@ The fixture is `vcp-cli/tests/local_inspector_queries.rs`; its driver is
 The initial debug-host fixture with 130 correction versions exceeded the SDK's
 10-second bootstrap deadline before its first request. The same transport test
 passes with 33 versions; the 130-version paging and retention cases remain
-qualified at the lifecycle boundary. The production deadline is unchanged.
-Large-history startup through the packaged engine remains a P4-05 qualification
-requirement; these query checks do not establish that startup performance.
+qualified at the lifecycle boundary. That API increment left the production
+deadline unchanged. P4-05 subsequently reproduced the replay cost on both stores,
+separated bounded launch readiness from authentication, and passed the 130-version
+native startup gate. See [the packaging evidence and exact test limits](editor-packaging.md#qualification-record);
+the original 33-version query check alone did not establish startup performance.
 
 History pages are at most 64 KiB, with at most 128 artifact links per event and
 bounded metadata. A multirow request exceeding the byte cap returns an explicit

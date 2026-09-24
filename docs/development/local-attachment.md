@@ -521,6 +521,15 @@ capabilities advertised by the current adapter; bounded event recovery retains
 the acceptance requirements above. The optional pipe transport retains the server
 independently after an authenticated bootstrap handoff.
 
+P4-05 separates canonical startup from short authentication deadlines. A newly
+spawned server has a 60-second aggregate readiness/authentication/handoff bound,
+including store replay. Untrusted bootstrap input and individual subsequent
+handshakes retain their 10-second bounds. EOF or an unexpected client frame before
+readiness cancels only the newly created child using its owned process handle.
+An attached or reconnected server is not subject to that launch cleanup. The SDK
+allows 65 seconds for launch readiness, including outer process/transport overhead;
+attachment, reconnect and initialization retain their separate shorter deadlines.
+
 ## Named-pipe attachment and reconnect
 
 ### Local session export

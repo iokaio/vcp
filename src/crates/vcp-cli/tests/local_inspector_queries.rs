@@ -27,8 +27,12 @@ use vcp_store::{
     BackendKind,
 };
 async fn driver(input: Value) {
-    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../packages/sdk-ts/tests/native-inspector-queries.mjs");
+    let script =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(if input["startup_probe"] == true {
+            "../../packages/sdk-ts/tests/native-startup.mjs"
+        } else {
+            "../../packages/sdk-ts/tests/native-inspector-queries.mjs"
+        });
     let bytes = serde_json::to_vec(&input).unwrap();
     assert!(bytes.len() < 256 * 1024);
     let output = tokio::task::spawn_blocking(move || {
@@ -71,7 +75,7 @@ async fn driver(input: Value) {
         true
     );
 }
-async fn seed(fixture: &Fixture) -> serde_json::Value {
+async fn seed(fixture: &Fixture, version_count: usize) -> serde_json::Value {
     let mut store = fixture.reopen().await;
     let task: Task = store
         .state()
@@ -210,10 +214,9 @@ async fn seed(fixture: &Fixture) -> serde_json::Value {
         retention: "workspace".into(),
     };
     let mut previous = None;
-    // Keep native debug startup within the unchanged SDK bootstrap deadline.
-    // The lifecycle fixture independently qualifies the >128-version boundary;
-    // this actual SDK fixture exercises five pages of seven versions per store.
-    for index in 0..33 {
+    // The ordinary inspector gate keeps five pages of seven versions. The
+    // startup gate uses the same governed chain beyond the 128-version boundary.
+    for index in 0..version_count {
         let mut next = proposal.clone();
         next.id = ProposalId::new();
         next.command = CommandId::new();
@@ -227,11 +230,16 @@ async fn seed(fixture: &Fixture) -> serde_json::Value {
         if let ClaimValue::Architecture { decision, .. } = &mut next.value {
             *decision = next.statement.clone();
         }
-        previous = propose(&mut store, &access, next, Timestamp::new(200 + index))
-            .await
-            .unwrap()
-            .result
-            .version;
+        previous = propose(
+            &mut store,
+            &access,
+            next,
+            Timestamp::new(200 + index as u64),
+        )
+        .await
+        .unwrap()
+        .result
+        .version;
         assert!(previous.is_some());
     }
     let mut versions = Vec::new();
@@ -249,7 +257,7 @@ async fn seed(fixture: &Fixture) -> serde_json::Value {
             break;
         }
     }
-    assert_eq!(versions.len(), 33);
+    assert_eq!(versions.len(), version_count);
     let (next, inspection) = seed_inspection(fixture, store, &mut access, &task).await;
     store = next;
     let history_access = vcp_audit::history::Access {
@@ -544,7 +552,7 @@ async fn seed_inspection(
 async fn compiled_sdk_inspector_queries_match_governed_cli_queries_without_mutation() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let fixture = Fixture::new(backend).await;
-        let input = seed(&fixture).await;
+        let input = seed(&fixture, 33).await;
         let before = fixture.reopen().await;
         let state = serde_json::to_value(before.state()).unwrap();
         before.close().await.unwrap();
@@ -556,6 +564,35 @@ async fn compiled_sdk_inspector_queries_match_governed_cli_queries_without_mutat
             "observer queries cannot mutate canonical state"
         );
         assert_offline_paused(&after, &fixture.config);
+        after.close().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "bounded native cold-open startup qualification"]
+async fn local_startup_large_history_and_early_cancellation() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let fixture = Fixture::new(backend).await;
+        let began = Instant::now();
+        let mut input = seed(&fixture, 130).await;
+        println!(
+            "startup seed backend={backend:?} ms={}",
+            began.elapsed().as_millis()
+        );
+        let began = Instant::now();
+        let store = fixture.reopen().await;
+        println!(
+            "startup store_open backend={backend:?} ms={}",
+            began.elapsed().as_millis()
+        );
+        let state = serde_json::to_value(store.state()).unwrap();
+        store.close().await.unwrap();
+        input["startup_probe"] = json!(true);
+        input["backend"] = json!(format!("{backend:?}"));
+        input["canonical_root"] = json!(fixture.config.canonical_root);
+        driver(input).await;
+        let after = fixture.reopen_within(Duration::from_secs(45)).await;
+        assert_eq!(serde_json::to_value(after.state()).unwrap(), state);
         after.close().await.unwrap();
     }
 }

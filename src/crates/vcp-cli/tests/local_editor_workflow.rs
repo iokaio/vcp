@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(all(windows, feature = "qualification"))]
 //! Actual P4-03 workflow over both canonical backends and a loopback provider.
+#[path = "support/editor_package.rs"]
+mod editor_package;
 #[path = "support/sdk_execution_fixture.rs"]
 mod execution_fixture;
 use serde_json::json;
@@ -49,6 +51,8 @@ async fn editor_workflow_records_partial_and_interrupted_buffer_edits_both_store
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
     };
+    let pinned = tempfile::tempdir().unwrap();
+    editor_package::pin_inputs(pinned.path());
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
         .canonicalize()
@@ -84,7 +88,14 @@ async fn editor_workflow_records_partial_and_interrupted_buffer_edits_both_store
         };
         let output = repo.join(format!("artifacts/p4-editor-workflow-{name}"));
         fs::create_dir_all(&output).unwrap();
-        let profile = tempfile::tempdir_in(&output).unwrap();
+        let packaged = std::env::var_os("VCP_TEST_VSIX").is_some();
+        let profile = if packaged {
+            tempfile::tempdir().unwrap()
+        } else {
+            tempfile::tempdir_in(&output).unwrap()
+        };
+        let package = packaged
+            .then(|| editor_package::Package::prepare(&profile.path().join("distribution")));
         let user = profile.path().join("user-data");
         fs::create_dir_all(user.join("User")).unwrap();
         fs::create_dir_all(user.join("shared-data/sharedStorage")).unwrap();
@@ -98,21 +109,46 @@ async fn editor_workflow_records_partial_and_interrupted_buffer_edits_both_store
         assert!(seeded.success());
         let extensions = profile.path().join("extensions");
         fs::create_dir(&extensions).unwrap();
-        let installed_extension = extensions.join("vcp.vcp-local-0.1.0");
-        copy_extension(
-            &repo.join("artifacts/p4-vscode-extension"),
-            &installed_extension,
+        let installed_extension = if let Some(package) = &package {
+            package.install(&code, &user, &extensions)
+        } else {
+            let target = extensions.join("vcp.vcp-local-0.1.0");
+            copy_extension(&repo.join("artifacts/p4-vscode-extension"), &target);
+            target
+        };
+        let runner = package.as_ref().map_or_else(
+            || repo.join("src/packages/vscode/tests/editor-workflow-host.cjs"),
+            |package| package.copy_driver(&repo, "editor-workflow-host.cjs"),
         );
-        let driver = extensions.join("vcp-test.editor-workflow-driver-0.0.1");
+        let engine = package.as_ref().map_or_else(
+            || PathBuf::from(env!("CARGO_BIN_EXE_vcp")),
+            |package| package.engine.clone(),
+        );
+        let driver = package.as_ref().map_or_else(
+            || extensions.join("vcp-test.editor-workflow-driver-0.0.1"),
+            |package| package.root.join("workflow-driver-source"),
+        );
         fs::create_dir(&driver).unwrap();
         fs::write(driver.join("package.json"),r#"{"name":"editor-workflow-driver","publisher":"vcp-test","version":"0.0.1","engines":{"vscode":"1.138.0"},"activationEvents":["*"],"main":"./driver.cjs","extensionKind":["workspace"],"capabilities":{"untrustedWorkspaces":{"supported":true}}}"#).unwrap();
         fs::write(driver.join("driver.cjs"),r#"const vscode=require('vscode'),fs=require('node:fs');exports.activate=()=>setImmediate(async()=>{try{const input=JSON.parse(fs.readFileSync(process.env.VCP_EXTENSION_TEST_INPUT,'utf8'));await require(input.runner).run();}catch{}finally{void vscode.commands.executeCommand('workbench.action.quit');}});"#).unwrap();
+        if let Some(package) = &package {
+            package.install_driver(&repo, &code, &user, &extensions, &driver);
+        }
         let result = profile.path().join("result.json");
         let input = profile.path().join("input.json");
-        fs::write(&input,serde_json::to_vec(&json!({"code":native(&code),"installed":true,"extension":native(&installed_extension),"driver":native(&driver),"runner":native(&repo.join("src/packages/vscode/tests/editor-workflow-host.cjs")),"workspaceFile":native(&workspace),"userData":native(&user),"extensions":native(&extensions),"result":native(&result),"stdout":native(&output.join("stdout.log")),"stderr":native(&output.join("stderr.log")),"diagnostics":native(&output.join("editor-logs")),"runtimeEvidence":native(&output.join("runtime.json")),"workspace":native(&fixture.workspace),"data":native(&fixture.data),"profile":native(&fixture.profile),"executable":env!("CARGO_BIN_EXE_vcp"),"outside":native(&outside.join("value.txt")),"marker":native(&profile.path().join("reload.json"))})).unwrap()).unwrap();
-        let script = repo.join("src/packages/vscode/scripts/run-extension-host.ps1");
+        fs::write(&input,serde_json::to_vec(&json!({"restrictedPath":packaged,"code":native(&code),"installed":true,"extension":native(&installed_extension),"driver":native(&driver),"runner":native(&runner),"workspaceFile":native(&workspace),"userData":native(&user),"extensions":native(&extensions),"result":native(&result),"stdout":native(&output.join("stdout.log")),"stderr":native(&output.join("stderr.log")),"diagnostics":native(&output.join("editor-logs")),"runtimeEvidence":native(&output.join("runtime.json")),"workspace":native(&fixture.workspace),"data":native(&fixture.data),"profile":native(&fixture.profile),"executable":native(&engine),"outside":native(&outside.join("value.txt")),"marker":native(&profile.path().join("reload.json"))})).unwrap()).unwrap();
+        let script = package.as_ref().map_or_else(
+            || repo.join("src/packages/vscode/scripts/run-extension-host.ps1"),
+            |package| package.launcher(&repo),
+        );
         let started = std::time::Instant::now();
+        let command = package
+            .as_ref()
+            .map(|package| package.launch(&script, &input));
         let status = tokio::task::spawn_blocking(move || {
+            if let Some(mut command) = command {
+                return command.status().unwrap();
+            }
             Command::new("pwsh")
                 .args(["-NoProfile", "-File"])
                 .arg(native(&script))

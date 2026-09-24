@@ -16,6 +16,20 @@ const BOOTSTRAP: &str = "vcp-local-bootstrap/1";
 const READY: &str = "vcp-local-ready/1";
 const BOOTSTRAP_LIMIT: usize = 16 * 1024;
 const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(10);
+// An authenticated new child must replay the canonical store before it is ready.
+// Also bound the aggregate readiness/authentication/handoff startup to this time.
+// Keep receipt of untrusted input and individual handshakes on the shorter bound.
+const SERVER_READY_DEADLINE: Duration = Duration::from_secs(60);
+
+fn reject_startup<T>(
+    guard: &windows_launch::ChildGuard,
+    error: impl Into<String>,
+) -> Result<T, String> {
+    guard
+        .terminate()
+        .map_err(|_| "local startup cleanup incomplete")?;
+    Err(error.into())
+}
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -212,7 +226,14 @@ pub async fn run() -> Result<u8, String> {
 }
 
 async fn bootstrap<T: serde::de::DeserializeOwned>(io: &mut Framed) -> Result<T, String> {
-    let bytes = tokio::time::timeout(BOOTSTRAP_DEADLINE, io.receive())
+    bootstrap_with_deadline(io, BOOTSTRAP_DEADLINE).await
+}
+
+async fn bootstrap_with_deadline<T: serde::de::DeserializeOwned>(
+    io: &mut Framed,
+    deadline: Duration,
+) -> Result<T, String> {
+    let bytes = tokio::time::timeout(deadline, io.receive())
         .await
         .map_err(|_| "local bootstrap timed out")??;
     if bytes.len() > BOOTSTRAP_LIMIT {
@@ -364,7 +385,8 @@ async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result
                 request,
             })
             .await?;
-        let mut reply: BootstrapReply = bootstrap(&mut child).await?;
+        let mut reply: BootstrapReply =
+            bootstrap_with_deadline(&mut child, SERVER_READY_DEADLINE).await?;
         launched
             .process
             .validate(&expected)
@@ -416,8 +438,22 @@ async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result
             return Err("unexpected pipe bootstrap".into());
         }
         Ok::<_, String>((reply.ready, None))
-    }
-    .await;
+    };
+    let startup = tokio::select! {
+        result = tokio::time::timeout(SERVER_READY_DEADLINE, startup) => {
+            match result {
+                Ok(result) => result,
+                Err(_) => {
+                    return reject_startup(&launched.guard, "local startup deadline exceeded");
+                }
+            }
+        },
+        // No client frames are legal before authenticated readiness. EOF or an
+        // early frame cancels this owned launch, never an attached server.
+        _ = client.receive() => {
+            return reject_startup(&launched.guard, "local startup cancelled before readiness");
+        }
+    };
     let result = match startup {
         Ok((ready, Some(mut pipe))) => {
             launched.guard.handoff();
@@ -429,7 +465,11 @@ async fn launch_bridge(mut client: Framed, mut request: LaunchRequest) -> Result
             Ok(()) => forward(&mut client, &mut child).await,
             Err(error) => Err(error),
         },
-        Err(error) => Err(error),
+        Err(error) => {
+            // Before readiness this process owns only bootstrap/recovery. Do
+            // not add the post-connection graceful drain to the startup bound.
+            return reject_startup(&launched.guard, error);
+        }
     };
     drop(child); // Close stdin: server owns pause/drain before releasing its writer.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);

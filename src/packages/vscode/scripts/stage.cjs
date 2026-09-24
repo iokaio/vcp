@@ -6,43 +6,24 @@ const path = require('node:path');
 const packageRoot = path.resolve(__dirname, '..');
 const repository = path.resolve(packageRoot, '../../..');
 const artifacts = path.join(repository, 'artifacts');
-const output = path.resolve(process.argv[2] || path.join(artifacts, 'p4-vscode-extension'));
-const relative = path.relative(artifacts, output);
-if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Stage output must be a named directory within repository artifacts');
-const comparable = value => process.platform === 'win32' ? path.normalize(value).toLowerCase() : path.normalize(value);
-if (comparable(fs.realpathSync(repository)) !== comparable(repository)) throw new Error('Repository directory is redirected');
-if (!fs.existsSync(artifacts)) {
-  try { fs.lstatSync(artifacts); throw new Error('Artifacts directory is redirected'); }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
-  // Create one child of the verified repository, never recursive parents.
-  fs.mkdirSync(artifacts);
-}
-if (comparable(fs.realpathSync(artifacts)) !== comparable(artifacts)) throw new Error('Artifacts directory is redirected');
-const canonicalArtifacts = fs.realpathSync(artifacts);
-// Verify every existing ancestor, including the destination itself, before any
-// replacement. A marker reached through a junction must never authorize deletion.
-let checked = artifacts;
-for (const component of relative.split(path.sep)) {
-  checked = path.join(checked, component);
-  if (!fs.existsSync(checked)) {
-    try { fs.lstatSync(checked); throw new Error('Stage destination is redirected'); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
-    continue;
+const output = require('./output.cjs').prepareOutput(process.argv[2] || path.join(artifacts, 'p4-vscode-extension'));
+const copy = (source, destination) => {
+  if (!fs.lstatSync(source).isFile() || fs.realpathSync(source) !== path.resolve(source)) throw new Error('Stage input must be an ordinary unredirected file');
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.copyFileSync(source, destination);
+};
+// Derive compiled runtime files from the source module inventory, never copy an
+// arbitrary build directory (which may contain stale code, maps or fixtures).
+const runtime = (source, destination) => {
+  for (const entry of fs.readdirSync(path.join(source, 'src'), { withFileTypes: true })) {
+    if (!entry.isFile() || !/^[a-z][a-z0-9_-]*\.ts$/.test(entry.name)) throw new Error('Unexpected runtime source inventory');
+    const name = entry.name.replace(/\.ts$/, '.js');
+    copy(path.join(source, 'dist', name), path.join(destination, 'dist', name));
   }
-  if (fs.lstatSync(checked).isSymbolicLink()) throw new Error('Stage destination is redirected');
-  const actual = fs.realpathSync(checked);
-  const contained = path.relative(canonicalArtifacts, actual);
-  if (!contained || contained.startsWith('..') || path.isAbsolute(contained) || comparable(actual) !== comparable(checked)) throw new Error('Stage destination escapes canonical artifacts');
-}
-const marker = path.join(output, '.vcp-stage.json');
-if (fs.existsSync(output)) {
-  if (!fs.existsSync(marker) || JSON.parse(fs.readFileSync(marker, 'utf8')).format !== 'vcp-extension-stage/1') throw new Error('Refusing to replace an unrecognized directory');
-  fs.rmSync(output, { recursive: true });
-}
-fs.mkdirSync(output, { recursive: true });
-fs.writeFileSync(marker, JSON.stringify({ format: 'vcp-extension-stage/1' }) + '\n');
-const copy = (source, destination) => fs.cpSync(source, destination, { recursive: true, dereference: true });
-for (const name of ['dist', 'media', 'README.md']) copy(path.join(packageRoot, name), path.join(output, name));
+};
+runtime(packageRoot, output);
+for (const name of ['connection.css', 'connection.js', 'inspectors.js', 'tasks.js', 'vcp.svg']) copy(path.join(packageRoot, 'media', name), path.join(output, 'media', name));
+for (const name of ['README.md', 'COMPATIBILITY.md']) copy(path.join(packageRoot, name), path.join(output, name));
 const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
 delete manifest.scripts; delete manifest.devDependencies;
 manifest.dependencies = { '@vcp/sdk': '0.1.0', '@vcp/protocol': '0.1.0' };
@@ -52,12 +33,13 @@ for (const [name, files] of [['sdk-ts', ['dist', 'README.md']], ['protocol-ts', 
   const dependency = name === 'sdk-ts' ? 'sdk' : 'protocol';
   const destination = path.join(output, 'node_modules', '@vcp', dependency);
   fs.mkdirSync(destination, { recursive: true });
-  for (const file of files) if (fs.existsSync(path.join(source, file))) copy(path.join(source, file), path.join(destination, file));
+  if (name === 'sdk-ts') runtime(source, destination);
+  for (const file of files.filter(file => file !== 'dist')) if (fs.existsSync(path.join(source, file))) copy(path.join(source, file), path.join(destination, file));
   const meta = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
   delete meta.devDependencies; delete meta.scripts;
   if (name === 'sdk-ts') meta.dependencies = { '@vcp/protocol': '0.1.0' };
   fs.writeFileSync(path.join(destination, 'package.json'), JSON.stringify(meta, null, 2) + '\n');
-  for (const notice of ['LICENSE', 'NOTICE']) copy(path.join(repository, notice), path.join(destination, notice));
+  for (const notice of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) copy(path.join(repository, notice), path.join(destination, notice));
 }
-for (const notice of ['LICENSE', 'NOTICE']) copy(path.join(repository, notice), path.join(output, notice));
+for (const notice of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) copy(path.join(repository, notice), path.join(output, notice));
 console.log(output);
