@@ -1,0 +1,24 @@
+flowchart TB
+  CTL["Private control commands (/pause, /resume, /status, child scope)"]
+  OWN["Lifecycle owner (vcp-lifecycle)"]
+  J["Checkpoint journal (exclusive lock, SHA-256 chained frames, sync_all)"]
+  SG["One-use startup grant (workspace + thread id)"]
+  WG["Work gate (extension registry)"]
+  RC["Retained Codex controllers (root / child)"]
+  MC["Responses client: intent -> completion receipt"]
+  TL["Tool registry: intent -> accepted result receipt"]
+  JO["Windows Job Objects (process ownership)"]
+  REC["Reconciliation (while paused, no dispatch)"]
+  CTL -->|"idempotent by command id"| OWN
+  OWN <--> J
+  OWN --> SG --> RC
+  OWN --> WG
+  RC --> MC
+  RC --> TL
+  WG -->|"deny paused/unowned"| MC
+  WG -->|"deny paused/unowned"| TL
+  MC --> J
+  TL --> J
+  OWN --> JO
+  J -->|"reopen after crash: root paused, unresolved intents"| REC
+  REC --> J

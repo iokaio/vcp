@@ -1,0 +1,9 @@
+flowchart LR
+  user["User / script"] --> vcp["vcp executable (vcp-cli)"]
+  vcp --> settings["Startup validation: profiles, provider metadata, workspace binding, process/check profiles, budget cap"]
+  settings --> owner["Canonical owner (vcp-lifecycle) + retained Codex controller"]
+  owner --> store[("Canonical store")]
+  ctl["Second vcp process: pause / cancel"] -- "current-user-only named pipe, authenticated" --> owner
+  stdin["Bounded structured stdin"] --> owner
+  owner --> jsonl["Bounded JSONL output; consumer loss closes owner"]
+  owner --> fork["Resume / fork at completed-turn boundary (quoted history, no effect replay)"]

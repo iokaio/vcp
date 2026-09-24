@@ -1,0 +1,15 @@
+flowchart LR
+    Client["TypeScript / local client"] -->|"bounded stdin bootstrap frame"| Bridge["vcp local-bridge (native)"]
+    Bridge -->|"CreateProcessW: pinned exe, handle allowlist"| Server["vcp local-server"]
+    Bridge <-->|"controlled stdio: challenge + framed JSON-RPC"| Server
+    Bridge -->|"authenticated handoff ack, detach child guard"| Pipe["Named pipe (current-user ACL, no remote)"]
+    Client -.->|"reconnect: process pin + in-memory ticket"| Bridge
+    Pipe --> Auth["Kernel peer auth + ticket role ceiling"]
+    Auth --> Ctl["Controller connection"]
+    Auth --> Obs["Observer connections"]
+    Server --> Host["Lifecycle host"]
+    Ctl --> Host
+    Obs --> Host
+    Host --> Writer["Single canonical writer (workspace lock)"]
+    Writer --> Store["Files / SQLite store"]
+    Host -.->|"last connection gone"| Idle["Idle writer retained 30s then exit"]

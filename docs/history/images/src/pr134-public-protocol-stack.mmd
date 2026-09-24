@@ -1,0 +1,22 @@
+flowchart TD
+  subgraph Contract["vcp-protocol (canonical v1.0 DTOs)"]
+    A["jsonrpc.rs bounded JSON-RPC 2.0 line framing"]
+    B["handshake.rs version and capability negotiation"]
+    C["methods.rs / errors.rs public DTOs"]
+  end
+  C --> D["vcp-protocol-schema bin: JSON Schema draft-07"]
+  D --> E["scripts/protocol/generate-types.cjs"]
+  E --> F["src/packages/protocol-ts generated types"]
+  subgraph Engine["vcp-engine adapters"]
+    G["rpc.rs dispatcher: six advertised methods"]
+    H["public.rs public command digest and durable command identity"]
+    I["query.rs bounded authenticated scoped queries"]
+  end
+  A --> G
+  B --> G
+  C --> G
+  G --> H
+  G --> I
+  H --> J["Existing command handler"]
+  J --> K["Canonical store: receipts survive restart"]
+  I --> K

@@ -1,0 +1,16 @@
+sequenceDiagram
+  participant A as Machine A canonical root
+  participant K as Recovery key export (out of band)
+  participant V as OneDrive vault (encrypted snapshots only)
+  participant B as Machine B
+  A->>A: Enroll recovery key and writer
+  A->>K: Export independent recovery key
+  A->>V: Publish encrypted snapshot (sequence N)
+  K->>B: Deliver recovery key outside OneDrive
+  B->>V: Fetch snapshot
+  B->>B: Authenticate and stage restore
+  B->>B: Activate separate canonical root and workspace via descriptor (ADR-023)
+  Note over B: History, accounting, unfinished children preserved<br/>· machine authority revoked · paused and untrusted
+  B->>V: Publish encrypted snapshot (sequence N+1)
+  A->>V: Fetch return snapshot
+  A->>A: Authenticate against retained checkpoint, restore beside unchanged original root

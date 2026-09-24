@@ -1,0 +1,12 @@
+flowchart TD
+  client["Trusted caller (authenticated command)"] --> engine["vcp-engine: command_handler, capture, subscription"]
+  engine --> protocol["vcp-protocol: command / event / subscription codec, version"]
+  engine --> domain["vcp-domain: task, artifact, effect, verification, workspace, revision"]
+  engine --> store["vcp-store: transaction contract, artifacts, migration"]
+  store --> domain
+  store --> protocol
+  store --> sqlite[("SQLite backend")]
+  store --> files[("Framed files / journal backend")]
+  store --> conv["Backend conversion: validate new root, then controlled activation"]
+  engine --> subs["Bounded private event subscriptions"]
+  engine --> cap["Full binary capture -> artifact spool"]

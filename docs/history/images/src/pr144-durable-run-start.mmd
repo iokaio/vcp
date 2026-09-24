@@ -1,0 +1,10 @@
+flowchart TD
+    Req["turn/start (caller command ID)"] --> Seen{"Command ID already committed?"}
+    Seen -->|"yes (retry / restart)"| Replay["Return original receipt; no constructor, no effect"]
+    Seen -->|no| Check["Validate controller, pinned profile, effective budget"]
+    Check --> Atomic["Atomic commit: task + turn + input capture + empty ledger + receipt"]
+    Atomic --> Ticket["Mint controller-bound startup ticket (fresh acceptance only)"]
+    Ticket --> Construct["Construct retained session (root_task launch selection)"]
+    Construct --> Activate["Activate root"]
+    Activate --> Submit["Submit accepted turn"]
+    Submit --> Admission["Shared admission: original ceilings + absolute deadlines persist across reconnect / CLI resume"]

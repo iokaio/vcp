@@ -1,0 +1,12 @@
+stateDiagram-v2
+  [*] --> Free: no holder
+  Free --> Held: acquire (generation + 1, holder = actor, connection, engine owner, epoch)
+  Held --> Held: acquire conflict or replayed acquire returns original receipt
+  Held --> Free: explicit release (generation kept)
+  Held --> Stale: engine restart or holder process lost (old tokens invalid)
+  Stale --> Free: explicit recovery (tasks not resumed)
+  note right of Held
+    Opaque host-local token checked against
+    holder, generation, connection, actor,
+    scope and engine owner
+  end note

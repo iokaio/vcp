@@ -1,0 +1,18 @@
+stateDiagram-v2
+  direction LR
+  [*] --> pending: schedule
+  pending --> claimed: claim once
+  pending --> cancelled: pause, stale input or deadline
+  claimed --> completed: matching accepted_current result
+  claimed --> cancelled: revalidation fails, or claimant cancels
+  claimed --> claimed: reopen returns Existing
+  cancelled --> [*]
+  completed --> [*]
+  note right of pending
+    Schedule requires the exact current binding,
+    a running task and an unexpired deadline.
+  end note
+  note left of claimed
+    Revalidation fails on pause, non-running task,
+    changed input or deadline. Reopen never sends twice.
+  end note

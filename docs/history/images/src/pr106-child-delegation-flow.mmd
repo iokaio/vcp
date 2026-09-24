@@ -1,0 +1,15 @@
+flowchart TD
+  O["Owner command (terminal / JSONL)"] --> CC["Engine CreateChild"]
+  CC --> TX["One transaction: pending child task + graph assignment + root-ledger allocation"]
+  SNAP["vcp-repository dirty snapshot (Git / non-Git)"] --> REG["Host-only registration: child ID, root, disposable path, fingerprint"]
+  TX --> REG
+  REG --> MAT["Materialize worktree + readiness receipt"]
+  MAT --> ADM["Admission recheck (snapshot, pause, steering, authority, allocation)"]
+  ADM --> RUN["Child worker in isolated root"]
+  RUN -->|"paths checked against assignment"| BRK["File broker (projected grants)"]
+  RUN --> RES["Child result / review packet"]
+  RES --> PREP["Integration prep: three-way compare vs base and current parent (merge.rs)"]
+  PREP --> APPLY["Version-bound edits via parent file broker + integration receipt"]
+  APPLY --> VER["Parent verification required"]
+  RUN -.->|"pause / cancel / recover"| O
+  TX -.->|"shared root budget"| LEDGER["Root ledger"]

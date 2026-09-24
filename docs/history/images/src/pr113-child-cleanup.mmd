@@ -1,0 +1,10 @@
+flowchart TD
+  A["Child finished, cancelled or rejected"] --> B["Revision-bound review findings and integration evidence retained in graph"]
+  B --> C["Owner requests deliberate cleanup"]
+  C --> D{"Workspace has transitive dependents?"}
+  D -- yes --> E["Cleanup refused; workspace retained"]
+  D -- no --> F{"Registered workspace identity verified?"}
+  F -- no --> G["Explicit failure; path left for reconciliation"]
+  F -- yes --> H["vcp-repository cleanup.rs removes disposable workspace"]
+  H --> I["Durable cleanup receipt"]
+  I --> J["Terminal keeps child status, history and uncertain costs"]

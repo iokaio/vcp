@@ -1,0 +1,17 @@
+flowchart LR
+  U["Pinned upstream Git objects (Codex 3d3ae49)"]
+  S["codex-selection.json (selected paths, licenses, closure inputs)"]
+  P["Ordered patches (src/third_party/patches/codex)"]
+  R["scripts/upstream/reconstruct.cjs (explicit maintenance)"]
+  F["codex-files.json (per-file original/result digests, modes)"]
+  C["Committed source src/third_party/codex/"]
+  B["scripts/build.ps1 (normal native build)"]
+  T["Fast suite: upstream-selection checks"]
+  U --> R
+  S --> R
+  P --> R
+  R --> F
+  R -->|"must equal byte-for-byte"| C
+  C --> B
+  F --> T
+  C --> T

@@ -1,0 +1,12 @@
+flowchart LR
+    subgraph VSCode["VS Code extension host (Restricted Mode ok)"]
+        View["Workspace view (webview)"] --> Cmds["Connect / Refresh / Disconnect commands"]
+        Cmds --> Conn["engine_connection.ts"]
+        Settings["User settings only: executable + data paths"] --> Conn
+    end
+    Conn --> SDK["@vcp/sdk (typed envelopes, receipts, pull events)"]
+    SDK --> Proto["@vcp/protocol generated types + schema"]
+    SDK -->|"stdio / named pipe"| Bridge["vcp local-bridge"]
+    Bridge --> Server["vcp local-server"]
+    Server --> Host["Lifecycle host + canonical store"]
+    Conn -.->|"observer only: no lease, no resume"| Server

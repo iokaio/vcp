@@ -1,0 +1,21 @@
+flowchart LR
+  FX["Fixture corpus (24 docs, 2 workspaces)"]
+  EM["vcp-embedding (MiniLM, CPU, 384-d)"]
+  TV["Tantivy lexical index"]
+  DA["DiskANN vector index"]
+  PR["Proposals + predecessor links"]
+  GT["Munarium gates"]
+  BK["Scoped in-memory backend (volatile)"]
+  CL["Resolved current/historical claims"]
+  Q["Query (fresh process reopen)"]
+  FL["Scope + governance filter"]
+  RS["Results"]
+  OR["Independent oracle: exhaustive cosine + current flags"]
+  FX --> EM
+  EM --> DA
+  FX --> TV
+  FX --> PR --> GT --> BK --> CL
+  Q --> TV --> FL
+  Q --> DA --> FL
+  CL --> FL --> RS
+  RS -->|"recall, scope leakage checks"| OR

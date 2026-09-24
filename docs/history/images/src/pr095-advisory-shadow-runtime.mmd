@@ -1,0 +1,17 @@
+sequenceDiagram
+  participant W as Canonical worker (decision.rs)
+  participant EI as escalation_input.rs
+  participant AR as routing_state::advisory
+  participant B as Budget ledger (Helper attempt)
+  participant T as Async driver / transport
+  participant P as Remote evaluator
+  W->>EI: admitted failure evidence
+  EI-->>W: bounded advisory request or abstain
+  W->>AR: record_request + schedule + claim
+  W->>B: bind finite-qualified helper reservation
+  W->>T: submit once (source, qualification, credential, pause, deadline checks)
+  T->>P: request
+  P-->>T: response
+  T->>B: independent usage settlement
+  T->>AR: record_result (accepted_current or historical_stale)
+  AR-->>W: shadow comparison only · admitted escalation unchanged

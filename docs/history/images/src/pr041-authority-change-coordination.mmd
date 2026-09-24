@@ -1,0 +1,12 @@
+stateDiagram-v2
+  [*] --> Requested: policy / trust / grant / binding / steering change
+  Requested --> IdleCommit: owner idle (quiescence checked)
+  IdleCommit --> Committed
+  Requested --> Fenced: active work - fence admission
+  Fenced --> IntentCaptured: capture unapplied intent
+  IntentCaptured --> Paused: pause canonical tasks
+  Paused --> Drained: drain native + retained work (Job Object members = 0)
+  Drained --> Committed: revision-checked command commit
+  Drained --> PausedUnapplied: invalid domain command
+  Committed --> [*]
+  PausedUnapplied --> [*]

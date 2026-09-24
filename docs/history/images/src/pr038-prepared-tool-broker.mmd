@@ -1,0 +1,12 @@
+flowchart LR
+  model["Model tool call"] --> prep["vcp-tools: prepare immutable operation (read/list/search/patch or process profile)"]
+  prep --> bind["Bind exact source versions + executable identity"]
+  bind --> policy{"vcp-policy decision vs current policy/trust/grants"}
+  policy -- deny --> denied["Denied result"]
+  policy -- ask --> q["Durable question; answer creates one exact grant (does not resume)"]
+  policy -- allow --> intent["Record intent artifact"]
+  intent --> dispatch{"Dispatch via canonical owner"}
+  dispatch --> file["Native file mutation (version-checked handle)"]
+  dispatch --> proc["Job Object launcher: direct / cmd / PowerShell; filtered env; time/output limits"]
+  file --> outcome["Outcome artifact"]
+  proc --> outcome

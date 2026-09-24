@@ -1,0 +1,11 @@
+flowchart LR
+  A["Canonical activity (events, checks, commands)"] --> C["Ingestion cursor"]
+  C -->|"cursor advance + pending jobs commit atomically"| Q["Durable bounded ingestion queue (vcp-store ingestion_contract)"]
+  Q --> R["Runner (vcp-memory runner.rs)"]
+  H["Canonical host maintenance worker"] -->|"yields at task/turn/check boundaries; fenced by pause and ownership"| R
+  R --> D["Deterministic extractors: commands, check outcomes, exact root-user preferences"]
+  R --> M["Optional model extraction: validates captured Memory-role responses"]
+  D --> G["Governed proposal boundary (P5-01 gates)"]
+  M --> G
+  G -->|"canonical receipt; retries return original"| S["Governed memory claims + history"]
+  Q -.-> I["Inspectors: queue progress and findings (read-only)"]

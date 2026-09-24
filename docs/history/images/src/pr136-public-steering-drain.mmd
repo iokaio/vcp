@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant C as Public client (PublicConnection)
+    participant R as public_rpc (vcp-lifecycle)
+    participant H as Retained lifecycle host
+    participant E as vcp-engine public.rs
+    participant S as Canonical store
+    C->>R: steering command (durable command ID)
+    R->>H: seal admission (admission proof)
+    H->>H: pause tasks (pause proof)
+    H->>H: drain owner work (shared concurrent drain)
+    R->>E: revalidate controller lease
+    alt controller lost or worker fenced
+        E-->>S: record interrupted authority intent (no receipt)
+    else controller still valid
+        E->>S: commit original durable command + receipt
+    end
+    Note over C,R: Dropping the request waiter does not abandon completion
+    C--xR: disconnect
+    R->>H: pause, drain, release lease
+    Note over H,S: Observers and canonical writer stay alive
