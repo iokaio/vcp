@@ -15,6 +15,21 @@ export function localDrivePath(value: string): boolean {
   return typeof value === 'string' && !value.includes('\0') && win32.isAbsolute(value)
     && /^(?:\\\\\?\\)?[a-zA-Z]:[\\/]/.test(value);
 }
+/** Early lexical check only; native loading checks canonical roots and file identity. */
+export function publisherProfileRestriction(selection: ConnectionSelection, profile: string, platform: string): string | undefined {
+  const restriction = connectionRestriction(selection, platform);
+  if (restriction) return restriction;
+  if (!selection.workspaceTrusted) return 'A trusted editor workspace is required for publisher control.';
+  if (!localDrivePath(profile)) return 'Choose a local absolute publisher profile file.';
+  const normalized = win32.normalize(profile.replace(/^\\\\\?\\/, '')).toLowerCase();
+  // dataPath is the registry/config root, not the resolved canonical store.
+  // Only the native loader can resolve and exclude that store's actual path.
+  for (const root of [selection.workspacePath]) {
+    const relative = win32.relative(win32.normalize(root.replace(/^\\\\\?\\/, '')).toLowerCase(), normalized);
+    if (relative === '' || (!relative.startsWith(`..${win32.sep}`) && relative !== '..' && !win32.isAbsolute(relative))) return 'Choose a publisher profile outside the workspace; native loading also excludes canonical storage.';
+  }
+  return undefined;
+}
 /** Restricted mode permits this observer-only profile; it never grants execution trust. */
 export function connectionRestriction(selection: ConnectionSelection, platform: string): string | undefined {
   if (platform !== 'win32' || selection.remoteName) return 'Only a local Windows extension host is supported.';

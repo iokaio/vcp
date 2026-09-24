@@ -1,6 +1,6 @@
 # 18 — Deferred VS Code client
 
-Status: P4-01 through P4-03 accepted after owner-directed P8 closure and completed P9; P4-04 inspector query prerequisites are in progress. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
+Status: P4-01 through P4-04 accepted after owner-directed P8 closure and completed P9; P4-05 packaging is next. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
 
 ## Code organization
 
@@ -141,10 +141,10 @@ and [current completion evidence](../architecture/vcp-what.md#44-completion-cont
 
 ## P4-04 — Inspectors
 
-Status: history/memory, policy/routing, optimizer and encrypted publisher API
-prerequisites accepted; inspector UI and native webview qualification remain open.
-See [the current increment](../development/editor-inspectors.md) and
-[ADR-063](../adr/063-editor-encrypted-publisher.md); full acceptance remains open.
+Status: accepted on Windows with VS Code 1.138.0, Files and SQLite, including
+actual installed-editor reads, retention invalidation, observer reload, optimizer
+apply/rollback and encrypted publication. See [the acceptance evidence and limits](../development/editor-inspectors.md#p4-04-acceptance)
+and [ADR-064](../adr/064-editor-inspector-views.md).
 
 Expose full history/memory/evidence, cost/policy/routing, optimization proposals and pruning previews through engine query services. Respect current retention/access for historic content; do not cache purged text indefinitely in webview state. Cloud export still uses the encrypted engine publisher.
 

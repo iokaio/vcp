@@ -1,6 +1,6 @@
 # 20 — Work-item, requirement and test traceability
 
-Status: implementation and qualification in progress. Ownership inventory from architecture draft 0.4 and the task headings in this directory, with developer-workflow evidence aligned on September 22, 2026. All 68 architecture items have exactly one implementation owner: 56 first-release items and 12 deferred items (P4, P9 and P10). The evidence-linked rows below record completed P0–P3, P5, P6 and P7 boundaries. P7-04/05/06 completion includes the passing final source-bound native gate; P8 is now closed by owner direction with qualification gaps retained; P9 and P4-01 are complete. Task dependency IDs remain unchanged.
+Status: implementation and qualification in progress. Ownership inventory from architecture draft 0.4 and the task headings in this directory, with developer-workflow evidence aligned on September 22, 2026. All 68 architecture items have exactly one implementation owner: 56 first-release items and 12 deferred items (P4, P9 and P10). The evidence-linked rows below record completed P0–P3, P5, P6 and P7 boundaries. P7-04/05/06 completion includes the passing final source-bound native gate; P8 is now closed by owner direction with qualification gaps retained; P9 and P4-01 through P4-04 are complete. Task dependency IDs remain unchanged.
 
 Use this ledger with [the segment index](README.md) and [the shared test guide](16-test-fixtures-and-acceptance.md). Dependencies below retain the architecture's exact IDs; slash suffixes share the preceding phase, and an ellipsis denotes an inclusive range. A whole segment is not an additional dependency.
 
@@ -14,7 +14,7 @@ acceptance, preserving the earlier failed runs and separate focused repairs.
 
 P8-01 through P8-05 are complete by [owner-directed closure](../adr/042-owner-directed-p8-closure.md), not by full
 qualification. Their open-evidence descriptions remain factual limitations.
-P9-01, P9-02 and P9-03 are complete. P4-01 through P4-03 are complete; P4-04 query prerequisites are in progress.
+P9-01, P9-02 and P9-03 are complete. P4-01 through P4-04 are complete; P4-05 packaging and compatibility is next.
 
 The [production qualification supplement](../evaluations/p8-production-qualification-2026-09-22.md)
 adds an exact optimized artifact, bounded startup observations, selected package
@@ -57,7 +57,7 @@ Each linked task supplies code organization, implementation increments and testi
 | P4-01 Engine connection | P9-02/03 | [Implementation and tests](18-deferred-vscode.md#p4-01--connection-and-workspace-mapping) | [Connection, trust, moved roots and observer reload acceptance](../development/editor-connection.md#p4-01-acceptance) | Complete |
 | P4-02 Session/child views | P4-01 | [Implementation and tests](18-deferred-vscode.md#p4-02--task-and-child-views) | [Acceptance evidence and limits](../development/editor-tasks.md#qualification): bounded canonical views, access-checked presentation, CLI parity, dropped subscriptions, guarded durable actions and reload | Complete |
 | P4-03 Versioned edits | P4-01, P2-04 | [Implementation and tests](18-deferred-vscode.md#p4-03--versioned-document-edits) | [E05/R02 native editor evidence](../development/editor-edits.md#qualification): both stores, typing conflicts, partial receipts, save/undo/reload, no replay and persisted buffer fence | Complete |
-| P4-04 Inspectors | P4-02, P3-03/05 | [Implementation and tests](18-deferred-vscode.md#p4-04--inspectors) | [Query prerequisites](../development/editor-inspectors.md); full inspector UI qualification remains open | In_progress |
+| P4-04 Inspectors | P4-02, P3-03/05 | [Implementation and tests](18-deferred-vscode.md#p4-04--inspectors) | [Native inspector acceptance](../development/editor-inspectors.md#p4-04-acceptance): governed paging, purge/trust invalidation, observer reload, exact optimizer apply/rollback and encrypted publication on both stores | complete |
 | P4-05 Packaging | P4-01…04 | [Implementation and tests](18-deferred-vscode.md#p4-05--packaging-and-compatibility) | Clean install/reload and incompatible-version diagnostics | Planned |
 | P5-01 Munarium governance | P1-04, P0-02/07 | [Implementation and tests](08-memory-and-ingestion.md#p5-01--governed-writes) | [Native governed-memory evidence](../development/p5-governed-memory.md): Files/SQLite retries, immutable versions, scoped retained evidence, all six classes, contradictions/corrections, historical access and projection repair; E13/M01 | Complete |
 | P5-02 Activity/evidence ingestion | P5-01, P1-03 | [Implementation and tests](08-memory-and-ingestion.md#p5-02--activity-and-evidence-ingestion) | External actor unknown where unobserved; no cross-workspace leakage; [native qualification](../development/p5-ingestion.md) | Complete |

@@ -10,7 +10,7 @@
   "engines": { "vscode": "1.138.0" },
   "extensionKind": ["ui"],
   "main": "./dist/extension.js",
-  "activationEvents": ["onView:vcp.connection","onView:vcp.tasks","onCommand:vcp.connect","onCommand:vcp.refreshConnection","onCommand:vcp.disconnect","onCommand:vcp.connectController","onCommand:vcp.attachObserver","onCommand:vcp.reconcileRoot","onCommand:vcp.grantTrust","onCommand:vcp.revokeTrust","onStartupFinished","onCommand:vcp.startEditorTask","onCommand:vcp.createEditDraft","onCommand:vcp.reviewEditorDrafts","onCommand:vcp.applyEditorChanges","onCommand:vcp.inspectEditorChanges","onCommand:vcp.refreshEditorObservations"],
+  "activationEvents": ["onView:vcp.connection","onView:vcp.tasks","onView:vcp.inspectors","onCommand:vcp.connect","onCommand:vcp.refreshConnection","onCommand:vcp.disconnect","onCommand:vcp.connectController","onCommand:vcp.connectPublisherController","onCommand:vcp.attachObserver","onCommand:vcp.reconcileRoot","onCommand:vcp.grantTrust","onCommand:vcp.revokeTrust","onStartupFinished","onCommand:vcp.startEditorTask","onCommand:vcp.createEditDraft","onCommand:vcp.reviewEditorDrafts","onCommand:vcp.applyEditorChanges","onCommand:vcp.inspectEditorChanges","onCommand:vcp.refreshEditorObservations"],
   "capabilities": {
     "virtualWorkspaces": { "supported": false, "description": "VCP currently connects only to local Windows file workspaces." },
     "untrustedWorkspaces": {
@@ -25,6 +25,7 @@
       { "command": "vcp.refreshConnection", "title": "VCP: Refresh Connection" },
       { "command": "vcp.disconnect", "title": "VCP: Disconnect" },
       {"command":"vcp.connectController","title":"VCP: Connect as Controller"},
+      {"command":"vcp.connectPublisherController","title":"VCP: Connect Controller with Encrypted Publisher"},
       {"command":"vcp.attachObserver","title":"VCP: Observe Existing Engine"},
       {"command":"vcp.reconcileRoot","title":"VCP: Reconcile Moved Root"},
       {"command":"vcp.grantTrust","title":"VCP: Trust Engine Workspace"},
@@ -37,7 +38,7 @@
       {"command":"vcp.refreshEditorObservations","title":"VCP: Refresh Editor Observations"}
     ],
     "viewsContainers": { "activitybar": [{ "id": "vcp", "title": "VCP", "icon": "media/vcp.svg" }] },
-    "views": { "vcp": [{ "type": "webview", "id": "vcp.connection", "name": "Workspace" }, { "type": "webview", "id": "vcp.tasks", "name": "Tasks" }] },
+    "views": { "vcp": [{ "type": "webview", "id": "vcp.connection", "name": "Workspace" }, { "type": "webview", "id": "vcp.tasks", "name": "Tasks" }, { "type": "webview", "id": "vcp.inspectors", "name": "Inspectors" }] },
     "configuration": {
       "title": "VCP",
       "properties": {

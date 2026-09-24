@@ -8,7 +8,8 @@ qualifies trust, moved roots and observer reload;
 [task/child view acceptance](../development/editor-tasks.md#qualification) qualifies
 presentation, guarded actions and recovery. P4-03 versioned edits are accepted
 with [native qualification](../development/editor-edits.md#qualification).
-P4-04 inspector query prerequisites are in progress.
+P4-04 inspectors are accepted with [native renderer evidence](../development/editor-inspectors.md#p4-04-acceptance).
+P4-05 packaging and compatibility is next.
 
 Plan revision 14 — September 21, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded

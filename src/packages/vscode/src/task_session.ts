@@ -9,6 +9,7 @@ import type { TaskPanelMessage, TaskPanelState } from './task_view_model.js';
 export interface TaskSessionDependencies {
   actions: TaskActions;
   publish(state: TaskPanelState): void;
+  selection?(value: { task: string | undefined; synchronized: boolean; revision: string | undefined }): void;
 }
 /** Owns a bounded live view, not an execution engine. Every invalidation returns
  * to canonical reads; no event outcome is used to manufacture task completion. */
@@ -51,7 +52,7 @@ export class TaskSession {
     void this.refresh();
   }
   #valid(epoch: number, client: ConnectionClient): boolean { return this.#epoch === epoch && this.#client === client && this.#status?.phase === 'connected'; }
-  #clearContent(fence = true, keepSelection = false): void { this.#detailGeneration++; this.#detail = undefined; this.#artifact = undefined; this.#usage = undefined; if (!keepSelection) this.#select.clear(); this.#evidence.clear(); this.#history = undefined; if (fence) this.#deps.actions.invalidate(); }
+  #clearContent(fence = true, keepSelection = false): void { this.#detailGeneration++; this.#detail = undefined; this.#artifact = undefined; this.#usage = undefined; if (!keepSelection) this.#select.clear(); this.#evidence.clear(); this.#history = undefined; if (fence) this.#deps.actions.invalidate(); this.#deps.selection?.({ task: this.#selected, synchronized: false, revision: undefined }); }
   #stop(): void {
     this.#owner = 'unknown';
     this.#epoch++; clearTimeout(this.#timer); this.#timer = undefined;
@@ -77,6 +78,7 @@ export class TaskSession {
       commands: this.#deps.actions.records().filter(row => row.scope.workspace === this.#client?.scope.workspace && row.scope.session === this.#client?.scope.session).map(row => ({ commandId: row.commandId, operation: row.operation, phase: row.phase })),
     };
     this.#state = state; this.#deps.publish(state);
+    this.#deps.selection?.({ task: this.#selected, synchronized: view?.phase === 'current' && !!this.#detail, revision: view?.watermark });
   }
   notifyActions(): void { this.#publish(); }
   refresh(): Promise<void> {

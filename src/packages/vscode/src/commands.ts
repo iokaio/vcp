@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { EngineConnection, type ConnectionStatus, type Selection } from './engine_connection.js';
 import { safeFailure } from './diagnostics.js';
 import { profile, type Recovery } from './recovery.js';
+import { connectionRestriction } from './trust.js';
 
 /** Read inspected User values only; effective merged workspace values are unsafe. */
 export function globalPaths(configuration: Pick<vscode.WorkspaceConfiguration, 'inspect'>): { executable: string; dataPath?: string } {
@@ -46,6 +47,16 @@ export function registerCommands(connection: EngineConnection, output: vscode.Ou
   };
   const connect = vscode.commands.registerCommand('vcp.connect', (uri?: unknown) => select(uri, selection => connection.connect(selection)));
   const control = vscode.commands.registerCommand('vcp.connectController', (uri?: unknown) => select(uri, selection => connection.connect(selection, 'controller')));
+  const publisher = vscode.commands.registerCommand('vcp.connectPublisherController', (uri?: unknown) => select(uri, async selection => {
+    if (!selection.workspaceTrusted || connectionRestriction(selection, process.platform)) throw { code: 'INVALID_ARGUMENT' };
+    const selectedIntent = intent;
+    const files = await vscode.window.showOpenDialog({ title: 'Select native encrypted publisher profile outside the workspace', openLabel: 'Connect publisher controller', canSelectFiles: true, canSelectFolders: false, canSelectMany: false, filters: { 'Publisher profile': ['json'] } });
+    if (!files || files.length !== 1 || selectedIntent !== intent) return;
+    const selected = files[0]!;
+    const folder = vscode.workspace.workspaceFolders?.find(candidate => candidate.uri.toString() === selection.workspaceUri);
+    if (!folder || !vscode.workspace.isTrusted || selected.scheme !== 'file' || selected.authority !== '') throw { code: 'INVALID_ARGUMENT' };
+    await connection.connectPublisher(selectionForFolder(folder), selected.fsPath);
+  }));
   const attach = vscode.commands.registerCommand('vcp.attachObserver', (uri?: unknown, reference?: unknown) => select(uri, async selection => {
     const selectedIntent = intent;
     const input = reference ?? await vscode.window.showInputBox({ title: 'Observe an existing VCP engine', prompt: 'Paste its non-secret observer reconnection reference. Controller credentials are not accepted.', ignoreFocusOut: true });
@@ -78,5 +89,5 @@ export function registerCommands(connection: EngineConnection, output: vscode.Ou
   const configuration = vscode.workspace.onDidChangeConfiguration(event => {
     if (event.affectsConfiguration('vcp.engineExecutable') || event.affectsConfiguration('vcp.dataDirectory')) { intent++; void connection.invalidate('Connection settings changed; reconnect explicitly.', vscode.workspace.isTrusted).catch(() => {}); }
   });
-  return [connect, control, attach, reconcile, grant, revoke, refresh, disconnect, folders, trust, configuration, { dispose: () => { intent++; } }];
+  return [connect, control, publisher, attach, reconcile, grant, revoke, refresh, disconnect, folders, trust, configuration, { dispose: () => { intent++; } }];
 }
