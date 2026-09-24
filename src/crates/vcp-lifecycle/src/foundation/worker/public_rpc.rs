@@ -29,6 +29,11 @@ const METHODS: &[&str] = &[
     "routing/explain",
     "policy/read",
     "routing/status",
+    "routing/reportCapture",
+    "routing/reportRead",
+    "routing/preview",
+    "routing/apply",
+    "routing/rollback",
     "artifact/read",
     "diff/read",
     #[cfg(windows)]
@@ -440,6 +445,10 @@ impl RpcHost for PublicConnection {
             return self
                 .routing_status(request, current)
                 .map(ResultValue::RoutingStatus);
+        }
+        if matches!(call, Call::RoutingReportCapture(_) | Call::RoutingReportRead(_)
+            | Call::RoutingPreview(_) | Call::RoutingApply(_) | Call::RoutingRollback(_)) {
+            return self.optimizer_call(call, current);
         }
         #[cfg(windows)]
         if matches!(call, Call::EditorContext(_) | Call::EditorPrepare(_) | Call::EditorChangeRead(_)

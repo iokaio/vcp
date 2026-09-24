@@ -6,7 +6,7 @@ import { RESULT_KINDS, REQUIRED_PROFILES } from '../dist/method-results.js';
 
 test('every canonical method has an audited result mapping', () => {
   const methods = schema.definitions.Call.oneOf.map(branch => branch.properties.method.enum[0]);
-  assert.equal(methods.length, 48);
+  assert.equal(methods.length, 53);
   assert.deepEqual(Object.keys(RESULT_KINDS).sort(), methods.sort());
   const kinds = new Set(schema.definitions.ResultValue.oneOf.map(branch => branch.properties.kind.enum[0]));
   for (const [method, replies] of Object.entries(RESULT_KINDS)) {
@@ -36,4 +36,10 @@ test('controller receipts and stream unions match dispatcher envelopes', () => {
   assert.deepEqual(REQUIRED_PROFILES['policy/read'], ['policy/inspection/1']);
   assert.deepEqual(RESULT_KINDS['routing/status'], ['routing_status']);
   assert.deepEqual(REQUIRED_PROFILES['routing/status'], ['routing/status/1']);
+  for (const method of ['routing/reportCapture', 'routing/apply', 'routing/rollback']) {
+    assert.deepEqual(RESULT_KINDS[method], ['acceptance']);
+    assert.deepEqual(REQUIRED_PROFILES[method], ['routing/optimizer/1']);
+  }
+  assert.deepEqual(RESULT_KINDS['routing/reportRead'], ['routing_report']);
+  assert.deepEqual(RESULT_KINDS['routing/preview'], ['routing_preview']);
 });

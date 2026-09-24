@@ -308,6 +308,15 @@ impl Build {
 /// Build one read-only retained view. Independent turns and attempts remain
 /// separate traces; callers may feed each uninterrupted trace to pure kernels.
 pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Evidence> {
+    observe_with_check(store, access, window, &|| Ok(()))
+}
+pub fn observe_with_check(
+    store: &Store,
+    access: &Access,
+    window: HistoryWindow,
+    cooperate: &dyn Fn() -> Result<()>,
+) -> Result<Evidence> {
+    cooperate()?;
     authorize(store, access, false)?;
     let state = store.state();
     if state.events.len() > MAX_SCAN || state.records.len() > MAX_SCAN {
@@ -328,6 +337,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
     let mut build = Build::new();
     let mut seen_events = BTreeSet::new();
     for envelope in &state.events {
+        cooperate()?;
         let event = &envelope.event;
         if event.workspace != access.workspace
             || event.timestamp >= window.until
@@ -393,6 +403,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
             }
             let mut found = false;
             for fact in facts {
+                cooperate()?;
                 match fact["collection"].as_str() {
                     Some("turn") => {
                         found = true;

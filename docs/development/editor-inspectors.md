@@ -1,7 +1,7 @@
 # Editor inspectors
 
 Work item: [P4-04](../plan/18-deferred-vscode.md#p4-04--inspectors).
-Status: history/memory and policy/routing query prerequisites accepted.
+Status: history/memory, policy/routing queries and optimizer command prerequisites accepted.
 P4-04 acceptance remains open.
 [ADR-060](../adr/060-governed-inspector-queries.md) records the query boundary.
 
@@ -102,10 +102,64 @@ canonical state were verified. The native fixture remains
 `8e6d93c5-5054-45fa-bf88-bed16eb10dc2`; required SDK/extension regressions were
 rerun after adding explicit unsigned 16-bit validation.
 
+## Optimizer command increment
+
+The optimizer API increment is qualified under
+[ADR-062](../adr/062-editor-optimizer-commands.md). `routing/optimizer/1`
+adds `routing/reportCapture`, `routing/reportRead`, `routing/preview`,
+`routing/apply` and `routing/rollback`. Capture returns a durable acceptance;
+its command ID is the public report ID. Internal forecast identities remain
+unchanged. Session coverage is explicit; observers cannot read workspace reports.
+
+Preview returns exact prior, proposed and host-effective policies, selected edits
+and clamped fields. It expires after 60 seconds and the connection keeps at most
+two previews. Reload discards these previews. Accepted commands survive reload
+and reconcile by their original command ID before consulting that cache.
+Mutation preconditions use workspace and binding revisions; preview separately
+pins policy revision. Capture acceptance has revision zero; apply and rollback
+acceptance carry the new policy revision. Neither replaces the workspace revision
+needed for a subsequent mutation. Report pages and exact preview payloads are
+limited to 64 KiB. Oversized policies are rejected rather than silently omitting
+a field from review.
+
+Native foundation checks passed on Files and SQLite: atomic report/receipt
+publication, original report identities, foreign source session with caller-session
+receipt, conflicting command identity, apply/rollback replay after reopen,
+cancellation and interruption after spool finalization without accepted capture.
+Configured-host qualification passed on both stores: exact preview, policy apply
+and rollback, a stale preview after an actual CLI rollback, connection replacement
+with receipt reconciliation, observer denial, wrong binding and a fresh controller
+denied after trust revocation. These metadata tests create no provider attempts.
+
+Protocol checks passed (26 unit and three optimizer wire tests), along with
+schema generation 9, engine 73, SDK 34 and extension 108. The fast delivery suite
+passed all 18 cases (`2ca20a99-a005-4a34-93f6-78dc8b54a731`).
+Three lifecycle projection checks also passed: all 17 edits retain exact values,
+review preserves complete allowed sets, and 40 hostile cohort rows paginate at the
+byte limit without skipped rows. A changed canonical deletion epoch invalidates
+both continuation and fresh reads; this does not claim physical purge cleanup.
+The existing routing/forecast regression suite passed 42 tests, with its supervised
+crash child excluded from direct invocation. The final three foundation checks
+also passed, including actual process termination before and after public policy
+commit on both stores: policy, binding and receipt survive or remain absent
+together; exact retry publishes at most once.
+
+Compiled CLI/SDK qualification passed on both stores in 2.41 seconds: four source
+pages and two report receipts per store, exact capture replay after reconnect,
+conflicting payload rejection, observer workspace-report denial, stable read
+watermarks and authority revocation between pages. Provider request count remained
+zero and persisted policy remained revision zero. This inspection-only fixture
+explicitly rejects preview without host ceilings; positive apply/rollback evidence
+comes from the configured lifecycle host. Fixtures are
+`vcp-cli/tests/local_optimizer_commands.rs` and
+`sdk-ts/tests/native-optimizer-commands.mjs`.
+
+Existing provider send fences were inspected; this increment does not claim a
+newly exercised provider send race.
+
 ## Remaining P4-04 acceptance
 
-Expose policy/routing/optimization through existing governed services, retaining
-revision-bound preview/apply/rollback and durable command reconciliation. Present
+Connect the qualified query and optimizer APIs to the editor. Present
 history, memory, evidence, cost certainty and pruning previews with bounded reads,
 opaque actions and explicit current versus historical state. Recheck permission
 for every artifact/page and clear transient views on access/retention changes.

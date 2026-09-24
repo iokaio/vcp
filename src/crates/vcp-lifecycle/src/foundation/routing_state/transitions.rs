@@ -103,6 +103,15 @@ pub struct Evidence {
 /// One coherent current retained view. Never substitutes current task rows for
 /// historical states or saves an aggregate that could outlive source deletion.
 pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Evidence> {
+    observe_with_check(store, access, window, &|| Ok(()))
+}
+pub fn observe_with_check(
+    store: &Store,
+    access: &Access,
+    window: HistoryWindow,
+    cooperate: &dyn Fn() -> Result<()>,
+) -> Result<Evidence> {
+    cooperate()?;
     authorize(store, access, false)?;
     let state = store.state();
     if state.events.len() > MAX_SCAN || state.records.len() > MAX_SCAN {
@@ -129,6 +138,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
     // Store events are in canonical append order. Timestamps select the window;
     // they never order state transitions, including after clock rollback.
     for envelope in &state.events {
+        cooperate()?;
         let event = &envelope.event;
         if event.workspace != access.workspace
             || event.timestamp >= window.until
@@ -181,6 +191,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
                 return Err("transition evidence exceeds 100000 facts".into());
             }
             for fact in facts.iter().filter(|fact| fact["collection"] == "task") {
+                cooperate()?;
                 let Some(id) = fact["id"].as_str().and_then(|id| TaskId::parse(id).ok()) else {
                     return Err("task fact lacks a valid identity".into());
                 };
@@ -254,7 +265,9 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
     ];
     let mut transitions = Vec::new();
     for from in alphabet {
+        cooperate()?;
         for to in alphabet {
+            cooperate()?;
             if from == to {
                 continue;
             } // Steering/fingerprint revisions are not state visits.

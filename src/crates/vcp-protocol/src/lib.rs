@@ -16,6 +16,7 @@ pub mod persisted_json;
 pub mod policy_inspection;
 pub mod redaction;
 pub mod routing_inspection;
+pub mod routing_optimizer;
 pub mod subscription;
 pub mod version;
 

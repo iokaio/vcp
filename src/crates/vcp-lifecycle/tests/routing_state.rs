@@ -12,6 +12,11 @@ mod action_evidence;
 mod action_forecasts;
 #[path = "support/advisory_records.rs"]
 mod advisory_records;
+#[cfg(feature = "qualification")]
+#[path = "support/public_optimizer_crash.rs"]
+mod public_optimizer_crash;
+#[path = "support/public_optimizer.rs"]
+mod public_optimizer_tests;
 #[path = "support/routing_accounting.rs"]
 mod routing_accounting;
 #[cfg(feature = "qualification")]

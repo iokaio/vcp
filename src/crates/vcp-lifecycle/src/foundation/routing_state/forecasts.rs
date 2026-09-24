@@ -250,9 +250,18 @@ fn routing(
 /// Analyze one coherent retained view without persisting, dispatching, or
 /// changing routing/verification/budget state. Unknown evidence is not zero.
 pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Report> {
+    observe_with_check(store, access, window, &|| Ok(()))
+}
+pub fn observe_with_check(
+    store: &Store,
+    access: &Access,
+    window: HistoryWindow,
+    cooperate: &dyn Fn() -> Result<()>,
+) -> Result<Report> {
+    cooperate()?;
     authorize(store, access, false)?;
-    let actions = observations::observe(store, access, window.clone())?;
-    let lifecycle = transitions::observe(store, access, window.clone())?;
+    let actions = observations::observe_with_check(store, access, window.clone(), cooperate)?;
+    let lifecycle = transitions::observe_with_check(store, access, window.clone(), cooperate)?;
     if lifecycle.traces.len() > MAX_EPISODES {
         return Err("forecast exceeds 512 tasks; narrow the window".into());
     }
@@ -274,6 +283,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
         }
     }
     for trace in &lifecycle.traces {
+        cooperate()?;
         if unsupported_roots.contains(&trace.task) {
             excluded.push(ExcludedEpisode {
                 task: trace.task.clone(),
@@ -317,6 +327,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
     let cohorts = identities
         .into_iter()
         .map(|(id, identity)| {
+            cooperate()?;
             let selected: Vec<_> = episodes.iter().filter(|e| e.cohort == id).collect();
             aggregate(id, identity, &selected)
         })
@@ -347,6 +358,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
     // Exclusion counts/reasons also derive from retained history. Carry their
     // sources so a future saved report cannot outlive a pruned rejected cohort.
     for trace in &lifecycle.traces {
+        cooperate()?;
         report
             .references
             .insert(key(Collection::Task, trace.task.as_str()));
@@ -358,6 +370,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
             .extend(trace.gaps.iter().map(|g| g.event.clone()));
     }
     for trace in &actions.attempts {
+        cooperate()?;
         report
             .references
             .insert(key(Collection::Task, trace.task.as_str()));
@@ -375,6 +388,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
             .source_events
             .extend(trace.gaps.iter().map(|g| g.event.clone()));
         for settlement in &trace.charge.settlements {
+            cooperate()?;
             report
                 .references
                 .insert(key(Collection::Settlement, settlement.settlement.as_str()));
@@ -382,6 +396,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
         }
     }
     for trace in &actions.turns {
+        cooperate()?;
         report
             .references
             .insert(key(Collection::Task, trace.task.as_str()));
@@ -396,6 +411,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
             .extend(trace.gaps.iter().map(|g| g.event.clone()));
     }
     for trace in &actions.effects {
+        cooperate()?;
         report
             .references
             .insert(key(Collection::Task, trace.task.as_str()));
@@ -410,6 +426,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
             .extend(trace.gaps.iter().map(|g| g.event.clone()));
     }
     for verification in &actions.verifications {
+        cooperate()?;
         report
             .references
             .insert(key(Collection::Task, verification.task.as_str()));
@@ -420,6 +437,7 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
         report.source_events.insert(verification.event.clone());
     }
     for gap in &actions.gaps {
+        cooperate()?;
         report
             .references
             .insert(key(Collection::Task, gap.task.as_str()));

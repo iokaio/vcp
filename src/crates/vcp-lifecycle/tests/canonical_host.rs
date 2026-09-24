@@ -169,6 +169,9 @@ mod public_rpc_drain;
 mod public_start;
 #[path = "support/public_task_control.rs"]
 mod public_task_control;
+#[cfg(windows)]
+#[path = "support/public_optimizer_adapter.rs"]
+mod public_optimizer_adapter;
 #[path = "support/public_workspace.rs"]
 mod public_workspace;
 #[path = "support/response_boundary.rs"]
