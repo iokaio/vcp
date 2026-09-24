@@ -452,4 +452,21 @@ mod tests {
         assert!(!child.process.is_alive().unwrap());
         assert_eq!(cleanup.exit_code().unwrap(), 1);
     }
+
+    #[test]
+    fn startup_failure_stops_only_owned_child_without_grace_period() {
+        let exe = Executable::open(&std::env::current_exe().unwrap()).unwrap();
+        let arguments =
+            "--exact local::windows_launch::tests::inherited_handle_child --ignored --nocapture";
+        let unrelated = launch_inner(&exe, arguments, &[]).unwrap();
+        let child = launch_inner(&exe, arguments, &[]).unwrap();
+        assert!(child.process.is_alive().unwrap());
+        let began = std::time::Instant::now();
+        let result = super::super::reject_startup::<()>(&child.guard, "startup test failure");
+        assert_eq!(result.unwrap_err(), "startup test failure");
+        assert!(began.elapsed() < std::time::Duration::from_secs(5));
+        assert!(!child.process.is_alive().unwrap());
+        assert!(unrelated.process.is_alive().unwrap());
+        assert!(HeldProcess::current().unwrap().is_alive().unwrap());
+    }
 }

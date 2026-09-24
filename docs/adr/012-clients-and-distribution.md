@@ -1,7 +1,7 @@
 # ADR-012 — Client sequencing and native distribution
 
-Status: confirmed product direction recorded; engineering design proposed and qualification pending.
-Decision gate: P8; later P9/P4/P10. No implementation, runtime result or owner sign-off is recorded here.
+Status: confirmed product direction recorded; P4-05 editor distribution qualified in the recorded Windows envelope. Broader release qualification limits remain.
+Decision gate: P8; later P9/P4/P10. The P4-05 selection and qualification are recorded below; they do not waive broader P8 release gaps.
 
 ## Context and authority
 
@@ -28,6 +28,21 @@ E18/R04/U04/U09 and P8-04 require a clean user profile, missing dependencies/ass
 Attach exact source/package, fixture, configuration and environment identities, actual commands and pass/fail/not-run outcomes. No linked plan or ADR is itself passing evidence.
 
 ## Consequences and reconsideration
+
+### P4-05 selected editor mechanism — 2026-09-24
+
+Use a separately installed native Windows package and an installable VSIX that
+bundles its exact SDK and protocol schema. The editor selects only an explicit
+trusted absolute engine path from User settings. No managed download or automatic
+engine update is introduced. Bind compatibility evidence to package digests and
+negotiated profiles, not the shared historical `0.1.0` build label. Install updates
+in separate directories and preserve canonical data and independently held keys;
+binary downgrade remains conditional on store compatibility.
+
+This resolves the editor distribution choice, not native release signing or the
+hardware support floor. [P4-05's packaging record](../development/editor-packaging.md)
+records accepted actual install/upgrade evidence and the supported envelope. This
+does not authorize publication or establish general binary downgrade support.
 
 Binary rollback may not undo state migrations. Preserve data, independent keys and user projects on uninstall. New client/platform support needs its own host and compatibility evidence, without changing engine ownership.
 

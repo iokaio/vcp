@@ -24,7 +24,12 @@ $runtimeRoot=$runtimeRoots[0].FullName
 foreach($relative in @('ffmpeg.dll','libEGL.dll','libGLESv2.dll','icudtl.dat','v8_context_snapshot.bin','resources/app/out/main.js','resources/app/out/vs/workbench/workbench.desktop.main.js')) {
   if(-not (Test-Path -LiteralPath (Join-Path $runtimeRoot $relative) -PathType Leaf)) { throw "Required editor runtime asset missing: $relative" }
 }
-$env:PATH="$runtimeRoot;$env:PATH"
+if($null -ne $inputSpec.restrictedPath -and $inputSpec.restrictedPath -isnot [bool]) { throw 'Restricted qualification PATH selection must be boolean' }
+if($inputSpec.restrictedPath -eq $true) {
+  # PowerShell can prepend PSHOME on startup; constrain the actual editor child
+  # after that expansion, retaining only Windows and its qualified runtime.
+  $env:PATH="$runtimeRoot;$env:SystemRoot\System32;$env:SystemRoot"
+} else { $env:PATH="$runtimeRoot;$env:PATH" }
 $runtimeFiles=@($codeItem)+@(Get-ChildItem -LiteralPath $runtimeRoot -File -Filter '*.dll')
 @{version=$codeItem.VersionInfo.ProductVersion;runtime=$runtimeRoot;files=@($runtimeFiles | ForEach-Object { @{name=$_.Name;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} })} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $inputSpec.runtimeEvidence
 $sharedData=Join-Path $inputSpec.userData 'shared-data'

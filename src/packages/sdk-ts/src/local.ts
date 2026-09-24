@@ -94,12 +94,12 @@ class Bridge implements ClientTransport {
   #dead = false;
   #ready = false;
   readonly ready: Promise<unknown>;
-  constructor(executable: string, bootstrap: unknown) {
+  constructor(executable: string, bootstrap: unknown, readyTimeoutMs: number) {
     const input = encodeFrame(bootstrap, 16 * 1024);
     this.#child = spawn(executable, ['local-bridge'], { shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.#exited = new Promise(resolve => this.#child.once('close', () => { this.#dead = true; resolve(); }));
     this.ready = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { reject(new SdkError('TIMEOUT', 'local bootstrap deadline exceeded')); void this.close().catch(() => {}); }, 10_000);
+      const timer = setTimeout(() => { reject(new SdkError('TIMEOUT', 'local bootstrap deadline exceeded')); void this.close().catch(() => {}); }, readyTimeoutMs);
       const fail = () => {
         clearTimeout(timer);
         if (!this.#ready) reject(new SdkError('TRANSPORT_INTERRUPTED', 'local bootstrap failed'));
@@ -151,9 +151,9 @@ class Bridge implements ClientTransport {
     return this.#closed;
   }
 }
-async function open(executable: string, bootstrap: unknown, role: Role, initialize?: InitializeParams, scope?: Scope): Promise<Client> {
+async function open(executable: string, bootstrap: unknown, role: Role, initialize?: InitializeParams, scope?: Scope, readyTimeoutMs = 10_000): Promise<Client> {
   absolute(executable, 'executable');
-  const bridge = new Bridge(executable, bootstrap);
+  const bridge = new Bridge(executable, bootstrap, readyTimeoutMs);
   try {
     const ready = validateReady(await bridge.ready, role, scope);
     return await Client.connect(bridge, ready.scope, role, initialize, handle(ready.attachment, role, ready.scope), handle(ready.observer_attachment, 'observer', ready.scope), ready.observer_reconnect);
@@ -175,12 +175,15 @@ export function launchLocal(options: LaunchOptions): Promise<Client> {
     const profiles = ['backup/publisher/1', 'workspace/binding/1'];
     initialize = { ...base, capabilities: [...new Set([...base.capabilities, ...profiles])], required_capabilities: [...new Set([...(base.required_capabilities ?? []), ...profiles])] };
   }
+  // Native launch permits 60 seconds for canonical replay and handoff; this
+  // outer deadline includes process creation and transport overhead. Attachment
+  // and initialize keep their separate, shorter bounds.
   return open(options.executable, {
     schema: 'vcp-local-bootstrap/1', observer_reconnect: true, workspace: options.workspace, data: options.data ?? null, role: options.role,
     ...(options.transport === undefined ? {} : { transport: options.transport }), ...(options.rootTask === undefined ? {} : { root_task: options.rootTask }),
     ...(options.execution === undefined ? {} : { execution: { profile: options.execution.profile, provider_credential: options.execution.providerCredential, ...(options.execution.credentials === undefined ? {} : { credentials: options.execution.credentials }) } }),
     ...(options.publisher === undefined ? {} : { publisher: { profile: options.publisher.profile } }),
-  }, options.role, initialize);
+  }, options.role, initialize, undefined, 65_000);
 }
 export function attachLocal(options: AttachOptions): Promise<Client> {
   const stored = handles.get(options.attachment);

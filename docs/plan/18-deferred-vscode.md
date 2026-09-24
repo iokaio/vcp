@@ -1,6 +1,6 @@
 # 18 — Deferred VS Code client
 
-Status: P4-01 through P4-04 accepted after owner-directed P8 closure and completed P9; P4-05 packaging is next. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
+Status: P4-01 through P4-05 accepted after owner-directed P8 closure and completed P9. Owns P4-01 through P4-05; file/phase numbering does not place it before CLI memory or routing. Architecture section 18 governs the editor design.
 
 ## Code organization
 
@@ -172,6 +172,11 @@ The owning contracts are [history governance](../architecture/vcp-what.md#118-hi
 and [presentation/access design](../architecture/deferred-clients-design.md#presentation-and-package-compatibility).
 
 ## P4-05 — Packaging and compatibility
+
+Status: accepted after actual VSIX lifecycle and editor-buffer qualification on
+Files and SQLite. The selected separate native package/VSIX mechanism, artifact
+identities, startup qualification and supported-environment limits are recorded in
+[editor packaging](../development/editor-packaging.md).
 
 Package the extension with a documented compatible engine/SDK range and update path. Validate installation without a development checkout, extension restart, engine replacement, incompatible schema and failed upgrade. Existing local state and independently held recovery keys must survive upgrades.
 
