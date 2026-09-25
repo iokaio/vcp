@@ -115,6 +115,12 @@ Every converter writes to a new owned output and validates it before replacing a
 
 The owner explicitly revised sequencing in ADR-068: P10-04 is deferred, CS-0 starts now, and the six developer-workflow additions precede PDF/spreadsheet adapter implementation. The formal owners and acceptance contracts are in [plan 24](../plan/24-skills-follow-on.md); the table below summarizes that order. P10 hooks/importers/observers are optional integration points; most skills should work without them. Retained P8 qualification gaps remain visible and must be addressed before any affected broad release/support claim.
 
+The September 25, 2026 [CS-1 disposition](../development/cs1-candidate-disposition.md)
+retains document-authoring and skill-authoring 1.0.1 as non-default, unqualified
+candidates. The builtin catalog remains at 21 skills. Their implementation and
+evaluation history do not satisfy the comparison gates or complete CS-1; the
+milestone exits below remain required before default promotion.
+
 | Research milestone | Dependency and concrete deliverable | Exit evidence |
 |---|---|---|
 | **CS-0: scope and qualification design** | After ADR-068, confirm the eight default candidates and original feature boundaries. Use the formal CS owners; pin upstream research, choose synthetic tasks and independent rubrics. | Accepted capability/format matrix, overlap map for 21 existing skills, bounded effort/toolchain plan, no changes to current task acceptance |

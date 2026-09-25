@@ -2,7 +2,7 @@
 
 The September 25, 2026 v3 diagnostic halted during DOC inherited execution after a disallowed report-only `vcp_verify` call. Closed accounting totals **181 requests / $0.401397**, including the earlier authority-halted campaign. The diagnostic cannot resume or replay; it did not complete all 54 slots.
 
-Both candidates are version 1.0.1 in builtin catalog 1.5.0. The six fresh DOC runs already failed qualification for no required usefulness win and a migration source-attribution defect. Those findings remain authoritative.
+The frozen diagnostic tested both candidates at version 1.0.1 in builtin catalog 1.5.0. The six fresh DOC runs already failed qualification for no required usefulness win and a migration source-attribution defect. Those findings remain authoritative. The later [non-default disposition](cs1-candidate-disposition.md) preserves these identities as historical evidence; it does not transfer qualification to the changed distribution.
 
 ## Bound identities
 
@@ -86,7 +86,7 @@ The next release-nearest slot retains a `failed` marker with null cost and the e
 
 The final audit records `integrity_pass: false` for the authority violation, while separately confirming unchanged inputs and reconciled liabilities. No inherited review gate was created. The permanent halt forbids resume or replay.
 
-Follow-up source inspection found a prospective runtime prerequisite: the CLI
+Follow-up inspection of the frozen runtime found a prospective prerequisite: its CLI
 profile has no canonical tool-subset field, canonical schemas advertise every
 registered tool, and `install_thread` unconditionally instructs the model to run
 `vcp_verify`, including report-only profiles. Empty process/check lists prevent
@@ -96,6 +96,9 @@ admission and operating guidance; changing them cannot repair this frozen run.
 Host-owned unchanged-analysis verification must remain available independently
 of model-visible tools. This finding does not change the separate document
 correctness failures or establish their cause.
+
+The prospective [P2-05 correction](p2-canonical-tool-ceiling.md) subsequently
+landed in PR #178. The frozen diagnostic remains bound to its original executable.
 
 | Closed evidence | SHA-256 |
 |---|---|
@@ -143,4 +146,4 @@ Of the fixed 54-slot diagnostic, 19 slots were dispatched and 35 were not. Five 
 
 Two independent blinded AI readers, not humans, supplied the completed paired reviews. Reader quality uses actual artifacts even when no accepted final answer exists. Readers relied on uniform owner-authenticated projections for preservation and runtime authority rather than independently auditing raw receipt chronology. Native pass receipts alone do not establish final-artifact freshness or semantic correctness. Missing review coverage is stated above; no general statistical benefit, human evaluation or layout-rendering qualification is claimed.
 
-Costs are retained campaign-provider charges, not an invoice audit or the cost of the root/helper AI session. Report preparation made no campaign-provider calls. Document-authoring remains unqualified on independent normal and inherited quality grounds, as well as the campaign-wide authority halt. Skill-authoring has no new v3 result. CS-1 acceptance remains unmet. Candidate/default-distribution disposition awaits explicit owner direction and is not decided by this report. Preserve frozen inputs, every failed result, unused-slot evidence and both halt receipts.
+Costs are retained campaign-provider charges, not an invoice audit or the cost of the root/helper AI session. Report preparation made no campaign-provider calls. Document-authoring remains unqualified on independent normal and inherited quality grounds, as well as the campaign-wide authority halt. Skill-authoring has no new v3 result. CS-1 acceptance remains unmet. The owner subsequently approved retaining both packages as non-default, unqualified candidates; see the [disposition record](cs1-candidate-disposition.md). Preserve frozen inputs, every failed result, unused-slot evidence and both halt receipts.
