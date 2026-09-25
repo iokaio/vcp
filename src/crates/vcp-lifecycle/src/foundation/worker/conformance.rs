@@ -147,7 +147,7 @@ impl Context {
             || self.config.price != candidate.price
             || self.config.input_ceiling != candidate.max_input
             || self.config.output_ceiling > candidate.max_output
-            || self.config.output_ceiling > Units::new(512)
+            || self.config.output_ceiling > Units::new(2048)
         {
             return Err("qualification probe differs from the isolated candidate owner".into());
         }

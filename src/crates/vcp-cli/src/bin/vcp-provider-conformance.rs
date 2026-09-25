@@ -181,7 +181,7 @@ async fn execute(
     if cap == Micros::ZERO
         || cap.get() > 25_000_000
         || spec.max_output_tokens == 0
-        || spec.max_output_tokens > 512
+        || spec.max_output_tokens > 2048
         || spec.valid_until <= now()
         || spec.observed_at > now()
         || spec
@@ -401,7 +401,9 @@ mod tests {
     };
     #[tokio::test]
     async fn fixed_tool_probe_uses_canonical_observed_cost_and_preserves_unknown() {
-        for missing_cost in [false, true] {
+        for (missing_cost, max_output_tokens) in
+            [(false, 128), (true, 128), (false, 2048), (true, 2048)]
+        {
             let temp = tempfile::tempdir().unwrap();
             let catalog = temp.path().join("input-catalog.json");
             std::fs::write(&catalog,canonical_bytes(&json!({"data":{"id":"fixture/probe","endpoints":[{"tag":"fixture/region","status":0,"context_length":32000,"max_prompt_tokens":24000,"max_completion_tokens":8000,"supported_parameters":["tools","tool_choice","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.001"}}]}})).unwrap()).unwrap();
@@ -412,7 +414,7 @@ mod tests {
                 endpoint: "fixture/region".into(),
                 request_price_limit: "0.001".into(),
                 cap_usd: "0.01".into(),
-                max_output_tokens: 128,
+                max_output_tokens,
                 observed_at: now(),
                 valid_until: Timestamp::new(now().get() + 60_000),
             };
@@ -422,6 +424,7 @@ mod tests {
             Mock::given(method("POST")).and(path("/responses")).respond_with(move |request:&wiremock::Request| {
                 let body:serde_json::Value=serde_json::from_slice(&request.body).unwrap();assert_eq!(body["provider"]["only"],json!(["fixture/region"]));assert_eq!(body["provider"]["allow_fallbacks"],false);
                 assert!(body.get("parallel_tool_calls").is_none());assert_eq!(body["provider"]["require_parameters"],true);
+                assert_eq!(body["max_output_tokens"], max_output_tokens);
                 let continuation=body["input"].as_array().unwrap().len()>1;
                 let content=if continuation{json!([{"type":"message","id":"final-message","role":"assistant","content":[{"type":"output_text","text":conformance::FINAL}]}])}else{json!([{"type":"function_call","id":"tool-item","call_id":"call-1","name":"vcp_conformance_echo","arguments":serde_json::to_string(&json!({"marker":conformance::MARKER})).unwrap()}])};
                 let mut response=json!({"id":if continuation{"response-2"}else{"response-1"},"status":"completed","model":"fixture/probe","provider":"fixture/region","output":content,"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.000007}});
@@ -442,7 +445,7 @@ mod tests {
                 assert!(result["actual_cost_micros"].is_null());
                 assert_eq!(result["ledger"]["unresolved"], "1000");
             } else {
-                assert_eq!(result["status"], "observed");
+                assert_eq!(result["status"], "observed", "{result}");
                 assert_eq!(result["actual_cost_micros"], "14");
                 assert_eq!(result["provider_preferences_qualified"], true);
             }
@@ -458,6 +461,10 @@ mod tests {
             for attempt in attempts {
                 assert_eq!(attempt["value"]["quote"]["bounds"]["input"], "72000");
                 assert_eq!(attempt["value"]["quote"]["bounds"]["cache_read"], "24000");
+                assert_eq!(
+                    attempt["value"]["quote"]["bounds"]["output"],
+                    max_output_tokens.to_string()
+                );
                 assert_eq!(attempt["value"]["quote"]["amount"]["micros"], "1000");
                 assert!(attempt["value"]["send_intent"].is_string());
                 if !missing_cost {
@@ -465,5 +472,49 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[tokio::test]
+    async fn fixed_tool_probe_rejects_output_and_dollar_bounds_before_dispatch() {
+        let server = MockServer::start().await;
+        let temp = tempfile::tempdir().unwrap();
+        for (max_output_tokens, cap_usd) in [
+            (0, "0.01"),
+            (2049, "0.01"),
+            (2048, "0"),
+            (2048, "25.000001"),
+        ] {
+            let spec = Spec {
+                // Missing catalog proves rejected specs do not reach catalog
+                // reads, canonical state construction or provider dispatch.
+                catalog: temp.path().join("missing-catalog.json"),
+                catalog_sha256: "0".repeat(64),
+                model: "fixture/probe".into(),
+                endpoint: "fixture/region".into(),
+                request_price_limit: "0.001".into(),
+                cap_usd: cap_usd.into(),
+                max_output_tokens,
+                observed_at: now(),
+                valid_until: Timestamp::new(now().get() + 60_000),
+            };
+            let error = execute(
+                &spec,
+                temp.path(),
+                "synthetic-loopback-credential",
+                &format!("{}/responses", server.uri()),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                if cap_usd == "0" {
+                    "budget must be positive decimal USD with at most six fractional digits"
+                } else {
+                    "probe cap, output or dated catalog bounds rejected"
+                }
+            );
+            assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
+        }
+        assert!(server.received_requests().await.unwrap().is_empty());
     }
 }

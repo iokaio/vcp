@@ -16,7 +16,7 @@ The input spec is a private JSON file:
   "endpoint": "amazon-bedrock",
   "request_price_limit": "0.001",
   "cap_usd": "2.000000",
-  "max_output_tokens": 512,
+  "max_output_tokens": 2048,
   "observed_at": "<catalog retrieval UTC Unix milliseconds>",
   "valid_until": "<explicit expiry, no more than one day after observation>"
 }
@@ -34,9 +34,11 @@ vcp-provider-conformance C:/private/probe.json C:/private/new-probe-output <auth
 
 The coordinator separately accounts for this cap under the shared authorized
 trial budget. The executable accepts at most $25 but does not authorize that sum
-or coordinate multiple processes. There are at most two sequential requests and
-no retries. Each request reserves the conservative full endpoint input/cache
-bound in the same canonical root ledger. Only an exact final observed charge
+or coordinate multiple processes. The requested output ceiling must be 1–2,048
+tokens and remains bounded by the selected endpoint. Historical probe receipts
+retain the limit actually used; raising this ceiling does not authorize replay.
+There are at most two sequential requests and no retries. Each request reserves
+the conservative full endpoint input/cache bound in the same canonical root ledger. Only an exact final observed charge
 releases that bound. Unknown charges halt the sequence and retain liability.
 
 The first request asks for one static local echo function call. The second returns
