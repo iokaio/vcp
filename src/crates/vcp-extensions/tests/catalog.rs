@@ -4,8 +4,8 @@ use vcp_extensions::catalog;
 #[test]
 fn embedded_inventory_is_closed_versioned_metadata_for_all_families() {
     let manifest = catalog::embedded().unwrap();
-    assert_eq!(manifest.skills.len(), 23);
-    assert_eq!(manifest.version, "1.5.0");
+    assert_eq!(manifest.skills.len(), 21);
+    assert_eq!(manifest.version, "1.2.0");
     let mut invalid = manifest.clone();
     invalid.skills[1] = invalid.skills[0].clone();
     assert!(invalid.validate().is_err());
@@ -67,6 +67,42 @@ mod native {
         };
         (root, registry)
     }
+    // Candidate packages require an explicit source; they are not distributed builtins.
+    fn staged_authoring_candidates(path: &Path) -> SourceRegistry {
+        for id in ["document-authoring", "skill-authoring"] {
+            let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../skills/candidates")
+                .join(id);
+            let descriptor: SkillDescriptor =
+                serde_json::from_slice(&fs::read(source.join("skill.json")).unwrap()).unwrap();
+            let files = std::iter::once("skill.json")
+                .chain(std::iter::once(descriptor.body.path.as_str()))
+                .chain(descriptor.resources.iter().map(|part| part.path.as_str()));
+            for file in files {
+                let destination = path.join(id).join(file);
+                fs::create_dir_all(destination.parent().unwrap()).unwrap();
+                fs::copy(source.join(file), destination).unwrap();
+            }
+        }
+        SourceRegistry {
+            version: 1,
+            revision: Revision::ZERO,
+            disabled: BTreeSet::new(),
+            sources: vec![SkillSource {
+                id: "authoring-candidates".into(),
+                kind: SourceKind::User,
+                enabled: true,
+                root: RootIdentity {
+                    workspace: WorkspaceId::new(),
+                    root: RootId::new(),
+                    repository: "fixture".into(),
+                    worktree: "fixture".into(),
+                    binding: Revision::ZERO,
+                },
+                path: path.to_owned(),
+            }],
+        }
+    }
     fn context() -> discovery::MatchContext {
         discovery::MatchContext {
             environment: "windows".into(),
@@ -80,7 +116,7 @@ mod native {
         let (root, registry) = staged(temp.path(), false);
         let verified = catalog::verify(&root).unwrap();
         assert_eq!(verified.reads.metadata_files, 2);
-        assert_eq!(verified.reads.descriptors, 23);
+        assert_eq!(verified.reads.descriptors, 21);
         assert!(verified.reads.metadata_bytes > 0 && verified.reads.descriptor_bytes > 0);
         let discovered = discovery::discover(&registry, &Default::default()).unwrap();
         catalog::verify_discovery(&verified, &discovered).unwrap();
@@ -88,7 +124,7 @@ mod native {
         assert_eq!(discovered.reads.resources, 0);
         assert_eq!(
             catalog::revalidate(&root, &verified).unwrap().revalidations,
-            25
+            23
         );
         assert!(activation::activate(
             &registry,
@@ -178,7 +214,13 @@ mod native {
     #[test]
     fn authoring_candidates_require_explicit_selection_and_load_bounded_content() {
         let temp = tempfile::tempdir().unwrap();
-        let (_, registry) = staged(temp.path(), true);
+        let builtin = tempfile::tempdir().unwrap();
+        let (_, defaults) = staged(builtin.path(), true);
+        let defaults = discovery::discover(&defaults, &Default::default()).unwrap();
+        for id in ["document-authoring", "skill-authoring"] {
+            assert!(defaults.resolve(id, &context()).is_err());
+        }
+        let registry = staged_authoring_candidates(temp.path());
         let discovered = discovery::discover(&registry, &Default::default()).unwrap();
         let mut ctx = context();
         ctx.cues = BTreeSet::from([
@@ -247,7 +289,7 @@ mod native {
         ] {
             for missing in [false, true] {
                 let temp = tempfile::tempdir().unwrap();
-                let (root, registry) = staged(temp.path(), true);
+                let registry = staged_authoring_candidates(temp.path());
                 let discovered = discovery::discover(&registry, &Default::default()).unwrap();
                 let id = relative.split('/').next().unwrap();
                 let active = activation::activate(
@@ -264,9 +306,7 @@ mod native {
                 } else {
                     fs::write(temp.path().join(relative), b"untrusted replacement").unwrap();
                 }
-                let verified = catalog::verify(&root).unwrap();
                 let after = discovery::discover(&registry, &Default::default()).unwrap();
-                catalog::verify_discovery(&verified, &after).unwrap();
                 assert_eq!(after.reads.bodies, 0);
                 assert_eq!(after.reads.resources, 0);
                 assert!(
@@ -287,10 +327,10 @@ mod native {
     }
 
     #[test]
-    fn authoring_workspace_override_preserves_builtin_qualified_selection() {
+    fn authoring_workspace_override_preserves_candidate_qualified_selection() {
         for id in ["document-authoring", "skill-authoring"] {
             let temp = tempfile::tempdir().unwrap();
-            let (_, mut registry) = staged(temp.path(), true);
+            let mut registry = staged_authoring_candidates(temp.path());
             let workspace = tempfile::tempdir().unwrap();
             let mut descriptor: SkillDescriptor =
                 serde_json::from_slice(&fs::read(temp.path().join(id).join("skill.json")).unwrap())
@@ -322,17 +362,17 @@ mod native {
             .unwrap();
             assert_eq!(override_active.source_id, "workspace-authoring");
             assert_eq!(override_active.body.bytes, body);
-            let qualified = format!("{}::{id}::{id}", catalog::SOURCE_ID);
+            let qualified = format!("authoring-candidates::{id}::{id}");
             let builtin = activation::activate(
                 &registry,
                 &discovered,
                 &qualified,
                 &context(),
-                "explicit builtin",
+                "explicit candidate",
                 &Default::default(),
             )
             .unwrap();
-            assert_eq!(builtin.source_id, catalog::SOURCE_ID);
+            assert_eq!(builtin.source_id, "authoring-candidates");
             assert_ne!(
                 builtin.body.version.sha256,
                 override_active.body.version.sha256

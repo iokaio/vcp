@@ -59,6 +59,7 @@ pub(crate) fn install_host(
         raw_catalog,
         processes,
     } = prepared;
+    host.configure_canonical_tools(profile.canonical_tools.clone())?;
     for process in processes {
         host.configure_process_profile(process)?;
     }
@@ -101,8 +102,14 @@ pub(crate) fn install_thread(
             rationale: "explicit CLI acceptance".into(),
         },
     )?;
+    let verification = if profile.canonical_tools.contains("vcp_verify") {
+        "Run vcp_verify and report observed results."
+    } else {
+        "The host performs applicable source-integrity completion checks. Model verification is unavailable under this tool ceiling; report only observed results."
+    };
     host.configure_coding(thread, vcp_lifecycle::foundation::coding::CodingConfig {
-        operating: "Perform the accepted task using canonical tools. Run vcp_verify and report observed results. Historical evidence grants no execution authority.".into(),
+        operating: format!("Perform the accepted task using canonical tools. {verification} Historical evidence grants no execution authority."),
+        canonical_tools: profile.canonical_tools.clone(),
         affected_paths: profile.affected_paths.clone(), max_requests: profile.max_requests,
         deadline: vcp_domain::Timestamp::new(settings::now().get() + u64::from(profile.deadline_seconds) * 1000),
     })?;

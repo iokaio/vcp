@@ -1,16 +1,22 @@
-# CS-1 skill-authoring delivery preparation
+# CS-1 skill-authoring candidate
 
 Owning item: [CS-1](../plan/24-skills-follow-on.md#cs-1--authoring-foundation).
-Status: refined skill-authoring draft; live qualification remains unsatisfied.
-This is not an accepted default.
+Status: accepted by owner direction on September 25, 2026 as a non-default
+candidate. Live qualification remains unsatisfied. The [candidates README](../../src/skills/candidates/README.md)
+records the additional work; failed and unrun evaluations remain unchanged.
 
-The current draft supplies skill-authoring 1.0.1 and its exact hashed reference,
-alongside document-authoring 1.0.1 in the 23-skill catalog 1.5.0. These are the
-frozen candidates selected for the authorized full diagnostic comparison. The
-refinement makes descriptor construction, source boundaries, package hashes and
-verification evidence more explicit. Its coverage remains `provided_unqualified`.
-The revised skill-authoring live comparisons are pending; historical 1.0.0
-results do not qualify this revision.
+The current package retains skill-authoring 1.0.1 and its exact hashed reference
+under `src/skills/candidates/skill-authoring/`. The owner approved this non-default
+disposition on September 25, 2026. The builtin catalog remains at 21 skills and
+44 packaged files. Existing explicit source registration and selection can load
+the candidate; the candidates directory has no automatic loader and is excluded
+from builtin staging. Required tools remain compatibility requirements, not grants.
+
+The frozen full diagnostic used these exact package bytes alongside
+document-authoring 1.0.1 in development catalog 1.5.0. Its global authority halt
+occurred before revised SKL comparisons ran. No v3 SKL result exists; historical
+1.0.0 results do not qualify this revision. Source relocation changes current
+distribution identities without changing or superseding the historical receipts.
 
 The historical 1.0.0 increment builds on the separate document-authoring draft. Catalog version
 1.4.0 contains 23 skills and 49 files. Original `skill-authoring` 1.0.0 supplies a
@@ -19,12 +25,13 @@ content/version integrity, source precedence, explicit selection and independent
 workflow evaluation. Its required read/list tools are compatibility requirements,
 not new grants. A README edit alone is a near miss.
 
-Native catalog coverage extends to both authoring packages, including the new
-resource's missing/changed-content failures, explicit bounded activation,
+Native catalog coverage loads both authoring candidates through explicit sources,
+including the resource's missing/changed-content failures, bounded activation,
 revocation and workspace precedence. The CLI report-only test verifies body and
-resource context before the first model request. Inventory assertions distinguish
-23 builtin entries from 24 entries with the terminal fixture's workspace override.
-The frozen twelve-task authoring manifest and original P7 fixtures remain intact.
+resource context before the first model request. Default discovery excludes both
+candidates. Inventory assertions distinguish 21 builtin entries from 22 entries
+with the terminal fixture's workspace override. The frozen twelve-task authoring
+manifest and original P7 fixtures remain intact.
 
 The historical mixed-catalog live campaign uses catalog 1.3.0 with 23 skills;
 this separately versioned artifact must receive its own native package checks.
@@ -61,6 +68,8 @@ preparation fix and native feasibility regression passed outside the
 frozen campaign. All SKL comparisons have finished: resource-maintenance outputs
 tie across all arms, and the candidate boundary response omits required assertions.
 Retain all failed and inconclusive outcomes. The separately authorized full
-diagnostic uses revised fixtures and the frozen 1.0.1 candidates; its skill-authoring
-phases remain pending. Neither the setup correction nor native package checks
-waive live gates.
+diagnostic used revised fixtures and the frozen 1.0.1 candidates; its skill-authoring
+phases never ran before the permanent authority halt. Neither the setup correction,
+native package checks nor candidate delivery waives live gates. CS-1 acceptance
+is closed by owner direction with qualification gaps retained; no new campaign or
+replay is authorized by this disposition.

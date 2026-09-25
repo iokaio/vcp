@@ -147,16 +147,16 @@ async fn builtin_catalog_host_integrity_is_lazy_and_revalidated() {
         )
         .unwrap();
         let inspected = host.inspect_skills(configuration.registry.clone()).unwrap();
-        assert_eq!(inspected["catalog"]["skills"].as_array().unwrap().len(), 23);
+        assert_eq!(inspected["catalog"]["skills"].as_array().unwrap().len(), 21);
         assert_eq!(inspected["catalog"]["reads"]["bodies"], 0);
         assert_eq!(inspected["integrity"]["reads"]["metadata_files"], 2);
-        assert_eq!(inspected["integrity"]["reads"]["descriptors"], 23);
+        assert_eq!(inspected["integrity"]["reads"]["descriptors"], 21);
         host.configure_skills(configuration).unwrap();
         let id =
             codex_protocol::ThreadId::from_string("00000000-0000-4000-8000-000000000001").unwrap();
         host.register(id, binding).unwrap();
         let status = host.skill_control(id, Request::Status).unwrap();
-        assert_eq!(status["integrity"]["reads"]["revalidations"], 25);
+        assert_eq!(status["integrity"]["reads"]["revalidations"], 23);
         std::fs::write(assets.join("coverage.json"), b"{}").unwrap();
         assert!(
             host.skill_control(id, Request::Status).is_err(),
@@ -354,7 +354,7 @@ async fn retained_skills_are_lazy_attributed_and_cannot_override_denials_or_stal
                 .unwrap();
             let id = host.lifecycle().attach_root(test.codex.clone()).unwrap();
             host.register(id, binding.clone()).unwrap();
-            host.configure_coding(id,CodingConfig {operating:"Observe fixture evidence and preserve the explicit user constraint to keep marker.txt unchanged.".into(),affected_paths:vec!["marker.txt".into()],max_requests:3,deadline:Timestamp::new(now().get()+300_000)}).unwrap();
+            host.configure_coding(id,CodingConfig {canonical_tools: Default::default(),operating:"Observe fixture evidence and preserve the explicit user constraint to keep marker.txt unchanged.".into(),affected_paths:vec!["marker.txt".into()],max_requests:3,deadline:Timestamp::new(now().get()+300_000)}).unwrap();
             let status = host.skill_control(id, Request::Status).unwrap();
             assert_eq!(status["catalog"]["reads"]["bodies"], 0);
             let qualified = status["catalog"]["skills"][0]["qualified_id"]
@@ -547,6 +547,7 @@ async fn retained_skills_are_lazy_attributed_and_cannot_override_denials_or_stal
                     .configure_coding(
                         id,
                         CodingConfig {
+                            canonical_tools: Default::default(),
                             operating:
                                 "Preserve marker.txt and respect current skill prerequisites."
                                     .into(),

@@ -1,8 +1,8 @@
 # 24 — Original workflow skills follow-on
 
 Status: CS-0 scope and qualification design established September 24, 2026;
-CS-1 authoring packages are retained as non-default, unqualified candidates;
-further qualification is deferred and acceptance remains unmet. Later packages remain unaccepted; the bounded
+CS-1 is accepted and closed by owner direction as non-default candidates, with
+remaining qualification work retained in the candidates README. Later packages remain unaccepted; the bounded
 CS-2 Node adapter prerequisite is implemented. Authority:
 [ADR-068](../adr/068-skills-follow-on-before-other-hosts.md). This is a separate
 follow-on ledger, not an expansion or renumbering of the 68 architecture items.
@@ -17,7 +17,7 @@ gaps and prompt-audit proposals stay outside this sequence.
 | Work item | Dependencies | Deliverable | State |
 |---|---|---|---|
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
-| CS-1 | CS-0 | Original document-authoring and skill-authoring packages | candidate delivery closed; qualification deferred — [disposition](../development/cs1-candidate-disposition.md) |
+| CS-1 | CS-0 | Original document-authoring and skill-authoring packages | complete by owner direction — accepted non-default candidates; [remaining qualification work](../../src/skills/candidates/README.md) |
 | CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | planned; [Node adapter prerequisite](../development/cs2-node-fixture-adapter.md) implemented, specialist acceptance pending |
 | CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | planned |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |
@@ -207,8 +207,11 @@ On September 25, 2026 the owner approved retaining both 1.0.1 packages as
 explicitly selected, non-default candidates with their failed and incomplete
 qualification evidence. They live under `src/skills/candidates/`, outside the
 21-skill builtin catalog and native package inventory. This closes the delivery
-disposition, not the exit criteria above. The [disposition record](../development/cs1-candidate-disposition.md)
-preserves the permanent campaign halt and the remaining acceptance gates.
+disposition. The owner subsequently explicitly accepted both candidates and closed
+CS-1 with the original unmet qualification criteria retained as additional work in
+the [candidates README](../../src/skills/candidates/README.md). The
+[disposition record](../development/cs1-candidate-disposition.md) preserves the
+permanent campaign halt. Owner acceptance does not mean those evaluations passed.
 
 ## CS-2 — Developer specialists
 
@@ -217,6 +220,11 @@ UI/MCP/LLM fixtures and provider/project-specific references. Reuse existing
 language/testing skills. Exit: representative project artifacts and independent
 integration checks pass without switching frameworks/providers, broadening grants
 or altering unrelated files. Browser-execution claims remain with CS-3.
+
+The [Windows Node fixture prerequisite](../development/cs2-node-fixture-adapter.md)
+records bounded execution qualification for external JSON assertions. CS-2
+remains planned; its skill and integration acceptance conditions are not met by
+that prerequisite.
 
 ## CS-3 — Browser execution and six-skill acceptance
 

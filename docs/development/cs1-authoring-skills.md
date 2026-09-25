@@ -1,50 +1,69 @@
-# CS-1 document-authoring delivery preparation
+# CS-1 document-authoring candidate implementation
 
 This page records the isolated 22-skill document-authoring increment. The separate
 [skill-authoring increment](cs1-skill-authoring.md) adds its package on top; the
 artifact identities and results below continue to describe the document-only build.
 
 Owning item: [CS-1](../plan/24-skills-follow-on.md#cs-1--authoring-foundation).
-Status: refined document-only increment prepared for draft review; current native
-package checks and live qualification remain outstanding. This document does not
-authorize promotion, release or additional paid calls.
+Status: **accepted by owner direction** as an explicitly selected, non-default
+candidate on September 25, 2026. Qualification failures and unrun evaluations remain
+recorded; acceptance does not claim default qualification or authorize more paid calls.
+Additional work is listed in the [candidates README](../../src/skills/candidates/README.md).
 
-## Proposed inventory
+## Candidate boundary
 
-The proposed catalog is version 1.3.1 with 22 skills: the existing 21 families and
-original `document-authoring` 1.0.1. Its descriptor requires only read/list tools,
-uses the explicit cue convention and grants no execution authority. Guidance covers
-source-backed project documents, preserved historical decisions, source links and
-reader review. Ordinary Markdown presence does not trigger activation.
+The exact original document-authoring 1.0.1 body and descriptor live at
+[the candidate source](../../src/skills/candidates/README.md).
+There is no automatic candidate loader. The distributed builtin catalog remains
+version 1.2.0 with 21 skills and 44 files; document-authoring is absent from its
+inventory and coverage. An experiment must explicitly register a candidate source
+through the existing source registry and select the skill. Ordinary Markdown
+presence does not trigger activation, and a skill grants no tool authority.
 
-The 1.0.1 refinement captures explicit citation and output requirements and checks
-them before delivery. Its body and descriptor match the frozen refined candidate;
-this document-only inventory has its own identity. Coverage remains
-`provided_unqualified`; neither package integrity nor historical results establish
-qualification of the changed body.
+The 1.0.1 package retains its frozen bytes, including the guidance whose interaction
+with report-only tool ceilings was investigated after the mandatory halt. The P2-05
+host tool-ceiling correction does not rewrite those bytes, excuse the violation or
+qualify a new runtime/package combination. No frozen fixture, profile, campaign or
+receipt is changed by the source-only disposition.
 
-`skill-authoring` is absent from this increment. It belongs in a separate PR with
-its resource and catalog/native tests if its own qualification succeeds. The
-two-candidate campaign preparer/runner and future candidate packages are excluded.
+The descriptor requires read/list tools. Guidance covers source-backed project
+documents, historical decisions, source links and reader review. Exact SHA-256:
 
-## Shared evidence inputs
+- Body: e5c04dfb0eeb14f1e52868e217701b1ef07f37d634eae8497cafeec31d132d1f.
+- Descriptor: 463b19cc77673316ccc7a55227d529c5746159b0173364b83b47967cebe1089f.
 
-The [frozen authoring fixtures](../../src/evals/skills/authoring/README.md),
-`scripts/evals/authoring-oracle.cjs` and its contract tests retain the original
-twelve-task specification unchanged. Their SKL fixture content is evaluation data,
-not an installed skill. Independent oracle tests do not activate an absent skill
-or qualify live usefulness. The original P7 42-case inventory remains unchanged.
+Skill-authoring is owned by its separate candidate increment. Shared
+[frozen authoring fixtures](../../src/evals/skills/authoring/README.md) and oracle
+checks remain evaluation data, not an installed skill. The P7 42-case inventory
+is unchanged.
 
-Document-specific native catalog tests cover explicit activation, bounded loading,
-missing tools, changed/missing body bytes, revocation and workspace precedence.
-A native report-only test checks actual activation before the provider request and
-preservation of workspace bytes. Inventory tests distinguish 22 builtin entries
-from the terminal fixture's 23 entries including its workspace-owned override.
+Document-specific native tests register the candidate explicitly and preserve
+bounded loading, missing-tool rejection, changed/missing-body rejection, revocation
+and workspace precedence. They also assert default builtin discovery cannot resolve
+it. The CLI report-only test loads the exact candidate through an explicit user
+source and checks provider context and unchanged workspace bytes. Asset staging
+checks prove the candidate is excluded. These implementation checks do not establish
+live usefulness or qualification.
+
+## Closed 1.0.1 diagnostic outcome
+
+The fresh normal comparison retained an implementation-source attribution error
+and no passing usefulness benefit. The inherited hostile-content and near-miss
+comparisons retained candidate factual failures. A no-skill report-only arm called
+disallowed vcp_verify, triggering the mandatory all-arm halt. The closed campaign
+dispatched 19 of 54 planned slots; later comparisons, including all new SKL v3
+comparisons, did not run. No qualification transfers from another arm or version.
+
+Cumulative retained provider accounting is 181 requests and $0.401397 with zero
+active or unresolved liabilities. These are recorded campaign costs, not an invoice
+or accounting for coordinator/reviewer AI use. Two independent blinded AI readers
+provided reviews; they were not human readers. The final detailed outcome and
+identities are retained in [the qualification evidence PR](https://github.com/iokaio/vcp/pull/175).
 
 ## Historical mixed-catalog campaign
 
 CS-1 evaluation staging used both candidate packages: **23 skills at development
-catalog 1.3.0**. That artifact is distinct from this proposed **22-skill** catalog.
+catalog 1.3.0**. That artifact is distinct from the current **21-skill** default catalog and explicit candidate source.
 Its executable, catalog, source, fixture, profile, checker and proposal identities
 must retain their original hashes. Do not relabel its package qualification as
 qualification of this split artifact.
@@ -90,24 +109,14 @@ Executable SHA-256:
 `b10d6f6fa105f5f7fbf5ccf60a2761b565b1577873644e9386747dda5aee75a8`.
 These are local debug qualification checks, not release or performance acceptance.
 
-## Current 1.0.1 preparation and remaining gates
+
+## Remaining qualification work
 
 The [closed v3 diagnostic](cs1-full-diagnostic-outcome.md) retains failed normal
 and inherited candidate quality findings and a campaign-wide tool-authority halt.
-This does not qualify 1.0.1 or authorize replay. Candidate distribution disposition
-remains an owner decision; historical receipts above are not transferred.
+The owner accepted both non-default candidates and closed CS-1 by direction.
+This does not relabel failed or unrun checks as passing. The
+[candidates README](../../src/skills/candidates/README.md) records additional work
+required before default promotion; historical receipts do not transfer to changed
+packages or runtimes, and the halted campaign cannot resume or replay.
 
-The current 22-skill, 46-file inventory has catalog SHA-256
-`e1575c1bf931b567ad07667b3339c54f1ac29f74744d3487a688e47e765488b1`.
-All 12 focused JavaScript asset/oracle tests passed for this refresh.
-Fresh native package, installation and live qualification evidence is required for
-this changed artifact; the historical receipts above are retained without transfer.
-
-Before merging this increment, resolve the failed correctness and inconclusive
-benefit gates established by the completed document comparisons. The
-[follow-up campaign](cs1-followup-outcome.md) halted on its frozen tool-authority
-gate. The [prospective follow-up design](cs1-follow-up-design.md) records the
-separate qualification path; its execution evidence belongs to its exact frozen
-artifacts and cannot relabel historical results as passing. Any changed
-package or runtime needs appropriate fresh qualification. CS-1 remains incomplete
-until both separately delivered candidates satisfy their acceptance conditions.

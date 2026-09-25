@@ -208,6 +208,9 @@ mod selected_reopen;
 #[path = "support/skills.rs"]
 mod skills;
 #[cfg(windows)]
+#[path = "support/tool_ceiling.rs"]
+mod tool_ceiling;
+#[cfg(windows)]
 #[path = "support/verification.rs"]
 mod verification;
 
