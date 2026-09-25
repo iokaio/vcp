@@ -86,6 +86,17 @@ The next release-nearest slot retains a `failed` marker with null cost and the e
 
 The final audit records `integrity_pass: false` for the authority violation, while separately confirming unchanged inputs and reconciled liabilities. No inherited review gate was created. The permanent halt forbids resume or replay.
 
+Follow-up source inspection found a prospective runtime prerequisite: the CLI
+profile has no canonical tool-subset field, canonical schemas advertise every
+registered tool, and `install_thread` unconditionally instructs the model to run
+`vcp_verify`, including report-only profiles. Empty process/check lists prevent
+process verification but do not remove that model tool. This conflicts with the
+fixture's narrower tool contract. Future evaluation needs matching advertisement,
+admission and operating guidance; changing them cannot repair this frozen run.
+Host-owned unchanged-analysis verification must remain available independently
+of model-visible tools. This finding does not change the separate document
+correctness failures or establish their cause.
+
 | Closed evidence | SHA-256 |
 |---|---|
 | Inherited phase result | `89107b59ee2ab0d204dbed1c18fb9b4e0ba33384332810a550f20bb3d78faadf` |
