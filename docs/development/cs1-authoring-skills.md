@@ -43,9 +43,11 @@ Its executable, catalog, source, fixture, profile, checker and proposal identiti
 must retain their original hashes. Do not relabel its package qualification as
 qualification of this split artifact.
 
-The currently authorized mixed-catalog proposal is
+The completed mixed-catalog proposal is
 `f6b86aa2323df01c39d69b2b4fb70a4214e419b47c2fdd4a97d2e87647fb48a3`.
-The campaign is still running. Two independent blind reviewers found the document
+All thirty-six runs have finished; the eighteen DOC runs have
+[retained outcomes and accounting](cs1-document-comparison.md). Two independent
+blind reviewers found the document
 candidate and no-skill outputs tied overall on both normal tasks. The candidate
 outperformed the architecture baseline, but that alone does not establish the
 required benefit over both baselines. Recorded cost/request differences are
@@ -54,9 +56,9 @@ descriptive observations, not a retrospectively selected acceptance rule.
 All three ADR-boundary runs failed native completion. The candidate preserved the
 historical sources and represented their statuses correctly but omitted the links
 required by the frozen oracle. Diagnostic execution of the same read-only checker
-confirmed the missing-link failure. A separate P2-06 investigation identified that
-the verification tool supplies generic failure metadata without the retained
-process diagnostic text; this does not erase the observed output failure or prove
+confirmed the missing-link failure. The P2-06 correction merged in PR #174 exposes
+bounded retained process diagnostics to the model after verification. The frozen
+campaign used the prior runtime; this does not erase its output failure or prove
 that better feedback would have corrected it. Earlier failures and accounting
 remain retained. Default promotion is blocked by these unmet gates.
 
@@ -81,8 +83,8 @@ Executable SHA-256:
 `b10d6f6fa105f5f7fbf5ccf60a2761b565b1577873644e9386747dda5aee75a8`.
 These are local debug qualification checks, not release or performance acceptance.
 
-Before merging this increment, finish review of the remaining campaign outputs
-and resolve the failed correctness and inconclusive benefit gates. The
+Before merging this increment, resolve the failed correctness and inconclusive
+benefit gates established by the completed document comparisons. The
 [prospective follow-up design](cs1-follow-up-design.md) is unapproved and unexecuted;
 it preserves existing results and cannot relabel them as passing. Any changed
 package or runtime needs appropriate fresh qualification. CS-1 remains incomplete
