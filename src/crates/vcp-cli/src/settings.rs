@@ -52,6 +52,10 @@ pub struct Profile {
     /// Executable hooks are explicit trusted owner configuration, never imports.
     #[serde(default)]
     pub hooks: Vec<vcp_extensions::hooks::registry::HookDefinition>,
+    /// Optional local observers require an explicit owner profile opt-in.
+    #[cfg(windows)]
+    #[serde(default)]
+    pub observers: Option<vcp_lifecycle::foundation::observers::Configuration>,
     pub checks: Vec<vcp_tools::verification::Requirement>,
     #[cfg(feature = "qualification")]
     pub qualification_endpoint: Option<String>,

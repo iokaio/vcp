@@ -370,6 +370,9 @@ Hooks remain inert unless their separate trust/authority requirements are met.
 Compatibility means a tested source/version/field subset, not a familiar filename.
 
 Observers subscribe to selected durable events and produce controller proposals.
+P10-03's selected [local observation contract](../adr/067-bounded-local-observation-tasks.md)
+uses an opt-in exact-repetition diagnostic; statistical regime inference and
+default enablement remain subject to separate outcome qualification.
 Use a deduplication identity of observer version, root task, trigger class and relevant
 manifest/diff revision; debounce before reserving a model call. Persist the selected
 input and outstanding attempt so restart cannot review unchanged work repeatedly.

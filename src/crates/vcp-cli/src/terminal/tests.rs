@@ -38,6 +38,8 @@ fn commands_require_explicit_question_answers_and_exact_arguments() {
         ("/cancel", Input::Cancel),
         ("/exit", Input::Exit),
         ("/status", Input::Status),
+        ("/observers", Input::Observers),
+        ("/observers status", Input::Observers),
         ("/cost", Input::Cost),
         ("/history", Input::History),
         ("/next", Input::Next),
@@ -784,4 +786,20 @@ fn latest_failed_check_and_unresolved_effects_remain_visible_after_history_flood
         rendered["current_checks"][0]["checks"][0]["outcome"]["status"],
         "failed"
     );
+}
+
+#[test]
+fn observer_status_preserves_bounded_history_for_paging_and_labels_advisory_state() {
+    let status = serde_json::json!({"enabled":true,"proposals":[
+        {"disposition":"historical","evidence":"x".repeat(super::DISPLAY_LIMIT+1024)},
+        {"disposition":"current","evidence":"retained-final-observer-receipt"}
+    ],"local_cost":{"steps":7,"provider_requests":0}});
+    let text = super::observer_status_text(&status).unwrap();
+    assert!(text.contains("never permission"));
+    assert!(text.contains("historical proposals require fresh validation"));
+    assert!(text.contains("retained-final-observer-receipt"));
+    assert!(!text.contains("display truncated"));
+    assert!(text.contains("\"provider_requests\":0"));
+    let oversized = serde_json::json!({"evidence":"x".repeat(4*1024*1024)});
+    assert!(super::observer_status_text(&oversized).is_err());
 }

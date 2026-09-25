@@ -7,6 +7,7 @@ pub mod command_handler;
 pub mod controller;
 mod fork;
 pub mod policy;
+pub mod observers;
 pub mod public;
 pub mod public_diff;
 pub mod public_evidence;

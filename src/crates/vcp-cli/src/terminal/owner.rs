@@ -150,7 +150,7 @@ pub async fn run(
     let mut input = input(std::io::BufReader::new(std::io::stdin())).map_err(|e| e.to_string())?;
     let renderer = Renderer::new(std::io::stderr()).map_err(|e| e.to_string())?;
     let mut notice = String::from(
-        "/pause /resume /status /cost /history /groups /optimize /escalate /skills /mcp /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents explore|review <scope> <USD> <seconds> <git.exe> <disposable-parent> <objective> /agents delegate <spec.json> /agents cleanup preview <task> <git.exe> [--reject-edits] | cleanup apply|reconcile <task> /agents recover <task> <git.exe> /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task",
+        "/pause /resume /status /observers /cost /history /groups /optimize /escalate /skills /mcp /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents explore|review <scope> <USD> <seconds> <git.exe> <disposable-parent> <objective> /agents delegate <spec.json> /agents cleanup preview <task> <git.exe> [--reject-edits] | cleanup apply|reconcile <task> /agents recover <task> <git.exe> /inspect <id> /next /answer <id> allow|deny /cancel /exit; plain text steers the task",
     );
     let mut page: Option<InspectionQuery> = None;
     let mut maintenance_page: Option<vcp_lifecycle::foundation::history_retention::Request> = None;
@@ -374,7 +374,12 @@ pub async fn run(
                         display_page(&mut page_text)
                     },
                     Input::Status => serde_json::to_string(&view(&host.snapshot()?,scope,model)?).map_err(|e|e.to_string())?,
-                    Input::Help => format!("/pause /resume /status /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /groups [exact-model] [--offset <candidate-number>] /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents explore|review <scope> <USD> <seconds> <git.exe> <disposable-parent> <objective> /agents delegate <spec.json> /agents cleanup preview <task> <git.exe> [--reject-edits] | cleanup apply|reconcile <task> /agents recover <task> <git.exe> /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /cancel /exit; {} ; {} ; {} ; {} ; plain text queues durable guidance",crate::optimize::HELP,super::escalation::HELP,crate::skills::HELP,crate::mcp::HELP),
+                    Input::Observers => {
+                        page=None; maintenance_page=None;
+                        page_text=super::observer_status_text(&host.observer_status(session.id)?)?;
+                        display_page(&mut page_text)
+                    },
+                    Input::Help => format!("/pause /resume /status /observers /cost /history [list|search|prune --preview] /prune show|apply <preview-id> /retention show|set /groups [exact-model] [--offset <candidate-number>] /agents [offset] /agents focus|follow|pause|cancel|resume|integrate|apply <task> /agents explore|review <scope> <USD> <seconds> <git.exe> <disposable-parent> <objective> /agents delegate <spec.json> /agents cleanup preview <task> <git.exe> [--reject-edits] | cleanup apply|reconcile <task> /agents recover <task> <git.exe> /inspect <id> /read <artifact-id> <byte-offset> /next /answer <id> allow|deny /memory inspect <claim-id>|prune --preview /cancel /exit; {} ; {} ; {} ; {} ; plain text queues durable guidance",crate::optimize::HELP,super::escalation::HELP,crate::skills::HELP,crate::mcp::HELP),
                 }) }.await;
                 match result { Ok(message) if message=="exit"=>return Ok(()), Ok(message)=>notice=message, Err(error)=>notice=format!("Command rejected: {error}") }
             }

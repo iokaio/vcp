@@ -1,6 +1,6 @@
 # 19 — Deferred hooks, importers, observers and execution environments
 
-Status: P10-01 and P10-02 complete; P10-03 and P10-04 remain deferred. Every item starts after P8-05 and its more specific prerequisites in the ledger. These are independently prioritized extensions, not a reason to postpone the first Windows CLI.
+Status: P10-01 through P10-03 complete; P10-04 remains deferred. Every item starts after P8-05 and its more specific prerequisites in the ledger. These are independently prioritized extensions, not a reason to postpone the first Windows CLI.
 
 The proposed [extension design](../architecture/routing-extensions-design.md#deferred-hook-import-and-observer-contracts)
 and [execution-host design](../architecture/deferred-clients-design.md#execution-host-contract)
@@ -105,6 +105,15 @@ Publish the supported-field matrix and explicit exclusions with the importer.
 Exit: each claimed source/version subset has fixtures and documentation; partial import is visibly partial, and original data remains recoverable.
 
 ## P10-03 — Optional observers
+
+Completed 2026-09-24 for the default-off, root-owned exact verification-repetition
+diagnostic: [configuration and limits](../development/observers.md),
+[local observation contract](../adr/067-bounded-local-observation-tasks.md) and
+[matched diagnostic and native recovery evidence](../evaluations/p10-03-observers.md).
+The measured benefit is grouped access to exact evidence, not inferred stalls or
+improved task outcomes. No provider work or automatic intervention is enabled.
+Recall/goal producers, statistical M10 inference and default enablement require
+separate qualification; they are not implied by this bounded optional increment.
 
 The [M10 regime-filter observer](21-markov-integration.md#m8m10--reuse-and-qualification-campaigns)
 is a planned candidate here after P8-05/P7-06, with no first-release dependency.
