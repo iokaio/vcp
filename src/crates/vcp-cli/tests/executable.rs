@@ -6,6 +6,8 @@ mod authoring_directories;
 mod authoring_followup;
 #[path = "support/canonical_tool_ceiling.rs"]
 mod canonical_tool_ceiling;
+#[path = "support/developer_feasibility.rs"]
+mod developer_feasibility;
 #[path = "support/child_output_owner.rs"]
 mod child_output_owner;
 #[path = "support/history_notice.rs"]
