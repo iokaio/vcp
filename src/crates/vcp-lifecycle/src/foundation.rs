@@ -7,6 +7,7 @@ pub mod backup;
 pub mod backup_checkpoint;
 pub mod backup_manager;
 pub mod backup_run;
+pub mod canonical_tools;
 pub mod history_retention;
 #[cfg(windows)]
 pub mod restore_search;

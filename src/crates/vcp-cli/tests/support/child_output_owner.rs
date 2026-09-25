@@ -82,7 +82,9 @@ async fn output_loss_case(backend: BackendKind) {
         .await;
     let fixture = Fixture::new(&server.uri(), "complete");
     let workspace = fixture.workspace.canonicalize().unwrap();
-    let profile = vcp_cli::settings::load(&fixture.profile, &workspace).unwrap();
+    let mut profile = vcp_cli::settings::load(&fixture.profile, &workspace).unwrap();
+    profile.canonical_tools =
+        serde_json::from_value(json!(["vcp_read", "vcp_list", "vcp_search"])).unwrap();
     let prepared = profile.prepare(Autonomy::Autonomous).unwrap();
     let config = Config {
         canonical_root: fixture.data.join("child-output-canonical"),
@@ -178,6 +180,8 @@ async fn output_loss_case(backend: BackendKind) {
     )
     .unwrap();
     host.initialize_root_budget().unwrap();
+    host.configure_canonical_tools(prepared.profile.canonical_tools.clone())
+        .unwrap();
     host.configure_provider(prepared.profile.provider.clone(), prepared.raw_catalog)
         .unwrap();
     let credential =
@@ -225,6 +229,7 @@ async fn output_loss_case(backend: BackendKind) {
     host.configure_coding(
         parent.id,
         vcp_lifecycle::foundation::coding::CodingConfig {
+            canonical_tools: prepared.profile.canonical_tools.clone(),
             operating: "Inspect assigned source and report public observations.".into(),
             affected_paths: vec!["value.txt".into()],
             max_requests: 8,
@@ -276,6 +281,20 @@ async fn output_loss_case(backend: BackendKind) {
     })
     .await
     .expect("both children must be active after attributed public-message flood");
+    // Inspect actual retained child startup and continuation requests: copied
+    // child profiles must retain the owner ceiling at the provider boundary.
+    for request in server.received_requests().await.unwrap() {
+        let outbound: Value = serde_json::from_slice(&request.body).unwrap();
+        let tools = outbound["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 3);
+        assert_eq!(
+            tools
+                .iter()
+                .map(|tool| tool["name"].as_str().unwrap())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search"])
+        );
+    }
     // These are actual active retained child pumps, not just guard fixtures.
     // A cloned child session must not steal their completion/transcript events.
     for child in &children {

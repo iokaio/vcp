@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Retained tool wrappers; canonical assembly owns the actual provider body.
+pub use super::canonical_tools::CanonicalTools;
 use super::*;
 use codex_extension_api::*;
 use serde_json::{json, Value};
@@ -27,6 +28,9 @@ pub fn capabilities() -> Capabilities {
 /// Trusted per-owner setup. It cannot be deserialized from model arguments.
 #[derive(Clone, serde::Serialize)]
 pub struct CodingConfig {
+    /// Owner-selected model tool ceiling; never a grant of effects.
+    #[serde(skip_serializing_if = "CanonicalTools::is_all")]
+    pub canonical_tools: CanonicalTools,
     pub operating: String,
     pub affected_paths: Vec<PathBuf>,
     /// Cumulative root requests, including children and helpers, across reopen.
@@ -76,20 +80,7 @@ pub fn schemas() -> Value {
     schemas
 }
 pub fn allowed_tools() -> AllowedTools {
-    AllowedTools(
-        [
-            "vcp_read",
-            "vcp_list",
-            "vcp_search",
-            "vcp_patch",
-            "vcp_exec",
-            "vcp_verify",
-            "vcp_mcp",
-        ]
-        .into_iter()
-        .map(ToolName::plain)
-        .collect(),
-    )
+    CanonicalTools::default().allowed_tools()
 }
 fn mcp_request(arguments: &str) -> Result<super::mcp::Request, String> {
     #[derive(serde::Deserialize)]
@@ -175,6 +166,22 @@ fn check_hook_tool_boundary(name: &str, authorization_hooks: bool) -> Result<(),
     Ok(())
 }
 impl CanonicalHost {
+    /// Freeze the root's model-facing tool ceiling before retained startup.
+    /// Reopen and child startup reuse the recorded ceiling without widening it.
+    pub fn configure_canonical_tools(&self, tools: CanonicalTools) -> Result<(), String> {
+        self.worker
+            .run(move |context| context.configure_canonical_tools(tools))
+    }
+    pub fn canonical_tools(&self, task: TaskId) -> Result<CanonicalTools, String> {
+        self.worker
+            .run(move |context| context.canonical_tools_for(&task))
+    }
+    /// Seal legacy/default setup before retained registration as well. A later
+    /// caller cannot install a different ceiling behind an already-started thread.
+    pub fn startup_canonical_tools(&self, task: TaskId) -> Result<CanonicalTools, String> {
+        self.worker
+            .run(move |context| context.startup_canonical_tools(&task))
+    }
     /// Record the actual submitted user input before asking the retained
     /// controller to start a turn. Request/tool callbacks advance its stages.
     /// Trusted supervisor binding for a caller-selected, already accepted turn.

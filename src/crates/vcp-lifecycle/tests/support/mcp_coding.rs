@@ -188,7 +188,7 @@ async fn coding_mcp_discovery_call_disconnect_retains_accounted_source_provenanc
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        host.configure_coding(thread,CodingConfig {operating:"Discover, use, and disconnect configured MCP tools; report only observed evidence.".into(),affected_paths:vec!["input.txt".into()],max_requests:8,deadline:Timestamp::new(now+300_000)}).unwrap();
+        host.configure_coding(thread,CodingConfig {canonical_tools: Default::default(),operating:"Discover, use, and disconnect configured MCP tools; report only observed evidence.".into(),affected_paths:vec!["input.txt".into()],max_requests:8,deadline:Timestamp::new(now+300_000)}).unwrap();
         host.begin_coding_turn(thread, "Exercise the configured MCP marker.".into())
             .unwrap();
         test.codex
