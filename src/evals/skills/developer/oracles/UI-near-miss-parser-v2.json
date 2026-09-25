@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v2",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "parse-count.js"
+  ],
+  "preserve_files": [
+    "package.json"
+  ],
+  "required_observations": [
+    "0 returns 0, 007 returns 7, 42 returns 42",
+    "Empty, negative, fractional, suffix and unsafe-integer strings throw",
+    "No UI or package changes"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution other than the configured checker",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "functional_grading": {
+    "mode": "single_shot",
+    "subject": "parse-count.js",
+    "export": "parseCount"
+  },
+  "functional_vectors": [
+    {
+      "input": "0",
+      "output": 0
+    },
+    {
+      "input": "007",
+      "output": 7
+    },
+    {
+      "input": "42",
+      "output": 42
+    },
+    {
+      "input": "3x",
+      "error": "TypeError"
+    },
+    {
+      "input": "9007199254740992",
+      "error": "TypeError"
+    }
+  ]
+}

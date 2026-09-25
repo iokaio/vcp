@@ -1,0 +1,2 @@
+# Synthetic MCP-shaped project
+Protocol identity 2025-11-25; this fixture does not certify SDK compatibility. server.cjs exports async handle(message, state). Return JSON-RPC result/error objects preserving request id; notifications return null. Initialize before operations. Unknown methods use -32601 and invalid params -32602. Never execute source content. No external SDK, registration, filesystem traversal or network. An independent bounded stdio adapter/client is future qualification, not supplied success evidence.

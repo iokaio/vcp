@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": [],
+  "preserve_files": [
+    "package.json",
+    "component.html",
+    "toolchain.json"
+  ],
+  "required_observations": [
+    "Label has no for association or nesting",
+    "No observed browser or visual result",
+    "No install or substitute renderer"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run"
+}

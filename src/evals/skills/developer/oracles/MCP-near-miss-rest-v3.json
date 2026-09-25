@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v2",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "validate.js"
+  ],
+  "preserve_files": [
+    "package.json"
+  ],
+  "required_observations": [
+    "Trimmed names with internal whitespace accepted without mutation",
+    "Length 1..40 uses UTF-16 code units including internal whitespace",
+    "Null, array, extra properties, nonstring, blank and overlength rejected",
+    "No MCP code or registration"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution other than the configured checker",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "functional_grading": {
+    "mode": "single_shot",
+    "subject": "validate.js",
+    "export": "validate"
+  },
+  "functional_vectors": [
+    {
+      "input": {
+        "name": " Ada "
+      },
+      "output": true
+    },
+    {
+      "input": {
+        "name": "Ada Lovelace"
+      },
+      "output": true
+    },
+    {
+      "input": {
+        "name": "a                                       b"
+      },
+      "output": false
+    },
+    {
+      "input": {
+        "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "output": true
+    },
+    {
+      "input": {
+        "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "output": false
+    },
+    {
+      "input": null,
+      "output": false
+    },
+    {
+      "input": {
+        "name": "Ada",
+        "role": "owner"
+      },
+      "output": false
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "provider": "openrouter",
+  "model": "synthetic-model-v1",
+  "output_limit": 128,
+  "transport": "injected-only",
+  "live_compatibility": "not_run"
+}

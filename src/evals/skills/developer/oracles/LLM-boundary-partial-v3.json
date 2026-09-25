@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v2",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "stream.cjs"
+  ],
+  "preserve_files": [
+    "package.json",
+    "contract.md",
+    "provider.json",
+    "scenarios.json"
+  ],
+  "required_observations": [
+    "Truncated stream remains incomplete with partial text",
+    "Abort before or between chunks stops consumption and reports cancelled with prior text",
+    "Terminal error retains code without completed status",
+    "Missing usage remains null, never zero or settled cost",
+    "Valid NDJSON at byte/event limits accepted; oversized valid NDJSON rejected"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution other than the configured checker",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "functional_grading": {
+    "mode": "interactive",
+    "subject": "stream.cjs",
+    "export": "collect"
+  }
+}

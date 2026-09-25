@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "server.cjs"
+  ],
+  "preserve_files": [
+    "package.json",
+    "contract.md",
+    "labels.json",
+    "scenario.json"
+  ],
+  "required_observations": [
+    "Pages l1,l2 then l3,l4 then l5 with no duplicates",
+    "Unknown cursor rejected",
+    "Cancel slow-a leaves slow-b and prevents slow-a completion",
+    "4096-byte reply ceiling enforced before return",
+    "Wall-clock/process cancellation requires separate qualification"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run"
+}

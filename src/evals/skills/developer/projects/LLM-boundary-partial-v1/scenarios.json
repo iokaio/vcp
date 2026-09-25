@@ -1,0 +1,37 @@
+[
+  {
+    "events": [
+      {
+        "type": "delta",
+        "text": "Part"
+      }
+    ],
+    "expected_status": "incomplete"
+  },
+  {
+    "events": [
+      {
+        "type": "delta",
+        "text": "Part"
+      },
+      {
+        "type": "error",
+        "code": "RATE_LIMIT"
+      }
+    ],
+    "expected_status": "error"
+  },
+  {
+    "abort_before_read": true,
+    "expected_status": "cancelled"
+  },
+  {
+    "events": [
+      {
+        "type": "done"
+      }
+    ],
+    "expected_status": "completed",
+    "expected_usage": null
+  }
+]

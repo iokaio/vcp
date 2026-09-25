@@ -1,0 +1,10 @@
+[
+  {
+    "ok": true,
+    "text": "Local notes summarized.",
+    "usage": {
+      "input_tokens": 8,
+      "output_tokens": 4
+    }
+  }
+]

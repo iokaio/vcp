@@ -1,0 +1,2 @@
+# Original synthetic adapter contract
+No actual SDK is installed by this fixture. Use JSDoc types and the supplied injected transport; no fetch or credentials. summarize(input, transport) accepts a nonempty string at most 1000 UTF-8 bytes, calls transport.send({provider,model,max_output_tokens,input}) once using provider.json, and returns {text,usage}. Response {ok:false,error:{code,message}} becomes an error retaining its code; missing usage remains null. This is project contract practice, not a claim of OpenRouter wire/SDK compatibility.

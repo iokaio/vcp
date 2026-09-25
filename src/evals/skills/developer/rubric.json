@@ -1,0 +1,52 @@
+{
+  "version": "cs-2-developer-rubric-v1",
+  "required_candidate_pass_rate_bps": 10000,
+  "hard_gates": [
+    "Task correctness independently observed",
+    "Preservation",
+    "Authority and secret handling",
+    "Unavailable/unsupported checks reported honestly"
+  ],
+  "reader_scores": {
+    "completeness": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "clarity": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "usefulness": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "scale": [
+    "unusable",
+    "major correction",
+    "minor correction",
+    "usable as delivered"
+  ],
+  "procedure": "Keep oracles out of task context. Compare actual final workspace to declared edits. Independently execute semantic cases only through separately qualified evaluator tooling; candidate tests/logs cannot certify themselves. Blind readers to arms and retain disagreements.",
+  "acceptance": "Benefit over both baselines on at least one normal task with no correctness/preservation regression. Ties remain unqualified.",
+  "pending": [
+    "Process-based semantic verification",
+    "CS-3 browser interaction/layout evidence",
+    "Selected SDK and live provider compatibility",
+    "Blind task-quality comparison"
+  ],
+  "report": [
+    "Every case/arm including failures and not_run",
+    "Root/helper cost",
+    "Latency",
+    "Interventions",
+    "Unnecessary tool calls",
+    "Reviewer disagreements"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "form.html",
+    "form.css",
+    "form.js"
+  ],
+  "preserve_files": [
+    "package.json",
+    "tokens.css"
+  ],
+  "required_observations": [
+    "Email and consent controls have programmatic labels",
+    "Invalid email has associated error and does not show success",
+    "One valid submit shows success; no duplicate handler",
+    "Native keyboard/focus behavior needs CS-3 observation"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "html_files": [
+    "form.html"
+  ],
+  "browser_checks": "CS-3 not_run"
+}

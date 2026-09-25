@@ -1,0 +1,2 @@
+# Synthetic streaming contract
+stream.cjs exports collect(chunks, signal). Chunks are Uint8Array fragments of UTF-8 newline-delimited JSON, not a provider wire-format claim. Events: {type:"delta",text}, {type:"done",usage}, {type:"error",code}. At most 4096 input bytes and 32 events. Return {text,status,usage,error}; status is completed, incomplete, cancelled or error. Text accumulates deltas once. Only done completes; absent usage is null. Abort signal must stop consumption. Preserve error code. Decode split UTF-8 bytes incrementally.

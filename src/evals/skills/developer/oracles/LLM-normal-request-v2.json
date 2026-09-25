@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "adapter.cjs"
+  ],
+  "preserve_files": [
+    "package.json",
+    "contract.md",
+    "provider.json",
+    "fake-transport.cjs",
+    "responses.json"
+  ],
+  "required_observations": [
+    "One injected call with exact provider/model/output limit/input",
+    "Nonempty bounded string validation",
+    "Exact text and validated nonnegative safe-integer usage returned",
+    "Error code and message retained; absent or null usage null",
+    "Malformed responses rejected with TypeError without retry",
+    "Synthetic tests cannot qualify live provider/SDK compatibility"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run"
+}

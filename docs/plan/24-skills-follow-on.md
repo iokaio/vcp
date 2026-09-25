@@ -2,8 +2,8 @@
 
 Status: CS-0 scope and qualification design established September 24, 2026;
 CS-1 is accepted and closed by owner direction as non-default candidates, with
-remaining qualification work retained in the candidates README. Later packages remain unaccepted; the bounded
-CS-2 Node adapter prerequisite is implemented. Authority:
+remaining qualification work retained in the candidates README. Later packages remain unaccepted; CS-2 is
+in progress, with its Node adapter, tool ceiling, v5 fixtures and grading prerequisites implemented. Authority:
 [ADR-068](../adr/068-skills-follow-on-before-other-hosts.md). This is a separate
 follow-on ledger, not an expansion or renumbering of the 68 architecture items.
 
@@ -18,7 +18,7 @@ gaps and prompt-audit proposals stay outside this sequence.
 |---|---|---|---|
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
 | CS-1 | CS-0 | Original document-authoring and skill-authoring packages | complete by owner direction — accepted non-default candidates; [remaining qualification work](../../src/skills/candidates/README.md) |
-| CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | planned; [Node adapter prerequisite](../development/cs2-node-fixture-adapter.md) implemented, specialist acceptance pending |
+| CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | in_progress — [implementation and qualification](../development/cs2-developer-skills.md); fixtures v5 and grading prerequisites implemented, specialist acceptance pending |
 | CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | planned |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |
 | CS-5 | CS-4 | Original pdf-workflows and spreadsheet-workflows packages | planned |
@@ -224,8 +224,23 @@ or altering unrelated files. Browser-execution claims remain with CS-3.
 The [Windows Node fixture prerequisite](../development/cs2-node-fixture-adapter.md)
 records bounded execution qualification for external JSON assertions. Its
 interactive mode adds parent-owned transports, iterators and protocol peers over
-bounded relayed frames. CS-2 remains planned; its skill and integration
-acceptance conditions are not met by that prerequisite.
+bounded relayed frames. Its skill and integration acceptance conditions are not
+met by that prerequisite.
+
+On September 25, 2026 the owner resolved three CS-2 questions, recorded in the
+[CS-2 record](../development/cs2-developer-skills.md).
+
+- **References.** "Provider/project-specific references" are project-local.
+  Activation loads every declared resource with the body, so the packages ship
+  none. Skills direct the model to the user's installed SDK sources and project
+  documents, and fixtures carry the project-specific references.
+- **Exit.** Exit is per skill. A qualified skill is promoted in its own PR. An
+  unqualified one follows CS-1's non-default candidate disposition.
+- **Frontend.** `frontend-design` may be promoted before CS-3. CS-3 re-grades its
+  retained artifacts in a real browser, and a failure reopens it.
+
+The same record holds the pre-authorized campaign envelope and pinned process
+identities.
 
 ## CS-3 — Browser execution and six-skill acceptance
 

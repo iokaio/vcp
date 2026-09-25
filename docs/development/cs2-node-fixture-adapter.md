@@ -184,9 +184,23 @@ output cannot be promoted to trusted parent evidence by wrapping it in JSON.
 
 Interactive mode is the qualified interaction design for transport calls,
 iterator reads and protocol exchanges. It works only when the parent owns that
-peer and makes each observation itself. Existing CS-2 semantic assertions must
-be rewritten as parent-side probes over these two modes before they count as
-evidence. No held-out generated artifact has been run by this prerequisite.
+peer and makes each observation itself.
+
+The CS-2 [developer grader](../../scripts/evals/developer-grader.cjs) builds its
+parent-side probes on these two modes.
+
+- **Causal observations:** transport calls, retries, reads after cancellation and
+  MCP exchanges use interactive mode.
+- **Behavior of the combined staged program:** returned values, thrown-error
+  class and argument state after a call are observed through grader-authored
+  wrappers beside the candidate.
+
+A deliberately hostile candidate sharing that process could forge those
+wrapper-level reports. The grader accepts this residual risk for one reason:
+forging a pass requires the grader's expected values and test inputs, which never
+enter model context. The adapter still authenticates none of this.
+
+No held-out generated artifact has been run by this prerequisite.
 
 Real MCP stdio/protocol and selected SDK compatibility, live provider evidence,
 browser/DOM behavior, human usefulness and the CS-0 comparison gates remain

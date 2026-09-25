@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v2",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "server.cjs"
+  ],
+  "preserve_files": [
+    "package.json",
+    "contract.md",
+    "labels.json",
+    "scenario.json"
+  ],
+  "required_observations": [
+    "Pages l1,l2 then l3,l4 then l5; exact cursors and invalid-param errors",
+    "Explicit Map queue and synchronous ordered flush; only matching cancelled request removed",
+    "Repeated/unknown/malformed/late cancellation is a no-op",
+    "16 pending limit and duplicate rejection preserve existing work",
+    "Complete serialized reply at 4096 bytes accepted; larger UTF-8/escaped immediate and flushed replies replaced with -32001",
+    "Wall-clock/process cancellation remains not_run"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution other than the configured checker",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "functional_grading": {
+    "mode": "single_shot",
+    "subject": "server.cjs",
+    "export": "handle"
+  }
+}

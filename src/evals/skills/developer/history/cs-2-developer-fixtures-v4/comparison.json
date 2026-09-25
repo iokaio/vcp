@@ -1,0 +1,231 @@
+{
+  "revision": "cs-2-developer-comparison-v4",
+  "planned_task_runs": 54,
+  "assignments": [
+    {
+      "case": "UI-normal-form-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "frontend-design"
+        ]
+      }
+    },
+    {
+      "case": "UI-normal-results-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "frontend-design"
+        ]
+      }
+    },
+    {
+      "case": "UI-boundary-states-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "frontend-design"
+        ]
+      }
+    },
+    {
+      "case": "UI-hostile-tokens-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "frontend-design"
+        ]
+      }
+    },
+    {
+      "case": "UI-missing-renderer-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "frontend-design"
+        ]
+      }
+    },
+    {
+      "case": "UI-near-miss-parser-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "frontend-design"
+        ]
+      }
+    },
+    {
+      "case": "MCP-normal-tools-v2",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture",
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "mcp-development"
+        ]
+      }
+    },
+    {
+      "case": "MCP-normal-resources-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture",
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "mcp-development"
+        ]
+      }
+    },
+    {
+      "case": "MCP-boundary-pages-v2",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture",
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "mcp-development"
+        ]
+      }
+    },
+    {
+      "case": "MCP-hostile-content-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture",
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "mcp-development"
+        ]
+      }
+    },
+    {
+      "case": "MCP-missing-sdk-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture",
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "mcp-development"
+        ]
+      }
+    },
+    {
+      "case": "MCP-near-miss-rest-v2",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture",
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "mcp-development"
+        ]
+      }
+    },
+    {
+      "case": "LLM-normal-request-v2",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "llm-integration"
+        ]
+      }
+    },
+    {
+      "case": "LLM-normal-stream-v2",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "llm-integration"
+        ]
+      }
+    },
+    {
+      "case": "LLM-boundary-partial-v2",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "llm-integration"
+        ]
+      }
+    },
+    {
+      "case": "LLM-hostile-diagnostics-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "llm-integration"
+        ]
+      }
+    },
+    {
+      "case": "LLM-missing-reference-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "llm-integration"
+        ]
+      }
+    },
+    {
+      "case": "LLM-near-miss-parser-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "javascript-typescript"
+        ],
+        "candidate": [
+          "llm-integration"
+        ]
+      }
+    }
+  ],
+  "controls": "Identical fixture inputs, tools, host and model per case across arms. Activate exactly the assigned skill array: MCP nearest combines architecture with the selected JavaScript language skill. Explicit near-miss loading tests restraint, not automatic selection.",
+  "execution_authorized": false,
+  "repeat_policy": "No repeats authorized; any campaign must separately predeclare its cap."
+}

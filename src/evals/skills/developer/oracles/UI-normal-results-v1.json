@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "results.html",
+    "results.js"
+  ],
+  "preserve_files": [
+    "package.json",
+    "items.json",
+    "tokens.css"
+  ],
+  "required_observations": [
+    "Exact tree membership a,b; flower c; all a,b,c",
+    "Unknown category has count zero and explicit empty state",
+    "Reset restores three; original item data unchanged"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "html_files": [
+    "results.html"
+  ],
+  "functional_vectors": [
+    {
+      "category": "tree",
+      "ids": [
+        "a",
+        "b"
+      ]
+    },
+    {
+      "category": "flower",
+      "ids": [
+        "c"
+      ]
+    },
+    {
+      "category": "all",
+      "ids": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    {
+      "category": "unknown",
+      "ids": []
+    }
+  ],
+  "browser_checks": "CS-3 not_run"
+}

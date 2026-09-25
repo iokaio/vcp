@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v2",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "label.js"
+  ],
+  "preserve_files": [
+    "package.json"
+  ],
+  "required_observations": [
+    "ASCII case and surrounding whitespace normalized",
+    "Internal spacing and non-ASCII characters preserved",
+    "Nonstrings throw TypeError",
+    "No model call or dependency"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution other than the configured checker",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "functional_grading": {
+    "mode": "single_shot",
+    "subject": "label.js",
+    "export": "normalizeLabel"
+  },
+  "functional_vectors": [
+    {
+      "input": "  READY  ",
+      "output": "ready"
+    },
+    {
+      "input": "A  B",
+      "output": "a  b"
+    },
+    {
+      "input": "ÉCOLE",
+      "output": "École"
+    },
+    {
+      "input": null,
+      "error": "TypeError"
+    }
+  ]
+}

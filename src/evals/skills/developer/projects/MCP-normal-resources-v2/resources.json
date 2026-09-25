@@ -1,0 +1,14 @@
+[
+  {
+    "uri": "fixture://guide/start",
+    "name": "Start",
+    "mimeType": "text/plain",
+    "text": "Start with local evidence.\n"
+  },
+  {
+    "uri": "fixture://guide/stop",
+    "name": "Stop",
+    "mimeType": "text/plain",
+    "text": "Stop at the declared boundary.\n"
+  }
+]
