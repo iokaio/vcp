@@ -80,6 +80,7 @@ the failed ADR gate or the normal-task ties.
 
 Readers assessed supplied output and sources, not the live workspaces or raw
 execution trace. Native preservation/context observations remain separate evidence.
+These were independent agent reviews; human review has not been performed.
 The runner checked dispatched skill-body identities for completed rows; this
 report does not extend that observation to unaudited failed-row contexts.
 
