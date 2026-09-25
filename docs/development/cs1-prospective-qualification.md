@@ -155,9 +155,14 @@ reservation is 1,322,516 microdollars under the qualified conservative input
 bounds, within the $3 slot cap. Final bound source content SHA-256 is
 `3feb9c293815da081b990cbc38f90462aee72c920629d517ac79df19c3c37a15`.
 
-## Prepared approval target
+## Historical prepared approval target
 
-Prepared with zero model calls; execution is not authorized:
+The owner approved this target; its first phase subsequently reached a
+[mandatory halt](cs1-followup-outcome.md). A later owner instruction authorizes
+the separately prepared [v3 full diagnostic test](cs1-full-qualification.md).
+The hashes below remain the historical v2 identities and must not be reused.
+
+At preparation, the following target had zero model calls and awaited approval:
 
 | Bound object | SHA-256 |
 |---|---|

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 'use strict';
-// Data-only structural mapping of the four frozen v2 specifications. Native
+// Data-only structural mapping of the four frozen v3 specifications. Native
 // descriptor validation, authority receipts and semantic quality remain separate.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const root = path.resolve(__dirname, '../../src/evals/skills/authoring-followup');
@@ -9,7 +9,7 @@ const keys = (value, names) => value && typeof value === 'object' && !Array.isAr
 const safe = value => typeof value === 'string' && value.length > 0 && value.length <= 1024 && !/[\\:*?"<>|\x00-\x1f\x7f]/.test(value) && !value.startsWith('/') && value.split('/').every(p => p && p !== '.' && p !== '..' && !/[. ]$/.test(p) && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p));
 function load(caseId) {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json')));
-  if (manifest.revision !== 'cs-1-followup-fixtures-v2') throw Error('Follow-up fixture revision changed');
+  if (manifest.revision !== 'cs-1-followup-fixtures-v3') throw Error('Follow-up fixture revision changed');
   const task = manifest.cases.find(item => item.id === caseId);
   if (!task) throw Error('Unknown follow-up case');
   const frozen = (base, ref) => {

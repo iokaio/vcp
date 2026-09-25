@@ -95,11 +95,8 @@ impl Script {
                         let tail = diagnostics[0]["stdout"]["tail"].as_str().unwrap();
                         assert!(tail.contains("ok 1 - authoring input preservation"));
                         assert!(tail.contains("ok 2 - authoring output structure"));
-                        assert!(
-                            tail.contains(
-                                "# Scope: source preservation and artifact structure only"
-                            )
-                        );
+                        assert!(tail
+                            .contains("# Scope: source preservation and artifact structure only"));
                         assert!(tail.contains("# Not evaluated here (not_run):"));
                     }
                     Action::Descriptor => unreachable!(),
@@ -155,7 +152,7 @@ async fn feasible(case_id: &str) {
         "../../../../evals/skills/authoring-followup/manifest.json"
     ))
     .unwrap();
-    assert_eq!(manifest["revision"], "cs-1-followup-fixtures-v2");
+    assert_eq!(manifest["revision"], "cs-1-followup-fixtures-v3");
     let case = manifest["cases"]
         .as_array()
         .unwrap()
@@ -223,20 +220,20 @@ async fn feasible(case_id: &str) {
 
     let mut expected: BTreeMap<String, String> = BTreeMap::new();
     let reads: Vec<&str> = match case_id {
-        "DOC-followup-handoff-v2" => {
+        "DOC-followup-handoff-v3" => {
             expected.insert("handoff.md".into(), "# Structural feasibility fixture\n[Incident](incident/timeline.md), [recovery](operations/recovery.md), [shift](shift/notes.md).\nHuman handoff quality is not established by this test.\n".into());
             vec!["handoff.md"]
         }
-        "DOC-followup-migration-v2" => {
+        "DOC-followup-migration-v3" => {
             expected.insert("migration-notice.md".into(), "# Structural feasibility fixture\n[Decision](decisions/014-explicit-cache-root.md), [implementation](implementation/2.4.md), [checks](tests/checks.json).\nHuman migration guidance quality is not established by this test.\n".into());
             vec!["migration-notice.md"]
         }
-        "SKL-followup-create-v2" => {
+        "SKL-followup-create-v3" => {
             expected.insert("package/SKILL.md".into(), "# Synthetic review fixture\nUse the [checklist](references/review-checklist.md) for local evidence. This is transport feasibility, not qualified guidance.\n".into());
             expected.insert("package/references/review-checklist.md".into(), "# Synthetic checklist\nInspect local evidence and keep unsupported claims explicit.\n".into());
             vec!["package/SKILL.md", "package/references/review-checklist.md"]
         }
-        "SKL-followup-maintain-v2" => {
+        "SKL-followup-maintain-v3" => {
             expected.insert("package/references/planned-changes.md".into(), "# Planned changes\nRecord a named owner and an existing project-local issue link as checkpoint. Report unavailable issue evidence without creating issues, inventing dates or promising delivery.\n".into());
             vec![
                 "package/SKILL.md",
@@ -332,17 +329,17 @@ async fn feasible(case_id: &str) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn handoff_native_feasibility() {
-    feasible("DOC-followup-handoff-v2").await;
+    feasible("DOC-followup-handoff-v3").await;
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn migration_native_feasibility() {
-    feasible("DOC-followup-migration-v2").await;
+    feasible("DOC-followup-migration-v3").await;
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn create_native_feasibility_with_observed_hashes() {
-    feasible("SKL-followup-create-v2").await;
+    feasible("SKL-followup-create-v3").await;
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn maintain_native_feasibility_with_all_resource_hashes() {
-    feasible("SKL-followup-maintain-v2").await;
+    feasible("SKL-followup-maintain-v3").await;
 }

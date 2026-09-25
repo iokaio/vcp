@@ -31,6 +31,23 @@ function phase(f) {
   const envelope = f.prepare(), prepared = followup.preparePhase(envelope.envelope, envelope.sha256, 'document-authoring', 'normal');
   return { ...envelope, prepared, plan: json(prepared.plan) };
 }
+function fullFixture(t) {
+  const f = fixture(t), historical = require('../support/authoring-prior-campaign.cjs').priorCampaignFixture();
+  const claim = followup.successorClaim({ prior_campaign: { reference: historical.reference } });
+  t.after(() => {
+    if (fs.existsSync(claim)) {
+      const owner = json(claim);
+      assert.equal(path.dirname(owner.directory), f.root, 'Only this synthetic fixture owns the successor claim');
+      fs.unlinkSync(claim);
+    }
+  });
+  for (const [name, bytes] of Object.entries(historical.buffers)) {
+    historical.reference[name] = path.join(f.root, 'prior-' + name + '.json');
+    fs.writeFileSync(historical.reference[name], bytes);
+  }
+  f.spec.execution_mode = 'full_diagnostic'; f.spec.prior_campaign = historical.reference; f.persist();
+  return f;
+}
 function reviewFixture(plan, options = {}) {
   const cases = [...new Set(plan.runs.map(row => row.case_id))].sort();
   const phaseHash = 'a'.repeat(64), resultHash = 'b'.repeat(64), envelopeHash = 'c'.repeat(64);
@@ -130,7 +147,7 @@ test('only first candidate normal phase is initially preparable; exact parents, 
 });
 test('phase cap mutation, duplicate row, alternate task and profile mutation cannot be authorized by rehashing', t => {
   const f = fixture(t), p = phase(f), originalBytes = fs.readFileSync(p.prepared.plan);
-  for (const mutation of [v => v.runs[0].cap_micros++, v => v.runs[1] = structuredClone(v.runs[0]), v => v.runs[0].case_id = 'DOC-followup-migration-v2', v => v.runs[0].profile.automatic_effects = []]) {
+  for (const mutation of [v => v.runs[0].cap_micros++, v => v.runs[1] = structuredClone(v.runs[0]), v => v.runs[0].case_id = 'DOC-followup-migration-v3', v => v.runs[0].profile.automatic_effects = []]) {
     const changed = structuredClone(p.plan); mutation(changed); save(p.prepared.plan, changed);
     assert.throws(() => followup.run(p.envelope, p.sha256, p.prepared.plan, sha(fs.readFileSync(p.prepared.plan)), () => assert.fail('dispatch forbidden')), /derivation differs/);
   }
@@ -213,7 +230,7 @@ test('reviewed authority or secret-handling failure in any arm permanently halts
   assert.throws(() => decide(scores), /global halt/);
 });
 test('new JS oracle maps exact bytes and task bounds without pretending native or semantic checks ran', () => {
-  for (const [id, name, max] of [['DOC-followup-handoff-v2', 'handoff.md', 7999], ['DOC-followup-migration-v2', 'migration-notice.md', 7999], ['SKL-followup-maintain-v2', 'package/references/planned-changes.md', 5999], ['SKL-followup-create-v2', 'package/SKILL.md', 6000]]) {
+  for (const [id, name, max] of [['DOC-followup-handoff-v3', 'handoff.md', 7999], ['DOC-followup-migration-v3', 'migration-notice.md', 7999], ['SKL-followup-maintain-v3', 'package/references/planned-changes.md', 5999], ['SKL-followup-create-v3', 'package/SKILL.md', 6000]]) {
     const { oracle: spec, initial } = oracle.load(id), answer = { files: [...spec.allowed_outputs, ...spec.allowed_modifications].map(path => ({ path, content: initial.get(path) || 'synthetic' })), report: '', not_run: ['Native validation and semantic review are not run.'] };
     answer.files.find(f => f.path === name).content = 'x'.repeat(max);
     const final = new Map(initial); answer.files.forEach(f => final.set(f.path, f.content));
@@ -221,7 +238,7 @@ test('new JS oracle maps exact bytes and task bounds without pretending native o
     answer.files.find(f => f.path === name).content += 'x'; assert.equal(oracle.check(id, answer).structural_pass, false);
     answer.files.find(f => f.path === name).content = 'changed'; assert.equal(oracle.check(id, answer, { finalFiles: final }).structural_pass, false);
   }
-  const id = 'SKL-followup-create-v2', spec = oracle.load(id).oracle;
+  const id = 'SKL-followup-create-v3', spec = oracle.load(id).oracle;
   const answer = { files: spec.allowed_outputs.map(path => ({ path, content: path.endsWith('skill.json') ? 'x'.repeat(4000) : 'synthetic' })), report: '', not_run: [] };
   assert.equal(oracle.check(id, answer).structural_pass, true);
   answer.files[0].content += 'x'; assert.equal(oracle.check(id, answer).structural_pass, false);
@@ -236,7 +253,7 @@ test('retained review gates derive exactly one lexicographic confirmation triple
   assert.throws(() => api.preparePhase(e.envelope, e.sha256, 'document-authoring', 'inherited'), /ENOENT/);
   const owner = retainReview(f.root, plan, normal.sha256, result, e.sha256);
   const gate = api.recordReview(e.envelope, e.sha256, 'document-authoring', 'normal', owner);
-  assert.deepEqual(gate.decision.winning_case_ids, ['DOC-followup-handoff-v2', 'DOC-followup-migration-v2']);
+  assert.deepEqual(gate.decision.winning_case_ids, ['DOC-followup-handoff-v3', 'DOC-followup-migration-v3']);
   assert.throws(() => api.recordReview(e.envelope, e.sha256, 'document-authoring', 'normal', owner), /EEXIST/);
   const inherited = api.preparePhase(e.envelope, e.sha256, 'document-authoring', 'inherited'), inheritedPlan = json(inherited.plan);
   assert.equal(inheritedPlan.runs.length, 18); assert.equal(json(inheritedPlan.runtime.cases_file).cases.length, 15);
@@ -245,15 +262,78 @@ test('retained review gates derive exactly one lexicographic confirmation triple
   assert.throws(() => api.preparePhase(e.envelope, e.sha256, 'document-authoring', 'confirmation'), /ENOENT/);
   api.recordReview(e.envelope, e.sha256, 'document-authoring', 'inherited', retainReview(f.root, inheritedPlan, inherited.sha256, inheritedResult, e.sha256));
   const confirmation = api.preparePhase(e.envelope, e.sha256, 'document-authoring', 'confirmation'), confirmationPlan = json(confirmation.plan);
-  assert.equal(confirmationPlan.runs.length, 3); assert.equal(confirmationPlan.selected_confirmation_case, 'DOC-followup-handoff-v2');
-  assert(confirmationPlan.runs.every(row => row.case_id === 'DOC-followup-handoff-v2'));
+  assert.equal(confirmationPlan.runs.length, 3); assert.equal(confirmationPlan.selected_confirmation_case, 'DOC-followup-handoff-v3');
+  assert(confirmationPlan.runs.every(row => row.case_id === 'DOC-followup-handoff-v3'));
   assert.equal(json(confirmationPlan.runtime.cases_file).cases.length, 3);
   assert.throws(() => api.preparePhase(e.envelope, e.sha256, 'document-authoring', 'confirmation'), /already claimed/);
   assert.throws(() => api.preparePhase(e.envelope, e.sha256, 'skill-authoring', 'normal'), /ENOENT/);
-  const bytes = fs.readFileSync(confirmation.plan); confirmationPlan.selected_confirmation_case = 'DOC-followup-migration-v2'; save(confirmation.plan, confirmationPlan);
+  const bytes = fs.readFileSync(confirmation.plan); confirmationPlan.selected_confirmation_case = 'DOC-followup-migration-v3'; save(confirmation.plan, confirmationPlan);
   assert.throws(() => api.run(e.envelope, e.sha256, confirmation.plan, sha(fs.readFileSync(confirmation.plan)), () => assert.fail()), /derivation/);
   fs.writeFileSync(confirmation.plan, bytes);
   const raw = path.join(plan.directory, 'review/blind-source-0.json'); fs.appendFileSync(raw, ' ');
   assert.throws(() => api.run(e.envelope, e.sha256, confirmation.plan, confirmation.sha256, () => assert.fail()), /evidence changed/);
   assert(fs.existsSync(path.join(path.dirname(e.envelope), 'halt.json')));
+});
+
+test('full diagnostic schedule preserves failed outcomes and advances only after review without granting qualification', t => {
+  const f = fullFixture(t), e = f.prepare(); let dispatch = 0;
+  const call = (_exe, args) => {
+    if (args.includes('run')) { dispatch++; return { status: 1, stdout: JSON.stringify({ type: 'accepted', scope: { task: 'full-diagnostic-' + dispatch } }) + '\n' + JSON.stringify({ type: 'result', conditions: { completed: false } }), stderr: '' }; }
+    const view = args[args.indexOf('--view') + 1];
+    const items = view === 'costs' ? [{ collection: 'ledger', visibility: 'available', record: { currency: 'USD', cap: '3000000', active: '0', unresolved: '0', settled: '0', overrun: false } }] : [];
+    return { status: 0, stdout: JSON.stringify({ type: 'result', data: { items, gaps: [], next_cursor: null } }), stderr: '' };
+  };
+  for (const name of ['normal', 'inherited', 'confirmation']) {
+    const prepared = followup.preparePhase(e.envelope, e.sha256, 'document-authoring', name), plan = json(prepared.plan);
+    assert.equal(plan.execution_mode, 'full_diagnostic');
+    if (name === 'confirmation') {
+      assert.equal(plan.selected_confirmation_case, 'DOC-followup-handoff-v3');
+      assert.equal(plan.qualification_prerequisites_pass, false);
+    }
+    const result = followup.run(e.envelope, e.sha256, prepared.plan, prepared.sha256, call);
+    assert.equal(result.stopped, false, JSON.stringify(result.runs.filter(r => r.reason)));
+    assert.equal(result.candidate_stopped, false); assert(result.runs.every(r => r.status === 'failed'));
+    const last = plan.runs.at(-1), reservation = json(path.join(plan.directory, last.id, 'budget-admission.json'));
+    assert.equal(reservation.actual_cost_micros, 123408); assert.equal(reservation.observed_attempts, 47);
+    assert.equal(reservation.reserved_micros, 3000000); assert.equal(reservation.reserved_requests, 16);
+    if (name !== 'confirmation') assert.throws(() => followup.preparePhase(e.envelope, e.sha256, 'document-authoring', name === 'normal' ? 'inherited' : 'confirmation'), /ENOENT/);
+    const owner = retainReview(f.root, plan, prepared.sha256, result, e.sha256);
+    const gate = followup.recordReview(e.envelope, e.sha256, 'document-authoring', name, owner);
+    assert.equal(gate.decision.candidate_gates_pass, false); assert.equal(gate.decision.qualifies, false);
+    assert.equal(gate.decision.terminal, name === 'confirmation');
+  }
+  assert.equal(dispatch, 27);
+  assert.equal(followup.preparePhase(e.envelope, e.sha256, 'skill-authoring', 'normal').slots, 6);
+  assert.throws(() => followup.prepare(f.specFile, path.join(f.root, 'second-successor')), /EEXIST/);
+  const copied = path.join(f.root, 'copied-accounting.json');
+  fs.copyFileSync(f.spec.prior_campaign.accounting, copied);
+  f.spec.prior_campaign.accounting = copied; f.persist();
+  assert.throws(() => followup.prepare(f.specFile, path.join(f.root, 'copied-receipt-successor')), /EEXIST/);
+  const previousTemp = process.env.TEMP, previousTmp = process.env.TMP;
+  try {
+    process.env.TEMP = f.root; process.env.TMP = f.root;
+    assert.throws(() => followup.prepare(f.specFile, path.join(f.root, 'other-temp-successor')), /EEXIST/);
+  } finally {
+    if (previousTemp === undefined) delete process.env.TEMP; else process.env.TEMP = previousTemp;
+    if (previousTmp === undefined) delete process.env.TMP; else process.env.TMP = previousTmp;
+  }
+});
+
+test('full mode cannot qualify a diagnostic repeat after failed prerequisites or waive authority gates', () => {
+  const plan = barePlan('confirmation'); plan.runs = plan.runs.slice(0, 3);
+  plan.execution_mode = 'full_diagnostic'; plan.qualification_prerequisites_pass = false;
+  const f = reviewFixture(plan);
+  assert.equal(decide(f).winning_case_ids.length, 1); assert.equal(decide(f).qualifies, false);
+  plan.qualification_prerequisites_pass = true; assert.equal(decide(f).qualifies, true);
+  f.reviews[0].cases[0].arms[0].hard_gates.authority = false;
+  assert.throws(() => decide(f), /global halt/);
+});
+
+test('unaccounted attempted claims prevent full-mode dispatch and preserve the exclusive successor', t => {
+  const f = fullFixture(t), p = phase(f);
+  save(path.join(path.dirname(p.envelope), 'claims', 'unaccounted.json'), { task: 'unknown liability' });
+  const result = followup.run(p.envelope, p.sha256, p.prepared.plan, p.prepared.sha256, () => assert.fail('No dispatch before complete accounting'));
+  assert.equal(result.stopped, true); assert.match(result.runs[0].reason, /absent from cumulative accounting/);
+  assert.equal(fs.existsSync(path.join(p.plan.directory, p.plan.runs[0].id, 'attempted.json')), false);
+  assert.throws(() => followup.prepare(f.specFile, path.join(f.root, 'another-successor')), /EEXIST/);
 });

@@ -32,7 +32,7 @@ fn put_descriptor(files: &mut Files, value: &Value) {
 fn artifact(case: &str) -> Files {
     let mut files = fixture(case);
     match case {
-        "DOC-followup-handoff-v2" | "DOC-followup-migration-v2" => {
+        "DOC-followup-handoff-v3" | "DOC-followup-migration-v3" => {
             let scope = scope(case).unwrap();
             let content = scope
                 .links
@@ -41,7 +41,7 @@ fn artifact(case: &str) -> Files {
                 .collect::<String>();
             files.insert(scope.outputs[0].into(), content.into_bytes());
         }
-        "SKL-followup-create-v2" => {
+        "SKL-followup-create-v3" => {
             let body =
                 b"# Trusted structural example\n[Checklist](references/review-checklist.md)\n";
             let resource = b"# Trusted resource\nNo factual or quality score is implied.\n";
@@ -61,7 +61,7 @@ fn artifact(case: &str) -> Files {
                 }),
             );
         }
-        "SKL-followup-maintain-v2" => {
+        "SKL-followup-maintain-v3" => {
             let content = b"# Trusted replacement\nStructural testing only.\n";
             files.insert(
                 "package/references/planned-changes.md".into(),
@@ -93,7 +93,48 @@ fn four_contracts_and_trusted_structures_resolve_without_semantic_claims() {
         assert!(result.iter().all(Result::is_ok), "{case}: {result:?}");
     }
     assert!(contract("DOC-followup-handoff-v1").is_err());
+    assert!(contract("DOC-followup-handoff-v2").is_err());
     assert!(contract("invented").is_err());
+}
+
+#[test]
+fn revised_authority_adds_only_read_only_search() {
+    for case in CASES {
+        let (_, oracle) = contract(case).unwrap();
+        assert_eq!(
+            oracle["deterministic_checks"][3]["permitted_tools"],
+            json!([
+                "vcp_list",
+                "vcp_read",
+                "vcp_search",
+                "vcp_patch",
+                "vcp_verify"
+            ])
+        );
+        for tools in [
+            json!(["vcp_list", "vcp_read", "vcp_patch", "vcp_verify"]),
+            json!([
+                "vcp_list",
+                "vcp_read",
+                "vcp_search",
+                "vcp_patch",
+                "vcp_verify",
+                "vcp_exec"
+            ]),
+            json!([
+                "vcp_list",
+                "vcp_read",
+                "vcp_search",
+                "vcp_patch",
+                "vcp_verify",
+                "vcp_mcp"
+            ]),
+        ] {
+            let mut changed = oracle.clone();
+            changed["deterministic_checks"][3]["permitted_tools"] = tools;
+            assert!(specifications(case, &changed).is_err());
+        }
+    }
 }
 
 #[test]
