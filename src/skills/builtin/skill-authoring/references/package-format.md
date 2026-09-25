@@ -35,9 +35,11 @@ observed runtime/usefulness evidence. Do not label fixture expectations as resul
 Use `scripts/skills/builtin-assets.cjs verify` and `stage` when working in VCP's
 repository; an installed user's custom skill need not modify the builtin catalog.
 
-Discovery reads descriptors. Activation revalidates the selected descriptor and
-reads and verifies the body plus every declared resource within configured byte
-limits. Keep the complete activation small even when references are separate files.
+Metadata discovery reads descriptors, not bodies or resources. Observe both
+content-read counters when testing that boundary. Activation revalidates the
+selected descriptor and reads and verifies the body plus every declared resource
+within configured byte limits. Keep the complete activation small even when
+references are separate files.
 Explicit selection may resolve a compatible skill without a root-cue match;
 automatic suggestions depend on the existing matching logic. Do not change that
 logic, source precedence or activation authority in a content-only skill update.

@@ -1,10 +1,18 @@
 # CS-1 skill-authoring delivery preparation
 
 Owning item: [CS-1](../plan/24-skills-follow-on.md#cs-1--authoring-foundation).
-Status: isolated skill-authoring increment with passing native package checks;
-live qualification remains unsatisfied. This is not an accepted default.
+Status: refined skill-authoring draft; live qualification remains unsatisfied.
+This is not an accepted default.
 
-This increment builds on the separate document-authoring draft. Catalog version
+The current draft supplies skill-authoring 1.0.1 and its exact hashed reference,
+alongside document-authoring 1.0.1 in the 23-skill catalog 1.5.0. These are the
+frozen candidates selected for the authorized full diagnostic comparison. The
+refinement makes descriptor construction, source boundaries, package hashes and
+verification evidence more explicit. Its coverage remains `provided_unqualified`.
+The revised skill-authoring live comparisons are pending; historical 1.0.0
+results do not qualify this revision.
+
+The historical 1.0.0 increment builds on the separate document-authoring draft. Catalog version
 1.4.0 contains 23 skills and 49 files. Original `skill-authoring` 1.0.0 supplies a
 body and one hashed package-format reference. It describes VCP descriptors,
 content/version integrity, source precedence, explicit selection and independent
@@ -27,7 +35,7 @@ The completed [comparison report](cs1-skill-comparison.md) records every case,
 independent blind reviews and reconciled accounting.
 
 Twelve JavaScript asset/oracle tests and all nineteen fast-suite cases passed for
-this increment (fast run `2881125c-5c52-4bfa-9c81-d550f1dc3d33`). Seven native
+the historical 1.0.0 increment (fast run `2881125c-5c52-4bfa-9c81-d550f1dc3d33`). Seven native
 catalog tests, three host skill tests, and the CLI body/resource activation test
 passed. Installation, upgrade from 22 to 23 skills, exact rollback to 22, and
 re-upgrade to 23 preserved the protected-data sentinel. Three tests against that
@@ -41,6 +49,7 @@ Executable SHA-256:
 `f7e7022fcd37d35475792eeae4a47a76926d44d0cfb88e0bb8bb5ef508b45c09`.
 Catalog SHA-256:
 `1f421a54faef1b9196572d201a40bbdb97dabcab7455658660bbb5b3fc62c517`.
+These historical artifact identities are preserved, not transferred to 1.0.1.
 These local debug checks do not establish release or performance qualification.
 
 The live new-package task failed in all three arms. Investigation found missing
@@ -51,6 +60,7 @@ defect, not demonstrated skill benefit or inferiority. A separately versioned
 preparation fix and native feasibility regression passed outside the
 frozen campaign. All SKL comparisons have finished: resource-maintenance outputs
 tie across all arms, and the candidate boundary response omits required assertions.
-Retain all failed and
-inconclusive outcomes; further paid evaluation requires its own concrete authorized
-proposal. Neither the setup correction nor native package checks waive live gates.
+Retain all failed and inconclusive outcomes. The separately authorized full
+diagnostic uses revised fixtures and the frozen 1.0.1 candidates; its skill-authoring
+phases remain pending. Neither the setup correction nor native package checks
+waive live gates.
