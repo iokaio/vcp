@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "spreadsheet-workflows",
+  "version": "1.0.0",
+  "description": "Read or edit a qualified XLSX subset with range provenance, preservation checks and explicit formula freshness; no macros or external refresh.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:spreadsheet-workflows"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "2a2adec7e818f798da9fd710fe96edfece5423685f59aa208d9fa438bec43915"
+  },
+  "resources": []
+}

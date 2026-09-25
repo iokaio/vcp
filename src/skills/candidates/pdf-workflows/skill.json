@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "pdf-workflows",
+  "version": "1.0.0",
+  "description": "Extract page-bounded text or generate new PDFs through a separately qualified local adapter, preserving originals and reporting unsupported inputs.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:pdf-workflows"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "6615fed4ba800993bcab8c8b8baf16044b7450f3dc07c36fe43258643f3a86ae"
+  },
+  "resources": []
+}

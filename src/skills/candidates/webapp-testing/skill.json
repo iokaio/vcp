@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "webapp-testing",
+  "version": "1.0.0",
+  "description": "Exercise a permitted application with a qualified browser profile, deterministic interaction checks and owned-process cleanup.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:webapp-testing"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "05fbf4193f46cea1058d443906c352031977402484462cabcf88347b7aef7d22"
+  },
+  "resources": []
+}
