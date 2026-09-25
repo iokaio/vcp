@@ -245,6 +245,7 @@ impl Fixture {
         host.configure_coding(
             thread,
             CodingConfig {
+                canonical_tools: Default::default(),
                 operating: "Report the observed fixture only.".into(),
                 affected_paths: vec!["file.txt".into()],
                 max_requests: if escalation { 2 } else { 1 },

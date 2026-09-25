@@ -38,6 +38,14 @@ async fn retained_verification_checks_changed_source_and_accounts_final_response
         }
     }
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_verification_diagnostics_reach_model_without_reexecution() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for mode in ["failed_large", "not_run"] {
+            run(backend, mode).await;
+        }
+    }
+}
 async fn run(backend: BackendKind, mode: &'static str) {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
@@ -62,6 +70,18 @@ async fn run(backend: BackendKind, mode: &'static str) {
     )
     .unwrap();
     fs::write(workspace.join("acceptance.cjs"), format!("const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');test('changed_value',()=>{{fs.writeFileSync({},'ran');assert.equal(fs.readFileSync('value.txt','utf8').trim(),'42');}});", serde_json::to_string(&oracle).unwrap())).unwrap();
+    if mode == "failed_large" {
+        // Actual configured check output. The mock provider cannot manufacture
+        // the diagnostic; assertions below inspect its next received context.
+        fs::write(workspace.join("acceptance.cjs"), format!("const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');test('changed_value',()=>{{fs.writeFileSync({},'ran');process.stderr.write('x'.repeat(100000)+'\\nrequired source link missing: adr/002-pipe.md\\n');assert.fail('seeded document check failure');}});", serde_json::to_string(&oracle).unwrap())).unwrap();
+    }
+    if mode == "not_run" {
+        fs::write(
+            workspace.join("package.json"),
+            br#"{"scripts":{"test":"unavailable-runner acceptance.cjs"}}"#,
+        )
+        .unwrap();
+    }
     let mut config = config(&temp.path().join("canonical"), &workspace, backend);
     if matches!(mode, "denied" | "denied_context") {
         config.host_tool_denials.push(Denial {
@@ -206,6 +226,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
     host.configure_coding(
         thread,
         CodingConfig {
+            canonical_tools: Default::default(),
             operating: "Read, edit, verify, then report actual results.".into(),
             affected_paths: vec!["value.txt".into()],
             max_requests: 8,
@@ -224,13 +245,13 @@ async fn run(backend: BackendKind, mode: &'static str) {
         }]))
         .await
         .unwrap();
+    let mut loop_errors = Vec::new();
     tokio::time::timeout(Duration::from_secs(300), async {
         loop {
-            if matches!(
-                test.codex.next_event().await.unwrap().msg,
-                EventMsg::TurnComplete(_)
-            ) {
-                break;
+            match test.codex.next_event().await.unwrap().msg {
+                EventMsg::Error(error) => loop_errors.push(format!("{error:?}")),
+                EventMsg::TurnComplete(_) => break,
+                _ => {}
             }
         }
     })
@@ -245,7 +266,11 @@ async fn run(backend: BackendKind, mode: &'static str) {
     } else {
         4
     };
-    assert_eq!(count.load(Ordering::SeqCst), expected, "{backend:?}/{mode}");
+    assert_eq!(
+        count.load(Ordering::SeqCst),
+        expected,
+        "{backend:?}/{mode}: {loop_errors:?}"
+    );
     assert_eq!(
         fs::read_to_string(workspace.join("value.txt"))
             .unwrap()
@@ -260,7 +285,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
     );
     assert_eq!(
         oracle.exists(),
-        !matches!(mode, "missing" | "denied" | "denied_context"),
+        !matches!(mode, "missing" | "denied" | "denied_context" | "not_run"),
         "actual independent test execution: {mode}"
     );
     assert!(!workspace.join("must-not-exist.txt").exists());
@@ -275,12 +300,93 @@ async fn run(backend: BackendKind, mode: &'static str) {
         assert_eq!(reports.len(), 1, "{mode}");
         assert_eq!(
             reports[0].checks[0].outcome == CheckOutcome::Passed,
-            mode != "failed",
+            !matches!(mode, "failed" | "failed_large" | "not_run"),
             "{mode}: {:?}",
             reports[0]
         );
     } else {
         assert!(reports.is_empty());
+    }
+    if !matches!(mode, "missing" | "denied_context" | "siblings") {
+        let captured = requests.lock().unwrap();
+        let result = captured.last().unwrap()["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["type"] == "function_call_output" && item["call_id"] == "call-2")
+            .unwrap();
+        let result: serde_json::Value =
+            serde_json::from_str(result["output"].as_str().unwrap()).unwrap();
+        if mode == "denied" {
+            assert!(
+                result.get("diagnostics").is_none(),
+                "denied workflow exposes no process output"
+            );
+        } else {
+            let diagnostics = result["diagnostics"].as_array().unwrap();
+            if mode == "not_run" {
+                assert!(
+                    diagnostics.is_empty(),
+                    "unexecuted check has no invented output"
+                );
+                assert!(matches!(
+                    reports[0].checks[0].outcome,
+                    CheckOutcome::NotRun { .. }
+                ));
+            } else if mode != "siblings" {
+                assert_eq!(diagnostics.len(), 1);
+                assert_eq!(diagnostics[0]["specification"], "package.json#test");
+                for channel in ["stdout", "stderr"] {
+                    let id =
+                        ArtifactId::parse(diagnostics[0][channel]["artifact"].as_str().unwrap())
+                            .unwrap();
+                    assert!(reports[0].outputs.contains(&id));
+                    assert_eq!(
+                        diagnostics[0][channel]["bytes"],
+                        host.read_artifact(id).unwrap().len().to_string()
+                    );
+                }
+                if mode == "failed" {
+                    assert!(diagnostics[0].to_string().contains("43"));
+                }
+                if mode == "failed_large" {
+                    assert!(diagnostics[0]
+                        .to_string()
+                        .contains("required source link missing: adr/002-pipe.md"));
+                    let streams = ["stdout", "stderr"].map(|channel| &diagnostics[0][channel]);
+                    assert!(streams.iter().any(|value| value["truncated"] == true));
+                    assert!(streams
+                        .iter()
+                        .all(|value| value["tail"].as_str().unwrap().len() <= 2048));
+                    let pairs: Vec<serde_json::Value> = before
+                        .records
+                        .values()
+                        .filter(|record| record.collection == Collection::Artifact)
+                        .map(|record| record.decode::<ArtifactDescriptor>().unwrap())
+                        .filter(|artifact| artifact.spec.schema == "canonical-coding-pair/1")
+                        .map(|artifact| {
+                            serde_json::from_slice(&host.read_artifact(artifact.spec.id).unwrap())
+                                .unwrap()
+                        })
+                        .collect();
+                    let pair = pairs
+                        .iter()
+                        .find(|pair| pair["parts"][0]["content"]["id"] == "call-2")
+                        .unwrap();
+                    assert_eq!(pair["parts"][1]["trust"], "untrusted");
+                    assert_eq!(
+                        pair["parts"][1]["scope"]["task"],
+                        config.root_task.to_string()
+                    );
+                    for channel in ["stdout", "stderr"] {
+                        assert!(pair["sources"]
+                            .as_array()
+                            .unwrap()
+                            .contains(&diagnostics[0][channel]["artifact"]));
+                    }
+                }
+            }
+        }
     }
     if mode == "siblings" {
         let last = requests.lock().unwrap().last().unwrap().to_string();
@@ -366,7 +472,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
         host.project().unwrap().effects.len(),
         if mode == "denied_context" {
             0
-        } else if matches!(mode, "missing" | "denied") {
+        } else if matches!(mode, "missing" | "denied" | "not_run") {
             2
         } else if mode == "later_effect" {
             4

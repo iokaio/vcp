@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(all(windows, feature = "qualification"))]
+#[path = "support/canonical_tool_ceiling.rs"]
+mod canonical_tool_ceiling;
 #[path = "support/child_output_owner.rs"]
 mod child_output_owner;
 #[path = "support/history_notice.rs"]

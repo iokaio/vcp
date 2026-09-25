@@ -151,6 +151,7 @@ async fn run(backend: BackendKind, exec: bool) {
     host.configure_coding(
         thread,
         CodingConfig {
+            canonical_tools: Default::default(),
             operating: "Run the configured long verification".into(),
             affected_paths: vec!["long.test.cjs".into()],
             max_requests: 1,

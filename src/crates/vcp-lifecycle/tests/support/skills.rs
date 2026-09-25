@@ -354,7 +354,7 @@ async fn retained_skills_are_lazy_attributed_and_cannot_override_denials_or_stal
                 .unwrap();
             let id = host.lifecycle().attach_root(test.codex.clone()).unwrap();
             host.register(id, binding.clone()).unwrap();
-            host.configure_coding(id,CodingConfig {operating:"Observe fixture evidence and preserve the explicit user constraint to keep marker.txt unchanged.".into(),affected_paths:vec!["marker.txt".into()],max_requests:3,deadline:Timestamp::new(now().get()+300_000)}).unwrap();
+            host.configure_coding(id,CodingConfig {canonical_tools: Default::default(),operating:"Observe fixture evidence and preserve the explicit user constraint to keep marker.txt unchanged.".into(),affected_paths:vec!["marker.txt".into()],max_requests:3,deadline:Timestamp::new(now().get()+300_000)}).unwrap();
             let status = host.skill_control(id, Request::Status).unwrap();
             assert_eq!(status["catalog"]["reads"]["bodies"], 0);
             let qualified = status["catalog"]["skills"][0]["qualified_id"]
@@ -547,6 +547,7 @@ async fn retained_skills_are_lazy_attributed_and_cannot_override_denials_or_stal
                     .configure_coding(
                         id,
                         CodingConfig {
+                            canonical_tools: Default::default(),
                             operating:
                                 "Preserve marker.txt and respect current skill prerequisites."
                                     .into(),

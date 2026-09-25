@@ -94,6 +94,9 @@ Tests in `src/tests/contracts/provider/`: malformed/truncated stream, interleave
 
 ## P2-05 — Retained Codex loop with VCP boundaries
 
+Owner-selected canonical tool ceilings and their retained-loop binding are
+documented in [canonical model tool ceiling](../development/p2-canonical-tool-ceiling.md).
+
 Implement in observable increments:
 
 1. Read-only loop: assemble versioned context, choose a fixed qualified model for the internal scaffold, reserve, stream, capture and report evidence.

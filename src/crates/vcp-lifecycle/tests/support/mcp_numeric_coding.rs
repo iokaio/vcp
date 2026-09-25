@@ -203,6 +203,7 @@ async fn coding_http_mcp_requires_owner_approvals_and_retains_model_source_recei
             .unwrap()
             .as_millis() as u64;
         host.configure_coding(thread, CodingConfig {
+            canonical_tools: Default::default(),
             operating: "Discover and call the configured remote MCP marker only after explicit owner approvals; retain observed evidence and disconnect.".into(),
             affected_paths: vec!["input.txt".into()], max_requests: 8, deadline: Timestamp::new(now + 300_000),
         }).unwrap();

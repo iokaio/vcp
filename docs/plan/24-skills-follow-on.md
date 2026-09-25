@@ -210,6 +210,11 @@ language/testing skills. Exit: representative project artifacts and independent
 integration checks pass without switching frameworks/providers, broadening grants
 or altering unrelated files. Browser-execution claims remain with CS-3.
 
+The [Windows Node fixture prerequisite](../development/cs2-node-fixture-adapter.md)
+records bounded execution qualification for external JSON assertions. CS-2
+remains planned; its skill and integration acceptance conditions are not met by
+that prerequisite.
+
 ## CS-3 — Browser execution and six-skill acceptance
 
 Qualify the owned browser/server lifecycle and deliver `webapp-testing`. Materialize

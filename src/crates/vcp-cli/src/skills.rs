@@ -347,19 +347,23 @@ pub fn available_tools(profile: &crate::settings::Profile) -> std::collections::
         "vcp_verify",
     ]
     .into_iter()
+    .filter(|name| profile.canonical_tools.contains(name))
     .map(str::to_owned)
     .chain(
         profile
             .processes
             .iter()
-            .filter(|process| process.executable.is_file())
+            .filter(|process| {
+                profile.canonical_tools.contains("vcp_exec") && process.executable.is_file()
+            })
             .map(|process| process.name.clone()),
     )
     .collect::<std::collections::BTreeSet<_>>();
-    if profile
-        .processes
-        .iter()
-        .any(|process| process.executable.is_file())
+    if profile.canonical_tools.contains("vcp_exec")
+        && profile
+            .processes
+            .iter()
+            .any(|process| process.executable.is_file())
     {
         tools.insert("vcp_exec".into());
     }

@@ -171,6 +171,7 @@ async fn selected_output_matches_body_reservation_and_survives_policy_change_aft
             host.configure_coding(
                 id,
                 CodingConfig {
+                    canonical_tools: Default::default(),
                     operating: "Report the synthetic fixture.".into(),
                     affected_paths: vec!["file.txt".into()],
                     max_requests: 1,

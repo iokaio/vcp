@@ -1100,6 +1100,7 @@ async fn native_hook_context_precedes_retained_model_request_and_transport_retry
             .configure_coding(
                 f.thread,
                 CodingConfig {
+                    canonical_tools: Default::default(),
                     operating: "Observe attributed hook evidence and respond without tools.".into(),
                     affected_paths: vec!["input.txt".into()],
                     max_requests: 3,
@@ -1271,6 +1272,7 @@ async fn native_hook_compaction_fires_only_for_eligible_retained_history() {
             .configure_coding(
                 f.thread,
                 CodingConfig {
+                    canonical_tools: Default::default(),
                     operating: "Read history twice, then summarize.".into(),
                     affected_paths: vec!["input.txt".into()],
                     max_requests: 4,
@@ -1357,6 +1359,7 @@ async fn native_hook_owner_approval_resume_reuses_pending_hook_for_same_user_byt
             .configure_coding(
                 f.thread,
                 CodingConfig {
+                    canonical_tools: Default::default(),
                     operating: "Preserve pending hook across explicit resume.".into(),
                     affected_paths: vec!["input.txt".into()],
                     max_requests: 3,
@@ -1540,6 +1543,7 @@ async fn native_hook_model_admission_rejects_omitted_and_stale_async_gate() {
                 .configure_coding(
                     f.thread,
                     CodingConfig {
+                        canonical_tools: Default::default(),
                         operating: "Require current asynchronous hook gate.".into(),
                         affected_paths: vec!["input.txt".into()],
                         max_requests: 3,

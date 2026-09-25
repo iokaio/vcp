@@ -98,11 +98,18 @@ impl CanonicalHost {
             // Parent operating instructions may describe process checks or
             // external tools that this isolated assignment cannot use. Explain
             // the actual child boundary before its first provider request.
+            let child_verification = if coding.canonical_tools.contains("vcp_verify") {
+                "vcp_verify with no assigned process checks can record child source evidence; it does not prove parent acceptance."
+            } else {
+                "Model verification is unavailable under the inherited tool ceiling; the host performs applicable source-integrity completion checks."
+            };
             coding.operating.push_str(&format!(
-                "\nIsolated child workflow: the root and all children share a total ceiling of {} model requests; this is not a fresh child allowance. Read the assignment and contract, gather the necessary source once, then act. Reuse complete unchanged source already in context; reread only missing ranges or changed files. Available tool schemas do not grant authority. Child process execution is unavailable, including vcp_exec and process checks through vcp_verify. Do not retry a denied process through another tool or discover unrelated MCP services to run it. Report required process checks as not run for the parent to execute against the integrated result. vcp_verify with no assigned process checks can record child source evidence; it does not prove parent acceptance. Before the final answer, inspect any edits, report the result and cite retained evidence.\nChild mode: {}.",
+                "\nIsolated child workflow: the root and all children share a total ceiling of {} model requests; this is not a fresh child allowance. Read the assignment and contract, gather the necessary source once, then act. Reuse complete unchanged source already in context; reread only missing ranges or changed files. Available tool schemas do not grant authority. Child process execution is unavailable, including vcp_exec and process checks through vcp_verify. Do not retry a denied process through another tool or discover unrelated MCP services to run it. Report required process checks as not run for the parent to execute against the integrated result. {} Before the final answer, inspect any edits, report the result and cite retained evidence.\nChild mode: {}.",
                 coding.max_requests,
+                child_verification,
                 match spec.mode {
                     ChildMode::ReadOnly => "read only; inspect and report without editing",
+                    ChildMode::IsolatedWrite if !coding.canonical_tools.contains("vcp_patch") => "isolated write assignment; the inherited ceiling has no patch tool, so report editing unavailable and return supported findings",
                     ChildMode::IsolatedWrite => "isolated write; modify only assigned write paths. Before editing, turn the stated contract into a short checklist, including input validation and boundary cases. Validate container types before reading properties. Distinguish omitted optional values from explicitly invalid values such as null; do not use nullish defaults when only omission permits a default. Use vcp_patch in its documented *** Begin Patch format with exact current context. Group related changes in one patch where practical, then read changed sources and check every contract item against the result. If a patch is rejected, use the error to correct its format or context instead of repeating it unchanged. Return the patch with unavailable process checks explicitly not run; an incomplete child verification does not require retries when only the parent can perform the remaining checks",
                 },
             ));

@@ -158,6 +158,7 @@ async fn accepted_start_constructor_activates_once_and_binds_exact_caller_turn()
         host.configure_coding(
             thread,
             vcp_lifecycle::foundation::coding::CodingConfig {
+                canonical_tools: Default::default(),
                 operating: "Do not submit in this admission test".into(),
                 affected_paths: vec!["source.txt".into()],
                 max_requests: 3,

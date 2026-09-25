@@ -166,6 +166,7 @@ async fn main() -> Result<()> {
         host.command(Command::Transition{next:TaskState::Running,reason:"explicit frozen delegation qualification".into(),verification:None},Some(config.root_task.clone()),Revision::ZERO)?;
         host.initialize_root_budget()?;
         for process in prepared.processes {host.configure_process_profile(process)?;}
+        host.configure_canonical_tools(prepared.profile.canonical_tools.clone())?;
         host.configure_provider_with_timeout(prepared.profile.provider.clone(),prepared.raw_catalog,prepared.profile.provider_timeout()?)?;
         host.configure_skills(vcp_cli::skills::prepare(&prepared.profile,&config)?)?;
         let credential=vcp_engine::capture::ProviderCredential::from_config(std::env::var("OPENROUTER_API_KEY")?);
@@ -193,7 +194,7 @@ async fn main() -> Result<()> {
             operating.push('\n');
             operating.push_str(helper.guidance()?);
         }
-        host.configure_coding(parent.id,vcp_lifecycle::foundation::coding::CodingConfig {operating,affected_paths:prepared.profile.affected_paths.clone(),max_requests:prepared.profile.max_requests,deadline:Timestamp::new(vcp_cli::settings::now().get()+u64::from(prepared.profile.deadline_seconds)*1000)})?;
+        host.configure_coding(parent.id,vcp_lifecycle::foundation::coding::CodingConfig {canonical_tools: prepared.profile.canonical_tools.clone(),operating,affected_paths:prepared.profile.affected_paths.clone(),max_requests:prepared.profile.max_requests,deadline:Timestamp::new(vcp_cli::settings::now().get()+u64::from(prepared.profile.deadline_seconds)*1000)})?;
         let child=if let Some(delegation)=&spec.delegation {
             vcp_cli::delegation::prepare(&host,&parent,&scope,delegation).await?
         } else {
