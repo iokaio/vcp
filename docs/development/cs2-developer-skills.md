@@ -196,13 +196,21 @@ together through repeated `--skill`.
 **Runner.** `scripts/evals/developer-runner.cjs run <plan.json> <plan-sha256>
 <block>` executes one block, once, in campaign order.
 
+- **Before a block starts:**
+  - the previous block must have a recorded decision, bound to its result;
+  - the provider window must still cover the whole block, assuming every run
+    takes its deadline plus 480 seconds. If it cannot, no claim is consumed.
 - **Before every dispatch** it:
-  - re-derives the whole preparation and compares it exactly;
+  - refuses if `halt.json` exists;
+  - re-derives the whole preparation at its recorded preparation time and
+    compares it exactly;
+  - requires the provider qualification to be current;
+  - rechecks earlier completed workspaces;
   - reserves a full USD 3 and 16-request slot from retained settled accounting;
   - writes a run claim.
 
   It also holds one campaign claim in the Git control directory, so a second
-  preparation cannot draw on the same authorization.
+  preparation in this repository cannot draw on the same authorization.
 - **After each run** it:
   - reconciles canonical costs;
   - rejects writes outside the editable paths;
@@ -210,34 +218,48 @@ together through repeated `--skill`.
     selected skill;
   - checks that the pinned checker ran;
   - applies the structural oracle;
-  - scans retained model output for the synthetic canary.
+  - scans the retained responses, the answer, the CLI event stream and any
+    edited files for the synthetic canary.
 
   The checker check needs a passed `package.json#test` check whose retained
   outcome records the pinned executable hash and the fixed arguments, and whose
   retained stdout carries both TAP lines. The feasibility test asserts this
-  evidence shape against the real CLI.
-- **What stops the campaign.** An unknown or unreconciled charge, identity drift
-  or an expired qualification, an authority failure, or an interrupted block. Any
-  of these writes `halt.json` for read-only reconciliation. A disclosed canary or
-  a failed check fails only its case.
+  evidence shape against the real CLI. A check the host never prepared ran no
+  process and counts only as not passed.
+- **What stops the campaign.** An unknown or unreconciled charge, identity drift,
+  an authority failure, an interrupted block, or a provider qualification that
+  expires before a dispatch. Any of these writes `halt.json` for read-only
+  reconciliation. A disclosed canary or a failed check fails only its case.
+- **Provider window.** Identity checks of completed evidence use the recorded
+  preparation time, so a window that closes after a run never invalidates it.
+  The provider window lasts at most 24 hours, and the whole campaign must fit
+  inside it, including the review between blocks. No renewal path exists. If the
+  window cannot cover the next block, completed blocks stay valid, and continuing
+  needs a renewal path and owner approval.
 
 **Review.** `scripts/evals/developer-review.cjs` runs in three steps:
 
-1. **`grade`** grades each unstopped block's retained write artifacts with the
-   pinned AppContainer executor. Probe messages go to a private diagnostics file.
-2. **`packets`** writes one anonymous packet per case, holding:
+1. **`grade`** grades a complete, unstopped block's retained write artifacts
+   with the pinned AppContainer executor. Probe messages go to private
+   diagnostics files. A harness fault leaves a verdict open. Repeating `grade`
+   appends a regrade, at most three times, that replaces only open verdicts.
+2. **`packets`** runs once no verdict is open. It writes one anonymous packet per
+   case into a new reader directory outside the plan and the repository. Each
+   packet holds:
    - the prompt and the frozen sources;
    - each variant's edited files, report and not-run list, under a random label;
    - check verdicts only.
 
-   Selection names are replaced, and the label mapping stays private.
-3. **`decide`** validates two independent blind reviews and applies the mapping.
+   Skill names are removed without a marker. The packet index binds the final
+   grading and a salted hash of the label mapping. The mapping itself stays in
+   the plan directory.
+3. **`decide`** validates two independent blind reviews against the packet index
+   and checks the mapping against its pre-review commitment.
    - A recorded effect beyond authority, or a real secret exposure, halts the
      campaign.
    - A skill qualifies only when all six candidate runs complete and pass every
      executable check with both readers passing every hard gate. It also needs a
      benefit on a normal case under the predeclared rule.
-   - Any grading that requires a regrade leaves the decision pending.
 
 ## Remaining sequence
 

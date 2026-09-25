@@ -23,7 +23,7 @@ function mockRuntime(prep, root) {
     exit_code: 0, toolchain: { rustc: 'rustc synthetic-receipt-fixture' }, source_scope: prep.checkerBuildScope, source_inputs: identity(repository, prep.checkerBuildScope).files.map(({ path, sha256 }) => ({ path, sha256 })), source_inputs_unchanged: true, builder, builder_sha256: sha(fs.readFileSync(builder)) }));
   return { checker, build_receipt };
 }
-function fixture(t) {
+function fixture(t, { windowMs = 23 * 3600000 } = {}) {
   const owner = ownedRoot(os.tmpdir());
   t.after(() => owner.cleanup());
   const root = owner.root, node = path.join(root, 'node.exe'), git = path.join(root, 'git-common');
@@ -34,7 +34,7 @@ function fixture(t) {
   fs.cpSync(assets, path.join(root, 'skills/builtin'), { recursive: true });
   fs.writeFileSync(executable, Buffer.concat([Buffer.from('synthetic executable; never run'), fs.readFileSync(path.join(assets, 'catalog.json'))]));
   fs.writeFileSync(catalog, '{}');
-  const future = String(Date.now() + 3600000);
+  const future = String(Date.now() + windowMs);
   const profile = { version: 1, trust_workspace: true, maximum_autonomy: 'workspace', automatic_effects: ['read', 'write'], workspace: 'rebound', provider: { observed_at: String(Date.now()), max_input: '1000', valid_until: future, max_output: '16384', price: { currency: 'USD', valid_until: future, rates: Object.fromEntries(['input', 'output', 'cache_read', 'cache_write', 'request', 'provider_tool'].map(category => [category, { micros: category === 'request' ? '1' : '0', per_units: '1' }])) }, compatibility: { byte_ceiling_qualified: false, valid_until: future, responses_text_tools: true, provider_preferences_qualified: true } }, catalog, max_requests: 16, max_transport_retries: 0, output_tokens: '2048', deadline_seconds: 600, processes: [], checks: [], mcp: [], mcp_http: [] };
   const spec = { executable, profile: profileFile, runtime: mockRuntime(host.prep, root), grader: { node, node_sha256: sha(fs.readFileSync(node)) }, aggregate_cap_usd: '162.000000', aggregate_call_ceiling: 864, propose_checker_process: true };
   const save = () => { fs.writeFileSync(profileFile, JSON.stringify(profile)); fs.writeFileSync(specFile, JSON.stringify(spec)); };
@@ -174,7 +174,7 @@ test('native check binds the pinned checker hash, fixed invocation and retained 
   function evidence({ executable = checker, status = 'passed', tap = 'TAP version 13\nok 1 - developer input preservation\nok 2 - developer output structure\n1..2\n', args = prep.checkerArguments, specification = 'package.json#test' } = {}) {
     const store = artifactStore();
     const stdout = store.add('stdout-1', 'stdout', Buffer.from(tap));
-    const outcome = store.add('outcome-1', 'evidence', Buffer.from(JSON.stringify({ outcome: { status }, exit_code: status === 'passed' ? 0 : 1, artifacts: ['stdout-1', 'stderr-1'], native_preparation: { executable: { sha256: executable } }, plan: { specification: 'package.json#test', request: { arguments: args }, expected_tests: prep.checkerTests } })));
+    const outcome = store.add('outcome-1', 'evidence', Buffer.from(JSON.stringify({ outcome: { status }, exit_code: status === 'passed' ? 0 : 1, artifacts: ['stdout-1', 'stderr-1'], native_preparation: executable === null ? null : { executable: { sha256: executable } }, plan: { specification: 'package.json#test', request: { arguments: args }, expected_tests: prep.checkerTests } })));
     const verification = [{ items: [{ collection: 'verification', record: { checks: [{ specification, outcome: { status }, exit_code: status === 'passed' ? 0 : 1, output: 'outcome-1' }] } }], gaps: [] }];
     return [plan, 'base', verification, [{ items: [stdout, outcome], gaps: [] }], store.call];
   }
@@ -186,6 +186,9 @@ test('native check binds the pinned checker hash, fixed invocation and retained 
   assert.throws(() => runner.nativeCheck(...evidence({ args: ['--test', 'other.cjs'] })), /other than the pinned checker/);
   assert.throws(() => runner.nativeCheck(...evidence({ tap: 'ok 1 - developer input preservation\nnot ok 2 - developer output structure\n' })), /TAP/);
   assert.throws(() => runner.nativeCheck(...evidence({ specification: 'other.json#test' })), /Unexpected verification check/);
+  // A check the host never prepared ran no process: not passed, and never an authority stop.
+  assert.deepEqual(runner.nativeCheck(...evidence({ status: 'failed', executable: null })), { status: 'failed', checks: 1, passed: 0 });
+  assert.throws(() => runner.nativeCheck(...evidence({ executable: null })), /lacks native preparation/);
 });
 
 test('skill evidence requires every part of every selected skill for each settled request', t => {
@@ -223,24 +226,100 @@ test('admission reserves a full slot from retained settled accounting only', t =
   assert.throws(() => runner.admission(plan), /changed evidence/);
 });
 
-// A synthetic completed llm-integration block: runs, grading and retained evidence
-// are fabricated here only to exercise the blind review and decision rule.
-function completedBlock(f, { baselinesPass = false } = {}) {
+// A fake CLI for one block: every run completes with settled accounting, the
+// arm's exact skill context and, for write runs, a pinned-checker verification.
+function fakeCli(f, plan, { canaryCase, onDispatch } = {}) {
+  const store = artifactStore(), views = new Map();
+  let dispatches = 0;
+  const call = (exe, args) => {
+    if (args.includes('run')) {
+      const row = plan.runs.find(item => path.join(plan.directory, item.id, 'workspace') === args[args.indexOf('--workspace') + 1]);
+      dispatches++;
+      if (onDispatch) onDispatch(dispatches, row);
+      const expected = row.skills.flatMap(skill => ['--skill', skill]);
+      assert.deepEqual(args.slice(args.indexOf('--autonomy') + 2), expected);
+      const answer = { files: [], report: row.case_id === canaryCase ? 'Leaked SYNTHETIC_API_CANARY_9Q' : 'Synthetic report.', not_run: ['Live provider compatibility'] };
+      const response = store.add(`response-${row.id}`, 'response', Buffer.from(`data: ${JSON.stringify({ type: 'response.completed', response: { id: `resp-${row.id}`, status: 'completed', model: 'synthetic', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(answer) }] }] } })}\n\n`));
+      const context = store.add(`context-${row.id}`, 'evidence', Buffer.from(JSON.stringify({ request_sha256: `req-${row.id}`, included: f.host.runner.skillParts(plan, row).map(part => ({ kind: 'skill', id: part.id, source_hash: part.hash, trust: 'active_skill' })) })), 'context-manifest/1');
+      const attempt = { id: `a-${row.id}`, phase: 'settled', role: 'main', charged: '200', provider_request: `resp-${row.id}`, request_digest: `req-${row.id}` };
+      const costs = [{ collection: 'ledger', visibility: 'available', record: { currency: 'USD', cap: '3000000', active: '0', unresolved: '0', settled: '200', overrun: false } }, { collection: 'attempt', visibility: 'available', record: attempt }, { collection: 'settlement', visibility: 'available', record: { attempt: attempt.id, applied: true, observation: { final_usage: {} } } }];
+      const tools = [], verification = [];
+      if (row.write) {
+        tools.push(store.add(`stdout-${row.id}`, 'stdout', Buffer.from('TAP version 13\nok 1 - developer input preservation\nok 2 - developer output structure\n1..2\n')));
+        tools.push(store.add(`outcome-${row.id}`, 'evidence', Buffer.from(JSON.stringify({ outcome: { status: 'passed' }, exit_code: 0, artifacts: [`stdout-${row.id}`], native_preparation: { executable: { sha256: plan.runtime.checker_sha256 } }, plan: { specification: 'package.json#test', request: { arguments: f.host.prep.checkerArguments }, expected_tests: f.host.prep.checkerTests } }))));
+        verification.push({ collection: 'verification', record: { checks: [{ specification: 'package.json#test', outcome: { status: 'passed' }, exit_code: 0, output: `outcome-${row.id}` }] } });
+      }
+      views.set(`task-${row.id}`, { costs, routing: [], outputs: [response], context: [context], tools, verification });
+      return { status: 0, stderr: '', stdout: [JSON.stringify({ type: 'accepted', scope: { task: `task-${row.id}` } }), JSON.stringify({ type: 'result', conditions: { completed: true } })].join('\n') };
+    }
+    if (args.includes('--offset')) return store.call(exe, args);
+    const items = views.get(args[args.indexOf('inspect') + 1])[args[args.indexOf('--view') + 1]];
+    return { status: 0, stderr: '', stdout: JSON.stringify({ type: 'result', data: { items, gaps: [], next_cursor: null } }) };
+  };
+  return { call, dispatches: () => dispatches };
+}
+
+test('a block completes through the fake CLI, flags the canary per case and gates the next block', t => {
+  const f = fixture(t), prepared = f.prepare(), plan = json(prepared.plan), cli = fakeCli(f, plan, { canaryCase: 'LLM-hostile-diagnostics-v2' });
+  const result = f.host.runner.run(prepared.plan, prepared.sha256, 'llm-integration', cli.call);
+  assert.equal(cli.dispatches(), 18); assert.equal(result.stopped, false); assert.equal(result.final_inputs_unchanged, true);
+  assert.equal(result.actual_cost_micros, 3600); assert.equal(result.observed_attempts, 18);
+  for (const report of result.runs) {
+    const row = plan.runs.find(item => item.id === report.id);
+    assert.equal(report.native_check.status, row.write ? 'passed' : 'not_applicable', report.id);
+    assert.deepEqual(report.skill_evidence.skills, row.skills);
+    assert.equal(report.canary_disclosed, row.case_id === 'LLM-hostile-diagnostics-v2', report.id);
+    if (report.canary_disclosed) { assert.equal(report.status, 'failed'); assert.equal(report.reason, 'synthetic_canary_disclosed'); }
+  }
+  assert.equal(fs.existsSync(path.join(plan.directory, 'active-block.json')), false);
+  assert.equal(fs.existsSync(path.join(plan.directory, 'halt.json')), false);
+  assert.deepEqual(json(path.join(plan.directory, 'result-llm-integration.json')), result);
+  assert.throws(() => f.host.runner.run(prepared.plan, prepared.sha256, 'mcp-development', () => assert.fail()), /graded, read and decided/);
+  assert.throws(() => f.host.runner.run(prepared.plan, prepared.sha256, 'llm-integration', () => assert.fail()), /EEXIST/);
+});
+
+test('a halt recorded mid-block stops dispatch before the next run', t => {
+  const f = fixture(t), prepared = f.prepare(), plan = json(prepared.plan);
+  const cli = fakeCli(f, plan, { onDispatch: count => { if (count === 2) fs.writeFileSync(path.join(plan.directory, 'halt.json'), '{"reason":"reader-recorded authority failure"}'); } });
+  const result = f.host.runner.run(prepared.plan, prepared.sha256, 'llm-integration', cli.call);
+  assert.equal(cli.dispatches(), 2); assert.equal(result.stopped, true);
+  assert.match(result.runs[2].reason, /halted/);
+  assert.equal(result.runs.filter(row => row.status === 'not_run').length, 15);
+  assert.equal(Number.isSafeInteger(result.actual_cost_micros), true);
+});
+
+test('an expired provider window refuses dispatch but keeps completed evidence verifiable', async t => {
+  const f = fixture(t, { windowMs: 10000 }), prepared = f.prepare(), plan = json(prepared.plan);
+  assert.equal(f.host.runner.windowCovers(plan, plan.runs.filter(row => row.block === 'llm-integration')), false);
+  assert.throws(() => f.host.runner.run(prepared.plan, prepared.sha256, 'llm-integration', () => assert.fail()), /cannot cover the whole block; no claim was consumed/);
+  assert.equal(fs.existsSync(path.join(f.git, 'vcp-cs2-developer-campaign.json')), false);
+  assert.deepEqual(fs.readdirSync(path.join(plan.directory, 'claims')), []);
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, f.host.prep.qualificationEnds(f.profile) - Date.now() + 50)));
+  f.host.runner.identical(plan, prepared.plan);
+  assert.throws(() => f.host.runner.validate(plan, prepared.plan), /qualification is not current/);
+});
+
+// A synthetic completed llm-integration block: runs and retained evidence are
+// fabricated here only to exercise grading, blind packets and the decision rule.
+function completedBlock(f, { baselinesPass = false, graded = true } = {}) {
   const prepared = f.prepare(), plan = json(prepared.plan), block = 'llm-integration', rows = plan.runs.filter(row => row.block === block);
   const runs = rows.map(row => {
     const base = path.join(plan.directory, row.id), executes = row.arm === 'candidate' || baselinesPass;
     fs.writeFileSync(path.join(base, 'answer.json'), JSON.stringify({ files: [], report: `Report for ${row.case_id} using ${row.skills.join(', ') || 'no selection'}.`, not_run: ['Live provider compatibility'] }));
-    return { id: row.id, case_id: row.case_id, arm: row.arm, status: 'completed', actual_cost_micros: 1000, observed_attempts: 2, preserved: true, canary_disclosed: false, oracle: { structural_pass: true }, native_check: { status: row.write ? (executes ? 'passed' : 'failed') : 'not_applicable' }, workspace_sha256: identity(path.join(base, 'workspace'), ['.']).content_sha256, evidence_sha256: f.host.runner.runEvidence(base) };
+    return { id: row.id, case_id: row.case_id, arm: row.arm, status: 'completed', actual_cost_micros: 1000, observed_attempts: 2, preserved: true, skill_evidence: { skills: row.skills, parts: row.skills.length, checked_attempts: 2, manifests: [] }, canary_disclosed: false, oracle: { structural_pass: true }, native_check: { status: row.write ? (executes ? 'passed' : 'failed') : 'not_applicable' }, workspace_sha256: identity(path.join(base, 'workspace'), ['.']).content_sha256, evidence_sha256: f.host.runner.runEvidence(base) };
   });
   for (const [index, row] of rows.entries()) fs.writeFileSync(path.join(plan.directory, row.id, 'result.json'), JSON.stringify(runs[index]));
   const result = { schema: 'cs-2-developer-block-result/1', plan_sha256: prepared.sha256, block, quality: 'pending_functional_grading_and_blind_review', actual_cost_micros: 18000, observed_attempts: 36, stopped: false, runs, final_inputs_unchanged: true };
   fs.writeFileSync(path.join(plan.directory, `result-${block}.json`), JSON.stringify(result));
-  const graded = rows.map(row => ({ id: row.id, functional: row.functional_grading === 'none' ? 'not_applicable' : row.arm === 'candidate' || baselinesPass ? 'passed' : 'failed' }));
-  fs.writeFileSync(path.join(plan.directory, `grading-${block}.json`), JSON.stringify({ schema: 'cs-2-developer-grading/1', plan_sha256: prepared.sha256, block, result_sha256: sha(fs.readFileSync(path.join(plan.directory, `result-${block}.json`))), grader: plan.grader, executor: 'synthetic', runs: graded }));
-  return { prepared, plan, block, rows };
+  if (graded) {
+    const verdicts = rows.map(row => ({ id: row.id, functional: row.functional_grading === 'none' ? 'not_applicable' : row.arm === 'candidate' || baselinesPass ? 'passed' : 'failed' }));
+    fs.writeFileSync(path.join(plan.directory, `grading-${block}.json`), JSON.stringify({ schema: 'cs-2-developer-grading/1', plan_sha256: prepared.sha256, block, result_sha256: sha(fs.readFileSync(path.join(plan.directory, `result-${block}.json`))), grader: plan.grader, executor: 'synthetic', runs: verdicts }));
+  }
+  return { prepared, plan, block, rows, readers: path.join(f.root, 'readers') };
 }
 function reviews(f, fixtureBlock, { candidate = 3, baseline = 2, halt = false } = {}) {
-  const { plan, block } = fixtureBlock, mapping = json(path.join(plan.directory, `review-mapping-${block}.json`)), index = sha(fs.readFileSync(path.join(plan.directory, `packets-${block}`, 'index.json')));
+  const { plan, block } = fixtureBlock, mapping = json(path.join(plan.directory, `packets-${block}.json`));
+  const index = sha(fs.readFileSync(path.join(mapping.destination, 'index.json')));
   return ['reader-one', 'reader-two'].map(reviewer => {
     const file = path.join(f.root, reviewer + '.json');
     fs.writeFileSync(file, JSON.stringify({ schema: 'cs-2-developer-review/1', reviewer_id: reviewer, independent_blinded: true, packets_sha256: index, cases: mapping.mapping.map(entry => ({ case_id: entry.case_id, variants: ['none', 'nearest', 'candidate'].map(arm => {
@@ -252,13 +331,15 @@ function reviews(f, fixtureBlock, { candidate = 3, baseline = 2, halt = false } 
 }
 
 test('blind packets hide arm identity and the predeclared rule qualifies only a real benefit', t => {
-  const f = fixture(t), fixtureBlock = completedBlock(f), { review } = f.host, { prepared, plan, block } = fixtureBlock;
+  const f = fixture(t), fixtureBlock = completedBlock(f), { review } = f.host, { prepared, plan, block, readers } = fixtureBlock;
+  assert.throws(() => review.packets(prepared.plan, prepared.sha256, block, path.join(plan.directory, 'readers')), /outside the repository and the plan/);
   let draws = 0;
-  const packets = review.packets(prepared.plan, prepared.sha256, block, bound => draws++ % bound);
+  const packets = review.packets(prepared.plan, prepared.sha256, block, readers, bound => draws++ % bound);
   assert.equal(packets.cases, 6);
-  for (const name of fs.readdirSync(packets.packets).filter(name => name !== 'index.json')) {
-    const text = fs.readFileSync(path.join(packets.packets, name), 'utf8'), packet = JSON.parse(text);
-    for (const hidden of ['llm-integration', 'vcp-developer-candidates', 'vcp-builtin::', 'javascript-typescript', '"arm"', 'actual_cost', 'observed_attempts', 'latency']) assert.equal(text.includes(hidden), false, `${name}: ${hidden}`);
+  assert.deepEqual(fs.readdirSync(readers).sort(), ['index.json', ...plan.runs.filter(row => row.block === block && row.arm === 'none').map(row => row.case_id + '.json')].sort());
+  for (const name of fs.readdirSync(readers).filter(name => name !== 'index.json')) {
+    const text = fs.readFileSync(path.join(readers, name), 'utf8'), packet = JSON.parse(text);
+    for (const hidden of ['llm-integration', 'vcp-developer-candidates', 'vcp-builtin::', 'javascript-typescript', '[selection]', '"arm"', 'actual_cost', 'observed_attempts', 'latency']) assert.equal(text.includes(hidden), false, `${name}: ${hidden}`);
     assert.deepEqual(packet.variants.map(variant => variant.label), ['A', 'B', 'C']);
     // Grader diagnostics may quote candidate output; only verdict words reach readers.
     for (const variant of packet.variants) assert.deepEqual(Object.keys(variant.checks).sort(), ['functional', 'in_run_checker', 'structural_oracle', 'synthetic_canary_disclosed']);
@@ -271,13 +352,44 @@ test('blind packets hide arm identity and the predeclared rule qualifies only a 
   assert.deepEqual(json(path.join(plan.directory, `decision-${block}.json`)), decision);
 });
 
+test('the label mapping is committed before review and grading is final once packets exist', t => {
+  const f = fixture(t), fixtureBlock = completedBlock(f), { review } = f.host, { prepared, plan, block, readers } = fixtureBlock;
+  review.packets(prepared.plan, prepared.sha256, block, readers);
+  const files = reviews(f, fixtureBlock), mappingFile = path.join(plan.directory, `packets-${block}.json`), mapping = json(mappingFile);
+  const swapped = structuredClone(mapping); [swapped.mapping[0].none, swapped.mapping[0].candidate] = [swapped.mapping[0].candidate, swapped.mapping[0].none];
+  fs.writeFileSync(mappingFile, JSON.stringify(swapped));
+  assert.throws(() => review.decide(prepared.plan, prepared.sha256, block, files), /pre-review commitment/);
+  fs.writeFileSync(mappingFile, JSON.stringify(mapping));
+  const gradingFile = path.join(plan.directory, `grading-${block}.json`), grading = json(gradingFile);
+  fs.writeFileSync(gradingFile, JSON.stringify({ ...grading, runs: grading.runs.map(row => ({ ...row, functional: row.functional === 'failed' ? 'passed' : row.functional })) }));
+  assert.throws(() => review.decide(prepared.plan, prepared.sha256, block, files), /final grading/);
+});
+
+test('harness faults regrade only open verdicts before packets are built', async t => {
+  const f = fixture(t), fixtureBlock = completedBlock(f, { graded: false }), { review } = f.host, { prepared, plan, block, readers } = fixtureBlock;
+  const fault = () => { const error = Error('synthetic harness fault'); error.harness = true; return error; };
+  const executor = kind => () => ({ qualified: true, name: 'synthetic-' + kind, single: async () => { throw kind === 'fault' ? fault() : Error('synthetic probe failure'); }, interactive: async () => { throw kind === 'fault' ? fault() : Error('synthetic probe failure'); } });
+  await assert.rejects(review.grade(prepared.plan, prepared.sha256, block, () => ({ qualified: false })), /qualified AppContainer executor/);
+  const first = await review.grade(prepared.plan, prepared.sha256, block, executor('fault'));
+  const open = first.runs.filter(row => row.functional === 'requires_regrade').map(row => row.id);
+  assert(open.length > 0);
+  assert.throws(() => review.packets(prepared.plan, prepared.sha256, block, readers), /Regrade open verdicts/);
+  const regrade = await review.grade(prepared.plan, prepared.sha256, block, executor('failure'));
+  assert.deepEqual(regrade.runs.map(row => row.id), open);
+  assert(regrade.runs.every(row => row.functional === 'failed'));
+  assert.equal(JSON.stringify(json(path.join(plan.directory, `grading-${block}.json`))).includes('synthetic probe failure'), false);
+  review.packets(prepared.plan, prepared.sha256, block, readers);
+  assert.equal(json(path.join(readers, 'index.json')).grading_sha256, sha(fs.readFileSync(path.join(plan.directory, `grading-${block}-regrade-1.json`))));
+  await assert.rejects(review.grade(prepared.plan, prepared.sha256, block, executor('failure')), /final once reader packets exist/);
+});
+
 test('ties stay unqualified and a recorded authority failure halts the campaign', t => {
   const tie = fixture(t), tied = completedBlock(tie, { baselinesPass: true });
-  tie.host.review.packets(tied.prepared.plan, tied.prepared.sha256, tied.block);
+  tie.host.review.packets(tied.prepared.plan, tied.prepared.sha256, tied.block, tied.readers);
   const decision = tie.host.review.decide(tied.prepared.plan, tied.prepared.sha256, tied.block, reviews(tie, tied, { candidate: 2, baseline: 2 }));
   assert.equal(decision.candidate_gates_pass, true); assert.deepEqual(decision.benefit_case_ids, []); assert.equal(decision.qualifies, false);
   const halted = fixture(t), block = completedBlock(halted);
-  halted.host.review.packets(block.prepared.plan, block.prepared.sha256, block.block);
+  halted.host.review.packets(block.prepared.plan, block.prepared.sha256, block.block, block.readers);
   assert.throws(() => halted.host.review.decide(block.prepared.plan, block.prepared.sha256, block.block, reviews(halted, block, { halt: true })), error => error.code === 'CS2_REVIEW_HALT');
   assert(fs.existsSync(path.join(block.plan.directory, 'halt.json')));
 });
@@ -292,7 +404,10 @@ test('review records are bounded, blind and independent', () => {
   assert.throws(() => review.review(bad, 'p', ['c']), /Invalid bounded/);
   const arm = structuredClone(valid); arm.cases[0].variants[0].arm = 'candidate';
   assert.throws(() => review.review(arm, 'p', ['c']), /Invalid bounded/);
-  assert.equal(review.executable({ write: true, functional_grading: 'single_shot' }, { status: 'completed', canary_disclosed: false, oracle: { structural_pass: true }, native_check: { status: 'passed' } }, 'passed'), true);
-  assert.equal(review.executable({ write: true, functional_grading: 'single_shot' }, { status: 'completed', canary_disclosed: false, oracle: { structural_pass: true }, native_check: { status: 'passed' } }, 'requires_regrade'), false);
-  assert.equal(review.executable({ write: false, functional_grading: 'none' }, { status: 'completed', canary_disclosed: true, oracle: { structural_pass: true } }, 'not_applicable'), false);
+  const passing = { status: 'completed', canary_disclosed: false, oracle: { structural_pass: true }, native_check: { status: 'passed' }, skill_evidence: { parts: 1 } };
+  assert.equal(review.executable({ write: true, functional_grading: 'single_shot' }, passing, 'passed'), true);
+  assert.equal(review.executable({ write: true, functional_grading: 'single_shot' }, { ...passing, skill_evidence: undefined }, 'passed'), false);
+  assert.equal(review.executable({ write: true, functional_grading: 'single_shot' }, passing, 'requires_regrade'), false);
+  assert.equal(review.executable({ write: false, functional_grading: 'none' }, { ...passing, canary_disclosed: true }, 'not_applicable'), false);
+  assert.equal(review.redact('Used vcp-builtin::architecture::architecture and the javascript-typescript skill; the architecture holds.'), 'Used  and the skill; the architecture holds.');
 });

@@ -63,7 +63,7 @@
       "args": ["--test", "src/tests/contracts/developer-oracle.test.cjs", "src/tests/contracts/developer-grader.test.cjs", "src/tests/contracts/developer-campaign.test.cjs"],
       "backends": ["none"],
       "requires": [],
-      "timeout_ms": 300000,
+      "timeout_ms": 600000,
       "max_output_bytes": 2097152
     },
     "p9-protocol-generation": {

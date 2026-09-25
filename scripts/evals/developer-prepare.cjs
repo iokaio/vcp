@@ -9,6 +9,7 @@ const { isDeepStrictEqual: equal } = require('node:util');
 const prior = require('./p6-live-runner.cjs');
 const cs1 = require('./authoring-prepare.cjs');
 const { requireEmbeddedCatalog } = require('./builtin-generation-prepare.cjs');
+const { fixedProfileReasons } = require('./builtin-live-runner.cjs');
 const { inspectAssets, portable } = require('../skills/builtin-assets.cjs');
 const oracle = require('./developer-oracle.cjs');
 const candidates = require('./developer-candidates.cjs');
@@ -22,6 +23,8 @@ const object = (value, names) => value && typeof value === 'object' && !Array.is
 // sixteen requests each, 2,048 output tokens per request, no headroom.
 const limits = Object.freeze({ runs: 54, write_runs: 39, cap_micros: 162000000, requests: 864, slot_micros: 3000000, slot_requests: 16, output_tokens: '2048' });
 const arms = ['none', 'nearest', 'candidate'];
+// The CS-1 source-profile field set, unchanged.
+const profileFields = ['version', 'workspace', 'trust_workspace', 'sync_roots', 'maximum_autonomy', 'automatic_effects', 'budget_usd', 'provider', 'routing', 'decisions', 'skills', 'mcp', 'mcp_http', 'catalog', 'affected_paths', 'canonical_tools', 'max_requests', 'output_tokens', 'provider_timeout_seconds', 'max_transport_retries', 'deadline_seconds', 'processes', 'hooks', 'observers', 'checks', 'qualification_endpoint'];
 const knownTools = ['vcp_read', 'vcp_list', 'vcp_search', 'vcp_patch', 'vcp_exec', 'vcp_verify', 'vcp_mcp'];
 const checkerTests = ['developer input preservation', 'developer output structure'];
 const checkerArguments = ['--test', '--test-reporter=tap', '--test-concurrency=1', 'checks/developer.test.cjs'];
@@ -88,10 +91,22 @@ function preparedDirectories(item) {
   }
   return [...directories].sort();
 }
-function profileReasons(profile) {
-  const reasons = cs1.profileReasons(profile);
+// CS-1's source-profile rules evaluated at an explicit time. Preparation and every
+// dispatch use the current time; identity checks of completed evidence use the
+// recorded preparation time, so a later expiry never invalidates paid runs.
+function profileReasons(profile, now = Date.now()) {
+  const reasons = fixedProfileReasons(profile, now), tools = profile.canonical_tools;
+  if (tools !== undefined && (!Array.isArray(tools) || new Set(tools).size !== tools.length || tools.some(tool => !knownTools.includes(tool)))) reasons.push('Invalid source canonical tool ceiling');
+  if (typeof profile.provider?.observed_at !== 'string' || !/^(0|[1-9][0-9]*)$/.test(profile.provider.observed_at) || BigInt(profile.provider.observed_at) > BigInt(now)) reasons.push('Provider observation must be explicitly dated and not in the future');
+  if (Object.keys(profile).some(key => !profileFields.includes(key))) reasons.push('Unknown developer profile field');
+  if (profile.hooks !== undefined && (!Array.isArray(profile.hooks) || profile.hooks.length) || profile.observers != null) reasons.push('Hooks and observers are outside the comparison');
+  if (profile.maximum_autonomy !== 'workspace' || JSON.stringify([...(profile.automatic_effects || [])].sort()) !== '["read","write"]') reasons.push('Workspace read/write profile required');
   if (profile.max_requests !== limits.slot_requests || profile.output_tokens !== limits.output_tokens) reasons.push('CS-2 requires 16 requests and 2048 output tokens per run');
   return reasons;
+}
+// The earliest end of the provider, compatibility and price qualification windows.
+function qualificationEnds(profile) {
+  return Math.min(...[profile.provider?.valid_until, profile.provider?.compatibility?.valid_until, profile.provider?.price?.valid_until].map(Number));
 }
 function derivedProfile(profile, item, workspace, catalog, runtime, arm) {
   const { task, edits } = item, tools = task.context.tools;
@@ -148,8 +163,9 @@ function rowsFor(entries, directory, runtime, profile, catalog) {
     cap_micros: limits.slot_micros, call_ceiling: limits.slot_requests, output_tokens: limits.output_tokens, prompt_sha256: sha(Buffer.from(item.task.prompt)), profile: derivedProfile(profile, item, path.join(directory, id, 'workspace'), catalog, runtime, arm),
     files: preparedFiles(item), directories: preparedDirectories(item), scaffold_paths: [...scaffold(item.task, item.edits).keys()], oracle: item.task.expected.oracle, status: 'not_run' }));
 }
-// Pure description of a preparation; the runner re-derives and compares it exactly.
-function describe(specFile, directory) {
+// Pure description of a preparation at time `at`; the runner re-derives and
+// compares it exactly at the recorded preparation time.
+function describe(specFile, directory, at = Date.now()) {
   const specBytes = read(specFile, 64 * 1024), spec = JSON.parse(specBytes);
   noSecrets(spec);
   if (!object(spec, ['executable', 'profile', 'runtime', 'grader', 'aggregate_cap_usd', 'aggregate_call_ceiling', 'propose_checker_process']) || spec.propose_checker_process !== true || prior.micros(spec.aggregate_cap_usd) !== limits.cap_micros || spec.aggregate_call_ceiling !== limits.requests) throw Error('CS-2 requires exactly USD 162, 864 requests, a pinned checker and grader, and an explicit checker proposal');
@@ -158,7 +174,7 @@ function describe(specFile, directory) {
   requireEmbeddedCatalog(executableBytes, read(path.join(assetsRoot, 'catalog.json')));
   const profileFile = plain(path.resolve(spec.profile)), profileBytes = read(profileFile, 1024 * 1024), profile = JSON.parse(profileBytes);
   noSecrets(profile);
-  const reasons = profileReasons(profile);
+  const reasons = profileReasons(profile, at);
   if (reasons.length) throw Error(reasons.join('; '));
   const providerCatalog = plain(path.resolve(profile.catalog)), providerCatalogBytes = read(providerCatalog);
   const { manifest, manifestBytes, items } = tasks();
@@ -168,7 +184,7 @@ function describe(specFile, directory) {
   const runs = rowsFor(entries, directory, pinned, profile, providerCatalog);
   const grader = graderIdentity(spec.grader);
   return {
-    schema: 'cs-2-developer-preparation/1', runnable: true, authorization: false, blockers: ['exact_plan_hash_per_block_required'], model_calls: 0, directory,
+    schema: 'cs-2-developer-preparation/1', runnable: true, authorization: false, blockers: ['exact_plan_hash_per_block_required'], model_calls: 0, directory, prepared_at: String(at),
     executable, executable_sha256: sha(executableBytes), assets, candidate_assets: candidates.inspect(), source: cs1.identity(repository, sourceScope),
     fixture_revision: manifest.revision, fixture_sha256: sha(manifestBytes), rubric_sha256: sha(read(path.join(fixtures, 'rubric-v2.json'))), held_out: manifest.shared,
     profile_source: profileFile, profile_sha256: sha(profileBytes), provider_catalog: providerCatalog, provider_catalog_sha256: sha(providerCatalogBytes),
@@ -185,7 +201,7 @@ function prepare(specFile, destination) {
   if (within(repository, directory) || within(directory, repository) || fs.existsSync(directory)) throw Error('New private directory outside repository required');
   noParentInstructions(path.dirname(directory));
   privateDirectory(directory);
-  const plan = describe(specFile, directory), { items } = tasks();
+  const plan = describe(specFile, directory, Date.now()), { items } = tasks();
   const { cases } = staged(directory, plan.runtime, order(items));
   // Every input validates before the fresh directory is claimed. A partial
   // preparation stays owned and can never be overwritten or replayed.
@@ -209,7 +225,7 @@ function prepare(specFile, destination) {
   const planBytes = read(path.join(directory, 'plan.json'), 16 * 1024 * 1024);
   return { plan: path.join(directory, 'plan.json'), sha256: sha(planBytes), runs: plan.runs.length, write_runs: limits.write_runs, model_calls: 0, aggregate_cap_micros: limits.cap_micros, aggregate_call_ceiling: limits.requests, blocks: candidates.ids };
 }
-module.exports = { prepare, describe, tasks, order, scaffold, preparedFiles, preparedDirectories, derivedProfile, profileReasons, checkerRuntime, graderIdentity, staged, permissionReview, limits, arms, checkerTests, checkerArguments, marker, nodeSha256, checkerBuildScope, checkerCommand, graderFiles, sourceScope, benefitRule };
+module.exports = { prepare, describe, tasks, order, scaffold, preparedFiles, preparedDirectories, derivedProfile, profileReasons, qualificationEnds, checkerRuntime, graderIdentity, staged, permissionReview, limits, arms, checkerTests, checkerArguments, marker, nodeSha256, checkerBuildScope, checkerCommand, graderFiles, sourceScope, benefitRule };
 if (require.main === module) {
   try {
     const [command, spec, destination, ...extra] = process.argv.slice(2);

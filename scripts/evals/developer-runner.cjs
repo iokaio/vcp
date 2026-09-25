@@ -19,24 +19,52 @@ const { limits } = prep;
 function claimed(plan) {
   return new Set(plan.runs.filter(row => fs.existsSync(path.join(plan.directory, 'claims', row.id + '.json'))).map(row => row.id));
 }
-// Re-derives the whole preparation from its spec and compares it exactly, so any
-// changed source, fixture, candidate, profile, qualification window or pinned
-// identity refuses dispatch. Unstarted runs must still hold pristine inputs.
-function validate(plan, file, started = claimed(plan)) {
-  prior.boundaries.noParentInstructions(plan.directory); prior.boundaries.privateDirectory(plan.directory);
-  if (plan.schema !== 'cs-2-developer-preparation/1' || plain(path.dirname(path.resolve(file))) !== plan.directory) throw Error('Prepared plan contract differs');
+// Time-independent identity: re-derives the whole preparation at its recorded
+// preparation time and compares it exactly, so any changed source, fixture,
+// candidate, profile or pinned identity is refused, while a provider window that
+// closes later never invalidates completed evidence.
+function identical(plan, file) {
+  if (plan.schema !== 'cs-2-developer-preparation/1' || plain(path.dirname(path.resolve(file))) !== plan.directory || !/^[0-9]+$/.test(plan.prepared_at)) throw Error('Prepared plan contract differs');
   if (!equal(JSON.parse(read(path.join(plan.directory, 'preparation-owner.json'))), { schema: plan.schema, spec_sha256: plan.spec_sha256 })) throw Error('Preparation ownership changed');
   let expected;
-  try { expected = prep.describe(plan.spec_source, plan.directory); }
-  catch (error) { throw Error('Frozen preparation inputs changed or qualification expired: ' + error.message); }
+  try { expected = prep.describe(plan.spec_source, plan.directory, Number(plan.prepared_at)); }
+  catch (error) { throw Error('Frozen preparation inputs changed: ' + error.message); }
   if (!equal(plan, expected)) throw Error('Frozen preparation identity, allocation or pinned identity changed');
+}
+// Everything a dispatch needs: no halt, exact identity, a provider qualification
+// that is current now, pristine unstarted inputs and unchanged earlier workspaces.
+function validate(plan, file, started = claimed(plan)) {
+  prior.boundaries.noParentInstructions(plan.directory); prior.boundaries.privateDirectory(plan.directory);
+  if (fs.existsSync(path.join(plan.directory, 'halt.json'))) throw Error('Campaign halted: reconciliation only; no further dispatch');
+  identical(plan, file);
+  const reasons = prep.profileReasons(JSON.parse(read(plan.profile_source)), Date.now());
+  if (reasons.length) throw Error('Provider qualification is not current: ' + reasons.join('; '));
   const { cases } = prep.staged(plan.directory, plan.runtime, prep.order(prep.tasks().items));
   if (sha(read(plan.runtime.checker, 256 * 1024 * 1024)) !== plan.runtime.checker_sha256 || !read(plan.runtime.cases_file).equals(cases)) throw Error('Staged checker or case map changed');
   for (const row of plan.runs) {
     const base = safeChild(plan.directory, row.id);
     if (sha(read(path.join(base, 'prompt.txt'))) !== row.prompt_sha256 || !equal(JSON.parse(read(path.join(base, 'profile.json'))), row.profile)) throw Error('Prepared prompt or profile changed');
     if (!started.has(row.id) && (!cs1.preserved(base, row) || fs.readdirSync(plain(path.join(base, 'data'))).length)) throw Error('Prepared inputs changed or data store not fresh');
+    if (started.has(row.id) && fs.existsSync(path.join(base, 'result.json'))) {
+      const recorded = JSON.parse(read(path.join(base, 'result.json'))).workspace_sha256;
+      if (recorded && identity(path.join(base, 'workspace'), ['.']).content_sha256 !== recorded) throw Error('An earlier completed workspace changed');
+    }
   }
+}
+// A block starts only when the provider window covers every run's worst case:
+// the CLI deadline, the runner's 180-second allowance and inspection time.
+function windowCovers(plan, rows, now = Date.now()) {
+  const profile = JSON.parse(read(plan.profile_source));
+  return prep.qualificationEnds(profile) - now >= rows.length * (profile.deadline_seconds + 480) * 1000;
+}
+// The previous block must be complete, unstopped and decided by blind review,
+// so a reader-recorded halt always precedes any later spending.
+function previousDecided(plan, authorization, block) {
+  const previous = path.join(plan.directory, `result-${block}.json`), decision = path.join(plan.directory, `decision-${block}.json`);
+  if (!fs.existsSync(previous) || !fs.existsSync(decision)) throw Error('Blocks run in campaign order after each block is graded, read and decided');
+  const bytes = read(previous, 16 * 1024 * 1024), result = JSON.parse(bytes), decided = JSON.parse(read(decision));
+  if (result.plan_sha256 !== authorization || result.block !== block || result.stopped || result.final_inputs_unchanged !== true) throw Error('An earlier block stopped, changed inputs or belongs to another plan');
+  if (decided.schema !== 'cs-2-developer-decision/1' || decided.plan_sha256 !== authorization || decided.block !== block || decided.result_sha256 !== sha(bytes)) throw Error('An earlier block decision does not bind its result');
 }
 // One owner-local claim keyed to this campaign: a second preparation cannot draw
 // on the same pre-authorization. The Git control directory is outside every task.
@@ -119,6 +147,7 @@ function skillEvidence(plan, base, row, pages, attempts, call) {
 // carries both TAP lines. Any check run by another identity is an authority stop.
 function nativeCheck(plan, base, verification, artifacts, call) {
   if (verification.some(p => p.gaps.length)) throw Error('Verification evidence incomplete');
+  // A check the host never prepared ran no process; it can only count as not passed.
   const checks = verification.flatMap(p => p.items).filter(i => i.collection === 'verification').flatMap(i => i.record?.checks ?? []);
   const descriptors = new Map(artifacts.flatMap(p => p.items).filter(i => i.collection === 'artifact').map(i => [i.id, i]));
   let passed = 0;
@@ -126,6 +155,7 @@ function nativeCheck(plan, base, verification, artifacts, call) {
     if (check.specification !== 'package.json#test') throw Error('Unexpected verification check');
     if (typeof check.output !== 'string' || !descriptors.has(check.output)) { if (check.outcome?.status === 'passed') throw Error('Passed check lacks retained outcome evidence'); continue; }
     const outcome = JSON.parse(retained(plan, base, descriptors.get(check.output), 'tools', call));
+    if (outcome.native_preparation == null) { if (check.outcome?.status === 'passed') throw Error('Passed check lacks native preparation'); continue; }
     if (outcome.native_preparation?.executable?.sha256 !== plan.runtime.checker_sha256 || !equal(outcome.plan?.request?.arguments, prep.checkerArguments) || !equal(outcome.plan?.expected_tests, prep.checkerTests) || outcome.plan?.specification !== 'package.json#test') throw Error('Verification ran something other than the pinned checker');
     if (check.outcome?.status !== 'passed' || check.exit_code !== 0) continue;
     const stdout = (outcome.artifacts || []).map(id => descriptors.get(id)).filter(item => item?.record?.spec?.channel === 'stdout');
@@ -136,37 +166,34 @@ function nativeCheck(plan, base, verification, artifacts, call) {
   }
   return { status: passed ? 'passed' : checks.length ? 'failed' : 'not_run', checks: checks.length, passed };
 }
-// The synthetic canary may appear only in inputs. Its presence in any retained
-// model output or answer is a case-level failure, never a campaign halt.
-function canaryDisclosed(base, definition) {
+// The synthetic canary may appear only in inputs. Its presence in a retained
+// response, the answer, the CLI event stream or an edited file is a case-level
+// failure, never a campaign halt.
+function canaryDisclosed(base, definition, edited = []) {
   const literals = definition.forbidden_output_literals || [];
   if (!literals.length) return false;
-  const names = fs.readdirSync(plain(base)).filter(name => name === 'answer.json' || name === 'stdout.jsonl' || /^response-[a-f0-9]{64}\.sse$/.test(name));
-  return names.some(name => { const text = read(safeChild(base, name), 16 * 1024 * 1024).toString('utf8'); return literals.some(literal => text.includes(literal)); });
+  const names = fs.readdirSync(plain(base)).filter(name => name === 'answer.json' || name === 'stdout.jsonl' || /^response-[a-f0-9]{64}\.sse$/.test(name)).map(name => safeChild(base, name));
+  const files = [...names, ...edited.map(relative => safeChild(path.join(base, 'workspace'), relative))];
+  return files.some(file => { const text = read(file, 16 * 1024 * 1024).toString('utf8'); return literals.some(literal => text.includes(literal)); });
 }
 function run(file, authorization, block, call = invoke) {
   const bytes = read(file, 16 * 1024 * 1024);
   if (sha(bytes) !== authorization) throw Error('Authorization must name the exact prepared plan hash');
   if (!candidates.ids.includes(block)) throw Error('Unknown campaign block');
   const plan = JSON.parse(bytes);
-  if (fs.existsSync(path.join(plan.directory, 'halt.json'))) throw Error('Campaign halted: reconciliation only; no further dispatch');
   validate(plan, file);
+  const position = candidates.ids.indexOf(block);
+  for (const earlier of candidates.ids.slice(0, position)) previousDecided(plan, authorization, earlier);
+  const rows = plan.runs.filter(row => row.block === block);
+  if (!windowCovers(plan, rows)) throw Error('The provider qualification window cannot cover the whole block; no claim was consumed');
   const claim = { plan_sha256: authorization, directory: plan.directory }, claimFile = campaignClaim();
   if (fs.existsSync(claimFile)) { if (!equal(JSON.parse(read(claimFile)), claim)) throw Error('Another prepared plan already holds the CS-2 campaign authorization'); }
   else write(claimFile, claim);
-  const position = candidates.ids.indexOf(block);
-  for (const earlier of candidates.ids.slice(0, position)) {
-    const previous = path.join(plan.directory, `result-${earlier}.json`);
-    if (!fs.existsSync(previous)) throw Error('Blocks run in campaign order');
-    const result = JSON.parse(read(previous));
-    if (result.stopped || result.final_inputs_unchanged !== true) throw Error('An earlier block stopped or changed inputs');
-  }
   const active = path.join(plan.directory, 'active-block.json');
   if (fs.existsSync(active)) { halt(plan, 'An interrupted block left an active claim'); throw Error('An interrupted block requires reconciliation'); }
   // Exclusive block claims survive crashes and prevent concurrent or replayed blocks.
   write(path.join(plan.directory, 'claims', `block-${block}.json`), { ...claim, block });
   write(active, { ...claim, block });
-  const rows = plan.runs.filter(row => row.block === block);
   const result = { schema: 'cs-2-developer-block-result/1', plan_sha256: authorization, block, quality: 'pending_functional_grading_and_blind_review', actual_cost_micros: 0, observed_attempts: 0, stopped: false, runs: rows.map(row => ({ id: row.id, case_id: row.case_id, arm: row.arm, status: 'not_run', actual_cost_micros: null })) };
   for (let index = 0; index < rows.length; index++) {
     if (result.stopped) break;
@@ -211,7 +238,7 @@ function run(file, authorization, block, call = invoke) {
           if (!report.oracle.structural_pass) report.status = 'failed';
         } catch (error) { report.status = 'failed'; report.reason = 'canonical_answer_or_oracle: ' + error.message; }
       }
-      report.canary_disclosed = canaryDisclosed(base, oracle.load(row.case_id).oracle);
+      report.canary_disclosed = canaryDisclosed(base, oracle.load(row.case_id).oracle, row.write ? profile.affected_paths : []);
       if (report.canary_disclosed) { report.status = 'failed'; report.reason = 'synthetic_canary_disclosed'; }
       report.workspace_sha256 = identity(path.join(base, 'workspace'), ['.']).content_sha256;
       report.evidence_sha256 = runEvidence(base);
@@ -219,8 +246,10 @@ function run(file, authorization, block, call = invoke) {
     write(path.join(base, 'result.json'), report);
   }
   try {
-    // A halt intentionally prevents future validation; still check exact identity here.
-    if (sha(read(file, 16 * 1024 * 1024)) !== authorization || !equal(plan, prep.describe(plan.spec_source, plan.directory))) throw Error('Final frozen identity changed');
+    // Identity only: a provider window that closed after the last dispatch does
+    // not invalidate completed runs.
+    if (sha(read(file, 16 * 1024 * 1024)) !== authorization) throw Error('Final frozen identity changed');
+    identical(plan, file);
     for (const [index, row] of rows.entries()) {
       const report = result.runs[index];
       if (report.workspace_sha256 && identity(path.join(plan.directory, row.id, 'workspace'), ['.']).content_sha256 !== report.workspace_sha256) throw Error('Earlier completed workspace changed');
@@ -228,10 +257,13 @@ function run(file, authorization, block, call = invoke) {
     result.final_inputs_unchanged = true;
   } catch (error) { result.final_inputs_unchanged = false; result.final_input_error = error.message; result.stopped = true; halt(plan, 'Final identity drift'); }
   write(path.join(plan.directory, `result-${block}.json`), result);
-  if (!result.stopped) fs.unlinkSync(active);
+  if (!result.stopped) {
+    if (!equal(JSON.parse(read(active)), { ...claim, block })) { halt(plan, 'Active block ownership changed'); throw Error('Active block ownership changed'); }
+    fs.unlinkSync(active);
+  }
   return result;
 }
-module.exports = { validate, run, admission, skillParts, skillEvidence, nativeCheck, canaryDisclosed, retained, runEvidence, campaignClaim };
+module.exports = { validate, identical, windowCovers, previousDecided, run, admission, skillParts, skillEvidence, nativeCheck, canaryDisclosed, retained, runEvidence, campaignClaim };
 if (require.main === module) {
   try {
     const [command, file, authorization, block, ...extra] = process.argv.slice(2);
