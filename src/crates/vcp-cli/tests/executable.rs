@@ -402,8 +402,8 @@ async fn executable_run_skill_activation_precedes_first_provider_request() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn executable_document_authoring_report_only_completes_without_workspace_edits() {
-    for skill in ["document-authoring"] {
+async fn executable_authoring_report_only_profiles_complete_without_workspace_edits() {
+    for skill in ["document-authoring", "skill-authoring"] {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/responses"))
@@ -427,6 +427,14 @@ async fn executable_document_authoring_report_only_completes_without_workspace_e
         for file in ["skill.json", "SKILL.md"] {
             fs::copy(candidate.join(file), package.join(file)).unwrap();
         }
+        if skill == "skill-authoring" {
+            fs::create_dir(package.join("references")).unwrap();
+            fs::copy(
+                candidate.join("references/package-format.md"),
+                package.join("references/package-format.md"),
+            )
+            .unwrap();
+        }
         // Report-only CS-1 cases still need a nonempty acceptance scope. These
         // source paths support verification; they do not grant editing authority.
         fs::remove_file(fixture.workspace.join("package.json")).unwrap();
@@ -435,8 +443,8 @@ async fn executable_document_authoring_report_only_completes_without_workspace_e
         let mut profile: Value =
             serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
         profile["skills"] = json!({"version":1,"revision":"0","sources":[{
-            "id":"document-candidate","root_id":vcp_domain::RootId::new(),
-            "kind":"user","enabled":true,"path":collection.path()
+            "id":"vcp-authoring-candidates","root_id":vcp_domain::RootId::new(),
+            "kind":"user","enabled":true,"path":package
         }]});
         profile["canonical_tools"] = json!(["vcp_read", "vcp_list", "vcp_search"]);
         profile["maximum_autonomy"] = json!("plan");
@@ -447,7 +455,7 @@ async fn executable_document_authoring_report_only_completes_without_workspace_e
         profile["max_requests"] = json!(1);
         profile["max_transport_retries"] = json!(0);
         fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
-        let qualified = format!("document-candidate::{skill}::{skill}");
+        let qualified = format!("vcp-authoring-candidates::.::{skill}");
         let output = fixture
             .run(&[
                 "run",
@@ -491,7 +499,14 @@ async fn executable_document_authoring_report_only_completes_without_workspace_e
         assert!(parts
             .iter()
             .any(|part| part["trust"] == "active_skill" && part["text"] == body));
-        assert_eq!(parts.len(), 1);
+        assert_eq!(parts.len(), if skill == "skill-authoring" { 2 } else { 1 });
+        if skill == "skill-authoring" {
+            let reference =
+                fs::read_to_string(package.join("references/package-format.md")).unwrap();
+            assert!(parts
+                .iter()
+                .any(|part| part["trust"] == "active_skill" && part["text"] == reference));
+        }
         assert_eq!(
             fs::read(fixture.workspace.join("value.txt")).unwrap(),
             source

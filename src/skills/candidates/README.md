@@ -1,27 +1,34 @@
-# Document-authoring 1.0.1 — accepted non-default candidate
+# CS-1 authoring candidates — accepted by owner direction
 
-This original VCP package is retained for explicit experiments and evidence review.
-It is not a distributed builtin, has no automatic loader, and is not qualified for
-default promotion. On September 25, 2026 the owner explicitly accepted this candidate
-with the remaining qualification work recorded below. This is owner acceptance,
-not a claim that failed or unrun evaluations passed.
+On September 25, 2026 the owner accepted document-authoring and skill-authoring
+1.0.1 and directed that remaining work be recorded here. CS-1 is closed by owner
+direction with these qualification gaps retained. This does not relabel failed or
+unrun evaluations as passing.
 
-SKILL.md and skill.json are the exact frozen 1.0.1 candidate bytes. The closed
-campaign retained factual failures, no passing usefulness benefit and a mandatory
-all-arm authority halt. Do not rewrite or relabel historical campaign evidence.
-See [implementation and qualification status](../../../docs/development/cs1-authoring-skills.md).
+Both original VCP packages remain **non-default**. The builtin catalog retains
+21 skills and 44 packaged files; this directory has no automatic loader. Each
+package preserves its exact frozen descriptor, body and resources. Use existing
+explicit source registration and qualified selection for an authorized experiment;
+selection grants no tools, effects or budget.
 
-Use the existing explicit skill-source registry for an authorized experiment, then
-select its qualified skill ID. Registering this directory as a source does not grant
-tools, effects or budget. No new loader or default registration is provided.
+The closed campaign retained DOC factual failures, no passing usefulness benefit
+and a mandatory authority halt; revised SKL comparisons never ran. See
+[document-authoring](../../../docs/development/cs1-authoring-skills.md) and
+[skill-authoring](../../../docs/development/cs1-skill-authoring.md) for history.
 
 ## Additional work before default promotion
 
-- Correct DOC source-attribution and missing-evidence failures, and demonstrate
-  useful improvement over both no-skill and nearest-skill baselines.
-- Run a separately authorized comparison using the corrected canonical tool
-  ceiling. Preserve the halted campaign; do not resume or replay it.
-- Complete the original preservation, authority and independent comparison gates,
-  then qualify the exact promoted native package through installation and rollback.
+- Correct DOC source-attribution and missing-evidence failures; demonstrate useful
+  improvement over both no-skill and nearest-skill baselines.
+- Complete SKL 1.0.1 normal, boundary, hostile-input, missing-tool and near-miss
+  comparisons. Historical 1.0.0 results do not qualify this revision.
+- Run any new comparison under a separately authorized plan and budget using the
+  corrected canonical tool ceiling. Preserve the halted campaign and all charges;
+  do not resume, replay or transfer receipts to changed candidates.
+- Satisfy the original correctness, preservation, authority, secret-handling and
+  evidence-honesty gates with independent review and required usefulness benefit.
+- Qualify the exact promoted native package through install, upgrade, rollback,
+  offline discovery, activation/revocation and resource integrity checks.
 
-No additional paid run or default enablement is authorized by this acceptance.
+No additional paid run, release or default enablement is authorized by acceptance.
+CS-2 through CS-7 retain their own work and acceptance contracts.

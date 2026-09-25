@@ -68,23 +68,28 @@ mod native {
         (root, registry)
     }
     // Candidate packages require an explicit source; they are not distributed builtins.
-    fn staged_document_candidate(path: &Path) -> SourceRegistry {
-        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../skills/candidates/document-authoring");
-        fs::create_dir(path.join("document-authoring")).unwrap();
-        for file in ["skill.json", "SKILL.md"] {
-            fs::copy(
-                source.join(file),
-                path.join("document-authoring").join(file),
-            )
-            .unwrap();
+    fn staged_authoring_candidates(path: &Path) -> SourceRegistry {
+        for id in ["document-authoring", "skill-authoring"] {
+            let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../skills/candidates")
+                .join(id);
+            let descriptor: SkillDescriptor =
+                serde_json::from_slice(&fs::read(source.join("skill.json")).unwrap()).unwrap();
+            let files = std::iter::once("skill.json")
+                .chain(std::iter::once(descriptor.body.path.as_str()))
+                .chain(descriptor.resources.iter().map(|part| part.path.as_str()));
+            for file in files {
+                let destination = path.join(id).join(file);
+                fs::create_dir_all(destination.parent().unwrap()).unwrap();
+                fs::copy(source.join(file), destination).unwrap();
+            }
         }
         SourceRegistry {
             version: 1,
             revision: Revision::ZERO,
             disabled: BTreeSet::new(),
             sources: vec![SkillSource {
-                id: "document-candidate".into(),
+                id: "authoring-candidates".into(),
                 kind: SourceKind::User,
                 enabled: true,
                 root: RootIdentity {
@@ -207,13 +212,15 @@ mod native {
     }
 
     #[test]
-    fn document_authoring_requires_explicit_selection_and_loads_bounded_content() {
+    fn authoring_candidates_require_explicit_selection_and_load_bounded_content() {
         let temp = tempfile::tempdir().unwrap();
         let builtin = tempfile::tempdir().unwrap();
         let (_, defaults) = staged(builtin.path(), true);
         let defaults = discovery::discover(&defaults, &Default::default()).unwrap();
-        assert!(defaults.resolve("document-authoring", &context()).is_err());
-        let registry = staged_document_candidate(temp.path());
+        for id in ["document-authoring", "skill-authoring"] {
+            assert!(defaults.resolve(id, &context()).is_err());
+        }
+        let registry = staged_authoring_candidates(temp.path());
         let discovered = discovery::discover(&registry, &Default::default()).unwrap();
         let mut ctx = context();
         ctx.cues = BTreeSet::from([
@@ -222,8 +229,7 @@ mod native {
             "Cargo.toml".into(),
             "package.json".into(),
         ]);
-        assert!(discovered.resolve("skill-authoring", &ctx).is_err());
-        for id in ["document-authoring"] {
+        for id in ["document-authoring", "skill-authoring"] {
             let selected = discovered.resolve(id, &ctx).unwrap();
             assert!(!selected.matches(&ctx), "incidental suggestion: {id}");
             let active = activation::activate(
@@ -237,7 +243,7 @@ mod native {
             .unwrap();
             assert_eq!(active.body.version.sha256, selected.descriptor.body.sha256);
             assert_eq!(active.reads.bodies, 1);
-            assert_eq!(active.resources.len(), 0);
+            assert_eq!(active.resources.len(), usize::from(id == "skill-authoring"));
             for (resource, expected) in active.resources.iter().zip(&selected.descriptor.resources)
             {
                 assert_eq!(resource.version.sha256, expected.sha256);
@@ -276,10 +282,14 @@ mod native {
 
     #[test]
     fn authoring_missing_or_changed_content_stays_lazy_and_fails_activation() {
-        for relative in ["document-authoring/SKILL.md"] {
+        for relative in [
+            "document-authoring/SKILL.md",
+            "skill-authoring/SKILL.md",
+            "skill-authoring/references/package-format.md",
+        ] {
             for missing in [false, true] {
                 let temp = tempfile::tempdir().unwrap();
-                let registry = staged_document_candidate(temp.path());
+                let registry = staged_authoring_candidates(temp.path());
                 let discovered = discovery::discover(&registry, &Default::default()).unwrap();
                 let id = relative.split('/').next().unwrap();
                 let active = activation::activate(
@@ -318,9 +328,9 @@ mod native {
 
     #[test]
     fn authoring_workspace_override_preserves_candidate_qualified_selection() {
-        for id in ["document-authoring"] {
+        for id in ["document-authoring", "skill-authoring"] {
             let temp = tempfile::tempdir().unwrap();
-            let mut registry = staged_document_candidate(temp.path());
+            let mut registry = staged_authoring_candidates(temp.path());
             let workspace = tempfile::tempdir().unwrap();
             let mut descriptor: SkillDescriptor =
                 serde_json::from_slice(&fs::read(temp.path().join(id).join("skill.json")).unwrap())
@@ -352,7 +362,7 @@ mod native {
             .unwrap();
             assert_eq!(override_active.source_id, "workspace-authoring");
             assert_eq!(override_active.body.bytes, body);
-            let qualified = format!("document-candidate::{id}::{id}");
+            let qualified = format!("authoring-candidates::{id}::{id}");
             let builtin = activation::activate(
                 &registry,
                 &discovered,
@@ -362,7 +372,7 @@ mod native {
                 &Default::default(),
             )
             .unwrap();
-            assert_eq!(builtin.source_id, "document-candidate");
+            assert_eq!(builtin.source_id, "authoring-candidates");
             assert_ne!(
                 builtin.body.version.sha256,
                 override_active.body.version.sha256
