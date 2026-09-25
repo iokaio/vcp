@@ -119,4 +119,3 @@ This does not relabel failed or unrun checks as passing. The
 [candidates README](../../src/skills/candidates/README.md) records additional work
 required before default promotion; historical receipts do not transfer to changed
 packages or runtimes, and the halted campaign cannot resume or replay.
-
