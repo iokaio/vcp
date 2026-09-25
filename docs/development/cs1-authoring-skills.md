@@ -110,11 +110,12 @@ Executable SHA-256:
 These are local debug qualification checks, not release or performance acceptance.
 
 
-## Remaining acceptance gates
+## Remaining qualification work
 
-The failed correctness, authority and inconclusive benefit gates remain unmet.
-The [follow-up design](cs1-follow-up-design.md) preserves the separate qualification
-contract; any changed package or runtime requires appropriate fresh evidence.
-The owner-approved source-only merge records an unqualified candidate and does not
-waive these gates. Default distribution and CS-1 completion remain deferred until
-both candidates meet their acceptance conditions.
+The [closed v3 diagnostic](cs1-full-diagnostic-outcome.md) retains failed normal
+and inherited candidate quality findings and a campaign-wide tool-authority halt.
+The owner accepted both non-default candidates and closed CS-1 by direction.
+This does not relabel failed or unrun checks as passing. The
+[candidates README](../../src/skills/candidates/README.md) records additional work
+required before default promotion; historical receipts do not transfer to changed
+packages or runtimes, and the halted campaign cannot resume or replay.

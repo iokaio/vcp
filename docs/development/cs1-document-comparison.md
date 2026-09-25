@@ -111,6 +111,6 @@ charges are $0.410312. These are retained provider receipts, not an invoice audi
 
 Costs and latency are descriptive; they cannot retrospectively break the normal
 quality ties. The small corpus does not establish general statistical benefit.
-The [prospective follow-up design](cs1-follow-up-design.md) remains unapproved and
-unexecuted. Any further qualification must retain these results and receive its
+The subsequently approved [follow-up](cs1-followup-outcome.md) halted on its
+tool-authority gate. Any further qualification must retain these results and receive its
 own exact source, fixture, runtime and budget authorization.

@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(all(windows, feature = "qualification"))]
+#[path = "support/authoring_directories.rs"]
+mod authoring_directories;
+#[path = "support/authoring_followup.rs"]
+mod authoring_followup;
 #[path = "support/canonical_tool_ceiling.rs"]
 mod canonical_tool_ceiling;
 #[path = "support/child_output_owner.rs"]

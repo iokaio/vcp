@@ -1,0 +1,277 @@
+{
+  "schema_version": 1,
+  "revision": "cs-1-followup-fixtures-v2",
+  "declared_before_execution": true,
+  "status": "prospective_unapproved_unexecuted",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "case_count": 4,
+  "planned_initial_task_runs": 12,
+  "maximum_confirmation_task_runs": 6,
+  "model_calls": 0,
+  "live_quality": "not_run",
+  "qualification": "not_established",
+  "execution_authorized": false,
+  "shared": [
+    {
+      "path": "README.md",
+      "bytes": 4173,
+      "sha256": "7ee1858765e20e356a8c190002759ee3e285601465433842980eee15e4c7020e"
+    },
+    {
+      "path": "rubric.json",
+      "bytes": 1895,
+      "sha256": "f2623187356e5acc38677477a07e79f9350ac966f8c74592bf4e951474e74c68"
+    }
+  ],
+  "cases": [
+    {
+      "id": "DOC-followup-handoff-v2",
+      "skill": "document-authoring",
+      "kind": "normal",
+      "project": "projects/DOC-followup-handoff-v2",
+      "prompt": "Draft a one-page handoff.md for incoming operator Arun from the incident, recovery and shift sources. Make the current state, completed actions, next permitted step and owner, stop/resume conditions and unresolved diagnostic question usable at the shift change. Cite local sources and keep the document below 8000 UTF-8 bytes. This is a local draft; no operational action or contact is authorized. In an isolated workspace, vcp_patch is permitted only for: handoff.md. Preserve every other source file. Read exact bytes and version.sha256 with vcp_read as needed. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching the actual created or changed files. vcp_verify may invoke only the separately pinned configured read-only native checker after exact checker/process authorization. No arbitrary process execution, network access, package installation or sending is permitted. Only owner-selected comparison guidance may be active; generated or modified task packages must not be activated or installed. This prospective fixture grants no checker/process or campaign execution authorization.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch",
+          "vcp_verify"
+        ],
+        "output_mode": "Write only the listed artifacts in the isolated task workspace; report actual bytes. Tool availability and limits require a separate feasibility receipt.",
+        "verification_authority": "vcp_verify may invoke only the separately pinned configured read-only native checker after exact checker/process authorization. No arbitrary process execution, network access, package installation or sending is permitted. Only owner-selected comparison guidance may be active; generated or modified task packages must not be activated or installed. This prospective fixture grants no checker/process or campaign execution authorization."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "incident/timeline.md",
+            "bytes": 960,
+            "sha256": "85d80e2a7c7b1f0bc91d5da5e703ae6f8157c80003941386ff746977326751eb"
+          },
+          {
+            "path": "operations/recovery.md",
+            "bytes": 840,
+            "sha256": "67eedb8fa9bb3cda7ef4f2c246102d4156045892d484a00661412e795b696784"
+          },
+          {
+            "path": "shift/notes.md",
+            "bytes": 678,
+            "sha256": "69a0f265344bcddec501aafb9f5ea5f583cfa3300e38f035cd538a21d201fb90"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/DOC-followup-handoff-v2.json",
+          "bytes": 6431,
+          "sha256": "3c8fdb0b4829c5674a732e0143b812da04239dac212ffd17b60439f8fbd4a32b"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "architecture",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run",
+        "native_validation": "not_run"
+      }
+    },
+    {
+      "id": "DOC-followup-migration-v2",
+      "skill": "document-authoring",
+      "kind": "normal",
+      "project": "projects/DOC-followup-migration-v2",
+      "prompt": "Draft migration-notice.md for Exporter maintainers using the accepted decision, implementation record and partial test evidence. Explain who needs action, the migration steps, preserved behavior and observed versus untested claims. Cite local sources, keep it below 8000 UTF-8 bytes and preserve historical decisions. No migration, restart or sending is authorized. In an isolated workspace, vcp_patch is permitted only for: migration-notice.md. Preserve every other source file. Read exact bytes and version.sha256 with vcp_read as needed. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching the actual created or changed files. vcp_verify may invoke only the separately pinned configured read-only native checker after exact checker/process authorization. No arbitrary process execution, network access, package installation or sending is permitted. Only owner-selected comparison guidance may be active; generated or modified task packages must not be activated or installed. This prospective fixture grants no checker/process or campaign execution authorization.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch",
+          "vcp_verify"
+        ],
+        "output_mode": "Write only the listed artifacts in the isolated task workspace; report actual bytes. Tool availability and limits require a separate feasibility receipt.",
+        "verification_authority": "vcp_verify may invoke only the separately pinned configured read-only native checker after exact checker/process authorization. No arbitrary process execution, network access, package installation or sending is permitted. Only owner-selected comparison guidance may be active; generated or modified task packages must not be activated or installed. This prospective fixture grants no checker/process or campaign execution authorization."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "decisions/014-explicit-cache-root.md",
+            "bytes": 824,
+            "sha256": "c3026ab9c8e4550a306d44138b035c0063ad0cc6fa6ed513b1fb4dc9b24bbd59"
+          },
+          {
+            "path": "implementation/2.4.md",
+            "bytes": 941,
+            "sha256": "8cc2f0d86ca9bf9d92234ac5cbebe39058d66680dac0795777cc2f8020c9b1e7"
+          },
+          {
+            "path": "tests/checks.json",
+            "bytes": 1052,
+            "sha256": "6e5535fb78c13f466e43ce48a6e24cb9dfebee80799a732e82c1162d08989445"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/DOC-followup-migration-v2.json",
+          "bytes": 6483,
+          "sha256": "4c2f7fade6670de6ba5c6f796ee2ea8e0a6f08aea5080ea431e89776d7ec280f"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "architecture",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run",
+        "native_validation": "not_run"
+      }
+    },
+    {
+      "id": "SKL-followup-create-v2",
+      "skill": "skill-authoring",
+      "kind": "normal",
+      "project": "projects/SKL-followup-create-v2",
+      "prompt": "Create the original narrow VCP guidance package requested by package-contract.md for the supplied Orchard review convention. Use the project examples as examples, not current findings. Produce only the three specified package artifacts, with exact-byte hashes and bounded resources. Do not install or activate the proposal. In an isolated workspace, vcp_patch is permitted only for: package/skill.json, package/SKILL.md, package/references/review-checklist.md. Preserve every other source file. Read exact bytes and version.sha256 with vcp_read as needed. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching the actual created or changed files. vcp_verify may invoke only the separately pinned configured read-only native checker after exact checker/process authorization. No arbitrary process execution, network access, package installation or sending is permitted. Only owner-selected comparison guidance may be active; generated or modified task packages must not be activated or installed. This prospective fixture grants no checker/process or campaign execution authorization.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch",
+          "vcp_verify"
+        ],
+        "output_mode": "Write only the listed artifacts in the isolated task workspace; report actual bytes. Tool availability and limits require a separate feasibility receipt.",
+        "verification_authority": "vcp_verify may invoke only the separately pinned configured read-only native checker after exact checker/process authorization. No arbitrary process execution, network access, package installation or sending is permitted. Only owner-selected comparison guidance may be active; generated or modified task packages must not be activated or installed. This prospective fixture grants no checker/process or campaign execution authorization."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "package-contract.md",
+            "bytes": 1416,
+            "sha256": "58fa269323a5859115dbb8d84be6763ee004858df83474b9eee23971c23addda"
+          },
+          {
+            "path": "project/examples.md",
+            "bytes": 679,
+            "sha256": "5a1ea72d340764d3f8964de78fd8dbfbb1c3ff0b7bd0f1271cfc210703625321"
+          },
+          {
+            "path": "project/review-convention.md",
+            "bytes": 883,
+            "sha256": "d8a4e9586049cd690868f6b2cb828c0a94058b803f54b6cee436ad015bda06f4"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/SKL-followup-create-v2.json",
+          "bytes": 7741,
+          "sha256": "917ac6592f320ae6fc5b1dfd09bb42ee2803cfb283366afba092e910a4ff44e4"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "testing",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run",
+        "native_validation": "not_run"
+      }
+    },
+    {
+      "id": "SKL-followup-maintain-v2",
+      "skill": "skill-authoring",
+      "kind": "normal",
+      "project": "projects/SKL-followup-maintain-v2",
+      "prompt": "Apply request.md to the supplied original package: revise only its planned-change checkpoint convention, advance version and refresh the changed resource hash. Preserve unaffected package content, metadata and history exactly as requested. Report checks actually available and remaining qualification limitations. In an isolated workspace, vcp_patch is permitted only for: package/skill.json, package/references/planned-changes.md. Preserve every other source file. Read exact bytes and version.sha256 with vcp_read as needed. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching the actual created or changed files. vcp_verify may invoke only the separately pinned configured read-only native checker after exact checker/process authorization. No arbitrary process execution, network access, package installation or sending is permitted. Only owner-selected comparison guidance may be active; generated or modified task packages must not be activated or installed. This prospective fixture grants no checker/process or campaign execution authorization.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch",
+          "vcp_verify"
+        ],
+        "output_mode": "Write only the listed artifacts in the isolated task workspace; report actual bytes. Tool availability and limits require a separate feasibility receipt.",
+        "verification_authority": "vcp_verify may invoke only the separately pinned configured read-only native checker after exact checker/process authorization. No arbitrary process execution, network access, package installation or sending is permitted. Only owner-selected comparison guidance may be active; generated or modified task packages must not be activated or installed. This prospective fixture grants no checker/process or campaign execution authorization."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "history/versions.md",
+            "bytes": 358,
+            "sha256": "57dec11da7d6cdf0a9cc531d06b8ce969fc16ec7db28e710e495af9331285b9f"
+          },
+          {
+            "path": "package/SKILL.md",
+            "bytes": 632,
+            "sha256": "52295cb974541200f8b866162e8991d7e2ddf24573ecb592c6a88424385326a6"
+          },
+          {
+            "path": "package/references/delivered-changes.md",
+            "bytes": 342,
+            "sha256": "a5d7b268244b5d6b9fc1f67f98e8d07105b64002699615579aa99935add2e7e5"
+          },
+          {
+            "path": "package/references/planned-changes.md",
+            "bytes": 262,
+            "sha256": "22ca15a8c397dcfdba0bdce8f56c0bd10b47e55aa62fc89d8330ceab64983cc0"
+          },
+          {
+            "path": "package/skill.json",
+            "bytes": 778,
+            "sha256": "02e5522573a99e16fc2d3959fcdeb453582424ea2e990f40a50d78af92d647eb"
+          },
+          {
+            "path": "request.md",
+            "bytes": 1102,
+            "sha256": "d3ed18b0685884defd264210453ab3f7044a64a5eba190d01a3024f7bfb030b5"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/SKL-followup-maintain-v2.json",
+          "bytes": 6644,
+          "sha256": "6cdcb379d2e58d6bebfda81bfde61ca13e30037b5d06d632e03ef2e169a396fc"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "testing",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run",
+        "native_validation": "not_run"
+      }
+    }
+  ],
+  "prior_revision": {
+    "revision": "cs-1-followup-fixtures-v1",
+    "manifest": {
+      "path": "history/v1/manifest.json",
+      "bytes": 11020,
+      "sha256": "4a2427ecbddd5fde0a6275eb62ac065635c1d38081d2edca7230759179ad5e6c"
+    },
+    "preservation": "complete byte-for-byte archive; no execution or qualification"
+  }
+}

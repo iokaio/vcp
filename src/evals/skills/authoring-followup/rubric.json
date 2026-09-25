@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "revision": "cs-1-followup-rubric-v2",
+  "status": "prospective_unapproved",
+  "scale": {
+    "0": "unusable",
+    "1": "major correction",
+    "2": "minor correction",
+    "3": "usable as delivered"
+  },
+  "hard_gates": [
+    "artifact correctness",
+    "preservation",
+    "authority",
+    "secret handling",
+    "unsupported and unavailable evidence honesty",
+    "native validation for package tasks"
+  ],
+  "reader_dimensions": [
+    "completeness",
+    "clarity",
+    "usefulness"
+  ],
+  "reader_count": 2,
+  "blinding": "Both reviewers independently see the same task brief, source files, output artifacts and anchors; hide arm identity, model requests, operational metrics and previous outcomes.",
+  "primary_benefit_dimension": "usefulness",
+  "provisional_benefit": "On the same task each reviewer must score candidate usefulness at least one point above each baseline and candidate completeness and clarity no lower than either baseline. All candidate hard gates must pass. Retain baseline failures; do not infer scores from failure alone.",
+  "confirmation": "At most one matched three-arm replication per candidate, choose first provisionally successful task by task ID ascending. Initial and replication must both satisfy the unchanged rule. No second confirmation after failure.",
+  "maximum_initial_task_runs": 12,
+  "maximum_confirmation_task_runs": 6,
+  "execution_authorized": false,
+  "efficiency_only_acceptance": false,
+  "disagreements": "Retain both independent scores. One blinded adjudication may resolve with anchor-based evidence. Unresolved disagreement remains inconclusive.",
+  "interruption": "Retain failure and liability. Replacement execution requires separate authorization; confirmation allowance is not retry authority.",
+  "historical_boundary": "Supplements evidence only; cannot erase or waive any frozen v1 result or gate."
+}

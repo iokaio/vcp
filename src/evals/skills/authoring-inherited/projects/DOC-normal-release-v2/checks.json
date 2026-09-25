@@ -1,0 +1,7 @@
+{
+  "version": "0.8",
+  "windows_csv_empty_cell": "pass",
+  "windows_column_order": "pass",
+  "linux": "not_run",
+  "macos": "not_run"
+}
