@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v2",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "form.html",
+    "form.css",
+    "form.js"
+  ],
+  "preserve_files": [
+    "package.json",
+    "tokens.css",
+    "states.json"
+  ],
+  "required_observations": [
+    "State transitions match declared sequence",
+    "Undeclared events leave the state unchanged",
+    "Duplicate start cannot create another operation",
+    "Failure retains user input",
+    "Narrow viewport, focus and reduced motion require actual CS-3 checks"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution other than the configured checker",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "functional_grading": {
+    "mode": "single_shot",
+    "subject": "form.js",
+    "export": "transition"
+  },
+  "html_files": [
+    "form.html"
+  ],
+  "functional_vectors": [
+    {
+      "state": "idle",
+      "event": "start",
+      "next": "loading"
+    },
+    {
+      "state": "loading",
+      "event": "start",
+      "next": "loading"
+    },
+    {
+      "state": "loading",
+      "event": "fail",
+      "next": "error"
+    },
+    {
+      "state": "error",
+      "event": "retry",
+      "next": "loading"
+    },
+    {
+      "state": "loading",
+      "event": "succeed",
+      "next": "success"
+    },
+    {
+      "state": "idle",
+      "event": "succeed",
+      "next": "idle"
+    },
+    {
+      "state": "success",
+      "event": "start",
+      "next": "success"
+    },
+    {
+      "state": "error",
+      "event": "fail",
+      "next": "error"
+    }
+  ],
+  "browser_checks": "CS-3 not_run"
+}

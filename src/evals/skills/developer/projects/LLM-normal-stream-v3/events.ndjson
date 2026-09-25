@@ -1,0 +1,3 @@
+{"type":"delta","text":"Caf"}
+{"type":"delta","text":"é"}
+{"type":"done","usage":{"input_tokens":5,"output_tokens":2}}

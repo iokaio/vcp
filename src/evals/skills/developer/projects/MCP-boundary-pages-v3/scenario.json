@@ -1,0 +1,29 @@
+{
+  "contract_revision": 3,
+  "page_size": 2,
+  "cursors": [
+    "page-2",
+    "page-4"
+  ],
+  "maximum_reply_bytes": 4096,
+  "maximum_text_bytes": 8192,
+  "maximum_pending": 16,
+  "methods": {
+    "list": "fixture/list_labels",
+    "delay": "fixture/delay",
+    "echo": "fixture/echo",
+    "cancel": "notifications/cancelled"
+  },
+  "pending_ids": [
+    "slow-a",
+    "slow-b"
+  ],
+  "cancel_id": "slow-a",
+  "error_codes": {
+    "not_initialized": -32000,
+    "invalid_params": -32602,
+    "unknown_method": -32601,
+    "oversized_reply": -32001,
+    "pending_limit": -32002
+  }
+}

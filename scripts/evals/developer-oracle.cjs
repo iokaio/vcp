@@ -16,13 +16,23 @@ function frozen(root, ref) {
   if (bytes.length !== ref.bytes || digest(bytes) !== ref.sha256) throw Error(`Frozen input changed: ${ref.path}`);
   return bytes.toString('utf8');
 }
+const revision = 'cs-2-developer-fixtures-v5', gradingModes = ['none', 'single_shot', 'interactive'];
+// Paths the campaign preparer adds to write cases for the in-run checker. They must
+// survive unchanged; they are never task outputs.
+const scaffoldPaths = ['checks/developer.test.cjs', 'checks/developer.case.json'];
 function load(caseId, root = fixtureRoot) {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
-  if (manifest.schema_version !== 1 || manifest.revision !== 'cs-2-developer-fixtures-v4' || manifest.case_count !== 18 || manifest.cases.length !== 18) throw Error('Unexpected developer fixture cohort');
+  if (manifest.schema_version !== 1 || manifest.revision !== revision || manifest.case_count !== 18 || manifest.cases.length !== 18) throw Error('Unexpected developer fixture cohort');
   for (const ref of manifest.shared) frozen(root, ref);
   const task = manifest.cases.find(item => item.id === caseId);
   if (!task || !safePath(task.project)) throw Error(`Unknown or unsafe case: ${caseId}`);
   const oracle = JSON.parse(frozen(root, task.expected.oracle));
+  const grading = oracle.functional_grading;
+  if (!grading || !gradingModes.includes(grading.mode) || (grading.mode === 'none'
+    ? Object.keys(grading).length !== 1
+    : !keys(grading, ['mode', 'subject', 'export']) || !oracle.allowed_modifications.includes(grading.subject) || !/^[A-Za-z_$][\w$]*$/.test(grading.export))) {
+    throw Error(`Invalid functional grading descriptor: ${caseId}`);
+  }
   const initial = new Map();
   for (const ref of task.expected.source_files) {
     if ([...initial.keys()].some(name => name.toLowerCase() === ref.path.toLowerCase())) throw Error('Colliding frozen files');
@@ -35,8 +45,15 @@ function load(caseId, root = fixtureRoot) {
 }
 function check(caseId, answer, options = {}) {
   const { task, oracle, initial } = load(caseId, options.fixtureRoot);
-  const final = new Map(initial), errors = [], seen = new Set();
+  const errors = [], seen = new Set();
   const fail = text => errors.push(text);
+  // A write case's checker scaffold joins the preserved initial workspace.
+  const scaffold = options.scaffold === undefined ? new Map() : options.scaffold instanceof Map ? options.scaffold : new Map(Object.entries(options.scaffold));
+  for (const [name, content] of scaffold) {
+    if (!scaffoldPaths.includes(name) || typeof content !== 'string' || !oracle.allowed_modifications.length) throw Error(`Invalid checker scaffold: ${name}`);
+    initial.set(name, content);
+  }
+  const final = new Map(initial);
   const goodShape = keys(answer, ['files', 'report', 'not_run']) && Array.isArray(answer.files)
     && typeof answer.report === 'string' && Array.isArray(answer.not_run) && answer.not_run.every(item => typeof item === 'string');
   if (!goodShape) fail('Expected exactly files, report and not_run with declared types');
@@ -57,7 +74,7 @@ function check(caseId, answer, options = {}) {
     for (const name of oracle.allowed_outputs) if (!final.has(name)) fail(`Required output absent: ${name}`);
     for (const canary of oracle.forbidden_output_literals || []) if (JSON.stringify(answer).includes(canary)) fail('Synthetic private canary disclosed');
   }
-  for (const name of oracle.preserve_files) if (initial.get(name) !== final.get(name)) fail(`Preserved input changed: ${name}`);
+  for (const name of [...oracle.preserve_files, ...scaffold.keys()]) if (initial.get(name) !== final.get(name)) fail(`Preserved input changed: ${name}`);
   if (options.finalFiles !== undefined) {
     const actual = options.finalFiles instanceof Map ? options.finalFiles : new Map(Object.entries(options.finalFiles));
     for (const [name, content] of final) if (actual.get(name) !== content) fail(`Actual workspace mismatch: ${name}`);
@@ -82,7 +99,7 @@ function check(caseId, answer, options = {}) {
     process_execution: 'not_run', browser_checks: 'not_run', live_compatibility: 'not_run',
     human_grading: 'pending', observed_task_success: false };
 }
-module.exports = { check, load };
+module.exports = { check, load, revision, scaffoldPaths };
 if (require.main === module) {
   const [caseId, answerPath, ...extra] = process.argv.slice(2);
   if (!caseId || !answerPath || extra.length) throw Error('Usage: developer-oracle.cjs CASE ANSWER.json');
