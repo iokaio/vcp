@@ -4,6 +4,7 @@
     "fast": [
       "repository",
       "harness",
+      "cs2-node-protocol",
       "experiments",
       "upstream-inventory",
       "upstream-source",
@@ -39,6 +40,14 @@
     ]
   },
   "cases": {
+    "cs2-node-protocol": {
+      "task_ids": ["CS-2"],
+      "args": ["--test", "src/tests/contracts/node-fixture-protocol.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
     "p9-protocol-generation": {
       "task_ids": ["P9-01"],
       "args": ["--test", "src/tests/contracts/protocol-generation.test.cjs"],
