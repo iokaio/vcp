@@ -157,8 +157,11 @@ impl CanonicalHost {
             checks.push(check);
         }
         before_publish();
-        self.worker
-            .run_cleanup(move |context| context.finish_verification(&binding, run, checks))
+        let verification = self
+            .worker
+            .run_cleanup(move |context| context.finish_verification(&binding, run, checks))?;
+        let _ = self.poll_observers(thread).await;
+        Ok(verification)
     }
     /// Call after retained work has drained. This takes the same worker/lifecycle
     /// locks used for admission; neither an active turn nor an old saved report

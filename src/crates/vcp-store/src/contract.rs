@@ -259,6 +259,9 @@ impl Record {
         if crate::forecast_contract::kind(self) {
             return crate::forecast_contract::shape(self);
         }
+        if crate::observer_contract::kind(self) {
+            return crate::observer_contract::shape(self);
+        }
         if crate::editor_contract::kind(self)? {
             return crate::editor_contract::shape(self);
         }
@@ -477,6 +480,11 @@ impl Record {
         Ok(())
     }
     pub fn required_references(&self) -> Result<BTreeSet<String>> {
+        if crate::observer_contract::kind(self) {
+            let mut references = self.references.clone();
+            references.extend(crate::observer_contract::references(self)?);
+            return Ok(references);
+        }
         if crate::memory_review_contract::kind(self)?.is_some() {
             let mut refs = crate::memory_review_contract::references(self)?;
             refs.extend(self.references.clone());
@@ -706,6 +714,9 @@ impl Record {
         Ok(refs)
     }
     pub(crate) fn task_scope(&self) -> Result<Option<vcp_domain::workspace::Scope>> {
+        if crate::observer_contract::kind(self) {
+            return crate::observer_contract::scope(self).map(Some);
+        }
         if crate::editor_contract::kind(self)? { return Ok(Some(crate::editor_contract::scope(self)?)); }
         if agents_contract::kind(self)? {
             return Ok(Some(self.decode::<vcp_domain::agents::TaskGraph>()?.scope));

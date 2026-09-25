@@ -78,6 +78,9 @@ pub(crate) fn install_host(
         decisions.install_with(host, resolve)?;
     }
     host.configure_skills(crate::skills::prepare(&profile, config)?)?;
+    if let Some(observers) = &profile.observers {
+        host.configure_observers(observers.clone())?;
+    }
     Ok(profile)
 }
 

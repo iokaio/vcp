@@ -59,9 +59,34 @@ pub struct Evidence {
 /// Rebuild from currently authorized retained evidence. No artifact is persisted,
 /// no provider is called, and no task, counter or scheduling state is modified.
 pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Evidence> {
-    let source = observations::observe(store, access, window)?;
-    let repetitions = analyze(&source)?;
-    let mut evidence = Evidence {
+    prepare(store, access, window, &|| Ok(()))?.compute()
+}
+
+/// Authorized immutable inputs for bounded owner-driven local computation.
+pub(crate) struct Prepared {
+    source: observations::Evidence,
+    policy: Option<String>,
+    catalog: Option<String>,
+}
+
+pub(crate) fn prepare(
+    store: &Store,
+    access: &Access,
+    window: HistoryWindow,
+    cooperate: &dyn Fn() -> Result<()>,
+) -> Result<Prepared> {
+    Ok(Prepared {
+        source: observations::observe_with_check(store, access, window, cooperate)?,
+        policy: current_policy(store, access)?.map(|p| p.value.id),
+        catalog: current_registry(store, access)?.map(|r| r.value.catalog.id),
+    })
+}
+
+impl Prepared {
+    pub(crate) fn compute(self) -> Result<Evidence> {
+        let source = self.source;
+        let repetitions = analyze(&source)?;
+        let mut evidence = Evidence {
         schema_version: 1,
         id: String::new(),
         workspace: source.workspace.clone(),
@@ -75,8 +100,8 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
         source_alphabet: source.alphabet,
         source_gaps: source.gaps.len() as u64,
         excluded_pruned_records: source.excluded_pruned_records,
-        policy: current_policy(store, access)?.map(|p| p.value.id),
-        catalog: current_registry(store, access)?.map(|r| r.value.catalog.id),
+        policy: self.policy,
+        catalog: self.catalog,
         algorithm: "exact-verification-ngram/1".into(),
         maximum_observations: MAX_OBSERVATIONS as u16,
         maximum_period: MAX_PERIOD as u16,
@@ -90,11 +115,12 @@ pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<
             "Productive work, flaky checks and environment failures can repeat. Non-verification actions and partial cycles are not classified. Rebuild after pause, steering, retention or reopen; this evidence cannot authorize consumption.".into(),
         ],
     };
-    evidence.id = format!(
-        "cycle-evidence-{}",
-        digest_bytes(&canonical_bytes(&evidence).map_err(err)?)
-    );
-    Ok(evidence)
+        evidence.id = format!(
+            "cycle-evidence-{}",
+            digest_bytes(&canonical_bytes(&evidence).map_err(err)?)
+        );
+        Ok(evidence)
+    }
 }
 
 fn analyze(source: &observations::Evidence) -> Result<Vec<Repetition>> {
@@ -238,7 +264,7 @@ fn analyze(source: &observations::Evidence) -> Result<Vec<Repetition>> {
 mod tests {
     use super::*;
 
-    fn evidence(pattern: &[u8]) -> observations::Evidence {
+    pub(super) fn evidence(pattern: &[u8]) -> observations::Evidence {
         let task = TaskId::new();
         observations::Evidence {
             schema_version: 2,
@@ -360,3 +386,7 @@ mod tests {
         assert_eq!(bounded[0].repetition_count, MAX_OBSERVATIONS as u16);
     }
 }
+
+#[cfg(test)]
+#[path = "cycles_campaign.rs"]
+mod campaign;

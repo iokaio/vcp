@@ -266,7 +266,8 @@ pub(crate) fn scope(state: &State, target: &Target) -> Result<Option<Scope>> {
 }
 fn valid_record(row: &Record) -> bool {
     if row.collection == Collection::Projection
-        && row.value["document_type"] == vcp_domain::forecast::SOURCES
+        && (row.value["document_type"] == vcp_domain::forecast::SOURCES
+            || row.value["document_type"] == vcp_domain::redaction::OBSERVER_SOURCE)
     {
         return true;
     }
@@ -294,7 +295,9 @@ fn valid_record(row: &Record) -> bool {
             .is_some_and(vcp_domain::redaction::advisory_document)
 }
 fn already_redacted(row: &Record) -> bool {
-    if row.value["document_type"] == vcp_domain::forecast::REDACTED {
+    if row.value["document_type"] == vcp_domain::forecast::REDACTED
+        || row.value["document_type"] == vcp_domain::redaction::OBSERVER
+    {
         return true;
     }
     if row.collection == Collection::Attempt {

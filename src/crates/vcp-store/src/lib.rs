@@ -14,6 +14,7 @@ pub mod migration;
 pub mod portable_snapshot;
 mod private_paths;
 mod redaction_contract;
+mod observer_contract;
 mod replay_base;
 mod restore_authority;
 pub mod restore_import;

@@ -10,7 +10,8 @@ use vcp_domain::{
     artifact::CaptureState,
     memory::{ProposalRecord, ProposalResult, Version},
     redaction::{
-        self, RedactedAdvisory, RedactedProposal, RedactedResult, RedactedVersion, Sources,
+        self, RedactedAdvisory, RedactedObserver, RedactedProposal, RedactedResult,
+        RedactedVersion, Sources,
     },
     workspace::Scope,
 };
@@ -34,10 +35,12 @@ pub(crate) fn kind(row: &Record) -> Result<Option<&str>> {
         }
         redaction::RESULT if row.collection == Collection::Projection => Ok(Some(tag)),
         redaction::ADVISORY if row.collection == Collection::Projection => Ok(Some(tag)),
+        redaction::OBSERVER if row.collection == Collection::Projection => Ok(Some(tag)),
         vcp_domain::forecast::REDACTED if row.collection == Collection::Projection => Ok(Some(tag)),
         _ if tag.starts_with("vcp_memory_redacted_")
             || tag.starts_with("vcp_escalation_redacted_")
-            || tag.starts_with("vcp_optimization_redacted_") =>
+            || tag.starts_with("vcp_optimization_redacted_")
+            || tag.starts_with("vcp_observer_redacted_") =>
         {
             Err(Error::Corruption("redacted entity type or collection"))
         }
@@ -53,6 +56,7 @@ pub(crate) fn scope(row: &Record) -> Result<Scope> {
         Some(redaction::VERSION) => Ok(row.decode::<RedactedVersion>()?.scope),
         Some(redaction::RESULT) => Ok(row.decode::<RedactedResult>()?.scope),
         Some(redaction::ADVISORY) => Ok(row.decode::<RedactedAdvisory>()?.scope),
+        Some(redaction::OBSERVER) => Ok(row.decode::<RedactedObserver>()?.scope),
         _ => Err(Error::Corruption("redacted entity expected")),
     }
 }
@@ -70,6 +74,11 @@ pub(crate) fn shape(row: &Record) -> Result<()> {
         return Ok(());
     }
     let (id, scope, revision) = match kind(row)? {
+        Some(redaction::OBSERVER) => {
+            let value: RedactedObserver = row.decode()?;
+            value.validate()?;
+            (value.id, value.scope, value.revision)
+        }
         Some(redaction::ADVISORY) => {
             let value: RedactedAdvisory = row.decode()?;
             value.validate()?;
@@ -129,7 +138,7 @@ pub(crate) fn references(row: &Record) -> Result<BTreeSet<String>> {
     }
     let mut refs = BTreeSet::from([key(Collection::Task, scope(row)?.task.as_str())]);
     match kind(row)? {
-        Some(redaction::ADVISORY) => (),
+        Some(redaction::ADVISORY | redaction::OBSERVER) => (),
         Some(redaction::PROPOSAL) => {
             source_refs(&mut refs, &row.decode::<RedactedProposal>()?.sources)
         }
@@ -278,6 +287,7 @@ pub(crate) fn validate(state: &State) -> Result<()> {
                     .deletion
             }
             Some(redaction::ADVISORY) => row.decode::<RedactedAdvisory>()?.deletion,
+            Some(redaction::OBSERVER) => row.decode::<RedactedObserver>()?.deletion,
             Some(redaction::PROPOSAL) => row.decode::<RedactedProposal>()?.deletion,
             Some(redaction::VERSION) => {
                 let value: RedactedVersion = row.decode()?;
@@ -473,6 +483,22 @@ pub(crate) fn redact_record(
                 .map_err(|_| Error::Conflict("task content protected"))?,
         )?,
         _ => match source.value["document_type"].as_str() {
+            Some(redaction::OBSERVER_SOURCE) if source.collection == Collection::Projection => {
+                let scope = crate::observer_contract::scope(source)?;
+                let value = RedactedObserver {
+                    document_type: redaction::OBSERVER.into(),
+                    schema_version: 1,
+                    id: source.id.clone(),
+                    scope,
+                    revision: source.revision,
+                    deletion,
+                    original_digest: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
+                        &source.value,
+                    )?),
+                };
+                value.validate()?;
+                serde_json::to_value(value)?
+            }
             Some(vcp_domain::forecast::SOURCES) if source.collection == Collection::Projection => {
                 crate::forecast_contract::shape(source)?;
                 serde_json::to_value(vcp_domain::forecast::RedactedSources {

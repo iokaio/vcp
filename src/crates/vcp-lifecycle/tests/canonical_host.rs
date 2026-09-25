@@ -148,6 +148,9 @@ mod process_broker;
 #[cfg(windows)]
 #[path = "support/hooks.rs"]
 mod hooks;
+#[cfg(all(windows, feature = "qualification"))]
+#[path = "support/observers.rs"]
+mod observers;
 #[path = "support/provider_retries.rs"]
 mod provider_retries;
 #[path = "support/public_connection.rs"]

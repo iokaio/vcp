@@ -37,6 +37,8 @@ mod mcp;
 mod memory;
 #[cfg(windows)]
 mod memory_query;
+#[cfg(windows)]
+pub(super) mod observers;
 mod provider;
 pub(super) mod public_connection;
 mod public_diff;
@@ -225,6 +227,10 @@ pub struct Context {
     #[cfg(windows)]
     decisions: decision::Runtime,
     #[cfg(windows)]
+    observers: Option<super::observers::Configuration>,
+    #[cfg(windows)]
+    observer_busy: Arc<std::sync::atomic::AtomicBool>,
+    #[cfg(windows)]
     skills: Option<skills::Runtime>,
     #[cfg(windows)]
     coding: HashMap<TaskId, coding::Loop>,
@@ -235,7 +241,7 @@ pub struct Context {
     #[cfg(windows)]
     verification: HashMap<TaskId, verification::Setup>,
 }
-fn now() -> Timestamp {
+pub(super) fn now() -> Timestamp {
     Timestamp::new(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -387,6 +393,10 @@ impl Context {
             #[cfg(windows)]
             decisions: decision::Runtime::default(),
             #[cfg(windows)]
+            observers: None,
+            #[cfg(windows)]
+            observer_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            #[cfg(windows)]
             skills: None,
             #[cfg(windows)]
             coding: HashMap::new(),
@@ -461,6 +471,8 @@ impl Context {
         }
         #[cfg(windows)]
         context.stop_coding_turns("owner recovered canonical turn")?;
+        #[cfg(windows)]
+        context.recover_observers()?;
         context.apply_startup_retention_policy()?;
         Ok(context)
     }

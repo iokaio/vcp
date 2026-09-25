@@ -6,6 +6,8 @@ mod child_output_owner;
 mod history_notice;
 #[path = "support/hooks.rs"]
 mod hooks;
+#[path = "support/observers.rs"]
+mod observers;
 #[path = "support/live_adapter.rs"]
 mod live_adapter;
 #[path = "support/packaged_crypto.rs"]

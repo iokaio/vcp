@@ -98,6 +98,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 
 [ADR-066](066-versioned-configuration-imports.md) records versioned imports under native authority ceilings (P10-02).
 
+[ADR-067](067-bounded-local-observation-tasks.md) records bounded local observation tasks and diagnostic-only qualification (P10-03).
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.

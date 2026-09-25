@@ -26,6 +26,7 @@ pub enum Input {
     Cancel,
     Exit,
     Status,
+    Observers,
     Cost,
     History,
     Maintenance(Vec<String>),
@@ -211,6 +212,7 @@ pub fn parse(line: &str) -> Result<Option<Input>, String> {
         ["/cancel"] => Input::Cancel,
         ["/exit"] => Input::Exit,
         ["/status"] => Input::Status,
+        ["/observers"] | ["/observers", "status"] => Input::Observers,
         ["/cost"] => Input::Cost,
         ["/history"] => Input::History,
         ["/history" | "/prune" | "/retention" | "/memory", _, ..] => Input::Maintenance(
@@ -341,6 +343,20 @@ pub fn sanitize(text: &str, limit: usize) -> String {
         result.push_str(&escaped);
     }
     result
+}
+
+/// Keep every bounded receipt available through /next rather than silently
+/// truncating observer state at the terminal's individual-frame limit.
+#[cfg(any(windows, test))]
+fn observer_status_text(status: &Value) -> Result<String, String> {
+    let serialized = serde_json::to_string(status).map_err(|e| e.to_string())?;
+    if serialized.len() > 4 * 1024 * 1024 {
+        return Err("observer status exceeds the bounded terminal inspection size".into());
+    }
+    // JSON already escapes ASCII controls. The remaining Unicode directional
+    // controls expand by less than three times their encoded byte length.
+    let safe = sanitize(&serialized, serialized.len().saturating_mul(3));
+    Ok(format!("Observer status. Proposals are advisory evidence, never permission to change the task. Current proposals match their observed inputs; historical proposals require fresh validation. /pause stops fresh scheduling; /resume is explicit. Use /next for the remaining status. {safe}"))
 }
 
 /// Renderer owns bytes only. A stalled terminal cannot stall pause/cancellation;

@@ -848,7 +848,10 @@ impl Context {
             outstanding_issues: issues,
             cost,
         };
-        let expected = if fresh {
+        // Re-observing identical native inputs is not a task change. Advancing
+        // revision here would invalidate otherwise current evidence and split
+        // exact repeated checks into unrelated source revisions.
+        let expected = if fresh && task.fingerprint != fingerprint {
             self.command(
                 Command::ObserveFingerprint { fingerprint },
                 Some(binding.scope.task.clone()),
@@ -897,7 +900,10 @@ impl Context {
     ) -> Result<CommandReceipt> {
         let revisions = self.context_revisions(binding)?;
         if self.editor_verification_buffers(binding)?.1 {
-            return Err("disk-only evidence cannot complete a task with dirty or uncertain editor buffers".into());
+            return Err(
+                "disk-only evidence cannot complete a task with dirty or uncertain editor buffers"
+                    .into(),
+            );
         }
         // Effects in another task do not necessarily advance this task's
         // revision. Recheck the entire canonical workspace at the commit fence.

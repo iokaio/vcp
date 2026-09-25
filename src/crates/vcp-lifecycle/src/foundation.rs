@@ -40,6 +40,8 @@ pub mod memory_query_resources;
 pub mod memory_vectors;
 #[cfg(feature = "qualification")]
 pub mod model_dispatch_qualification;
+#[cfg(windows)]
+pub mod observers;
 pub mod openrouter;
 #[cfg(windows)]
 mod process;
@@ -675,6 +677,7 @@ impl HostWorkAdmission for CanonicalHost {
         Box::pin(async move {
             #[cfg(windows)]
             if purpose == HostModelPurpose::Turn {
+                let _ = self.poll_observers(thread).await;
                 self.model_lifecycle_hooks(thread).await?;
             }
             #[cfg(not(windows))]

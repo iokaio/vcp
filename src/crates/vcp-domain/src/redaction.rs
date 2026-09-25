@@ -7,6 +7,34 @@ pub const PROPOSAL: &str = "vcp_memory_redacted_proposal_v1";
 pub const VERSION: &str = "vcp_memory_redacted_version_v1";
 pub const RESULT: &str = "vcp_memory_redacted_result_v1";
 pub const ADVISORY: &str = "vcp_escalation_redacted_advisory_v1";
+pub const OBSERVER_SOURCE: &str = "vcp_observer_state_v1";
+pub const OBSERVER: &str = "vcp_observer_redacted_state_v1";
+
+/// Content-free absorbing identity. A purged root observer cannot be recreated
+/// with a fresh budget or replay its erased observation attempts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedactedObserver {
+    pub document_type: String,
+    pub schema_version: u32,
+    pub id: String,
+    pub scope: Scope,
+    pub revision: Revision,
+    pub deletion: DeletionEpoch,
+    pub original_digest: String,
+}
+impl RedactedObserver {
+    pub fn validate(&self) -> Result<()> {
+        if self.document_type != OBSERVER || self.schema_version != 1 || self.id.is_empty() {
+            return Err(Error::Invalid("redacted observer identity"));
+        }
+        ContentRedaction {
+            deletion: self.deletion,
+            original_digest: self.original_digest.clone(),
+        }
+        .validate()
+    }
+}
 
 /// Content-free identity for the four canonical escalation advisory records.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
