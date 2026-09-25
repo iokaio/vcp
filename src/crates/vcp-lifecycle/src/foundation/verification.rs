@@ -19,6 +19,13 @@ pub(crate) struct ObservedCheck {
     pub artifacts: Vec<ArtifactId>,
     pub prepared: Option<Arc<vcp_tools::process::Prepared>>,
 }
+/// Ephemeral same-invocation presentation, never canonical completion proof or
+/// an artifact-read capability. Each entry is populated only after the current
+/// history access checks for both captured streams succeed.
+pub(super) struct VerificationPresentation {
+    pub verification: Verification,
+    pub diagnostics: Vec<serde_json::Value>,
+}
 impl CanonicalHost {
     /// Establish the original source baseline before effects. Reopen restores
     /// the baseline but never restores a completion capability or runner profile.
@@ -36,6 +43,17 @@ impl CanonicalHost {
         thread: ThreadId,
         citations: Vec<ArtifactId>,
     ) -> Result<Verification, String> {
+        Ok(self
+            .verify_before_publish(thread, citations, || {})
+            .await?
+            .verification)
+    }
+
+    pub(super) async fn verify_for_coding(
+        &self,
+        thread: ThreadId,
+        citations: Vec<ArtifactId>,
+    ) -> Result<VerificationPresentation, String> {
         self.verify_before_publish(thread, citations, || {}).await
     }
 
@@ -47,8 +65,10 @@ impl CanonicalHost {
         citations: Vec<ArtifactId>,
         before_publish: impl FnOnce(),
     ) -> Result<Verification, String> {
-        self.verify_before_publish(thread, citations, before_publish)
-            .await
+        Ok(self
+            .verify_before_publish(thread, citations, before_publish)
+            .await?
+            .verification)
     }
 
     async fn verify_before_publish(
@@ -56,7 +76,7 @@ impl CanonicalHost {
         thread: ThreadId,
         citations: Vec<ArtifactId>,
         before_publish: impl FnOnce(),
-    ) -> Result<Verification, String> {
+    ) -> Result<VerificationPresentation, String> {
         if self.mcp_connections_present() {
             return Err("disconnect MCP processes before verification".into());
         }
@@ -66,6 +86,12 @@ impl CanonicalHost {
             .worker
             .run(move |context| context.begin_verification(&scoped, citations))?;
         let mut checks = Vec::new();
+        let mut diagnostics = Vec::new();
+        // At most 32 owner-configured checks. Divide an 8-KiB raw tail budget
+        // across both streams before decoding. Keep individual streams small:
+        // the established presentation repeats the tail in decoding metadata,
+        // and byte-ceiling context estimates account for both copies.
+        let stream_limit = 2048.min(8192 / (run.plans.len().max(1) * 2));
         for (index, plan) in run.plans.iter().enumerate() {
             let mut check = ObservedCheck {
                 effect: None,
@@ -109,8 +135,17 @@ impl CanonicalHost {
                         outcome.stdout.spec.id.clone(),
                         outcome.stderr.spec.id.clone(),
                     ]);
-                    let stdout = self.read_artifact(outcome.stdout.spec.id)?;
-                    let stderr = self.read_artifact(outcome.stderr.spec.id)?;
+                    let stdout = self.read_artifact(outcome.stdout.spec.id.clone())?;
+                    let stderr = self.read_artifact(outcome.stderr.spec.id.clone())?;
+                    // No arbitrary artifact lookup: these are precisely the
+                    // streams just produced by this authorized check. Preserve
+                    // current read gates before exposing their bounded tails.
+                    let streams = outcome.bounded_output_presentation(stream_limit);
+                    diagnostics.push(serde_json::json!({
+                        "specification":plan.specification,"effect":outcome.effect,
+                        "evidence":outcome.evidence.spec.id,"exit_code":outcome.exit_code,
+                        "reason":outcome.reason,"stdout":streams["stdout"],"stderr":streams["stderr"],
+                    }));
                     check.outcome = vcp_tools::verification::evaluate(
                         plan,
                         outcome.exit_code,
@@ -161,7 +196,10 @@ impl CanonicalHost {
             .worker
             .run_cleanup(move |context| context.finish_verification(&binding, run, checks))?;
         let _ = self.poll_observers(thread).await;
-        Ok(verification)
+        Ok(VerificationPresentation {
+            verification,
+            diagnostics,
+        })
     }
     /// Call after retained work has drained. This takes the same worker/lifecycle
     /// locks used for admission; neither an active turn nor an old saved report

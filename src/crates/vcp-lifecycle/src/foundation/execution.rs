@@ -109,6 +109,87 @@ pub struct PreparedProcessOutcome {
     pub reason: Option<String>,
     pub evidence: ArtifactDescriptor,
 }
+impl PreparedProcessOutcome {
+    /// Presentation only: raw captured artifacts and exit semantics remain
+    /// authoritative. Shared by execution and verification tool responses.
+    pub(super) fn output_presentation(&self) -> serde_json::Value {
+        serde_json::json!({
+            "stdout": stream_presentation(&self.stdout.spec.id, self.stdout.length.get(), &self.stdout_tail, &self.stdout_presentation),
+            "stderr": stream_presentation(&self.stderr.spec.id, self.stderr.length.get(), &self.stderr_tail, &self.stderr_presentation),
+        })
+    }
+    pub(super) fn bounded_output_presentation(&self, stream_limit: usize) -> serde_json::Value {
+        serde_json::json!({
+            "stdout": bounded_stream_presentation(&self.stdout.spec.id, self.stdout.length.get(), &self.stdout_tail, &self.stdout_presentation, stream_limit),
+            "stderr": bounded_stream_presentation(&self.stderr.spec.id, self.stderr.length.get(), &self.stderr_tail, &self.stderr_presentation, stream_limit),
+        })
+    }
+}
+fn bounded_stream_presentation(
+    artifact: &ArtifactId,
+    length: u64,
+    tail: &[u8],
+    decoded: &vcp_tools::process::output::Decoded,
+    limit: usize,
+) -> serde_json::Value {
+    let tail = &tail[tail.len().saturating_sub(limit)..];
+    let encoding = (decoded.decision == "trusted_profile").then_some(decoded.encoding);
+    let decoded = vcp_tools::process::output::decode(tail, length, encoding);
+    stream_presentation(artifact, length, tail, &decoded)
+}
+fn stream_presentation(
+    artifact: &ArtifactId,
+    length: u64,
+    tail: &[u8],
+    decoded: &vcp_tools::process::output::Decoded,
+) -> serde_json::Value {
+    serde_json::json!({"artifact":artifact,"bytes":length.to_string(),"tail":decoded.tail,
+        "decoding":decoded,"truncated":length>tail.len() as u64})
+}
+
+#[cfg(test)]
+mod diagnostic_presentation_tests {
+    use super::*;
+    #[test]
+    fn verification_tail_bounds_preserve_raw_identity_and_label_decoding_loss() {
+        let artifact = ArtifactId::new();
+        let mut bytes = vec![b'a'; 65536];
+        bytes.extend_from_slice(b"\xff actionable failure");
+        let original = bytes.clone();
+        let decoded = vcp_tools::process::output::decode(&bytes, bytes.len() as u64, None);
+        let result =
+            bounded_stream_presentation(&artifact, bytes.len() as u64, &bytes, &decoded, 32);
+        assert_eq!(bytes, original);
+        assert_eq!(result["artifact"], artifact.to_string());
+        assert_eq!(result["bytes"], bytes.len().to_string());
+        assert_eq!(result["truncated"], true);
+        assert!(result["tail"]
+            .as_str()
+            .unwrap()
+            .ends_with("actionable failure"));
+        assert_eq!(result["decoding"]["replacement_characters"], 1);
+        assert_eq!(
+            result["decoding"]["omitted_bytes"],
+            (bytes.len() - 32) as u64
+        );
+        assert_eq!(result["decoding"]["decision"], "legacy_utf8");
+    }
+    #[test]
+    fn verification_tail_retains_declared_utf16_and_split_boundary() {
+        let bytes = [0x41, 0, 0x42, 0, 0x43, 0];
+        let decoded = vcp_tools::process::output::decode(
+            &bytes,
+            6,
+            Some(vcp_tools::process::output::Encoding::Utf16Le),
+        );
+        let result = bounded_stream_presentation(&ArtifactId::new(), 6, &bytes, &decoded, 3);
+        assert_eq!(result["tail"], "C");
+        assert_eq!(result["decoding"]["encoding"], "utf16_le");
+        assert_eq!(result["decoding"]["decision"], "trusted_profile");
+        assert_eq!(result["decoding"]["split_prefix_bytes"], 1);
+        assert_eq!(result["truncated"], true);
+    }
+}
 impl CanonicalHost {
     /// Only an approval-pending hook still held by this live owner may cross an
     /// explicit pause/resume generation. No dispatched or reconstructed effect
