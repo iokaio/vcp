@@ -21,6 +21,11 @@ name = "vcp-provider-conformance"
 path = "src/bin/vcp-provider-conformance.rs"
 required-features = ["qualification"]
 
+[[bin]]
+name = "vcp-authoring-check"
+path = "src/bin/vcp-authoring-check.rs"
+required-features = ["qualification"]
+
 [features]
 qualification = ["vcp-models/qualification", "vcp-lifecycle/qualification", "dep:reqwest"]
 
