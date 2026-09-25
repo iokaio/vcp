@@ -187,6 +187,11 @@ already include these changes; normal builds never apply patches.
     for P10-02 configuration imports. Only the package dependency edge changes;
     no external package version or retained upstream implementation changes.
 
+41. `0041-cs1-authoring-markdown-checker.patch` records the original `vcp-cli`
+    qualification checker's dependency on the already locked `pulldown-cmark`
+    parser for CS-1 local Markdown link validation. Only that local dependency
+    edge changes; no external package version or upstream implementation changes.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

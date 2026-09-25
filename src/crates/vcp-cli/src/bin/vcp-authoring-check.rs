@@ -13,6 +13,9 @@ use std::{
 use vcp_protocol::digest_bytes;
 use vcp_repository::{discovery::Limits, Root, RootIdentity};
 
+#[path = "authoring_check/followup.rs"]
+mod followup;
+
 const MANIFEST: &str = include_str!("../../../../evals/skills/authoring/manifest.json");
 const PACKAGE: &str = "{\"name\":\"vcp-authoring-check\",\"private\":true,\"scripts\":{\"test\":\"node --test checks/authoring.test.cjs\"}}\n";
 const MARKER: &str = "// Inert VCP authoring verifier marker; never executed as JavaScript.\n";
@@ -88,6 +91,9 @@ fn texts(value: &Value, key: &str) -> Checked<Vec<String>> {
         .collect()
 }
 fn contract(case: &str) -> Checked<(Value, Value)> {
+    if followup::CASES.contains(&case) {
+        return followup::contract(case);
+    }
     let manifest: Value =
         serde_json::from_str(MANIFEST).map_err(|_| "embedded manifest invalid")?;
     if manifest["revision"] != "cs-1-authoring-fixtures-v1" {
@@ -166,7 +172,7 @@ fn owner_case(workspace: &Path, executable: &Path) -> Checked<String> {
         .map_err(|_| "owner case map unavailable or redirected")?;
     let map: OwnerCases =
         serde_json::from_slice(&source.bytes).map_err(|_| "owner case map invalid")?;
-    if map.schema_version != 1 || map.cases.is_empty() || map.cases.len() > 36 {
+    if map.schema_version != 1 || map.cases.is_empty() || map.cases.len() > 54 {
         return Err("owner case map bounds".into());
     }
     let current = open_root(workspace)?
@@ -318,6 +324,9 @@ fn structure(files: &Files, case: &str, oracle: &Value) -> Checked<()> {
             return Err("exact artifact content mismatch".into());
         }
     }
+    if followup::CASES.contains(&case) {
+        return followup::structure(files, case, oracle);
+    }
     let mut links = BTreeSet::new();
     for name in outputs.iter().chain(&modified) {
         let Some(bytes) = files.get(name) else {
@@ -447,9 +456,13 @@ fn main() -> ExitCode {
         eprintln!("Only the frozen authoring verification argument vector is accepted");
         return ExitCode::FAILURE;
     }
+    let mut followup_case = false;
     let results = match (std::env::current_dir(), std::env::current_exe()) {
         (Ok(root), Ok(executable)) => match owner_case(&root, &executable) {
-            Ok(case) => check(&root, &case),
+            Ok(case) => {
+                followup_case = followup::CASES.contains(&case.as_str());
+                check(&root, &case)
+            }
             Err(error) => [Err(error.clone()), Err(error)],
         },
         _ => [
@@ -458,6 +471,12 @@ fn main() -> ExitCode {
         ],
     };
     println!("TAP version 13");
+    if followup_case {
+        // These tests do not infer any receipt, semantic or qualification gate.
+        println!("# Scope: source preservation and artifact structure only");
+        println!("# Not evaluated here (not_run): reported bytes, tool/claim receipt audit, factual accuracy and reader scores");
+        println!("# Local-link scope: Markdown file targets only; fragment_validation=not_run; fragments, raw HTML and nonlocal destinations require independent artifact review");
+    }
     for (index, result) in results.iter().enumerate() {
         println!(
             "{} {} - {}",

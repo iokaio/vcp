@@ -1,0 +1,46 @@
+{
+  "build": "2.4.0-rc2",
+  "checks": [
+    {
+      "platform": "Windows 11 x64",
+      "name": "absolute cache_root accepted",
+      "result": "pass"
+    },
+    {
+      "platform": "Windows 11 x64",
+      "name": "cache_dir rejected with CFG21",
+      "result": "pass"
+    },
+    {
+      "platform": "Windows 11 x64",
+      "name": "relative cache_root rejected with CFG22",
+      "result": "pass"
+    },
+    {
+      "platform": "Windows 11 x64",
+      "name": "manual --cache-dir compatibility",
+      "result": "pass"
+    },
+    {
+      "platform": "Ubuntu 24.04 x64",
+      "name": "absolute cache_root accepted",
+      "result": "pass"
+    },
+    {
+      "platform": "Ubuntu 24.04 x64",
+      "name": "cache_dir rejected with CFG21",
+      "result": "pass"
+    },
+    {
+      "platform": "Ubuntu 24.04 x64",
+      "name": "relative cache_root rejected with CFG22",
+      "result": "not_run"
+    },
+    {
+      "platform": "macOS",
+      "name": "all migration checks",
+      "result": "not_run"
+    }
+  ],
+  "production_rollout": "not_observed"
+}

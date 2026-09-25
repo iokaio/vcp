@@ -17502,6 +17502,7 @@ dependencies = [
  "codex-login",
  "codex-protocol",
  "codex-utils-pty",
+ "pulldown-cmark",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

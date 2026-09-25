@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #requires -Version 7.0
 [CmdletBinding()]
-param()
+param([switch]$Followup)
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native Windows checker qualification required' }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -10,10 +10,11 @@ New-Item -ItemType Directory -Path $directory -Force | Out-Null
 function Source-Inputs {
     $capture = @'
 const p=require('./scripts/evals/authoring-prepare.cjs');
-const scope=['src/crates','src/evals/skills/authoring','src/third_party/codex/codex-rs/Cargo.toml','src/third_party/codex/codex-rs/Cargo.lock','src/third_party/codex/codex-rs/rust-toolchain.toml'];
+const scope=process.argv[1]==='followup'?require('./scripts/evals/authoring-followup.cjs').checkerBuildScope:p.checkerBuildScope;
 console.log(JSON.stringify(p.identity(process.cwd(),scope).files.map(({path,sha256})=>({path,sha256}))));
 '@
-    $value = & node -e $capture
+    $mode = if ($Followup) { 'followup' } else { 'original' }
+    $value = & node -e $capture $mode
     if ($LASTEXITCODE -ne 0) { throw 'Build source identity capture failed' }
     return $value
 }
@@ -47,6 +48,10 @@ try {
         builder = $PSCommandPath
         builder_sha256 = (Get-FileHash -LiteralPath $PSCommandPath).Hash.ToLowerInvariant()
         at = [DateTime]::UtcNow.ToString('o')
+    }
+    if ($Followup) {
+        $receipt.schema = 'cs1-authoring-check-build/2'
+        $receipt.fixture_manifests = @('src/evals/skills/authoring/manifest.json', 'src/evals/skills/authoring-followup/manifest.json') | ForEach-Object { @{path=$_; sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()} }
     }
     $file = Join-Path $directory 'build-receipt.json'
     $receipt | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $file -Encoding utf8NoBOM
