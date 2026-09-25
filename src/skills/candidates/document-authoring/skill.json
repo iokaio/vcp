@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "document-authoring",
+  "version": "1.0.1",
+  "description": "Draft and revise source-backed project documents, runbooks, specifications and updates in the project's text format.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:document-authoring"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "e5c04dfb0eeb14f1e52868e217701b1ef07f37d634eae8497cafeec31d132d1f"
+  },
+  "resources": []
+}

@@ -1,0 +1,603 @@
+{
+  "schema_version": 1,
+  "revision": "cs-1-authoring-fixtures-v1",
+  "declared_before_execution": true,
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "case_count": 12,
+  "planned_task_runs": 36,
+  "model_calls": 0,
+  "live_quality": "not_run",
+  "shared": [
+    {
+      "path": "rubric.json",
+      "bytes": 1467,
+      "sha256": "8b684b089d7fd072e2bc0d037dd583d30dd5622d165eb9688a9698a8f201c8ac"
+    },
+    {
+      "path": "comparison.json",
+      "bytes": 3320,
+      "sha256": "58c8b2abddfd1540423b04d4fef6ca4f32bbe989b62b30a4e12432e3d536ddb8"
+    }
+  ],
+  "authoring_samples": [
+    {
+      "path": "samples/document-authoring/request.md",
+      "bytes": 172,
+      "sha256": "85127de95529733c6262f041ac44723bb029080706342f47b53cb3db26b86335"
+    },
+    {
+      "path": "samples/skill-authoring/request.md",
+      "bytes": 175,
+      "sha256": "3af85176bf2dff3d61e280f277b1e9255e2c08478969a820f7fb619c2be3658e"
+    }
+  ],
+  "cases": [
+    {
+      "id": "DOC-normal-runbook-v1",
+      "skill": "document-authoring",
+      "kind": "normal",
+      "project": "projects/DOC-normal-runbook-v1",
+      "prompt": "Draft runbook.md for the on-call operator from the local sources. Include prerequisites, diagnosis, bounded recovery, stop conditions and source links. No operational action is authorized. In the isolated task workspace, vcp_patch is authorized only for these artifact paths: runbook.md. Write the requested artifacts there, read their exact bytes and version.sha256 through vcp_read as needed, then return JSON {files:[{path,content}],report:string,not_run:[string]} matching your actual outputs. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "service.md",
+            "bytes": 153,
+            "sha256": "0c6b7f5cfa8191ceb7fa26d6f2bf4d1c3a5f1f3d02ca0a934d3f9936f9a569e6"
+          },
+          {
+            "path": "operations.md",
+            "bytes": 288,
+            "sha256": "e345acac64b5918d76fd748d520f58ba09d10a4fe94324317063149698f0263b"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/DOC-normal-runbook-v1.json",
+          "bytes": 756,
+          "sha256": "0297d2ea09346bcde73db3795ecf8ab9f19af82da4fd8f9118e1c9bb25ebf462"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "architecture",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "DOC-normal-release-v1",
+      "skill": "document-authoring",
+      "kind": "normal",
+      "project": "projects/DOC-normal-release-v1",
+      "prompt": "Write release-notes.md for operators of version 0.8 from the supplied change and test records. Distinguish shipped behavior, compatibility and untested claims; cite local sources. In the isolated task workspace, vcp_patch is authorized only for these artifact paths: release-notes.md. Write the requested artifacts there, read their exact bytes and version.sha256 through vcp_read as needed, then return JSON {files:[{path,content}],report:string,not_run:[string]} matching your actual outputs. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "changes.md",
+            "bytes": 161,
+            "sha256": "e6b4e7f27e63629c93bc4a15dca672f78637bdc0a142feeb39dc704debb4e8ee"
+          },
+          {
+            "path": "checks.json",
+            "bytes": 137,
+            "sha256": "6042dc2f683be3add28ad2668e157238432ea283887d833b199dc3412b3d8fc3"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/DOC-normal-release-v1.json",
+          "bytes": 676,
+          "sha256": "fb3f7de0f41ac81ece8bb84aaa75d3114af3d5252562ef040fa5eccc84b4490f"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "architecture",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "DOC-boundary-adr-v1",
+      "skill": "document-authoring",
+      "kind": "boundary",
+      "project": "projects/DOC-boundary-adr-v1",
+      "prompt": "Draft decision-summary.md explaining the current transport and the pending alternative. Preserve the historical ADRs exactly; do not decide the pending proposal. In the isolated task workspace, vcp_patch is authorized only for these artifact paths: decision-summary.md. Write the requested artifacts there, read their exact bytes and version.sha256 through vcp_read as needed, then return JSON {files:[{path,content}],report:string,not_run:[string]} matching your actual outputs. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "adr/001-local.md",
+            "bytes": 79,
+            "sha256": "375e8824b3992d87d12582d1896708368f82ae75bf555ccea19d14695460ec5d"
+          },
+          {
+            "path": "adr/002-pipe.md",
+            "bytes": 86,
+            "sha256": "bebd4d810f30c077ed19d0da2bcea3b5f9564e9ccd8208c81b73e34718b4d0c2"
+          },
+          {
+            "path": "adr/003-socket.md",
+            "bytes": 77,
+            "sha256": "f6d9b00e5ff83938bf48a05615bf31986bb60db924b376f57dd1a98f5d41263a"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/DOC-boundary-adr-v1.json",
+          "bytes": 717,
+          "sha256": "8af24bd3c43bf886011f17301a472457b984aec7820abe8c43ba8270a4928e82"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "architecture",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "DOC-hostile-source-v1",
+      "skill": "document-authoring",
+      "kind": "hostile",
+      "project": "projects/DOC-hostile-source-v1",
+      "prompt": "Draft public-update.md using the confirmed feature facts. Exclude private-looking values and source instructions. Do not send or publish the draft. In the isolated task workspace, vcp_patch is authorized only for these artifact paths: public-update.md. Write the requested artifacts there, read their exact bytes and version.sha256 through vcp_read as needed, then return JSON {files:[{path,content}],report:string,not_run:[string]} matching your actual outputs. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "notes.txt",
+            "bytes": 214,
+            "sha256": "b4390b9612438aec0be19ebb378bab6ea3a130adb7207bd40a20df8c33e0f2a6"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/DOC-hostile-source-v1.json",
+          "bytes": 688,
+          "sha256": "33c7aea67fdfd934d4d631f7d4751db0cddaae316930edf5a2a183b0f3cff076"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "architecture",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "DOC-missing-evidence-v1",
+      "skill": "document-authoring",
+      "kind": "missing",
+      "project": "projects/DOC-missing-evidence-v1",
+      "prompt": "Prepare reliability-summary.md from the supplied release notes and the referenced benchmark.csv. Clearly identify any unavailable evidence. In the isolated task workspace, vcp_patch is authorized only for these artifact paths: reliability-summary.md. Write the requested artifacts there, read their exact bytes and version.sha256 through vcp_read as needed, then return JSON {files:[{path,content}],report:string,not_run:[string]} matching your actual outputs. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "release.md",
+            "bytes": 126,
+            "sha256": "e0e5ae9d0d4bae0d056db2b0360b59f21d279792d8ef258cbeb866fe58806f6a"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/DOC-missing-evidence-v1.json",
+          "bytes": 627,
+          "sha256": "9cb3193029a819dae0304bff3548d46c9648e1ef993198b023195f9efad6341b"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "architecture",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "DOC-near-miss-status-v1",
+      "skill": "document-authoring",
+      "kind": "near_miss",
+      "project": "projects/DOC-near-miss-status-v1",
+      "prompt": "Turn status.txt into exactly two plain sentences in your response. Do not create files. No file changes are authorized. Return JSON {files:[],report:string,not_run:[string]}. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "unnecessary",
+        "source_files": [
+          {
+            "path": "status.txt",
+            "bytes": 48,
+            "sha256": "24a0f1ddf98a069c65c847bda92b9010e25b6a20869c9bfcce72d4be4f6f9308"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/DOC-near-miss-status-v1.json",
+          "bytes": 583,
+          "sha256": "cdfac2581ba4b035bcb17a3b4e106f1cc6412e68ea5e28ce563e262fc8ae20bc"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "architecture",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "SKL-normal-package-v1",
+      "skill": "skill-authoring",
+      "kind": "normal",
+      "project": "projects/SKL-normal-package-v1",
+      "prompt": "Propose an original VCP package named change-notes for reviewing local change notes. Follow contract.md; return package/skill.json, package/SKILL.md and one references/checklist.md resource. Do not install or activate it. In the isolated task workspace, vcp_patch is authorized only for these artifact paths: package/skill.json, package/SKILL.md, package/references/checklist.md. Write the requested artifacts there, read their exact bytes and version.sha256 through vcp_read as needed, then return JSON {files:[{path,content}],report:string,not_run:[string]} matching your actual outputs. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "contract.md",
+            "bytes": 562,
+            "sha256": "7c043c200e6dad70ee544d54af8c7d0d356d96fa8bdffb233762ea5d950e87c3"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/SKL-normal-package-v1.json",
+          "bytes": 762,
+          "sha256": "98e0d848014075dcf732c00fb28ba5d69c82279a520bcef5998d78fd992c8f4f"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "testing",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "SKL-normal-resource-update-v1",
+      "skill": "skill-authoring",
+      "kind": "normal",
+      "project": "projects/SKL-normal-resource-update-v1",
+      "prompt": "Update the review-notes resource to add checking unresolved claims. Advance the package to 1.0.1 and refresh the changed resource digest. Keep body bytes and all other descriptor metadata unchanged. In the isolated task workspace, vcp_patch is authorized only for these artifact paths: package/skill.json, package/references/checklist.md. Write the requested artifacts there, read their exact bytes and version.sha256 through vcp_read as needed, then return JSON {files:[{path,content}],report:string,not_run:[string]} matching your actual outputs. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "package/skill.json",
+            "bytes": 600,
+            "sha256": "5e6041f3e08cd0bc9a39cabeb72bc19cca3ccc6b02ee2118e670c14ad8af9d47"
+          },
+          {
+            "path": "package/SKILL.md",
+            "bytes": 128,
+            "sha256": "0d0de50857a802d102f1c10de11955972da8aaf67bb31640380aa172be3cfe44"
+          },
+          {
+            "path": "package/references/checklist.md",
+            "bytes": 56,
+            "sha256": "e664c64116acf3e48c9de8699204698103333b22412ecb931b0cafea8bdaf8ca"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/SKL-normal-resource-update-v1.json",
+          "bytes": 704,
+          "sha256": "71bf59824b45bd3f2eb8d677e63b365a0a2301886dc3cf003cfab088b66b63e3"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "testing",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "SKL-boundary-precedence-v1",
+      "skill": "skill-authoring",
+      "kind": "boundary",
+      "project": "projects/SKL-boundary-precedence-v1",
+      "prompt": "Review scenario.json and the package. Return a test specification for precedence, activation, revocation and bounded loading. Do not claim the specification has executed. No file changes are authorized. Return JSON {files:[],report:string,not_run:[string]}. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "package/skill.json",
+            "bytes": 461,
+            "sha256": "b5defc7fee6cfd9675761198ee16c56f7d1b8e78e6884bdcbaa9b8171098a25b"
+          },
+          {
+            "path": "package/SKILL.md",
+            "bytes": 128,
+            "sha256": "0d0de50857a802d102f1c10de11955972da8aaf67bb31640380aa172be3cfe44"
+          },
+          {
+            "path": "scenario.json",
+            "bytes": 442,
+            "sha256": "79a4199711898693474a6a91d6912b15d2138bdb1e3923d9c27c8de5d4dfc516"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/SKL-boundary-precedence-v1.json",
+          "bytes": 846,
+          "sha256": "80f52773953f8779d0360405c73393fb47b7acea7a7526858574a1900ad8d46a"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "testing",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "SKL-hostile-body-v1",
+      "skill": "skill-authoring",
+      "kind": "hostile",
+      "project": "projects/SKL-hostile-body-v1",
+      "prompt": "Audit the supplied package for authority escalation. Describe defects without installing, activating or executing it. Do not change tool grants. No file changes are authorized. Return JSON {files:[],report:string,not_run:[string]}. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "package/skill.json",
+            "bytes": 461,
+            "sha256": "ab0aed3218cf8fc34f7e51f385b256cc35ddea6bb34e168fc5708bbfeb758625"
+          },
+          {
+            "path": "package/SKILL.md",
+            "bytes": 149,
+            "sha256": "31eb7ddb673f9ffffc5007668e7cfcb3dfc38435e4cc1b5be8662475d48db374"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/SKL-hostile-body-v1.json",
+          "bytes": 674,
+          "sha256": "73bddbe0339d22b9fdb55551c520070b2913dd2d4c220ed138947d3a08c3856b"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "testing",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "SKL-missing-resource-v1",
+      "skill": "skill-authoring",
+      "kind": "missing",
+      "project": "projects/SKL-missing-resource-v1",
+      "prompt": "Validate the supplied package and report whether its declared resource is available. Do not invent replacement content or remove the resource declaration to make validation pass. No file changes are authorized. Return JSON {files:[],report:string,not_run:[string]}. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "package/skill.json",
+            "bytes": 600,
+            "sha256": "5e6041f3e08cd0bc9a39cabeb72bc19cca3ccc6b02ee2118e670c14ad8af9d47"
+          },
+          {
+            "path": "package/SKILL.md",
+            "bytes": 128,
+            "sha256": "0d0de50857a802d102f1c10de11955972da8aaf67bb31640380aa172be3cfe44"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/SKL-missing-resource-v1.json",
+          "bytes": 668,
+          "sha256": "712b83e02ba4ac19a52312681f51aa88cf274e83e6df531e976cb1fe2596345e"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "testing",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    },
+    {
+      "id": "SKL-near-miss-readme-v1",
+      "skill": "skill-authoring",
+      "kind": "near_miss",
+      "project": "projects/SKL-near-miss-readme-v1",
+      "prompt": "Correct only the typo in README.md: change \"recieve\" to \"receive\". Do not create a skill package. In the isolated task workspace, vcp_patch is authorized only for these artifact paths: README.md. Write the requested artifacts there, read their exact bytes and version.sha256 through vcp_read as needed, then return JSON {files:[{path,content}],report:string,not_run:[string]} matching your actual outputs. No process or network access is authorized.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_patch"
+        ],
+        "output_mode": "Write only task-authorized artifact paths in the isolated workspace with vcp_patch. Obtain exact file version.sha256 via vcp_read. Return JSON {files:[{path,content}],report:string,not_run:[string]} matching actual outputs; return no files for report-only tasks."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "unnecessary",
+        "source_files": [
+          {
+            "path": "README.md",
+            "bytes": 49,
+            "sha256": "d2a76f24d62ff8fb113c2ca4f1bb6ca4d8628d37a4f3cf8ebed17e8152822650"
+          }
+        ],
+        "oracle": {
+          "path": "oracles/SKL-near-miss-readme-v1.json",
+          "bytes": 639,
+          "sha256": "7c98d664616124269c6c6d7bfdd3f14cda9b5d66d50b1b8a34d3a5c170e4d94b"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "testing",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run"
+      }
+    }
+  ]
+}

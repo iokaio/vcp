@@ -1,0 +1,2 @@
+# Synthetic package request
+Use VCP skill schema 1 and vcp_version 1. ID change-notes, version 1.0.0, source vcp-original, license Apache-2.0. Empty cues/environments, tools vcp_list and vcp_read only. Body SKILL.md and resource references/checklist.md each need a lowercase SHA-256 digest of exact UTF-8 bytes. Descriptor fields: schema_version,id,version,description,source,license,vcp_version,cues,environments,required_tools,body,resources. Content refs contain only path and sha256. Guidance checks completed versus proposed changes and local source links.

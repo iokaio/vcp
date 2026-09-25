@@ -5,7 +5,7 @@ use vcp_extensions::catalog;
 fn embedded_inventory_is_closed_versioned_metadata_for_all_families() {
     let manifest = catalog::embedded().unwrap();
     assert_eq!(manifest.skills.len(), 21);
-    assert_eq!(manifest.version, "1.1.0");
+    assert_eq!(manifest.version, "1.2.0");
     let mut invalid = manifest.clone();
     invalid.skills[1] = invalid.skills[0].clone();
     assert!(invalid.validate().is_err());
@@ -66,6 +66,37 @@ mod native {
             }],
         };
         (root, registry)
+    }
+    // Candidate packages require an explicit source; they are not distributed builtins.
+    fn staged_document_candidate(path: &Path) -> SourceRegistry {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../skills/candidates/document-authoring");
+        fs::create_dir(path.join("document-authoring")).unwrap();
+        for file in ["skill.json", "SKILL.md"] {
+            fs::copy(
+                source.join(file),
+                path.join("document-authoring").join(file),
+            )
+            .unwrap();
+        }
+        SourceRegistry {
+            version: 1,
+            revision: Revision::ZERO,
+            disabled: BTreeSet::new(),
+            sources: vec![SkillSource {
+                id: "document-candidate".into(),
+                kind: SourceKind::User,
+                enabled: true,
+                root: RootIdentity {
+                    workspace: WorkspaceId::new(),
+                    root: RootId::new(),
+                    repository: "fixture".into(),
+                    worktree: "fixture".into(),
+                    binding: Revision::ZERO,
+                },
+                path: path.to_owned(),
+            }],
+        }
     }
     fn context() -> discovery::MatchContext {
         discovery::MatchContext {
@@ -173,5 +204,171 @@ mod native {
         assert!(activation::revalidate(&registry, &active).is_err());
         // Body edits do not imply hidden body reads during metadata-only verification.
         assert!(catalog::verify(&root).is_ok());
+    }
+
+    #[test]
+    fn document_authoring_requires_explicit_selection_and_loads_bounded_content() {
+        let temp = tempfile::tempdir().unwrap();
+        let builtin = tempfile::tempdir().unwrap();
+        let (_, defaults) = staged(builtin.path(), true);
+        let defaults = discovery::discover(&defaults, &Default::default()).unwrap();
+        assert!(defaults.resolve("document-authoring", &context()).is_err());
+        let registry = staged_document_candidate(temp.path());
+        let discovered = discovery::discover(&registry, &Default::default()).unwrap();
+        let mut ctx = context();
+        ctx.cues = BTreeSet::from([
+            "README.md".into(),
+            "AGENTS.md".into(),
+            "Cargo.toml".into(),
+            "package.json".into(),
+        ]);
+        assert!(discovered.resolve("skill-authoring", &ctx).is_err());
+        for id in ["document-authoring"] {
+            let selected = discovered.resolve(id, &ctx).unwrap();
+            assert!(!selected.matches(&ctx), "incidental suggestion: {id}");
+            let active = activation::activate(
+                &registry,
+                &discovered,
+                id,
+                &ctx,
+                "explicit authoring request",
+                &Default::default(),
+            )
+            .unwrap();
+            assert_eq!(active.body.version.sha256, selected.descriptor.body.sha256);
+            assert_eq!(active.reads.bodies, 1);
+            assert_eq!(active.resources.len(), 0);
+            for (resource, expected) in active.resources.iter().zip(&selected.descriptor.resources)
+            {
+                assert_eq!(resource.version.sha256, expected.sha256);
+            }
+            assert!(
+                active.reads.body_bytes + active.reads.resource_bytes
+                    <= discovery::Limits::default().total_activation_bytes
+            );
+            let mut bounded = discovery::Limits::default();
+            bounded.total_activation_bytes = 1;
+            assert!(
+                activation::activate(&registry, &discovered, id, &ctx, "bounded", &bounded)
+                    .is_err()
+            );
+            let mut unavailable = ctx.clone();
+            unavailable.tools.clear();
+            assert!(discovered.resolve(id, &unavailable).is_err());
+            let mut revoked = registry.clone();
+            revoked.disabled.insert(active.qualified_id.clone());
+            assert!(activation::revalidate(&revoked, &active).is_err());
+            let rediscovered = discovery::discover(&revoked, &Default::default()).unwrap();
+            assert!(activation::activate(
+                &revoked,
+                &rediscovered,
+                id,
+                &ctx,
+                "disabled",
+                &Default::default()
+            )
+            .is_err());
+            revoked = registry.clone();
+            revoked.sources[0].enabled = false;
+            assert!(activation::revalidate(&revoked, &active).is_err());
+        }
+    }
+
+    #[test]
+    fn authoring_missing_or_changed_content_stays_lazy_and_fails_activation() {
+        for relative in ["document-authoring/SKILL.md"] {
+            for missing in [false, true] {
+                let temp = tempfile::tempdir().unwrap();
+                let registry = staged_document_candidate(temp.path());
+                let discovered = discovery::discover(&registry, &Default::default()).unwrap();
+                let id = relative.split('/').next().unwrap();
+                let active = activation::activate(
+                    &registry,
+                    &discovered,
+                    id,
+                    &context(),
+                    "before mutation",
+                    &Default::default(),
+                )
+                .unwrap();
+                if missing {
+                    fs::remove_file(temp.path().join(relative)).unwrap();
+                } else {
+                    fs::write(temp.path().join(relative), b"untrusted replacement").unwrap();
+                }
+                let after = discovery::discover(&registry, &Default::default()).unwrap();
+                assert_eq!(after.reads.bodies, 0);
+                assert_eq!(after.reads.resources, 0);
+                assert!(
+                    activation::activate(
+                        &registry,
+                        &after,
+                        id,
+                        &context(),
+                        "after mutation",
+                        &Default::default()
+                    )
+                    .is_err(),
+                    "{relative}, missing={missing}"
+                );
+                assert!(activation::revalidate(&registry, &active).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn authoring_workspace_override_preserves_candidate_qualified_selection() {
+        for id in ["document-authoring"] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut registry = staged_document_candidate(temp.path());
+            let workspace = tempfile::tempdir().unwrap();
+            let mut descriptor: SkillDescriptor =
+                serde_json::from_slice(&fs::read(temp.path().join(id).join("skill.json")).unwrap())
+                    .unwrap();
+            let body = b"Workspace-owned authoring instructions; preserve this override.";
+            descriptor.body.sha256 = vcp_protocol::digest_bytes(body);
+            descriptor.resources.clear();
+            fs::write(
+                workspace.path().join("skill.json"),
+                serde_json::to_vec(&descriptor).unwrap(),
+            )
+            .unwrap();
+            fs::write(workspace.path().join("SKILL.md"), body).unwrap();
+            let mut source = registry.sources[0].clone();
+            source.id = "workspace-authoring".into();
+            source.kind = SourceKind::Workspace;
+            source.path = workspace.path().to_owned();
+            source.root.root = RootId::new();
+            registry.sources.push(source);
+            let discovered = discovery::discover(&registry, &Default::default()).unwrap();
+            let override_active = activation::activate(
+                &registry,
+                &discovered,
+                id,
+                &context(),
+                "workspace override",
+                &Default::default(),
+            )
+            .unwrap();
+            assert_eq!(override_active.source_id, "workspace-authoring");
+            assert_eq!(override_active.body.bytes, body);
+            let qualified = format!("document-candidate::{id}::{id}");
+            let builtin = activation::activate(
+                &registry,
+                &discovered,
+                &qualified,
+                &context(),
+                "explicit candidate",
+                &Default::default(),
+            )
+            .unwrap();
+            assert_eq!(builtin.source_id, "document-candidate");
+            assert_ne!(
+                builtin.body.version.sha256,
+                override_active.body.version.sha256
+            );
+            assert_eq!(fs::read(workspace.path().join("SKILL.md")).unwrap(), body);
+            activation::revalidate(&registry, &override_active).unwrap();
+        }
     }
 }

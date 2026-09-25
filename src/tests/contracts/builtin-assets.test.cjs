@@ -16,6 +16,8 @@ test('builtin staging copies exactly the selected hashed inventory and preserves
     assert.equal(inventory.skills, 21);
     assert.equal(inventory.files.length, 44);
     assert.deepEqual(inspectAssets(target).inventory, inventory);
+    assert.equal(fs.existsSync(path.join(target, 'document-authoring')), false);
+    assert.equal(inventory.files.some(file => JSON.stringify(file).includes('document-authoring')), false);
     fs.writeFileSync(path.join(target, 'user-sentinel'), 'preserve');
     assert.throws(() => stageAssets(assets, target), /exist/i);
     assert.equal(fs.readFileSync(path.join(target, 'user-sentinel'), 'utf8'), 'preserve');

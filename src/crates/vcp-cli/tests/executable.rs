@@ -8,10 +8,10 @@ mod child_output_owner;
 mod history_notice;
 #[path = "support/hooks.rs"]
 mod hooks;
-#[path = "support/observers.rs"]
-mod observers;
 #[path = "support/live_adapter.rs"]
 mod live_adapter;
+#[path = "support/observers.rs"]
+mod observers;
 #[path = "support/packaged_crypto.rs"]
 mod packaged_crypto;
 #[path = "support/packaged_history.rs"]
@@ -399,6 +399,105 @@ async fn executable_run_skill_activation_precedes_first_provider_request() {
     let first = String::from_utf8_lossy(&requests[0].body);
     assert!(first.contains("Use the observed project instructions. Report verification results without granting permissions."));
     assert!(first.contains("project::review::review"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_document_authoring_report_only_completes_without_workspace_edits() {
+    for skill in ["document-authoring"] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(response(2, "complete")),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut fixture = Fixture::new(&server.uri(), "complete");
+        let builtin = fixture.package(true);
+        assert!(!builtin.join(skill).exists());
+        let collection = tempfile::tempdir().unwrap();
+        let package = collection.path().join(skill);
+        fs::create_dir(&package).unwrap();
+        let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../skills/candidates")
+            .join(skill);
+        for file in ["skill.json", "SKILL.md"] {
+            fs::copy(candidate.join(file), package.join(file)).unwrap();
+        }
+        // Report-only CS-1 cases still need a nonempty acceptance scope. These
+        // source paths support verification; they do not grant editing authority.
+        fs::remove_file(fixture.workspace.join("package.json")).unwrap();
+        fs::remove_file(fixture.workspace.join("acceptance.cjs")).unwrap();
+        let source = fs::read(fixture.workspace.join("value.txt")).unwrap();
+        let mut profile: Value =
+            serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+        profile["skills"] = json!({"version":1,"revision":"0","sources":[{
+            "id":"document-candidate","root_id":vcp_domain::RootId::new(),
+            "kind":"user","enabled":true,"path":collection.path()
+        }]});
+        profile["canonical_tools"] = json!(["vcp_read", "vcp_list", "vcp_search"]);
+        profile["maximum_autonomy"] = json!("plan");
+        profile["automatic_effects"] = json!([]);
+        profile["affected_paths"] = json!(["value.txt"]);
+        profile["processes"] = json!([]);
+        profile["checks"] = json!([]);
+        profile["max_requests"] = json!(1);
+        profile["max_transport_retries"] = json!(0);
+        fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+        let qualified = format!("document-candidate::{skill}::{skill}");
+        let output = fixture
+            .run(&[
+                "run",
+                "Report on the supplied value. No workspace edits are authorized.",
+                "--autonomy",
+                "plan",
+                "--skill",
+                &qualified,
+            ])
+            .await;
+        let values = records(&output);
+        assert!(
+            output.status.success(),
+            "{skill}: {} {}",
+            String::from_utf8_lossy(&output.stderr),
+            values.last().unwrap()
+        );
+        assert_eq!(values.last().unwrap()["conditions"]["completed"], true);
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let request: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(request["tools"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| tool["name"].as_str().unwrap())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search"])
+        );
+        let parts: Vec<Value> = request["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|message| message["content"].as_array().unwrap())
+            .filter_map(|content| serde_json::from_str::<Value>(content["text"].as_str()?).ok())
+            .filter(|part| part["kind"] == "skill")
+            .collect();
+        let body = fs::read_to_string(package.join("SKILL.md")).unwrap();
+        assert!(parts
+            .iter()
+            .any(|part| part["trust"] == "active_skill" && part["text"] == body));
+        assert_eq!(parts.len(), 1);
+        assert_eq!(
+            fs::read(fixture.workspace.join("value.txt")).unwrap(),
+            source
+        );
+        assert_eq!(fs::read_dir(&fixture.workspace).unwrap().count(), 1);
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
