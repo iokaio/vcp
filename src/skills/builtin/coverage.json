@@ -851,7 +851,7 @@
     },
     {
       "id": "document-authoring",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",

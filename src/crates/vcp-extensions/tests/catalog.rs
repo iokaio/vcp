@@ -5,7 +5,7 @@ use vcp_extensions::catalog;
 fn embedded_inventory_is_closed_versioned_metadata_for_all_families() {
     let manifest = catalog::embedded().unwrap();
     assert_eq!(manifest.skills.len(), 22);
-    assert_eq!(manifest.version, "1.3.0");
+    assert_eq!(manifest.version, "1.3.1");
     let mut invalid = manifest.clone();
     invalid.skills[1] = invalid.skills[0].clone();
     assert!(invalid.validate().is_err());
