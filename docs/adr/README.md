@@ -100,6 +100,8 @@ ADR-013 records the committed-source repository convention and maintenance evide
 
 [ADR-067](067-bounded-local-observation-tasks.md) records bounded local observation tasks and diagnostic-only qualification (P10-03).
 
+[ADR-068](068-skills-follow-on-before-other-hosts.md) defers P10-04 without marking it complete and begins the separate CS skills follow-on.
+
 ## Maintaining a decision
 
 Keep the confirmed requirement, proposed mechanism and measured evidence distinct. At the owning gate, record selected versions/source paths, alternatives actually evaluated, compatibility/migration effects, operational burden, test artifacts and conditions for reconsideration. Preserve rejected alternatives and known limits. An experiment that has not run remains unqualified.

@@ -11,7 +11,16 @@ with [native qualification](../development/editor-edits.md#qualification).
 P4-04 inspectors are accepted with [native renderer evidence](../development/editor-inspectors.md#p4-04-acceptance).
 P4-05 packaging and compatibility is [accepted with native package evidence](../development/editor-packaging.md).
 
-Plan revision 14 — September 21, 2026. Delivery uses larger behavioral milestones
+Current continuation: P10-01 through P10-03 are complete. The original ledger is
+**67 of 68 complete**; P10-04 is explicitly deferred under
+[ADR-068](../adr/068-skills-follow-on-before-other-hosts.md), with Linux/macOS
+outside current scope and no substitute WSL/SSH/devcontainer implementation selected.
+The [skills follow-on](24-skills-follow-on.md) now starts at **CS-0**, followed by
+six developer-workflow skills, then bounded PDF/spreadsheet adapters and skills.
+CS items have a separate ledger; this sequencing revision does not complete P10-04,
+reopen P8, or implement M10, other deferred Markov work or prompt-audit proposals.
+
+Historical plan revision 14 — September 21, 2026. Delivery uses larger behavioral milestones
 with local validation before publication. The ledger below distinguishes bounded
 qualification already completed from remaining product implementation. Explicit
 pause while the CLI stays open is required alongside close-to-pause.
@@ -117,6 +126,7 @@ the completed feasibility decision and the remaining production work.
 | [21 Markov integration](21-markov-integration.md) | Sequenced local analytics, existing-feature refactors, qualification and later reuse | Supporting increments within P2/P5/P6/P7/P8 and deferred P10-03; no new task IDs |
 | [22 Cursor improvements](22-cursor-improvements.md) | Bounded search, useful helpers, worktree readiness, review and debug workflows | Selected refinements within remaining P7-02/04/05/06 and P8 qualification |
 | [23 Claude Code improvements](23-claudecode-improvements.md) | Long-check ceilings, Windows output correctness and shared read/review refinements | Selected refinements within the same remaining owners; larger candidates deferred |
+| [24 Skills follow-on](24-skills-follow-on.md) | Original workflow skills, scope and qualification, then bounded PDF/XLSX | Separate CS-0 through CS-6 ledger; P10-04 deferred |
 
 ## Execution order
 
