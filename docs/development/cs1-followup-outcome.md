@@ -1,5 +1,9 @@
 # CS-1 follow-up: mandatory halt
 
+This historical halt remains unchanged. The separately authorized v3 diagnostic
+also reached a [mandatory halt](cs1-full-diagnostic-outcome.md); that report retains
+both campaigns' liabilities and distinguishes their results.
+
 The owner approved the exact prospective envelope on September 25, 2026.
 Its first six document-authoring runs finished, but independent review found
 an authority-contract violation: every handoff arm used `vcp_search`, while the

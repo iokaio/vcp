@@ -92,6 +92,11 @@ These are local debug qualification checks, not release or performance acceptanc
 
 ## Current 1.0.1 preparation and remaining gates
 
+The [closed v3 diagnostic](cs1-full-diagnostic-outcome.md) retains failed normal
+and inherited candidate quality findings and a campaign-wide tool-authority halt.
+This does not qualify 1.0.1 or authorize replay. Candidate distribution disposition
+remains an owner decision; historical receipts above are not transferred.
+
 The current 22-skill, 46-file inventory has catalog SHA-256
 `e1575c1bf931b567ad07667b3339c54f1ac29f74744d3487a688e47e765488b1`.
 All 12 focused JavaScript asset/oracle tests passed for this refresh.

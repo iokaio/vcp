@@ -1,5 +1,11 @@
 # CS-1 full diagnostic qualification
 
+Execution is closed by a mandatory authority halt. The
+[final diagnostic outcome](cs1-full-diagnostic-outcome.md) records 19 of 54 slots
+dispatched and cumulative accounting of 181 requests / $0.401397, including the
+earlier campaign. The frozen envelope cannot resume or replay; the design below
+does not authorize another dispatch or qualify either candidate.
+
 On September 25, 2026 the owner directed: “Modify the fixture to allow a full
 test as we are well under budget.” This authorizes a new fixture revision and
 fresh comparison runs. It does not turn the

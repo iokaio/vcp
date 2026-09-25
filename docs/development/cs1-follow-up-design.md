@@ -1,5 +1,8 @@
 # Proposed CS-1 follow-up evaluation
 
+The later [v3 diagnostic outcome](cs1-full-diagnostic-outcome.md) is now closed
+with an authority halt. This historical design supplies no restart authorization.
+
 The initial benefit-study outline below is retained as design history. The
 [prospective qualification contract](cs1-prospective-qualification.md) supersedes
 its 18-run ceiling and adjudication option: it adds matched inherited regression
