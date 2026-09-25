@@ -186,3 +186,47 @@ test('checker authority requires explicit proposal and exact stable recorded bui
   }
   fs.writeFileSync(receiptFile, original);
 });
+
+test('candidate arms use explicit user sources and pin separate candidate assets', t => {
+  const f = fixture(t), result = prepare(f.specFile, path.join(f.root, 'candidate-sources'));
+  const plan = JSON.parse(fs.readFileSync(result.plan));
+  assert.equal(plan.candidate_assets.entries.length, 2);
+  assert(plan.candidate_assets.files.some(file => file.path === 'skill-authoring/references/package-format.md'));
+  for (const row of plan.runs) {
+    const profile = JSON.parse(fs.readFileSync(path.join(plan.directory, row.id, 'profile.json')));
+    if (row.arm === 'candidate') {
+      assert.match(row.skill, /^vcp-authoring-candidates::/);
+      assert.equal(profile.skills.sources.length, 1);
+      assert.equal(profile.skills.sources[0].kind, 'user');
+      assert.equal(profile.skills.sources[0].enabled, true);
+      assert.equal(profile.skills.sources[0].id, plan.candidate_assets.source_id);
+      assert.equal(profile.skills.sources[0].path, path.join(plan.candidate_assets.path, row.skill.split('::').at(-1)));
+    } else {
+      assert.equal(profile.skills, undefined);
+      if (row.arm === 'nearest') assert.match(row.skill, /^vcp-builtin::/);
+    }
+  }
+  for (const id of ['document-authoring', 'skill-authoring']) {
+    assert(plan.source.files.some(file => file.path === `src/skills/candidates/${id}/skill.json`));
+    assert(plan.source.files.some(file => file.path === `src/skills/candidates/${id}/SKILL.md`));
+  }
+});
+
+test('prospective oracle ceilings are identical across arms and cannot broaden a source ceiling', () => {
+  const repository = path.resolve(__dirname, '../../..');
+  for (const folder of ['authoring-inherited', 'authoring-followup']) {
+    const root = path.join(repository, 'src/evals/skills', folder);
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json')));
+    for (const task of manifest.cases) {
+      const oracle = JSON.parse(fs.readFileSync(path.join(root, task.expected.oracle.path)));
+      const declared = oracle.permitted_tools || oracle.deterministic_checks.find(check => check.kind === 'tool_receipt_audit').permitted_tools;
+      for (const candidate of [false, true]) {
+        const profile = authoringHost().prep.derivedProfile({}, task, path.join(os.tmpdir(), 'unused-workspace'), 'unused-catalog', 3000000, 16, {}, root, candidate);
+        assert.deepEqual(profile.canonical_tools, declared);
+        assert.equal(profile.canonical_tools.includes('vcp_exec'), false);
+        if (!oracle.allowed_outputs.length && !oracle.allowed_modifications.length) assert.equal(profile.canonical_tools.includes('vcp_verify'), false);
+      }
+      assert.throws(() => authoringHost().prep.derivedProfile({ canonical_tools: [] }, task, 'unused', 'unused', 3000000, 16, {}, root), /broadened/);
+    }
+  }
+});

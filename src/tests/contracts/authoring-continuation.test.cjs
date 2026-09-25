@@ -30,7 +30,7 @@ exports.derivePlan=(e)=>{const file=path.join(e.directory,'phases/document-autho
   const gateFile = path.join(phase, 'review-gate.json'); save(gateFile, { result_sha256, decision: { candidate_gates_pass: false, winning_case_ids: [] } });
   const envelope = path.join(directory, 'envelope.json');
   const spec_source = path.join(root, 'spec.json'); save(spec_source, { synthetic: true });
-  save(envelope, { spec_source, spec_sha256: sha(fs.readFileSync(spec_source)), directory, execution_mode: 'full_diagnostic', prior_campaign: prior, source: prep.identity(repository, ['scripts/evals/authoring-followup.cjs']) });
+  save(envelope, { spec_source, spec_sha256: sha(fs.readFileSync(spec_source)), directory, candidate_assets: { entries: [{ id: 'synthetic-candidate' }], files: [] }, execution_mode: 'full_diagnostic', prior_campaign: prior, source: prep.identity(repository, ['scripts/evals/authoring-followup.cjs']) });
   const reference = { envelope, envelope_sha256: sha(fs.readFileSync(envelope)), repository, gate_sha256: sha(fs.readFileSync(gateFile)), result_sha256 };
   return { root, directory, repository, reference, prior, moduleFile, resultFile, gateFile };
 }
@@ -68,4 +68,17 @@ test('original liability and permanent retirement cannot be replaced', t => {
   assert.throws(() => continuation.verify(f.reference, { ...f.prior, accounting: {} }), /same authenticated/);
   save(path.join(f.directory, 'halt.json'), { reason: 'different' });
   assert.throws(() => continuation.verify(f.reference, f.prior), /retirement changed/);
+});
+
+test('continuation binds candidate identity and refuses legacy unregistered candidate history', t => {
+  const f = fixture(t);
+  const original = JSON.parse(fs.readFileSync(f.reference.envelope));
+  const result = continuation.seal(f.reference, f.prior);
+  assert.deepEqual(result.execution.candidate_assets, original.candidate_assets);
+  const legacy = fixture(t), envelope = JSON.parse(fs.readFileSync(legacy.reference.envelope));
+  delete envelope.candidate_assets;
+  save(legacy.reference.envelope, envelope);
+  legacy.reference.envelope_sha256 = sha(fs.readFileSync(legacy.reference.envelope));
+  assert.throws(() => continuation.seal(legacy.reference, legacy.prior), /explicit candidate source identity/);
+  assert.equal(fs.existsSync(path.join(legacy.directory, 'active-phase.json')), false);
 });

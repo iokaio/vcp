@@ -67,7 +67,8 @@ function successfulNative(plan) {
     if (args.includes('run')) {
       const workspace = args[args.indexOf('--workspace') + 1]; current = plan.runs.find(row => path.join(plan.directory, row.id, 'workspace') === workspace);
       const entry = current.skill ? catalog.skills.find(s => current.skill === `vcp-builtin::${s.id}::${s.id}`) : null;
-      const included = entry ? [entry.body, ...(entry.resources || [])].map((part, index) => ({ kind: 'skill', trust: 'active_skill', source_hash: part.sha256, id: 'skill-' + sha(Buffer.from(current.skill)) + '-' + index })) : [];
+      const candidate = require('../../../scripts/evals/authoring-candidates.cjs').inspect().entries.find(s => s.qualified_id === current.skill);
+      const included = (candidate ? candidate.parts : entry ? [entry.body, ...(entry.resources || [])] : []).map((part, index) => ({ kind: 'skill', trust: 'active_skill', source_hash: part.sha256, id: 'skill-' + sha(Buffer.from(current.skill)) + '-' + index }));
       context = Buffer.from(JSON.stringify({ request_sha256: 'synthetic-request', included }));
       response = Buffer.from('data: ' + JSON.stringify({ type: 'response.completed', response: { id: 'synthetic-provider-request', status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ files: [], report: 'Synthetic stage-control fixture', not_run: ['Real generation, native checker and quality review'] }) }] }] } }) + '\n\n');
       return { status: 0, stdout: JSON.stringify({ type: 'accepted', scope: { task: 'task-' + current.id } }) + '\n' + JSON.stringify({ type: 'result', conditions: { completed: true } }), stderr: '' };

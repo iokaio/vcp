@@ -50,6 +50,12 @@ function Install-Step([string]$Action, [string]$Archive) {
     if ($LASTEXITCODE -ne 0) { throw 'Installed native executable failed startup' }
     $catalog = Join-Path $release 'skills/builtin/catalog.json'
     $metadata = Get-Content -LiteralPath $catalog -Raw | ConvertFrom-Json
+    if ($Action -eq 'Upgrade') {
+        foreach ($id in @('document-authoring', 'skill-authoring')) {
+            if ($metadata.skills.id -contains $id -or (Test-Path -LiteralPath (Join-Path $release ('skills/builtin/' + $id)))) { throw 'Research candidate leaked into installed builtin skills' }
+        }
+        if (Test-Path -LiteralPath (Join-Path $release 'skills/candidates')) { throw 'Research candidates must not be installed by default' }
+    }
     $record.stages += @{ action = $Action; release = $release; executable_sha256 = (Get-FileHash -LiteralPath $binary).Hash.ToLowerInvariant(); catalog_sha256 = (Get-FileHash -LiteralPath $catalog).Hash.ToLowerInvariant(); skills = $metadata.skills.Count; version = $metadata.version; protected_data_unchanged = $true }
     Save-Report
 }

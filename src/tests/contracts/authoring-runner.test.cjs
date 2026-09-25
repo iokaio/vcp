@@ -37,6 +37,11 @@ function setup(t) {
 test('runner validates exact preparation and refuses cap/input/authority tampering before dispatch', t => {
   const f = setup(t), bytes = fs.readFileSync(f.plan);
   runner.validate(f.planData, f.plan);
+  const candidateDrift = structuredClone(f.planData);
+  candidateDrift.candidate_assets.files[0].sha256 = '0'.repeat(64);
+  assert.throws(() => runner.validate(candidateDrift, f.plan), /candidate assets changed/);
+  const candidateRow = f.planData.runs.find(row => row.arm === 'candidate');
+  assert.match(candidateRow.skill, /^vcp-authoring-candidates::\.::/);
   assert.throws(() => runner.run(f.plan, 'not-authorized', () => assert.fail()), /Authorization/);
   const changed = structuredClone(f.planData); changed.runs[0].cap_micros++;
   fs.writeFileSync(f.plan, JSON.stringify(changed));
@@ -103,8 +108,9 @@ test('canonical unknown ledger stops subsequent model calls without recycling al
   assert.match(result.runs[0].reason, /unknown liability/);
 });
 test('context evidence requires all pinned skill resource parts for every settled request', () => {
-  const catalog = JSON.parse(fs.readFileSync(path.join(assets, 'catalog.json'))), entry = catalog.skills.find(s => s.id === 'skill-authoring');
-  const skill = 'vcp-builtin::skill-authoring::skill-authoring', id = 'skill-' + sha(Buffer.from(skill));
+  const candidates = require('../../../scripts/evals/authoring-candidates.cjs');
+  const entry = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../skills/candidates/skill-authoring/skill.json')));
+  const skill = candidates.qualified('skill-authoring'), id = 'skill-' + sha(Buffer.from(skill));
   const attempt = { phase: 'settled', request_digest: 'request' };
   const check = included => {
     const bytes = Buffer.from(JSON.stringify({ request_sha256: 'request', included }));

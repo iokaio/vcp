@@ -44,7 +44,8 @@ function inspect(reference, priorCampaign, sealed) {
   const inherited = old.derivePlan(envelope, reference.envelope_sha256, 'document-authoring', 'inherited');
   requireThat(inherited.prerequisites.length === 1 && inherited.prerequisites[0].sha256 === reference.gate_sha256 && gateDocument.result_sha256 === reference.result_sha256, 'Predecessor review gate differs');
   const rows = result.runs.map(row => ({ id: row.id, task_id: row.scope.task, status: row.status, actual_cost_micros: row.actual_cost_micros, observed_attempts: row.observed_attempts, active_micros: 0, unresolved_micros: 0 }));
-  return { reference, execution: { executable_sha256: envelope.executable_sha256, profile_sha256: envelope.profile_sha256, provider_catalog_sha256: envelope.provider_catalog_sha256, assets: envelope.assets }, gate: { ...inherited.prerequisites[0], decision: gateDocument.decision }, rows };
+  requireThat(envelope.candidate_assets && Array.isArray(envelope.candidate_assets.entries), 'Predecessor lacks explicit candidate source identity');
+  return { reference, execution: { executable_sha256: envelope.executable_sha256, profile_sha256: envelope.profile_sha256, provider_catalog_sha256: envelope.provider_catalog_sha256, assets: envelope.assets, candidate_assets: envelope.candidate_assets }, gate: { ...inherited.prerequisites[0], decision: gateDocument.decision }, rows };
 }
 function verify(reference, priorCampaign) { return inspect(reference, priorCampaign, true); }
 function seal(reference, priorCampaign) {

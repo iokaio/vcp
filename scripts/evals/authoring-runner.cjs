@@ -7,6 +7,7 @@ const prior = require('./p6-live-runner.cjs');
 const prep = require('./authoring-prepare.cjs');
 const oracle = require('./authoring-oracle.cjs');
 const { profileReasons } = prep;
+const candidates = require('./authoring-candidates.cjs');
 const { requireEmbeddedCatalog } = require('./builtin-generation-prepare.cjs');
 const { inspectAssets } = require('../skills/builtin-assets.cjs');
 const { plain, read, write, safeChild, noParentInstructions, privateDirectory, noSecrets, usd, frames, inspection, invoke } = prior.boundaries;
@@ -43,6 +44,7 @@ function finalWorkspace(base, row, allowed) {
 function validate(plan, file, startedRows = 0) {
   noParentInstructions(plan.directory); privateDirectory(plan.directory);
   if (plan.schema !== 'cs-1-authoring-preparation/3' || plan.runnable !== true || plan.authorization !== false || plan.model_calls !== 0 || plain(path.dirname(path.resolve(file))) !== plan.directory || !equal(plan.output_bounds, prep.outputBounds)) throw Error('Prepared plan contract differs');
+  if (!equal(plan.candidate_assets, candidates.inspect())) throw Error('Prepared candidate assets changed');
   if (!equal(plan.source, prep.identity(repository, prep.sourceScope))) throw Error('Prepared source identity changed');
   const executableBytes = read(plan.executable, 1024 * 1024 * 1024), assetsRoot = path.join(path.dirname(plan.executable), 'skills/builtin');
   if (sha(executableBytes) !== plan.executable_sha256 || !equal(inspectAssets(assetsRoot).inventory, plan.assets)) throw Error('Prepared executable or assets changed');
@@ -70,9 +72,9 @@ function validate(plan, file, startedRows = 0) {
     const id = task.id + '--' + arm, base = safeChild(plan.directory, id);
     if (!equal(row.directories, prep.preparedDirectories(task))) throw Error('Frozen directory scaffold changed');
     requireDirectories(path.join(base, 'workspace'), row);
-    if (row.id !== id || row.case_id !== task.id || row.arm !== arm || row.skill !== (selected ? `vcp-builtin::${selected}::${selected}` : null) || row.cap_micros !== allocation || row.call_ceiling !== calls || row.status !== 'not_run' || !equal(row.files, prep.preparedFiles(task)) || !equal(row.scaffold_paths, [...prep.scaffold(task).keys()]) || !equal(row.oracle, task.expected.oracle) || row.prompt_sha256 !== sha(Buffer.from(prep.promptFor(task)))) throw Error('Frozen arm or allocation changed');
+    if (row.id !== id || row.case_id !== task.id || row.arm !== arm || row.skill !== candidates.selection(arm, task) || row.cap_micros !== allocation || row.call_ceiling !== calls || row.status !== 'not_run' || !equal(row.files, prep.preparedFiles(task)) || !equal(row.scaffold_paths, [...prep.scaffold(task).keys()]) || !equal(row.oracle, task.expected.oracle) || row.prompt_sha256 !== sha(Buffer.from(prep.promptFor(task)))) throw Error('Frozen arm or allocation changed');
     if (index > startedRows && (!preserved(base, row) || fs.readdirSync(plain(path.join(base, 'data'))).length) || sha(read(path.join(base, 'prompt.txt'))) !== row.prompt_sha256 || sha(read(path.join(base, 'profile.json'))) !== row.profile_sha256) throw Error('Prepared inputs changed or data store not fresh');
-    const derived = prep.derivedProfile(profile, task, path.join(base, 'workspace'), plan.provider_catalog, allocation, calls, plan.runtime);
+    const derived = prep.derivedProfile(profile, task, path.join(base, 'workspace'), plan.provider_catalog, allocation, calls, plan.runtime, undefined, arm === 'candidate');
     if (!equal(JSON.parse(read(path.join(base, 'profile.json'))), derived)) throw Error('Derived profile differs');
   }
 }
@@ -95,9 +97,11 @@ function skillEvidence(plan, base, row, pages, attempts, call) {
   const captures = pages.flatMap(p => p.items).filter(i => i.collection === 'artifact' && i.record?.spec?.schema === 'context-manifest/1');
   const manifests = captures.map(item => ({ artifact: item.id, manifest: capturedContext(plan, base, item, call) }));
   const catalog = JSON.parse(read(path.join(repository, 'src/skills/builtin/catalog.json')));
+  const candidate = row.skill ? candidates.inspect().entries.find(entry => entry.qualified_id === row.skill) : null;
   const entry = row.skill ? catalog.skills.find(s => row.skill === `vcp-builtin::${s.id}::${s.id}`) : null;
-  if (row.skill && !entry) throw Error('Unknown selected builtin');
-  const expected = entry ? [entry.body, ...(entry.resources || [])].map((part, index) => ({ id: 'skill-' + sha(Buffer.from(row.skill)) + '-' + index, hash: part.sha256 })) : [];
+  if (row.skill && !entry && !candidate) throw Error('Unknown selected skill');
+  const parts = candidate ? candidate.parts : entry ? [entry.body, ...(entry.resources || [])] : [];
+  const expected = parts.map((part, index) => ({ id: 'skill-' + sha(Buffer.from(row.skill)) + '-' + index, hash: part.sha256 }));
   const dispatched = attempts.filter(a => a.phase === 'settled');
   if (!dispatched.length) throw Error('No settled model attempt');
   for (const attempt of dispatched) {

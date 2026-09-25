@@ -10,14 +10,15 @@ const { requireEmbeddedCatalog } = require('./builtin-generation-prepare.cjs');
 const { inspectAssets, portable } = require('../skills/builtin-assets.cjs');
 const { plain, read, write, within, safeChild, noParentInstructions, privateDirectory, noSecrets, usd } = prior.boundaries;
 const repository = path.resolve(__dirname, '../..');
+const candidates = require('./authoring-candidates.cjs');
 const fixtures = path.join(repository, 'src/evals/skills/authoring');
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const outputBounds = { files: 32, file_bytes: 65536, total_bytes: 262144 };
 const checkerEffects = ['read', 'write', 'execute', 'network', 'install', 'publish', 'opaque'];
 const checkerBuildScope = ['src/crates', 'src/evals/skills/authoring', 'src/evals/skills/authoring-followup', 'src/evals/skills/authoring-inherited', 'src/third_party/codex/codex-rs/Cargo.toml', 'src/third_party/codex/codex-rs/Cargo.lock', 'src/third_party/codex/codex-rs/rust-toolchain.toml'];
 const checkerCargoCommand = ['cargo', 'build', '--manifest-path', 'src/third_party/codex/codex-rs/Cargo.toml', '--locked', '--offline', '--target-dir', 'artifacts/codex-target', '-j2', '-p', 'vcp-cli', '--features', 'qualification', '--bin', 'vcp-authoring-check'];
-const sourceScope = ['src/crates', 'src/skills/builtin', 'src/evals/skills/authoring', 'scripts/evals/authoring-prepare.cjs', 'scripts/evals/authoring-runner.cjs', 'scripts/evals/authoring-oracle.cjs', 'scripts/evals/authoring-check-build.ps1', 'scripts/evals/p6-live-runner.cjs', 'scripts/evals/p6-task-quality.cjs', 'scripts/evals/builtin-live-runner.cjs', 'scripts/evals/builtin-generation-prepare.cjs', 'scripts/skills/builtin-assets.cjs', 'src/third_party/codex/codex-rs/Cargo.toml', 'src/third_party/codex/codex-rs/Cargo.lock', 'src/third_party/codex/codex-rs/rust-toolchain.toml'];
-const profileFields = ['version', 'workspace', 'trust_workspace', 'sync_roots', 'maximum_autonomy', 'automatic_effects', 'budget_usd', 'provider', 'routing', 'decisions', 'skills', 'mcp', 'mcp_http', 'catalog', 'affected_paths', 'max_requests', 'output_tokens', 'provider_timeout_seconds', 'max_transport_retries', 'deadline_seconds', 'processes', 'hooks', 'observers', 'checks', 'qualification_endpoint'];
+const sourceScope = ['src/crates', 'src/skills/builtin', 'src/skills/candidates/document-authoring', 'src/skills/candidates/skill-authoring', 'scripts/evals/authoring-candidates.cjs', 'src/evals/skills/authoring', 'scripts/evals/authoring-prepare.cjs', 'scripts/evals/authoring-runner.cjs', 'scripts/evals/authoring-oracle.cjs', 'scripts/evals/authoring-check-build.ps1', 'scripts/evals/p6-live-runner.cjs', 'scripts/evals/p6-task-quality.cjs', 'scripts/evals/builtin-live-runner.cjs', 'scripts/evals/builtin-generation-prepare.cjs', 'scripts/skills/builtin-assets.cjs', 'src/third_party/codex/codex-rs/Cargo.toml', 'src/third_party/codex/codex-rs/Cargo.lock', 'src/third_party/codex/codex-rs/rust-toolchain.toml'];
+const profileFields = ['version', 'workspace', 'trust_workspace', 'sync_roots', 'maximum_autonomy', 'automatic_effects', 'budget_usd', 'provider', 'routing', 'decisions', 'skills', 'mcp', 'mcp_http', 'catalog', 'affected_paths', 'canonical_tools', 'max_requests', 'output_tokens', 'provider_timeout_seconds', 'max_transport_retries', 'deadline_seconds', 'processes', 'hooks', 'observers', 'checks', 'qualification_endpoint'];
 function promptFor(task, fixtureRoot = fixtures) {
   const editing = affectedPaths(task, fixtureRoot).length > 0;
   const prompt = editing ? task.prompt.replaceAll('No process or network access is authorized.', 'Only the configured read-only native authoring checker may run through vcp_verify; no arbitrary process or network access is authorized.') : task.prompt;
@@ -26,6 +27,7 @@ function promptFor(task, fixtureRoot = fixtures) {
 }
 function profileReasons(profile) {
   const reasons = fixedProfileReasons(profile);
+  if (profile.canonical_tools !== undefined && (!Array.isArray(profile.canonical_tools) || new Set(profile.canonical_tools).size !== profile.canonical_tools.length || profile.canonical_tools.some(tool => !['vcp_read', 'vcp_list', 'vcp_search', 'vcp_patch', 'vcp_exec', 'vcp_verify', 'vcp_mcp'].includes(tool)))) reasons.push('Invalid source canonical tool ceiling');
   if (typeof profile.provider?.observed_at !== 'string' || !/^(0|[1-9][0-9]*)$/.test(profile.provider.observed_at) || BigInt(profile.provider.observed_at) > BigInt(Date.now())) reasons.push('Provider observation must be explicitly dated and not in the future');
   if (Object.keys(profile).some(key => !profileFields.includes(key))) reasons.push('Unknown authoring profile field');
   if (profile.hooks !== undefined && (!Array.isArray(profile.hooks) || profile.hooks.length) || profile.observers != null) reasons.push('Hooks and observers are outside the comparison');
@@ -36,9 +38,14 @@ function affectedPaths(task, fixtureRoot = fixtures) {
   const definition = JSON.parse(frozen(fixtureRoot, task.expected.oracle));
   return [...definition.allowed_outputs, ...definition.allowed_modifications].map(portable);
 }
-function derivedProfile(profile, task, workspace, catalog, allocation, calls, runtime, fixtureRoot = fixtures) {
+function derivedProfile(profile, task, workspace, catalog, allocation, calls, runtime, fixtureRoot = fixtures, candidate = false) {
   const edits = affectedPaths(task, fixtureRoot);
-  return { ...profile, workspace, catalog, budget_usd: usd(allocation), max_requests: calls,
+  const oracle = JSON.parse(frozen(fixtureRoot, task.expected.oracle));
+  const declared = oracle.permitted_tools ?? oracle.deterministic_checks?.find(check => check.kind === 'tool_receipt_audit')?.permitted_tools;
+  const known = ['vcp_read', 'vcp_list', 'vcp_search', 'vcp_patch', 'vcp_exec', 'vcp_verify', 'vcp_mcp'];
+  if (declared !== undefined && (!Array.isArray(declared) || new Set(declared).size !== declared.length || declared.some(tool => !known.includes(tool)))) throw Error('Invalid frozen canonical tool ceiling');
+  if (declared !== undefined && profile.canonical_tools !== undefined && declared.some(tool => !profile.canonical_tools.includes(tool))) throw Error('Source profile tool ceiling would be broadened');
+  return { ...profile, ...(declared === undefined ? {} : { canonical_tools: [...declared] }), ...(candidate ? { skills: candidates.configuration(task.skill) } : {}), workspace, catalog, budget_usd: usd(allocation), max_requests: calls,
     maximum_autonomy: edits.length ? 'autonomous' : 'plan', automatic_effects: edits.length ? [...checkerEffects] : [],
     affected_paths: edits.length ? edits : task.expected.source_files.map(file => portable(file.path)),
     processes: edits.length ? [{ name: 'authoring-check', executable: runtime.checker, environment: { SystemRoot: runtime.system_root }, required_isolation: [], reduced_isolation: true, inputs: [] }] : [],
@@ -184,7 +191,7 @@ function prepare(specFile, destination) {
   const plan = {
     schema: 'cs-1-authoring-preparation/3', runnable: true, authorization: false,
     blockers: ['exact_plan_spend_and_checker_process_authorization_required'],
-    model_calls: 0, directory: destination, executable, executable_sha256: sha(executableBytes), assets, source,
+    model_calls: 0, directory: destination, executable, executable_sha256: sha(executableBytes), assets, candidate_assets: candidates.inspect(), source,
     fixture_revision: manifest.revision, fixture_sha256: sha(manifestBytes), held_out: heldOut,
     profile_source: profileFile, profile_sha256: sha(profileBytes), provider_catalog: providerCatalog, provider_catalog_sha256: sha(providerCatalogBytes),
     spec_source: plain(path.resolve(specFile)), spec_sha256: sha(specBytes), toolchain: { node_version: process.version, node_executable: process.execPath, node_sha256: sha(read(process.execPath, 128 * 1024 * 1024)), platform: process.platform, architecture: process.arch, candidate_processes: [runtime.checker] },
@@ -213,10 +220,10 @@ function prepare(specFile, destination) {
     }
     const prompt = promptFor(task);
     write(path.join(base, 'prompt.txt'), prompt);
-    const derived = derivedProfile(profile, task, workspace, providerCatalog, allocation, calls, runtime);
+    const derived = derivedProfile(profile, task, workspace, providerCatalog, allocation, calls, runtime, fixtures, arm === 'candidate');
     write(path.join(base, 'profile.json'), derived);
     const selected = arm === 'none' ? null : arm === 'nearest' ? task.nearest_skill : task.skill;
-    plan.runs.push({ id, case_id: task.id, arm, skill: selected ? `vcp-builtin::${selected}::${selected}` : null, cap_micros: allocation, call_ceiling: calls, prompt_sha256: sha(Buffer.from(prompt)), profile_sha256: sha(read(path.join(base, 'profile.json'))), files: preparedFiles(task), directories: preparedDirectories(task), scaffold_paths: [...scaffold(task).keys()], oracle: task.expected.oracle, status: 'not_run' });
+    plan.runs.push({ id, case_id: task.id, arm, skill: candidates.selection(arm, task), cap_micros: allocation, call_ceiling: calls, prompt_sha256: sha(Buffer.from(prompt)), profile_sha256: sha(read(path.join(base, 'profile.json'))), files: preparedFiles(task), directories: preparedDirectories(task), scaffold_paths: [...scaffold(task).keys()], oracle: task.expected.oracle, status: 'not_run' });
   }
   write(path.join(destination, 'plan.json'), plan);
   return { plan: path.join(destination, 'plan.json'), sha256: sha(read(path.join(destination, 'plan.json'))), runnable: true, runs: 36, model_calls: 0, aggregate_cap_micros: cap, aggregate_call_ceiling: spec.aggregate_call_ceiling };
