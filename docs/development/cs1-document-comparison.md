@@ -2,8 +2,8 @@
 
 The document-authoring candidate is **unqualified**. Its ADR output failed the
 required source-link check, and neither normal task established quality benefit
-over both baselines. This report covers the completed eighteen DOC runs of the
-still-running, thirty-six-run authoring campaign. It does not close CS-1, promote
+over both baselines. This report covers the eighteen DOC runs of the completed
+thirty-six-run authoring campaign. It does not close CS-1, promote
 a default skill, or authorize another campaign.
 
 ## Recorded identities and scope
@@ -96,10 +96,18 @@ report does not extend that observation to unaudited failed-row contexts.
 All eighteen per-run ledgers reconcile with no active or unresolved liability.
 Timing is the runner's native-command duration, excluding subsequent receipt
 inspection and blind review. These figures exclude the separately recorded
-provider probes and the still-running SKL cases. No owner intervention changed a
+provider probes and the separately accounted SKL cases. No owner intervention changed a
 running DOC task. Unnecessary-tool-call classification has not been completed;
 request totals must not be represented as that metric. Reviewer work used the
 existing agent session, with no extra calls to the campaign provider.
+
+The completed combined campaign has 36 retained results: 29 native completions
+and seven failures, with 231 settled requests and $0.410211 in canonical charges.
+Independent reconciliation found no active or unresolved liability and rechecked
+all 36 preservation results and final input identities. Final result SHA-256:
+`24cd969abcf8c244333f8405f0cb53434bf8a461ebb2095177127722cbd0b028`.
+The two earlier conformance probes cost $0.000101 separately; combined recorded
+charges are $0.410312. These are retained provider receipts, not an invoice audit.
 
 Costs and latency are descriptive; they cannot retrospectively break the normal
 quality ties. The small corpus does not establish general statistical benefit.
