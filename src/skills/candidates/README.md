@@ -1,4 +1,23 @@
-# CS-1 authoring candidates — accepted by owner direction
+# Non-default skill candidates
+
+This directory has no automatic loader. Each package here is selected only
+through an explicit source registration and qualified selection.
+
+## CS-2 developer candidates — campaign-bound, unqualified
+
+`llm-integration`, `mcp-development` and `frontend-design` 1.0.0 are original VCP
+packages frozen for the CS-2 comparison campaign. No model call has run, and
+they are neither qualified nor default.
+
+- Each declares one explicit cue and no resources. The bodies send the model to
+  the project's installed SDK sources and supplied documents.
+- The campaign selects them only through the explicit `vcp-developer-candidates`
+  source.
+
+Their per-skill outcomes, including promotion or retained gaps, will be recorded
+here. See the [CS-2 record](../../../docs/development/cs2-developer-skills.md).
+
+## CS-1 authoring candidates — accepted by owner direction
 
 On September 25, 2026 the owner accepted document-authoring and skill-authoring
 1.0.1 and directed that remaining work be recorded here. CS-1 is closed by owner
