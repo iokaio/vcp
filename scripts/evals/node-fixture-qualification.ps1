@@ -9,6 +9,7 @@ if ($NodeSha256 -cnotmatch '^[a-f0-9]{64}$' -or (Get-FileHash -LiteralPath $Node
 Add-Type -Path (Join-Path $PSScriptRoot '../../src/tests/support/windows/AppContainerFixture.cs')
 $sourcePaths = @($PSCommandPath, (Join-Path $PSScriptRoot 'node-fixture-runner.ps1'),
     (Join-Path $PSScriptRoot 'node-fixture-bootstrap.cjs'), (Join-Path $PSScriptRoot 'node-fixture-protocol.cjs'),
+    (Join-Path $PSScriptRoot 'node-fixture-interactive-bootstrap.cjs'), (Join-Path $PSScriptRoot 'node-fixture-session.cjs'),
     (Join-Path $PSScriptRoot '../../src/tests/support/windows/AppContainerFixture.cs'),
     (Join-Path $PSScriptRoot '../../src/tests/support/windows/node-fixture-owner.ps1'))
 $sourceHashes = @($sourcePaths | ForEach-Object { @{ file = [IO.Path]::GetFileName($_); sha256 = (Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant() } })
@@ -54,6 +55,45 @@ try {
         Assert ($legacyResult.ExitCode -eq 0 -and $legacyResult.AppContainer) 'Existing Run API regressed'
         $results.Add([ordered]@{ case = 'existing Run API'; passed = $true; receipt = $legacyResult })
     } finally { $legacy.Dispose() }
+    # Duplex relay through the same token, job and environment boundary. The parent
+    # streams are in memory here; the runner relays its own stdin/stdout instead.
+    function Invoke-Interactive([string]$Name, [string]$Code, [string[]]$Frames, [scriptblock]$Check, [int]$Idle = 3000) {
+        $fixture = New-Fixture
+        $profileRoot = $fixture.Root
+        $parentInput = [IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes((($Frames | ForEach-Object { $_ + "`n" }) -join '')))
+        $parentOutput = [IO.MemoryStream]::new()
+        try {
+            $receipt = $fixture.RunInteractive((Join-Path $fixture.Root 'node.exe'), @('--no-addons', '-e', $Code), $true,
+                $parentInput, $parentOutput, 16, 4096, 65536, 65536, 268435456, 10000, $Idle, [Threading.CancellationToken]::None)
+            $envelopes = @([Text.Encoding]::UTF8.GetString($parentOutput.ToArray()).Split("`n", [StringSplitOptions]::RemoveEmptyEntries) | ConvertFrom-Json)
+            $record = [ordered]@{ case = $Name; passed = $false; receipt = $receipt }
+            $results.Add($record)
+            Assert ($receipt.Process.AppContainer -and $receipt.Process.CapabilityCount -eq 0 -and $receipt.Process.TokenSidMatchesProfile) 'Interactive token authority mismatch'
+            Assert ($envelopes[0].started.pid -eq $receipt.Pid -and $envelopes[0].started.profile -ceq $fixture.Name) 'Missing interactive start receipt'
+            & $Check $receipt @($envelopes | Select-Object -Skip 1)
+            $record.passed = $true
+        } finally { $parentInput.Dispose(); $parentOutput.Dispose(); $fixture.Dispose() }
+        Assert (-not [IO.Directory]::Exists($profileRoot)) 'Profile files survived disposal'
+    }
+    Invoke-Interactive 'interactive relay' @'
+let text = '';
+process.stdin.on('data', chunk => { text += chunk; });
+process.stdin.on('end', () => { for (const line of text.split('\n').filter(Boolean)) process.stdout.write('echo:' + line + '\n'); });
+'@ @('one', 'two', 'three') {
+        param($r, $frames)
+        Assert ($r.Termination -eq 'exited' -and $r.Process.ExitCode -eq 0) 'Interactive relay failed'
+        Assert ($r.FramesToChild -eq 3 -and $r.FramesFromChild -eq 3 -and $r.TrailingBytes -eq 0) 'Interactive frame counts mismatch'
+        $decoded = @($frames | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_.frame)) })
+        Assert (($decoded -join ',') -ceq 'echo:one,echo:two,echo:three') 'Relayed frames changed'
+    }
+    Invoke-Interactive 'interactive frame ceiling' 'for (;;) process.stdout.write("x\n");' @() {
+        param($r, $frames)
+        Assert ($r.Termination -eq 'frame_limit' -and $frames.Count -eq 16) 'Interactive frame flood was not stopped at its ceiling'
+    }
+    Invoke-Interactive 'interactive idle deadline' 'setInterval(() => {}, 1000);' @() {
+        param($r, $frames)
+        Assert ($r.Termination -eq 'idle_timeout' -and $frames.Count -eq 0 -and $r.Process.WallMilliseconds -lt 5000) 'Interactive idle deadline failed'
+    } -Idle 500
     $env:VCP_NODE_SECRET_CANARY = 'synthetic-not-a-secret'
     Invoke-Case 'minimal environment' @'
 process.stdout.write(JSON.stringify({ secret: Object.hasOwn(process.env, 'VCP_NODE_SECRET_CANARY'), keys: Object.keys(process.env).sort() }));

@@ -222,9 +222,10 @@ integration checks pass without switching frameworks/providers, broadening grant
 or altering unrelated files. Browser-execution claims remain with CS-3.
 
 The [Windows Node fixture prerequisite](../development/cs2-node-fixture-adapter.md)
-records bounded execution qualification for external JSON assertions. CS-2
-remains planned; its skill and integration acceptance conditions are not met by
-that prerequisite.
+records bounded execution qualification for external JSON assertions. Its
+interactive mode adds parent-owned transports, iterators and protocol peers over
+bounded relayed frames. CS-2 remains planned; its skill and integration
+acceptance conditions are not met by that prerequisite.
 
 ## CS-3 — Browser execution and six-skill acceptance
 

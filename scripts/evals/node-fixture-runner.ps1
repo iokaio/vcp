@@ -19,6 +19,20 @@ if ($request.schema -ne 1 -or $request.node_sha256 -cnotmatch '^[a-f0-9]{64}$' -
     $request.memory_bytes -lt 67108864 -or $request.memory_bytes -gt 1073741824 -or
     $request.output_limit -lt 1 -or $request.output_limit -gt 1048576 -or
     $request.timeout_ms -lt 1 -or $request.timeout_ms -gt 180000) { throw 'Invalid pinned runner request' }
+# Interactive mode relays bounded newline frames between the trusted parent (this
+# runner's stdin/stdout) and the contained child. Single-shot requests omit `mode`.
+$fields = $request.PSObject.Properties.Name
+$interactive = $fields -contains 'mode'
+if ($interactive) {
+    $bounds = $request.interaction
+    if ($request.mode -cne 'interactive' -or $fields -contains 'input_base64' -or $null -eq $bounds -or
+        ($bounds.PSObject.Properties.Name | Sort-Object) -join ',' -cne 'idle_ms,max_frame_bytes,max_frames,max_total_bytes' -or
+        $bounds.max_frames -isnot [long] -or $bounds.max_frames -lt 1 -or $bounds.max_frames -gt 4096 -or
+        $bounds.max_frame_bytes -isnot [long] -or $bounds.max_frame_bytes -lt 1 -or $bounds.max_frame_bytes -gt 65536 -or
+        $bounds.max_total_bytes -isnot [long] -or $bounds.max_total_bytes -lt 1 -or $bounds.max_total_bytes -gt 1048576 -or
+        $bounds.idle_ms -isnot [long] -or $bounds.idle_ms -lt 1 -or $bounds.idle_ms -gt $request.timeout_ms -or
+        $request.output_limit -gt 65536) { throw 'Invalid interactive runner request' }
+}
 function Read-Regular([string]$Path, [string]$Hash, [long]$Maximum) {
     $full = [IO.Path]::GetFullPath($Path)
     $item = Get-Item -LiteralPath $full
@@ -31,10 +45,13 @@ function Read-Regular([string]$Path, [string]$Hash, [long]$Maximum) {
     return ,$bytes
 }
 $node = Read-Regular $request.node $request.node_sha256 134217728
-$bootstrap = Join-Path $PSScriptRoot 'node-fixture-bootstrap.cjs'
+$bootstrap = Join-Path $PSScriptRoot ($interactive ? 'node-fixture-interactive-bootstrap.cjs' : 'node-fixture-bootstrap.cjs')
 $bootstrapBytes = Read-Regular $bootstrap $request.bootstrap_sha256 65536
-if ($request.input_base64 -isnot [string] -or $request.input_base64.Length -gt 87384) { throw 'Encoded input exceeds byte ceiling' }
-$inputBytes = [Convert]::FromBase64String($request.input_base64)
+$inputBytes = [byte[]]::new(0)
+if (-not $interactive) {
+    if ($request.input_base64 -isnot [string] -or $request.input_base64.Length -gt 87384) { throw 'Encoded input exceeds byte ceiling' }
+    $inputBytes = [Convert]::FromBase64String($request.input_base64)
+}
 if ($inputBytes.Length -gt 65536 -or $request.files.Count -lt 1 -or $request.files.Count -gt 16) { throw 'Invalid bounded fixture input' }
 $files = @{}
 $total = 0
@@ -70,13 +87,29 @@ try {
     Set-Acl -LiteralPath $fixture.Root -AclObject $acl
     # Node's default realpath walks outside the profile. Keep loader paths literal;
     # the OS boundary still denies outside access and fixture input rejects links.
-    $result = $fixture.RunBounded($program, @('--no-addons', '--preserve-symlinks', '--preserve-symlinks-main', 'bootstrap.cjs'), $true, $inputBytes,
-        $request.output_limit, $request.memory_bytes, $request.timeout_ms, [Threading.CancellationToken]::None)
-    $outcome.result = [ordered]@{
-        process = $result.Process; pid = $result.Pid; termination = $result.Termination
-        stdout_base64 = [Convert]::ToBase64String($result.Output); stderr_base64 = [Convert]::ToBase64String($result.Error)
-        stdout_bytes = $result.OutputBytes; stderr_bytes = $result.ErrorBytes
-        peak_active_processes = $result.PeakActiveProcesses; memory_limit_bytes = $result.MemoryLimitBytes
+    $arguments = @('--no-addons', '--preserve-symlinks', '--preserve-symlinks-main', 'bootstrap.cjs')
+    if ($interactive) {
+        $parentOutput = [Console]::OpenStandardOutput()
+        $result = $fixture.RunInteractive($program, $arguments, $true, [Console]::OpenStandardInput(), $parentOutput,
+            $bounds.max_frames, $bounds.max_frame_bytes, $bounds.max_total_bytes, $request.output_limit,
+            $request.memory_bytes, $request.timeout_ms, $bounds.idle_ms, [Threading.CancellationToken]::None)
+        $outcome.mode = 'interactive'
+        $outcome.result = [ordered]@{
+            process = $result.Process; pid = $result.Pid; termination = $result.Termination
+            stderr_base64 = [Convert]::ToBase64String($result.Error); stderr_bytes = $result.ErrorBytes
+            frames_to_child = $result.FramesToChild; frames_from_child = $result.FramesFromChild
+            bytes_to_child = $result.BytesToChild; bytes_from_child = $result.BytesFromChild; trailing_bytes = $result.TrailingBytes
+            peak_active_processes = $result.PeakActiveProcesses; memory_limit_bytes = $result.MemoryLimitBytes
+        }
+    } else {
+        $result = $fixture.RunBounded($program, $arguments, $true, $inputBytes,
+            $request.output_limit, $request.memory_bytes, $request.timeout_ms, [Threading.CancellationToken]::None)
+        $outcome.result = [ordered]@{
+            process = $result.Process; pid = $result.Pid; termination = $result.Termination
+            stdout_base64 = [Convert]::ToBase64String($result.Output); stderr_base64 = [Convert]::ToBase64String($result.Error)
+            stdout_bytes = $result.OutputBytes; stderr_bytes = $result.ErrorBytes
+            peak_active_processes = $result.PeakActiveProcesses; memory_limit_bytes = $result.MemoryLimitBytes
+        }
     }
     foreach ($name in $files.Keys) {
         if (-not [Linq.Enumerable]::SequenceEqual([byte[]]$files[$name], [IO.File]::ReadAllBytes((Join-Path $fixture.Root $name)))) { throw 'Fixture input changed during execution' }
@@ -85,4 +118,8 @@ try {
     $fixture.Dispose()
     $outcome.cleanup = 'completed'
 }
-$outcome | ConvertTo-Json -Depth 8 -Compress
+if ($interactive) {
+    # The receipt shares the relay stream, so it travels in its own envelope.
+    $receipt = [Text.Encoding]::UTF8.GetBytes('{"receipt":' + ($outcome | ConvertTo-Json -Depth 8 -Compress) + "}`n")
+    $parentOutput.Write($receipt, 0, $receipt.Length); $parentOutput.Flush()
+} else { $outcome | ConvertTo-Json -Depth 8 -Compress }
