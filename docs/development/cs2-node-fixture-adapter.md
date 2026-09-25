@@ -7,7 +7,7 @@ downloads, provider credentials, browser or external endpoint are involved.
 
 ## Boundary
 
-`scripts/evals/node-fixture-runner.ps1` accepts a bounded configuration containing
+`scripts/evals/node-fixture-runner.ps1` accepts a bounded single-shot configuration containing
 the installed Node path/hash, bootstrap hash, flat candidate inventory/hashes,
 one base64-encoded input and explicit resource ceilings. The inventory must
 contain `candidate.cjs`; its exported `compute(input)` returns a JSON value.
@@ -43,6 +43,45 @@ deletes the unique owned profile. After abrupt owner death the supervisor must
 reconcile that recorded profile; the owner-loss qualification exercises this
 explicitly.
 
+## Interactive mode
+
+A request with `"mode": "interactive"` replaces `input_base64` with an
+`interaction` object: `max_frames` (at most 4096 per direction), `max_frame_bytes`
+(at most 64 KiB), `max_total_bytes` (at most 1 MiB per direction) and `idle_ms`
+(at most `timeout_ms`). Its `output_limit` bounds retained stderr and may not
+exceed 64 KiB. It stages the separately hashed
+`node-fixture-interactive-bootstrap.cjs` as `bootstrap.cjs`, so single-shot
+requests, their bootstrap and their receipts are unchanged.
+
+`AppContainerFixture.RunInteractive` uses the same token, job, environment,
+memory and wall-deadline path as `RunBounded`. It relays newline frames between
+the runner's own stdin/stdout and the contained child instead of writing one
+fixed input. Output to the parent is one JSON envelope per line: `started`
+(child PID and owned profile name, for supervisor reconciliation), `frame`
+(the child's line as opaque base64) and a final `receipt`. The relay never
+interprets frame content. Exceeding a frame, byte or stderr ceiling, idling
+past `idle_ms`, the wall deadline or cancellation terminates the job and
+records `frame_limit`, `frame_bytes`, `total_bytes`, `output_limit`,
+`idle_timeout`, `timeout` or `cancelled`; parent-side violations are prefixed
+`parent_`. Bytes after the last newline are counted as `trailing_bytes`.
+Parent end-of-input closes the child's input.
+
+The interactive bootstrap requires a first `{"session"}` frame and gives the
+candidate a channel whose outgoing frames carry `{session, seq, body}`.
+[`node-fixture-session.cjs`](../../scripts/evals/node-fixture-session.cjs) is the
+trusted parent helper. It decodes each frame with `decodeFrame`, which requires
+canonical base64, strict UTF-8 JSON, the exact key set, the session and the next
+sequence number. `checkInteractiveReceipt` accepts only a clean exited
+AppContainer process with no stderr or trailing bytes, no unread child frames
+and frame counts equal to the parent's own counts.
+
+The session and sequence are not secrets from the contained process. They catch
+confused, duplicated, reordered and unrequested frames, not a candidate that
+lies about its own behavior. What this mode adds is that the trusted parent can
+play a transport, iterator or protocol peer. Each outgoing request, retry or read
+from the candidate is then an observation made outside the container, not a
+report from inside it. A probe still judges only the replies it receives.
+
 ## Reproduction and evidence
 
 Run the portable protocol tests and the actual Windows integration tests:
@@ -69,6 +108,27 @@ combined output flood, memory exhaustion, timeout, cancellation, outside
 read/write and replaced-junction denial, TCP denial with two successful
 unrestricted controls, and abrupt owner loss with supervisor cleanup.
 
+A later September 25, 2026 run on the same host, Node binary and hash
+added interactive mode. Seven JavaScript tests passed, including the unchanged
+single-shot integration test. The interactive integration test drives the real
+runner through `node-fixture-session.cjs`. It covers:
+
+- a parent-owned transport whose request and single call are observed outside
+  the container;
+- a forged session, and a duplicate and a skipped sequence number emitted with
+  the correct session by stdout interception;
+- non-JSON output and unrequested frames;
+- frame-count, frame-size and idle ceilings;
+- trailing bytes, stderr and early exit;
+- seven prelaunch rejections: unknown mode, `input_base64`, missing or
+  excessive bounds, oversized `output_limit`, and the single-shot bootstrap hash;
+- abrupt owner loss mid-exchange, after which the child PID exits and the
+  supervisor deletes the recorded profile.
+
+Fourteen native cases passed: the eleven above plus an interactive relay, a
+frame-count ceiling and an idle deadline driven directly through
+`RunInteractive`.
+
 Earlier failed startup, console-member and TCP-control diagnostics remain in the
 ignored local artifacts. The TCP control initially waited for a server close
 before the synchronous supervisor could accept; correcting the control handshake
@@ -78,13 +138,15 @@ a claim that every attempted spawn returns a particular Node error.
 
 ## Remaining acceptance
 
-This adapter establishes only externally observable JSON behavior. It does not
-authenticate child-reported Map snapshots, iterator read counts, injected
-transport observations, mutation reports or exception identities. Existing
-CS-2 semantic assertions that depend on those same-process observations still
-need a qualified interaction design; their output cannot be promoted to trusted
-parent evidence by wrapping it in JSON. No held-out generated artifact has been
-run by this prerequisite.
+Both modes establish only externally observable behavior. Neither authenticates
+child-reported Map snapshots, mutation reports or exception identities. Their
+output cannot be promoted to trusted parent evidence by wrapping it in JSON.
+
+Interactive mode is the qualified interaction design for transport calls,
+iterator reads and protocol exchanges. It works only when the parent owns that
+peer and makes each observation itself. Existing CS-2 semantic assertions must
+be rewritten as parent-side probes over these two modes before they count as
+evidence. No held-out generated artifact has been run by this prerequisite.
 
 Real MCP stdio/protocol and selected SDK compatibility, live provider evidence,
 browser/DOM behavior, human usefulness and the CS-0 comparison gates remain
