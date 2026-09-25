@@ -250,7 +250,8 @@ together through repeated `--skill`.
    - each variant's edited files, report and not-run list, under a random label;
    - check verdicts only.
 
-   Skill names are removed without a marker. The packet index binds the final
+   Exact skill names are removed without a marker. Names spelled differently in
+   prose, such as "LLM integration", are not. The packet index binds the final
    grading and a salted hash of the label mapping. The mapping itself stays in
    the plan directory.
 3. **`decide`** validates two independent blind reviews against the packet index

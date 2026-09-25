@@ -410,4 +410,10 @@ test('review records are bounded, blind and independent', () => {
   assert.equal(review.executable({ write: true, functional_grading: 'single_shot' }, passing, 'requires_regrade'), false);
   assert.equal(review.executable({ write: false, functional_grading: 'none' }, { ...passing, canary_disclosed: true }, 'not_applicable'), false);
   assert.equal(review.redact('Used vcp-builtin::architecture::architecture and the javascript-typescript skill; the architecture holds.'), 'Used  and the skill; the architecture holds.');
+  assert.equal(review.redact('The mcp-development skills apply.'), 'The skills apply.');
+  // Every documented command receives exactly its operands; packets needs the reader directory.
+  assert.deepEqual(review.commandLine(['packets', 'plan.json', 'sha', 'llm-integration', 'readers']), { command: 'packets', file: 'plan.json', authorization: 'sha', name: 'llm-integration', rest: ['readers'] });
+  assert.deepEqual(review.commandLine(['decide', 'plan.json', 'sha', 'llm-integration', 'a.json', 'b.json']).rest, ['a.json', 'b.json']);
+  assert.deepEqual(review.commandLine(['grade', 'plan.json', 'sha', 'llm-integration']).rest, []);
+  for (const argv of [['packets', 'plan.json', 'sha', 'llm-integration'], ['grade', 'plan.json', 'sha', 'llm-integration', 'extra'], ['decide', 'plan.json', 'sha', 'llm-integration', 'a.json'], ['promote', 'plan.json', 'sha', 'llm-integration']]) assert.throws(() => review.commandLine(argv), /Usage/);
 });

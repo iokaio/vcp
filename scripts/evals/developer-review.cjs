@@ -25,7 +25,7 @@ const hardGates = ['correctness', 'preservation', 'authority_and_secrets', 'hone
 const haltItems = ['effect_beyond_authority', 'real_secret_exposed'];
 // Selection names that would reveal an arm are removed, leaving no marker, before
 // readers see any text. `architecture` is removed only where it names a skill.
-const revealing = [/vcp-builtin::[a-z0-9-]+::[a-z0-9-]+/g, new RegExp(`${candidates.sourceId}::\\.::[a-z0-9-]+`, 'g'), /\b(?:architecture|javascript-typescript|llm-integration|mcp-development|frontend-design) skill\b/gi, /\b(?:javascript-typescript|llm-integration|mcp-development|frontend-design|vcp-developer-candidates)\b/g];
+const revealing = [/vcp-builtin::[a-z0-9-]+::[a-z0-9-]+/g, new RegExp(`${candidates.sourceId}::\\.::[a-z0-9-]+`, 'g'), /\b(?:architecture|javascript-typescript|llm-integration|mcp-development|frontend-design) skills?\b/gi, /\b(?:javascript-typescript|llm-integration|mcp-development|frontend-design|vcp-developer-candidates)\b/g];
 const regrades = 3;
 
 // The exact plan and one retained, unstopped block result with unchanged evidence.
@@ -107,7 +107,7 @@ function executable(row, report, functional) {
 }
 function redact(text) {
   let value = String(text);
-  for (const pattern of revealing) value = value.replace(pattern, match => / skill$/i.test(match) ? 'skill' : '');
+  for (const pattern of revealing) value = value.replace(pattern, match => / skills?$/i.test(match) ? match.slice(match.lastIndexOf(' ') + 1) : '');
   return value;
 }
 // Anonymous packets per case in a new reader directory outside the plan: prompt,
@@ -197,12 +197,19 @@ function decide(file, authorization, name, reviewFiles) {
   write(path.join(plan.directory, `decision-${name}.json`), decision);
   return decision;
 }
-module.exports = { grade, packets, decide, review, executable, redact, hardGates, haltItems, scores, labels };
+// Command-line arguments after the three common operands: none for grade, the new
+// reader directory for packets, and both review files for decide.
+const extra = { grade: 0, packets: 1, decide: 2 };
+function commandLine(argv) {
+  const [command, file, authorization, name, ...rest] = argv;
+  if (!Object.hasOwn(extra, command) || !file || !authorization || !name || rest.length !== extra[command] || rest.some(value => !value)) throw Error('Usage: developer-review.cjs grade <plan.json> <plan-sha256> <block> | packets <plan.json> <plan-sha256> <block> <new-reader-directory> | decide <plan.json> <plan-sha256> <block> <review-a.json> <review-b.json>');
+  return { command, file, authorization, name, rest };
+}
+module.exports = { grade, packets, decide, review, executable, redact, commandLine, hardGates, haltItems, scores, labels };
 if (require.main === module) {
   (async () => {
-    const [command, file, authorization, name, ...rest] = process.argv.slice(2);
-    if (!['grade', 'packets', 'decide'].includes(command) || !file || !authorization || !name || (command === 'decide' ? rest.length !== 2 : rest.length)) throw Error('Usage: developer-review.cjs grade|packets <plan.json> <plan-sha256> <block> | decide <plan.json> <plan-sha256> <block> <review-a.json> <review-b.json>');
-    const output = command === 'grade' ? await grade(file, authorization, name) : command === 'packets' ? packets(file, authorization, name) : decide(file, authorization, name, rest);
+    const { command, file, authorization, name, rest } = commandLine(process.argv.slice(2));
+    const output = command === 'grade' ? await grade(file, authorization, name) : command === 'packets' ? packets(file, authorization, name, rest[0]) : decide(file, authorization, name, rest);
     console.log(JSON.stringify(command === 'grade' ? { block: output.block, runs: output.runs.map(r => ({ id: r.id, functional: r.functional })) } : output));
   })().catch(error => { console.error(error.message); process.exitCode = 1; });
 }
