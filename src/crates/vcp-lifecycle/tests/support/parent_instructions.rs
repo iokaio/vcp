@@ -163,6 +163,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
     host.configure_coding(
         thread,
         CodingConfig {
+            canonical_tools: Default::default(),
             operating: "Use only current scoped guidance".into(),
             affected_paths: vec!["file.txt".into()],
             max_requests: 3,

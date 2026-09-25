@@ -99,9 +99,10 @@ impl Session {
             .map_err(|_| "absolute child workspace required")?;
         host.authorize_child_recovery_startup(&mut ticket)?;
         let mut options = StartThreadOptions::new(config);
-        options
-            .thread_extension_init
-            .insert(vcp_lifecycle::foundation::coding::allowed_tools());
+        options.thread_extension_init.insert(
+            host.startup_canonical_tools(scope.task.clone())?
+                .allowed_tools(),
+        );
         let started = self
             .manager
             .start_thread(options)
@@ -153,9 +154,10 @@ impl Session {
             .authorize_startup(config.cwd.as_path(), None)
             .map_err(|e| format!("child startup: {e:?}"))?;
         let mut options = StartThreadOptions::new(config);
-        options
-            .thread_extension_init
-            .insert(vcp_lifecycle::foundation::coding::allowed_tools());
+        options.thread_extension_init.insert(
+            host.startup_canonical_tools(scope.task.clone())?
+                .allowed_tools(),
+        );
         let started = self
             .manager
             .start_thread(options)
@@ -289,9 +291,10 @@ impl Session {
                 .map_err(|e| format!("owner startup: {e:?}"))?;
         }
         let mut options = StartThreadOptions::new(config);
-        options
-            .thread_extension_init
-            .insert(vcp_lifecycle::foundation::coding::allowed_tools());
+        options.thread_extension_init.insert(
+            host.startup_canonical_tools(scope.task.clone())?
+                .allowed_tools(),
+        );
         let started = manager
             .start_thread(options)
             .await

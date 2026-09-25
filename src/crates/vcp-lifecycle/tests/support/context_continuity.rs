@@ -184,6 +184,7 @@ async fn run(backend: BackendKind, oversized: bool) {
         host.configure_coding(
             thread,
             CodingConfig {
+                canonical_tools: Default::default(),
                 operating: "Use observed sources and preserve uncertainty".into(),
                 affected_paths: vec!["evidence.txt".into()],
                 max_requests: 10,

@@ -226,6 +226,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
     host.configure_coding(
         thread,
         CodingConfig {
+            canonical_tools: Default::default(),
             operating: "Read, edit, verify, then report actual results.".into(),
             affected_paths: vec!["value.txt".into()],
             max_requests: 8,

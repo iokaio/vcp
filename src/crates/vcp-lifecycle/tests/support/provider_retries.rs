@@ -166,6 +166,7 @@ async fn setup_with_bounds(
             host.configure_coding(
                 id,
                 vcp_lifecycle::foundation::coding::CodingConfig {
+                    canonical_tools: Default::default(),
                     operating: "Keep current accounting and source evidence".into(),
                     affected_paths: vec!["evidence.txt".into()],
                     max_requests: 4,

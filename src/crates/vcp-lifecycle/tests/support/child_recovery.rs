@@ -78,6 +78,7 @@ fn configure_parent(host: &CanonicalHost, id: codex_protocol::ThreadId) {
     host.configure_coding(
         id,
         vcp_lifecycle::foundation::coding::CodingConfig {
+            canonical_tools: Default::default(),
             operating: "Observe current child scope only.".into(),
             affected_paths: vec!["file.txt".into()],
             max_requests: 8,
