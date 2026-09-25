@@ -42,7 +42,7 @@
   "cases": {
     "cs-authoring": {
       "task_ids": ["CS-1"],
-      "args": ["--test", "src/tests/contracts/authoring-oracle.test.cjs", "src/tests/contracts/authoring-prepare.test.cjs", "src/tests/contracts/authoring-runner.test.cjs", "src/tests/contracts/authoring-followup.test.cjs", "src/tests/contracts/authoring-campaign-budget.test.cjs"],
+      "args": ["--test", "src/tests/contracts/authoring-oracle.test.cjs", "src/tests/contracts/authoring-prepare.test.cjs", "src/tests/contracts/authoring-runner.test.cjs", "src/tests/contracts/authoring-followup.test.cjs", "src/tests/contracts/authoring-campaign-budget.test.cjs", "src/tests/contracts/authoring-continuation.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 600000,

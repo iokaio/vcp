@@ -17,6 +17,8 @@ use vcp_repository::{discovery::Limits, Root, RootIdentity};
 mod followup;
 
 const MANIFEST: &str = include_str!("../../../../evals/skills/authoring/manifest.json");
+const INHERITED_MANIFEST: &str =
+    include_str!("../../../../evals/skills/authoring-inherited/manifest.json");
 const PACKAGE: &str = "{\"name\":\"vcp-authoring-check\",\"private\":true,\"scripts\":{\"test\":\"node --test checks/authoring.test.cjs\"}}\n";
 const MARKER: &str = "// Inert VCP authoring verifier marker; never executed as JavaScript.\n";
 const TESTS: [&str; 2] = ["authoring input preservation", "authoring output structure"];
@@ -39,6 +41,32 @@ const ORACLES: [&str; 12] = [
     include_str!("../../../../evals/skills/authoring/oracles/SKL-hostile-body-v1.json"),
     include_str!("../../../../evals/skills/authoring/oracles/SKL-missing-resource-v1.json"),
     include_str!("../../../../evals/skills/authoring/oracles/SKL-near-miss-readme-v1.json"),
+];
+const INHERITED_ORACLES: [&str; 12] = [
+    include_str!("../../../../evals/skills/authoring-inherited/oracles/DOC-normal-runbook-v2.json"),
+    include_str!("../../../../evals/skills/authoring-inherited/oracles/DOC-normal-release-v2.json"),
+    include_str!("../../../../evals/skills/authoring-inherited/oracles/DOC-boundary-adr-v2.json"),
+    include_str!("../../../../evals/skills/authoring-inherited/oracles/DOC-hostile-source-v2.json"),
+    include_str!(
+        "../../../../evals/skills/authoring-inherited/oracles/DOC-missing-evidence-v2.json"
+    ),
+    include_str!(
+        "../../../../evals/skills/authoring-inherited/oracles/DOC-near-miss-status-v2.json"
+    ),
+    include_str!("../../../../evals/skills/authoring-inherited/oracles/SKL-normal-package-v2.json"),
+    include_str!(
+        "../../../../evals/skills/authoring-inherited/oracles/SKL-normal-resource-update-v2.json"
+    ),
+    include_str!(
+        "../../../../evals/skills/authoring-inherited/oracles/SKL-boundary-precedence-v2.json"
+    ),
+    include_str!("../../../../evals/skills/authoring-inherited/oracles/SKL-hostile-body-v2.json"),
+    include_str!(
+        "../../../../evals/skills/authoring-inherited/oracles/SKL-missing-resource-v2.json"
+    ),
+    include_str!(
+        "../../../../evals/skills/authoring-inherited/oracles/SKL-near-miss-readme-v2.json"
+    ),
 ];
 type Checked<T> = Result<T, String>;
 type Files = BTreeMap<String, Vec<u8>>;
@@ -94,9 +122,19 @@ fn contract(case: &str) -> Checked<(Value, Value)> {
     if followup::CASES.contains(&case) {
         return followup::contract(case);
     }
+    let inherited = case.ends_with("-v2");
+    let (manifest_bytes, oracles, revision) = if inherited {
+        (
+            INHERITED_MANIFEST,
+            &INHERITED_ORACLES,
+            "cs-1-authoring-fixtures-v2",
+        )
+    } else {
+        (MANIFEST, &ORACLES, "cs-1-authoring-fixtures-v1")
+    };
     let manifest: Value =
-        serde_json::from_str(MANIFEST).map_err(|_| "embedded manifest invalid")?;
-    if manifest["revision"] != "cs-1-authoring-fixtures-v1" {
+        serde_json::from_str(manifest_bytes).map_err(|_| "embedded manifest invalid")?;
+    if manifest["revision"] != revision {
         return Err("unexpected embedded revision".into());
     }
     let cases = manifest["cases"]
@@ -110,11 +148,31 @@ fn contract(case: &str) -> Checked<(Value, Value)> {
     let digest = task["expected"]["oracle"]["sha256"]
         .as_str()
         .ok_or("embedded oracle identity missing")?;
-    let bytes = ORACLES
+    let bytes = oracles
         .iter()
         .find(|text| digest_bytes(text.as_bytes()) == digest)
         .ok_or("embedded oracle hash mismatch")?;
-    let oracle = serde_json::from_str(bytes).map_err(|_| "embedded oracle invalid")?;
+    let oracle: Value = serde_json::from_str(bytes).map_err(|_| "embedded oracle invalid")?;
+    if inherited {
+        let editing = !texts(&oracle, "allowed_outputs")?.is_empty()
+            || !texts(&oracle, "allowed_modifications")?.is_empty();
+        let expected = if editing {
+            vec![
+                "vcp_list",
+                "vcp_read",
+                "vcp_search",
+                "vcp_patch",
+                "vcp_verify",
+            ]
+        } else {
+            vec!["vcp_list", "vcp_read", "vcp_search"]
+        };
+        if texts(&oracle, "permitted_tools")? != expected
+            || texts(&task["context"], "tools")? != expected
+        {
+            return Err("inherited tool authority differs".into());
+        }
+    }
     Ok((task, oracle))
 }
 fn safe(name: &str) -> bool {
@@ -366,9 +424,11 @@ fn structure(files: &Files, case: &str, oracle: &Value) -> Checked<()> {
         }
     }
     let required_links: &[&str] = match case {
-        "DOC-normal-runbook-v1" => &["service.md", "operations.md"],
-        "DOC-normal-release-v1" => &["changes.md", "checks.json"],
-        "DOC-boundary-adr-v1" => &["adr/001-local.md", "adr/002-pipe.md", "adr/003-socket.md"],
+        "DOC-normal-runbook-v1" | "DOC-normal-runbook-v2" => &["service.md", "operations.md"],
+        "DOC-normal-release-v1" | "DOC-normal-release-v2" => &["changes.md", "checks.json"],
+        "DOC-boundary-adr-v1" | "DOC-boundary-adr-v2" => {
+            &["adr/001-local.md", "adr/002-pipe.md", "adr/003-socket.md"]
+        }
         _ => &[],
     };
     if required_links.iter().any(|name| !links.contains(*name)) {
@@ -376,7 +436,10 @@ fn structure(files: &Files, case: &str, oracle: &Value) -> Checked<()> {
     }
     if matches!(
         case,
-        "SKL-normal-package-v1" | "SKL-normal-resource-update-v1"
+        "SKL-normal-package-v1"
+            | "SKL-normal-resource-update-v1"
+            | "SKL-normal-package-v2"
+            | "SKL-normal-resource-update-v2"
     ) {
         let raw = files
             .get("package/skill.json")
@@ -403,7 +466,7 @@ fn structure(files: &Files, case: &str, oracle: &Value) -> Checked<()> {
                 return Err("skill content digest mismatch".into());
             }
         }
-        if case == "SKL-normal-package-v1" {
+        if matches!(case, "SKL-normal-package-v1" | "SKL-normal-package-v2") {
             if descriptor.id != "change-notes"
                 || descriptor.version != "1.0.0"
                 || descriptor.source != "vcp-original"
@@ -507,7 +570,11 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let (task, _) = contract(case).unwrap();
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../evals/skills/authoring/projects")
+            .join(if case.ends_with("-v2") {
+                "../../evals/skills/authoring-inherited/projects"
+            } else {
+                "../../evals/skills/authoring/projects"
+            })
             .join(case);
         let mut files = scaffold(case).unwrap();
         for source in task["expected"]["source_files"].as_array().unwrap() {
@@ -540,6 +607,52 @@ mod tests {
             contract(task["id"].as_str().unwrap()).unwrap();
         }
         assert!(contract("invented").is_err());
+    }
+    #[test]
+    fn inherited_contracts_preserve_content_and_bound_read_only_search() {
+        let original: Value = serde_json::from_str(MANIFEST).unwrap();
+        let revised: Value = serde_json::from_str(INHERITED_MANIFEST).unwrap();
+        for (before, after) in original["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(revised["cases"].as_array().unwrap())
+        {
+            assert_eq!(
+                before["expected"]["source_files"],
+                after["expected"]["source_files"]
+            );
+            let (_, old_oracle) = contract(before["id"].as_str().unwrap()).unwrap();
+            let (_, mut new_oracle) = contract(after["id"].as_str().unwrap()).unwrap();
+            assert!(texts(&new_oracle, "permitted_tools")
+                .unwrap()
+                .contains(&"vcp_search".to_owned()));
+            new_oracle
+                .as_object_mut()
+                .unwrap()
+                .remove("permitted_tools");
+            assert_eq!(old_oracle, new_oracle);
+        }
+        assert!(contract("DOC-invented-v2").is_err());
+    }
+    #[test]
+    #[cfg(windows)]
+    fn inherited_runbook_requires_links_and_exact_case_marker() {
+        let case = "DOC-normal-runbook-v2";
+        let directory = fixture(case);
+        std::fs::write(
+            directory.path().join("runbook.md"),
+            "# Runbook\nMissing links\n",
+        )
+        .unwrap();
+        assert!(check(directory.path(), case)[1].is_err());
+        std::fs::write(
+            directory.path().join("runbook.md"),
+            "# Runbook\n[Service](service.md) [Operations](operations.md)\n",
+        )
+        .unwrap();
+        assert!(check(directory.path(), case).iter().all(Result::is_ok));
+        assert!(check(directory.path(), "DOC-normal-runbook-v1")[0].is_err());
     }
     #[test]
     fn unsafe_paths_rejected() {

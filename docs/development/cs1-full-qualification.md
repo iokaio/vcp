@@ -12,8 +12,12 @@ explicit tool lists now permit read-only `vcp_search`, alongside `vcp_list`,
 `vcp_read`, bounded `vcp_patch`, and the separately authorized `vcp_verify`.
 The previous 22 active fixture files are preserved exactly under `history/v2`.
 All 15 task source files, prompts, rubric bytes and quality criteria are unchanged.
-The 12 inherited cases have no equivalent explicit tool-list restriction and
-remain unchanged. Arbitrary process execution, network access, installation,
+The initial implementation overlooked the inherited manifest tool lists and README
+restriction. Before inherited dispatch, a separate prospective v2 cohort explicitly
+adds read-only search; original v1 fixture bytes remain unchanged. A continuation
+retains the six fresh DOC results and their original independent gate, excludes
+those slots from replay, and seals the predecessor before admitting the remaining
+48 slots. Every consumed request remains charged to the same cumulative cap. Arbitrary process execution, network access, installation,
 sending and generated-package activation remain unauthorized.
 
 The native checker accepts only the new four IDs and the exact revised tool
@@ -92,3 +96,33 @@ inputs. Checker SHA-256:
 Its receipt is retained at
 `artifacts/cs1-checker-build/08fab607-e29d-48a3-8b75-d9408ce5d9ef/build-receipt.json`.
 No new live execution is claimed until the envelope and retained results are added.
+
+## Inherited authority continuation
+
+The twelve inherited cases now have explicit `-v2` identities in
+`src/evals/skills/authoring-inherited`. Their original project source bytes and
+quality requirements are preserved. Editing cases permit list/read/search,
+bounded patching and the pinned verifier; report-only cases permit only
+list/read/search. Original v1 cases remain available to the original checker.
+
+The continuation seals the completed predecessor through its exclusive phase
+claim and permanent halt, then retains its original normal review gate. Its
+original frozen validator rechecks canonical results, workspaces, accounting and
+reviews before every continuation admission. Only the remaining 48 slots exist
+in the new envelope. The installed executable, profile, provider catalog and
+skill assets must match the predecessor exactly; the checker and inherited
+fixture authority are the prospective changes.
+
+Verification passed: 24 native checker tests, 28 scheduling/budget regressions,
+24 original authoring regressions, seven focused continuation tests, and a real
+predecessor-validator integration test using synthetic transport. The latter
+checks replay prevention, retained failed qualification, changed profile
+rejection and rejection of altered predecessor evidence before dispatch. No
+provider calls are made by these tests. Documentation validation reported 552
+Markdown files, 2,795 relative links and no errors.
+
+The six fresh DOC runs consumed 45 settled requests and $0.114964, with no active
+or unresolved liability. Including the halted predecessor gives 92 requests and
+$0.238372 against the unchanged 864-request/$162 ceiling. These accounting facts
+do not establish skill qualification. Independent quality and canonical tool
+audits govern the retained normal gate before inherited execution.
