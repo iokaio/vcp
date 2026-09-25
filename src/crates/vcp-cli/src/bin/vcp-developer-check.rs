@@ -80,6 +80,8 @@ const ORACLES: [(&str, &str); 13] = [
         include_str!("../../../../evals/skills/developer/oracles/LLM-near-miss-parser-v2.json"),
     ),
 ];
+// One owner-map entry per write-case run: thirteen write cases on three arms.
+const WRITE_RUNS: usize = ORACLES.len() * 3;
 const FILE_LIMIT: usize = 65536;
 const EDIT_LIMIT: usize = 262144;
 type Checked<T> = Result<T, String>;
@@ -212,7 +214,7 @@ fn owner_case(workspace: &Path, executable: &Path) -> Checked<String> {
         .map_err(|_| "owner case map unavailable or redirected")?;
     let map: OwnerCases =
         serde_json::from_slice(&source.bytes).map_err(|_| "owner case map invalid")?;
-    if map.schema_version != 1 || map.cases.is_empty() || map.cases.len() > 54 {
+    if map.schema_version != 1 || map.cases.is_empty() || map.cases.len() > WRITE_RUNS {
         return Err("owner case map bounds".into());
     }
     let current = open_root(workspace)?
@@ -300,44 +302,61 @@ fn preserved(files: &Files, contract: &Contract) -> Checked<()> {
     }
     Ok(())
 }
+/// ECMAScript `\s`: WhiteSpace (including every Zs character) and LineTerminator.
+fn js_space(c: char) -> bool {
+    matches!(
+        c,
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
+    )
+}
+/// One quoted attribute value at `start`, and the offset just past its closing quote.
+fn attribute_at(text: &str, lower: &str, start: usize) -> Option<(String, usize)> {
+    // `\b` without the `u` flag: only ASCII letters, digits and `_` are word characters.
+    if text[..start]
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return None;
+    }
+    let name = ["src", "href"]
+        .into_iter()
+        .find(|name| lower[start..].starts_with(name))?;
+    let rest = text[start + name.len()..].trim_start_matches(js_space);
+    let rest = rest.strip_prefix('=')?.trim_start_matches(js_space);
+    let quote = rest.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+    let value = &rest[1..];
+    // `.` never matches a line terminator, so the value cannot span one.
+    let end = value.find([quote, '\n', '\r', '\u{2028}', '\u{2029}'])?;
+    value[end..].starts_with(quote).then(|| {
+        (
+            value[..end].to_owned(),
+            text.len() - value.len() + end + quote.len_utf8(),
+        )
+    })
+}
 /// Quoted src/href attribute values, bounded to this corpus. This is asset-path
-/// validation, not a DOM, script-safety or accessibility parser.
+/// validation, not a DOM, script-safety or accessibility parser. It scans exactly
+/// like the parent oracle's `/\b(?:src|href)\s*=\s*(["'])(.*?)\1/gi`, so the in-run
+/// and parent structural verdicts agree on every HTML file.
 fn html_targets(text: &str) -> Vec<String> {
     let lower = text.to_ascii_lowercase();
-    let bytes = lower.as_bytes();
     let mut targets = Vec::new();
-    for attribute in ["src", "href"] {
-        let mut from = 0;
-        while let Some(found) = lower[from..].find(attribute) {
-            let start = from + found;
-            from = start + attribute.len();
-            if start > 0
-                && (bytes[start - 1].is_ascii_alphanumeric()
-                    || bytes[start - 1] == b'-'
-                    || bytes[start - 1] == b'_')
-            {
-                continue;
+    let mut start = 0;
+    while let Some(next) = text[start..].chars().next() {
+        match attribute_at(text, &lower, start) {
+            Some((target, after)) => {
+                targets.push(target);
+                start = after;
             }
-            let mut index = from;
-            while index < bytes.len() && bytes[index].is_ascii_whitespace() {
-                index += 1;
-            }
-            if bytes.get(index) != Some(&b'=') {
-                continue;
-            }
-            index += 1;
-            while index < bytes.len() && bytes[index].is_ascii_whitespace() {
-                index += 1;
-            }
-            let Some(&quote) = bytes.get(index) else {
-                continue;
-            };
-            if quote != b'"' && quote != b'\'' {
-                continue;
-            }
-            if let Some(end) = text[index + 1..].find(quote as char) {
-                targets.push(text[index + 1..index + 1 + end].to_owned());
-            }
+            None => start += next.len_utf8(),
         }
     }
     targets
@@ -536,27 +555,29 @@ mod tests {
         assert!(structure(&oversized, &contract).is_err());
     }
     #[test]
-    fn html_assets_must_resolve_to_local_workspace_files() {
-        let contract = contract("UI-normal-form-v2").unwrap();
-        let files = workspace("UI-normal-form-v2");
+    fn html_asset_scan_matches_the_shared_parent_oracle_verdicts() {
+        let corpus: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/developer-html-assets.json"
+        ))
+        .unwrap();
+        let case = corpus["case_id"].as_str().unwrap();
+        let file = corpus["file"].as_str().unwrap();
+        let contract = contract(case).unwrap();
+        let files = workspace(case);
         assert!(structure(&files, &contract).is_ok());
-        for target in [
-            "absent.js",
-            "https://example.invalid/x.js",
-            "%2e%2e/escape.js",
-            "folder\\x.js",
-            "/rooted.js",
-        ] {
+        for entry in corpus["cases"].as_array().unwrap() {
             let mut edited = files.clone();
             edited.insert(
-                "form.html".into(),
-                format!("<script src=\"{target}\"></script>").into_bytes(),
+                file.into(),
+                entry["html"].as_str().unwrap().as_bytes().to_vec(),
             );
-            assert!(structure(&edited, &contract).is_err(), "{target}");
+            assert_eq!(
+                structure(&edited, &contract).is_ok(),
+                entry["pass"].as_bool().unwrap(),
+                "{}",
+                entry["why"]
+            );
         }
-        let mut local = files;
-        local.insert("form.html".into(), b"<link rel=\"stylesheet\" href='tokens.css#top'><a HREF = \"#main\">x</a><img data-src=\"ignored\">".to_vec());
-        assert!(structure(&local, &contract).is_ok());
     }
     #[test]
     fn only_the_frozen_argument_vector_is_accepted() {
@@ -566,5 +587,129 @@ mod tests {
         changed[3] = "checks/other.cjs".into();
         assert!(!arguments(&changed));
         assert!(!arguments(&exact[..3]));
+    }
+    fn fixture(case: &str) -> tempfile::TempDir {
+        let directory = tempfile::tempdir().unwrap();
+        for (name, bytes) in workspace(case) {
+            let path = directory.path().join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        directory
+    }
+    #[test]
+    #[cfg(windows)]
+    fn real_workspace_is_preserved_structured_and_case_bound() {
+        let case = "MCP-normal-tools-v3";
+        let directory = fixture(case);
+        std::fs::write(
+            directory.path().join("server.cjs"),
+            "exports.handle = async () => null;\n",
+        )
+        .unwrap();
+        assert!(check(directory.path(), case).iter().all(Result::is_ok));
+        assert!(check(directory.path(), "MCP-normal-resources-v2")[0].is_err());
+        std::fs::write(directory.path().join("labels.json"), "[]").unwrap();
+        assert!(check(directory.path(), case)[0].is_err());
+    }
+    #[test]
+    #[cfg(windows)]
+    fn changed_marker_unknown_file_oversize_and_invalid_utf8_fail() {
+        let case = "UI-normal-form-v2";
+        let directory = fixture(case);
+        assert!(check(directory.path(), case).iter().all(Result::is_ok));
+        std::fs::write(directory.path().join(TEST_PATH), "console.log('fake')").unwrap();
+        assert!(check(directory.path(), case)[0].is_err());
+        std::fs::write(directory.path().join(TEST_PATH), MARKER).unwrap();
+        let unexpected = directory.path().join("unexpected.txt");
+        std::fs::write(&unexpected, "unexpected").unwrap();
+        assert!(check(directory.path(), case)[1].is_err());
+        std::fs::write(&unexpected, vec![b'x'; FILE_LIMIT + 1]).unwrap();
+        assert!(check(directory.path(), case).iter().all(Result::is_err));
+        std::fs::remove_file(&unexpected).unwrap();
+        assert!(check(directory.path(), case).iter().all(Result::is_ok));
+        std::fs::write(directory.path().join("form.html"), [0xff, 0xfe]).unwrap();
+        assert!(check(directory.path(), case).iter().all(Result::is_err));
+    }
+    #[test]
+    #[cfg(windows)]
+    fn owner_map_binds_only_listed_write_runs() {
+        let directory = fixture("LLM-near-miss-parser-v2");
+        let other = fixture("UI-near-miss-parser-v2");
+        let runtime = tempfile::tempdir().unwrap();
+        let map_path = runtime.path().join("developer-cases.json");
+        let executable = runtime.path().join("vcp-developer-check.exe");
+        let write =
+            |map: &Value| std::fs::write(&map_path, serde_json::to_vec(map).unwrap()).unwrap();
+        let entry = |workspace: &Path, case: &str| serde_json::json!({"workspace": workspace, "case_id": case});
+        let listed = serde_json::json!({"schema_version": 1, "cases": [
+            entry(directory.path(), "LLM-near-miss-parser-v2"),
+            entry(other.path(), "UI-near-miss-parser-v2"),
+        ]});
+        write(&listed);
+        assert_eq!(
+            owner_case(directory.path(), &executable).unwrap(),
+            "LLM-near-miss-parser-v2"
+        );
+        assert_eq!(
+            owner_case(other.path(), &executable).unwrap(),
+            "UI-near-miss-parser-v2"
+        );
+        let unlisted = tempfile::tempdir().unwrap();
+        assert!(owner_case(unlisted.path(), &executable).is_err());
+        let mut extra = listed.clone();
+        extra["execute"] = Value::Bool(true);
+        write(&extra);
+        assert!(owner_case(directory.path(), &executable).is_err());
+        write(&serde_json::json!({"schema_version": 1, "cases": [
+            entry(directory.path(), "LLM-near-miss-parser-v2"),
+            entry(directory.path(), "UI-near-miss-parser-v2"),
+        ]}));
+        assert!(owner_case(directory.path(), &executable).is_err());
+        // Report-only runs configure no checks, so they never enter the map.
+        write(&serde_json::json!({"schema_version": 1, "cases": [
+            entry(directory.path(), "LLM-near-miss-parser-v2"),
+            entry(other.path(), "LLM-hostile-diagnostics-v2"),
+        ]}));
+        assert!(owner_case(directory.path(), &executable).is_err());
+        let workspaces: Vec<_> = (0..=WRITE_RUNS)
+            .map(|_| tempfile::tempdir().unwrap())
+            .collect();
+        let cases: Vec<Value> = workspaces
+            .iter()
+            .map(|workspace| entry(workspace.path(), "LLM-near-miss-parser-v2"))
+            .collect();
+        write(&serde_json::json!({"schema_version": 1, "cases": cases}));
+        assert!(owner_case(workspaces[0].path(), &executable).is_err());
+    }
+    #[test]
+    #[cfg(windows)]
+    fn junction_escape_is_rejected_without_touching_target() {
+        use std::os::windows::process::CommandExt;
+        let directory = fixture("LLM-near-miss-parser-v2");
+        let outside = tempfile::tempdir().unwrap();
+        let sentinel = outside.path().join("sentinel.txt");
+        std::fs::write(&sentinel, "outside remains unchanged").unwrap();
+        let junction = directory.path().join("escape");
+        // Test setup only; the production checker never launches any process.
+        let status = std::process::Command::new("cmd.exe")
+            .creation_flags(0x08000000)
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&junction)
+            .arg(outside.path())
+            .output()
+            .unwrap();
+        assert!(
+            status.status.success(),
+            "junction fixture prerequisite failed"
+        );
+        let result = check(directory.path(), "LLM-near-miss-parser-v2");
+        // Remove only the newly created link, never recurse into its target.
+        std::fs::remove_dir(&junction).unwrap();
+        assert!(result.iter().all(Result::is_err));
+        assert_eq!(
+            std::fs::read_to_string(sentinel).unwrap(),
+            "outside remains unchanged"
+        );
     }
 }

@@ -82,25 +82,31 @@ blind-reader packets. No model artifact has been graded.
 run may start. It is data-only: it never executes workspace content.
 
 - **Pinned inputs.** It embeds the v5 manifest and the thirteen write-case
-  oracles, and refuses to run if any embedded oracle differs from its manifest
-  hash.
+  oracles. Every case it resolves, including every owner-map entry, must match
+  its manifest hash; a unit test checks all thirteen.
 - **Fixed invocation.** The verifier must invoke it with exactly
   `--test --test-reporter=tap --test-concurrency=1 checks/developer.test.cjs`,
   and the scaffold must hold an inert marker file.
 - **Owner case map.** It reads the case identifier for the workspace from
-  `developer-cases.json` beside the executable, which the preparer writes
-  (at most fifty-four entries). The model cannot choose its own case.
+  `developer-cases.json` beside the executable, which the preparer writes. The
+  map holds one entry per write-case run, at most thirty-nine: thirteen write
+  cases on three arms. Report-only runs configure no checks and never appear in
+  it; a report-only entry fails every lookup. The model cannot choose its own
+  case.
 - **Bounded discovery.** At most 128 entries, 64 KiB per file and 1 MiB in total.
 - **Two TAP tests.**
   - `developer input preservation`: every non-editable fixture file and both
     scaffold files are byte-identical.
   - `developer output structure`: no extra files; every editable file exists
-    within 64 KiB (256 KiB in total); HTML asset references stay local.
+    within 64 KiB (256 KiB in total); HTML asset references stay local and
+    exist. The HTML scan follows the parent oracle exactly. A shared corpus,
+    `src/tests/fixtures/developer-html-assets.json`, holds expected verdicts
+    that both suites assert.
 - **Build receipt.** `scripts/evals/developer-check-build.ps1` builds the
   binary offline with the locked dependencies. It writes a
   `cs2-developer-check-build/1` receipt holding the executable, source, fixture
-  manifest and builder hashes; the toolchain; and the hashed source inputs before
-  and after the build. The campaign pins the receipt that preparation builds from
+  manifest and builder hashes; the toolchain; the hashed source inputs; and
+  whether those inputs were unchanged across the build. The campaign pins the receipt that preparation builds from
   the merged commit. Local build receipts are verification evidence only.
 
 The checker does not grade functional behaviour. That stays with the
@@ -120,19 +126,23 @@ against a scripted provider. They pass on native Windows with the installed Node
     package selected from an explicit user source, the same mechanism the
     campaign uses for the unpromoted candidates.
 - **What each write case asserts.**
-  - The advertised and callable tools equal the case's `canonical_tools`.
+  - The tools advertised on every request equal the case's `canonical_tools`.
+    A call outside the ceiling fails dispatch admission; the
+    [tool-ceiling](p2-canonical-tool-ceiling.md) tests cover that.
   - The activated skill bodies match the arm.
   - `vcp_patch` changes the editable file.
   - `vcp_verify` runs the checker, which reports `ok 1` and `ok 2`.
   - Every other fixture file is preserved.
 - **Report-only completion.** `LLM-hostile-diagnostics-v2` completes without any
-  process. The final answer cites the evidence from a `vcp_read`.
+  process. Its `vcp_verify` call cites the evidence from a `vcp_read`, and
+  completion requires that citation.
 
 **Output-token estimate.** Output tokens were estimated, not measured with a
-tokenizer. The largest trusted reference is the MCP tools-server double. It is
-2,250 bytes, and 2,280 bytes once JSON-escaped as a single patch argument. At a
-conservative 3 bytes per token that is about 760 tokens, so a whole-file write
-fits in 2,048 output tokens with about 2.7 times headroom. The estimate does not
+tokenizer. The largest trusted reference is the `MCP-normal-resources-v2`
+server, at 2,254 bytes. Rewriting the whole file takes one `vcp_patch` argument
+of 2,486 JSON characters, including the envelope, the removed stub lines and the
+line prefixes. At a conservative 3 bytes per token that is about 830 tokens, so
+a whole-file write fits in 2,048 output tokens with about 2.5 times headroom. The estimate does not
 account for provider reasoning tokens that may count against the same limit.
 Only the live campaign can confirm this.
 

@@ -7,13 +7,18 @@ param([string]$TargetDir = 'artifacts/codex-target')
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native Windows checker qualification required' }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+# Resolve once against the repository and pass the absolute path to cargo, so
+# the build and the copied executable can never name different directories.
+$target = [IO.Path]::GetFullPath($TargetDir, $repository)
 $directory = Join-Path $repository ('artifacts/cs2-checker-build/' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $directory -Force | Out-Null
 $scope = @('src/crates', 'src/evals/skills/developer', 'src/third_party/codex/codex-rs/Cargo.toml',
     'src/third_party/codex/codex-rs/Cargo.lock', 'src/third_party/codex/codex-rs/rust-toolchain.toml')
 function Get-SourceInputs {
-    $capture = "const p=require('./scripts/evals/authoring-prepare.cjs');console.log(JSON.stringify(p.identity(process.cwd(),JSON.parse(process.argv[1])).files.map(({path,sha256})=>({path,sha256}))));"
-    $value = & node -e $capture ($scope | ConvertTo-Json -Compress)
+    # Scope entries are plain relative paths passed as separate arguments; no
+    # quoted JSON crosses native argument passing.
+    $capture = "const p=require('./scripts/evals/authoring-prepare.cjs');console.log(JSON.stringify(p.identity(process.cwd(),process.argv.slice(1)).files.map(({path,sha256})=>({path,sha256}))));"
+    $value = & node -e $capture @scope
     if ($LASTEXITCODE -ne 0) { throw 'Build source identity capture failed' }
     return $value
 }
@@ -21,14 +26,13 @@ Push-Location $repository
 try {
     $before = Get-SourceInputs
     $arguments = @('build', '--manifest-path', 'src/third_party/codex/codex-rs/Cargo.toml', '--locked', '--offline',
-        '--target-dir', $TargetDir, '-j2', '-p', 'vcp-cli', '--features', 'qualification', '--bin', 'vcp-developer-check')
+        '--target-dir', $target, '-j2', '-p', 'vcp-cli', '--features', 'qualification', '--bin', 'vcp-developer-check')
     $rustc = & rustc --version
     if ($LASTEXITCODE -ne 0) { throw 'Rust compiler unavailable' }
     & cargo @arguments *> (Join-Path $directory 'build.log')
     $code = $LASTEXITCODE
     $after = Get-SourceInputs
-    $targetRoot = if ([IO.Path]::IsPathRooted($TargetDir)) { $TargetDir } else { Join-Path $repository $TargetDir }
-    $built = Join-Path ([IO.Path]::GetFullPath($targetRoot)) 'debug/vcp-developer-check.exe'
+    $built = Join-Path $target 'debug/vcp-developer-check.exe'
     $executable = Join-Path $directory 'vcp-developer-check.exe'
     if ($code -eq 0) { Copy-Item -LiteralPath $built -Destination $executable -ErrorAction Stop }
     $source = 'src/crates/vcp-cli/src/bin/vcp-developer-check.rs'

@@ -269,9 +269,10 @@ async fn executable_developer_write_cases_complete_through_ceiling_arms_and_pinn
         let tail = verification["diagnostics"][0]["stdout"]["tail"]
             .as_str()
             .unwrap();
+        let lines: Vec<&str> = tail.lines().map(str::trim_end).collect();
         assert!(
-            tail.contains("ok 1 - developer input preservation")
-                && tail.contains("ok 2 - developer output structure"),
+            lines.contains(&"ok 1 - developer input preservation")
+                && lines.contains(&"ok 2 - developer output structure"),
             "{tail}"
         );
         let (_, oracle) = frozen(case);
