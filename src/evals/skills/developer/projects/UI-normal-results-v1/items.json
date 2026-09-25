@@ -1,0 +1,17 @@
+[
+  {
+    "id": "a",
+    "label": "Acorn",
+    "category": "tree"
+  },
+  {
+    "id": "b",
+    "label": "Birch",
+    "category": "tree"
+  },
+  {
+    "id": "c",
+    "label": "Clover",
+    "category": "flower"
+  }
+]

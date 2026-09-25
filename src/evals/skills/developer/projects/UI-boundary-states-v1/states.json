@@ -1,0 +1,30 @@
+{
+  "transitions": [
+    [
+      "idle",
+      "start",
+      "loading"
+    ],
+    [
+      "loading",
+      "start",
+      "loading"
+    ],
+    [
+      "loading",
+      "fail",
+      "error"
+    ],
+    [
+      "error",
+      "retry",
+      "loading"
+    ],
+    [
+      "loading",
+      "succeed",
+      "success"
+    ]
+  ],
+  "viewport_width": 320
+}

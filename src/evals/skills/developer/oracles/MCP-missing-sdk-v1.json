@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": [],
+  "preserve_files": [
+    "package.json",
+    "request.md",
+    "toolchain.json"
+  ],
+  "required_observations": [
+    "Selected SDK absence prevents executable compatibility claim",
+    "No SDK substitution or installation",
+    "Version selection and primary reference pinning remain prerequisites"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run"
+}

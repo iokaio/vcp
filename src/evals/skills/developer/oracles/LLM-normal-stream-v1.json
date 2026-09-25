@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "stream.cjs"
+  ],
+  "preserve_files": [
+    "package.json",
+    "contract.md",
+    "provider.json",
+    "events.ndjson"
+  ],
+  "required_observations": [
+    "Every independent byte partition yields Café exactly once",
+    "Only terminal done yields completed",
+    "Usage equals 5 input and 2 output tokens",
+    "No provider switch or external call"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "functional_vectors": [
+    {
+      "partition": "each-byte",
+      "text": "Café",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 5,
+        "output_tokens": 2
+      }
+    }
+  ]
+}

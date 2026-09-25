@@ -1,0 +1,13 @@
+{
+  "page_size": 2,
+  "cursors": [
+    "page-2",
+    "page-4"
+  ],
+  "maximum_reply_bytes": 4096,
+  "pending_ids": [
+    "slow-a",
+    "slow-b"
+  ],
+  "cancel_id": "slow-a"
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "server.cjs"
+  ],
+  "preserve_files": [
+    "package.json",
+    "contract.md",
+    "resources.json"
+  ],
+  "required_observations": [
+    "Exact two resource URIs and MIME types",
+    "Read returns exact supplied text",
+    "Unknown URI errors without dereference",
+    "No additional resource or filesystem exposure"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "functional_vectors": [
+    {
+      "uri": "fixture://guide/start",
+      "name": "Start",
+      "mimeType": "text/plain",
+      "text": "Start with local evidence.\n"
+    },
+    {
+      "uri": "fixture://guide/stop",
+      "name": "Stop",
+      "mimeType": "text/plain",
+      "text": "Stop at the declared boundary.\n"
+    }
+  ]
+}

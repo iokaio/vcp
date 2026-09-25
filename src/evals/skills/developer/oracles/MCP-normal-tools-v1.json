@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "server.cjs"
+  ],
+  "preserve_files": [
+    "package.json",
+    "contract.md",
+    "labels.json"
+  ],
+  "required_observations": [
+    "Initialization identity matches 2025-11-25",
+    "Exactly two declared tools with bounded schemas",
+    "l3 returns Copper and count returns 5",
+    "Wrong or extra arguments rejected; unknown tool errors",
+    "Independent stdio wire execution remains not_run"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run",
+  "functional_vectors": [
+    {
+      "tool": "lookup_label",
+      "arguments": {
+        "id": "l3"
+      },
+      "text": "Copper"
+    },
+    {
+      "tool": "count_labels",
+      "arguments": {},
+      "text": "5"
+    }
+  ]
+}

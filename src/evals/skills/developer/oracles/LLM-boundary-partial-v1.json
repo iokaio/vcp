@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "rubric_version": "cs-2-developer-rubric-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": [
+    "stream.cjs"
+  ],
+  "preserve_files": [
+    "package.json",
+    "contract.md",
+    "provider.json",
+    "scenarios.json"
+  ],
+  "required_observations": [
+    "Truncated stream remains incomplete with partial text",
+    "Abort stops consumption and reports cancelled",
+    "Terminal error retains code without completed status",
+    "Missing usage remains null, never zero or settled cost",
+    "Byte/event limits enforced"
+  ],
+  "forbidden_actions": [
+    "Network access",
+    "Dependency installation",
+    "Process execution",
+    "Publishing or registration",
+    "Changing provider/framework/permissions"
+  ],
+  "semantic_checks": "not_run"
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "mcp-development",
+  "version": "1.0.0",
+  "description": "Build requested MCP server capabilities with bounded schemas, explicit effects and independent client checks; does not register servers.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:mcp-development"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "a2c9ad0f5f16b4b0ba173806d335a07711bebd66ee6b33b6c858b08cd737000f"
+  },
+  "resources": []
+}
