@@ -1,6 +1,6 @@
 # VCP skill authoring
 
-Original VCP guidance, version 1.0.0. Create or revise a VCP skill package when a
+Original VCP guidance, version 1.0.1. Create or revise a VCP skill package when a
 reusable workflow needs guidance beyond ordinary project instructions. A README
 edit or a one-off task does not by itself need a skill.
 
@@ -37,6 +37,9 @@ Bump the package version when its content changes, update its hashes and any own
 catalog inventory, and preserve unrelated packages and historical receipts. A user
 or workspace override is intentional; do not overwrite it to force the builtin
 version to win. Metadata discovery must remain separate from body activation.
+For metadata-only discovery, assert that neither bodies nor resources were read;
+checking body reads alone leaves the resource boundary untested. Activation must
+then verify the declared content under the target runtime's limits.
 
 ## Evaluate observable behavior
 
@@ -44,6 +47,20 @@ Before evaluating, write realistic normal, boundary, hostile-input, missing-tool
 and near-miss tasks with independent expected outcomes. Separate authoring examples
 from held-out fixtures. Hash the package, fixture inputs and rubric before runs;
 keep the expected answers outside the task workspace.
+
+Translate every required behavior into an explicit fixture condition, operation
+and observable assertion. A checklist naming a behavior is not a test of it.
+Check that the assertions reject a plausible incorrect implementation while
+accepting valid behavior; record any requirement that remains unexercised.
+
+For precedence work, isolate each required transition with competing sources and
+observable selected identity, then change only the relevant source condition.
+Exercise removal, disabling or invalidation where the target contract requires
+it; do not infer those outcomes from one successful override. For each relevant
+size limit, test the nearest representable values below, exactly at and above
+the boundary using the contract's units. Include multibyte content for byte limits
+and combined content where an aggregate limit applies. Derive limits and expected failure behavior from the
+target implementation or contract, never from guessed constants.
 
 Compare no skill, the nearest existing skill and the candidate with the same task
 and tool authority. Check the actual artifact, preservation of other files,
