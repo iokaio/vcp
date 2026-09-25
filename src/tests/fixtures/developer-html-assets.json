@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "purpose": "Shared expected verdicts for the parent developer oracle and the in-run developer checker HTML asset scan; both suites assert every entry.",
+  "case_id": "UI-normal-form-v2",
+  "file": "form.html",
+  "cases": [
+    { "why": "local assets, a fragment and an in-page anchor", "pass": true, "html": "<link rel=\"stylesheet\" href='tokens.css#top'><a HREF = \"#main\">x</a><script src=\"form.js\"></script>" },
+    { "why": "an empty value is skipped", "pass": true, "html": "<script src=\"\"></script>" },
+    { "why": "a hyphen is not a word character", "pass": false, "html": "<img data-src=\"https://cdn.invalid/x.js\">" },
+    { "why": "an ASCII letter before the name is a word character", "pass": true, "html": "<img xsrc=\"https://cdn.invalid/x.js\">" },
+    { "why": "an underscore before the name is a word character", "pass": true, "html": "<img _src=\"https://cdn.invalid/x.js\">" },
+    { "why": "a non-ASCII letter before the name is not a word character", "pass": false, "html": "<img ésrc=\"https://cdn.invalid/x.js\">" },
+    { "why": "a long s does not case-fold to an ASCII s", "pass": true, "html": "<img ſrc=\"https://cdn.invalid/x.js\">" },
+    { "why": "a vertical tab is ECMAScript whitespace", "pass": false, "html": "<img src\u000b=\"https://cdn.invalid/x.js\">" },
+    { "why": "no-break and ideographic spaces are ECMAScript whitespace", "pass": false, "html": "<img src =　\"https://cdn.invalid/x.js\">" },
+    { "why": "a byte order mark is ECMAScript whitespace", "pass": false, "html": "<img src﻿=\"https://cdn.invalid/x.js\">" },
+    { "why": "next line is not ECMAScript whitespace", "pass": true, "html": "<img src\u0085=\"https://cdn.invalid/x.js\">" },
+    { "why": "srcset is not a scanned attribute", "pass": true, "html": "<img srcset=\"https://cdn.invalid/x.js 2x\">" },
+    { "why": "a value cannot span a line feed", "pass": true, "html": "<a href=\"form.css\nhttps://cdn.invalid/x.js\">x</a>" },
+    { "why": "scanning continues after a value that spans a line separator", "pass": false, "html": "<a href=\"x y\" src='absent.js'>x</a>" },
+    { "why": "a matched value is consumed before scanning resumes", "pass": true, "html": "<a href='tokens.css#src=\"absent.js\"'>x</a>" },
+    { "why": "an attribute-like value inside another attribute is scanned", "pass": false, "html": "<a title=\"src='absent.js'\" href=\"tokens.css\">x</a>" },
+    { "why": "an unterminated quote is not an attribute value", "pass": true, "html": "<script src=\"form.js></script>" },
+    { "why": "a missing local file", "pass": false, "html": "<script src=\"absent.js\"></script>" },
+    { "why": "paths are case-sensitive", "pass": false, "html": "<script src=\"FORM.JS\"></script>" },
+    { "why": "a current-directory component is unsafe", "pass": false, "html": "<script src=\"./form.js\"></script>" },
+    { "why": "encoded traversal", "pass": false, "html": "<script src=\"%2e%2e/escape.js\"></script>" },
+    { "why": "an encoded local name resolves", "pass": true, "html": "<script src=\"form%2Ejs\"></script>" },
+    { "why": "an invalid percent escape", "pass": false, "html": "<script src=\"%zz\"></script>" },
+    { "why": "an incomplete UTF-8 escape", "pass": false, "html": "<script src=\"%C3\"></script>" },
+    { "why": "a Windows separator", "pass": false, "html": "<script src=\"folder\\x.js\"></script>" },
+    { "why": "a rooted path", "pass": false, "html": "<script src=\"/form.js\"></script>" }
+  ]
+}

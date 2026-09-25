@@ -54,6 +54,7 @@ model call, comparison or promotion has run. Contract:
 | Canonical model tool ceiling (#178) | [Tool ceiling](p2-canonical-tool-ceiling.md) |
 | Interactive adapter mode (#179) | Parent-owned transports, iterators and protocol peers over bounded relayed frames; fourteen native cases |
 | Developer fixtures v5 and parent-side grader | [Fixture inventory](../../src/evals/skills/developer/README.md), [design](cs2-fixture-design.md) |
+| In-run developer checker and synthetic feasibility | [In-run checker](#in-run-checker) |
 
 The v5 grader verification on native Windows 10.0.26200.0 x64 with the pinned
 Node:
@@ -75,19 +76,84 @@ should-fix items; all were corrected before any campaign identity was pinned.
 Grader error messages may quote candidate output, so they stay out of
 blind-reader packets. No model artifact has been graded.
 
+## In-run checker
+
+`vcp-developer-check` (feature `qualification`) is the only process a campaign
+run may start. It is data-only: it never executes workspace content.
+
+- **Pinned inputs.** It embeds the v5 manifest and the thirteen write-case
+  oracles. Every case it resolves, including every owner-map entry, must match
+  its manifest hash; a unit test checks all thirteen.
+- **Fixed invocation.** The verifier must invoke it with exactly
+  `--test --test-reporter=tap --test-concurrency=1 checks/developer.test.cjs`,
+  and the scaffold must hold an inert marker file.
+- **Owner case map.** It reads the case identifier for the workspace from
+  `developer-cases.json` beside the executable, which the preparer writes. The
+  map holds one entry per write-case run, at most thirty-nine: thirteen write
+  cases on three arms. Report-only runs configure no checks and never appear in
+  it; a report-only entry fails every lookup. The model cannot choose its own
+  case.
+- **Bounded discovery.** At most 128 entries, 64 KiB per file and 1 MiB in total.
+- **Two TAP tests.**
+  - `developer input preservation`: every non-editable fixture file and both
+    scaffold files are byte-identical.
+  - `developer output structure`: no extra files; every editable file exists
+    within 64 KiB (256 KiB in total); HTML asset references stay local and
+    exist. The HTML scan follows the parent oracle exactly. A shared corpus,
+    `src/tests/fixtures/developer-html-assets.json`, holds expected verdicts
+    that both suites assert.
+- **Build receipt.** `scripts/evals/developer-check-build.ps1` builds the
+  binary offline with the locked dependencies. It writes a
+  `cs2-developer-check-build/1` receipt holding the executable, source, fixture
+  manifest and builder hashes; the toolchain; the hashed source inputs; and
+  whether those inputs were unchanged across the build. The campaign pins the receipt that preparation builds from
+  the merged commit. Local build receipts are verification evidence only.
+
+The checker does not grade functional behaviour. That stays with the
+parent-side AppContainer grader after the run.
+
+### Synthetic feasibility
+
+Two `vcp-cli` executable tests (`developer_feasibility`) run the real CLI
+against a scripted provider. They pass on native Windows with the installed Node
+24.21.0 and the built checker.
+
+- **One write case per prefix completes, each on a different arm.**
+  - UI (`UI-near-miss-parser-v2`) runs on the none arm.
+  - MCP (`MCP-near-miss-rest-v3`) runs on the nearest arm, which activates
+    `architecture` and `javascript-typescript` together.
+  - LLM (`LLM-near-miss-parser-v2`) runs on the candidate arm. It uses a probe
+    package selected from an explicit user source, the same mechanism the
+    campaign uses for the unpromoted candidates.
+- **What each write case asserts.**
+  - The tools advertised on every request equal the case's `canonical_tools`.
+    A call outside the ceiling fails dispatch admission; the
+    [tool-ceiling](p2-canonical-tool-ceiling.md) tests cover that.
+  - The activated skill bodies match the arm.
+  - `vcp_patch` changes the editable file.
+  - `vcp_verify` runs the checker, which reports `ok 1` and `ok 2`.
+  - Every other fixture file is preserved.
+- **Report-only completion.** `LLM-hostile-diagnostics-v2` completes without any
+  process. Its `vcp_verify` call cites the evidence from a `vcp_read`, and
+  completion requires that citation.
+
+**Output-token estimate.** Output tokens were estimated, not measured with a
+tokenizer. The largest trusted reference is the `MCP-normal-resources-v2`
+server, at 2,254 bytes. Rewriting the whole file takes one `vcp_patch` argument
+of 2,486 JSON characters, including the envelope, the removed stub lines and the
+line prefixes. At a conservative 3 bytes per token that is about 830 tokens, so
+a whole-file write fits in 2,048 output tokens with about 2.5 times headroom. The estimate does not
+account for provider reasoning tokens that may count against the same limit.
+Only the live campaign can confirm this.
+
 ## Remaining sequence
 
-1. **In-run checker.** A data-only `vcp-developer-check` binary with a build
-   receipt, and feasibility tests with a synthetic provider. The feasibility tests
-   cover the ceiling-bound tools, checker completion, the two-skill MCP nearest arm,
-   explicit candidate-source selection, and a reference-size MCP server within
-   2,048 output tokens.
-2. **Campaign tooling.** Developer candidate sources, preparation, a one-shot
+1. **Campaign tooling.** Developer candidate sources, preparation, a one-shot
    runner, reader packets and a promotion script.
-3. **Campaign.** A provider refresh, then preparation and preflight bound to the
+2. **Campaign.** A provider refresh, then preparation and preflight bound to the
    envelope SHA, then three eighteen-run blocks. After that come grading, blind
    reading and per-skill decisions.
-4. **One PR per skill,** in the order `llm-integration`, `mcp-development`,
+3. **One PR per skill,** in the order `llm-integration`, `mcp-development`,
    `frontend-design`. A qualified skill is promoted; otherwise the non-default
    disposition applies.
 

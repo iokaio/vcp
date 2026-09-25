@@ -26,6 +26,11 @@ name = "vcp-authoring-check"
 path = "src/bin/vcp-authoring-check.rs"
 required-features = ["qualification"]
 
+[[bin]]
+name = "vcp-developer-check"
+path = "src/bin/vcp-developer-check.rs"
+required-features = ["qualification"]
+
 [features]
 qualification = ["vcp-models/qualification", "vcp-lifecycle/qualification", "dep:reqwest", "dep:pulldown-cmark"]
 

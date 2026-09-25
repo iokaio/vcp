@@ -104,6 +104,13 @@ test('HTML asset checking rejects missing, external and encoded traversal target
     assert.equal(check('UI-normal-form-v2', answer([{ path: 'form.html', content: `<script src="${target}"></script>` }])).structural_pass, false);
   }
 });
+test('HTML asset scan matches the shared verdicts the in-run checker also asserts', () => {
+  const corpus = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../fixtures/developer-html-assets.json')));
+  assert.equal(corpus.schema_version, 1);
+  for (const entry of corpus.cases) {
+    assert.equal(check(corpus.case_id, answer([{ path: corpus.file, content: entry.html }])).structural_pass, entry.pass, entry.why);
+  }
+});
 test('revision 5 retains revision 4 metadata and every earlier task byte', () => {
   const previousRoot = path.join(root, 'history/cs-2-developer-fixtures-v4');
   const previous = JSON.parse(fs.readFileSync(path.join(previousRoot, 'manifest.json')));
