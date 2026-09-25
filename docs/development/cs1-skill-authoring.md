@@ -1,8 +1,9 @@
 # CS-1 skill-authoring candidate
 
 Owning item: [CS-1](../plan/24-skills-follow-on.md#cs-1--authoring-foundation).
-Status: owner-approved non-default candidate delivery; live qualification remains
-unsatisfied. This is not an accepted default.
+Status: accepted by owner direction on September 25, 2026 as a non-default
+candidate. Live qualification remains unsatisfied. The [candidates README](../../src/skills/candidates/README.md)
+records the additional work; failed and unrun evaluations remain unchanged.
 
 The current package retains skill-authoring 1.0.1 and its exact hashed reference
 under `src/skills/candidates/skill-authoring/`. The owner approved this non-default
@@ -70,4 +71,5 @@ Retain all failed and inconclusive outcomes. The separately authorized full
 diagnostic used revised fixtures and the frozen 1.0.1 candidates; its skill-authoring
 phases never ran before the permanent authority halt. Neither the setup correction,
 native package checks nor candidate delivery waives live gates. CS-1 acceptance
-remains unmet; no new campaign or replay is authorized by this disposition.
+is closed by owner direction with qualification gaps retained; no new campaign or
+replay is authorized by this disposition.

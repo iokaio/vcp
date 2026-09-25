@@ -5,10 +5,10 @@ This page records the isolated 22-skill document-authoring increment. The separa
 artifact identities and results below continue to describe the document-only build.
 
 Owning item: [CS-1](../plan/24-skills-follow-on.md#cs-1--authoring-foundation).
-Status: implementation retained as an explicitly selected, non-default **unqualified
-candidate**. The owner approved this disposition after the closed diagnostic
-campaign; it is not acceptance, default promotion or permission for more paid calls.
-CS-1 remains incomplete.
+Status: **accepted by owner direction** as an explicitly selected, non-default
+candidate on September 25, 2026. Qualification failures and unrun evaluations remain
+recorded; acceptance does not claim default qualification or authorize more paid calls.
+Additional work is listed in the [candidates README](../../src/skills/candidates/README.md).
 
 ## Candidate boundary
 
