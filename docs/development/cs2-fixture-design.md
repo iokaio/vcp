@@ -145,13 +145,66 @@ CS-3 must separately qualify owned browser/server lifecycle, exact origin and
 subresource restrictions, readiness/deadlines, pause/kill/owner loss and survival
 of a user-owned server. That work remains with CS-3, as the plan requires.
 
+## Revision 5 and functional grading
+
+Revision v5 freezes the cohort for execution. The tables above keep their v4 case
+IDs as design history; v5 gives all eighteen cases new IDs and retains v4 under
+`history/`.
+
+**What v5 changes, all before any model call:**
+
+- **Tools.** The tool allowlist matches the canonical tool ceiling: read-only
+  `vcp_search` and `vcp_verify` everywhere, plus `vcp_patch` for write cases.
+- **Checker hook.** Write cases carry the in-run checker hook in their own
+  `package.json`.
+- **UI seams.** The UI results and state-machine tasks expose pure
+  `filterItems` and `transition` seams.
+- **MCP initialize.** It returns `capabilities` and `serverInfo`.
+- **Rubric.** `rubric-v2.json` records the owner's predeclared benefit rule: a
+  functional win over both baselines with reader scores no lower, or at least
+  +1 reader usefulness.
+
+**Functional grading.** It uses the qualified Windows Node fixture adapter.
+Grader-authored wrappers run beside the candidate, and the parent holds every
+expected value.
+
+- *Single-shot batches* grade the pure functions, the scripted boundary MCP
+  session and the stream byte partitions. The boundary session's queue behavior is
+  observed through replies and `flush()` output, not by reading internal state.
+- *Interactive sessions* make the parent the MCP stdio client (tools and
+  resources), the LLM transport (payload, single call, no retry) or the stream
+  iterator (read counts, abort during a read).
+
+Eleven cases are graded functionally. The two report-only cases per skill, and
+the form and focus UI tasks, rely on structural checks and blind readers.
+
+**UI evidence in CS-2** is structural checks, the seams and blind readers. DOM,
+keyboard, focus, viewport, reduced-motion and accessibility checks are recorded
+`not_run`. CS-3 re-grades the retained UI artifacts in a real browser and can
+reopen `frontend-design`.
+
+**Research gaps recorded, not added as cases.** Adding cases would break the
+six-case design and the fixed 54-run budget. These remain uncovered:
+
+- MCP: prompt identity, authentication expiry, denied effects, schema drift;
+- LLM: mixed-provider applications, migrations, tool-result matching.
+
+**References are project-local, by owner decision.** Activation loads every
+declared resource, so the packages ship none. Skills direct the model to the
+user's installed SDK sources and project documents. Fixtures carry the
+project-specific references.
+
 ## Materialized preparation
 
 The [developer fixture inventory](../../src/evals/skills/developer/README.md)
-freezes eighteen cases and fifty-four planned runs. Focused contract tests cover
-bounded artifacts, preservation, fixture identity and the independently
-specified synthetic pagination/cancellation contract against trusted test doubles.
-These tests do not execute model-authored code. Actual protocol, provider and
-browser integration and independent human usefulness remain not run. The tables
-above describe the full intended independent checks; fixture preparation alone
-does not satisfy them.
+freezes eighteen v5 cases and fifty-four planned runs.
+
+- **Structural tests** cover bounded artifacts, preservation, the checker
+  scaffold, fixture identity and revision history.
+- **Grader tests** run every probe against trusted reference doubles and their
+  regressions. They use an unqualified local executor on any host, and the real
+  AppContainer adapter on Windows.
+
+These tests do not execute model-authored code. Model artifacts, actual SDK and
+provider compatibility, browser integration and independent usefulness remain
+not run until the authorized campaign.
