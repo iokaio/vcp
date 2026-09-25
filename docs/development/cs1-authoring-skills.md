@@ -41,7 +41,9 @@ qualification of this split artifact.
 
 The currently authorized mixed-catalog proposal is
 `f6b86aa2323df01c39d69b2b4fb70a4214e419b47c2fdd4a97d2e87647fb48a3`.
-The campaign is still running. Two independent blind reviewers found the document
+The SKL portion is still running; all eighteen DOC runs are complete with
+[retained outcomes and accounting](cs1-document-comparison.md). Two independent
+blind reviewers found the document
 candidate and no-skill outputs tied overall on both normal tasks. The candidate
 outperformed the architecture baseline, but that alone does not establish the
 required benefit over both baselines. Recorded cost/request differences are
@@ -77,8 +79,8 @@ Executable SHA-256:
 `b10d6f6fa105f5f7fbf5ccf60a2761b565b1577873644e9386747dda5aee75a8`.
 These are local debug qualification checks, not release or performance acceptance.
 
-Before merging this increment, finish review of the remaining campaign outputs
-and resolve the failed correctness and inconclusive benefit gates. The
+Before merging this increment, resolve the failed correctness and inconclusive
+benefit gates established by the completed document comparisons. The
 [prospective follow-up design](cs1-follow-up-design.md) is unapproved and unexecuted;
 it preserves existing results and cannot relabel them as passing. Any changed
 package or runtime needs appropriate fresh qualification. CS-1 remains incomplete
