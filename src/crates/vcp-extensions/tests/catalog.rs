@@ -4,8 +4,8 @@ use vcp_extensions::catalog;
 #[test]
 fn embedded_inventory_is_closed_versioned_metadata_for_all_families() {
     let manifest = catalog::embedded().unwrap();
-    assert_eq!(manifest.skills.len(), 22);
-    assert_eq!(manifest.version, "1.3.0");
+    assert_eq!(manifest.skills.len(), 23);
+    assert_eq!(manifest.version, "1.4.0");
     let mut invalid = manifest.clone();
     invalid.skills[1] = invalid.skills[0].clone();
     assert!(invalid.validate().is_err());
@@ -80,7 +80,7 @@ mod native {
         let (root, registry) = staged(temp.path(), false);
         let verified = catalog::verify(&root).unwrap();
         assert_eq!(verified.reads.metadata_files, 2);
-        assert_eq!(verified.reads.descriptors, 22);
+        assert_eq!(verified.reads.descriptors, 23);
         assert!(verified.reads.metadata_bytes > 0 && verified.reads.descriptor_bytes > 0);
         let discovered = discovery::discover(&registry, &Default::default()).unwrap();
         catalog::verify_discovery(&verified, &discovered).unwrap();
@@ -88,7 +88,7 @@ mod native {
         assert_eq!(discovered.reads.resources, 0);
         assert_eq!(
             catalog::revalidate(&root, &verified).unwrap().revalidations,
-            24
+            25
         );
         assert!(activation::activate(
             &registry,
@@ -176,7 +176,7 @@ mod native {
     }
 
     #[test]
-    fn document_authoring_requires_explicit_selection_and_loads_bounded_content() {
+    fn authoring_candidates_require_explicit_selection_and_load_bounded_content() {
         let temp = tempfile::tempdir().unwrap();
         let (_, registry) = staged(temp.path(), true);
         let discovered = discovery::discover(&registry, &Default::default()).unwrap();
@@ -187,8 +187,7 @@ mod native {
             "Cargo.toml".into(),
             "package.json".into(),
         ]);
-        assert!(discovered.resolve("skill-authoring", &ctx).is_err());
-        for id in ["document-authoring"] {
+        for id in ["document-authoring", "skill-authoring"] {
             let selected = discovered.resolve(id, &ctx).unwrap();
             assert!(!selected.matches(&ctx), "incidental suggestion: {id}");
             let active = activation::activate(
@@ -202,7 +201,7 @@ mod native {
             .unwrap();
             assert_eq!(active.body.version.sha256, selected.descriptor.body.sha256);
             assert_eq!(active.reads.bodies, 1);
-            assert_eq!(active.resources.len(), 0);
+            assert_eq!(active.resources.len(), usize::from(id == "skill-authoring"));
             for (resource, expected) in active.resources.iter().zip(&selected.descriptor.resources)
             {
                 assert_eq!(resource.version.sha256, expected.sha256);
@@ -241,7 +240,11 @@ mod native {
 
     #[test]
     fn authoring_missing_or_changed_content_stays_lazy_and_fails_activation() {
-        for relative in ["document-authoring/SKILL.md"] {
+        for relative in [
+            "document-authoring/SKILL.md",
+            "skill-authoring/SKILL.md",
+            "skill-authoring/references/package-format.md",
+        ] {
             for missing in [false, true] {
                 let temp = tempfile::tempdir().unwrap();
                 let (root, registry) = staged(temp.path(), true);
@@ -285,7 +288,7 @@ mod native {
 
     #[test]
     fn authoring_workspace_override_preserves_builtin_qualified_selection() {
-        for id in ["document-authoring"] {
+        for id in ["document-authoring", "skill-authoring"] {
             let temp = tempfile::tempdir().unwrap();
             let (_, mut registry) = staged(temp.path(), true);
             let workspace = tempfile::tempdir().unwrap();

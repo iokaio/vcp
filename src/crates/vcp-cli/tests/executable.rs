@@ -6,10 +6,10 @@ mod child_output_owner;
 mod history_notice;
 #[path = "support/hooks.rs"]
 mod hooks;
-#[path = "support/observers.rs"]
-mod observers;
 #[path = "support/live_adapter.rs"]
 mod live_adapter;
+#[path = "support/observers.rs"]
+mod observers;
 #[path = "support/packaged_crypto.rs"]
 mod packaged_crypto;
 #[path = "support/packaged_history.rs"]
@@ -400,8 +400,8 @@ async fn executable_run_skill_activation_precedes_first_provider_request() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn executable_document_authoring_report_only_completes_without_workspace_edits() {
-    for skill in ["document-authoring"] {
+async fn executable_authoring_report_only_profiles_complete_without_workspace_edits() {
+    for skill in ["document-authoring", "skill-authoring"] {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/responses"))
@@ -473,7 +473,20 @@ async fn executable_document_authoring_report_only_completes_without_workspace_e
         assert!(parts
             .iter()
             .any(|part| part["trust"] == "active_skill" && part["text"] == body));
-        assert_eq!(parts.len(), 1);
+        assert_eq!(parts.len(), if skill == "skill-authoring" { 2 } else { 1 });
+        if skill == "skill-authoring" {
+            let reference = fs::read_to_string(
+                fixture
+                    .binary
+                    .parent()
+                    .unwrap()
+                    .join("skills/builtin/skill-authoring/references/package-format.md"),
+            )
+            .unwrap();
+            assert!(parts
+                .iter()
+                .any(|part| part["trust"] == "active_skill" && part["text"] == reference));
+        }
         assert_eq!(
             fs::read(fixture.workspace.join("value.txt")).unwrap(),
             source
@@ -2169,7 +2182,7 @@ async fn executable_packaged_skills_are_relocatable_lazy_and_integrity_checked()
     );
     let values = records(&output);
     let data = &values.last().unwrap()["data"];
-    assert_eq!(data["total_skills"], 22);
+    assert_eq!(data["total_skills"], 23);
     assert_eq!(data["reads"]["bodies"], 0);
     assert_eq!(data["reads"]["resources"], 0);
     assert!(!data["integrity"].is_null());
@@ -2374,7 +2387,7 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
         let values = records(&inspected);
         let data = &values.last().unwrap()["data"];
         assert_eq!(data["reads"]["bodies"], 0);
-        assert_eq!(data["total_skills"], 23);
+        assert_eq!(data["total_skills"], 24);
         assert!(!data["integrity"].is_null());
         assert!(data["configuration"]
             .as_str()

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.3.0",
+  "version": "1.4.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "6a61a745e7d195392a3ab02ae2f1ca241eeb421d58a4bf8f163457f13b1ddf62"
+    "sha256": "10b2fea397c53622445f4891efdb60aeecdf8b51a61d20a8fc17eb8fcdcc2700"
   },
   "skills": [
     {
@@ -291,6 +291,24 @@
       "source": "vcp-original",
       "license": "Apache-2.0",
       "resources": []
+    },
+    {
+      "id": "skill-authoring",
+      "version": "1.0.0",
+      "descriptor": "skill-authoring/skill.json",
+      "descriptor_sha256": "5b038d728e58203d5cdcf530f396081449866ec8b36962f8d467cd8f3b663b47",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "ccdc61bf264f0d2e175f0a9faab71b65e9c1830bb971d61ba87551500e23e97b"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": [
+        {
+          "path": "references/package-format.md",
+          "sha256": "361b4ba86ff626a55469c53c53db1f718794b8f3bae4d80a887279040d011529"
+        }
+      ]
     }
   ]
 }

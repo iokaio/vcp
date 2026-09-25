@@ -1,5 +1,9 @@
 # CS-1 document-authoring delivery preparation
 
+This page records the isolated 22-skill document-authoring increment. The separate
+[skill-authoring increment](cs1-skill-authoring.md) adds its package on top; the
+artifact identities and results below continue to describe the document-only build.
+
 Owning item: [CS-1](../plan/24-skills-follow-on.md#cs-1--authoring-foundation).
 Status: isolated document-only increment prepared for draft review; native package
 checks pass, but live qualification is not satisfied. This document does not

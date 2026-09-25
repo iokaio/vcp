@@ -13,8 +13,8 @@ test('builtin staging copies exactly the selected hashed inventory and preserves
   try {
     const target = path.join(temp.root, 'assets');
     const inventory = stageAssets(assets, target);
-    assert.equal(inventory.skills, 22);
-    assert.equal(inventory.files.length, 46);
+    assert.equal(inventory.skills, 23);
+    assert.equal(inventory.files.length, 49);
     assert.deepEqual(inspectAssets(target).inventory, inventory);
     fs.writeFileSync(path.join(target, 'user-sentinel'), 'preserve');
     assert.throws(() => stageAssets(assets, target), /exist/i);
