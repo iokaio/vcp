@@ -27,9 +27,10 @@ path = "src/bin/vcp-authoring-check.rs"
 required-features = ["qualification"]
 
 [features]
-qualification = ["vcp-models/qualification", "vcp-lifecycle/qualification", "dep:reqwest"]
+qualification = ["vcp-models/qualification", "vcp-lifecycle/qualification", "dep:reqwest", "dep:pulldown-cmark"]
 
 [dependencies]
+pulldown-cmark = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 vcp-extensions = { path = "../vcp-extensions" }
 clap = { workspace = true, features = ["derive"] }

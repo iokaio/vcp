@@ -1,5 +1,11 @@
 # Proposed CS-1 follow-up evaluation
 
+The initial benefit-study outline below is retained as design history. The
+[prospective qualification contract](cs1-prospective-qualification.md) supersedes
+its 18-run ceiling and adjudication option: it adds matched inherited regression
+cases, caps the whole campaign at 54 runs, and requires both reviewers to agree
+without an additional adjudication call. Preparation alone authorizes no execution.
+
 Status: historical prospective design. A subsequently frozen and approved
 follow-up reached a [mandatory halt](cs1-followup-outcome.md); it cannot resume.
 This original design was based only on

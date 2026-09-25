@@ -4,6 +4,8 @@
 mod child_output_owner;
 #[path = "support/authoring_directories.rs"]
 mod authoring_directories;
+#[path = "support/authoring_followup.rs"]
+mod authoring_followup;
 #[path = "support/history_notice.rs"]
 mod history_notice;
 #[path = "support/hooks.rs"]

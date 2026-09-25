@@ -191,6 +191,10 @@
     {
       "path": "src/third_party/patches/codex/0040-p10-config-import-toml.patch",
       "sha256": "09f5afc2110b27fbdd0a70548e0f9bc8e38b5148a999df2e9ec153b247920b96"
+    },
+    {
+      "path": "src/third_party/patches/codex/0041-cs1-authoring-markdown-checker.patch",
+      "sha256": "21aaf5cfb44684faea1fea2559c2ab1b32a0934284bbc04ca9b66db61e0799a5"
     }
   ],
   "licenses": [
