@@ -8,6 +8,9 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 namespace Vcp.Qualification {
 public sealed class AppContainerFixture : IDisposable {
@@ -91,6 +94,9 @@ public sealed class AppContainerFixture : IDisposable {
         catch { Marshal.FreeHGlobal(result); throw; }
     }
     public Result Run(string executable, string[] arguments, bool restricted, int timeoutMilliseconds) {
+        return RunCore(executable, arguments, restricted, timeoutMilliseconds, null);
+    }
+    Result RunCore(string executable, string[] arguments, bool restricted, int timeoutMilliseconds, BoundedIo bounded) {
         if (!created || sid == IntPtr.Zero) throw new ObjectDisposedException(nameof(AppContainerFixture));
         executable = Path.GetFullPath(executable);
         if (!String.Equals(Path.GetDirectoryName(executable), Root, StringComparison.OrdinalIgnoreCase) || !File.Exists(executable) ||
@@ -105,11 +111,13 @@ public sealed class AppContainerFixture : IDisposable {
         var process = new ProcessInfo();
         try {
             var attributes = new SecurityAttributes { Size = Marshal.SizeOf<SecurityAttributes>(), Inherit = true };
-            input = CreateFile("NUL", 0x80000000, 3, ref attributes, 3, 0x80, IntPtr.Zero);
-            if (input == new IntPtr(-1)) { input = IntPtr.Zero; throw new Win32Exception(Marshal.GetLastWin32Error()); }
-            IntPtr current = GetCurrentProcess();
-            Check(DuplicateHandle(current, GetStdHandle(-11), current, out output, 0, true, 2));
-            Check(DuplicateHandle(current, GetStdHandle(-12), current, out error, 0, true, 2));
+            if (bounded == null) {
+                input = CreateFile("NUL", 0x80000000, 3, ref attributes, 3, 0x80, IntPtr.Zero);
+                if (input == new IntPtr(-1)) { input = IntPtr.Zero; throw new Win32Exception(Marshal.GetLastWin32Error()); }
+                IntPtr current = GetCurrentProcess();
+                Check(DuplicateHandle(current, GetStdHandle(-11), current, out output, 0, true, 2));
+                Check(DuplicateHandle(current, GetStdHandle(-12), current, out error, 0, true, 2));
+            } else bounded.Create(out input, out output, out error);
             handles = Marshal.AllocHGlobal(IntPtr.Size * 3);
             Marshal.Copy(new[] { input, output, error }, 0, handles, 3);
             IntPtr size = IntPtr.Zero;
@@ -133,10 +141,23 @@ public sealed class AppContainerFixture : IDisposable {
                 Size = Marshal.SizeOf<StartupEx>(), Flags = 0x100, Input = input, Output = output, Error = error }, Attributes = list };
             job = CreateJobObject(IntPtr.Zero, null); Check(job != IntPtr.Zero);
             var settings = new ExtendedLimits { Basic = new BasicLimits { Flags = 0x2008, ActiveProcesses = 1 } };
+            if (bounded != null) {
+                settings.Basic.Flags |= 0x300; // Process and job committed-memory ceilings.
+                settings.ProcessMemory = settings.JobMemory = new UIntPtr(bounded.MemoryBytes);
+            }
             limits = Structure(settings);
             Check(SetInformationJobObject(job, 9, limits, (uint)Marshal.SizeOf<ExtendedLimits>()));
             // Suspended until it belongs to our kill-on-close job and its token is checked.
-            Check(CreateProcess(executable, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, true, 0x08080404, environment, Root, ref startup, out process));
+            // Bounded pipe-only children need no console host process. DETACHED_PROCESS
+            // avoids the conhost created for CREATE_NO_WINDOW on this Windows host.
+            Check(CreateProcess(executable, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, true,
+                bounded == null ? 0x08080404u : 0x0008040cu, environment, Root, ref startup, out process));
+            if (bounded != null) {
+                // Only the child owns these ends now; EOF must not depend on parent cleanup.
+                foreach (IntPtr handle in new[] { input, output, error }) CloseHandle(handle);
+                input = output = error = IntPtr.Zero;
+                bounded.Start(process.Pid);
+            }
             Check(AssignProcessToJobObject(job, process.Process));
             Check(OpenProcessToken(process.Process, 8, out token));
             IntPtr containerInfo = TokenInfo(token, 29), capabilityInfo = IntPtr.Zero, sidInfo = IntPtr.Zero;
@@ -156,8 +177,25 @@ public sealed class AppContainerFixture : IDisposable {
             }
             var watch = Stopwatch.StartNew();
             if (ResumeThread(process.Thread) == UInt32.MaxValue) throw new Win32Exception(Marshal.GetLastWin32Error());
-            uint wait = WaitForSingleObject(process.Process, (uint)timeoutMilliseconds);
-            if (wait != 0) throw new IOException(wait == 258 ? "Contained process timed out" : "Process wait failed");
+            if (bounded == null) {
+                uint wait = WaitForSingleObject(process.Process, (uint)timeoutMilliseconds);
+                if (wait != 0) throw new IOException(wait == 258 ? "Contained process timed out" : "Process wait failed");
+            } else {
+                while (true) {
+                    bounded.ObserveJob(job);
+                    uint wait = WaitForSingleObject(process.Process, 10);
+                    if (wait == 0) break;
+                    if (wait != 258) throw new IOException("Process wait failed");
+                    string stop = bounded.StopReason(watch.ElapsedMilliseconds, timeoutMilliseconds);
+                    if (stop != null) {
+                        bounded.Termination = stop;
+                        Check(TerminateJobObject(job, 1));
+                        if (WaitForSingleObject(process.Process, 5000) != 0) throw new IOException("Owned process did not terminate");
+                        break;
+                    }
+                }
+                bounded.Complete();
+            }
             uint code; Check(GetExitCodeProcess(process.Process, out code));
             bool restrictedToken = IsTokenRestricted(token);
             IntPtr integrityInfo = TokenInfo(token, 25);
@@ -191,6 +229,111 @@ public sealed class AppContainerFixture : IDisposable {
             if (terminationFailed) throw new IOException("Owned process did not terminate");
         }
     }
+    // Qualification-only, one request per fresh process. No child assertion is trusted.
+    public sealed class BoundedResult {
+        public Result Process;
+        public byte[] Output, Error;
+        public long OutputBytes, ErrorBytes;
+        public string Termination;
+        public uint Pid;
+        public ulong MemoryLimitBytes;
+        public uint PeakActiveProcesses;
+    }
+    public BoundedResult RunBounded(string executable, string[] arguments, bool restricted,
+        byte[] input, int outputLimit, ulong memoryBytes, int timeoutMilliseconds, CancellationToken cancellation) {
+        if (input == null || input.Length > 65536 || outputLimit < 1 || outputLimit > 1048576 ||
+            memoryBytes < 67108864 || memoryBytes > 1073741824) throw new ArgumentException("Invalid bounded IO request");
+        cancellation.ThrowIfCancellationRequested();
+        using (var bounded = new BoundedIo(input, outputLimit, memoryBytes, cancellation)) {
+            var process = RunCore(executable, arguments, restricted, timeoutMilliseconds, bounded);
+            return new BoundedResult { Process = process, Pid = bounded.Pid,
+                Output = bounded.Output.ToArray(), Error = bounded.Error.ToArray(),
+                OutputBytes = bounded.OutputBytes, ErrorBytes = bounded.ErrorBytes, Termination = bounded.Termination,
+                MemoryLimitBytes = memoryBytes, PeakActiveProcesses = bounded.PeakActiveProcesses };
+        }
+    }
+    sealed class BoundedIo : IDisposable {
+        readonly byte[] input;
+        readonly int limit;
+        readonly CancellationToken cancellation;
+        readonly object captureLock = new object();
+        FileStream inputStream, outputStream, errorStream;
+        Task inputTask, outputTask, errorTask;
+        public readonly ulong MemoryBytes;
+        public readonly MemoryStream Output = new MemoryStream(), Error = new MemoryStream();
+        public long OutputBytes, ErrorBytes;
+        public string Termination = "exited";
+        public uint Pid;
+        public uint PeakActiveProcesses;
+        int overflow;
+        public BoundedIo(byte[] input, int limit, ulong memoryBytes, CancellationToken cancellation) {
+            this.input = (byte[])input.Clone(); this.limit = limit; MemoryBytes = memoryBytes; this.cancellation = cancellation;
+        }
+        static FileStream Pipe(bool parentWrites, out IntPtr child) {
+            var attributes = new SecurityAttributes { Size = Marshal.SizeOf<SecurityAttributes>(), Inherit = true };
+            IntPtr read, write;
+            Check(CreatePipe(out read, out write, ref attributes, 0));
+            child = parentWrites ? read : write;
+            IntPtr parent = parentWrites ? write : read;
+            try {
+                Check(SetHandleInformation(parent, 1, 0));
+                return new FileStream(new SafeFileHandle(parent, true), parentWrites ? FileAccess.Write : FileAccess.Read, 4096, false);
+            } catch { CloseHandle(parent); CloseHandle(child); child = IntPtr.Zero; throw; }
+        }
+        public void Create(out IntPtr childInput, out IntPtr childOutput, out IntPtr childError) {
+            childInput = childOutput = childError = IntPtr.Zero;
+            inputStream = Pipe(true, out childInput);
+            outputStream = Pipe(false, out childOutput);
+            errorStream = Pipe(false, out childError);
+        }
+        void Read(FileStream stream, MemoryStream retained, bool error) {
+            var buffer = new byte[4096]; int count;
+            while ((count = stream.Read(buffer, 0, buffer.Length)) != 0) {
+                if (error) Interlocked.Add(ref ErrorBytes, count); else Interlocked.Add(ref OutputBytes, count);
+                lock (captureLock) {
+                    int keep = Math.Min(count, limit - (int)(Output.Length + Error.Length));
+                    if (keep > 0) retained.Write(buffer, 0, keep);
+                }
+                if (Interlocked.Read(ref OutputBytes) + Interlocked.Read(ref ErrorBytes) > limit) Interlocked.Exchange(ref overflow, 1);
+            }
+        }
+        public void Start(uint pid) {
+            Pid = pid;
+            outputTask = Task.Run(() => Read(outputStream, Output, false));
+            errorTask = Task.Run(() => Read(errorStream, Error, true));
+            inputTask = Task.Run(() => {
+                try { inputStream.Write(input, 0, input.Length); inputStream.Flush(); }
+                catch (IOException) { /* Early child exit is reported by its process receipt. */ }
+                finally { inputStream.Dispose(); }
+            });
+        }
+        public string StopReason(long elapsed, int timeout) {
+            if (Volatile.Read(ref overflow) != 0) return "output_limit";
+            if (cancellation.IsCancellationRequested) return "cancelled";
+            if (elapsed >= timeout) return "timeout";
+            return null;
+        }
+        public void ObserveJob(IntPtr job) {
+            IntPtr accounting = Marshal.AllocHGlobal(48);
+            try {
+                Check(QueryInformationJobObject(job, 1, accounting, 48, IntPtr.Zero));
+                uint active = unchecked((uint)Marshal.ReadInt32(accounting, 40));
+                PeakActiveProcesses = Math.Max(PeakActiveProcesses, active);
+                if (active > 1) throw new IOException("One-process job containment failed: " + active);
+            } finally { Marshal.FreeHGlobal(accounting); }
+        }
+        public void Complete() {
+            if (!Task.WaitAll(new[] { inputTask, outputTask, errorTask }, 5000)) throw new IOException("Owned pipes did not close");
+            if (Volatile.Read(ref overflow) != 0) Termination = "output_limit";
+        }
+        public void Dispose() {
+            inputStream?.Dispose(); outputStream?.Dispose(); errorStream?.Dispose();
+            Output.Dispose(); Error.Dispose();
+        }
+    }
+    [DllImport("kernel32.dll",SetLastError=true)] static extern bool CreatePipe(out IntPtr read,out IntPtr write,ref SecurityAttributes attributes,uint size);
+    [DllImport("kernel32.dll",SetLastError=true)] static extern bool SetHandleInformation(IntPtr handle,uint mask,uint flags);
+    [DllImport("kernel32.dll",SetLastError=true)] static extern bool TerminateJobObject(IntPtr job,uint code);
     [StructLayout(LayoutKind.Sequential)] struct Capabilities { public IntPtr Sid, Values; public uint Count, Reserved; }
     [StructLayout(LayoutKind.Sequential)] struct SecurityAttributes { public int Size; public IntPtr Descriptor; [MarshalAs(UnmanagedType.Bool)] public bool Inherit; }
     [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct Startup {
