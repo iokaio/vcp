@@ -85,7 +85,7 @@ These are local debug qualification checks, not release or performance acceptanc
 
 Before merging this increment, resolve the failed correctness and inconclusive
 benefit gates established by the completed document comparisons. The
-[prospective follow-up design](cs1-follow-up-design.md) is unapproved and unexecuted;
-it preserves existing results and cannot relabel them as passing. Any changed
+[follow-up campaign](cs1-followup-outcome.md) halted on its frozen tool-authority
+gate; it preserves existing results and cannot relabel them as passing. Any changed
 package or runtime needs appropriate fresh qualification. CS-1 remains incomplete
 until both separately delivered candidates satisfy their acceptance conditions.

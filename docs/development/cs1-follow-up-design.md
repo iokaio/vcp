@@ -4,9 +4,11 @@ The initial benefit-study outline below is retained as design history. The
 [prospective qualification contract](cs1-prospective-qualification.md) supersedes
 its 18-run ceiling and adjudication option: it adds matched inherited regression
 cases, caps the whole campaign at 54 runs, and requires both reviewers to agree
-without an additional adjudication call. Neither document authorizes execution.
+without an additional adjudication call. Preparation alone authorizes no execution.
 
-Status: **unapproved and unexecuted**. This is prospective design, based only on
+Status: historical prospective design. A subsequently frozen and approved
+follow-up reached a [mandatory halt](cs1-followup-outcome.md); it cannot resume.
+This original design was based only on
 the CS-0/CS-1 scope in plan 24. No campaign outcomes, reviews or skill bodies were
 consulted. It does not alter existing gates, authorize spending or reinterpret
 frozen v1 results. Preserve every v1 input, result, failure and receipt unchanged.
