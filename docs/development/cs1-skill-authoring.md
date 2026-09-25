@@ -22,7 +22,9 @@ The historical mixed-catalog live campaign uses catalog 1.3.0 with 23 skills;
 this separately versioned artifact must receive its own native package checks.
 That campaign's original executable/catalog/source identities remain unchanged.
 No model result is transferred to a changed skill body or resource. Live candidate
-qualification is pending; package integrity alone does not establish usefulness.
+qualification is unsatisfied; package integrity alone does not establish usefulness.
+The completed [comparison report](cs1-skill-comparison.md) records every case,
+independent blind reviews and reconciled accounting.
 
 Twelve JavaScript asset/oracle tests and all nineteen fast-suite cases passed for
 this increment (fast run `2881125c-5c52-4bfa-9c81-d550f1dc3d33`). Seven native
@@ -46,7 +48,9 @@ parent directories in the preparation: the permitted patch tool requires existin
 parents, and no directory-creation tool was authorized. The retained error is
 Windows error 2; no package artifacts were created. These failures expose a setup
 defect, not demonstrated skill benefit or inferiority. A separately versioned
-preparation fix and native feasibility regression are in progress outside the
-frozen campaign. Other SKL comparisons remain in progress. Retain all failed and
+preparation fix and native feasibility regression passed outside the
+frozen campaign. All SKL comparisons have finished: resource-maintenance outputs
+tie across all arms, and the candidate boundary response omits required assertions.
+Retain all failed and
 inconclusive outcomes; further paid evaluation requires its own concrete authorized
 proposal. Neither the setup correction nor native package checks waive live gates.
