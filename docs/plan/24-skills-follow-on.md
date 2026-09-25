@@ -2,7 +2,7 @@
 
 Status: CS-0 scope and qualification design established September 24, 2026;
 CS-1 authoring packages are retained as non-default, unqualified candidates;
-their acceptance remains unmet. Later packages remain unaccepted; the bounded
+further qualification is deferred and acceptance remains unmet. Later packages remain unaccepted; the bounded
 CS-2 Node adapter prerequisite is implemented. Authority:
 [ADR-068](../adr/068-skills-follow-on-before-other-hosts.md). This is a separate
 follow-on ledger, not an expansion or renumbering of the 68 architecture items.
@@ -17,7 +17,7 @@ gaps and prompt-audit proposals stay outside this sequence.
 | Work item | Dependencies | Deliverable | State |
 |---|---|---|---|
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
-| CS-1 | CS-0 | Original document-authoring and skill-authoring packages | acceptance unmet — [non-default candidate disposition](../development/cs1-candidate-disposition.md) |
+| CS-1 | CS-0 | Original document-authoring and skill-authoring packages | candidate delivery closed; qualification deferred — [disposition](../development/cs1-candidate-disposition.md) |
 | CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | planned; [Node adapter prerequisite](../development/cs2-node-fixture-adapter.md) implemented, specialist acceptance pending |
 | CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | planned |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |

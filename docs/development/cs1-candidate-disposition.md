@@ -3,6 +3,9 @@
 On September 25, 2026 the owner approved delivering document-authoring and
 skill-authoring 1.0.1 as **non-default, unqualified candidates**, together with
 their evaluation harness and retained results. CS-1 acceptance remains unmet.
+The owner then requested a good-enough closure: finish the focused checks and
+merge the three delivery PRs, retain qualification as deferred, and stop this work.
+No further refinement or evaluation campaign is required for this disposition.
 
 The packages live under `src/skills/candidates/`. Their descriptors, bodies and
 resource bytes are unchanged from the frozen 1.0.1 diagnostic. This directory
