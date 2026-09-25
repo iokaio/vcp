@@ -31,7 +31,7 @@ try {
     $executable = Join-Path $directory 'vcp-authoring-check.exe'
     if ($code -eq 0) { Copy-Item -LiteralPath $builtExecutable -Destination $executable -ErrorAction Stop }
     $source = 'src/crates/vcp-cli/src/bin/vcp-authoring-check.rs'
-    $fixture = 'src/evals/skills/authoring/manifest.json'
+    $fixture = if ($Followup) { 'src/evals/skills/authoring-inherited/manifest.json' } else { 'src/evals/skills/authoring/manifest.json' }
     $receipt = [ordered]@{
         schema = 'cs1-authoring-check-build/1'
         source = $source
@@ -51,7 +51,7 @@ try {
     }
     if ($Followup) {
         $receipt.schema = 'cs1-authoring-check-build/2'
-        $receipt.fixture_manifests = @('src/evals/skills/authoring/manifest.json', 'src/evals/skills/authoring-followup/manifest.json') | ForEach-Object { @{path=$_; sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()} }
+        $receipt.fixture_manifests = @('src/evals/skills/authoring-inherited/manifest.json', 'src/evals/skills/authoring-followup/manifest.json') | ForEach-Object { @{path=$_; sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()} }
     }
     $file = Join-Path $directory 'build-receipt.json'
     $receipt | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $file -Encoding utf8NoBOM

@@ -7,6 +7,7 @@ const { isDeepStrictEqual: equal } = require('node:util');
 const prior = require('./p6-live-runner.cjs'), prep = require('./authoring-prepare.cjs');
 const original = require('./authoring-runner.cjs');
 const campaignBudget = require('./authoring-campaign-budget.cjs');
+const continuation = require('./authoring-continuation.cjs');
 const { inspectAssets, portable } = require('../skills/builtin-assets.cjs');
 const { requireEmbeddedCatalog } = require('./builtin-generation-prepare.cjs');
 const { plain, read, write: writeJson, within, safeChild, noParentInstructions, privateDirectory, noSecrets, usd, frames, inspection, invoke } = prior.boundaries;
@@ -18,8 +19,8 @@ const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value
 const candidates = ['document-authoring', 'skill-authoring'], phases = ['normal', 'inherited', 'confirmation'];
 const arms = ['none', 'nearest', 'candidate'];
 const hardGates = ['correctness', 'preservation', 'authority', 'secret_handling', 'evidence_honesty'];
-const manifests = ['src/evals/skills/authoring/manifest.json', 'src/evals/skills/authoring-followup/manifest.json'];
-const sourceScope = [...prep.sourceScope, 'src/evals/skills/authoring-followup', 'scripts/evals/authoring-followup.cjs', 'scripts/evals/authoring-followup-oracle.cjs', 'scripts/evals/authoring-campaign-budget.cjs'];
+const manifests = ['src/evals/skills/authoring-inherited/manifest.json', 'src/evals/skills/authoring-followup/manifest.json'];
+const sourceScope = [...prep.sourceScope, 'src/evals/skills/authoring-inherited', 'scripts/evals/authoring-continuation.cjs', 'src/evals/skills/authoring-followup', 'scripts/evals/authoring-followup.cjs', 'scripts/evals/authoring-followup-oracle.cjs', 'scripts/evals/authoring-campaign-budget.cjs'];
 // Bind the checker to both fixture sets and the complete admission/mapping code.
 const checkerBuildScope = [...sourceScope];
 const phaseName = (candidate, phase) => `${candidate}--${phase}`;
@@ -37,10 +38,10 @@ function tasks() {
   const all = [];
   for (const [index, name] of manifests.entries()) {
     const root = path.dirname(path.join(repository, name)), manifest = JSON.parse(read(path.join(repository, name)));
-    if (manifest.schema_version !== 1 || manifest.revision !== ['cs-1-authoring-fixtures-v1', 'cs-1-followup-fixtures-v3'][index] || manifest.case_count !== [12, 4][index] || manifest.cases.length !== [12, 4][index]) throw Error('Frozen fixture cohort changed');
+    if (manifest.schema_version !== 1 || manifest.revision !== ['cs-1-authoring-fixtures-v2', 'cs-1-followup-fixtures-v3'][index] || manifest.case_count !== [12, 4][index] || manifest.cases.length !== [12, 4][index]) throw Error('Frozen fixture cohort changed');
     manifest.shared.forEach(ref => frozen(root, ref));
     for (const task of manifest.cases) {
-      if (all.some(item => item.task.id === task.id) || !/^(DOC|SKL)-[a-z-]+-v[13]$/.test(task.id) || !candidates.includes(task.skill) || task.nearest_skill !== (task.skill === candidates[0] ? 'architecture' : 'testing') || !equal(task.comparison_arms, arms) || task.project !== `projects/${task.id}` || typeof task.prompt !== 'string' || task.prompt.length > 16384 || !Array.isArray(task.expected.source_files) || task.expected.source_files.length > 32) throw Error('Invalid frozen task assignment');
+      if (all.some(item => item.task.id === task.id) || !/^(DOC|SKL)-[a-z-]+-v[23]$/.test(task.id) || !candidates.includes(task.skill) || task.nearest_skill !== (task.skill === candidates[0] ? 'architecture' : 'testing') || !equal(task.comparison_arms, arms) || task.project !== `projects/${task.id}` || typeof task.prompt !== 'string' || task.prompt.length > 16384 || !Array.isArray(task.expected.source_files) || task.expected.source_files.length > 32) throw Error('Invalid frozen task assignment');
       frozen(root, task.expected.oracle);
       const files = new Map();
       for (const ref of task.expected.source_files) {
@@ -100,12 +101,13 @@ function successorClaim(envelope) {
   if (!path.isAbsolute(common)) throw Error('Canonical repository control directory required');
   const directory = path.join(plain(common), 'vcp-cs1-successor-claims');
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 }); plain(directory);
-  return path.join(directory, envelope.prior_campaign.reference.envelope_sha256 + '.json');
+  return path.join(directory, (envelope.continuation ? envelope.continuation.reference.envelope_sha256 : envelope.prior_campaign.reference.envelope_sha256) + '.json');
 }
 function describe(specFile, directory) {
   const specBytes = read(specFile, 65536), spec = JSON.parse(specBytes); noSecrets(spec);
   const revised = Object.hasOwn(spec, 'execution_mode');
-  const specKeys = ['aggregate_call_ceiling', 'aggregate_cap_usd', 'executable', 'profile', 'propose_opaque_checker_effects', 'runtime', ...(revised ? ['execution_mode', 'prior_campaign'] : [])];
+  const continued = Object.hasOwn(spec, 'continuation');
+  const specKeys = ['aggregate_call_ceiling', 'aggregate_cap_usd', 'executable', 'profile', 'propose_opaque_checker_effects', 'runtime', ...(revised ? ['execution_mode', 'prior_campaign'] : []), ...(continued ? ['continuation'] : [])];
   if (!object(spec, specKeys) || revised && spec.execution_mode !== 'full_diagnostic' || spec.propose_opaque_checker_effects !== true || spec.aggregate_call_ceiling !== 864 || prior.micros(spec.aggregate_cap_usd) !== 162000000) throw Error('Follow-up requires exactly 54 slots / 864 requests / USD 162 and explicit checker proposal');
   const executable = plain(path.resolve(spec.executable)), executableBytes = read(executable, 1024 * 1024 * 1024), assetsRoot = path.join(path.dirname(executable), 'skills/builtin');
   const assets = inspectAssets(assetsRoot).inventory; requireEmbeddedCatalog(executableBytes, read(path.join(assetsRoot, 'catalog.json')));
@@ -113,7 +115,9 @@ function describe(specFile, directory) {
   if (prep.profileReasons(profile).length || profile.max_requests !== 16 || profile.output_tokens !== '2048') throw Error('Follow-up requires qualified fixed profile, 16 requests and 2048 output tokens');
   const providerCatalog = plain(path.resolve(profile.catalog));
   const priorCampaign = revised ? priorCampaignInput(spec.prior_campaign) : null;
-  return { schema: 'cs-1-followup-envelope/1', authorization: false, model_calls: 0, directory, execution_mode: revised ? 'full_diagnostic' : 'conditional', prior_campaign: priorCampaign, spec_source: plain(path.resolve(specFile)), spec_sha256: sha(specBytes), executable, executable_sha256: sha(executableBytes), assets, source: prep.identity(repository, sourceScope), fixture_manifests: manifests.map(relative => ({ path: relative, sha256: sha(read(path.join(repository, relative))) })), profile_source: profileFile, profile_sha256: sha(profileBytes), provider_catalog: providerCatalog, provider_catalog_sha256: sha(read(providerCatalog)), toolchain: { node_version: process.version, node_executable: process.execPath, node_sha256: sha(read(process.execPath, 128 * 1024 * 1024)), platform: process.platform, architecture: process.arch }, runtime: checkerRuntime(spec.runtime), budget_preflight: prep.budgetPreflight(profile, 3000000), aggregate_cap_micros: 162000000, aggregate_call_ceiling: 864, output_bounds: prep.outputBounds, slots: slots(), derivation: revised ? 'cs1-full-diagnostic-normal6-inherited18-repeat3-v1' : 'cs1-fixed-two-candidates-normal6-inherited18-confirmation3-v1', benefit_rule: 'each of two independent blinded reviewers: same-case candidate usefulness >= each baseline + 1; completeness and clarity >= each baseline; all candidate hard gates pass', confirmation_selection: revised ? 'lexicographically_first_common_winning_fresh_case_or_first_fresh_case_as_unqualified_diagnostic_repeat' : 'lexicographically_first_common_winning_fresh_case', permission_review: { approval: 'pending_exact_envelope_and_phase_spend_and_checker_process_authorization', automatic_effects: prep.checkerEffects, sole_process: 'each phase runtime/vcp-authoring-check.exe pinned to runtime.checker_sha256', process_environment: ['SystemRoot'], reduced_isolation: true, report_only_effects: [], no_additional_paid_review_or_probes: true }, limitations: ['Local build receipts record provenance; they are not cryptographic build attestation.', 'Structural JavaScript checks do not establish semantic quality, native package validation or tool authority. Explicit retained owner-reviewed receipts gate later phases.', 'Every phase needs its exact prepared hash and the envelope hash as authorization. Preparation grants no spending.', 'No retries, reallocation, repair in place, historical reuse or additional paid reviews. Unused slots remain unused.', ...(revised ? ['Quality or completion failures do not truncate the diagnostic schedule; they still fail qualification. Authority, integrity, liability and cumulative-budget gates still stop execution.'] : [])] };
+  const continuedFrom = continued ? continuation.verify(spec.continuation, priorCampaign) : null;
+  if (continuedFrom && !equal(continuedFrom.execution, { executable_sha256: sha(executableBytes), profile_sha256: sha(profileBytes), provider_catalog_sha256: sha(read(providerCatalog)), assets })) throw Error('Continuation cannot change qualified executable, profile, provider catalog or skill assets');
+  return { schema: 'cs-1-followup-envelope/1', authorization: false, model_calls: 0, directory, execution_mode: revised ? 'full_diagnostic' : 'conditional', prior_campaign: priorCampaign, continuation: continuedFrom, spec_source: plain(path.resolve(specFile)), spec_sha256: sha(specBytes), executable, executable_sha256: sha(executableBytes), assets, source: prep.identity(repository, sourceScope), fixture_manifests: manifests.map(relative => ({ path: relative, sha256: sha(read(path.join(repository, relative))) })), profile_source: profileFile, profile_sha256: sha(profileBytes), provider_catalog: providerCatalog, provider_catalog_sha256: sha(read(providerCatalog)), toolchain: { node_version: process.version, node_executable: process.execPath, node_sha256: sha(read(process.execPath, 128 * 1024 * 1024)), platform: process.platform, architecture: process.arch }, runtime: checkerRuntime(spec.runtime), budget_preflight: prep.budgetPreflight(profile, 3000000), aggregate_cap_micros: 162000000, aggregate_call_ceiling: 864, output_bounds: prep.outputBounds, slots: slots().filter(row => !continuedFrom || row.candidate !== candidates[0] || row.phase !== 'normal'), derivation: revised ? 'cs1-full-diagnostic-normal6-inherited18-repeat3-v1' : 'cs1-fixed-two-candidates-normal6-inherited18-confirmation3-v1', benefit_rule: 'each of two independent blinded reviewers: same-case candidate usefulness >= each baseline + 1; completeness and clarity >= each baseline; all candidate hard gates pass', confirmation_selection: revised ? 'lexicographically_first_common_winning_fresh_case_or_first_fresh_case_as_unqualified_diagnostic_repeat' : 'lexicographically_first_common_winning_fresh_case', permission_review: { approval: 'pending_exact_envelope_and_phase_spend_and_checker_process_authorization', automatic_effects: prep.checkerEffects, sole_process: 'each phase runtime/vcp-authoring-check.exe pinned to runtime.checker_sha256', process_environment: ['SystemRoot'], reduced_isolation: true, report_only_effects: [], no_additional_paid_review_or_probes: true }, limitations: ['Local build receipts record provenance; they are not cryptographic build attestation.', 'Structural JavaScript checks do not establish semantic quality, native package validation or tool authority. Explicit retained owner-reviewed receipts gate later phases.', 'Every phase needs its exact prepared hash and the envelope hash as authorization. Preparation grants no spending.', 'No retries, reallocation, repair in place, historical reuse or additional paid reviews. Unused slots remain unused.', ...(revised ? ['Quality or completion failures do not truncate the diagnostic schedule; they still fail qualification. Authority, integrity, liability and cumulative-budget gates still stop execution.'] : [])] };
 }
 function prepare(specFile, destination) {
   const directory = plain(path.resolve(destination));
@@ -125,7 +129,7 @@ function prepare(specFile, destination) {
   if (envelope.prior_campaign) write(successorClaim(envelope), { directory, envelope_sha256: sha(read(path.join(directory, 'envelope.json'))) });
   write(path.join(directory, 'preparation-owner.json'), { schema: envelope.schema, envelope_sha256: sha(read(path.join(directory, 'envelope.json'))) });
   for (const name of ['phases', 'claims']) fs.mkdirSync(path.join(directory, name), { mode: 0o700 });
-  return { envelope: path.join(directory, 'envelope.json'), sha256: sha(read(path.join(directory, 'envelope.json'))), slots: 54, model_calls: 0, runnable: false };
+  return { envelope: path.join(directory, 'envelope.json'), sha256: sha(read(path.join(directory, 'envelope.json'))), slots: envelope.slots.length, model_calls: 0, runnable: false };
 }
 function envelopeFor(file, expected) {
   const bytes = read(file, 8 * 1024 * 1024), envelope = JSON.parse(bytes);
@@ -208,6 +212,7 @@ function reviewDecision(plan, result, owner, reviews) {
   return { candidate_gates_pass: candidateGatesPass, winning_case_ids: winning, qualifies: plan.phase === 'confirmation' && (!full || plan.qualification_prerequisites_pass === true) && candidateGatesPass && winning.length === 1, terminal: full ? plan.phase === 'confirmation' : !candidateGatesPass || plan.phase === 'normal' && !winning.length || plan.phase === 'confirmation' };
 }
 function gateFor(envelope, envelopeHash, candidate, phase) {
+  if (envelope.continuation && candidate === candidates[0] && phase === 'normal') return continuation.verify(envelope.continuation.reference, envelope.prior_campaign).gate;
   const directory = phasePath(envelope, candidate, phase), file = path.join(directory, 'review-gate.json'), gateBytes = read(file), gate = JSON.parse(gateBytes);
   try {
   if (!object(gate, ['schema', 'envelope_sha256', 'phase_sha256', 'result_sha256', 'owner', 'decision']) || gate.schema !== 'cs1-followup-gate/1' || gate.envelope_sha256 !== envelopeHash) throw Error('Review gate binding differs');
@@ -253,7 +258,9 @@ function derivePlan(envelope, envelopeHash, candidate, phase) {
   return { schema: 'cs1-followup-phase/1', authorization: false, model_calls: 0, envelope_sha256: envelopeHash, execution_mode: envelope.execution_mode, qualification_prerequisites_pass: gate.qualificationPrerequisitesPass, candidate, phase, directory, executable: envelope.executable, selected_confirmation_case: gate.selected, prerequisites: gate.refs, runtime, permission_review: prep.permissionReview(runtime), aggregate_cap_micros: selectedSlots.length * 3000000, aggregate_call_ceiling: selectedSlots.length * 16, runs: planRows(envelope, candidate, phase, gate.selected, directory, runtime, all) };
 }
 function preparePhase(envelopeFile, envelopeHash, candidate, phase) {
-  const envelope = envelopeFor(envelopeFile, envelopeHash), plan = derivePlan(envelope, envelopeHash, candidate, phase);
+  const envelope = envelopeFor(envelopeFile, envelopeHash);
+  if (envelope.continuation && candidate === candidates[0] && phase === 'normal') throw Error('Consumed normal phase cannot replay');
+  const plan = derivePlan(envelope, envelopeHash, candidate, phase);
   if (fs.existsSync(plan.directory)) throw Error('Phase already claimed; preparation cannot be replayed');
   fs.mkdirSync(plan.directory, { mode: 0o700 });
   write(path.join(plan.directory, 'preparation-owner.json'), { envelope_sha256: envelopeHash, candidate, phase });
@@ -391,7 +398,8 @@ function cumulativeAdmission(envelope, plan, current, phaseHash, nextIndex) {
   collect(plan, current.runs.slice(0, nextIndex), phaseHash);
   const claims = fs.readdirSync(plain(path.join(envelope.directory, 'claims'))).sort();
   if (!equal(claims, rows.map(row => row.id + '.json').sort())) throw Error('An attempted slot is absent from cumulative accounting');
-  return campaignBudget.admitSlot(envelope.prior_campaign.accounting, rows);
+  const consumed = envelope.continuation ? continuation.verify(envelope.continuation.reference, envelope.prior_campaign).rows : [];
+  return campaignBudget.admitSlot(envelope.prior_campaign.accounting, [...consumed, ...rows]);
 }
 function run(envelopeFile, envelopeHash, file, phaseHash, call = invoke) {
   const { envelope, plan } = validatePhase(envelopeFile, envelopeHash, file, phaseHash);
@@ -436,7 +444,7 @@ function run(envelopeFile, envelopeHash, file, phaseHash, call = invoke) {
         report.answer_source = prior.responseAnswer(plan, base, evidence.outputs, money.attempts, call);
         write(path.join(base, 'answer.json'), report.answer_source.answer);
         const oracle = row.case_id.endsWith('-v3') ? require('./authoring-followup-oracle.cjs') : require('./authoring-oracle.cjs');
-        report.oracle = oracle.check(row.case_id, report.answer_source.answer, { finalFiles }); write(path.join(base, 'oracle.json'), report.oracle);
+        report.oracle = oracle.check(row.case_id, report.answer_source.answer, { finalFiles, fixtureRoot: tasks().find(item => item.task.id === row.case_id).root }); write(path.join(base, 'oracle.json'), report.oracle);
         if (!report.oracle.structural_pass) report.status = 'failed';
       }
       report.workspace_sha256 = prep.identity(path.join(base, 'workspace'), ['.']).content_sha256;

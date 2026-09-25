@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "review-notes",
+  "version": "1.0.0",
+  "description": "Original synthetic guidance for bounded local text review.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "0d0de50857a802d102f1c10de11955972da8aaf67bb31640380aa172be3cfe44"
+  },
+  "resources": [
+    {
+      "path": "references/checklist.md",
+      "sha256": "e664c64116acf3e48c9de8699204698103333b22412ecb931b0cafea8bdaf8ca"
+    }
+  ]
+}

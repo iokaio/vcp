@@ -81,11 +81,14 @@ function check(caseId, answer, options = {}) {
   }
   const requiredLinks = {
     'DOC-normal-runbook-v1': ['service.md', 'operations.md'],
+    'DOC-normal-runbook-v2': ['service.md', 'operations.md'],
     'DOC-normal-release-v1': ['changes.md', 'checks.json'],
+    'DOC-normal-release-v2': ['changes.md', 'checks.json'],
     'DOC-boundary-adr-v1': ['adr/001-local.md', 'adr/002-pipe.md', 'adr/003-socket.md'],
+    'DOC-boundary-adr-v2': ['adr/001-local.md', 'adr/002-pipe.md', 'adr/003-socket.md'],
   }[caseId] || [];
   for (const name of requiredLinks) if (!linked.has(name)) fail(`Required source link missing: ${name}`);
-  if (caseId === 'SKL-normal-package-v1' || caseId === 'SKL-normal-resource-update-v1') {
+  if (['SKL-normal-package-v1', 'SKL-normal-resource-update-v1', 'SKL-normal-package-v2', 'SKL-normal-resource-update-v2'].includes(caseId)) {
     let descriptor;
     try { descriptor = JSON.parse(final.get('package/skill.json')); } catch { fail('Invalid skill descriptor JSON'); }
     if (descriptor) {
@@ -113,7 +116,7 @@ function check(caseId, answer, options = {}) {
         if (content === undefined || digest(content) !== ref.sha256) fail(`Missing content or stale digest: ${ref.path}`);
       }
       if (descriptor.body?.path !== 'SKILL.md' || descriptor.resources?.[0]?.path !== 'references/checklist.md') fail('Expected package content paths changed');
-      if (caseId === 'SKL-normal-package-v1') {
+      if (['SKL-normal-package-v1', 'SKL-normal-package-v2'].includes(caseId)) {
         if (descriptor.id !== 'change-notes' || descriptor.version !== '1.0.0' || descriptor.source !== 'vcp-original' || descriptor.license !== 'Apache-2.0') fail('New package identity differs from requested contract');
       } else {
         const previous = JSON.parse(initial.get('package/skill.json'));

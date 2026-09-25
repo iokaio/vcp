@@ -20,7 +20,7 @@ function fixture(t, api = followup) {
   const profile = { version: 1, trust_workspace: true, maximum_autonomy: 'workspace', automatic_effects: ['read', 'write'], workspace: 'rebound', provider: { observed_at: String(Date.now()), max_input: '1000', valid_until: future, max_output: '16384', price: { currency: 'USD', valid_until: future, rates: Object.fromEntries(['input', 'output', 'cache_read', 'cache_write', 'request', 'provider_tool'].map(category => [category, { micros: category === 'request' ? '1' : '0', per_units: '1' }])) }, compatibility: { byte_ceiling_qualified: false, valid_until: future, responses_text_tools: true, provider_preferences_qualified: true } }, catalog, max_requests: 16, max_transport_retries: 0, output_tokens: '2048', deadline_seconds: 600, processes: [], checks: [], mcp: [], mcp_http: [] };
   const checker = path.join(root, 'source-checker.exe'), build_receipt = path.join(root, 'checker-build.json');
   fs.writeFileSync(checker, 'synthetic checker; never executed');
-  const manifests = ['src/evals/skills/authoring/manifest.json', 'src/evals/skills/authoring-followup/manifest.json'];
+  const manifests = ['src/evals/skills/authoring-inherited/manifest.json', 'src/evals/skills/authoring-followup/manifest.json'];
   const source = 'src/crates/vcp-cli/src/bin/vcp-authoring-check.rs', builder = path.join(repository, 'scripts/evals/authoring-check-build.ps1');
   save(build_receipt, { schema: 'cs1-authoring-check-build/2', source, source_sha256: sha(fs.readFileSync(path.join(repository, source))), fixture_manifest: manifests[0], fixture_manifest_sha256: sha(fs.readFileSync(path.join(repository, manifests[0]))), fixture_manifests: manifests.map(p => ({ path: p, sha256: sha(fs.readFileSync(path.join(repository, p))) })), executable: checker, executable_sha256: sha(fs.readFileSync(checker)), cargo_command: prep.checkerCargoCommand, exit_code: 0, toolchain: { rustc: 'rustc synthetic-fixture' }, source_inputs: prep.identity(repository, followup.checkerBuildScope).files.map(({ path, sha256 }) => ({ path, sha256 })), source_inputs_unchanged: true, builder, builder_sha256: sha(fs.readFileSync(builder)) });
   const spec = { executable, profile: profileFile, aggregate_cap_usd: '162.000000', aggregate_call_ceiling: 864, runtime: { checker, build_receipt }, propose_opaque_checker_effects: true };
@@ -336,4 +336,46 @@ test('unaccounted attempted claims prevent full-mode dispatch and preserve the e
   assert.equal(result.stopped, true); assert.match(result.runs[0].reason, /absent from cumulative accounting/);
   assert.equal(fs.existsSync(path.join(p.plan.directory, p.plan.runs[0].id, 'attempted.json')), false);
   assert.throws(() => followup.prepare(f.specFile, path.join(f.root, 'another-successor')), /EEXIST/);
+});
+
+test('sealed continuation consumes the original normal gate and permits only 48 remaining slots', t => {
+  // The same production validator runs under the synthetic Windows host on CI.
+  const predecessorApi = require('../../../scripts/evals/authoring-followup.cjs');
+  t.mock.method(predecessorApi, 'envelopeFor', followup.envelopeFor);
+  t.mock.method(predecessorApi, 'derivePlan', followup.derivePlan);
+  const f = fullFixture(t), e = f.prepare();
+  const normal = followup.preparePhase(e.envelope, e.sha256, 'document-authoring', 'normal'), plan = json(normal.plan);
+  let calls = 0;
+  const transport = (_exe, args) => {
+    if (args.includes('run')) return { status: 1, stdout: JSON.stringify({ type: 'accepted', scope: { task: 'continuation-test-' + ++calls } }) + '\n' + JSON.stringify({ type: 'result', conditions: { completed: false } }), stderr: '' };
+    const view = args[args.indexOf('--view') + 1];
+    return { status: 0, stdout: JSON.stringify({ type: 'result', data: { items: view === 'costs' ? [{ collection: 'ledger', visibility: 'available', record: { currency: 'USD', cap: '3000000', active: '0', unresolved: '0', settled: '0', overrun: false } }] : [], gaps: [], next_cursor: null } }), stderr: '' };
+  };
+  const result = followup.run(e.envelope, e.sha256, normal.plan, normal.sha256, transport);
+  assert.equal(result.stopped, false);
+  const gate = followup.recordReview(e.envelope, e.sha256, 'document-authoring', 'normal', retainReview(f.root, plan, normal.sha256, result, e.sha256));
+  const reference = { envelope: e.envelope, envelope_sha256: e.sha256, repository, gate_sha256: sha(fs.readFileSync(path.join(plan.directory, 'review-gate.json'))), result_sha256: sha(fs.readFileSync(path.join(plan.directory, 'result.json'))) };
+  const historical = json(e.envelope).prior_campaign;
+  require('../../../scripts/evals/authoring-continuation.cjs').seal(reference, historical);
+  const specFile = path.join(f.root, 'continuation-spec.json'); save(specFile, { ...f.spec, continuation: reference });
+  const resumed = followup.prepare(specFile, path.join(f.root, 'continuation'));
+  const resumedEnvelope = json(resumed.envelope), claim = followup.successorClaim(resumedEnvelope);
+  t.after(() => { if (fs.existsSync(claim)) { assert.equal(json(claim).directory, resumedEnvelope.directory); fs.unlinkSync(claim); } });
+  assert.equal(resumed.slots, 48); assert.equal(resumedEnvelope.slots.length, 48);
+  assert.equal(resumedEnvelope.continuation.gate.decision.candidate_gates_pass, gate.decision.candidate_gates_pass);
+  assert.equal(resumedEnvelope.continuation.gate.decision.candidate_gates_pass, false);
+  assert.throws(() => followup.preparePhase(resumed.envelope, resumed.sha256, 'document-authoring', 'normal'), /cannot replay/);
+  assert.throws(() => followup.preparePhase(e.envelope, e.sha256, 'document-authoring', 'inherited'), /halted/);
+  const inherited = followup.preparePhase(resumed.envelope, resumed.sha256, 'document-authoring', 'inherited');
+  assert.equal(inherited.slots, 18);
+  assert(json(inherited.plan).runs.every(row => row.case_id.endsWith('-v2')));
+  assert.equal(json(inherited.plan).qualification_prerequisites_pass, false);
+  assert.throws(() => followup.prepare(specFile, path.join(f.root, 'second-continuation')), /EEXIST/);
+  const changedProfile = path.join(f.root, 'changed-profile.json');
+  fs.writeFileSync(changedProfile, fs.readFileSync(f.spec.profile, 'utf8') + '\n');
+  const changedSpec = path.join(f.root, 'changed-continuation-spec.json');
+  save(changedSpec, { ...f.spec, continuation: reference, profile: changedProfile });
+  assert.throws(() => followup.prepare(changedSpec, path.join(f.root, 'changed-profile-continuation')), /cannot change qualified/);
+  fs.appendFileSync(path.join(plan.directory, 'review/blind-source-0.json'), ' ');
+  assert.throws(() => followup.run(resumed.envelope, resumed.sha256, inherited.plan, inherited.sha256, () => assert.fail('No dispatch after predecessor evidence drift')), /evidence changed/);
 });
