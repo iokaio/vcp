@@ -3,9 +3,10 @@
 // This entire process, including this adapter, is untrusted to the parent.
 // Frames are external behavior for the parent to judge; no child verdict counts.
 const decoder = new TextDecoder('utf-8', { fatal: true });
-const lines = [];
-let pending = '', ended = false, wake = null;
-function notify() { if (wake) { const resume = wake; wake = null; resume(); } }
+const lines = [], waiters = [];
+let pending = '', ended = false;
+// Wake every waiter; each rechecks the queue, so overlapping reads never stall.
+function notify() { for (const resume of waiters.splice(0)) resume(); }
 process.stdin.on('data', chunk => {
   pending += decoder.decode(chunk, { stream: true });
   for (let index; (index = pending.indexOf('\n')) >= 0; pending = pending.slice(index + 1)) lines.push(pending.slice(0, index));
@@ -15,7 +16,7 @@ process.stdin.on('end', () => { pending += decoder.decode(); ended = true; notif
 async function line() {
   while (lines.length === 0) {
     if (ended) { if (pending !== '') throw Error('Partial parent frame'); return null; }
-    await new Promise(resolve => { wake = resolve; });
+    await new Promise(resolve => { waiters.push(resolve); });
   }
   return lines.shift();
 }

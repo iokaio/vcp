@@ -63,12 +63,13 @@ test('actual Windows pinned Node runner and hostile protocol outputs', { skip: p
   assert.equal(hash(process.execPath), nodeHash);
 });
 const { checkInteractiveReceipt } = require('../../../scripts/evals/node-fixture-protocol.cjs');
-const { openInteractive } = require('../../../scripts/evals/node-fixture-session.cjs');
+const { openInteractive, reconcileProfile } = require('../../../scripts/evals/node-fixture-session.cjs');
 const interactiveBootstrap = path.join(root, 'scripts/evals/node-fixture-interactive-bootstrap.cjs');
+const profileFolder = profile => path.join(process.env.LOCALAPPDATA, 'Packages', profile);
 function alive(pid) {
-  try { process.kill(pid, 0); return true; } catch (error) { return error.code === 'EPERM'; }
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
 }
-test('actual Windows interactive relay with parent-owned transport and hostile frames', { skip: process.platform !== 'win32', timeout: 300000 }, async t => {
+test('actual Windows interactive relay with parent-owned transport and hostile frames', { skip: process.platform !== 'win32', timeout: 420000 }, async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-node-interactive-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const nodeHash = hash(process.execPath);
@@ -102,23 +103,33 @@ test('actual Windows interactive relay with parent-owned transport and hostile f
   const transported = await transport.close();
   assert.deepEqual(checkInteractiveReceipt(transported.receipt, transported), { external_interaction_pass: true });
 
+  // Overlapping reads inside the candidate are served in order, not stalled.
+  const prefetch = openInteractive(configure(`exports.interact = async ch => {
+    const [first, second] = await Promise.all([ch.receive(), ch.receive()]);
+    ch.send([first, second]);
+  };`));
+  prefetch.send('a'); prefetch.send('b');
+  assert.deepEqual(await prefetch.receive(), ['a', 'b']);
+  const prefetched = await prefetch.close();
+  checkInteractiveReceipt(prefetched.receipt, prefetched);
+
   // Forged, duplicate, reordered or unframed child output cannot be decoded as a reply.
   // The session is not secret from the candidate, so hostile code learns it by
   // intercepting its own stdout; only the parent's sequence check rejects it.
   const capture = "let session; const write = process.stdout.write.bind(process.stdout); " +
     "process.stdout.write = (chunk, ...rest) => { session ??= JSON.parse(chunk).session; return write(chunk, ...rest); };";
-  const forged = [
-    ["exports.interact = async ch => { await ch.receive(); process.stdout.write(JSON.stringify({ session: '0'.repeat(32), seq: 1, body: 1 }) + '\\n'); };", false],
-    [`${capture} exports.interact = async ch => { await ch.receive(); ch.send(1); await ch.receive(); write(JSON.stringify({ session, seq: 1, body: 2 }) + '\\n'); };`, true],
-    [`${capture} exports.interact = async ch => { await ch.receive(); ch.send(1); await ch.receive(); write(JSON.stringify({ session, seq: 3, body: 3 }) + '\\n'); };`, true],
-    ["exports.interact = async ch => { await ch.receive(); process.stdout.write('garbage\\n'); };", false],
-  ];
-  for (const [code, replyFirst] of forged) {
+  const rejected = { code: 'ERR_ASSERTION' };
+  for (const [code, replyFirst, expected] of [
+    ["exports.interact = async ch => { await ch.receive(); process.stdout.write(JSON.stringify({ session: '0'.repeat(32), seq: 1, body: 1 }) + '\\n'); };", false, rejected],
+    [`${capture} exports.interact = async ch => { await ch.receive(); ch.send(1); await ch.receive(); write(JSON.stringify({ session, seq: 1, body: 2 }) + '\\n'); };`, true, rejected],
+    [`${capture} exports.interact = async ch => { await ch.receive(); ch.send(1); await ch.receive(); write(JSON.stringify({ session, seq: 3, body: 3 }) + '\\n'); };`, true, rejected],
+    ["exports.interact = async ch => { await ch.receive(); process.stdout.write('garbage\\n'); };", false, SyntaxError],
+  ]) {
     const hostile = openInteractive(configure(code));
     hostile.send('probe');
     if (replyFirst) { assert.equal(await hostile.receive(), 1); hostile.send('again'); }
-    await assert.rejects(hostile.receive());
-    await hostile.close();
+    await assert.rejects(hostile.receive(), expected);
+    await assert.rejects(hostile.close(), expected); // A rejected frame poisons the session.
   }
   const unrequested = openInteractive(configure('exports.interact = async ch => { await ch.receive(); ch.send(1); ch.send(2); };'));
   unrequested.send('probe');
@@ -126,62 +137,75 @@ test('actual Windows interactive relay with parent-owned transport and hostile f
   const extra = await unrequested.close();
   assert.throws(() => checkInteractiveReceipt(extra.receipt, extra), /unrequested/);
 
-  // Ceilings, stalls and side channels stop or fail the run.
-  for (const [termination, code] of [
-    ['frame_limit', 'exports.interact = async ch => { await ch.receive(); for (;;) ch.send(1); };'],
-    ['frame_bytes', 'exports.interact = async ch => { await ch.receive(); ch.send("x".repeat(5000)); await new Promise(() => {}); };'],
-    ['idle_timeout', 'exports.interact = async () => { setInterval(() => {}, 1000); await new Promise(() => {}); };'],
+  // Ceilings and stalls stop the job with a distinct termination.
+  for (const [termination, code, modify, parentFrames] of [
+    ['frame_limit', 'exports.interact = async ch => { await ch.receive(); for (;;) ch.send(1); };', () => {}, 1],
+    ['frame_bytes', 'exports.interact = async ch => { await ch.receive(); ch.send("x".repeat(5000)); await new Promise(() => {}); };', () => {}, 1],
+    ['total_bytes', 'exports.interact = async ch => { await ch.receive(); ch.send("x".repeat(100)); await new Promise(() => {}); };',
+      c => { c.interaction.max_total_bytes = 128; }, 1],
+    ['parent_frame_limit', echo, c => { c.interaction.max_frames = 2; }, 2],
+    ['idle_timeout', 'exports.interact = async () => { setInterval(() => {}, 1000); await new Promise(() => {}); };', () => {}, 1],
   ]) {
-    const bounded = openInteractive(configure(code));
-    bounded.send('probe');
+    const bounded = openInteractive(configure(code, modify));
+    for (let index = 0; index < parentFrames; index++) bounded.send(`probe-${index}`);
     if (termination === 'idle_timeout') await assert.rejects(bounded.receive(1000), /Timed out/);
-    const closed = await bounded.close(30000);
+    const closed = await bounded.close();
     assert.equal(closed.receipt.result.termination, termination);
-    assert.throws(() => checkInteractiveReceipt(closed.receipt, closed));
+    assert.throws(() => checkInteractiveReceipt(closed.receipt, closed), { code: 'ERR_ASSERTION' });
   }
-  for (const [code, replies] of [
-    ['exports.interact = async ch => { await ch.receive(); process.stdout.write("partial"); };', false],
-    ['exports.interact = async ch => { const b = await ch.receive(); process.stderr.write("diagnostic"); ch.send(b); };', true],
+  // Output outside frames fails even when the process exits cleanly.
+  for (const [code, replies, field] of [
+    ['exports.interact = async ch => { await ch.receive(); process.stdout.write("partial"); };', false, 'trailing_bytes'],
+    ['exports.interact = async ch => { const b = await ch.receive(); process.stderr.write("diagnostic"); ch.send(b); };', true, 'stderr_bytes'],
   ]) {
     const side = openInteractive(configure(code));
     side.send('probe');
     if (replies) assert.equal(await side.receive(), 'probe');
     const closed = await side.close();
-    assert.throws(() => checkInteractiveReceipt(closed.receipt, closed));
+    assert.equal(closed.receipt.result.termination, 'exited');
+    assert(closed.receipt.result[field] > 0, `Missing ${field} observation`);
+    assert.throws(() => checkInteractiveReceipt(closed.receipt, closed), { code: 'ERR_ASSERTION' });
   }
   const early = openInteractive(configure('exports.interact = async () => { process.exit(0); };'));
   early.send('probe');
   await assert.rejects(early.receive(), /ended/);
   await early.close();
 
+  // A parent close deadline shorter than the run kills the runner; the helper then
+  // reconciles the recorded profile instead of leaking it, and the run never passes.
+  const overdue = openInteractive(configure('exports.interact = async ch => { setInterval(() => ch.send(0), 500); await new Promise(() => {}); };'));
+  const overdueStarted = await overdue.waitStarted();
+  await assert.rejects(overdue.close(1500), /close deadline/);
+  assert.equal(alive(overdueStarted.pid), false, 'Contained child survived the close deadline');
+  assert.equal(fs.existsSync(profileFolder(overdueStarted.profile)), false, 'Overdue profile leaked');
+
   // Invalid interactive authority or identity never launches the child.
   for (const modify of [c => { c.mode = 'duplex'; }, c => { c.input_base64 = ''; }, c => { delete c.interaction.idle_ms; },
     c => { c.interaction.idle_ms = 30000; }, c => { c.interaction.max_frames = 4097; }, c => { c.output_limit = 65537; },
     c => { c.bootstrap_sha256 = hash(bootstrap); }]) {
-    const rejected = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner, '-Config', configure(echo, modify)], {
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner, '-Config', configure(echo, modify)], {
       cwd: root, encoding: 'utf8', input: '', timeout: 15000, maxBuffer: 1048576, windowsHide: true });
-    assert.notEqual(rejected.status, 0, 'Invalid interactive request unexpectedly launched');
-    assert.equal(rejected.stdout, '');
+    assert.notEqual(result.status, 0, 'Invalid interactive request unexpectedly launched');
+    assert.equal(result.stdout, '');
   }
 
-  // Abrupt owner loss mid-exchange: the kill-on-close job ends the child and the
-  // supervisor reconciles the recorded profile identity.
+  // Abrupt owner loss mid-exchange: the kill-on-close job ends the child, the
+  // recorded profile demonstrably remains, and the supervisor reconciles it.
   const owned = openInteractive(configure(echo));
   const started = await owned.waitStarted();
   assert.match(started.profile, /^iokaio\.vcp\.memory\.[a-f0-9]{32}$/);
-  owned.send('first');
-  assert.deepEqual(await owned.receive(), { echo: 'first' });
-  owned.send('second');
-  await owned.kill();
-  const deadline = Date.now() + 5000;
-  while (alive(started.pid) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
-  assert.equal(alive(started.pid), false, 'Contained child survived owner loss');
-  const folder = path.join(process.env.LOCALAPPDATA, 'Packages', started.profile);
-  const cleanup = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command',
-    "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public static class OwnerLossCleanup { [DllImport(\"userenv.dll\", CharSet=CharSet.Unicode)] public static extern int DeleteAppContainerProfile(string name); }'; " +
-    `[Runtime.InteropServices.Marshal]::ThrowExceptionForHR([OwnerLossCleanup]::DeleteAppContainerProfile('${started.profile}'))`],
-    { encoding: 'utf8', timeout: 30000, windowsHide: true });
-  assert.equal(cleanup.status, 0, cleanup.stderr);
-  assert.equal(fs.existsSync(folder), false, 'Owner-loss profile survived supervisor cleanup');
+  try {
+    owned.send('first');
+    assert.deepEqual(await owned.receive(), { echo: 'first' });
+    owned.send('second');
+    await owned.kill();
+    const deadline = Date.now() + 5000;
+    while (alive(started.pid) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(alive(started.pid), false, 'Contained child survived owner loss');
+    assert.equal(fs.existsSync(profileFolder(started.profile)), true, 'Owner loss unexpectedly removed its profile');
+  } finally {
+    if (fs.existsSync(profileFolder(started.profile))) await reconcileProfile(started);
+  }
+  assert.equal(fs.existsSync(profileFolder(started.profile)), false, 'Owner-loss profile survived supervisor cleanup');
   assert.equal(hash(process.execPath), nodeHash);
 });

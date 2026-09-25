@@ -59,28 +59,65 @@ the runner's own stdin/stdout and the contained child instead of writing one
 fixed input. Output to the parent is one JSON envelope per line: `started`
 (child PID and owned profile name, for supervisor reconciliation), `frame`
 (the child's line as opaque base64) and a final `receipt`. The relay never
-interprets frame content. Exceeding a frame, byte or stderr ceiling, idling
-past `idle_ms`, the wall deadline or cancellation terminates the job and
-records `frame_limit`, `frame_bytes`, `total_bytes`, `output_limit`,
-`idle_timeout`, `timeout` or `cancelled`; parent-side violations are prefixed
-`parent_`. Bytes after the last newline are counted as `trailing_bytes`.
-Parent end-of-input closes the child's input.
+interprets frame content.
+
+Any of the following terminates the job, and each records its own termination:
+
+| Cause | Termination |
+|---|---|
+| Too many frames | `frame_limit` |
+| A frame over the size ceiling | `frame_bytes` |
+| Too many bytes in total | `total_bytes` |
+| Stderr over its ceiling | `output_limit` |
+| No frame either way for `idle_ms` | `idle_timeout` |
+| The wall deadline | `timeout` |
+| Cancellation | `cancelled` |
+
+When the parent causes a violation, the termination is prefixed `parent_`, for
+example `parent_frame_limit`. An unterminated final parent line is
+`parent_partial_frame`. The parent's session header counts toward
+`max_frames`.
+
+Frame and byte counts are observed values. They include the frame that crossed
+a ceiling, so a `frame_limit` run reports one more frame than was relayed.
+Bytes after the child's last newline are counted as `trailing_bytes`; this is
+not recorded after a ceiling violation.
+
+Parent end-of-input closes the child's input. The bootstrap keeps reading
+until then, so the parent must close within `idle_ms` of its last exchange.
+The idle clock starts before Node boots, so very small `idle_ms` values are
+fragile.
+
+`started` is emitted when the relay starts, before job assignment and token
+verification complete. It identifies the profile for reconciliation and is not
+proof of containment; the receipt is.
 
 The interactive bootstrap requires a first `{"session"}` frame and gives the
 candidate a channel whose outgoing frames carry `{session, seq, body}`.
 [`node-fixture-session.cjs`](../../scripts/evals/node-fixture-session.cjs) is the
-trusted parent helper. It decodes each frame with `decodeFrame`, which requires
-canonical base64, strict UTF-8 JSON, the exact key set, the session and the next
-sequence number. `checkInteractiveReceipt` accepts only a clean exited
-AppContainer process with no stderr or trailing bytes, no unread child frames
-and frame counts equal to the parent's own counts.
+trusted parent helper.
+
+- `decodeFrame` decodes each frame. It requires canonical base64, strict UTF-8
+  JSON, the exact key set, the session and the next sequence number. A rejected
+  frame fails the whole session.
+- `checkInteractiveReceipt` accepts only a clean exited AppContainer process
+  with no stderr or trailing bytes, no unread child frames, and frame counts
+  equal to the parent's own counts.
+- `close()` waits for the configured `timeout_ms` plus a cleanup margin.
+- A run that ends without a receipt never passes. This covers a missed close
+  deadline, a helper-detected envelope violation and abrupt owner loss. The
+  helper, or the supervisor after owner loss, waits for the recorded child PID
+  to exit and then deletes the recorded profile with `reconcileProfile`.
 
 The session and sequence are not secrets from the contained process. They catch
 confused, duplicated, reordered and unrequested frames, not a candidate that
-lies about its own behavior. What this mode adds is that the trusted parent can
-play a transport, iterator or protocol peer. Each outgoing request, retry or read
-from the candidate is then an observation made outside the container, not a
-report from inside it. A probe still judges only the replies it receives.
+lies about its own behavior.
+
+What this mode adds is that the trusted parent can play a transport, iterator or
+protocol peer. An outgoing request, retry or iterator pull that the protocol
+turns into a frame is then observed outside the container, not reported from
+inside it. Reads with no outgoing frame remain unobserved. A probe still judges
+only the frames it receives.
 
 ## Reproduction and evidence
 
@@ -115,15 +152,18 @@ runner through `node-fixture-session.cjs`. It covers:
 
 - a parent-owned transport whose request and single call are observed outside
   the container;
+- overlapping candidate reads;
 - a forged session, and a duplicate and a skipped sequence number emitted with
-  the correct session by stdout interception;
+  the correct session by stdout interception; each is rejected by its specific
+  assertion, not by a timeout;
 - non-JSON output and unrequested frames;
-- frame-count, frame-size and idle ceilings;
-- trailing bytes, stderr and early exit;
+- frame-count, frame-size, total-byte, parent frame-count and idle ceilings;
+- explicitly observed trailing bytes and stderr, and early exit;
+- a missed parent close deadline whose profile is reconciled rather than leaked;
 - seven prelaunch rejections: unknown mode, `input_base64`, missing or
   excessive bounds, oversized `output_limit`, and the single-shot bootstrap hash;
-- abrupt owner loss mid-exchange, after which the child PID exits and the
-  supervisor deletes the recorded profile.
+- abrupt owner loss mid-exchange. The child PID exits, the recorded profile
+  demonstrably remains, and the supervisor then deletes it.
 
 Fourteen native cases passed: the eleven above plus an interactive relay, a
 frame-count ceiling and an idle deadline driven directly through
