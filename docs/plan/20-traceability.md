@@ -2,6 +2,14 @@
 
 Status: implementation and qualification in progress. Ownership inventory from architecture draft 0.4 and the task headings in this directory, with developer-workflow evidence aligned on September 22, 2026. All 68 architecture items have exactly one implementation owner: 56 first-release items and 12 deferred items (P4, P9 and P10). The evidence-linked rows below record completed P0–P3, P5, P6 and P7 boundaries. P7-04/05/06 completion includes the passing final source-bound native gate; P8 is now closed by owner direction with qualification gaps retained; P9 and P4-01 through P4-05 are complete. Task dependency IDs remain unchanged.
 
+Current owner-directed sequence: **67 of 68 architecture items complete**.
+P10-04 remains planned and explicitly deferred under
+[ADR-068](../adr/068-skills-follow-on-before-other-hosts.md).
+The [separate CS-0–CS-6 ledger](24-skills-follow-on.md#sequence-and-ownership)
+owns the skills follow-on; it does not alter this inventory or its dependencies.
+Retained P8 gaps, M10/other deferred Markov work and prompt-audit proposals remain
+separate outstanding work.
+
 Use this ledger with [the segment index](README.md) and [the shared test guide](16-test-fixtures-and-acceptance.md). Dependencies below retain the architecture's exact IDs; slash suffixes share the preceding phase, and an ellipsis denotes an inclusive range. A whole segment is not an additional dependency.
 
 The current [P7-02 completion qualification](../evaluations/p7-02-completion.md)
@@ -92,7 +100,7 @@ Each linked task supplies code organization, implementation increments and testi
 | P10-01 Hooks | P8-05, P7-03 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-01--hooks) | [E16/R06 timeout, recursion, rewrite and recovery evidence](../evaluations/p10-01-hooks.md) | Complete |
 | P10-02 Configuration imports | P8-05, P7-01/03 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-02--configuration-import) | [Pinned restriction subsets, redacted previews, native publication/rollback and authority evidence](../evaluations/p10-02-configuration-imports.md) | Complete |
 | P10-03 Optional observers | P8-05, P7-06 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-03--optional-observers) | [Default-off exact-repetition diagnostics, matched navigation/cost evidence, bounded scheduling, pause and durable recovery](../evaluations/p10-03-observers.md); M10 inference and default enablement remain unqualified | Complete |
-| P10-04 Other environments | P8-05 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-04--other-execution-environments) | Separate per-host path/process/credential and installation matrices | Planned |
+| P10-04 Other environments | P8-05 | [Implementation and tests](19-deferred-extensions-and-platforms.md#p10-04--other-execution-environments) | Separate per-host path/process/credential and installation matrices; [baseline and gaps](../development/p10-host-capabilities.md); deferred by [owner direction](../adr/068-skills-follow-on-before-other-hosts.md) | planned |
 
 ## First-release dependency closure
 

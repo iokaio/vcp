@@ -1,6 +1,6 @@
 # 19 — Deferred hooks, importers, observers and execution environments
 
-Status: P10-01 through P10-03 complete; P10-04 remains deferred. Every item starts after P8-05 and its more specific prerequisites in the ledger. These are independently prioritized extensions, not a reason to postpone the first Windows CLI.
+Status: P10-01 through P10-03 complete; P10-04 is explicitly deferred by [ADR-068](../adr/068-skills-follow-on-before-other-hosts.md); the skills follow-on now proceeds independently. Every item starts after P8-05 and its more specific prerequisites in the ledger. These are independently prioritized extensions, not a reason to postpone the first Windows CLI.
 
 The proposed [extension design](../architecture/routing-extensions-design.md#deferred-hook-import-and-observer-contracts)
 and [execution-host design](../architecture/deferred-clients-design.md#execution-host-contract)
@@ -160,6 +160,14 @@ delegation or the first release.
 Exit: measured benefit justifies each observer, and it obeys the same transparency, cost and recovery invariants as required delegation.
 
 ## P10-04 — Other execution environments
+
+Current disposition (September 24, 2026): planned, deferred by owner direction;
+not complete. Native Linux/macOS are outside current scope; no WSL/SSH/devcontainer
+substitute is selected. The [capability baseline](../development/p10-host-capabilities.md)
+records the implementation gaps and discovery observations. Resume only with an
+explicitly prioritized host and actual-host qualification. The contract below is
+retained unchanged; [CS-0](24-skills-follow-on.md#cs-0--scope-and-qualification-design)
+can proceed under ADR-068 without satisfying this deferred exit.
 
 Code organization: extend `vcp-exec/platform`, `vcp-repository/host_path`, credential/runtime provisioning and packaging adapters; preserve host-independent workspace/task/memory identities. Define explicit capability reports for each host. Implement local Linux/macOS first as prioritized, then WSL/SSH/devcontainer mappings rather than pretending all are one filesystem.
 
