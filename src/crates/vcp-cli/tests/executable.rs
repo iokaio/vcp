@@ -400,6 +400,89 @@ async fn executable_run_skill_activation_precedes_first_provider_request() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_document_authoring_report_only_completes_without_workspace_edits() {
+    for skill in ["document-authoring"] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(response(2, "complete")),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut fixture = Fixture::new(&server.uri(), "complete");
+        fixture.package(true);
+        // Report-only CS-1 cases still need a nonempty acceptance scope. These
+        // source paths support verification; they do not grant editing authority.
+        fs::remove_file(fixture.workspace.join("package.json")).unwrap();
+        fs::remove_file(fixture.workspace.join("acceptance.cjs")).unwrap();
+        let source = fs::read(fixture.workspace.join("value.txt")).unwrap();
+        let mut profile: Value =
+            serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+        profile["maximum_autonomy"] = json!("plan");
+        profile["automatic_effects"] = json!([]);
+        profile["affected_paths"] = json!(["value.txt"]);
+        profile["processes"] = json!([]);
+        profile["checks"] = json!([]);
+        profile["max_requests"] = json!(1);
+        profile["max_transport_retries"] = json!(0);
+        fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+        let qualified = format!("vcp-builtin::{skill}::{skill}");
+        let output = fixture
+            .run(&[
+                "run",
+                "Report on the supplied value. No workspace edits are authorized.",
+                "--autonomy",
+                "plan",
+                "--skill",
+                &qualified,
+            ])
+            .await;
+        let values = records(&output);
+        assert!(
+            output.status.success(),
+            "{skill}: {} {}",
+            String::from_utf8_lossy(&output.stderr),
+            values.last().unwrap()
+        );
+        assert_eq!(values.last().unwrap()["conditions"]["completed"], true);
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let request: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        let parts: Vec<Value> = request["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|message| message["content"].as_array().unwrap())
+            .filter_map(|content| serde_json::from_str::<Value>(content["text"].as_str()?).ok())
+            .filter(|part| part["kind"] == "skill")
+            .collect();
+        let body = fs::read_to_string(
+            fixture
+                .binary
+                .parent()
+                .unwrap()
+                .join("skills/builtin")
+                .join(skill)
+                .join("SKILL.md"),
+        )
+        .unwrap();
+        assert!(parts
+            .iter()
+            .any(|part| part["trust"] == "active_skill" && part["text"] == body));
+        assert_eq!(parts.len(), 1);
+        assert_eq!(
+            fs::read(fixture.workspace.join("value.txt")).unwrap(),
+            source
+        );
+        assert_eq!(fs::read_dir(&fixture.workspace).unwrap().count(), 1);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn executable_run_unknown_skill_stops_before_provider_dispatch() {
     let server = MockServer::start().await;
     let fixture = Fixture::new(&server.uri(), "complete");
@@ -2086,7 +2169,7 @@ async fn executable_packaged_skills_are_relocatable_lazy_and_integrity_checked()
     );
     let values = records(&output);
     let data = &values.last().unwrap()["data"];
-    assert_eq!(data["total_skills"], 21);
+    assert_eq!(data["total_skills"], 22);
     assert_eq!(data["reads"]["bodies"], 0);
     assert_eq!(data["reads"]["resources"], 0);
     assert!(!data["integrity"].is_null());
@@ -2291,7 +2374,7 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
         let values = records(&inspected);
         let data = &values.last().unwrap()["data"];
         assert_eq!(data["reads"]["bodies"], 0);
-        assert_eq!(data["total_skills"], 22);
+        assert_eq!(data["total_skills"], 23);
         assert!(!data["integrity"].is_null());
         assert!(data["configuration"]
             .as_str()

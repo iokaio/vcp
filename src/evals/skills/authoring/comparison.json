@@ -1,0 +1,161 @@
+{
+  "revision": "cs-1-comparison-v1",
+  "planned_task_runs": 36,
+  "assignment": [
+    {
+      "case": "DOC-normal-runbook-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture"
+        ],
+        "candidate": [
+          "document-authoring"
+        ]
+      }
+    },
+    {
+      "case": "DOC-normal-release-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture"
+        ],
+        "candidate": [
+          "document-authoring"
+        ]
+      }
+    },
+    {
+      "case": "DOC-boundary-adr-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture"
+        ],
+        "candidate": [
+          "document-authoring"
+        ]
+      }
+    },
+    {
+      "case": "DOC-hostile-source-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture"
+        ],
+        "candidate": [
+          "document-authoring"
+        ]
+      }
+    },
+    {
+      "case": "DOC-missing-evidence-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture"
+        ],
+        "candidate": [
+          "document-authoring"
+        ]
+      }
+    },
+    {
+      "case": "DOC-near-miss-status-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "architecture"
+        ],
+        "candidate": [
+          "document-authoring"
+        ]
+      }
+    },
+    {
+      "case": "SKL-normal-package-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "testing"
+        ],
+        "candidate": [
+          "skill-authoring"
+        ]
+      }
+    },
+    {
+      "case": "SKL-normal-resource-update-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "testing"
+        ],
+        "candidate": [
+          "skill-authoring"
+        ]
+      }
+    },
+    {
+      "case": "SKL-boundary-precedence-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "testing"
+        ],
+        "candidate": [
+          "skill-authoring"
+        ]
+      }
+    },
+    {
+      "case": "SKL-hostile-body-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "testing"
+        ],
+        "candidate": [
+          "skill-authoring"
+        ]
+      }
+    },
+    {
+      "case": "SKL-missing-resource-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "testing"
+        ],
+        "candidate": [
+          "skill-authoring"
+        ]
+      }
+    },
+    {
+      "case": "SKL-near-miss-readme-v1",
+      "arms": {
+        "none": [],
+        "nearest": [
+          "testing"
+        ],
+        "candidate": [
+          "skill-authoring"
+        ]
+      }
+    }
+  ],
+  "controls": "Identical prompt, source bytes, tools, model and host across arms. Each arm explicitly loads its assigned skill, if any. Near-miss candidate arms test robustness to unnecessarily loaded guidance and must preserve the minimal requested task; they do not measure automatic selection. Native cue tests separately check suggestions. No skill cross-activation.",
+  "campaign_identity_required_before_execution": [
+    "source revision",
+    "exact skill package hashes for every arm",
+    "fixture manifest digest",
+    "model ID",
+    "host/toolchain",
+    "call and dollar ceilings",
+    "authorization"
+  ],
+  "paid_execution_authorized": false
+}

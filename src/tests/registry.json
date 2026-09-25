@@ -19,7 +19,8 @@
       "p7-delegation",
       "p8-qualification",
       "p8-distribution",
-      "p9-protocol-generation"
+      "p9-protocol-generation",
+      "cs-authoring"
     ],
     "repository": [
       "repository"
@@ -39,6 +40,14 @@
     ]
   },
   "cases": {
+    "cs-authoring": {
+      "task_ids": ["CS-1"],
+      "args": ["--test", "src/tests/contracts/authoring-oracle.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
     "p9-protocol-generation": {
       "task_ids": ["P9-01"],
       "args": ["--test", "src/tests/contracts/protocol-generation.test.cjs"],

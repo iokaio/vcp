@@ -147,16 +147,16 @@ async fn builtin_catalog_host_integrity_is_lazy_and_revalidated() {
         )
         .unwrap();
         let inspected = host.inspect_skills(configuration.registry.clone()).unwrap();
-        assert_eq!(inspected["catalog"]["skills"].as_array().unwrap().len(), 21);
+        assert_eq!(inspected["catalog"]["skills"].as_array().unwrap().len(), 22);
         assert_eq!(inspected["catalog"]["reads"]["bodies"], 0);
         assert_eq!(inspected["integrity"]["reads"]["metadata_files"], 2);
-        assert_eq!(inspected["integrity"]["reads"]["descriptors"], 21);
+        assert_eq!(inspected["integrity"]["reads"]["descriptors"], 22);
         host.configure_skills(configuration).unwrap();
         let id =
             codex_protocol::ThreadId::from_string("00000000-0000-4000-8000-000000000001").unwrap();
         host.register(id, binding).unwrap();
         let status = host.skill_control(id, Request::Status).unwrap();
-        assert_eq!(status["integrity"]["reads"]["revalidations"], 23);
+        assert_eq!(status["integrity"]["reads"]["revalidations"], 24);
         std::fs::write(assets.join("coverage.json"), b"{}").unwrap();
         assert!(
             host.skill_control(id, Request::Status).is_err(),

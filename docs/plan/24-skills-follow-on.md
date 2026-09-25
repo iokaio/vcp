@@ -1,7 +1,8 @@
 # 24 — Original workflow skills follow-on
 
 Status: CS-0 scope and qualification design established September 24, 2026;
-candidate packages and runtime adapters are not implemented. Authority:
+CS-1 authoring packages are in progress; later packages and runtime adapters remain
+unimplemented. Authority:
 [ADR-068](../adr/068-skills-follow-on-before-other-hosts.md). This is a separate
 follow-on ledger, not an expansion or renumbering of the 68 architecture items.
 
@@ -15,16 +16,20 @@ gaps and prompt-audit proposals stay outside this sequence.
 | Work item | Dependencies | Deliverable | State |
 |---|---|---|---|
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
-| CS-1 | CS-0 | Original document-authoring and skill-authoring packages | planned |
+| CS-1 | CS-0 | Original document-authoring and skill-authoring packages | in_progress — [implementation and qualification](../development/cs1-authoring-skills.md) |
 | CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | planned |
 | CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | planned |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |
 | CS-5 | CS-4 | Original pdf-workflows and spreadsheet-workflows packages | planned |
 | CS-6 | CS-5 | Combined eight-addition default catalog and exact-package acceptance | planned |
+| CS-7 | CS-6 | Demand review and explicit disposition of optional packs | planned; no optional pack selected |
 
-CS-7 remains an unapproved optional research category, not a ready work item.
-Do not start Word, PowerPoint, creative media, organization branding or other
-optional packs as prerequisites for the eight selected additions.
+The owner subsequently authorized continuation through CS-7, with one PR per
+delivered skill. The roadmap contains eight named default candidates across its
+milestones, rather than seven skill packages. CS-7 proceeds as a demand review;
+no optional pack has been selected. Do not start Word, PowerPoint, creative media,
+organization branding or other optional packs as prerequisites for the eight
+selected additions.
 
 ## CS-0 — Scope and qualification design
 
@@ -239,3 +244,13 @@ activation/revocation, pause/reload and task usefulness/cost evidence; exercise
 Files/SQLite when canonical state changes. Preserve existing skills, user overrides,
 receipts and unrelated user files. A release remains separately authorized and
 subject to the retained qualification gaps.
+
+## CS-7 — Optional demand review
+
+After CS-6, review demonstrated demand for the research roadmap's optional packs.
+Record a selected, rejected or deferred outcome for each category and its evidence.
+Without demonstrated demand, retain deferral; the instruction to continue through
+this milestone does not require speculative default additions. A selected pack
+needs its own bounded feature/environment matrix, qualification and PR. Prioritize
+Word preservation before presentations when office deliverables are needed.
+Observer experiments remain separately deferred and are not skill prerequisites.
