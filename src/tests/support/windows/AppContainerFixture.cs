@@ -96,7 +96,7 @@ public sealed class AppContainerFixture : IDisposable {
     public Result Run(string executable, string[] arguments, bool restricted, int timeoutMilliseconds) {
         return RunCore(executable, arguments, restricted, timeoutMilliseconds, null);
     }
-    Result RunCore(string executable, string[] arguments, bool restricted, int timeoutMilliseconds, BoundedIo bounded) {
+    Result RunCore(string executable, string[] arguments, bool restricted, int timeoutMilliseconds, OwnedIo bounded) {
         if (!created || sid == IntPtr.Zero) throw new ObjectDisposedException(nameof(AppContainerFixture));
         executable = Path.GetFullPath(executable);
         if (!String.Equals(Path.GetDirectoryName(executable), Root, StringComparison.OrdinalIgnoreCase) || !File.Exists(executable) ||
@@ -252,24 +252,18 @@ public sealed class AppContainerFixture : IDisposable {
                 MemoryLimitBytes = memoryBytes, PeakActiveProcesses = bounded.PeakActiveProcesses };
         }
     }
-    sealed class BoundedIo : IDisposable {
-        readonly byte[] input;
-        readonly int limit;
-        readonly CancellationToken cancellation;
-        readonly object captureLock = new object();
-        FileStream inputStream, outputStream, errorStream;
-        Task inputTask, outputTask, errorTask;
-        public readonly ulong MemoryBytes;
-        public readonly MemoryStream Output = new MemoryStream(), Error = new MemoryStream();
-        public long OutputBytes, ErrorBytes;
+    // Pipe ownership and job observation shared by the one-shot and duplex modes.
+    abstract class OwnedIo : IDisposable {
+        public ulong MemoryBytes;
         public string Termination = "exited";
         public uint Pid;
         public uint PeakActiveProcesses;
-        int overflow;
-        public BoundedIo(byte[] input, int limit, ulong memoryBytes, CancellationToken cancellation) {
-            this.input = (byte[])input.Clone(); this.limit = limit; MemoryBytes = memoryBytes; this.cancellation = cancellation;
-        }
-        static FileStream Pipe(bool parentWrites, out IntPtr child) {
+        public abstract void Create(out IntPtr childInput, out IntPtr childOutput, out IntPtr childError);
+        public abstract void Start(uint pid);
+        public abstract string StopReason(long elapsed, int timeout);
+        public abstract void Complete();
+        public abstract void Dispose();
+        protected static FileStream Pipe(bool parentWrites, out IntPtr child) {
             var attributes = new SecurityAttributes { Size = Marshal.SizeOf<SecurityAttributes>(), Inherit = true };
             IntPtr read, write;
             Check(CreatePipe(out read, out write, ref attributes, 0));
@@ -280,7 +274,30 @@ public sealed class AppContainerFixture : IDisposable {
                 return new FileStream(new SafeFileHandle(parent, true), parentWrites ? FileAccess.Write : FileAccess.Read, 4096, false);
             } catch { CloseHandle(parent); CloseHandle(child); child = IntPtr.Zero; throw; }
         }
-        public void Create(out IntPtr childInput, out IntPtr childOutput, out IntPtr childError) {
+        public void ObserveJob(IntPtr job) {
+            IntPtr accounting = Marshal.AllocHGlobal(48);
+            try {
+                Check(QueryInformationJobObject(job, 1, accounting, 48, IntPtr.Zero));
+                uint active = unchecked((uint)Marshal.ReadInt32(accounting, 40));
+                PeakActiveProcesses = Math.Max(PeakActiveProcesses, active);
+                if (active > 1) throw new IOException("One-process job containment failed: " + active);
+            } finally { Marshal.FreeHGlobal(accounting); }
+        }
+    }
+    sealed class BoundedIo : OwnedIo {
+        readonly byte[] input;
+        readonly int limit;
+        readonly CancellationToken cancellation;
+        readonly object captureLock = new object();
+        FileStream inputStream, outputStream, errorStream;
+        Task inputTask, outputTask, errorTask;
+        public readonly MemoryStream Output = new MemoryStream(), Error = new MemoryStream();
+        public long OutputBytes, ErrorBytes;
+        int overflow;
+        public BoundedIo(byte[] input, int limit, ulong memoryBytes, CancellationToken cancellation) {
+            this.input = (byte[])input.Clone(); this.limit = limit; MemoryBytes = memoryBytes; this.cancellation = cancellation;
+        }
+        public override void Create(out IntPtr childInput, out IntPtr childOutput, out IntPtr childError) {
             childInput = childOutput = childError = IntPtr.Zero;
             inputStream = Pipe(true, out childInput);
             outputStream = Pipe(false, out childOutput);
@@ -297,7 +314,7 @@ public sealed class AppContainerFixture : IDisposable {
                 if (Interlocked.Read(ref OutputBytes) + Interlocked.Read(ref ErrorBytes) > limit) Interlocked.Exchange(ref overflow, 1);
             }
         }
-        public void Start(uint pid) {
+        public override void Start(uint pid) {
             Pid = pid;
             outputTask = Task.Run(() => Read(outputStream, Output, false));
             errorTask = Task.Run(() => Read(errorStream, Error, true));
@@ -307,28 +324,151 @@ public sealed class AppContainerFixture : IDisposable {
                 finally { inputStream.Dispose(); }
             });
         }
-        public string StopReason(long elapsed, int timeout) {
+        public override string StopReason(long elapsed, int timeout) {
             if (Volatile.Read(ref overflow) != 0) return "output_limit";
             if (cancellation.IsCancellationRequested) return "cancelled";
             if (elapsed >= timeout) return "timeout";
             return null;
         }
-        public void ObserveJob(IntPtr job) {
-            IntPtr accounting = Marshal.AllocHGlobal(48);
-            try {
-                Check(QueryInformationJobObject(job, 1, accounting, 48, IntPtr.Zero));
-                uint active = unchecked((uint)Marshal.ReadInt32(accounting, 40));
-                PeakActiveProcesses = Math.Max(PeakActiveProcesses, active);
-                if (active > 1) throw new IOException("One-process job containment failed: " + active);
-            } finally { Marshal.FreeHGlobal(accounting); }
-        }
-        public void Complete() {
+        public override void Complete() {
             if (!Task.WaitAll(new[] { inputTask, outputTask, errorTask }, 5000)) throw new IOException("Owned pipes did not close");
             if (Volatile.Read(ref overflow) != 0) Termination = "output_limit";
         }
-        public void Dispose() {
+        public override void Dispose() {
             inputStream?.Dispose(); outputStream?.Dispose(); errorStream?.Dispose();
             Output.Dispose(); Error.Dispose();
+        }
+    }
+    // Qualification-only duplex relay. Child stdout lines are forwarded to the trusted
+    // parent as opaque base64 frames; the parent decides what they mean. Nothing the
+    // child writes is interpreted here beyond newline framing and byte/count ceilings.
+    public sealed class InteractiveResult {
+        public Result Process;
+        public byte[] Error;
+        public long ErrorBytes;
+        public string Termination;
+        public uint Pid;
+        public ulong MemoryLimitBytes;
+        public uint PeakActiveProcesses;
+        public int FramesToChild, FramesFromChild;
+        public long BytesToChild, BytesFromChild, TrailingBytes;
+    }
+    public InteractiveResult RunInteractive(string executable, string[] arguments, bool restricted, Stream parentInput, Stream parentOutput,
+        int maxFrames, int maxFrameBytes, int maxTotalBytes, int errorLimit, ulong memoryBytes,
+        int timeoutMilliseconds, int idleMilliseconds, CancellationToken cancellation) {
+        if (parentInput == null || parentOutput == null || maxFrames < 1 || maxFrames > 4096 || maxFrameBytes < 1 || maxFrameBytes > 65536 ||
+            maxTotalBytes < 1 || maxTotalBytes > 1048576 || errorLimit < 0 || errorLimit > 65536 ||
+            memoryBytes < 67108864 || memoryBytes > 1073741824 || idleMilliseconds < 1 || idleMilliseconds > timeoutMilliseconds)
+            throw new ArgumentException("Invalid interactive IO request");
+        cancellation.ThrowIfCancellationRequested();
+        using (var duplex = new DuplexIo(name, parentInput, parentOutput, maxFrames, maxFrameBytes, maxTotalBytes, errorLimit,
+            memoryBytes, idleMilliseconds, cancellation)) {
+            var process = RunCore(executable, arguments, restricted, timeoutMilliseconds, duplex);
+            return new InteractiveResult { Process = process, Pid = duplex.Pid, Error = duplex.Error.ToArray(),
+                ErrorBytes = Interlocked.Read(ref duplex.ErrorBytes), Termination = duplex.Termination,
+                MemoryLimitBytes = memoryBytes, PeakActiveProcesses = duplex.PeakActiveProcesses,
+                FramesToChild = Volatile.Read(ref duplex.FramesToChild), FramesFromChild = Volatile.Read(ref duplex.FramesFromChild),
+                BytesToChild = Interlocked.Read(ref duplex.BytesToChild), BytesFromChild = Interlocked.Read(ref duplex.BytesFromChild),
+                TrailingBytes = duplex.TrailingBytes };
+        }
+    }
+    sealed class DuplexIo : OwnedIo {
+        readonly string profile;
+        readonly Stream parentInput, parentOutput;
+        readonly int maxFrames, maxFrameBytes, maxTotalBytes, errorLimit, idle;
+        readonly CancellationToken cancellation;
+        readonly object outputLock = new object();
+        readonly Stopwatch clock = new Stopwatch();
+        FileStream inputStream, outputStream, errorStream;
+        Task outputTask, errorTask;
+        public readonly MemoryStream Error = new MemoryStream();
+        public long ErrorBytes, BytesToChild, BytesFromChild, TrailingBytes;
+        public int FramesToChild, FramesFromChild;
+        long lastActivity;
+        string violation;
+        public DuplexIo(string profile, Stream parentInput, Stream parentOutput, int maxFrames, int maxFrameBytes, int maxTotalBytes,
+            int errorLimit, ulong memoryBytes, int idle, CancellationToken cancellation) {
+            this.profile = profile; this.parentInput = parentInput; this.parentOutput = parentOutput; this.maxFrames = maxFrames;
+            this.maxFrameBytes = maxFrameBytes; this.maxTotalBytes = maxTotalBytes; this.errorLimit = errorLimit;
+            MemoryBytes = memoryBytes; this.idle = idle; this.cancellation = cancellation;
+        }
+        public override void Create(out IntPtr childInput, out IntPtr childOutput, out IntPtr childError) {
+            childInput = childOutput = childError = IntPtr.Zero;
+            inputStream = Pipe(true, out childInput);
+            outputStream = Pipe(false, out childOutput);
+            errorStream = Pipe(false, out childError);
+        }
+        void Touch() { Interlocked.Exchange(ref lastActivity, clock.ElapsedMilliseconds); }
+        void Fail(string reason) { Interlocked.CompareExchange(ref violation, reason, null); }
+        void Envelope(string json) {
+            byte[] bytes = Encoding.UTF8.GetBytes(json + "\n");
+            lock (outputLock) { parentOutput.Write(bytes, 0, bytes.Length); parentOutput.Flush(); }
+        }
+        // Frames longer than the ceiling stop the child; bytes are never truncated silently.
+        void Frames(Stream source, bool toChild) {
+            var line = new MemoryStream(); var buffer = new byte[4096]; int count;
+            while ((count = source.Read(buffer, 0, buffer.Length)) != 0) {
+                for (int i = 0; i < count; i++) {
+                    if (buffer[i] != (byte)'\n') {
+                        if (line.Length >= maxFrameBytes) { Fail(toChild ? "parent_frame_bytes" : "frame_bytes"); return; }
+                        line.WriteByte(buffer[i]); continue;
+                    }
+                    byte[] frame = line.ToArray(); line.SetLength(0);
+                    int frames = toChild ? Interlocked.Increment(ref FramesToChild) : Interlocked.Increment(ref FramesFromChild);
+                    long total = toChild ? Interlocked.Add(ref BytesToChild, frame.Length + 1) : Interlocked.Add(ref BytesFromChild, frame.Length + 1);
+                    if (frames > maxFrames) { Fail(toChild ? "parent_frame_limit" : "frame_limit"); return; }
+                    if (total > maxTotalBytes) { Fail(toChild ? "parent_total_bytes" : "total_bytes"); return; }
+                    Touch();
+                    if (toChild) { inputStream.Write(frame, 0, frame.Length); inputStream.WriteByte((byte)'\n'); inputStream.Flush(); }
+                    else Envelope("{\"frame\":\"" + Convert.ToBase64String(frame) + "\"}");
+                }
+            }
+            if (!toChild) TrailingBytes = line.Length;
+            else if (line.Length != 0) Fail("parent_partial_frame");
+        }
+        void ReadError() {
+            var buffer = new byte[4096]; int count;
+            while ((count = errorStream.Read(buffer, 0, buffer.Length)) != 0) {
+                long total = Interlocked.Add(ref ErrorBytes, count);
+                lock (Error) {
+                    int keep = (int)Math.Min(count, Math.Max(0, errorLimit - Error.Length));
+                    if (keep > 0) Error.Write(buffer, 0, keep);
+                }
+                if (total > errorLimit) Fail("output_limit");
+            }
+        }
+        public override void Start(uint pid) {
+            Pid = pid;
+            clock.Start(); Touch();
+            // The supervisor records this profile identity for reconciliation after owner loss.
+            Envelope("{\"started\":{\"pid\":" + pid + ",\"profile\":\"" + profile + "\"}}");
+            outputTask = Task.Run(() => Frames(outputStream, false));
+            errorTask = Task.Run(ReadError);
+            // Parent EOF closes the child's input. A parent that never closes cannot extend
+            // the run: idle, wall and cancellation deadlines still terminate the job.
+            Task.Run(() => {
+                try { Frames(parentInput, true); }
+                catch (Exception) { /* Child exit or disposal closes the forwarding pipe. */ }
+                finally { try { inputStream.Dispose(); } catch (Exception) { } }
+            });
+        }
+        public override string StopReason(long elapsed, int timeout) {
+            string reason = Volatile.Read(ref violation);
+            if (reason != null) return reason;
+            if (cancellation.IsCancellationRequested) return "cancelled";
+            if (elapsed >= timeout) return "timeout";
+            if (clock.ElapsedMilliseconds - Interlocked.Read(ref lastActivity) >= idle) return "idle_timeout";
+            return null;
+        }
+        public override void Complete() {
+            if (!Task.WaitAll(new[] { outputTask, errorTask }, 5000)) throw new IOException("Owned pipes did not close");
+            string reason = Volatile.Read(ref violation);
+            if (reason != null) Termination = reason;
+            lock (outputLock) parentOutput.Flush();
+        }
+        public override void Dispose() {
+            try { inputStream?.Dispose(); } catch (Exception) { }
+            outputStream?.Dispose(); errorStream?.Dispose(); Error.Dispose();
         }
     }
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool CreatePipe(out IntPtr read,out IntPtr write,ref SecurityAttributes attributes,uint size);
