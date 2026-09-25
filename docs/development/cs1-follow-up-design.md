@@ -1,6 +1,8 @@
 # Proposed CS-1 follow-up evaluation
 
-Status: **unapproved and unexecuted**. This is prospective design, based only on
+Status: historical prospective design. A subsequently frozen and approved
+follow-up reached a [mandatory halt](cs1-followup-outcome.md); it cannot resume.
+This original design was based only on
 the CS-0/CS-1 scope in plan 24. No campaign outcomes, reviews or skill bodies were
 consulted. It does not alter existing gates, authorize spending or reinterpret
 frozen v1 results. Preserve every v1 input, result, failure and receipt unchanged.
