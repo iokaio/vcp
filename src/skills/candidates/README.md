@@ -8,7 +8,7 @@ unmet; merging it does not complete CS-1.
 SKILL.md and skill.json are the exact frozen 1.0.1 candidate bytes. The closed
 campaign retained factual failures, no passing usefulness benefit and a mandatory
 all-arm authority halt. Do not rewrite or relabel historical campaign evidence.
-See [implementation and qualification status](../../../../docs/development/cs1-authoring-skills.md).
+See [implementation and qualification status](../../../docs/development/cs1-authoring-skills.md).
 
 Use the existing explicit skill-source registry for an authorized experiment, then
 select its qualified skill ID. Registering this directory as a source does not grant
