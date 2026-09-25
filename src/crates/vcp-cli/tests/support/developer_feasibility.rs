@@ -161,6 +161,16 @@ fn active_skills(request: &wiremock::Request) -> Vec<String> {
         .collect()
 }
 
+/// One retained artifact's first 64 KiB, read by range as the campaign runner does.
+async fn ranged(fixture: &Fixture, artifact: &str) -> Vec<u8> {
+    let output = fixture
+        .run(&[
+            "inspect", artifact, "--view", "tools", "--offset", "0", "--length", "65536",
+        ])
+        .await;
+    serde_json::from_value(records(&output)[0]["data"]["items"][0]["bytes"].clone()).unwrap()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn executable_developer_write_cases_complete_through_ceiling_arms_and_pinned_checker() {
     let fixed = [
@@ -198,27 +208,26 @@ async fn executable_developer_write_cases_complete_through_ceiling_arms_and_pinn
                         .push(fs::read_to_string(builtin.join(skill).join("SKILL.md")).unwrap());
                 }
             }
-            // Candidates are selected from an explicit user source, never the catalog.
+            // The real campaign-bound candidate, selected from an explicit user
+            // source exactly as the campaign does; never from the catalog.
             "candidate" => {
-                let package = collection.path().join("developer-feasibility-probe");
+                assert_eq!(task["skill"], "llm-integration");
+                let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../skills/candidates/llm-integration");
+                let package = collection.path().join("llm-integration");
                 fs::create_dir_all(&package).unwrap();
-                let body =
-                    "Original feasibility probe guidance. It grants no tools or authority.\n";
-                fs::write(package.join("SKILL.md"), body).unwrap();
-                fs::write(package.join("skill.json"), serde_json::to_vec(&json!({
-                    "schema_version":1,"id":"developer-feasibility-probe","version":"1.0.0","description":"Feasibility probe for explicit candidate selection.",
-                    "source":"vcp-original","license":"Apache-2.0","vcp_version":1,"cues":["explicit:developer-feasibility-probe"],"environments":[],
-                    "required_tools":["vcp_list","vcp_read"],"body":{"path":"SKILL.md","sha256":vcp_protocol::digest_bytes(body.as_bytes())},"resources":[]
-                })).unwrap()).unwrap();
+                for file in ["skill.json", "SKILL.md"] {
+                    fs::copy(source.join(file), package.join(file)).unwrap();
+                }
                 let mut profile: Value =
                     serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
                 profile["skills"] = json!({"version":1,"revision":"0","sources":[{"id":"vcp-developer-candidates","root_id":vcp_domain::RootId::new(),"kind":"user","enabled":true,"path":package}]});
                 fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
                 args.extend([
                     "--skill".into(),
-                    "vcp-developer-candidates::.::developer-feasibility-probe".into(),
+                    "vcp-developer-candidates::.::llm-integration".into(),
                 ]);
-                expected_skills.push(body.to_owned());
+                expected_skills.push(fs::read_to_string(source.join("SKILL.md")).unwrap());
             }
             _ => {}
         }
@@ -275,6 +284,105 @@ async fn executable_developer_write_cases_complete_through_ceiling_arms_and_pinn
                 && lines.contains(&"ok 2 - developer output structure"),
             "{tail}"
         );
+        // The campaign runner proves the pinned checker ran from retained canonical
+        // evidence alone: a passed package.json#test check whose outcome record
+        // binds the executed checker hash and fixed invocation, and whose retained
+        // stdout artifact carries both TAP lines.
+        let task_id = values.last().unwrap()["scope"]["task"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let checker_sha256 = vcp_protocol::digest_bytes(
+            &fs::read(
+                fixture
+                    ._temp
+                    .path()
+                    .join("checker-runtime/vcp-developer-check.exe"),
+            )
+            .unwrap(),
+        );
+        let listed = records(
+            &fixture
+                .run(&["inspect", &task_id, "--view", "outputs", "--limit", "128"])
+                .await,
+        );
+        assert!(listed[0]["data"]["next_cursor"].is_null());
+        let stdout: BTreeSet<String> = listed[0]["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|item| item["record"]["spec"]["channel"] == "stdout")
+            .map(|item| item["id"].as_str().unwrap().to_owned())
+            .collect();
+        let inspected = fixture
+            .run(&[
+                "inspect",
+                &task_id,
+                "--view",
+                "verification",
+                "--limit",
+                "128",
+            ])
+            .await;
+        let passed: Vec<Value> = records(&inspected)[0]["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|item| {
+                item["record"]["checks"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .filter(|check| {
+                check["specification"] == "package.json#test"
+                    && check["outcome"]["status"] == "passed"
+                    && check["exit_code"] == 0
+            })
+            .collect();
+        assert!(
+            !passed.is_empty(),
+            "{case}: retained passed checker verification"
+        );
+        for check in passed {
+            let outcome: Value =
+                serde_json::from_slice(&ranged(&fixture, check["output"].as_str().unwrap()).await)
+                    .unwrap();
+            assert_eq!(outcome["outcome"]["status"], "passed", "{case}");
+            assert_eq!(
+                outcome["native_preparation"]["executable"]["sha256"], checker_sha256,
+                "{case}: the pinned checker executed"
+            );
+            assert_eq!(
+                outcome["plan"]["request"]["arguments"],
+                json!([
+                    "--test",
+                    "--test-reporter=tap",
+                    "--test-concurrency=1",
+                    "checks/developer.test.cjs"
+                ])
+            );
+            assert_eq!(
+                outcome["plan"]["expected_tests"],
+                json!(["developer input preservation", "developer output structure"])
+            );
+            let retained_stdout: Vec<String> = outcome["artifacts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| id.as_str().unwrap().to_owned())
+                .filter(|id| stdout.contains(id))
+                .collect();
+            assert_eq!(retained_stdout.len(), 1, "{case}: one retained stdout");
+            let text = String::from_utf8(ranged(&fixture, &retained_stdout[0]).await).unwrap();
+            let retained: Vec<&str> = text.lines().map(str::trim_end).collect();
+            assert!(
+                retained.contains(&"ok 1 - developer input preservation")
+                    && retained.contains(&"ok 2 - developer output structure")
+                    && !retained.iter().any(|line| line.starts_with("not ok")),
+                "{case}: {text}"
+            );
+        }
         let (_, oracle) = frozen(case);
         let project = developer_root().join(task["project"].as_str().unwrap());
         for name in strings(&oracle["preserve_files"]) {

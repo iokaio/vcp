@@ -1,8 +1,8 @@
 # CS-2 developer specialists: implementation and qualification
 
-Status: in progress. Unqualified 1.0.0 drafts of `frontend-design`,
-`mcp-development` and `llm-integration` are preserved outside `main`. They return,
-frozen for the campaign, with the campaign tooling and their per-skill PRs. No
+Status: in progress. The unqualified 1.0.0 candidates `llm-integration`,
+`mcp-development` and `frontend-design` are frozen for the campaign as
+non-default packages in `src/skills/candidates/`, with the campaign tooling. No
 model call, comparison or promotion has run. Contract:
 [plan 24 § CS-2](../plan/24-skills-follow-on.md#cs-2--developer-specialists).
 
@@ -54,7 +54,8 @@ model call, comparison or promotion has run. Contract:
 | Canonical model tool ceiling (#178) | [Tool ceiling](p2-canonical-tool-ceiling.md) |
 | Interactive adapter mode (#179) | Parent-owned transports, iterators and protocol peers over bounded relayed frames; fourteen native cases |
 | Developer fixtures v5 and parent-side grader | [Fixture inventory](../../src/evals/skills/developer/README.md), [design](cs2-fixture-design.md) |
-| In-run developer checker and synthetic feasibility | [In-run checker](#in-run-checker) |
+| In-run developer checker and synthetic feasibility (#181) | [In-run checker](#in-run-checker) |
+| Campaign candidates, preparation, runner and blind review | [Campaign tooling](#campaign-tooling) |
 
 The v5 grader verification on native Windows 10.0.26200.0 x64 with the pinned
 Node:
@@ -142,20 +143,113 @@ tokenizer. The largest trusted reference is the `MCP-normal-resources-v2`
 server, at 2,254 bytes. Rewriting the whole file takes one `vcp_patch` argument
 of 2,486 JSON characters, including the envelope, the removed stub lines and the
 line prefixes. At a conservative 3 bytes per token that is about 830 tokens, so
-a whole-file write fits in 2,048 output tokens with about 2.5 times headroom. The estimate does not
-account for provider reasoning tokens that may count against the same limit.
-Only the live campaign can confirm this.
+a whole-file write fits in 2,048 output tokens with about 2.5 times headroom.
+
+- **Second request.** The prompts also ask the final answer to return the
+  written contents, so a write run spends about the same again. That comes in a
+  separate request, and each request has its own 2,048-token limit.
+- **Reasoning tokens.** The profile's `output_tokens` limit includes reasoning
+  tokens, and the estimate does not account for them.
+
+Only the live campaign can confirm the estimate.
+
+## Campaign tooling
+
+**Candidates.** `src/skills/candidates/{llm-integration,mcp-development,frontend-design}`
+are version 1.0.0, with one explicit cue each and no resources. Before freezing,
+each package received its one allowed body edit (D4):
+
+- `frontend-design`: WCAG 2.2 AA contrast guidance, and a written brief for a new
+  interface.
+- `mcp-development` and `llm-integration`: they bundle no references and send the
+  model to the project's installed SDK sources and supplied documents, recording
+  exact versions and dates.
+
+`scripts/evals/developer-candidates.cjs` registers them as the explicit user
+source `vcp-developer-candidates`. It returns each arm's selections as an array,
+so the MCP nearest arm activates `architecture` and `javascript-typescript`
+together through repeated `--skill`.
+
+**Preparation.** `scripts/evals/developer-prepare.cjs prepare <spec.json>
+<new-private-directory>` makes no process, provider or credential access.
+
+- **What the spec must name:** the envelope (USD 162, 864 requests); the
+  checker build receipt; the grading Node, whose hash must be the owner-approved
+  `ba4e6d11…`; and an explicit checker-process proposal.
+- **Profile requirements.** The source profile must be qualified and currently
+  valid, with 16 requests and 2,048 output tokens per run.
+- **What it stages:**
+  - fifty-four runs in three per-skill blocks, in campaign order, with each
+    case's arm order rotated;
+  - the frozen project and checker scaffold for each run;
+  - the fixture prompt, byte-for-byte;
+  - a derived profile bound to the case's `canonical_tools`;
+  - the staged checker, and an owner case map holding the thirty-nine write runs.
+- **What the plan records:**
+  - the source identity, which covers the candidates, fixtures, checker sources,
+    grader and adapter files and the CS-1 helpers it imports;
+  - the executable and packaged assets;
+  - the pinned checker, grader and Node identities;
+  - the first-request budget preflight;
+  - the predeclared benefit rule.
+
+**Runner.** `scripts/evals/developer-runner.cjs run <plan.json> <plan-sha256>
+<block>` executes one block, once, in campaign order.
+
+- **Before every dispatch** it:
+  - re-derives the whole preparation and compares it exactly;
+  - reserves a full USD 3 and 16-request slot from retained settled accounting;
+  - writes a run claim.
+
+  It also holds one campaign claim in the Git control directory, so a second
+  preparation cannot draw on the same authorization.
+- **After each run** it:
+  - reconciles canonical costs;
+  - rejects writes outside the editable paths;
+  - checks the context of every settled request against every part of each
+    selected skill;
+  - checks that the pinned checker ran;
+  - applies the structural oracle;
+  - scans retained model output for the synthetic canary.
+
+  The checker check needs a passed `package.json#test` check whose retained
+  outcome records the pinned executable hash and the fixed arguments, and whose
+  retained stdout carries both TAP lines. The feasibility test asserts this
+  evidence shape against the real CLI.
+- **What stops the campaign.** An unknown or unreconciled charge, identity drift
+  or an expired qualification, an authority failure, or an interrupted block. Any
+  of these writes `halt.json` for read-only reconciliation. A disclosed canary or
+  a failed check fails only its case.
+
+**Review.** `scripts/evals/developer-review.cjs` runs in three steps:
+
+1. **`grade`** grades each unstopped block's retained write artifacts with the
+   pinned AppContainer executor. Probe messages go to a private diagnostics file.
+2. **`packets`** writes one anonymous packet per case, holding:
+   - the prompt and the frozen sources;
+   - each variant's edited files, report and not-run list, under a random label;
+   - check verdicts only.
+
+   Selection names are replaced, and the label mapping stays private.
+3. **`decide`** validates two independent blind reviews and applies the mapping.
+   - A recorded effect beyond authority, or a real secret exposure, halts the
+     campaign.
+   - A skill qualifies only when all six candidate runs complete and pass every
+     executable check with both readers passing every hard gate. It also needs a
+     benefit on a normal case under the predeclared rule.
+   - Any grading that requires a regrade leaves the decision pending.
 
 ## Remaining sequence
 
-1. **Campaign tooling.** Developer candidate sources, preparation, a one-shot
-   runner, reader packets and a promotion script.
-2. **Campaign.** A provider refresh, then preparation and preflight bound to the
-   envelope SHA, then three eighteen-run blocks. After that come grading, blind
-   reading and per-skill decisions.
-3. **One PR per skill,** in the order `llm-integration`, `mcp-development`,
-   `frontend-design`. A qualified skill is promoted; otherwise the non-default
-   disposition applies.
+1. **Campaign.** A provider refresh (at most two probes, USD 1.50), then
+   preparation and preflight, then the three blocks. After each block come
+   grading, blind reading and the decision.
+2. **One PR per skill,** in the order `llm-integration`, `mcp-development`,
+   `frontend-design`.
+   - A qualified skill is promoted to the default catalog. The promotion script
+     and package qualification are built with the first skill that qualifies,
+     not before.
+   - Otherwise the skill stays a non-default candidate.
 
 Explicitly not run until observed:
 

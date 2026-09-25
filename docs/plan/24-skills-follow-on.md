@@ -18,7 +18,7 @@ gaps and prompt-audit proposals stay outside this sequence.
 |---|---|---|---|
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
 | CS-1 | CS-0 | Original document-authoring and skill-authoring packages | complete by owner direction — accepted non-default candidates; [remaining qualification work](../../src/skills/candidates/README.md) |
-| CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | in_progress — [implementation and qualification](../development/cs2-developer-skills.md); fixtures v5, grading and in-run checker prerequisites implemented, specialist acceptance pending |
+| CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | in_progress — [implementation and qualification](../development/cs2-developer-skills.md); fixtures v5, grading, in-run checker and campaign tooling implemented; candidates frozen; specialist acceptance pending |
 | CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | planned |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |
 | CS-5 | CS-4 | Original pdf-workflows and spreadsheet-workflows packages | planned |
