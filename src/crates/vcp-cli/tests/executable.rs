@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(all(windows, feature = "qualification"))]
+#[path = "support/canonical_tool_ceiling.rs"]
+mod canonical_tool_ceiling;
 #[path = "support/child_output_owner.rs"]
 mod child_output_owner;
 #[path = "support/history_notice.rs"]
@@ -414,7 +416,25 @@ async fn executable_authoring_report_only_profiles_complete_without_workspace_ed
             .mount(&server)
             .await;
         let mut fixture = Fixture::new(&server.uri(), "complete");
-        fixture.package(true);
+        let builtin = fixture.package(true);
+        assert!(!builtin.join(skill).exists());
+        let collection = tempfile::tempdir().unwrap();
+        let package = collection.path().join(skill);
+        fs::create_dir(&package).unwrap();
+        let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../skills/candidates")
+            .join(skill);
+        for file in ["skill.json", "SKILL.md"] {
+            fs::copy(candidate.join(file), package.join(file)).unwrap();
+        }
+        if skill == "skill-authoring" {
+            fs::create_dir(package.join("references")).unwrap();
+            fs::copy(
+                candidate.join("references/package-format.md"),
+                package.join("references/package-format.md"),
+            )
+            .unwrap();
+        }
         // Report-only CS-1 cases still need a nonempty acceptance scope. These
         // source paths support verification; they do not grant editing authority.
         fs::remove_file(fixture.workspace.join("package.json")).unwrap();
@@ -422,6 +442,11 @@ async fn executable_authoring_report_only_profiles_complete_without_workspace_ed
         let source = fs::read(fixture.workspace.join("value.txt")).unwrap();
         let mut profile: Value =
             serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+        profile["skills"] = json!({"version":1,"revision":"0","sources":[{
+            "id":"vcp-authoring-candidates","root_id":vcp_domain::RootId::new(),
+            "kind":"user","enabled":true,"path":package
+        }]});
+        profile["canonical_tools"] = json!(["vcp_read", "vcp_list", "vcp_search"]);
         profile["maximum_autonomy"] = json!("plan");
         profile["automatic_effects"] = json!([]);
         profile["affected_paths"] = json!(["value.txt"]);
@@ -430,7 +455,7 @@ async fn executable_authoring_report_only_profiles_complete_without_workspace_ed
         profile["max_requests"] = json!(1);
         profile["max_transport_retries"] = json!(0);
         fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
-        let qualified = format!("vcp-builtin::{skill}::{skill}");
+        let qualified = format!("vcp-authoring-candidates::.::{skill}");
         let output = fixture
             .run(&[
                 "run",
@@ -452,6 +477,16 @@ async fn executable_authoring_report_only_profiles_complete_without_workspace_ed
         let requests = server.received_requests().await.unwrap();
         assert_eq!(requests.len(), 1);
         let request: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(request["tools"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| tool["name"].as_str().unwrap())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search"])
+        );
         let parts: Vec<Value> = request["input"]
             .as_array()
             .unwrap()
@@ -460,29 +495,14 @@ async fn executable_authoring_report_only_profiles_complete_without_workspace_ed
             .filter_map(|content| serde_json::from_str::<Value>(content["text"].as_str()?).ok())
             .filter(|part| part["kind"] == "skill")
             .collect();
-        let body = fs::read_to_string(
-            fixture
-                .binary
-                .parent()
-                .unwrap()
-                .join("skills/builtin")
-                .join(skill)
-                .join("SKILL.md"),
-        )
-        .unwrap();
+        let body = fs::read_to_string(package.join("SKILL.md")).unwrap();
         assert!(parts
             .iter()
             .any(|part| part["trust"] == "active_skill" && part["text"] == body));
         assert_eq!(parts.len(), if skill == "skill-authoring" { 2 } else { 1 });
         if skill == "skill-authoring" {
-            let reference = fs::read_to_string(
-                fixture
-                    .binary
-                    .parent()
-                    .unwrap()
-                    .join("skills/builtin/skill-authoring/references/package-format.md"),
-            )
-            .unwrap();
+            let reference =
+                fs::read_to_string(package.join("references/package-format.md")).unwrap();
             assert!(parts
                 .iter()
                 .any(|part| part["trust"] == "active_skill" && part["text"] == reference));
@@ -2182,7 +2202,7 @@ async fn executable_packaged_skills_are_relocatable_lazy_and_integrity_checked()
     );
     let values = records(&output);
     let data = &values.last().unwrap()["data"];
-    assert_eq!(data["total_skills"], 23);
+    assert_eq!(data["total_skills"], 21);
     assert_eq!(data["reads"]["bodies"], 0);
     assert_eq!(data["reads"]["resources"], 0);
     assert!(!data["integrity"].is_null());
@@ -2387,7 +2407,7 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
         let values = records(&inspected);
         let data = &values.last().unwrap()["data"];
         assert_eq!(data["reads"]["bodies"], 0);
-        assert_eq!(data["total_skills"], 24);
+        assert_eq!(data["total_skills"], 22);
         assert!(!data["integrity"].is_null());
         assert!(data["configuration"]
             .as_str()

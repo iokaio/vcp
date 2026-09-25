@@ -253,15 +253,17 @@ impl Context {
         self.skill_match_task_context(&binding.scope.task)
     }
     fn skill_match_task_context(&self, task: &TaskId) -> Result<MatchContext> {
+        let ceiling = self.canonical_tools_for(task)?;
         let mut tools: BTreeSet<String> = ["vcp_read", "vcp_list", "vcp_search", "vcp_patch"]
             .into_iter()
+            .filter(|name| ceiling.contains(name))
             .map(str::to_owned)
             .collect();
-        if !self.process_profiles.is_empty() {
+        if !self.process_profiles.is_empty() && ceiling.contains("vcp_exec") {
             tools.insert("vcp_exec".into());
             tools.extend(self.process_profiles.keys().cloned());
         }
-        if self.verification.contains_key(task) {
+        if self.verification.contains_key(task) && ceiling.contains("vcp_verify") {
             tools.insert("vcp_verify".into());
         }
         let root = self.task_root(task)?;

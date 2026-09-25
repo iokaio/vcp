@@ -126,6 +126,7 @@ async fn coding_context_lists_only_public_process_invocation_metadata() {
             host.configure_coding(
                 thread,
                 CodingConfig {
+                    canonical_tools: Default::default(),
                     operating: "Observe configured tools; do not execute processes.".into(),
                     affected_paths: vec!["file.txt".into()],
                     max_requests: 2,
@@ -133,6 +134,18 @@ async fn coding_context_lists_only_public_process_invocation_metadata() {
                 },
             )
             .unwrap();
+            // Direct-host legacy setup seals the default before coding becomes active.
+            // Child registration can obtain that same ceiling without fresh setup.
+            let child = TaskId::new();
+            task(
+                &host,
+                &config,
+                child.clone(),
+                Some(config.root_task.clone()),
+            );
+            assert!(host.startup_canonical_tools(child).unwrap().is_all());
+            let narrow = serde_json::from_value(serde_json::json!(["vcp_read"])).unwrap();
+            assert!(host.configure_canonical_tools(narrow).is_err());
             coding_turn(&test, backend, "public-process-metadata").await;
             let requests = observed.lock().unwrap().clone();
             assert_allowance(&host, &requests[0], &config.root_task, 2, 0);
@@ -395,6 +408,7 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
             host.configure_coding(
                 id,
                 CodingConfig {
+                    canonical_tools: Default::default(),
                     operating: "Use prepared tools and report observed evidence only.".into(),
                     affected_paths: vec!["file.txt".into()],
                     max_requests: if mode == "limit" { 2 } else { 8 },
@@ -709,6 +723,7 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 host.configure_coding(
                     id,
                     CodingConfig {
+                        canonical_tools: Default::default(),
                         operating: "Use prepared tools and report observed evidence only.".into(),
                         affected_paths: vec!["file.txt".into()],
                         max_requests: 6,
@@ -780,6 +795,7 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 host.configure_coding(
                     helper_id,
                     CodingConfig {
+                        canonical_tools: Default::default(),
                         operating: "Bounded helper fixture".into(),
                         affected_paths: vec!["file.txt".into()],
                         max_requests: 128,

@@ -40,6 +40,9 @@ pub struct Profile {
     pub mcp_http: Vec<crate::mcp::HttpServer>,
     pub catalog: PathBuf,
     pub affected_paths: Vec<PathBuf>,
+    /// Owner-selected capability ceiling; it grants no policy authority.
+    #[serde(default)]
+    pub canonical_tools: vcp_lifecycle::foundation::canonical_tools::CanonicalTools,
     pub max_requests: u32,
     #[serde(default)]
     pub output_tokens: Option<Units>,
@@ -391,6 +394,49 @@ mod request_limit_tests {
             "deadline_seconds":60,"processes":[],"checks":[]
         });
         let old: Profile = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(old.canonical_tools.is_all());
+        assert_eq!(old.canonical_tools.names().count(), 7);
+        let mut bounded = legacy.clone();
+        bounded["canonical_tools"] = serde_json::json!(["vcp_read", "vcp_list", "vcp_search"]);
+        let read_only: Profile = serde_json::from_value(bounded.clone()).unwrap();
+        assert!(read_only.canonical_tools.contains("vcp_read"));
+        assert!(!read_only.canonical_tools.contains("vcp_verify"));
+        assert_eq!(
+            crate::skills::available_tools(&read_only),
+            ["vcp_read", "vcp_list", "vcp_search"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        );
+        // Process profiles do not make execution available outside the ceiling.
+        let executable = tempfile::NamedTempFile::new().unwrap();
+        bounded["processes"] = serde_json::json!([{
+            "name":"fixture-runner", "executable":executable.path(),
+            "environment":{}, "required_isolation":[], "reduced_isolation":true, "inputs":[]
+        }]);
+        let with_process: Profile = serde_json::from_value(bounded.clone()).unwrap();
+        assert!(!crate::skills::available_tools(&with_process).contains("fixture-runner"));
+        assert!(!crate::skills::available_tools(&with_process).contains("vcp_exec"));
+        bounded["canonical_tools"] = serde_json::json!(["vcp_exec"]);
+        let execution: Profile = serde_json::from_value(bounded.clone()).unwrap();
+        assert_eq!(
+            crate::skills::available_tools(&execution),
+            ["vcp_exec", "fixture-runner"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        );
+        bounded["canonical_tools"] = serde_json::json!([]);
+        let empty: Profile = serde_json::from_value(bounded.clone()).unwrap();
+        assert_eq!(empty.canonical_tools.names().count(), 0);
+        assert!(crate::skills::available_tools(&empty).is_empty());
+        for invalid in [
+            serde_json::json!(["shell"]),
+            serde_json::json!(["vcp_read", "vcp_read"]),
+        ] {
+            bounded["canonical_tools"] = invalid;
+            assert!(serde_json::from_value::<Profile>(bounded.clone()).is_err());
+        }
         assert_eq!(old.output_tokens, None);
         assert_eq!(old.output_ceiling().unwrap(), Units::new(4096));
         assert_eq!(old.provider_timeout_seconds, None);

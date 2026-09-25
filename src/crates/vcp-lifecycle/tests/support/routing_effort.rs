@@ -191,6 +191,7 @@ async fn effort_is_qualified_selected_sealed_and_bounded_without_changing_output
             host.configure_coding(
                 id,
                 CodingConfig {
+                    canonical_tools: Default::default(),
                     operating: "Report the synthetic fixture.".into(),
                     affected_paths: vec!["file.txt".into()],
                     max_requests: 1,

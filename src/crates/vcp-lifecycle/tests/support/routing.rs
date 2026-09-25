@@ -423,6 +423,7 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
             host.configure_coding(
                 id,
                 CodingConfig {
+                    canonical_tools: Default::default(),
                     operating: "Report the observed fixture only.".into(),
                     affected_paths: vec!["file.txt".into()],
                     max_requests: if mode.starts_with("escalat") || mode == "retry-zero" {
@@ -687,6 +688,7 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                     .configure_coding(
                         id,
                         CodingConfig {
+                            canonical_tools: Default::default(),
                             operating: "Preserve retained routing policy.".into(),
                             affected_paths: vec!["file.txt".into()],
                             max_requests: 4,

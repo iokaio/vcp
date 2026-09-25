@@ -13,9 +13,13 @@ test('builtin staging copies exactly the selected hashed inventory and preserves
   try {
     const target = path.join(temp.root, 'assets');
     const inventory = stageAssets(assets, target);
-    assert.equal(inventory.skills, 23);
-    assert.equal(inventory.files.length, 49);
+    assert.equal(inventory.skills, 21);
+    assert.equal(inventory.files.length, 44);
     assert.deepEqual(inspectAssets(target).inventory, inventory);
+    for (const id of ['document-authoring', 'skill-authoring']) {
+      assert.equal(fs.existsSync(path.join(target, id)), false);
+      assert.equal(inventory.files.some(file => JSON.stringify(file).includes(id)), false);
+    }
     fs.writeFileSync(path.join(target, 'user-sentinel'), 'preserve');
     assert.throws(() => stageAssets(assets, target), /exist/i);
     assert.equal(fs.readFileSync(path.join(target, 'user-sentinel'), 'utf8'), 'preserve');

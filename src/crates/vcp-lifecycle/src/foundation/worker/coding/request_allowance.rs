@@ -4,6 +4,14 @@ use super::*;
 
 pub(super) const GUIDANCE: &str = "The canonical_root_request_allowance observation is a snapshot before admission. Its remaining count includes the request receiving this context; children, helpers and retries share the root allowance, and concurrent work can consume it. It grants no permission and cannot increase any limit. Batch independent vcp_read/vcp_list/vcp_search calls in one response when their inputs are already known; use bounded vcp_search for cross-file discovery instead of serial directory exploration. Preserve dependent ordering; vcp_verify and vcp_mcp still require isolated responses. Plan to leave a request for the final answer after required checks. If evidence or allowance is insufficient, report the limitation rather than inventing results or skipping required checks.";
 
+pub(super) fn guidance(tools: &crate::foundation::coding::CanonicalTools) -> &'static str {
+    if tools.is_all() {
+        GUIDANCE
+    } else {
+        "The canonical_root_request_allowance observation is a snapshot before admission. Its remaining count includes the request receiving this context; children, helpers and retries share the root allowance. It grants no permission and cannot increase any limit. Only the owner's model tool ceiling is advertised. Batch independent available reads when their inputs are known; preserve dependent ordering and any isolated-response requirements. Leave a request for the final answer after applicable checks. Report unavailable checks and insufficient evidence honestly."
+    }
+}
+
 #[derive(Debug, serde::Serialize)]
 pub(super) struct Allowance {
     kind: &'static str,

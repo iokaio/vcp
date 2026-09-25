@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Retained tool wrappers; canonical assembly owns the actual provider body.
+pub use super::canonical_tools::CanonicalTools;
 use super::*;
 use codex_extension_api::*;
 use serde_json::{json, Value};
@@ -27,6 +28,9 @@ pub fn capabilities() -> Capabilities {
 /// Trusted per-owner setup. It cannot be deserialized from model arguments.
 #[derive(Clone, serde::Serialize)]
 pub struct CodingConfig {
+    /// Owner-selected model tool ceiling; never a grant of effects.
+    #[serde(skip_serializing_if = "CanonicalTools::is_all")]
+    pub canonical_tools: CanonicalTools,
     pub operating: String,
     pub affected_paths: Vec<PathBuf>,
     /// Cumulative root requests, including children and helpers, across reopen.
@@ -76,20 +80,7 @@ pub fn schemas() -> Value {
     schemas
 }
 pub fn allowed_tools() -> AllowedTools {
-    AllowedTools(
-        [
-            "vcp_read",
-            "vcp_list",
-            "vcp_search",
-            "vcp_patch",
-            "vcp_exec",
-            "vcp_verify",
-            "vcp_mcp",
-        ]
-        .into_iter()
-        .map(ToolName::plain)
-        .collect(),
-    )
+    CanonicalTools::default().allowed_tools()
 }
 fn mcp_request(arguments: &str) -> Result<super::mcp::Request, String> {
     #[derive(serde::Deserialize)]
@@ -175,6 +166,22 @@ fn check_hook_tool_boundary(name: &str, authorization_hooks: bool) -> Result<(),
     Ok(())
 }
 impl CanonicalHost {
+    /// Freeze the root's model-facing tool ceiling before retained startup.
+    /// Reopen and child startup reuse the recorded ceiling without widening it.
+    pub fn configure_canonical_tools(&self, tools: CanonicalTools) -> Result<(), String> {
+        self.worker
+            .run(move |context| context.configure_canonical_tools(tools))
+    }
+    pub fn canonical_tools(&self, task: TaskId) -> Result<CanonicalTools, String> {
+        self.worker
+            .run(move |context| context.canonical_tools_for(&task))
+    }
+    /// Seal legacy/default setup before retained registration as well. A later
+    /// caller cannot install a different ceiling behind an already-started thread.
+    pub fn startup_canonical_tools(&self, task: TaskId) -> Result<CanonicalTools, String> {
+        self.worker
+            .run(move |context| context.startup_canonical_tools(&task))
+    }
     /// Record the actual submitted user input before asking the retained
     /// controller to start a turn. Request/tool callbacks advance its stages.
     /// Trusted supervisor binding for a caller-selected, already accepted turn.
@@ -447,14 +454,15 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     #[serde(deny_unknown_fields)]
                     struct Input { citations: Vec<ArtifactId> }
                     let input: Input = serde_json::from_str(&arguments).map_err(|e| e.to_string())?;
-                    let report = self.host.verify(self.thread, input.citations).await?;
+                    let observed = self.host.verify_for_coding(self.thread, input.citations).await?;
+                    let report = observed.verification;
                     sources.extend(report.outputs.clone());
                     sources.extend(report.checks.iter().map(|c| c.output.clone()));
                     let hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterVerification,
                         format!("verify-{}", call.call_id), vec![], json!({"tool":"vcp_verify"}), &mut sources).await;
                     let after_hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterToolCompletion,
                         format!("verify-after-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes())), vec![], json!({"tool":"vcp_verify"}), &mut sources).await;
-                    return Ok(json!({"verification":report,"complete":false,"hooks":hooks,"after_hooks":after_hooks}));
+                    return Ok(json!({"verification":report,"diagnostics":observed.diagnostics,"complete":false,"hooks":hooks,"after_hooks":after_hooks}));
                 }
                 if self.host.mcp_connections_present() {
                     return Err("Disconnect MCP servers before native tools; an MCP connection is still active".into());
@@ -477,10 +485,10 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     let after_hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterToolCompletion,
                         format!("after-{}", outcome.effect), vec![outcome.evidence.spec.id.clone()],
                         json!({"tool":self.name,"effect":outcome.effect,"exit_code":outcome.exit_code,"reason":outcome.reason}), &mut sources).await;
+                    let streams = outcome.output_presentation();
                     return Ok(json!({"effect":outcome.effect,"evidence":outcome.evidence.spec.id,"exit_code":outcome.exit_code,"reason":outcome.reason,
                         "before_hooks":before_hooks,"after_hooks":after_hooks,
-                        "stdout":{"artifact":outcome.stdout.spec.id,"bytes":outcome.stdout.length,"tail":outcome.stdout_presentation.tail,"decoding":outcome.stdout_presentation,"truncated":outcome.stdout.length.get()>outcome.stdout_tail.len() as u64},
-                        "stderr":{"artifact":outcome.stderr.spec.id,"bytes":outcome.stderr.length,"tail":outcome.stderr_presentation.tail,"decoding":outcome.stderr_presentation,"truncated":outcome.stderr.length.get()>outcome.stderr_tail.len() as u64}}));
+                        "stdout":streams["stdout"],"stderr":streams["stderr"]}));
                 }
                 let request = vcp_tools::Request::from_call(&self.name, &arguments).map_err(|e| e.to_string())?;
                 let (proposal, before_hooks) = self.host.prepare_gated_tool(self.thread, request,
