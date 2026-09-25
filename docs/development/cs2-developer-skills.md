@@ -1,8 +1,10 @@
 # CS-2 developer specialists: implementation and qualification
 
-Status: in progress. The `frontend-design`, `mcp-development` and `llm-integration`
-candidates are unqualified 1.0.0 drafts. No model call, comparison or promotion
-has run. Contract: [plan 24 § CS-2](../plan/24-skills-follow-on.md#cs-2--developer-specialists).
+Status: in progress. Unqualified 1.0.0 drafts of `frontend-design`,
+`mcp-development` and `llm-integration` are preserved outside `main`. They return,
+frozen for the campaign, with the campaign tooling and their per-skill PRs. No
+model call, comparison or promotion has run. Contract:
+[plan 24 § CS-2](../plan/24-skills-follow-on.md#cs-2--developer-specialists).
 
 ## Owner decisions (September 25, 2026)
 
@@ -57,12 +59,21 @@ The v5 grader verification on native Windows 10.0.26200.0 x64 with the pinned
 Node:
 
 - The portable structural and history suite passed (11 tests).
-- The probe suite passed (9 tests). Every one of the eleven graded cases passes its
-  trusted reference, and every recorded regression fails.
+- The probe suite passed (15 tests):
+  - Every one of the eleven graded cases passes its trusted reference.
+  - Every recorded regression fails. The regressions include per-chunk and
+    UTF-16 stream limits, promise results from synchronous contracts, and server
+    state outside the caller's object.
+  - Contract-consistent variations of unstated details pass.
+  - Harness faults leave the verdict open for regrading.
 - The AppContainer grading test passed. For each of the six wrapper kinds, a
   reference double passed and a regression failed, and no profile leaked.
 
-No model artifact has been graded.
+An independent review found three verdict-affecting grader defects and several
+should-fix items; all were corrected before any campaign identity was pinned.
+
+Grader error messages may quote candidate output, so they stay out of
+blind-reader packets. No model artifact has been graded.
 
 ## Remaining sequence
 

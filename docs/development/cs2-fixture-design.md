@@ -175,8 +175,24 @@ expected value.
   resources), the LLM transport (payload, single call, no retry) or the stream
   iterator (read counts, abort during a read).
 
-Eleven cases are graded functionally. The two report-only cases per skill, and
-the form and focus UI tasks, rely on structural checks and blind readers.
+Eleven cases are graded functionally. The other seven rely on structural checks
+and blind readers: the five report-only cases, plus the UI form and focus tasks.
+
+Graded prompts state that code must leave no timers or other pending handles
+running, because each artifact runs in a fresh contained process.
+
+**What the grader expects, and what it tolerates.** Expectations are only what
+the contract text states:
+
+- limits apply to the whole input in UTF-8 bytes, across chunks;
+- synchronous contracts must not return promises;
+- the boundary queue lives in the caller's `state`.
+
+Details the contract leaves open are tolerated: optional MCP fields, a missing
+`mimeType`, and whether capacity or parameter errors take precedence.
+
+A harness fault in the runner, receipt or cleanup marks the case for regrading
+instead of failing the candidate.
 
 **UI evidence in CS-2** is structural checks, the seams and blind readers. DOM,
 keyboard, focus, viewport, reduced-motion and accessibility checks are recorded

@@ -15,12 +15,32 @@ const { checkResponse, checkInteractiveReceipt, decodeFrame } = require('./node-
 const { openInteractive } = require('./node-fixture-session.cjs');
 const repository = path.resolve(__dirname, '../..');
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+// Faults of the trusted harness are not candidate behavior: the case is regraded,
+// never counted against the candidate. Messages below come from the session helper.
+class HarnessFault extends Error {
+  constructor(message, cause) { super(message); this.harness = true; this.cause = cause; }
+}
+const harnessMessages = /^(Runner |Profile reconciliation|Owned profile|Contained child survived|Malformed runner|Unexpected runner|Invalid profile|Invalid interactive timeout|Timed out waiting for runner start)/;
+const asHarness = error => error?.harness ? error : harnessMessages.test(String(error?.message ?? '')) ? new HarnessFault(String(error.message), error) : error;
 
 // ---------------------------------------------------------------------------
 // Trusted wrappers. Each is staged as candidate.cjs next to the subject module.
-const outcome = `async function outcome(action) {
-  try { return { ok: true, value: await action() }; }
-  catch (error) { return { ok: false, name: String(error?.name ?? typeof error).slice(0, 64), message: String(error?.message ?? error).slice(0, 512), code: error?.code === undefined ? null : String(error.code).slice(0, 128) }; }
+const outcome = `function failure(error) {
+  return { ok: false, name: String(error?.name ?? typeof error).slice(0, 64), type_error: error instanceof TypeError,
+    message: String(error?.message ?? error).slice(0, 512), code: error?.code === undefined ? null : String(error.code).slice(0, 128) };
+}
+async function outcome(action) {
+  try { return { ok: true, value: await action() }; } catch (error) { return failure(error); }
+}
+// Contracts that return or throw synchronously must not hand back a promise.
+function syncOutcome(action) {
+  try {
+    const value = action();
+    if (value !== null && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function') {
+      return { ok: false, name: 'AsyncResult', type_error: false, message: 'Returned a thenable where a synchronous result is required', code: null };
+    }
+    return { ok: true, value };
+  } catch (error) { return failure(error); }
 }`;
 const wrappers = {
   // Pure function calls; args are returned after the call to expose mutation.
@@ -29,7 +49,7 @@ const subject = require('./${subject}');
 ${outcome}
 exports.compute = async input => {
   const results = [];
-  for (const args of input.calls) results.push({ outcome: await outcome(() => subject[${JSON.stringify(exported)}](...args)), args_after: args });
+  for (const args of input.calls) results.push({ outcome: syncOutcome(() => subject[${JSON.stringify(exported)}](...args)), args_after: args });
   return results;
 };
 `,
@@ -42,7 +62,7 @@ exports.compute = async input => {
   let state = { initialized: false, pending: new Map() };
   for (const step of input.steps) {
     if (step.type === 'reset') { state = { initialized: false, pending: new Map() }; results.push(null); }
-    else if (step.type === 'flush') results.push(typeof state.flush === 'function' ? await outcome(() => state.flush()) : { ok: false, name: 'MissingFlush', message: 'state.flush is not installed', code: null });
+    else if (step.type === 'flush') results.push(typeof state.flush === 'function' ? syncOutcome(() => state.flush()) : { ok: false, name: 'MissingFlush', type_error: false, message: 'state.flush is not installed', code: null });
     else results.push(await outcome(() => subject[${JSON.stringify(exported)}](step.message, state)));
   }
   return results;
@@ -113,18 +133,41 @@ exports.interact = async channel => {
 // ---------------------------------------------------------------------------
 // Probe helpers. `observe` records each named expectation independently.
 const ok = value => ({ ok: true, value });
-const threw = name => result => { assert.equal(result.ok, false, 'Expected an exception'); assert.equal(result.name, name); };
+const threw = name => result => {
+  assert.equal(result.ok, false, 'Expected an exception');
+  if (name === 'TypeError') assert.equal(result.type_error, true, 'Expected a TypeError instance'); else assert.equal(result.name, name);
+};
 const b64 = value => Buffer.from(value).toString('base64');
 const ndjson = events => events.map(event => JSON.stringify(event) + '\n').join('');
 const packet = (id, method, params) => ({ jsonrpc: '2.0', id, method, params });
 const success = (id, result) => ({ jsonrpc: '2.0', id, result });
 const initParams = { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'independent-grader', version: '1' } };
+// The contract requires these three fields; MCP also permits optional instructions.
 function initializeShape(result, capabilities) {
   assert.equal(result.protocolVersion, '2025-11-25');
   assert.deepEqual(result.capabilities, capabilities);
   assert.equal(typeof result.serverInfo?.name, 'string'); assert(result.serverInfo.name.length > 0);
   assert.equal(typeof result.serverInfo?.version, 'string'); assert(result.serverInfo.version.length > 0);
-  assert.deepEqual(Object.keys(result).sort(), ['capabilities', 'protocolVersion', 'serverInfo']);
+  for (const key of Object.keys(result)) assert(['capabilities', 'protocolVersion', 'serverInfo', 'instructions'].includes(key), `Unexpected initialize field ${key}`);
+  if ('instructions' in result) assert.equal(typeof result.instructions, 'string');
+}
+// Stream limit inputs shared by the batch and parent-read probes. Each is used whole
+// and split across chunks; the multibyte input exceeds 4096 UTF-8 bytes but not
+// 4096 UTF-16 code units.
+function streamLimitInputs(sized, exactLength) {
+  const events = count => Buffer.from(ndjson([...Array(count - 1).fill({ type: 'delta', text: 'x' }), { type: 'done' }]));
+  const exactEvents = events(32), overEvents = events(33);
+  const multibyte = Buffer.from(ndjson([{ type: 'delta', text: 'é'.repeat(2100) }, { type: 'done' }]));
+  assert(multibyte.length > 4096 && multibyte.toString('utf8').length < 4096);
+  const lines = buffer => buffer.toString('utf8').split(/(?<=\n)/);
+  const halves = buffer => { const middle = Math.ceil(buffer.length / 2); return [buffer.subarray(0, middle), buffer.subarray(middle)]; };
+  const lineHalves = buffer => { const all = lines(buffer), middle = Math.ceil(all.length / 2); return [Buffer.from(all.slice(0, middle).join('')), Buffer.from(all.slice(middle).join(''))]; };
+  const run = parts => ({ parts: parts.map(part => b64(part)) });
+  return {
+    exactEvents, overEvents, multibyte, halves, lineHalves,
+    ceilingRuns: (bytes, eventInput) => [run([bytes]), run(halves(bytes)), run([eventInput]), run(lineHalves(eventInput))],
+    oversizedRuns: (bytes, eventInput, wide) => [run([bytes]), run(halves(bytes)), run([eventInput]), run(lineHalves(eventInput)), run([wide]), run(halves(wide))],
+  };
 }
 async function functionCalls(run, calls, check) {
   const results = await run({ calls: calls.map(call => call.args) });
@@ -206,7 +249,14 @@ const probes = {
     }
     const reply = expected => result => assert.deepEqual(result, ok(expected));
     const nothing = result => assert.deepEqual(result, ok(null));
-    const code = (id, value) => result => { assert.equal(result.ok, true); assert.equal(result.value?.jsonrpc, '2.0'); assert.equal(result.value?.id, id); assert.equal(result.value?.error?.code, value); };
+    // "A reply is exactly {jsonrpc,id,error:{code,message}}"; only codes are fixed.
+    const code = (id, value) => result => {
+      assert.equal(result.ok, true);
+      assert.deepEqual(Object.keys(result.value ?? {}).sort(), ['error', 'id', 'jsonrpc']);
+      assert.equal(result.value.jsonrpc, '2.0'); assert.equal(result.value.id, id);
+      assert.deepEqual(Object.keys(result.value.error ?? {}).sort(), ['code', 'message']);
+      assert.equal(result.value.error.code, value); assert.equal(typeof result.value.error.message, 'string');
+    };
     const init = (api, id = 'init') => api.send(packet(id, 'initialize', initParams), result => {
       assert.equal(result.ok, true); assert.equal(result.value.id, id); initializeShape(result.value.result, {});
     });
@@ -242,14 +292,27 @@ const probes = {
         cancel(api, { requestId: 'slow-b' });
         api.flush(reply([]));
       })],
+      // Duplicate and invalid requests are sent while the queue has room: the
+      // contract fixes their codes but not their precedence against capacity.
       ['pending bound and invalid requests preserve queued work', script(api => {
         api.reset(); init(api);
-        for (let index = 0; index < 16; index++) api.send(packet(`q${index}`, 'fixture/delay', { text: String(index) }), nothing);
-        api.send(packet('overflow', 'fixture/delay', { text: 'extra' }), code('overflow', -32002));
+        api.send(packet('q0', 'fixture/delay', { text: '0' }), nothing);
         api.send(packet('q0', 'fixture/delay', { text: 'replacement' }), code('q0', -32602));
         for (const params of [null, { text: 3 }, { text: 'x', extra: true }, { text: 'é'.repeat(4097) }]) api.send(packet('bad', 'fixture/delay', params), code('bad', -32602));
+        for (let index = 1; index < 16; index++) api.send(packet(`q${index}`, 'fixture/delay', { text: String(index) }), nothing);
+        api.send(packet('overflow', 'fixture/delay', { text: 'extra' }), code('overflow', -32002));
         init(api, 'init-again');
         api.flush(reply(Array.from({ length: 16 }, (_, index) => success(`q${index}`, { text: String(index) }))));
+      })],
+      // The queue and initialization flag belong to the caller-supplied state.
+      ['queue and initialization live in the caller-owned state', script(api => {
+        api.reset(); init(api);
+        api.send(packet('held-a', 'fixture/delay', { text: 'A' }), nothing);
+        api.send(packet('held-b', 'fixture/delay', { text: 'B' }), nothing);
+        api.reset();
+        api.send(packet('fresh', 'fixture/delay', { text: 'early' }), code('fresh', -32000));
+        init(api);
+        api.flush(reply([]));
       })],
       ...['x', 'é', '"'].map(character => [`full envelope ceiling for ${JSON.stringify(character)}`, script(api => {
         const id = 'sized';
@@ -276,6 +339,7 @@ const probes = {
     const sized = count => Buffer.from(ndjson([{ type: 'delta', text: 'x'.repeat(count) }, { type: 'done' }]));
     const exactLength = 4096 - sized(0).length;
     const rejected = result => assert(!result.ok || result.value?.status === 'error', 'Oversized valid input was not rejected');
+    const { exactEvents, overEvents, multibyte, ceilingRuns, oversizedRuns } = streamLimitInputs(sized, exactLength);
     return [
       ['all two-chunk byte splits and one-byte fragments', batch([
         ...Array.from({ length: successBytes.length + 1 }, (_, offset) => ({ parts: [b64(successBytes.subarray(0, offset)), b64(successBytes.subarray(offset))] })),
@@ -293,14 +357,9 @@ const probes = {
         if (index === 1) assert.equal(typeof result.value.error === 'string' ? result.value.error : result.value.error?.code, 'RATE_LIMIT');
       })],
       ['pre-cancelled stream reports cancelled', batch([{ parts: [b64(successBytes)], abort_before: true }], result => { assert.equal(result.ok, true); assert.equal(result.value.status, 'cancelled'); })],
-      ['exact byte and event ceilings are accepted', batch([
-        { parts: [b64(sized(exactLength))] },
-        { parts: [b64(ndjson([...Array(31).fill({ type: 'delta', text: 'x' }), { type: 'done' }]))] },
-      ], (result, index) => completed(index === 0 ? 'x'.repeat(exactLength) : 'x'.repeat(31), null)(result))],
-      ['oversized byte and event inputs are rejected', batch([
-        { parts: [b64(sized(exactLength + 1))] },
-        { parts: [b64(ndjson([...Array(32).fill({ type: 'delta', text: 'x' }), { type: 'done' }]))] },
-      ], rejected)],
+      // Limits apply to the whole input, across chunks, measured in UTF-8 bytes.
+      ['exact byte and event ceilings are accepted, whole or split', batch(ceilingRuns(sized(exactLength), exactEvents), (result, index) => completed(index < 2 ? 'x'.repeat(exactLength) : 'x'.repeat(31), null)(result))],
+      ['oversized byte, event and multibyte inputs are rejected, whole or split', batch(oversizedRuns(sized(exactLength + 1), overEvents, multibyte), rejected)],
     ];
   } },
   'MCP-normal-tools-v3': { wrapper: 'mcpStdio', groups: ({ initial }) => [['stdio tools session', async session => {
@@ -349,10 +408,19 @@ const probes = {
     }
     initializeShape((await request('initialize', initParams)).result, { resources: {} });
     session.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    // The contract fixes identities and text; MCP makes mimeType optional and permits
+    // further optional fields, so those are accepted when absent or consistent.
     const listed = (await request('resources/list', {})).result?.resources;
-    assert.deepEqual(listed.map(({ uri, name, mimeType }) => ({ uri, name, mimeType })), resources.map(({ uri, name, mimeType }) => ({ uri, name, mimeType })));
+    assert(Array.isArray(listed) && listed.length === resources.length, 'Resource inventory differs');
     for (const resource of resources) {
-      assert.deepEqual((await request('resources/read', { uri: resource.uri })).result?.contents, [{ uri: resource.uri, mimeType: resource.mimeType, text: resource.text }]);
+      const entry = listed.find(item => item?.uri === resource.uri);
+      assert(entry, `Missing resource ${resource.uri}`); assert.equal(entry.name, resource.name);
+      if (entry.mimeType !== undefined) assert.equal(entry.mimeType, resource.mimeType);
+      const contents = (await request('resources/read', { uri: resource.uri })).result?.contents;
+      assert(Array.isArray(contents) && contents.length === 1, 'Expected exactly one content entry');
+      assert.equal(contents[0].uri, resource.uri); assert.equal(contents[0].text, resource.text);
+      assert(!('blob' in contents[0]), 'Text resource returned a blob');
+      if (contents[0].mimeType !== undefined) assert.equal(contents[0].mimeType, resource.mimeType);
     }
     for (const uri of ['fixture://missing', 'file:///C:/Windows/win.ini', '../resources.json']) assert((await request('resources/read', { uri })).error, `Unknown resource read succeeded: ${uri}`);
     assert.equal((await request('fixture/unknown', {})).error?.code, -32601);
@@ -383,7 +451,7 @@ const probes = {
         ]) assert.deepEqual(await summarize(session, 'Local input', response), ok({ text: response.text, usage: response.usage ?? null }));
         const failed = await summarize(session, 'Local input', { ok: false, error: { code: 'SYNTHETIC_RATE_LIMIT', message: 'Synthetic refusal' } });
         assert.equal(failed.ok, false); assert.equal(failed.code, 'SYNTHETIC_RATE_LIMIT'); assert.equal(failed.message, 'Synthetic refusal');
-        assert.notEqual(failed.name, 'TypeError');
+        assert.equal(failed.type_error, false, 'A provider failure must not surface as a validation TypeError');
       }],
       ['invalid input rejected before any transport call', async session => {
         for (const input of [null, 5, {}, '', 'x'.repeat(1001), 'é'.repeat(501)]) threw('TypeError')(await summarize(session, input, null, { calls: 0 }));
@@ -418,6 +486,9 @@ const probes = {
     const chunk = text => ({ chunk: b64(text) });
     const sized = count => ndjson([{ type: 'delta', text: 'x'.repeat(count) }, { type: 'done' }]);
     const exactLength = 4096 - Buffer.byteLength(sized(0));
+    const limits = streamLimitInputs(count => Buffer.from(sized(count)), exactLength);
+    // Serve a prepared run's parts as successive reads, then end the stream.
+    const reads = run => [...run.parts.map(part => ({ chunk: part })), { done: true }];
     return [
       ['truncation, error and missing usage over parent reads', async session => {
         const incomplete = await collect(session, [chunk(ndjson([{ type: 'delta', text: 'Part' }])), { done: true }]);
@@ -437,14 +508,23 @@ const probes = {
         assert.equal(result.reads, 2); assert.equal(result.outcome.ok, true);
         assert.equal(result.outcome.value.status, 'cancelled'); assert.equal(result.outcome.value.text, 'Part'); assert.equal(result.outcome.value.usage, null);
       }],
-      ['byte and event ceilings over parent reads', async session => {
-        const exact = await collect(session, [chunk(sized(exactLength)), { done: true }]);
-        assert.equal(exact.outcome.value.status, 'completed'); assert.equal(exact.outcome.value.text, 'x'.repeat(exactLength));
-        const events = await collect(session, [chunk(ndjson([...Array(31).fill({ type: 'delta', text: 'x' }), { type: 'done' }])), { done: true }]);
-        assert.equal(events.outcome.value.status, 'completed');
-        for (const text of [sized(exactLength + 1), ndjson([...Array(32).fill({ type: 'delta', text: 'x' }), { type: 'done' }])]) {
-          const result = await collect(session, [chunk(text), { done: true }]);
-          assert(!result.outcome.ok || result.outcome.value.status === 'error', 'Oversized valid input was not rejected');
+      ['byte and event ceilings over parent reads, whole or split', async session => {
+        for (const [index, run] of limits.ceilingRuns(Buffer.from(sized(exactLength)), limits.exactEvents).entries()) {
+          const result = await collect(session, reads(run));
+          assert.equal(result.outcome.ok, true); assert.equal(result.outcome.value.status, 'completed');
+          assert.equal(result.outcome.value.text, index < 2 ? 'x'.repeat(exactLength) : 'x'.repeat(31));
+        }
+        for (const run of limits.oversizedRuns(Buffer.from(sized(exactLength + 1)), limits.overEvents, limits.multibyte)) {
+          // A rejecting collector may stop reading early; unread parts are not required.
+          session.send({ abort_before: false });
+          const plan = reads(run);
+          let served = 0, frame;
+          while ((frame = await session.receive()).type === 'read') {
+            assert(served < plan.length, 'Read after the stream ended');
+            session.send(plan[served++]);
+          }
+          assert.equal(frame.type, 'result');
+          assert(!frame.outcome.ok || frame.outcome.value.status === 'error', 'Oversized valid input was not rejected');
         }
       }],
     ];
@@ -498,8 +578,10 @@ function appContainerExecutor({ node, nodeSha256, timeoutMs = 20000, memoryBytes
         fs.writeFileSync(configPath, JSON.stringify(config));
         const child = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner, '-Config', configPath], {
           cwd: repository, encoding: 'utf8', timeout: timeoutMs + 30000, maxBuffer: 1048576, windowsHide: true });
-        if (child.error || child.status !== 0) throw Error('Adapter run failed before a receipt');
-        const receipt = JSON.parse(child.stdout);
+        if (child.error || child.status !== 0) throw new HarnessFault('Adapter run failed before a receipt');
+        let receipt;
+        try { receipt = JSON.parse(child.stdout); } catch { throw new HarnessFault('Adapter receipt is not JSON'); }
+        if (receipt?.cleanup !== 'completed') throw new HarnessFault('Adapter cleanup incomplete');
         const text = Buffer.from(receipt.result.stdout_base64, 'base64').toString('utf8');
         let response;
         try { response = JSON.parse(text); } catch { throw Error(`Candidate produced no valid response (termination ${receipt.result.termination})`); }
@@ -516,11 +598,16 @@ function appContainerExecutor({ node, nodeSha256, timeoutMs = 20000, memoryBytes
           interaction: { max_frames: 4096, max_frame_bytes: 65536, max_total_bytes: 1048576, idle_ms: idleMs }, files: entries };
         const configPath = path.join(directory, 'config.json');
         fs.writeFileSync(configPath, JSON.stringify(config));
-        const session = openInteractive(configPath, { cwd: repository });
+        let session;
+        try { session = openInteractive(configPath, { cwd: repository }); } catch (error) { throw new HarnessFault(String(error?.message ?? error), error); }
         let failure = null;
-        try { await drive(session); } catch (error) { failure = error; }
+        try { await drive(session); } catch (error) { failure = asHarness(error); }
         let closed;
-        try { closed = await session.close(); } catch (error) { throw failure ?? error; }
+        try { closed = await session.close(); } catch (error) {
+          // Without a receipt the run's containment is unproven: always regrade.
+          const fault = asHarness(error);
+          throw fault.harness ? fault : failure ?? fault;
+        }
         if (failure) throw failure;
         checkInteractiveReceipt(closed.receipt, closed);
       } finally { fs.rmSync(directory, { recursive: true, force: true }); }
@@ -603,7 +690,8 @@ function localTrustedExecutor({ timeoutMs = 10000 } = {}) {
 
 // Grade one case against the final workspace (Map path -> content). Every probe
 // group is recorded; one failure does not stop the others.
-async function grade(caseId, final, executor) {
+async function grade(caseId, final, executor, { allowUnqualified = false } = {}) {
+  if (executor?.qualified !== true && !allowUnqualified) throw Error('Unqualified executors are for probe tests only and need explicit opt-in');
   const { task, oracle, initial } = load(caseId);
   const grading = oracle.functional_grading;
   const base = { case_id: task.id, mode: grading.mode, executor: executor?.name ?? null, qualified_executor: executor?.qualified === true };
@@ -618,12 +706,15 @@ async function grade(caseId, final, executor) {
       else await executor.interactive(files, session => check(session));
       observations.push({ name, passed: true });
     } catch (error) {
-      observations.push({ name, passed: false });
-      errors.push({ name, message: String(error?.message ?? error).slice(0, 2048) });
+      const harness = error?.harness === true;
+      observations.push({ name, passed: false, ...(harness ? { harness_fault: true } : {}) });
+      // Messages may quote candidate output; keep them out of blind-reader packets.
+      errors.push({ name, harness_fault: harness, message: String(error?.message ?? error).slice(0, 2048) });
     }
   }
-  return { ...base, functional_pass: errors.length === 0, observations, errors,
-    not_run: ['Selected SDK and live provider compatibility', 'Browser, layout and human usefulness review'] };
+  const harnessFaults = errors.filter(error => error.harness_fault).length;
+  return { ...base, functional_pass: harnessFaults ? null : errors.length === 0, harness_faults: harnessFaults, requires_regrade: harnessFaults > 0,
+    observations, errors, not_run: ['Selected SDK and live provider compatibility', 'Browser, layout and human usefulness review'] };
 }
 const gradedCases = Object.keys(probes);
-module.exports = { grade, gradedCases, inventory, appContainerExecutor, localTrustedExecutor };
+module.exports = { grade, gradedCases, inventory, appContainerExecutor, localTrustedExecutor, HarnessFault };
