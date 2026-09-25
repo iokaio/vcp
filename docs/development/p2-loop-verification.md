@@ -27,6 +27,30 @@ Verification must be the only call in its model response. Retained async calls
 can acquire their execution lock out of response order, so a mixed verification
 response produces explicit unexecuted pairs and requires fresh separate calls.
 
+The `vcp_verify` tool result also includes `diagnostics` for checks that actually
+produced authorized process output. Each entry binds the check specification,
+effect, process evidence and exit status to separate stdout/stderr artifact IDs,
+total byte counts and decoded tails. Presentation uses the same decoder as
+`vcp_exec`, including declared encodings, replacement-character counts and explicit
+truncation. Verification limits each stream to 2 KiB of retained raw tail bytes
+and all check streams together to 8 KiB before decoding; complete captured bytes
+remain in their existing artifacts. Current artifact read gates apply before
+presentation. A denied or unexecuted check has no fabricated diagnostic stream.
+
+The large-output regression initially rejected 8-KiB stream tails with
+`required context cannot fit the selected model envelope`: the fixture's
+24,000-token prompt ceiling uses conservative UTF-8 byte accounting, including
+both copies of each tail in the established presentation shape. The smaller
+limits preserve that context gate and retain the actionable failure suffix.
+The failed attempt remains in the local qualification logs alongside the final run.
+
+These diagnostics remain untrusted tool output in the canonical conversation;
+instructions in check output grant no authority. They expose only the streams
+from this verification invocation and introduce no general artifact-read tool.
+The canonical `Verification` schema and public verification/completion APIs are
+unchanged. A useful diagnostic neither passes a failed check nor permits completion;
+the model must make authorized corrections and obtain fresh applicable evidence.
+
 After retained work drains, the owning driver calls `complete_coding_turn`.
 It requires an accounted final response, no pending calls, current task authority
 and the latest verification observed by this owner. The caller cannot choose an
