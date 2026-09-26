@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "revision": "cs-1-authoring-requalification-provenance-v4",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "authorship": "Original synthetic VCP evaluation material; no third-party task, answer, rubric or evaluator prose copied.",
+  "candidate_identities": {
+    "document-authoring": "1.0.3",
+    "skill-authoring": "1.0.2"
+  },
+  "historical_results_transfer": false,
+  "task_identity_reuse": false,
+  "private_oracles_model_visible": false,
+  "claims": [
+    "Prospective specifications are not execution results.",
+    "Structural checks do not establish semantic correctness or usefulness.",
+    "A separately retained verifier-store feasibility receipt is required before live skill-authoring comparison."
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "build": "retention-3.8.0-rc1",
+  "environment": "Windows 11 x64",
+  "results": {
+    "E23": "pass",
+    "E24": "pass",
+    "E25": "pass",
+    "S4095": "not_run",
+    "S4096": "pass",
+    "S4097": "pass",
+    "B16383": "not_run",
+    "B16384": "pass",
+    "B16385": "pass",
+    "M25": "not_run"
+  },
+  "atomicity_observed_for": ["E25", "S4097", "B16385"],
+  "linux": "not_run",
+  "macos": "not_run",
+  "production": "not_run"
+}
