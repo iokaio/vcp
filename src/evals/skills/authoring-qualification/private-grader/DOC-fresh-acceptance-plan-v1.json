@@ -1,0 +1,34 @@
+{
+  "schema": "cs1-fresh-doc-private-oracle-draft/1",
+  "case_id": "DOC-fresh-acceptance-plan-v1",
+  "allowed_outputs": ["docs/saved-views-acceptance.md"],
+  "allowed_modifications": [],
+  "preserve_files": ["sources/decision.md", "sources/implementation.md", "sources/evidence.md"],
+  "source_provenance": [
+    {"path": "sources/decision.md", "origin": "Original synthetic accepted decision SV-12", "authority": "Normative product scope and release privacy boundary"},
+    {"path": "sources/implementation.md", "origin": "Original synthetic implementation note sv-34", "authority": "Implementation claims, ownership assignments; not proof of validation"},
+    {"path": "sources/evidence.md", "origin": "Original synthetic historical evidence snapshot E-8; no real test was run", "authority": "Only listed results, gaps, order and readiness conditions"}
+  ],
+  "deterministic_checks": [
+    {"id": "file-scope", "rule": "Only allowed target created; every input source byte-identical; no extra output file"},
+    {"id": "length", "rule": "Whole target has 400 through 650 tokens when split on Unicode whitespace and counting tokens containing at least one Unicode letter or number. Count prose, code and table cells alike. No Markdown parsing or punctuation normalization in this word counter."},
+    {"id": "structure", "rule": "Contains scope, Markdown scenario table with preconditions/action/expected outcome columns or semantic equivalents, existing evidence, and ordered remaining-validation list"},
+    {"id": "links", "rule": "Relative Markdown links resolve to all three source files from target location"}
+  ],
+  "mandatory_facts": [
+    {"id": "P01", "source": "sources/decision.md", "proposition": "Views store user's columns, sort and filters per dashboard, never row data; team sharing, public links and restore are deferred"},
+    {"id": "P02", "source": "sources/decision.md", "proposition": "At most five views; names trimmed, 1..40 Unicode scalar values, case-insensitively unique per user per dashboard; same name on different dashboards allowed"},
+    {"id": "P03", "source": "sources/decision.md", "proposition": "Successful server response required before save/rename success; sixth/duplicate attempts preserve existing views and show actionable error"},
+    {"id": "P04", "source": "sources/decision.md", "proposition": "Unknown/inaccessible load reveals no saved fields, returns default dashboard with explanation; other users cannot list/load/rename/delete owned views"},
+    {"id": "P05", "source": "sources/decision.md", "proposition": "Sign-out clears client view cache; default dashboards remain usable without saved views"},
+    {"id": "P06", "source": "sources/implementation.md", "proposition": "Network failure during save/rename retains editor contents and offers retry without success toast; deleting one view must leave siblings intact; keyboard access needs actual validation"},
+    {"id": "P07", "source": "sources/evidence.md", "proposition": "Historical E-8 API passes: create/load fields round-trip, trimmed/case-normalized duplicate rejection, sixth rejection preserving five, cross-user list/load denial; do not claim other scenarios passed"},
+    {"id": "P08", "source": "sources/evidence.md", "proposition": "Scenario table covers remaining cross-user rename/delete, one-view deletion/sibling preservation, empty and overlong names, same name/different dashboard, unknown/inaccessible fallback, sign-out clearing, save/rename network failure, keyboard navigation and default-dashboard usability"},
+    {"id": "P09", "source": "sources/evidence.md", "proposition": "Mira closes API gaps first; Leon validates browser scenarios against same revision when staging available; Priya reviews both evidence sets before any release decision"},
+    {"id": "P10", "source": "sources/evidence.md", "proposition": "Staging unavailable and browser checks not run; unresolved acceptance blocker rather than waiver; no release decision made"},
+    {"id": "P11", "source": "sources/implementation.md", "proposition": "Use two synthetic accounts in isolated future validation; include no real data or credentials"}
+  ],
+  "scenario_evaluation": "Each required scenario must have feasible preconditions, an action and a source-consistent observable outcome. Multiple closely related scenarios may share a row if each remains explicit. Do not require one row per fact. Boundary names should test empty/overlong values, with 40 accepted and 41 rejected if numeric examples are given. No endpoint or HTTP-code invention is necessary.",
+  "critical_contradictions": ["API fixture list/load denial proves rename/delete denial", "Browser validation already passed", "Unavailable staging waived", "Release approved", "Team sharing required or delivered", "Saved views store dashboard row data"],
+  "grading_note": "Assess plan utility and prioritization under the shared rubric; do not confuse an authored plan with executed verification."
+}

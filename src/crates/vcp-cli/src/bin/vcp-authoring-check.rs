@@ -15,6 +15,8 @@ use vcp_repository::{discovery::Limits, Root, RootIdentity};
 
 #[path = "authoring_check/followup.rs"]
 mod followup;
+#[path = "authoring_check/prospective.rs"]
+mod prospective;
 
 const MANIFEST: &str = include_str!("../../../../evals/skills/authoring/manifest.json");
 const INHERITED_MANIFEST: &str =
@@ -119,6 +121,9 @@ fn texts(value: &Value, key: &str) -> Checked<Vec<String>> {
         .collect()
 }
 fn contract(case: &str) -> Checked<(Value, Value)> {
+    if prospective::CASES.contains(&case) {
+        return prospective::contract(case);
+    }
     if followup::CASES.contains(&case) {
         return followup::contract(case);
     }
@@ -358,6 +363,9 @@ fn preserved(files: &Files, case: &str, task: &Value, oracle: &Value) -> Checked
             return Err("deliberately missing input was fabricated".into());
         }
     }
+    if prospective::CASES.contains(&case) {
+        prospective::preserved(files, case)?;
+    }
     Ok(())
 }
 fn structure(files: &Files, case: &str, oracle: &Value) -> Checked<()> {
@@ -384,6 +392,9 @@ fn structure(files: &Files, case: &str, oracle: &Value) -> Checked<()> {
     }
     if followup::CASES.contains(&case) {
         return followup::structure(files, case, oracle);
+    }
+    if prospective::CASES.contains(&case) {
+        return prospective::structure(files, case, oracle);
     }
     let mut links = BTreeSet::new();
     for name in outputs.iter().chain(&modified) {
@@ -523,7 +534,8 @@ fn main() -> ExitCode {
     let results = match (std::env::current_dir(), std::env::current_exe()) {
         (Ok(root), Ok(executable)) => match owner_case(&root, &executable) {
             Ok(case) => {
-                followup_case = followup::CASES.contains(&case.as_str());
+                followup_case = followup::CASES.contains(&case.as_str())
+                    || prospective::CASES.contains(&case.as_str());
                 check(&root, &case)
             }
             Err(error) => [Err(error.clone()), Err(error)],
