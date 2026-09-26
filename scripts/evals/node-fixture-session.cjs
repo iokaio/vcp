@@ -10,32 +10,95 @@ const { decodeFrame } = require('./node-fixture-protocol.cjs');
 const runner = path.join(__dirname, 'node-fixture-runner.ps1');
 const lineLimit = 196608, streamLimit = 2097152, cleanupMargin = 30000;
 const profilePattern = /^iokaio\.vcp\.memory\.[a-f0-9]{32}$/;
-function alive(pid) {
-  try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
-}
-// Supervisor reconciliation after a runner ended without its own cleanup receipt.
-// Only the exact profile recorded in the runner's `started` envelope is deleted.
-async function reconcileProfile(started, timeoutMs = 5000) {
-  if (!started || !Number.isSafeInteger(started.pid) || !profilePattern.test(started.profile)) throw Error('Invalid profile identity');
-  const deadline = Date.now() + timeoutMs;
-  while (alive(started.pid)) {
-    if (Date.now() >= deadline) throw Error('Contained child survived its owner');
-    await new Promise(resolve => setTimeout(resolve, 50));
+// Pick the supervisor-owned identity before the runner can create any profile.
+// The runner's atomic CreateAppContainerProfile must succeed for that new name;
+// it never opens an existing profile. No caller-supplied cleanup target is used.
+function reserveProfile() {
+  for (let attempts = 0; attempts < 16; attempts++) {
+    const profile = 'iokaio.vcp.memory.' + crypto.randomBytes(16).toString('hex');
+    if (!fs.existsSync(path.join(process.env.LOCALAPPDATA, 'Packages', profile))) return profile;
   }
-  const folder = path.join(process.env.LOCALAPPDATA, 'Packages', started.profile);
-  const script = "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public static class FixtureProfileCleanup { " +
-    "[DllImport(\"userenv.dll\", CharSet=CharSet.Unicode)] public static extern int DeleteAppContainerProfile(string name); }'; " +
-    `[Runtime.InteropServices.Marshal]::ThrowExceptionForHR([FixtureProfileCleanup]::DeleteAppContainerProfile('${started.profile}'))`;
+  throw Error('Owned profile identity could not be reserved');
+}
+// Run only after observing runner exit. Find child processes by their exact owned
+// executable and hold a process handle while waiting. A recycled PID must neither
+// delay reconciliation nor cause us to wait for or signal an unrelated process.
+async function reconcileOwnedProfile(profile, timeoutMs = 5000) {
+  if (!profilePattern.test(profile) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) throw Error('Invalid profile identity');
+  const folder = path.join(process.env.LOCALAPPDATA, 'Packages', profile);
+  const script = `$ErrorActionPreference = 'Stop'
+$profile = '${profile}'
+$folder = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('Packages/' + $profile)
+$program = [IO.Path]::GetFullPath((Join-Path $folder 'AC/node.exe'))
+foreach ($process in [Diagnostics.Process]::GetProcessesByName('node')) {
+  try {
+    try { $null = $process.Handle; $executable = $process.MainModule.FileName }
+    catch [InvalidOperationException] { continue }
+    # Other users' or elevated Node processes may deny query access. They cannot
+    # be the child launched with this broker's token. Never signal those processes.
+    catch [ComponentModel.Win32Exception] { if ($_.Exception.NativeErrorCode -eq 5 -or $process.HasExited) { continue }; throw }
+    if ($executable -ieq $program -and -not $process.WaitForExit(${timeoutMs})) { throw 'Contained child survived its owner' }
+  } finally { $process.Dispose() }
+}
+Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public static class FixtureProfileCleanup {
+  [DllImport("userenv.dll", CharSet=CharSet.Unicode)] public static extern int DeleteAppContainerProfile(string name); }'
+$result = [FixtureProfileCleanup]::DeleteAppContainerProfile($profile)
+# A runner can die before profile creation, or complete cleanup before losing its
+# receipt. Both missing-profile results are idempotent cleanup success.
+if ($result -ne 0 -and $result -ne -2147024894 -and $result -ne -2147023728) {
+  [Runtime.InteropServices.Marshal]::ThrowExceptionForHR($result)
+}
+if ([IO.Directory]::Exists($folder)) { throw 'Owned profile survived reconciliation' }`;
   const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 30000, windowsHide: true });
   if (result.error || result.status !== 0) throw Error('Profile reconciliation failed');
   if (fs.existsSync(folder)) throw Error('Owned profile survived reconciliation');
-  return { profile: started.profile, reconciled: true };
+  return { profile, reconciled: true };
+}
+// Public reconciliation for callers that deliberately simulate owner loss.
+async function reconcileProfile(started, timeoutMs = 5000) {
+  if (!started || !Number.isSafeInteger(started.pid) || started.pid <= 0 || !profilePattern.test(started.profile)) throw Error('Invalid profile identity');
+  return reconcileOwnedProfile(started.profile, timeoutMs);
+}
+// One-shot supervision uses the same prelaunch ownership and no-receipt cleanup
+// as interactive supervision. The child cannot supply the cleanup identity.
+async function runSingle(configPath, { cwd = path.resolve(__dirname, '../..') } = {}) {
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  if (!Number.isSafeInteger(config.timeout_ms) || config.timeout_ms < 1 || config.timeout_ms > 180000) throw Error('Runner timeout is invalid');
+  const profile = reserveProfile();
+  const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner, '-Config', configPath, '-ProfileName', profile],
+    { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  const output = [];
+  let size = 0, stderr = false, failure = null;
+  const stop = message => { failure ??= Error(message); child.kill(); };
+  const timer = setTimeout(() => stop('Runner exceeded its close deadline'), config.timeout_ms + cleanupMargin);
+  child.on('error', error => { failure ??= Error('Runner could not start', { cause: error }); });
+  child.stdout.on('data', chunk => {
+    size += chunk.length;
+    if (size > 1048576) stop('Runner output exceeds ceiling');
+    else output.push(chunk);
+  });
+  child.stderr.on('data', () => { stderr = true; });
+  const exit = await new Promise(resolve => child.on('close', (code, signal) => resolve({ code, signal })));
+  clearTimeout(timer);
+  try {
+    if (failure) throw failure;
+    if (exit.code !== 0 || exit.signal !== null || stderr) throw Error('Runner failed before a receipt');
+    let receipt;
+    try { receipt = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(output))); }
+    catch (error) { throw Error('Runner receipt is not JSON', { cause: error }); }
+    if (receipt?.cleanup !== 'completed') throw Error('Runner cleanup receipt is invalid');
+    return receipt;
+  } catch (error) {
+    await reconcileOwnedProfile(profile);
+    throw error;
+  }
 }
 function openInteractive(configPath, { cwd = path.resolve(__dirname, '../..'), maxFrameBytes = 65536 } = {}) {
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   if (!Number.isSafeInteger(config.timeout_ms) || config.timeout_ms < 1) throw Error('Invalid interactive timeout');
+  const profile = reserveProfile();
   const session = crypto.randomBytes(16).toString('hex');
-  const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner, '-Config', configPath],
+  const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner, '-Config', configPath, '-ProfileName', profile],
     { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   const frames = [], waiters = [];
   let pending = '', received = 0, stderr = '', receipt = null, started = null, runnerFailure = null, candidateFailure = null, closed = false, sent = 0, consumed = 0;
@@ -73,7 +136,7 @@ function openInteractive(configPath, { cwd = path.resolve(__dirname, '../..'), m
       if (keys.length !== 1) return abort('Unexpected runner envelope');
       if (keys[0] === 'started' && started === null && receipt === null) {
         const identity = envelope.started;
-        if (!identity || !Number.isSafeInteger(identity.pid) || identity.pid <= 0 || !profilePattern.test(identity.profile)) {
+        if (!identity || !Number.isSafeInteger(identity.pid) || identity.pid <= 0 || identity.profile !== profile) {
           return abort('Invalid runner start identity');
         }
         started = identity;
@@ -119,9 +182,12 @@ function openInteractive(configPath, { cwd = path.resolve(__dirname, '../..'), m
       const timer = setTimeout(() => { killed = true; child.kill(); }, timeoutMs);
       const exit = await exited;
       clearTimeout(timer);
-      if (receipt === null) {
-        if (started !== null) await reconcileProfile(started);
-        throw Error(killed ? 'Runner exceeded its close deadline' : 'Runner ended without a receipt', { cause: runnerFailure ?? candidateFailure });
+      if (receipt === null || receipt?.cleanup !== 'completed') {
+        await reconcileOwnedProfile(profile);
+        const error = Error(receipt !== null ? 'Runner cleanup receipt is invalid' :
+          killed ? 'Runner exceeded its close deadline' : 'Runner ended without a receipt', { cause: runnerFailure ?? candidateFailure });
+        if (receipt !== null) error.receipt = receipt;
+        throw error;
       }
       if (exit.code !== 0 || exit.signal !== null || stderr !== '') runnerFailure ??= Error('Runner failed after receipt');
       // Runner protocol faults take precedence even if a bad candidate frame
@@ -134,4 +200,4 @@ function openInteractive(configPath, { cwd = path.resolve(__dirname, '../..'), m
     kill() { child.kill(); return exited; },
   };
 }
-module.exports = { openInteractive, reconcileProfile };
+module.exports = { openInteractive, reconcileProfile, runSingle };

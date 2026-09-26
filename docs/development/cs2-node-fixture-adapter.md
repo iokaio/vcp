@@ -44,6 +44,14 @@ deletes the unique owned profile. After abrupt owner death the supervisor must
 reconcile that recorded profile; the owner-loss qualification exercises this
 explicitly.
 
+Both supervisor modes choose a fresh random profile identity before launching the
+runner and pass it as `-ProfileName`. The native constructor creates only a new
+profile and rejects an existing identity without deleting it. Failed runner exits,
+missing or invalid cleanup receipts, and owner loss during startup reconcile that
+exact reserved identity. Reconciliation waits through native process handles for
+the executable in the owned profile, so a recycled PID cannot select an unrelated
+process. Repeating cleanup before profile creation or after deletion is safe.
+
 ## Interactive mode
 
 A request with `"mode": "interactive"` replaces `input_base64` with an
@@ -73,11 +81,21 @@ Any of the following terminates the job, and each records its own termination:
 | No frame either way for `idle_ms` | `idle_timeout` |
 | The wall deadline | `timeout` |
 | Cancellation | `cancelled` |
+| Trusted parent input or relay failure | `parent_io_error` |
 
 When the parent causes a violation, the termination is prefixed `parent_`, for
 example `parent_frame_limit`. An unterminated final parent line is
 `parent_partial_frame`. The parent's session header counts toward
 `max_frames`.
+
+`parent_io_error` is a harness fault requiring regrading, including when a
+candidate ceiling violation happened first. Before returning a receipt, the relay
+stops and joins its parent-input task. It cancels that task's synchronous pipe read
+using a held native thread handle; it does not close the caller-owned parent
+stream. Only `ERROR_OPERATION_ABORTED` following this explicit stop is benign.
+Other late source errors remain harness faults. A source that cannot finish or
+cancel within five seconds prevents a receipt. The implementation follows the
+[Windows cancellation contract](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-cancelsynchronousio).
 
 Frame and byte counts are observed values. They include the frame that crossed
 a ceiling, so a `frame_limit` run reports one more frame than was relayed.
@@ -111,8 +129,9 @@ trusted parent helper.
   candidate frame failed first; a clean receipt preserves that candidate failure.
 - A run that ends without a receipt never passes. This covers a missed close
   deadline, a helper-detected envelope violation and abrupt owner loss. The
-  helper, or the supervisor after owner loss, waits for the recorded child PID
-  to exit and then deletes the recorded profile with `reconcileProfile`.
+  helper reconciles its identity even if no `started` envelope arrived. A caller
+  explicitly simulating owner loss uses `reconcileProfile` with the recorded
+  identity; child exit is checked through the owned executable, not a bare PID.
 
 The session and sequence are not secrets from the contained process. They catch
 confused, duplicated, reordered and unrequested frames, not a candidate that

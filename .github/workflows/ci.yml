@@ -92,6 +92,15 @@ jobs:
         run: npm test --prefix src/packages/vscode
       - name: Run deterministic delivery checks on Windows
         run: ./scripts/test.ps1 -Suite fast
+      - name: Test CS-2 native fixture execution and grading
+        run: |
+          $evidence = 'artifacts/cs2-native'
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          node --test --test-concurrency=1 src/tests/contracts/node-fixture-windows.test.cjs src/tests/contracts/developer-grader-windows.test.cjs 2>&1 | Tee-Object -FilePath "$evidence/contracts.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $fixtureNode = (Get-Command node).Source
+          $fixtureNodeHash = (Get-FileHash -LiteralPath $fixtureNode -Algorithm SHA256).Hash.ToLowerInvariant()
+          ./scripts/evals/node-fixture-qualification.ps1 -Node $fixtureNode -NodeSha256 $fixtureNodeHash -Output "$evidence/qualification.json"
       - name: Verify imported Git modes and bytes
         run: node scripts/upstream/reconstruct.cjs verify-index --component codex
       - name: Verify imported Munarium Git modes and bytes
@@ -168,6 +177,7 @@ jobs:
             artifacts/imports/
             artifacts/embeddings/
             artifacts/local-memory/
+            artifacts/cs2-native/
             !artifacts/gemini-qualification/**/synthetic-home/**
             !artifacts/gemini-hooks-qualification/**/synthetic-home/**
             !artifacts/local-memory/**/profile/**

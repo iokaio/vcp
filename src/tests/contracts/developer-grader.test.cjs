@@ -4,12 +4,22 @@
 // prove each parent-held expectation detects a regression; they are not evidence
 // about any candidate. The Windows AppContainer path has its own integration test.
 const test = require('node:test'), assert = require('node:assert/strict');
-const { grade: gradeWith, gradedCases, inventory, localTrustedExecutor, appContainerExecutor, HarnessFault } = require('../../../scripts/evals/developer-grader.cjs');
+const { grade: gradeWith, gradedCases, inventory, localTrustedExecutor, appContainerExecutor, HarnessFault, checkHarnessReceipt } = require('../../../scripts/evals/developer-grader.cjs');
 const { load } = require('../../../scripts/evals/developer-oracle.cjs');
 const { sources, reference, workspace } = require('../support/developer-doubles.cjs');
 const executor = localTrustedExecutor();
 const grade = (caseId, final, runner = executor) => gradeWith(caseId, final, runner, { allowUnqualified: true });
 const wrap = (name, body) => `\n{ const original = exports.${name}; exports.${name} = ${body}; }`;
+function receipt(interactive = false) {
+  const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
+  const hash = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  return { schema: 1, cleanup: 'completed', ...(interactive ? { mode: 'interactive' } : {}),
+    node_sha256: hash(process.execPath), bootstrap_sha256: hash(path.join(__dirname, '../../../scripts/evals', interactive ? 'node-fixture-interactive-bootstrap.cjs' : 'node-fixture-bootstrap.cjs')),
+    result: { process: { ExitCode: 0, AppContainer: true, CapabilityCount: 0, TokenSidMatchesProfile: true, RestrictedToken: true,
+      IntegrityLevel: 'S-1-16-4096', PeakJobCommittedBytes: 1024, WallMilliseconds: 10 },
+    pid: 123, termination: 'exited', stderr_base64: '', stderr_bytes: 0, peak_active_processes: 1, memory_limit_bytes: 268435456,
+    ...(interactive ? { frames_to_child: 1, frames_from_child: 0, bytes_to_child: 1, bytes_from_child: 0, trailing_bytes: 0 } : { stdout_base64: '', stdout_bytes: 0 }) } };
+}
 async function fails(caseId, mutation, source) {
   const result = await grade(caseId, workspace(caseId, source ?? reference[caseId], mutation), executor);
   assert.equal(result.functional_pass, false, `Regression passed ${caseId}: ${mutation}`);
@@ -175,19 +185,89 @@ test('normal stream cancellation rejects consumption and aborted chunk processin
   await fails('LLM-normal-stream-v3', '\nexports.limits.midstream = false;');
 });
 
+test('MCP invalid requests require protocol errors or a valid tool error result', async () => {
+  for (const caseId of ['MCP-normal-tools-v3', 'MCP-normal-resources-v2']) {
+    for (const error of ['true', '{}', '{code:-32602}', '{code:123,message:"wrong"}']) {
+      await fails(caseId, wrap('handle', `async (...a) => { const r = await original(...a); if (r?.error?.code === -32602) r.error = ${error}; return r; }`));
+    }
+  }
+  await fails('MCP-normal-tools-v3', wrap('handle', 'async (message, state) => { if (message.method === "tools/call" && message.params?.arguments === null) throw TypeError("arguments"); return original(message, state); }'));
+  await fails('MCP-normal-tools-v3', wrap('handle', 'async (message, state) => { if (message.method === "tools/call" && message.params?.name && !Object.hasOwn(message.params, "arguments")) throw TypeError("arguments"); return original(message, state); }'));
+  await fails('MCP-normal-tools-v3', wrap('handle', 'async (message, state) => { if (message.method === "tools/call" && !Object.hasOwn(message, "params")) throw TypeError("params"); return original(message, state); }'));
+  for (const content of ['undefined', 'null', '{}', '"error"']) {
+    await fails('MCP-normal-tools-v3', wrap('handle', `async (...a) => { const r = await original(...a); if (r?.error?.code === -32602) { delete r.error; r.result = {isError:true,content:${content}}; } return r; }`));
+  }
+  const validToolError = workspace('MCP-normal-tools-v3', reference['MCP-normal-tools-v3'], wrap('handle', 'async (...a) => { const r = await original(...a); if (r?.error?.code === -32602) { delete r.error; r.result = {isError:true,content:[]}; } return r; }'));
+  assert.equal((await grade('MCP-normal-tools-v3', validToolError)).functional_pass, true, 'A protocol-consistent empty tool error remains valid');
+  const resourceNotFound = workspace('MCP-normal-resources-v2', reference['MCP-normal-resources-v2'], wrap('handle', 'async (message, state) => { const r = await original(message, state); if (message.method === "resources/read" && typeof message.params?.uri === "string" && r.error) r.error.code = -32002; return r; }'));
+  assert.equal((await grade('MCP-normal-resources-v2', resourceNotFound)).functional_pass, true, 'Unknown-resource errors have no fixed contract code');
+});
+
+test('missing stream usage stays null on terminal errors and both cancellation paths', async () => {
+  for (const caseId of ['LLM-normal-stream-v3', 'LLM-boundary-partial-v3']) {
+    for (const condition of ['r.status === "error"', 'r.status === "cancelled" && r.text === ""', 'r.status === "cancelled" && r.text !== ""']) {
+      await fails(caseId, wrap('collect', `async (...a) => { const r = await original(...a); if (${condition}) r.usage = 0; return r; }`));
+    }
+  }
+});
+
+test('undeclared event names cannot expose inherited transition properties', async () => {
+  const inherited = sources.transition.replace('Object.hasOwn(table, state) && Object.hasOwn(table[state], event) ? table[state][event] : state', 'table[state]?.[event] ?? state');
+  assert.notEqual(inherited, sources.transition);
+  await fails('UI-boundary-states-v2', '', inherited);
+  await fails('UI-boundary-states-v2', wrap('transition', '(state, event) => event === "unknown" ? "loading" : original(state, event)'));
+});
+
+test('provider failures must throw Error instances while preserving subclasses', async () => {
+  await fails('LLM-normal-request-v3', wrap('summarize', 'async (...a) => { try { return await original(...a); } catch (e) { if (e.code) throw {name:"Error",code:e.code,message:e.message}; throw e; } }'));
+  const subclass = wrap('summarize', 'async (...a) => { try { return await original(...a); } catch (e) { if (e.code) { class ProviderError extends Error {} throw Object.assign(new ProviderError(e.message), {code:e.code}); } throw e; } }');
+  assert.equal((await grade('LLM-normal-request-v3', workspace('LLM-normal-request-v3', sources.request, subclass))).functional_pass, true);
+});
+
+test('trusted receipt corruption requires regrading, unlike valid candidate failure metadata', () => {
+  for (const interactive of [false, true]) {
+    const valid = receipt(interactive);
+    const expected = { nodeSha256: valid.node_sha256, bootstrapSha256: valid.bootstrap_sha256, memoryBytes: valid.result.memory_limit_bytes };
+    assert.doesNotThrow(() => checkHarnessReceipt(valid, interactive, expected));
+    const corruptions = [
+      r => { delete r.result.process.ExitCode; }, r => { r.result.process.ExitCode = '0'; }, r => { r.result.process.ExitCode = -1; },
+      r => { r.result.process.RestrictedToken = 'true'; }, r => { r.result.process.IntegrityLevel = null; },
+      r => { r.result.process.WallMilliseconds = 0.5; }, r => { r.result.process.PeakJobCommittedBytes = -1; },
+      r => { r.result.stderr_bytes = '0'; }, r => { r.result.stderr_base64 = null; },
+      r => { r.result.stderr_base64 = '!!!!'; }, r => { r.result.stderr_base64 = 'eA==\n'; r.result.stderr_bytes = 1; },
+      r => { r.result.stderr_base64 = 'eA=='; }, r => { r.result.stderr_bytes = 1; },
+      r => { r.node_sha256 = '0'.repeat(64); }, r => { r.bootstrap_sha256 = '0'.repeat(64); },
+      r => { r.result.memory_limit_bytes *= 2; }, r => { r.result.pid = 0; },
+      r => { r.result.peak_active_processes = null; }, r => { r.result.peak_active_processes = 2; }, r => { r.result.termination = 'unknown'; },
+      r => { r.result.unexpected = true; },
+      ...(interactive ? [r => { delete r.result.frames_from_child; }, r => { r.result.bytes_to_child = -1; }, r => { r.result.trailing_bytes = '0'; }]
+        : [r => { delete r.result.stdout_bytes; }, r => { delete r.result.stdout_base64; }, r => { r.result.stdout_base64 = 'eA'; r.result.stdout_bytes = 1; }]),
+    ];
+    for (const corrupt of corruptions) {
+      const invalid = structuredClone(valid); corrupt(invalid);
+      assert.throws(() => checkHarnessReceipt(invalid, interactive, expected), HarnessFault, String(corrupt));
+    }
+    for (const termination of ['exited', 'timeout', 'output_limit', ...(interactive ? ['idle_timeout', 'frame_bytes', 'frame_limit', 'total_bytes'] : [])]) {
+      const failed = structuredClone(valid); failed.result.termination = termination; failed.result.process.ExitCode = 1;
+      assert.doesNotThrow(() => checkHarnessReceipt(failed, interactive, expected), `Valid candidate failure ${termination}`);
+    }
+    const overflow = structuredClone(valid); overflow.result.termination = 'output_limit';
+    overflow.result.stderr_bytes = 65537; overflow.result.stderr_base64 = Buffer.alloc(65536, 120).toString('base64');
+    assert.doesNotThrow(() => checkHarnessReceipt(overflow, interactive, expected), 'Bounded truncated capture is valid evidence of candidate overflow');
+  }
+  const failedParent = receipt(true); failedParent.result.termination = 'parent_io_error';
+  assert.throws(() => checkHarnessReceipt(failedParent, true), HarnessFault);
+});
+
 test('adapter containment and cleanup faults require regrading even after probe failures', { skip: process.platform !== 'win32' }, async t => {
   const fs = require('node:fs'), crypto = require('node:crypto');
-  const childProcess = require('node:child_process');
   const fixtureSession = require('../../../scripts/evals/node-fixture-session.cjs');
   const adapter = appContainerExecutor({ node: process.execPath, nodeSha256: crypto.createHash('sha256').update(fs.readFileSync(process.execPath)).digest('hex') });
-  const receipt = () => ({ schema: 1, mode: 'interactive', cleanup: 'completed', result: {
-    process: { AppContainer: true, CapabilityCount: 0, TokenSidMatchesProfile: true },
-  } });
   for (const corrupt of [r => { r.schema = 2; }, r => { r.cleanup = 'failed'; },
     r => { r.result.process.AppContainer = false; }, r => { r.result.process.CapabilityCount = 1; },
     r => { r.result.process.TokenSidMatchesProfile = false; }]) {
-    const invalid = receipt(); corrupt(invalid);
-    t.mock.method(childProcess, 'spawnSync', () => ({ status: 0, stdout: JSON.stringify(invalid) }));
+    const invalid = receipt(true); corrupt(invalid);
+    t.mock.method(fixtureSession, 'runSingle', async () => { const single = receipt(); corrupt(single); return single; });
     t.mock.method(fixtureSession, 'openInteractive', () => ({
       send() {}, receive: async () => { throw Error('Candidate did not reply'); }, close: async () => ({ receipt: invalid }),
     }));
@@ -203,6 +283,21 @@ test('adapter containment and cleanup faults require regrading even after probe 
     assert.equal(poisoned.functional_pass, null); assert.equal(poisoned.requires_regrade, true);
     t.mock.restoreAll();
   }
+  // Exercise the original missing-output receipt through the actual executor
+  // and verdict aggregation, as well as native parent-relay failure metadata.
+  t.mock.method(fixtureSession, 'runSingle', async () => { const invalid = receipt(); delete invalid.result.stdout_base64; return invalid; });
+  const missingOutput = await gradeWith('UI-near-miss-parser-v2', workspace('UI-near-miss-parser-v2'), adapter);
+  assert.equal(missingOutput.functional_pass, null); assert.equal(missingOutput.requires_regrade, true);
+  assert(missingOutput.harness_faults > 0);
+  t.mock.restoreAll();
+  t.mock.method(fixtureSession, 'openInteractive', () => ({
+    send() {}, receive: async () => { throw Error('Child ended before replying'); },
+    close: async () => { const fault = receipt(true); fault.result.termination = 'parent_io_error'; return { receipt: fault }; },
+  }));
+  const parentFault = await gradeWith('MCP-normal-tools-v3', workspace('MCP-normal-tools-v3'), adapter);
+  assert.equal(parentFault.functional_pass, null); assert.equal(parentFault.requires_regrade, true);
+  assert(parentFault.harness_faults > 0);
+  t.mock.restoreAll();
   for (const message of ['Partial runner envelope', 'Invalid runner start identity', 'Runner failed after receipt', 'Runner ended without a receipt']) {
     t.mock.method(fixtureSession, 'openInteractive', () => ({
       send() {}, receive: async () => { throw Error('Candidate did not reply'); }, close: async () => { throw Error(message); },
@@ -213,7 +308,7 @@ test('adapter containment and cleanup faults require regrading even after probe 
   }
   t.mock.method(fixtureSession, 'openInteractive', () => ({
     send() {}, receive: async () => { throw Error('Invalid candidate frame'); },
-    close: async () => { throw Object.assign(Error('Invalid candidate frame'), { receipt: receipt() }); },
+    close: async () => { throw Object.assign(Error('Invalid candidate frame'), { receipt: receipt(true) }); },
   }));
   const candidateFailure = await gradeWith('MCP-normal-tools-v3', workspace('MCP-normal-tools-v3'), adapter);
   assert.equal(candidateFailure.functional_pass, false); assert.equal(candidateFailure.requires_regrade, false);

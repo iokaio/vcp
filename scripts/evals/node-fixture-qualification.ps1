@@ -7,6 +7,21 @@ if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::ProcessArc
 $Node = [IO.Path]::GetFullPath($Node)
 if ($NodeSha256 -cnotmatch '^[a-f0-9]{64}$' -or (Get-FileHash -LiteralPath $Node).Hash.ToLowerInvariant() -cne $NodeSha256) { throw 'Node identity mismatch' }
 Add-Type -Path (Join-Path $PSScriptRoot '../../src/tests/support/windows/AppContainerFixture.cs')
+Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+public sealed class FaultingFixtureParentInput : MemoryStream {
+    readonly int delay;
+    public FaultingFixtureParentInput(byte[] bytes, int delay) : base(bytes) { this.delay = delay; }
+    public override int Read(byte[] buffer, int offset, int count) {
+        if (Position == Length) {
+            System.Threading.Thread.Sleep(delay);
+            throw new IOException("Synthetic trusted parent input failure");
+        }
+        return base.Read(buffer, offset, count);
+    }
+}
+'@
 $sourcePaths = @($PSCommandPath, (Join-Path $PSScriptRoot 'node-fixture-runner.ps1'),
     (Join-Path $PSScriptRoot 'node-fixture-bootstrap.cjs'), (Join-Path $PSScriptRoot 'node-fixture-protocol.cjs'),
     (Join-Path $PSScriptRoot 'node-fixture-interactive-bootstrap.cjs'), (Join-Path $PSScriptRoot 'node-fixture-session.cjs'),
@@ -54,13 +69,20 @@ try {
         $legacyResult = $legacy.Run((Join-Path $legacy.Root 'node.exe'), @('-e', 'process.exit(0)'), $true, 5000)
         Assert ($legacyResult.ExitCode -eq 0 -and $legacyResult.AppContainer) 'Existing Run API regressed'
         $results.Add([ordered]@{ case = 'existing Run API'; passed = $true; receipt = $legacyResult })
+        $collisionRejected = $false
+        try { $duplicate = [Vcp.Qualification.AppContainerFixture]::new($legacy.Name) }
+        catch { $collisionRejected = $true }
+        Assert $collisionRejected 'Existing owned profile was reused'
+        Assert ([IO.File]::Exists((Join-Path $legacy.Root 'package.json'))) 'Collision rejection removed the original profile'
+        $results.Add([ordered]@{ case = 'owned profile collision'; passed = $true })
     } finally { $legacy.Dispose() }
     # Duplex relay through the same token, job and environment boundary. The parent
     # streams are in memory here; the runner relays its own stdin/stdout instead.
-    function Invoke-Interactive([string]$Name, [string]$Code, [string[]]$Frames, [scriptblock]$Check, [int]$Idle = 3000) {
+    function Invoke-Interactive([string]$Name, [string]$Code, [string[]]$Frames, [scriptblock]$Check, [int]$Idle = 3000, [switch]$FailParentRead, [int]$ParentFaultDelay = 0) {
         $fixture = New-Fixture
         $profileRoot = $fixture.Root
-        $parentInput = [IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes((($Frames | ForEach-Object { $_ + "`n" }) -join '')))
+        $inputBytes = [Text.Encoding]::UTF8.GetBytes((($Frames | ForEach-Object { $_ + "`n" }) -join ''))
+        $parentInput = if ($FailParentRead) { [FaultingFixtureParentInput]::new($inputBytes, $ParentFaultDelay) } else { [IO.MemoryStream]::new($inputBytes) }
         $parentOutput = [IO.MemoryStream]::new()
         try {
             $receipt = $fixture.RunInteractive((Join-Path $fixture.Root 'node.exe'), @('--no-addons', '-e', $Code), $true,
@@ -94,6 +116,19 @@ process.stdin.on('end', () => { for (const line of text.split('\n').filter(Boole
         param($r, $frames)
         Assert ($r.Termination -eq 'idle_timeout' -and $frames.Count -eq 0 -and $r.Process.WallMilliseconds -lt 5000) 'Interactive idle deadline failed'
     } -Idle 500
+    Invoke-Interactive 'interactive parent input fault' 'process.stdin.resume();' @('one') {
+        param($r, $frames)
+        Assert ($r.Termination -eq 'parent_io_error') 'Trusted parent input fault was accepted as candidate behavior'
+        Assert ($r.FramesToChild -eq 1) 'Parent fault probe did not relay its first frame'
+    } -FailParentRead
+    Invoke-Interactive 'interactive late parent input fault' 'process.stdin.once("data", () => process.exit(0));' @('one') {
+        param($r, $frames)
+        Assert ($r.Process.ExitCode -eq 0 -and $r.Termination -eq 'parent_io_error') 'Late trusted source fault was lost after child exit'
+    } -FailParentRead -ParentFaultDelay 500
+    Invoke-Interactive 'interactive parent fault takes priority' 'for (;;) process.stdout.write("x\n");' @('one') {
+        param($r, $frames)
+        Assert ($r.FramesFromChild -eq 17 -and $r.Termination -eq 'parent_io_error') 'Candidate ceiling violation hid the later trusted source fault'
+    } -FailParentRead -ParentFaultDelay 500
     $env:VCP_NODE_SECRET_CANARY = 'synthetic-not-a-secret'
     Invoke-Case 'minimal environment' @'
 process.stdout.write(JSON.stringify({ secret: Object.hasOwn(process.env, 'VCP_NODE_SECRET_CANARY'), keys: Object.keys(process.env).sort() }));

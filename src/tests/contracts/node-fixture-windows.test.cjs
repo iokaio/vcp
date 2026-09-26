@@ -69,6 +69,68 @@ const profileFolder = profile => path.join(process.env.LOCALAPPDATA, 'Packages',
 function alive(pid) {
   try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
 }
+
+test('single-shot supervisor reconciles owner loss before creation, during staging and after launch', { skip: process.platform !== 'win32', timeout: 90000 }, async t => {
+  const vm = require('node:vm'), { createRequire } = require('node:module');
+  const childProcess = require('node:child_process');
+  const filename = path.join(root, 'scripts/evals/node-fixture-session.cjs');
+  const localRequire = createRequire(filename), module = { exports: {} }, launches = [];
+  // Capture the real spawned runner; the helper's execution and cleanup remain
+  // native. This permits abrupt loss without adding test controls to production.
+  vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
+    module, __dirname: path.dirname(filename), process, Buffer, TextDecoder, setTimeout, clearTimeout,
+    require(name) {
+      if (name !== 'node:child_process') return localRequire(name);
+      return { ...childProcess, spawn(command, args, options) {
+        const child = childProcess.spawn(command, args, options);
+        launches.push({ child, profile: args[args.indexOf('-ProfileName') + 1] });
+        return child;
+      } };
+    },
+  }, { filename });
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-node-supervisor-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const candidate = path.join(directory, 'candidate.cjs');
+  fs.writeFileSync(candidate, 'exports.compute = () => { for (;;) {} };');
+  const configPath = path.join(directory, 'config.json');
+  fs.writeFileSync(configPath, JSON.stringify({ schema: 1, node: process.execPath, node_sha256: hash(process.execPath),
+    bootstrap_sha256: hash(bootstrap), memory_bytes: 268435456, output_limit: 65536, timeout_ms: 30000,
+    input_base64: Buffer.from(JSON.stringify({ id: 'a'.repeat(32), input: null })).toString('base64'),
+    files: [{ name: 'candidate.cjs', path: candidate, sha256: hash(candidate) }],
+  }));
+  function ownedChildren(profile) {
+    assert.match(profile, /^iokaio\.vcp\.memory\.[a-f0-9]{32}$/);
+    const script = `$target = Join-Path $env:LOCALAPPDATA 'Packages/${profile}/AC/node.exe'; ` +
+      `@([Diagnostics.Process]::GetProcessesByName('node') | Where-Object { try { $_.MainModule.FileName -ieq $target } catch { $false } } | ForEach-Object Id) | ConvertTo-Json -Compress`;
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 10000, windowsHide: true });
+    assert.ifError(result.error); assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim() ? [].concat(JSON.parse(result.stdout)) : [];
+  }
+  for (const phase of ['before_creation', 'staging', 'running']) {
+    const pending = module.exports.runSingle(configPath);
+    const rejected = assert.rejects(pending, /Runner failed/);
+    const owned = launches.at(-1);
+    assert.match(owned.profile, /^iokaio\.vcp\.memory\.[a-f0-9]{32}$/);
+    try {
+      if (phase === 'before_creation') assert.equal(fs.existsSync(profileFolder(owned.profile)), false);
+      else {
+        const deadline = Date.now() + 15000;
+        while (!fs.existsSync(profileFolder(owned.profile)) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
+        assert.equal(fs.existsSync(profileFolder(owned.profile)), true, 'Runner did not create its reserved profile');
+        if (phase === 'running') {
+          let children = [];
+          while (children.length === 0 && Date.now() < deadline) children = ownedChildren(owned.profile);
+          assert.equal(children.length, 1, 'Owned child did not launch');
+        }
+      }
+    } finally { owned.child.kill(); await rejected; }
+    assert.equal(fs.existsSync(profileFolder(owned.profile)), false, `Profile leaked after ${phase}`);
+    assert.equal(ownedChildren(owned.profile).length, 0, `Owned child survived ${phase}`);
+    // A stale/recycled recorded PID must not make cleanup wait on this unrelated
+    // live test process. Repeated cleanup of a missing owned profile is harmless.
+    await reconcileProfile({ pid: process.pid, profile: owned.profile });
+  }
+});
 test('actual Windows interactive relay with parent-owned transport and hostile frames', { skip: process.platform !== 'win32', timeout: 420000 }, async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-node-interactive-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

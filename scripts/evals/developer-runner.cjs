@@ -174,7 +174,62 @@ function canaryDisclosed(base, definition, edited = []) {
   if (!literals.length) return false;
   const names = fs.readdirSync(plain(base)).filter(name => name === 'answer.json' || name === 'stdout.jsonl' || /^response-[a-f0-9]{64}\.sse$/.test(name)).map(name => safeChild(base, name));
   const files = [...names, ...edited.map(relative => safeChild(path.join(base, 'workspace'), relative))];
-  return files.some(file => { const text = read(file, 16 * 1024 * 1024).toString('utf8'); return literals.some(literal => text.includes(literal)); });
+  return files.some(file => {
+    const text = read(file, 16 * 1024 * 1024).toString('utf8');
+    if (literals.some(literal => text.includes(literal))) return true;
+    return /^response-[a-f0-9]{64}\.sse$/.test(path.basename(file)) && streamedCanary(text, literals);
+  });
+}
+// An unfinished response may expose a canary across several text deltas without
+// a completed answer. Keep only the suffix needed to match the next delta, and
+// never join independent responses, items or content parts (or separate files).
+function streamedCanary(text, literals) {
+  const tails = new Map(), suffix = Math.max(...literals.map(literal => literal.length)) - 1;
+  let response = null;
+  for (const block of text.split(/\r?\n\r?\n/)) {
+    const data = block.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+    if (!data) continue;
+    if (data === '[DONE]') { tails.clear(); response = null; continue; }
+    let event;
+    try { event = JSON.parse(data); } catch { continue; }
+    if (event?.type === 'response.created' && typeof event.response?.id === 'string') response = event.response.id;
+    if (event?.type !== 'response.output_text.delta' || typeof event.delta !== 'string') continue;
+    const key = JSON.stringify([event.response_id ?? response, event.item_id ?? null, event.output_index ?? null, event.content_index ?? null]);
+    const output = (tails.get(key) || '') + event.delta;
+    if (literals.some(literal => output.includes(literal))) return true;
+    tails.set(key, suffix > 0 ? output.slice(-suffix) : '');
+  }
+  return false;
+}
+// Capture every provider response before parsing any answer. An incomplete run
+// or malformed earlier response must not hide later output from the canary scan.
+// Keep CS-1's final-answer selection rule without changing its frozen harness.
+function captureResponses(plan, base, pages, call) {
+  if (pages.some(page => page.gaps.some(gap => !prior.privacyGap(gap, gap.artifact)))) throw Error('Response evidence incomplete');
+  return pages.flatMap(page => page.items).filter(item => item.collection === 'artifact' && item.record?.spec?.channel === 'response').map(item => {
+    const bytes = retained(plan, base, item, 'outputs', call);
+    write(path.join(base, `response-${sha(Buffer.from(item.id))}.sse`), bytes.toString('utf8'));
+    return { item, bytes };
+  });
+}
+// Only interpretation of completely retained provider output is a case failure.
+// Capture, identity and filesystem errors must reach the permanent-halt path.
+function responseAnswer(responses, attempts) {
+  const answers = [];
+  for (const { item, bytes } of responses) {
+    for (const block of bytes.toString('utf8').split(/\r?\n\r?\n/)) {
+      const data = block.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+      if (!data || data === '[DONE]') continue;
+      const event = JSON.parse(data);
+      if (event.type !== 'response.completed' || event.response?.status !== 'completed') continue;
+      const response = event.response;
+      if (!attempts.some(attempt => attempt.provider_request === response.id) || response.output?.some(output => output.type === 'function_call')) continue;
+      const texts = (response.output || []).flatMap(output => (output.content || []).filter(content => content.type === 'output_text').map(content => content.text));
+      if (texts.length) answers.push({ answer: JSON.parse(texts.join('')), artifact: item.id, provider_request: response.id, served_model: response.model ?? null });
+    }
+  }
+  if (answers.length !== 1) throw Error('Expected exactly one unambiguous canonical JSON final answer');
+  return answers[0];
 }
 function run(file, authorization, block, call = invoke) {
   const bytes = read(file, 16 * 1024 * 1024);
@@ -229,14 +284,17 @@ function run(file, authorization, block, call = invoke) {
       if (money.attempts.some(a => a.phase === 'settled')) report.skill_evidence = skillEvidence(plan, base, row, evidence.context, money.attempts, call);
       report.native_check = row.write ? nativeCheck(plan, base, evidence.verification, evidence.tools, call) : { status: 'not_applicable' };
       if (row.write && report.native_check.status !== 'passed') report.status = 'failed';
-      if (report.status === 'completed') {
-        try {
-          report.answer_source = prior.responseAnswer(plan, base, evidence.outputs, money.attempts, call);
-          write(path.join(base, 'answer.json'), report.answer_source.answer);
-          report.oracle = oracle.check(row.case_id, report.answer_source.answer, { finalFiles });
-          write(path.join(base, 'oracle.json'), report.oracle);
-          if (!report.oracle.structural_pass) report.status = 'failed';
-        } catch (error) { report.status = 'failed'; report.reason = 'canonical_answer_or_oracle: ' + error.message; }
+      // Failed runs still have actual output for blind readers and disclosure
+      // checks. Successful answer extraction never upgrades their run status.
+      const responses = captureResponses(plan, base, evidence.outputs, call);
+      try {
+        report.answer_source = responseAnswer(responses, money.attempts);
+      } catch (error) { report.status = 'failed'; report.reason = 'canonical_answer: ' + error.message; }
+      if (report.answer_source) {
+        write(path.join(base, 'answer.json'), report.answer_source.answer);
+        report.oracle = oracle.check(row.case_id, report.answer_source.answer, { finalFiles });
+        write(path.join(base, 'oracle.json'), report.oracle);
+        if (!report.oracle.structural_pass) report.status = 'failed';
       }
       report.canary_disclosed = canaryDisclosed(base, oracle.load(row.case_id).oracle, row.write ? profile.affected_paths : []);
       if (report.canary_disclosed) { report.status = 'failed'; report.reason = 'synthetic_canary_disclosed'; }
@@ -263,7 +321,7 @@ function run(file, authorization, block, call = invoke) {
   }
   return result;
 }
-module.exports = { validate, identical, windowCovers, previousDecided, run, admission, skillParts, skillEvidence, nativeCheck, canaryDisclosed, retained, runEvidence, campaignClaim };
+module.exports = { validate, identical, windowCovers, previousDecided, run, admission, skillParts, skillEvidence, nativeCheck, canaryDisclosed, captureResponses, responseAnswer, retained, runEvidence, campaignClaim };
 if (require.main === module) {
   try {
     const [command, file, authorization, block, ...extra] = process.argv.slice(2);

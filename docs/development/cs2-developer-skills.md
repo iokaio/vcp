@@ -106,7 +106,41 @@ interrupted run. That exact profile was reconciled before the native rerun;
 candidate assertions and cleanup then passed without relaxing the checks.
 
 This increment does not complete specialist qualification or authorize changed
-campaign process identities. Campaign tooling and skill acceptance remain pending.
+campaign process identities. Campaign tooling is implemented; skill acceptance
+remains pending.
+
+### Campaign audit corrections
+
+The subsequent audit reproduced ten defects before paid qualification. The
+corrections and their regression coverage are:
+
+| Finding | Correction and regression |
+|---|---|
+| Corrupt response evidence allowed another dispatch | Capture integrity failures permanently halt after retaining settled accounting; corrupt bytes stop the synthetic CLI after one dispatch. Invalid candidate JSON remains a case failure. |
+| Review could qualify after a permanent halt | Grading, packet generation and decisions refuse halted campaigns, including replay and a halt arriving during asynchronous grading. |
+| Failed runs hid available output | Every response is retained before interpretation; failed checker and incomplete runs retain answers without upgrading their status. Disclosure checks cover later output after malformed events and canaries split across deltas in the same output stream. |
+| Parent transport failure looked like clean execution | A native throwing parent stream produces a trusted relay fault and requires regrading. Expected child pipe closure remains distinct. |
+| Malformed receipts failed candidates | Exact receipt shapes, types, identities, bounds and canonical byte encodings are validated first. Corrupt receipt tables require regrading; valid candidate failure receipts still fail the candidate. |
+| One-shot owner loss leaked a profile | The supervisor chooses the exact profile identity before launch and reconciles failed runners, including startup loss; native tests cover abrupt loss and preservation of unrelated profiles. |
+| Invalid MCP errors passed | Probes check protocol error codes and messages and exercise missing, null and malformed parameters and arguments, while retaining contract-permitted tool errors. |
+| Absent stream usage became zero | Error, incomplete and cancellation probes require absent usage to remain null. |
+| Unknown UI events exposed inherited properties | Probes include ordinary unknown events and prototype property names; the reference uses own-property lookup. |
+| Plain thrown objects passed as provider errors | The wrapper observes `instanceof Error`; plain-object mutations fail and Error subclasses pass. |
+
+Portable regressions are part of the fast harness. The opt-in Windows CI job also
+runs the native runner/grader contracts and containment qualification, retaining
+their evidence under `artifacts/cs2-native/`. These tests use synthetic inputs and
+trusted reference doubles; they do not establish skill benefit or live compatibility.
+
+Verification on the same Windows host and pinned Node passed all 59 developer
+contract tests, seven protocol tests, three native fixture tests, the native
+grader integration, and eighteen containment cases. The final containment record
+matches all eight current source hashes. The eight native checker tests and both
+synthetic CLI feasibility tests also passed. Independent review checked the
+campaign, grading and Windows lifecycle changes; JavaScript syntax, PowerShell
+parsing and diff-whitespace checks passed. The full fast harness passed all 21
+groups. The final cleanup-receipt correction subsequently passed its portable
+protocol and native lifecycle checks. No paid request or promotion ran.
 
 ## In-run checker
 
@@ -130,8 +164,9 @@ run may start. It is data-only: it never executes workspace content.
   - `developer input preservation`: every non-editable fixture file and both
     scaffold files are byte-identical.
   - `developer output structure`: no extra files; every editable file exists
-    within 64 KiB (256 KiB in total); HTML asset references stay local and
-    exist. The HTML scan follows the parent oracle exactly. A shared corpus,
+    within 64 KiB (256 KiB in total); quoted HTML `src` and `href` references
+    stay local and exist. This structural scan does not parse unquoted attributes,
+    CSS URLs or browser requests. It follows the parent oracle exactly. A shared corpus,
     `src/tests/fixtures/developer-html-assets.json`, holds expected verdicts
     that both suites assert.
 - **Build receipt.** `scripts/evals/developer-check-build.ps1` builds the

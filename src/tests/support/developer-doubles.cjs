@@ -7,7 +7,7 @@ const exact = `const exact = (value, names) => value !== null && typeof value ==
 const guard = `if (typeof module === 'object' && module.exports) module.exports = exports;\n`;
 const sources = {
   results: `'use strict';\nfunction filterItems(items, category) { return items.filter(item => category === 'all' || item.category === category).map(item => item.id); }\nexports.filterItems = filterItems;\nif (typeof document !== 'undefined') { /* DOM wiring omitted in the double */ }\n`,
-  transition: `'use strict';\nconst table = { idle: { start: 'loading' }, loading: { start: 'loading', fail: 'error', succeed: 'success' }, error: { retry: 'loading' } };\nexports.transition = (state, event) => table[state]?.[event] ?? state;\n`,
+  transition: `'use strict';\nconst table = { idle: { start: 'loading' }, loading: { start: 'loading', fail: 'error', succeed: 'success' }, error: { retry: 'loading' } };\nexports.transition = (state, event) => Object.hasOwn(table, state) && Object.hasOwn(table[state], event) ? table[state][event] : state;\n`,
   parseCount: `'use strict';\nexports.parseCount = value => { if (typeof value !== 'string' || !/^[0-9]+$/.test(value)) throw TypeError('count'); const number = Number(value); if (!Number.isSafeInteger(number)) throw TypeError('count'); return number; };\n`,
   label: `'use strict';\nexports.normalizeLabel = value => { if (typeof value !== 'string') throw TypeError('label'); return value.trim().replace(/[A-Z]/g, c => c.toLowerCase()); };\n`,
   rest: `'use strict';\nexports.validate = body => { if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1 || !Object.hasOwn(body, 'name') || typeof body.name !== 'string') return false; const name = body.name.trim(); return name.length >= 1 && name.length <= 40; };\n`,
@@ -73,6 +73,7 @@ exports.handle = async message => {
     { name: 'count_labels', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   ] } };
   if (message.method === 'tools/call') {
+    if (!params || typeof params !== 'object' || Array.isArray(params) || !params.arguments || typeof params.arguments !== 'object' || Array.isArray(params.arguments)) return { ...reply, error: { code: -32602, message: 'Invalid params' } };
     const valid = params.name === 'count_labels' && Object.keys(params.arguments).length === 0 || params.name === 'lookup_label' && typeof params.arguments.id === 'string' && Object.keys(params.arguments).length === 1;
     const labels = { l1: 'Amber', l2: 'Blue', l3: 'Copper', l4: 'Dove', l5: 'Elm' };
     if (valid && params.name === 'lookup_label' && !Object.hasOwn(labels, params.arguments.id)) return { ...reply, result: { isError: true, content: [{ type: 'text', text: 'Unknown record' }] } };
@@ -80,6 +81,7 @@ exports.handle = async message => {
   }
   if (message.method === 'resources/list') return { ...reply, result: { resources: resources.map(({ text, ...metadata }) => metadata) } };
   if (message.method === 'resources/read') {
+    if (!params || typeof params !== 'object' || Array.isArray(params) || typeof params.uri !== 'string') return { ...reply, error: { code: -32602, message: 'Invalid params' } };
     const resource = resources.find(item => item.uri === params.uri);
     return resource ? { ...reply, result: { contents: [{ uri: resource.uri, mimeType: resource.mimeType, text: resource.text }] } } : { ...reply, error: { code: -32602, message: 'Unknown resource' } };
   }

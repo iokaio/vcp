@@ -28,12 +28,20 @@ const haltItems = ['effect_beyond_authority', 'real_secret_exposed'];
 const revealing = [/vcp-builtin::[a-z0-9-]+::[a-z0-9-]+/g, new RegExp(`${candidates.sourceId}::\\.::[a-z0-9-]+`, 'g'), /\b(?:architecture|javascript-typescript|llm-integration|mcp-development|frontend-design) skills?\b/gi, /\b(?:javascript-typescript|llm-integration|mcp-development|frontend-design|vcp-developer-candidates)\b/g];
 const regrades = 3;
 
+function requireActive(plan) {
+  if (fs.existsSync(path.join(plan.directory, 'halt.json'))) throw Error('Campaign halted: read-only reconciliation; no grading, packets or decisions');
+}
+function writeReview(plan, file, value) {
+  requireActive(plan);
+  write(file, value);
+}
 // The exact plan and one retained, unstopped block result with unchanged evidence.
 function block(file, authorization, name) {
   const bytes = read(file, 16 * 1024 * 1024);
   if (sha(bytes) !== authorization) throw Error('Authorization must name the exact prepared plan hash');
   if (!candidates.ids.includes(name)) throw Error('Unknown campaign block');
   const plan = JSON.parse(bytes);
+  requireActive(plan);
   runner.identical(plan, file);
   const resultFile = path.join(plan.directory, `result-${name}.json`), resultBytes = read(resultFile, 16 * 1024 * 1024), result = JSON.parse(resultBytes);
   if (result.schema !== 'cs-2-developer-block-result/1' || result.plan_sha256 !== authorization || result.block !== name || result.stopped || result.final_inputs_unchanged !== true) throw Error('Only a complete, unstopped block can be graded or reviewed');
@@ -84,6 +92,7 @@ async function grade(file, authorization, name, factory = grader.appContainerExe
   if (executor?.qualified !== true) throw Error('Only the qualified AppContainer executor may grade campaign artifacts');
   const graded = [], diagnostics = [];
   for (const [index, row] of rows.entries()) {
+    requireActive(plan);
     if (open && !open.has(row.id)) continue;
     const report = result.runs[index];
     if (row.functional_grading === 'none' || report.preserved !== true) { graded.push({ id: row.id, functional: row.functional_grading === 'none' ? 'not_applicable' : 'not_graded' }); continue; }
@@ -95,8 +104,8 @@ async function grade(file, authorization, name, factory = grader.appContainerExe
   const record = current
     ? { schema: 'cs-2-developer-regrade/1', plan_sha256: authorization, block: name, previous_sha256: current.sha256, grader: plan.grader, executor: executor.name, runs: graded }
     : { schema: 'cs-2-developer-grading/1', plan_sha256: authorization, block: name, result_sha256, grader: plan.grader, executor: executor.name, runs: graded };
-  write(path.join(plan.directory, `grading-${name}${suffix}.json`), record);
-  write(path.join(plan.directory, `grading-${name}${suffix}-diagnostics.json`), { schema: 'cs-2-developer-grading-diagnostics/1', private: 'Never include in blind reader packets.', runs: diagnostics });
+  writeReview(plan, path.join(plan.directory, `grading-${name}${suffix}.json`), record);
+  writeReview(plan, path.join(plan.directory, `grading-${name}${suffix}-diagnostics.json`), { schema: 'cs-2-developer-grading-diagnostics/1', private: 'Never include in blind reader packets.', runs: diagnostics });
   return record;
 }
 // Mechanical executable verdict for one run: every applicable check must pass.
@@ -121,6 +130,7 @@ function packets(file, authorization, name, destination, randomInt = crypto.rand
   const directory = plain(path.resolve(destination));
   if (within(repository, directory) || within(directory, repository) || within(plan.directory, directory) || within(directory, plan.directory) || fs.existsSync(directory)) throw Error('A new reader directory outside the repository and the plan is required');
   noParentInstructions(path.dirname(directory)); privateDirectory(directory);
+  requireActive(plan);
   fs.mkdirSync(directory, { mode: 0o700 });
   const mapping = [], written = [];
   for (const caseId of [...new Set(rows.map(row => row.case_id))]) {
@@ -137,14 +147,14 @@ function packets(file, authorization, name, destination, randomInt = crypto.rand
         checks: { structural_oracle: report.oracle ? (report.oracle.structural_pass ? 'passed' : 'failed') : 'not_run', in_run_checker: report.native_check?.status ?? 'not_run', functional, synthetic_canary_disclosed: report.canary_disclosed === true } };
     });
     const packet = { schema: 'cs-2-developer-reader-packet/1', case_id: caseId, kind: task.kind, prompt: task.prompt, sources: Object.fromEntries(initial), rubric: 'src/evals/skills/developer/rubric-v2.json', score_keys: scores, hard_gates: hardGates, halt_items: haltItems, variants };
-    write(path.join(directory, `${caseId}.json`), packet);
+    writeReview(plan, path.join(directory, `${caseId}.json`), packet);
     written.push({ case_id: caseId, sha256: sha(read(path.join(directory, `${caseId}.json`))) });
   }
   const salt = crypto.randomBytes(32).toString('hex');
   const index = { schema: 'cs-2-developer-reader-packets/1', plan_sha256: authorization, block: name, result_sha256, grading_sha256: effective.sha256, mapping_commitment: sha(salt + JSON.stringify(mapping)), packets: written };
-  write(path.join(directory, 'index.json'), index);
+  writeReview(plan, path.join(directory, 'index.json'), index);
   const indexHash = sha(read(path.join(directory, 'index.json')));
-  write(path.join(plan.directory, `packets-${name}.json`), { schema: 'cs-2-developer-review-mapping/2', private: 'Apply only after both reviews are recorded; never give this file to a reader.', destination: directory, index_sha256: indexHash, salt, mapping });
+  writeReview(plan, path.join(plan.directory, `packets-${name}.json`), { schema: 'cs-2-developer-review-mapping/2', private: 'Apply only after both reviews are recorded; never give this file to a reader.', destination: directory, index_sha256: indexHash, salt, mapping });
   return { packets: directory, index_sha256: indexHash, cases: written.length };
 }
 function review(value, packetsHash, caseIds) {
@@ -194,7 +204,7 @@ function decide(file, authorization, name, reviewFiles) {
   const decision = { schema: 'cs-2-developer-decision/1', plan_sha256: authorization, block: name, skill: name, result_sha256, grading_sha256: gradingHash, packets_sha256: packetsHash, reviews_sha256: reviewBytes.map(sha), reviewers: reviews.map(r => r.reviewer_id), mapping_sha256: sha(mappingBytes), rule: plan.benefit_rule, cases,
     candidate_gates_pass: allGates, benefit_case_ids: cases.filter(c => c.benefit).map(c => c.case_id), qualifies: allGates && cases.some(c => c.benefit),
     human_review: 'not_run', browser_checks: name === 'frontend-design' ? 'not_run (CS-3 re-grades retained artifacts)' : 'not_applicable', live_compatibility: 'not_run' };
-  write(path.join(plan.directory, `decision-${name}.json`), decision);
+  writeReview(plan, path.join(plan.directory, `decision-${name}.json`), decision);
   return decision;
 }
 // Command-line arguments after the three common operands: none for grade, the new
