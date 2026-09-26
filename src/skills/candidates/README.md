@@ -20,7 +20,12 @@ only the remaining forty-six runs. The candidates are neither qualified nor defa
 All candidate hard gates passed, but no normal-task benefit over both baselines
 was demonstrated. It remains non-default under the owner's per-skill disposition;
 see the [retained outcomes](../../../docs/development/cs2-llm-disposition.md).
-MCP and frontend qualification remain pending. See the
+
+`mcp-development` also completed its eighteen-run comparison. Candidate hard
+gates failed and neither normal task demonstrated the required benefit. It remains
+non-default; see the [MCP disposition](../../../docs/development/cs2-mcp-disposition.md)
+for every outcome, both readers' findings and functional-grader coverage gaps.
+Frontend qualification remains pending. See the
 [CS-2 record](../../../docs/development/cs2-developer-skills.md).
 
 ## CS-1 authoring candidates — accepted by owner direction
