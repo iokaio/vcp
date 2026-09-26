@@ -38,10 +38,14 @@ function openInteractive(configPath, { cwd = path.resolve(__dirname, '../..'), m
   const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner, '-Config', configPath],
     { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   const frames = [], waiters = [];
-  let pending = '', received = 0, stderr = '', receipt = null, started = null, failure = null, closed = false, sent = 0, consumed = 0;
-  const exited = new Promise(resolve => child.on('close', (code, signal) => { closed = true; notify(); resolve({ code, signal }); }));
+  let pending = '', received = 0, stderr = '', receipt = null, started = null, runnerFailure = null, candidateFailure = null, closed = false, sent = 0, consumed = 0;
+  const exited = new Promise(resolve => child.on('close', (code, signal) => {
+    closed = true;
+    if (pending !== '') fail(Error('Partial runner envelope'));
+    notify(); resolve({ code, signal });
+  }));
   function notify() { for (const resume of waiters.splice(0)) resume(); }
-  function fail(error) { failure ??= error; notify(); }
+  function fail(error) { runnerFailure ??= error; notify(); }
   function abort(message) { fail(Error(message)); child.kill(); }
   async function wait(deadline) {
     const remaining = deadline - Date.now();
@@ -67,11 +71,18 @@ function openInteractive(configPath, { cwd = path.resolve(__dirname, '../..'), m
       try { envelope = JSON.parse(line); } catch { return abort('Malformed runner envelope'); }
       const keys = envelope && typeof envelope === 'object' ? Object.keys(envelope) : [];
       if (keys.length !== 1) return abort('Unexpected runner envelope');
-      if (keys[0] === 'started' && started === null && frames.length === 0) started = envelope.started;
+      if (keys[0] === 'started' && started === null && receipt === null) {
+        const identity = envelope.started;
+        if (!identity || !Number.isSafeInteger(identity.pid) || identity.pid <= 0 || !profilePattern.test(identity.profile)) {
+          return abort('Invalid runner start identity');
+        }
+        started = identity;
+      }
       else if (keys[0] === 'frame' && started !== null && receipt === null) frames.push(envelope.frame);
-      else if (keys[0] === 'receipt' && receipt === null) receipt = envelope.receipt;
+      else if (keys[0] === 'receipt' && started !== null && receipt === null) receipt = envelope.receipt;
       else return abort('Unexpected runner envelope order');
     }
+    if (pending.length > lineLimit) return abort('Runner envelope exceeds ceiling');
     notify();
   });
   child.stdin.write(JSON.stringify({ session }) + '\n');
@@ -82,19 +93,19 @@ function openInteractive(configPath, { cwd = path.resolve(__dirname, '../..'), m
     async receive(timeoutMs = 5000) {
       const deadline = Date.now() + timeoutMs;
       while (frames.length === 0) {
-        if (failure) throw failure;
+        if (runnerFailure || candidateFailure) throw runnerFailure ?? candidateFailure;
         if (receipt !== null || closed) throw Error('Child ended before replying');
         if (!await wait(deadline)) throw Error('Timed out waiting for child frame');
       }
-      if (failure) throw failure;
+      if (runnerFailure || candidateFailure) throw runnerFailure ?? candidateFailure;
       consumed++;
       try { return decodeFrame(frames.shift(), session, consumed, maxFrameBytes); }
-      catch (error) { fail(error); throw error; } // A rejected frame poisons the session.
+      catch (error) { candidateFailure ??= error; notify(); throw error; } // A rejected frame poisons the session.
     },
     async waitStarted(timeoutMs = 15000) {
       const deadline = Date.now() + timeoutMs;
       while (started === null) {
-        if (failure) throw failure;
+        if (runnerFailure || candidateFailure) throw runnerFailure ?? candidateFailure;
         if (closed) throw Error('Runner ended before start');
         if (!await wait(deadline)) throw Error('Timed out waiting for runner start');
       }
@@ -110,9 +121,13 @@ function openInteractive(configPath, { cwd = path.resolve(__dirname, '../..'), m
       clearTimeout(timer);
       if (receipt === null) {
         if (started !== null) await reconcileProfile(started);
-        throw failure ?? Error(killed ? 'Runner exceeded its close deadline' : 'Runner ended without a receipt');
+        throw Error(killed ? 'Runner exceeded its close deadline' : 'Runner ended without a receipt', { cause: runnerFailure ?? candidateFailure });
       }
-      if (failure) throw failure;
+      if (exit.code !== 0 || exit.signal !== null || stderr !== '') runnerFailure ??= Error('Runner failed after receipt');
+      // Runner protocol faults take precedence even if a bad candidate frame
+      // poisoned the session earlier. Preserve the first runner diagnostic.
+      const failure = runnerFailure ?? candidateFailure;
+      if (failure) { failure.receipt = receipt; throw failure; }
       return { exit, receipt, sent, consumed, unread: frames.length, stderr };
     },
     // Simulates abrupt owner loss; the caller reconciles the recorded profile.

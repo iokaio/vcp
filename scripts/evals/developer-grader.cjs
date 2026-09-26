@@ -9,10 +9,10 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const childProcess = require('node:child_process');
 const { load } = require('./developer-oracle.cjs');
 const { checkResponse, checkInteractiveReceipt, decodeFrame } = require('./node-fixture-protocol.cjs');
-const { openInteractive } = require('./node-fixture-session.cjs');
+const fixtureSession = require('./node-fixture-session.cjs');
 const repository = path.resolve(__dirname, '../..');
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 // Faults of the trusted harness are not candidate behavior: the case is regraded,
@@ -20,8 +20,20 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 class HarnessFault extends Error {
   constructor(message, cause) { super(message); this.harness = true; this.cause = cause; }
 }
-const harnessMessages = /^(Runner |Profile reconciliation|Owned profile|Contained child survived|Malformed runner|Unexpected runner|Invalid profile|Invalid interactive timeout|Timed out waiting for runner start)/;
+const harnessMessages = /^(Runner |Profile reconciliation|Owned profile|Contained child survived|Malformed runner|Partial runner|Unexpected runner|Invalid runner|Invalid profile|Invalid interactive timeout|Timed out waiting for runner start)/;
 const asHarness = error => error?.harness ? error : harnessMessages.test(String(error?.message ?? '')) ? new HarnessFault(String(error.message), error) : error;
+// These fields are statements by the trusted runner, not candidate outcomes.
+// A broken containment/cleanup receipt cannot establish a candidate failure.
+function checkHarnessReceipt(receipt, interactive = false) {
+  try {
+    assert.equal(receipt?.schema, 1);
+    if (interactive) assert.equal(receipt.mode, 'interactive');
+    assert.equal(receipt.cleanup, 'completed');
+    assert.equal(receipt.result.process.AppContainer, true);
+    assert.equal(receipt.result.process.CapabilityCount, 0);
+    assert.equal(receipt.result.process.TokenSidMatchesProfile, true);
+  } catch (error) { throw new HarnessFault('Adapter containment or cleanup receipt is invalid', error); }
+}
 
 // ---------------------------------------------------------------------------
 // Trusted wrappers. Each is staged as candidate.cjs next to the subject module.
@@ -78,8 +90,12 @@ exports.compute = async input => {
     const controller = new AbortController();
     if (run.abort_before) controller.abort();
     const parts = run.parts.map(part => new Uint8Array(Buffer.from(part, 'base64')));
-    const chunks = (async function* () { for (const part of parts) yield part; })();
-    results.push(await outcome(() => subject[${JSON.stringify(exported)}](chunks, controller.signal)));
+    let reads = 0;
+    const chunks = (async function* () {
+      for (const part of parts) { reads++; if (reads === run.abort_read) controller.abort(); yield part; }
+    })();
+    const result = await outcome(() => subject[${JSON.stringify(exported)}](chunks, controller.signal));
+    results.push({ ...result, reads });
   }
   return results;
 };
@@ -188,8 +204,13 @@ const probes = {
       });
     }]];
   } },
-  'UI-boundary-states-v2': { wrapper: 'function', groups: ({ oracle }) => [['declared and undeclared transitions', async run => {
-    const vectors = oracle.functional_vectors;
+  'UI-boundary-states-v2': { wrapper: 'function', groups: ({ oracle, initial }) => [['declared and undeclared transitions', async run => {
+    const transitions = JSON.parse(initial.get('states.json')).transitions;
+    const states = [...new Set(transitions.flatMap(([state, , next]) => [state, next]))];
+    const events = [...new Set(transitions.map(([, event]) => event))];
+    const vectors = [...oracle.functional_vectors, ...states.flatMap(state => events.map(event => ({
+      state, event, next: transitions.find(([from, on]) => from === state && on === event)?.[2] ?? state,
+    })))];
     await functionCalls(run, vectors.map(vector => ({ args: [vector.state, vector.event] })), (result, call, index) => assert.deepEqual(result.outcome, ok(vectors[index].next)));
   }]] },
   'UI-near-miss-parser-v2': { wrapper: 'function', groups: () => [['decimal digit strings and rejection', async run => {
@@ -258,7 +279,9 @@ const probes = {
       assert.equal(result.value.error.code, value); assert.equal(typeof result.value.error.message, 'string');
     };
     const init = (api, id = 'init') => api.send(packet(id, 'initialize', initParams), result => {
-      assert.equal(result.ok, true); assert.equal(result.value.id, id); initializeShape(result.value.result, {});
+      assert.equal(result.ok, true);
+      assert.deepEqual(Object.keys(result.value ?? {}).sort(), ['id', 'jsonrpc', 'result']);
+      assert.equal(result.value.jsonrpc, '2.0'); assert.equal(result.value.id, id); initializeShape(result.value.result, {});
     });
     const cancel = (api, params) => api.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params }, nothing);
     return [
@@ -356,7 +379,13 @@ const probes = {
         assert.equal(result.value.usage, null);
         if (index === 1) assert.equal(typeof result.value.error === 'string' ? result.value.error : result.value.error?.code, 'RATE_LIMIT');
       })],
-      ['pre-cancelled stream reports cancelled', batch([{ parts: [b64(successBytes)], abort_before: true }], result => { assert.equal(result.ok, true); assert.equal(result.value.status, 'cancelled'); })],
+      ['pre-cancelled stream reports cancelled without consuming input', batch([{ parts: [b64(successBytes)], abort_before: true }], result => { assert.equal(result.ok, true); assert.equal(result.value.status, 'cancelled'); assert.equal(result.reads, 0); })],
+      ['abort during a batch read discards that chunk and stops consuming', batch([{
+        parts: [b64(ndjson([{ type: 'delta', text: 'Part' }])), b64(ndjson([{ type: 'delta', text: 'discard' }])), b64(ndjson([{ type: 'done' }]))], abort_read: 2,
+      }], result => {
+        assert.equal(result.ok, true); assert.equal(result.value.status, 'cancelled');
+        assert.equal(result.value.text, 'Part'); assert.equal(result.value.usage, null); assert.equal(result.reads, 2);
+      })],
       // Limits apply to the whole input, across chunks, measured in UTF-8 bytes.
       ['exact byte and event ceilings are accepted, whole or split', batch(ceilingRuns(sized(exactLength), exactEvents), (result, index) => completed(index < 2 ? 'x'.repeat(exactLength) : 'x'.repeat(31), null)(result))],
       ['oversized byte, event and multibyte inputs are rejected, whole or split', batch(oversizedRuns(sized(exactLength + 1), overEvents, multibyte), rejected)],
@@ -576,12 +605,12 @@ function appContainerExecutor({ node, nodeSha256, timeoutMs = 20000, memoryBytes
         const config = { ...base('node-fixture-bootstrap.cjs'), output_limit: 65536, input_base64: Buffer.from(JSON.stringify({ id, input })).toString('base64'), files: entries };
         const configPath = path.join(directory, 'config.json');
         fs.writeFileSync(configPath, JSON.stringify(config));
-        const child = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner, '-Config', configPath], {
+        const child = childProcess.spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner, '-Config', configPath], {
           cwd: repository, encoding: 'utf8', timeout: timeoutMs + 30000, maxBuffer: 1048576, windowsHide: true });
         if (child.error || child.status !== 0) throw new HarnessFault('Adapter run failed before a receipt');
         let receipt;
         try { receipt = JSON.parse(child.stdout); } catch { throw new HarnessFault('Adapter receipt is not JSON'); }
-        if (receipt?.cleanup !== 'completed') throw new HarnessFault('Adapter cleanup incomplete');
+        checkHarnessReceipt(receipt);
         const text = Buffer.from(receipt.result.stdout_base64, 'base64').toString('utf8');
         let response;
         try { response = JSON.parse(text); } catch { throw Error(`Candidate produced no valid response (termination ${receipt.result.termination})`); }
@@ -599,15 +628,19 @@ function appContainerExecutor({ node, nodeSha256, timeoutMs = 20000, memoryBytes
         const configPath = path.join(directory, 'config.json');
         fs.writeFileSync(configPath, JSON.stringify(config));
         let session;
-        try { session = openInteractive(configPath, { cwd: repository }); } catch (error) { throw new HarnessFault(String(error?.message ?? error), error); }
+        try { session = fixtureSession.openInteractive(configPath, { cwd: repository }); } catch (error) { throw new HarnessFault(String(error?.message ?? error), error); }
         let failure = null;
         try { await drive(session); } catch (error) { failure = asHarness(error); }
         let closed;
         try { closed = await session.close(); } catch (error) {
+          // A candidate frame can poison close after the runner has supplied its
+          // receipt. Containment evidence still takes precedence over that frame.
+          if (error?.receipt !== undefined) checkHarnessReceipt(error.receipt, true);
           // Without a receipt the run's containment is unproven: always regrade.
           const fault = asHarness(error);
           throw fault.harness ? fault : failure ?? fault;
         }
+        checkHarnessReceipt(closed.receipt, true);
         if (failure) throw failure;
         checkInteractiveReceipt(closed.receipt, closed);
       } finally { fs.rmSync(directory, { recursive: true, force: true }); }
@@ -634,7 +667,7 @@ function localTrustedExecutor({ timeoutMs = 10000 } = {}) {
       try {
         fs.copyFileSync(path.join(__dirname, 'node-fixture-bootstrap.cjs'), path.join(directory, 'bootstrap.cjs'));
         const id = crypto.randomBytes(16).toString('hex');
-        const child = spawnSync(process.execPath, ['--max-old-space-size=128', 'bootstrap.cjs'], {
+        const child = childProcess.spawnSync(process.execPath, ['--max-old-space-size=128', 'bootstrap.cjs'], {
           cwd: directory, input: JSON.stringify({ id, input }), encoding: 'utf8', timeout: timeoutMs, maxBuffer: 1048576, windowsHide: true, env: environment });
         if (child.error || child.status !== 0 || child.stderr) throw Error('Local double run failed');
         const response = JSON.parse(child.stdout);

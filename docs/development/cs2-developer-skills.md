@@ -76,6 +76,37 @@ should-fix items; all were corrected before any campaign identity was pinned.
 Grader error messages may quote candidate output, so they stay out of
 blind-reader packets. No model artifact has been graded.
 
+### Review hardening
+
+The follow-up review increment closes gaps in the fixture prerequisite:
+
+- Artifact contents must survive UTF-8 staging unchanged and contain no NULs,
+  matching native checker discovery.
+- UI transition probes cover every declared state/event combination; MCP
+  initialization checks the JSON-RPC envelope; stream probes observe reads and
+  reject consumption after cancellation or processing an aborted chunk.
+- Invalid containment or cleanup receipts, incomplete runner envelopes and
+  failed runner exits require regrading, including after a candidate failure.
+- Windows children join their kill-on-close job atomically during creation,
+  closing the owner-loss window before the first exchange.
+
+Verification on the same native Windows host and pinned Node passed 38 portable
+regressions, all three native grader/runner tests, fourteen containment cases,
+and both synthetic CLI feasibility tests. The final session/grader corrections
+passed their focused regressions and harness cases. The full fast harness passed
+twenty cases; its protocol case initially failed because the new mock depended
+on a filtered host variable, then passed after the mock supplied its own profile
+directory. Syntax and diff-whitespace checks passed.
+
+Earlier failed attempts remain in local evidence: sandbox account/profile and
+Git-ownership mismatches, a missing feasibility Node setting, and the native
+grader's cleanup assertion against an inactive synthetic profile from the prior
+interrupted run. That exact profile was reconciled before the native rerun;
+candidate assertions and cleanup then passed without relaxing the checks.
+
+This increment does not complete specialist qualification or authorize changed
+campaign process identities. Campaign tooling and skill acceptance remain pending.
+
 ## In-run checker
 
 `vcp-developer-check` (feature `qualification`) is the only process a campaign

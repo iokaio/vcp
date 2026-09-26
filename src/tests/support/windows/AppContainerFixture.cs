@@ -105,7 +105,7 @@ public sealed class AppContainerFixture : IDisposable {
         string command = String.Join(" ", new[] { executable }.Concat(arguments).Select(Quote));
         if (command.Length > 30000) throw new ArgumentException("Process command is too long");
         IntPtr list = IntPtr.Zero, caps = IntPtr.Zero, handles = IntPtr.Zero, environment = IntPtr.Zero;
-        IntPtr job = IntPtr.Zero, limits = IntPtr.Zero, token = IntPtr.Zero;
+        IntPtr job = IntPtr.Zero, jobHandles = IntPtr.Zero, limits = IntPtr.Zero, token = IntPtr.Zero;
         IntPtr input = IntPtr.Zero, output = IntPtr.Zero, error = IntPtr.Zero;
         bool initialized = false;
         var process = new ProcessInfo();
@@ -121,10 +121,10 @@ public sealed class AppContainerFixture : IDisposable {
             handles = Marshal.AllocHGlobal(IntPtr.Size * 3);
             Marshal.Copy(new[] { input, output, error }, 0, handles, 3);
             IntPtr size = IntPtr.Zero;
-            InitializeProcThreadAttributeList(IntPtr.Zero, restricted ? 2 : 1, 0, ref size);
+            InitializeProcThreadAttributeList(IntPtr.Zero, restricted ? 3 : 2, 0, ref size);
             if (size == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             list = Marshal.AllocHGlobal(size);
-            Check(InitializeProcThreadAttributeList(list, restricted ? 2 : 1, 0, ref size)); initialized = true;
+            Check(InitializeProcThreadAttributeList(list, restricted ? 3 : 2, 0, ref size)); initialized = true;
             Check(UpdateProcThreadAttribute(list, 0, new IntPtr(0x20002), handles, new IntPtr(IntPtr.Size * 3), IntPtr.Zero, IntPtr.Zero));
             if (restricted) {
                 caps = Structure(new Capabilities { Sid = sid });
@@ -147,18 +147,26 @@ public sealed class AppContainerFixture : IDisposable {
             }
             limits = Structure(settings);
             Check(SetInformationJobObject(job, 9, limits, (uint)Marshal.SizeOf<ExtendedLimits>()));
-            // Suspended until it belongs to our kill-on-close job and its token is checked.
+            // PROC_THREAD_ATTRIBUTE_JOB_LIST assigns the process during creation.
+            // A separate CreateProcess/AssignProcessToJobObject sequence strands a
+            // suspended child if the owner dies between those calls (Windows 10+).
+            jobHandles = Marshal.AllocHGlobal(IntPtr.Size);
+            Marshal.WriteIntPtr(jobHandles, job);
+            Check(UpdateProcThreadAttribute(list, 0, new IntPtr(0x2000d), jobHandles, new IntPtr(IntPtr.Size), IntPtr.Zero, IntPtr.Zero));
+            // Suspended until its token is checked; kill-on-close ownership is atomic.
             // Bounded pipe-only children need no console host process. DETACHED_PROCESS
             // avoids the conhost created for CREATE_NO_WINDOW on this Windows host.
             Check(CreateProcess(executable, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, true,
                 bounded == null ? 0x08080404u : 0x0008040cu, environment, Root, ref startup, out process));
+            bool assigned;
+            Check(IsProcessInJob(process.Process, job, out assigned));
+            if (!assigned) throw new IOException("Created process missing owned job");
             if (bounded != null) {
                 // Only the child owns these ends now; EOF must not depend on parent cleanup.
                 foreach (IntPtr handle in new[] { input, output, error }) CloseHandle(handle);
                 input = output = error = IntPtr.Zero;
                 bounded.Start(process.Pid);
             }
-            Check(AssignProcessToJobObject(job, process.Process));
             Check(OpenProcessToken(process.Process, 8, out token));
             IntPtr containerInfo = TokenInfo(token, 29), capabilityInfo = IntPtr.Zero, sidInfo = IntPtr.Zero;
             bool isContainer; int count;
@@ -225,7 +233,7 @@ public sealed class AppContainerFixture : IDisposable {
             if (token != IntPtr.Zero) CloseHandle(token);
             foreach (IntPtr handle in new[] { input, output, error }) if (handle != IntPtr.Zero) CloseHandle(handle);
             if (initialized) DeleteProcThreadAttributeList(list);
-            foreach (IntPtr pointer in new[] { list, caps, handles, environment, limits }) if (pointer != IntPtr.Zero) Marshal.FreeHGlobal(pointer);
+            foreach (IntPtr pointer in new[] { list, caps, handles, jobHandles, environment, limits }) if (pointer != IntPtr.Zero) Marshal.FreeHGlobal(pointer);
             if (terminationFailed) throw new IOException("Owned process did not terminate");
         }
     }
@@ -510,7 +518,7 @@ public sealed class AppContainerFixture : IDisposable {
     [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr CreateJobObject(IntPtr attributes,string name);
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool SetInformationJobObject(IntPtr job,int kind,IntPtr info,uint length);
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool QueryInformationJobObject(IntPtr job,int kind,IntPtr info,uint length,IntPtr returned);
-    [DllImport("kernel32.dll",SetLastError=true)] static extern bool AssignProcessToJobObject(IntPtr job,IntPtr process);
+    [DllImport("kernel32.dll",SetLastError=true)] static extern bool IsProcessInJob(IntPtr process,IntPtr job,[MarshalAs(UnmanagedType.Bool)] out bool assigned);
     [DllImport("advapi32.dll",SetLastError=true)] static extern bool OpenProcessToken(IntPtr process,uint access,out IntPtr token);
     [DllImport("advapi32.dll")] static extern bool IsTokenRestricted(IntPtr token);
     [DllImport("advapi32.dll",SetLastError=true)] static extern bool GetTokenInformation(IntPtr token,int kind,IntPtr info,uint size,out uint returned);
