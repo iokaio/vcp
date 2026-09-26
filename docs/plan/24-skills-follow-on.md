@@ -237,6 +237,12 @@ Separate prospective DOC 1.0.3 and SKL 1.0.2
 observed content and verifier-citation failures. They remain unqualified and may
 use only new frozen comparisons and native-package evidence.
 
+Their subsequent [requalification](../development/cs1-authoring-requalification-disposition.md)
+is also terminal and unqualified. DOC 1.0.3 failed its first candidate row's
+deterministic local-link oracle; the second normal case was not run, and blind
+review triggered the campaign-wide integrity halt. No inherited or confirmation
+phase ran, SKL 1.0.2 did not run, and neither revision was promoted.
+
 ## CS-2 — Developer specialists
 
 Create `frontend-design`, `mcp-development` and `llm-integration`; materialize

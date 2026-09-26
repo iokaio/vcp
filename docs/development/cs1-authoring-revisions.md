@@ -36,3 +36,8 @@ unchanged. A new qualification must use new task identities, account for the
 USD 0.697384 already settled under the owner grant, and independently establish
 correctness, preservation, authority, secret handling, evidence honesty,
 usefulness and exact native package behavior.
+
+That requalification is now [terminal](cs1-authoring-requalification-disposition.md).
+Document-authoring 1.0.3 failed its first candidate row's deterministic link
+oracle and the blind review triggered the campaign-wide integrity halt.
+Skill-authoring 1.0.2 did not run. Neither revision was promoted.
