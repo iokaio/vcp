@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #requires -Version 7.0
 # Qualification-only Windows runner. All child output is untrusted data.
-param([Parameter(Mandatory)][string]$Config)
+param([Parameter(Mandatory)][string]$Config, [string]$ProfileName)
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne 'X64') { throw 'Native x64 Windows required' }
 function Read-Bounded([string]$Path, [long]$Maximum) {
@@ -65,7 +65,7 @@ foreach ($file in $request.files) {
 }
 if (-not $files.ContainsKey('candidate.cjs')) { throw 'Missing candidate entry point' }
 Add-Type -Path (Join-Path $PSScriptRoot '../../src/tests/support/windows/AppContainerFixture.cs')
-$fixture = [Vcp.Qualification.AppContainerFixture]::new()
+$fixture = if ($ProfileName) { [Vcp.Qualification.AppContainerFixture]::new($ProfileName) } else { [Vcp.Qualification.AppContainerFixture]::new() }
 $outcome = [ordered]@{ schema = 1; cleanup = 'pending'; node_sha256 = $request.node_sha256; bootstrap_sha256 = $request.bootstrap_sha256; result = $null }
 try {
     $program = Join-Path $fixture.Root 'node.exe'

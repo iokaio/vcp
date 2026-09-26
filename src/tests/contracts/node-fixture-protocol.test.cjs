@@ -13,6 +13,52 @@ function receipt(text = JSON.stringify({ id, result: 42 }) + '\n') {
 test('parent verifies one external result', () => {
   assert.deepEqual(checkResponse(receipt(), id, 42), { external_response_pass: true });
 });
+
+test('single-shot supervisor rejects runner faults and reconciles its prelaunch identity', async () => {
+  const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
+  const { EventEmitter } = require('node:events');
+  const { PassThrough } = require('node:stream');
+  const filename = path.resolve(__dirname, '../../../scripts/evals/node-fixture-session.cjs');
+  for (const [output, code, stderr, expected] of [
+    ['{"cleanup":"completed","valid":true}', 0, '', null],
+    ['{"cleanup":"completed","valid":true}', 0, 'runner diagnostic', /Runner failed/],
+    ['{"cleanup":"pending"}', 0, '', /Runner cleanup receipt is invalid/],
+    ['', 1, '', /Runner failed/],
+    ['{"partial":', 0, '', /Runner receipt is not JSON/],
+    [Buffer.from([0xff]), 0, '', /Runner receipt is not JSON/],
+    ['x'.repeat(1048577), 0, '', /Runner output exceeds ceiling/],
+  ]) {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    child.kill = () => child.emit('close', null, 'SIGTERM');
+    const cleanups = [], launches = [], module = { exports: {} };
+    vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
+      module, __dirname: path.dirname(filename), process: { env: { LOCALAPPDATA: path.resolve('fixture-local-app-data') } },
+      Buffer, TextDecoder, setTimeout, clearTimeout,
+      require(name) {
+        if (name === 'node:child_process') return {
+          spawn: (...args) => { launches.push(args); return child; },
+          spawnSync: (...args) => { cleanups.push(args); return { status: 0 }; },
+        };
+        if (name === 'node:crypto') return { randomBytes: () => Buffer.alloc(16, 0xbb) };
+        if (name === 'node:fs') return { readFileSync: () => '{"timeout_ms":1000}', existsSync: () => false };
+        if (name === './node-fixture-protocol.cjs') return { decodeFrame };
+        return require(name);
+      },
+    }, { filename });
+    const result = module.exports.runSingle('fixture.json');
+    assert.equal(launches[0][1].slice(-2).join(','), '-ProfileName,iokaio.vcp.memory.' + 'b'.repeat(32));
+    child.stdout.write(output); child.stderr.write(stderr); child.emit('close', code, null);
+    if (expected) {
+      await assert.rejects(result, expected);
+      assert.equal(cleanups.length, 1, 'Failure must reconcile even before a startup envelope');
+      assert.match(cleanups[0][1].at(-1), /iokaio\.vcp\.memory\.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/);
+    } else {
+      assert.equal((await result).valid, true);
+      assert.equal(cleanups.length, 0);
+    }
+  }
+});
 test('child verdicts, extra frames, wrong IDs and wrong values cannot pass', () => {
   for (const text of [JSON.stringify({ passed: true }) + '\n',
     JSON.stringify({ id, result: 42, passed: true }) + '\n',
@@ -74,23 +120,37 @@ test('interactive supervisor rejects truncated envelopes and failed runner compl
     const child = new EventEmitter();
     child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
     child.kill = () => { child.emit('close', null, 'SIGTERM'); };
-    const module = { exports: {} };
+    const module = { exports: {} }, cleanups = [];
     vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
       module, __dirname: path.dirname(filename), process: {
         env: { LOCALAPPDATA: path.resolve('fixture-local-app-data') },
         kill() { throw Object.assign(Error('exited'), { code: 'ESRCH' }); },
       }, Buffer, setTimeout, clearTimeout,
       require(name) {
-        if (name === 'node:child_process') return { spawn: () => child, spawnSync: () => ({ status: 0 }) };
+        if (name === 'node:crypto') return { randomBytes: () => Buffer.alloc(16, 0xaa) };
+        if (name === 'node:child_process') return { spawn: () => child, spawnSync: (...args) => { cleanups.push(args); return { status: 0 }; } };
         if (name === 'node:fs') return { readFileSync: () => '{"timeout_ms":1000}', existsSync: () => false };
         if (name === './node-fixture-protocol.cjs') return { decodeFrame };
         return require(name);
       },
     }, { filename });
-    return { child, session: module.exports.openInteractive('fixture.json') };
+    return { child, session: module.exports.openInteractive('fixture.json'), cleanups };
   }
   const started = JSON.stringify({ started: { pid: 123, profile: 'iokaio.vcp.memory.' + 'a'.repeat(32) } }) + '\n';
   const receiptLine = JSON.stringify({ receipt: interactiveReceipt() }) + '\n';
+  for (const cleanup of [undefined, 'pending', 'failed']) {
+    const invalid = interactiveReceipt(); invalid.cleanup = cleanup;
+    const { child, session, cleanups } = runner();
+    child.stdout.write(started + JSON.stringify({ receipt: invalid }) + '\n');
+    child.emit('close', 0, null);
+    await assert.rejects(session.close(), error => {
+      assert.match(error.message, /Runner cleanup receipt is invalid/);
+      assert.equal(error.receipt.cleanup, cleanup);
+      return true;
+    });
+    assert.equal(cleanups.length, 1, 'Invalid cleanup receipt must reconcile the reserved profile');
+    assert.match(cleanups[0][1].at(-1), /iokaio\.vcp\.memory\.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/);
+  }
   for (const [suffix, code, diagnostic, expected] of [
     ['', 0, '', null], ['{"frame":', 0, '', /Partial runner envelope/],
     ['', 1, '', /Runner failed/], ['', 0, 'runner error', /Runner failed/],

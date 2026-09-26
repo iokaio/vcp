@@ -24,21 +24,64 @@ const harnessMessages = /^(Runner |Profile reconciliation|Owned profile|Containe
 const asHarness = error => error?.harness ? error : harnessMessages.test(String(error?.message ?? '')) ? new HarnessFault(String(error.message), error) : error;
 // These fields are statements by the trusted runner, not candidate outcomes.
 // A broken containment/cleanup receipt cannot establish a candidate failure.
-function checkHarnessReceipt(receipt, interactive = false) {
+function checkHarnessReceipt(receipt, interactive = false, expected = {}) {
   try {
+    const shape = (value, names) => {
+      assert(value && typeof value === 'object' && !Array.isArray(value));
+      assert.deepEqual(Object.keys(value).sort(), [...names].sort());
+    };
+    const count = (value, maximum = Number.MAX_SAFE_INTEGER) => assert(Number.isSafeInteger(value) && value >= 0 && value <= maximum);
+    const encoded = (value, observed) => {
+      assert.equal(typeof value, 'string');
+      const bytes = Buffer.from(value, 'base64');
+      assert.equal(bytes.toString('base64'), value, 'Receipt bytes must use canonical base64');
+      assert(bytes.length <= observed && bytes.length <= 65536, 'Receipt capture exceeds observed bytes or retention limit');
+      return bytes.length;
+    };
+    shape(receipt, ['schema', 'cleanup', 'node_sha256', 'bootstrap_sha256', 'result', ...(interactive ? ['mode'] : [])]);
     assert.equal(receipt?.schema, 1);
     if (interactive) assert.equal(receipt.mode, 'interactive');
     assert.equal(receipt.cleanup, 'completed');
-    assert.equal(receipt.result.process.AppContainer, true);
-    assert.equal(receipt.result.process.CapabilityCount, 0);
-    assert.equal(receipt.result.process.TokenSidMatchesProfile, true);
+    for (const name of ['node_sha256', 'bootstrap_sha256']) assert(typeof receipt[name] === 'string' && /^[a-f0-9]{64}$/.test(receipt[name]));
+    const result = receipt.result;
+    shape(result, ['process', 'pid', 'termination', 'stderr_base64', 'stderr_bytes', 'peak_active_processes', 'memory_limit_bytes',
+      ...(interactive ? ['frames_to_child', 'frames_from_child', 'bytes_to_child', 'bytes_from_child', 'trailing_bytes'] : ['stdout_base64', 'stdout_bytes'])]);
+    const terminations = ['exited', 'output_limit', 'cancelled', 'timeout', ...(interactive ? ['idle_timeout', 'frame_bytes', 'frame_limit', 'total_bytes',
+      'parent_frame_bytes', 'parent_frame_limit', 'parent_total_bytes', 'parent_partial_frame', 'parent_io_error'] : [])];
+    assert(terminations.includes(result.termination), 'Unknown runner termination');
+    count(result.pid, 0xffffffff); assert(result.pid > 0);
+    count(result.peak_active_processes, 1);
+    count(result.memory_limit_bytes, 1073741824); assert(result.memory_limit_bytes >= 67108864);
+    count(result.stderr_bytes);
+    const stderr = encoded(result.stderr_base64, result.stderr_bytes);
+    if (interactive) {
+      for (const name of ['frames_to_child', 'frames_from_child', 'bytes_to_child', 'bytes_from_child', 'trailing_bytes']) count(result[name]);
+      assert.equal(stderr, Math.min(result.stderr_bytes, 65536), 'Incomplete stderr capture');
+    } else {
+      count(result.stdout_bytes);
+      const stdout = encoded(result.stdout_base64, result.stdout_bytes);
+      assert.equal(stdout + stderr, Math.min(result.stdout_bytes + result.stderr_bytes, 65536), 'Incomplete output capture');
+    }
+    shape(result.process, ['ExitCode', 'AppContainer', 'CapabilityCount', 'TokenSidMatchesProfile', 'RestrictedToken', 'IntegrityLevel', 'PeakJobCommittedBytes', 'WallMilliseconds']);
+    count(result.process.ExitCode, 0xffffffff);
+    assert.equal(result.process.AppContainer, true);
+    assert.equal(result.process.CapabilityCount, 0);
+    assert.equal(result.process.TokenSidMatchesProfile, true);
+    assert.equal(typeof result.process.RestrictedToken, 'boolean');
+    assert(typeof result.process.IntegrityLevel === 'string' && /^S-1-16-\d+$/.test(result.process.IntegrityLevel));
+    count(result.process.PeakJobCommittedBytes); count(result.process.WallMilliseconds);
+    if (expected.nodeSha256 !== undefined) assert.equal(receipt.node_sha256, expected.nodeSha256);
+    if (expected.bootstrapSha256 !== undefined) assert.equal(receipt.bootstrap_sha256, expected.bootstrapSha256);
+    if (expected.memoryBytes !== undefined) assert.equal(result.memory_limit_bytes, expected.memoryBytes);
   } catch (error) { throw new HarnessFault('Adapter containment or cleanup receipt is invalid', error); }
+  // These failures originate in the trusted peer/relay, never in the candidate.
+  if (receipt.result.termination.startsWith('parent_')) throw new HarnessFault('Adapter parent relay failed');
 }
 
 // ---------------------------------------------------------------------------
 // Trusted wrappers. Each is staged as candidate.cjs next to the subject module.
 const outcome = `function failure(error) {
-  return { ok: false, name: String(error?.name ?? typeof error).slice(0, 64), type_error: error instanceof TypeError,
+  return { ok: false, name: String(error?.name ?? typeof error).slice(0, 64), type_error: error instanceof TypeError, error_instance: error instanceof Error,
     message: String(error?.message ?? error).slice(0, 512), code: error?.code === undefined ? null : String(error.code).slice(0, 128) };
 }
 async function outcome(action) {
@@ -158,6 +201,12 @@ const ndjson = events => events.map(event => JSON.stringify(event) + '\n').join(
 const packet = (id, method, params) => ({ jsonrpc: '2.0', id, method, params });
 const success = (id, result) => ({ jsonrpc: '2.0', id, result });
 const initParams = { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'independent-grader', version: '1' } };
+function protocolError(reply, code) {
+  assert(reply.error && typeof reply.error === 'object' && !Array.isArray(reply.error), 'Expected a JSON-RPC error object');
+  assert(Number.isSafeInteger(reply.error.code), 'JSON-RPC error code must be an integer');
+  if (code !== undefined) assert.equal(reply.error.code, code);
+  assert.equal(typeof reply.error.message, 'string');
+}
 // The contract requires these three fields; MCP also permits optional instructions.
 function initializeShape(result, capabilities) {
   assert.equal(result.protocolVersion, '2025-11-25');
@@ -207,7 +256,7 @@ const probes = {
   'UI-boundary-states-v2': { wrapper: 'function', groups: ({ oracle, initial }) => [['declared and undeclared transitions', async run => {
     const transitions = JSON.parse(initial.get('states.json')).transitions;
     const states = [...new Set(transitions.flatMap(([state, , next]) => [state, next]))];
-    const events = [...new Set(transitions.map(([, event]) => event))];
+    const events = [...new Set([...transitions.map(([, event]) => event), 'unknown', 'toString', 'constructor', '__proto__'])];
     const vectors = [...oracle.functional_vectors, ...states.flatMap(state => events.map(event => ({
       state, event, next: transitions.find(([from, on]) => from === state && on === event)?.[2] ?? state,
     })))];
@@ -379,7 +428,7 @@ const probes = {
         assert.equal(result.value.usage, null);
         if (index === 1) assert.equal(typeof result.value.error === 'string' ? result.value.error : result.value.error?.code, 'RATE_LIMIT');
       })],
-      ['pre-cancelled stream reports cancelled without consuming input', batch([{ parts: [b64(successBytes)], abort_before: true }], result => { assert.equal(result.ok, true); assert.equal(result.value.status, 'cancelled'); assert.equal(result.reads, 0); })],
+      ['pre-cancelled stream reports cancelled without consuming input', batch([{ parts: [b64(successBytes)], abort_before: true }], result => { assert.equal(result.ok, true); assert.equal(result.value.status, 'cancelled'); assert.equal(result.value.text, ''); assert.equal(result.value.usage, null); assert.equal(result.reads, 0); })],
       ['abort during a batch read discards that chunk and stops consuming', batch([{
         parts: [b64(ndjson([{ type: 'delta', text: 'Part' }])), b64(ndjson([{ type: 'delta', text: 'discard' }])), b64(ndjson([{ type: 'done' }]))], abort_read: 2,
       }], result => {
@@ -418,11 +467,17 @@ const probes = {
     const missing = (await request('tools/call', { name: 'lookup_label', arguments: { id: 'missing-record' } })).result;
     assert.equal(missing?.isError, true); assert(Array.isArray(missing.content) && missing.content.length > 0);
     for (const entry of missing.content) { assert.equal(entry.type, 'text'); assert(typeof entry.text === 'string' && entry.text.length > 0); }
-    for (const params of [{ name: 'unknown', arguments: {} }, { name: 'lookup_label', arguments: {} }, { name: 'lookup_label', arguments: { id: 3 } }, { name: 'lookup_label', arguments: { id: 'l3', extra: true } }, { name: 'count_labels', arguments: { extra: true } }]) {
+    for (const params of [undefined, null, [], {}, { name: 'lookup_label' }, { name: 'count_labels' },
+      ...[null, [], 3, 'id'].flatMap(arguments_ => ['lookup_label', 'count_labels'].map(name => ({ name, arguments: arguments_ }))),
+      { name: 'unknown', arguments: {} }, { name: 'lookup_label', arguments: {} }, { name: 'lookup_label', arguments: { id: 3 } }, { name: 'lookup_label', arguments: { id: 'l3', extra: true } }, { name: 'count_labels', arguments: { extra: true } }]) {
       const response = await request('tools/call', params);
-      assert(response.error || response.result?.isError === true, `Invalid tool request succeeded: ${JSON.stringify(params)}`);
+      if (Object.hasOwn(response, 'error')) protocolError(response, -32602);
+      else {
+        assert.equal(response.result?.isError, true, `Invalid tool request succeeded: ${JSON.stringify(params)}`);
+        assert(Array.isArray(response.result.content), 'Tool error content must be an array');
+      }
     }
-    assert.equal((await request('fixture/unknown', {})).error?.code, -32601);
+    protocolError(await request('fixture/unknown', {}), -32601);
   }]] },
   'MCP-normal-resources-v2': { wrapper: 'mcpStdio', groups: ({ initial }) => [['stdio resources session', async session => {
     const resources = JSON.parse(initial.get('resources.json'));
@@ -451,8 +506,10 @@ const probes = {
       assert(!('blob' in contents[0]), 'Text resource returned a blob');
       if (contents[0].mimeType !== undefined) assert.equal(contents[0].mimeType, resource.mimeType);
     }
-    for (const uri of ['fixture://missing', 'file:///C:/Windows/win.ini', '../resources.json']) assert((await request('resources/read', { uri })).error, `Unknown resource read succeeded: ${uri}`);
-    assert.equal((await request('fixture/unknown', {})).error?.code, -32601);
+    for (const params of [undefined, null, [], {}, { uri: null }, { uri: 3 }]) protocolError(await request('resources/read', params), -32602);
+    // The contract requires unknown-URI errors, but does not fix their code.
+    for (const uri of ['fixture://missing', 'file:///C:/Windows/win.ini', '../resources.json']) protocolError(await request('resources/read', { uri }));
+    protocolError(await request('fixture/unknown', {}), -32601);
   }]] },
   'LLM-normal-request-v3': { wrapper: 'llmTransport', groups: ({ initial }) => {
     const identity = JSON.parse(initial.get('provider.json'));
@@ -481,6 +538,7 @@ const probes = {
         const failed = await summarize(session, 'Local input', { ok: false, error: { code: 'SYNTHETIC_RATE_LIMIT', message: 'Synthetic refusal' } });
         assert.equal(failed.ok, false); assert.equal(failed.code, 'SYNTHETIC_RATE_LIMIT'); assert.equal(failed.message, 'Synthetic refusal');
         assert.equal(failed.type_error, false, 'A provider failure must not surface as a validation TypeError');
+        assert.equal(failed.error_instance, true, 'A provider failure must throw an Error instance');
       }],
       ['invalid input rejected before any transport call', async session => {
         for (const input of [null, 5, {}, '', 'x'.repeat(1001), 'é'.repeat(501)]) threw('TypeError')(await summarize(session, input, null, { calls: 0 }));
@@ -524,6 +582,7 @@ const probes = {
         assert.equal(incomplete.outcome.ok, true); assert.equal(incomplete.outcome.value.status, 'incomplete'); assert.equal(incomplete.outcome.value.text, 'Part'); assert.equal(incomplete.outcome.value.usage, null);
         const errored = await collect(session, [chunk(ndjson([{ type: 'delta', text: 'Part' }, { type: 'error', code: 'RATE_LIMIT' }])), { done: true }]);
         assert.equal(errored.outcome.value.status, 'error'); assert.equal(errored.outcome.value.text, 'Part');
+        assert.equal(errored.outcome.value.usage, null);
         assert.equal(typeof errored.outcome.value.error === 'string' ? errored.outcome.value.error : errored.outcome.value.error?.code, 'RATE_LIMIT');
         const bare = await collect(session, [chunk(ndjson([{ type: 'done' }])), { done: true }]);
         assert.equal(bare.outcome.value.status, 'completed'); assert.equal(bare.outcome.value.usage, null);
@@ -531,6 +590,7 @@ const probes = {
       ['pre-cancelled stream performs no read', async session => {
         const result = await collect(session, [], { abortBefore: true });
         assert.equal(result.reads, 0); assert.equal(result.outcome.ok, true); assert.equal(result.outcome.value.status, 'cancelled');
+        assert.equal(result.outcome.value.text, ''); assert.equal(result.outcome.value.usage, null);
       }],
       ['abort during a read discards that chunk and stops reading', async session => {
         const result = await collect(session, [chunk(ndjson([{ type: 'delta', text: 'Part' }])), { abort: true, ...chunk(ndjson([{ type: 'delta', text: 'discard' }])) }]);
@@ -584,7 +644,6 @@ function inventory(final, grading, wrapperKind) {
 function appContainerExecutor({ node, nodeSha256, timeoutMs = 20000, memoryBytes = 268435456, idleMs = 5000 }) {
   if (process.platform !== 'win32') throw Error('The qualified executor requires native Windows');
   if (sha(fs.readFileSync(node)) !== nodeSha256) throw Error('Pinned Node identity mismatch');
-  const runner = path.join(__dirname, 'node-fixture-runner.ps1');
   function stage(files) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-developer-grade-'));
     const entries = files.map(file => {
@@ -605,12 +664,10 @@ function appContainerExecutor({ node, nodeSha256, timeoutMs = 20000, memoryBytes
         const config = { ...base('node-fixture-bootstrap.cjs'), output_limit: 65536, input_base64: Buffer.from(JSON.stringify({ id, input })).toString('base64'), files: entries };
         const configPath = path.join(directory, 'config.json');
         fs.writeFileSync(configPath, JSON.stringify(config));
-        const child = childProcess.spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner, '-Config', configPath], {
-          cwd: repository, encoding: 'utf8', timeout: timeoutMs + 30000, maxBuffer: 1048576, windowsHide: true });
-        if (child.error || child.status !== 0) throw new HarnessFault('Adapter run failed before a receipt');
         let receipt;
-        try { receipt = JSON.parse(child.stdout); } catch { throw new HarnessFault('Adapter receipt is not JSON'); }
-        checkHarnessReceipt(receipt);
+        try { receipt = await fixtureSession.runSingle(configPath, { cwd: repository }); }
+        catch (error) { throw new HarnessFault(String(error?.message ?? error), error); }
+        checkHarnessReceipt(receipt, false, { nodeSha256, bootstrapSha256: config.bootstrap_sha256, memoryBytes });
         const text = Buffer.from(receipt.result.stdout_base64, 'base64').toString('utf8');
         let response;
         try { response = JSON.parse(text); } catch { throw Error(`Candidate produced no valid response (termination ${receipt.result.termination})`); }
@@ -635,12 +692,12 @@ function appContainerExecutor({ node, nodeSha256, timeoutMs = 20000, memoryBytes
         try { closed = await session.close(); } catch (error) {
           // A candidate frame can poison close after the runner has supplied its
           // receipt. Containment evidence still takes precedence over that frame.
-          if (error?.receipt !== undefined) checkHarnessReceipt(error.receipt, true);
+          if (error?.receipt !== undefined) checkHarnessReceipt(error.receipt, true, { nodeSha256, bootstrapSha256: config.bootstrap_sha256, memoryBytes });
           // Without a receipt the run's containment is unproven: always regrade.
           const fault = asHarness(error);
           throw fault.harness ? fault : failure ?? fault;
         }
-        checkHarnessReceipt(closed.receipt, true);
+        checkHarnessReceipt(closed.receipt, true, { nodeSha256, bootstrapSha256: config.bootstrap_sha256, memoryBytes });
         if (failure) throw failure;
         checkInteractiveReceipt(closed.receipt, closed);
       } finally { fs.rmSync(directory, { recursive: true, force: true }); }
@@ -750,4 +807,4 @@ async function grade(caseId, final, executor, { allowUnqualified = false } = {})
     observations, errors, not_run: ['Selected SDK and live provider compatibility', 'Browser, layout and human usefulness review'] };
 }
 const gradedCases = Object.keys(probes);
-module.exports = { grade, gradedCases, inventory, appContainerExecutor, localTrustedExecutor, HarnessFault };
+module.exports = { grade, gradedCases, inventory, appContainerExecutor, localTrustedExecutor, HarnessFault, checkHarnessReceipt };

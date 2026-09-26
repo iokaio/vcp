@@ -14,7 +14,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Vcp.Qualification {
 public sealed class AppContainerFixture : IDisposable {
-    readonly string name = "iokaio.vcp.memory." + Guid.NewGuid().ToString("N");
+    readonly string name;
     readonly string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
     IntPtr sid;
     bool created;
@@ -30,7 +30,13 @@ public sealed class AppContainerFixture : IDisposable {
         } finally { CloseHandle(token); }
     }
 
-    public AppContainerFixture() {
+    public AppContainerFixture() : this("iokaio.vcp.memory." + Guid.NewGuid().ToString("N")) { }
+    // A supervisor can reserve the identity before the broker starts, so abrupt
+    // broker loss before process creation still has an exact cleanup target.
+    public AppContainerFixture(string profileName) {
+        if (profileName == null || !System.Text.RegularExpressions.Regex.IsMatch(profileName, "\\Aiokaio\\.vcp\\.memory\\.[a-f0-9]{32}\\z"))
+            throw new ArgumentException("Invalid owned profile identity");
+        name = profileName;
         // The trusted broker must start with these two OS profile paths, since
         // Windows caches them before CreateAppContainerProfile is called.
         if (!String.Equals(Environment.GetEnvironmentVariable("LOCALAPPDATA"), localAppData, StringComparison.OrdinalIgnoreCase) ||
@@ -386,14 +392,17 @@ public sealed class AppContainerFixture : IDisposable {
         readonly int maxFrames, maxFrameBytes, maxTotalBytes, errorLimit, idle;
         readonly CancellationToken cancellation;
         readonly object outputLock = new object();
+        readonly object inputLock = new object();
         readonly Stopwatch clock = new Stopwatch();
         FileStream inputStream, outputStream, errorStream;
-        Task outputTask, errorTask;
+        Task inputTask, outputTask, errorTask;
+        IntPtr inputThread;
         public readonly MemoryStream Error = new MemoryStream();
         public long ErrorBytes, BytesToChild, BytesFromChild, TrailingBytes;
         public int FramesToChild, FramesFromChild;
         long lastActivity;
         string violation;
+        int disposed, stoppingInput, parentFault;
         public DuplexIo(string profile, Stream parentInput, Stream parentOutput, int maxFrames, int maxFrameBytes, int maxTotalBytes,
             int errorLimit, ulong memoryBytes, int idle, CancellationToken cancellation) {
             this.profile = profile; this.parentInput = parentInput; this.parentOutput = parentOutput; this.maxFrames = maxFrames;
@@ -407,7 +416,10 @@ public sealed class AppContainerFixture : IDisposable {
             errorStream = Pipe(false, out childError);
         }
         void Touch() { Interlocked.Exchange(ref lastActivity, clock.ElapsedMilliseconds); }
-        void Fail(string reason) { Interlocked.CompareExchange(ref violation, reason, null); }
+        void Fail(string reason) {
+            if (reason == "parent_io_error") Interlocked.Exchange(ref parentFault, 1);
+            else Interlocked.CompareExchange(ref violation, reason, null);
+        }
         void Envelope(string json) {
             byte[] bytes = Encoding.UTF8.GetBytes(json + "\n");
             lock (outputLock) { parentOutput.Write(bytes, 0, bytes.Length); parentOutput.Flush(); }
@@ -415,7 +427,9 @@ public sealed class AppContainerFixture : IDisposable {
         // Frames longer than the ceiling stop the child; bytes are never truncated silently.
         void Frames(Stream source, bool toChild) {
             var line = new MemoryStream(); var buffer = new byte[4096]; int count;
-            while ((count = source.Read(buffer, 0, buffer.Length)) != 0) {
+            while (!toChild || Volatile.Read(ref stoppingInput) == 0) {
+                count = source.Read(buffer, 0, buffer.Length);
+                if (count == 0) break;
                 for (int i = 0; i < count; i++) {
                     if (buffer[i] != (byte)'\n') {
                         if (line.Length >= maxFrameBytes) { Fail(toChild ? "parent_frame_bytes" : "frame_bytes"); return; }
@@ -427,7 +441,14 @@ public sealed class AppContainerFixture : IDisposable {
                     if (frames > maxFrames) { Fail(toChild ? "parent_frame_limit" : "frame_limit"); return; }
                     if (total > maxTotalBytes) { Fail(toChild ? "parent_total_bytes" : "total_bytes"); return; }
                     Touch();
-                    if (toChild) { inputStream.Write(frame, 0, frame.Length); inputStream.WriteByte((byte)'\n'); inputStream.Flush(); }
+                    if (toChild) {
+                        try { inputStream.Write(frame, 0, frame.Length); inputStream.WriteByte((byte)'\n'); inputStream.Flush(); }
+                        // A child may close stdin or exit before consuming a frame.
+                        // Only that pipe failure is candidate behavior; faults while
+                        // reading the trusted parent source must remain harness faults.
+                        catch (IOException ex) when ((ex.HResult & 0xffff) == 109 || (ex.HResult & 0xffff) == 232) { return; }
+                        catch (ObjectDisposedException) when (Volatile.Read(ref disposed) != 0) { return; }
+                    }
                     else Envelope("{\"frame\":\"" + Convert.ToBase64String(frame) + "\"}");
                 }
             }
@@ -454,13 +475,37 @@ public sealed class AppContainerFixture : IDisposable {
             errorTask = Task.Run(ReadError);
             // Parent EOF closes the child's input. A parent that never closes cannot extend
             // the run: idle, wall and cancellation deadlines still terminate the job.
-            Task.Run(() => {
-                try { Frames(parentInput, true); }
-                catch (Exception) { /* Child exit or disposal closes the forwarding pipe. */ }
-                finally { try { inputStream.Dispose(); } catch (Exception) { } }
+            inputTask = Task.Run(() => {
+                try {
+                    lock (inputLock) {
+                        if (Volatile.Read(ref stoppingInput) != 0) return;
+                        Check(DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), out inputThread, 0, false, 2));
+                    }
+                    Frames(parentInput, true);
+                }
+                catch (IOException ex) when (Volatile.Read(ref stoppingInput) != 0 && (ex.HResult & 0xffff) == 995) { }
+                catch (Exception) { Fail("parent_io_error"); }
+                finally {
+                    try { inputStream.Dispose(); } catch (Exception) { Fail("parent_io_error"); }
+                    lock (inputLock) { if (inputThread != IntPtr.Zero) CloseHandle(inputThread); inputThread = IntPtr.Zero; }
+                }
             });
         }
+        void StopParentInput() {
+            if (inputTask == null) return;
+            Interlocked.Exchange(ref stoppingInput, 1);
+            var deadline = Stopwatch.StartNew();
+            while (!inputTask.Wait(10)) {
+                // Cancel the active relay's pending synchronous pipe read without
+                // closing the caller-owned input stream. Recheck until joined to
+                // cover the race between a stop request and entering Read(). The
+                // lock prevents cancellation after this thread returns to the pool.
+                lock (inputLock) { if (inputThread != IntPtr.Zero) CancelSynchronousIo(inputThread); }
+                if (deadline.ElapsedMilliseconds >= 5000) throw new IOException("Parent input relay did not stop");
+            }
+        }
         public override string StopReason(long elapsed, int timeout) {
+            if (Volatile.Read(ref parentFault) != 0) return "parent_io_error";
             string reason = Volatile.Read(ref violation);
             if (reason != null) return reason;
             if (cancellation.IsCancellationRequested) return "cancelled";
@@ -470,13 +515,19 @@ public sealed class AppContainerFixture : IDisposable {
         }
         public override void Complete() {
             if (!Task.WaitAll(new[] { outputTask, errorTask }, 5000)) throw new IOException("Owned pipes did not close");
+            StopParentInput();
             string reason = Volatile.Read(ref violation);
             if (reason != null) Termination = reason;
+            if (Volatile.Read(ref parentFault) != 0) Termination = "parent_io_error";
             lock (outputLock) parentOutput.Flush();
         }
         public override void Dispose() {
-            try { inputStream?.Dispose(); } catch (Exception) { }
-            outputStream?.Dispose(); errorStream?.Dispose(); Error.Dispose();
+            Interlocked.Exchange(ref disposed, 1);
+            try { StopParentInput(); }
+            finally {
+                try { inputStream?.Dispose(); } catch (Exception) { }
+                outputStream?.Dispose(); errorStream?.Dispose(); Error.Dispose();
+            }
         }
     }
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool CreatePipe(out IntPtr read,out IntPtr write,ref SecurityAttributes attributes,uint size);
@@ -512,6 +563,8 @@ public sealed class AppContainerFixture : IDisposable {
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll",SetLastError=true)] static extern uint ResumeThread(IntPtr thread);
     [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentThread();
+    [DllImport("kernel32.dll",SetLastError=true)] static extern bool CancelSynchronousIo(IntPtr thread);
     [DllImport("kernel32.dll",SetLastError=true)] static extern IntPtr GetStdHandle(int kind);
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool DuplicateHandle(IntPtr sourceProcess,IntPtr source,IntPtr targetProcess,out IntPtr target,uint access,bool inherit,uint options);
     [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr CreateFile(string file,uint access,uint share,ref SecurityAttributes attributes,uint mode,uint flags,IntPtr template);
