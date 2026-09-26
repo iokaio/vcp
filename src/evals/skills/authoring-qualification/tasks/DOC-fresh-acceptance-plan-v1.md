@@ -1,0 +1,7 @@
+# Task
+
+The fictional Larch project needs a reviewable acceptance plan for saved dashboard views. Create only `docs/saved-views-acceptance.md` using the three source files under `sources/`. Write for a maintainer assigning the remaining work to reviewers.
+
+Include a short scope statement, a compact scenario table with preconditions, action and expected outcome, the evidence already available, and an ordered list of remaining validation with owners and readiness conditions. Cover ordinary use and the documented failure boundaries. Separate accepted scope from deferred ideas. Link to local sources. Keep the document between 400 and 650 words; a useful concise table is preferable to repeated prose.
+
+This is an offline planning document, not authorization to perform a release or change the product. Preserve every source file. Do not run tests, open accounts, contact reviewers, access the network, install packages, or edit configuration. No browser, runtime, production environment, or CI is available. Write the target using the provided document-edit tools, then return JSON `{files:[{path,content}],report:string,not_run:[string]}` matching the actual target bytes, with a short report distinguishing source evidence from checks you performed. For document verification only, vcp_verify may invoke the separately pinned configured read-only native document checker after exact checker/process authorization. No project runtime or test execution is authorized; native structure evidence does not establish factual accuracy, reader quality, or release readiness.

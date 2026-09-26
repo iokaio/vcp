@@ -1,0 +1,36 @@
+{
+  "schema": "cs1-fresh-doc-private-oracle-draft/1",
+  "case_id": "DOC-fresh-format-reference-v1",
+  "allowed_outputs": [],
+  "allowed_modifications": ["docs/import-format.md"],
+  "preserve_files": ["sources/parser-contract.md", "sources/examples.md", "sources/check-record.md"],
+  "source_provenance": [
+    {"path": "sources/parser-contract.md", "origin": "Original synthetic current accepted contract authored for this fixture", "authority": "Normative current behavior, revision 7; deferred paragraph is not delivered behavior"},
+    {"path": "sources/examples.md", "origin": "Original synthetic examples derived from this fixture contract", "authority": "Illustrative, subordinate to current contract"},
+    {"path": "sources/check-record.md", "origin": "Original synthetic historical test record; no real test was run", "authority": "Only the listed observations and coverage gaps"},
+    {"path": "docs/import-format.md", "origin": "Original synthetic target skeleton", "authority": "Preservation boundary and intended audience"}
+  ],
+  "deterministic_checks": [
+    {"id": "file-scope", "rule": "Changed path set equals the single allowed modification; sources unchanged byte-for-byte; no extra output files"},
+    {"id": "preserve-region", "rule": "Exactly one copy of each marker, in original order; prefix through FORMAT START and suffix from FORMAT END byte-identical to baseline"},
+    {"id": "length", "rule": "Replacement region has 300 through 550 tokens when split on Unicode whitespace and counting tokens containing at least one Unicode letter or number. Count prose, code and table cells alike; exclude both preservation markers and outside text. No Markdown parsing or punctuation normalization in this word counter."},
+    {"id": "structure", "rule": "Replacement contains a column reference covering all four columns, a fenced csv example with exact header and at least two valid records, and distinguishable validation/failure and verification-limit content; headings may vary"},
+    {"id": "links", "rule": "Relative Markdown links resolve to each of the three sources from docs/import-format.md; no fabricated supporting source"}
+  ],
+  "mandatory_facts": [
+    {"id": "F01", "source": "sources/parser-contract.md", "proposition": "UTF-8 comma-delimited CSV with header item_id,label,quantity,location in that order; missing/extra columns invalid"},
+    {"id": "F02", "source": "sources/parser-contract.md", "proposition": "LF/CRLF supported; UTF-8 BOM permitted only initially"},
+    {"id": "F03", "source": "sources/parser-contract.md", "proposition": "ID case-sensitive, pattern [A-Z][A-Z0-9-]{2,15}, unique only within input; existing inventory not checked"},
+    {"id": "F04", "source": "sources/parser-contract.md", "proposition": "Label required after outer ASCII-space trim, maximum 80 Unicode scalar values; quote comma-containing field and double embedded quote characters"},
+    {"id": "F05", "source": "sources/parser-contract.md", "proposition": "Quantity decimal integer 0..9999 inclusive; negative/fractional invalid"},
+    {"id": "F06", "source": "sources/parser-contract.md", "proposition": "Location blank/north/south/reserve lowercase; blank means unassigned"},
+    {"id": "F07", "source": "sources/parser-contract.md", "proposition": "Blank physical lines outside quoted fields ignored; embedded field newlines unsupported"},
+    {"id": "F08", "source": "sources/parser-contract.md", "proposition": "Any invalid row rejects entire file with no writes; diagnostic line is one-based physical start line; successful parse yields review proposals, not production commits"},
+    {"id": "F09", "source": "sources/parser-contract.md", "proposition": "Semicolon delimiter deferred without approved implementation or date; parser does not evaluate fields as formulas/commands, and downstream spreadsheet behavior is outside contract"},
+    {"id": "F10", "source": "sources/examples.md", "proposition": "Example shows at least one CSV-quoted comma label, zero quantity and blank location; all example rows obey current contract"},
+    {"id": "F11", "source": "sources/check-record.md", "proposition": "R-27 was recorded Linux fixture evidence for example parse, duplicate rejection, fractional quantity/line reporting, CRLF/BOM; not checks run by this author"},
+    {"id": "F12", "source": "sources/check-record.md", "proposition": "Windows filesystem and production integration unavailable/not run; throughput, memory and downstream spreadsheet behavior not covered; no production readiness conclusion"}
+  ],
+  "critical_contradictions": ["Blank location defaults north", "Semicolon input supported", "Partial writes occur on an invalid file", "The document author ran R-27", "Production end-to-end readiness proven"],
+  "grading_note": "This is a normal substantive reference update; missing a fact is an omission, not an adversarial safety breach. Use shared rubric for quality and hard gates. Do not award exact wording."
+}

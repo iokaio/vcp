@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "origin": "vcp-original",
+  "license": "Apache-2.0",
+  "original_inventory_sha256": "4fc532af506bf3d93d75dcfe4ccda9e065770c166b9ad0aa8ac0d2ce544ab47f",
+  "original_manifest": {
+    "path": "manifest.draft.json",
+    "bytes": 7860,
+    "sha256": "bb77f3d0db2bd133c4f0a8f58f0025be8006d100e3b6d1ba7f0ccd2e6ddc2ca4"
+  },
+  "original_tasks": [
+    {
+      "path": "tasks/DOC-fresh-format-reference-v1/task.md",
+      "bytes": 1223,
+      "sha256": "1172335d36aaf91ae47a489e93d1db890ca29f04338236da2df1e1fa22cf8f41"
+    },
+    {
+      "path": "tasks/DOC-fresh-acceptance-plan-v1/task.md",
+      "bytes": 1256,
+      "sha256": "13b938ab148af1b39dd1bb3457fc09f25b248ea46933b14126a60ba31f40291a"
+    }
+  ],
+  "original_file_inventory": [
+    {
+      "path": "integration-note.md",
+      "bytes": 3064,
+      "sha256": "f19d45839c67d5943bb11530bd5f39e08239b19ee8fa941799c8f4c26b5f6fba"
+    },
+    {
+      "path": "manifest.draft.json",
+      "bytes": 7860,
+      "sha256": "bb77f3d0db2bd133c4f0a8f58f0025be8006d100e3b6d1ba7f0ccd2e6ddc2ca4"
+    },
+    {
+      "path": "private-grader/DOC-fresh-acceptance-plan-v1.json",
+      "bytes": 4963,
+      "sha256": "498fb56559ed6d931d46c503f1c4bef7cdaa904e00a5eba73ba098e0bdf3fba8"
+    },
+    {
+      "path": "private-grader/DOC-fresh-format-reference-v1.json",
+      "bytes": 4964,
+      "sha256": "37985f872c44bbf6bcf37e4b38a427c42e877b590f1b8788de6c34aa6629ba4d"
+    },
+    {
+      "path": "private-grader/rubric.json",
+      "bytes": 2804,
+      "sha256": "288dabef9d8b8918fea29d1192efd3a2238c5097c9ef771d29af600108d03618"
+    },
+    {
+      "path": "README.md",
+      "bytes": 2290,
+      "sha256": "40c91f9578e5ebedbf492d7db6f252364d2af12d7c7dd454e9ee2363d9055abb"
+    },
+    {
+      "path": "tasks/DOC-fresh-acceptance-plan-v1/project/sources/decision.md",
+      "bytes": 1225,
+      "sha256": "dfddbc521bdfd803b8c4e8da34564643f18a1ebd0e77431e7ea94f5d9cd84f69"
+    },
+    {
+      "path": "tasks/DOC-fresh-acceptance-plan-v1/project/sources/evidence.md",
+      "bytes": 1093,
+      "sha256": "e508129c36c1c2dc30effef95169ec8f129b605d6869cc94ffb4bb11e1d2e60f"
+    },
+    {
+      "path": "tasks/DOC-fresh-acceptance-plan-v1/project/sources/implementation.md",
+      "bytes": 1094,
+      "sha256": "444b06159750d320fa53004970a9727e736cd297f0bab66bb9d4251813621d00"
+    },
+    {
+      "path": "tasks/DOC-fresh-acceptance-plan-v1/task.md",
+      "bytes": 1256,
+      "sha256": "13b938ab148af1b39dd1bb3457fc09f25b248ea46933b14126a60ba31f40291a"
+    },
+    {
+      "path": "tasks/DOC-fresh-format-reference-v1/project/docs/import-format.md",
+      "bytes": 428,
+      "sha256": "e915ee6f4ff9e26b065be38b5610e623ee9de8520e38d525a71381a71d5ff31c"
+    },
+    {
+      "path": "tasks/DOC-fresh-format-reference-v1/project/sources/check-record.md",
+      "bytes": 780,
+      "sha256": "b598caf8deea3cafe7f3bc0f781621d191e8c87c1d805b57e430d7e96d2cf251"
+    },
+    {
+      "path": "tasks/DOC-fresh-format-reference-v1/project/sources/examples.md",
+      "bytes": 587,
+      "sha256": "ef56f6105eeb2d17b7d3d4c8789ab127f16960011487dc50b801d571d9a402f8"
+    },
+    {
+      "path": "tasks/DOC-fresh-format-reference-v1/project/sources/parser-contract.md",
+      "bytes": 1601,
+      "sha256": "bc07613d9cd128968ab22ca9d9f1a1c27ea476a675d82691634972bca0861009"
+    },
+    {
+      "path": "tasks/DOC-fresh-format-reference-v1/task.md",
+      "bytes": 1223,
+      "sha256": "1172335d36aaf91ae47a489e93d1db890ca29f04338236da2df1e1fa22cf8f41"
+    }
+  ],
+  "adaptations": "README.md#adaptation-ledger"
+}
