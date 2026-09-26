@@ -225,7 +225,10 @@ inspection became unavailable. Separate read-only reconciliation established
 12 settled requests / USD 0.030538 and zero active/unresolved ledger liability;
 the original null result, active-phase marker and halt remain preserved. It cannot authorize
 replay or default qualification. DOC's decision and historical owner acceptance
-and halt remain unchanged; SKL has no completed comparison or quality review.
+and halt remain unchanged. A separate [one-shot SKL successor](../development/cs1-skl-continuation.md)
+authenticates the full capture and may use the failed row as a mixed-source
+baseline while dispatching only the 26 original undispatched SKL slots. SKL has
+no completed comparison or quality review yet.
 
 ## CS-2 — Developer specialists
 
