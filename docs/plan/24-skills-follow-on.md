@@ -226,9 +226,12 @@ inspection became unavailable. Separate read-only reconciliation established
 the original null result, active-phase marker and halt remain preserved. It cannot authorize
 replay or default qualification. DOC's decision and historical owner acceptance
 and halt remain unchanged. A separate [one-shot SKL successor](../development/cs1-skl-continuation.md)
-authenticates the full capture and may use the failed row as a mixed-source
-baseline while dispatching only the 26 original undispatched SKL slots. SKL has
-no completed comparison or quality review yet.
+authenticated the full capture and retained the failed row as a mixed-source
+baseline. Its first candidate/no-skill pair also finished incomplete, using 21
+requests / USD 0.053006; the remaining 24 slots were not dispatched. Both blind
+readers failed candidate correctness, and their authority failures for the unrun
+case triggered the successor's permanent review-integrity halt. No inherited or
+confirmation phase, usefulness benefit, qualification or promotion was established.
 
 ## CS-2 — Developer specialists
 

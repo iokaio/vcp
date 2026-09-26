@@ -94,3 +94,22 @@ node scripts/evals/authoring-skl-review.cjs review ENVELOPE ENVELOPE_SHA normal 
 Inherited and confirmation use the same phase/review commands only after the
 retained gate chain authorizes them. None of these commands promotes or installs
 the candidate. Exact-package qualification remains separate after comparison.
+
+## Terminal result
+
+The September 26, 2026 normal run is terminal and unqualified. Envelope
+`5b105eee4da0015d4caa3bbc65531b7b611e064b9999aa87821754e36050fe3a`
+ran phase
+`a518acbb2f96f5b3a791764df0069a66e248beae10f62fb0afd124b35a2d5f0b`.
+The candidate and no-skill create-v3 rows both finished incomplete, using a
+combined USD 0.053006 and 21 requests. The mixed-source projection, including
+the preserved USD 0.030538 / 12-request failed predecessor row, is
+`8bd84e0723e6796171fd6ccb4491cc567f0368013863c484b69975f1e9ced0d2`.
+
+Both independently blinded readers failed candidate correctness. They also
+recorded authority failures for the unrun maintain-v3 variants, so the unchanged
+review contract wrote a permanent `Reader authority/secret failure` halt rather
+than a review gate. The other three normal rows, all eighteen inherited rows and
+all three confirmation rows remain unattempted. Total settled spend under the
+owner's authorization is USD 0.697384. The one-shot claim remains consumed;
+only read-only reconciliation is permitted.
