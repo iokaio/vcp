@@ -5,17 +5,19 @@ Status: accepted by owner direction on September 25, 2026 as a non-default
 candidate. Live qualification remains unsatisfied. The [candidates README](../../src/skills/candidates/README.md)
 records the additional work; failed and unrun evaluations remain unchanged.
 
-The current package retains skill-authoring 1.0.1 and its exact hashed reference
-under `src/skills/candidates/skill-authoring/`. The owner approved this non-default
-disposition on September 25, 2026. The builtin catalog remains at 21 skills and
+The current accepted package remains skill-authoring 1.0.1 under
+`src/skills/candidates/skill-authoring/`. A separate unqualified 1.0.2 package is
+staged only in [the authoring requalification fixture](cs1-authoring-revisions.md).
+The owner approved the earlier non-default disposition on September 25, 2026. The builtin catalog remains at 21 skills and
 44 packaged files. Existing explicit source registration and selection can load
 the candidate; the candidates directory has no automatic loader and is excluded
 from builtin staging. Required tools remain compatibility requirements, not grants.
 
 The frozen full diagnostic used these exact package bytes alongside
 document-authoring 1.0.1 in development catalog 1.5.0. Its global authority halt
-occurred before revised SKL comparisons ran. No v3 SKL result exists; historical
-1.0.0 results do not qualify this revision. Source relocation changes current
+occurred before revised SKL comparisons ran. A later
+[one-shot v3 continuation](cs1-skl-continuation.md) also failed and permanently
+halted; historical 1.0.0/1.0.1 results do not qualify the prospective revision. Source relocation changes current
 distribution identities without changing or superseding the historical receipts.
 
 The historical 1.0.0 increment builds on the separate document-authoring draft. Catalog version
