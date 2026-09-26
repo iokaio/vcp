@@ -232,6 +232,10 @@ requests / USD 0.053006; the remaining 24 slots were not dispatched. Both blind
 readers failed candidate correctness, and their authority failures for the unrun
 case triggered the successor's permanent review-integrity halt. No inherited or
 confirmation phase, usefulness benefit, qualification or promotion was established.
+Separate prospective DOC 1.0.3 and SKL 1.0.2
+[candidate revisions](../development/cs1-authoring-revisions.md) address the
+observed content and verifier-citation failures. They remain unqualified and may
+use only new frozen comparisons and native-package evidence.
 
 ## CS-2 — Developer specialists
 
