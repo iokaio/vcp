@@ -6,8 +6,10 @@ through an explicit source registration and qualified selection.
 ## CS-2 developer candidates — campaign-bound, unqualified
 
 `llm-integration`, `mcp-development` and `frontend-design` 1.0.0 are original VCP
-packages frozen for the CS-2 comparison campaign. No model call has run, and
-they are neither qualified nor default.
+packages frozen for the CS-2 comparison campaign. Eight runs dispatched before
+the owner's reboot stop; their retained outcomes remain unchanged. A separately
+authorized [continuation](../../../docs/development/cs2-continuation.md) covers
+only the remaining forty-six runs. The candidates are neither qualified nor default.
 
 - Each declares one explicit cue and no resources. The bodies send the model to
   the project's installed SDK sources and supplied documents.

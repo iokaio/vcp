@@ -3,7 +3,10 @@
 Status: in progress. The unqualified 1.0.0 candidates `llm-integration`,
 `mcp-development` and `frontend-design` are frozen for the campaign as
 non-default packages in `src/skills/candidates/`, with the campaign tooling. No
-model call, comparison or promotion has run. Contract:
+specialist has been promoted. The first campaign dispatched eight runs before
+the owner requested a reboot; seven completed and one failed. Its permanent halt
+and original accounting remain intact. The [continuation record](cs2-continuation.md)
+tracks the separately authorized remaining work. Contract:
 [plan 24 § CS-2](../plan/24-skills-follow-on.md#cs-2--developer-specialists).
 
 ## Owner decisions (September 25, 2026)
@@ -330,9 +333,11 @@ together through repeated `--skill`.
 
 ## Remaining sequence
 
-1. **Campaign.** A provider refresh (at most two probes, USD 1.50), then
-   preparation and preflight, then the three blocks. After each block come
-   grading, blind reading and the decision.
+1. **Continuation.** Reconcile the permanently halted campaign, retain its eight
+   dispatched outcomes, and prepare a separately authorized envelope for only
+   the forty-six undispatched runs. Use the dated provider qualification while
+   it remains valid. After each completed composite block come grading, blind
+   reading and the decision. See the [continuation record](cs2-continuation.md).
 2. **One PR per skill,** in the order `llm-integration`, `mcp-development`,
    `frontend-design`.
    - A qualified skill is promoted to the default catalog. The promotion script

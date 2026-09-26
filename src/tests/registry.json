@@ -60,7 +60,7 @@
     },
     "cs2-developer": {
       "task_ids": ["CS-2"],
-      "args": ["--test", "src/tests/contracts/developer-oracle.test.cjs", "src/tests/contracts/developer-grader.test.cjs", "src/tests/contracts/developer-campaign.test.cjs"],
+      "args": ["--test", "src/tests/contracts/developer-oracle.test.cjs", "src/tests/contracts/developer-grader.test.cjs", "src/tests/contracts/developer-campaign.test.cjs", "src/tests/contracts/developer-reconcile.test.cjs", "src/tests/contracts/developer-continuation.test.cjs", "src/tests/contracts/developer-continuation-review.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 600000,
