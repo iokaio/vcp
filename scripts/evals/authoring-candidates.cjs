@@ -7,6 +7,9 @@ const { plain, read } = require('./p6-live-runner.cjs').boundaries;
 const repository = path.resolve(__dirname, '../..');
 const root = path.join(repository, 'src/skills/candidates');
 const ids = ['document-authoring', 'skill-authoring'];
+// Prospective package identities only. Historical runs retain their original
+// frozen validator and assets; a new version never inherits qualification.
+const versions = Object.freeze({ 'document-authoring': '1.0.2', 'skill-authoring': '1.0.1' });
 const sourceId = 'vcp-authoring-candidates';
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 function qualified(id) {
@@ -18,7 +21,7 @@ function inspect() {
   for (const id of ids) {
     const directory = plain(path.join(root, id)), bytes = read(path.join(directory, 'skill.json'), 1024 * 1024);
     const descriptor = JSON.parse(bytes);
-    if (descriptor.schema_version !== 1 || descriptor.id !== id || descriptor.version !== '1.0.1' || !Array.isArray(descriptor.resources) || descriptor.resources.length > 32) throw Error('Invalid authoring candidate descriptor');
+    if (descriptor.schema_version !== 1 || descriptor.id !== id || descriptor.version !== versions[id] || !Array.isArray(descriptor.resources) || descriptor.resources.length > 32) throw Error('Invalid authoring candidate descriptor');
     const parts = [descriptor.body, ...descriptor.resources];
     const wanted = new Set(['skill.json']);
     files.push({ path: `${id}/skill.json`, bytes: bytes.length, sha256: sha(bytes) });
