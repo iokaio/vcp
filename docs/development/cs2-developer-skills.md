@@ -1,12 +1,21 @@
 # CS-2 developer specialists: implementation and qualification
 
-Status: in progress. The unqualified 1.0.0 candidates `llm-integration`,
-`mcp-development` and `frontend-design` are frozen for the campaign as
-non-default packages in `src/skills/candidates/`, with the campaign tooling. No
-specialist has been promoted. The first campaign dispatched eight runs before
-the owner requested a reboot; seven completed and one failed. Its permanent halt
-and original accounting remain intact. The [continuation record](cs2-continuation.md)
-tracks the separately authorized remaining work. Contract:
+Status, September 26, 2026: all three comparisons and non-default dispositions
+are complete under the owner's per-skill exit rule. The unchanged 1.0.0 candidates
+`llm-integration`, `mcp-development` and `frontend-design` remain unqualified
+non-default packages in `src/skills/candidates/`; none was promoted.
+[LLM integration](cs2-llm-disposition.md) passed candidate hard gates but showed
+no normal benefit. [MCP development](cs2-mcp-disposition.md) and
+[frontend design](cs2-frontend-disposition.md) failed candidate hard gates and
+showed no normal benefit. Each disposition retains all eighteen outcomes and
+both independent readers' findings. This does not establish qualified six-skill
+acceptance.
+
+The first campaign dispatched eight runs before the owner's reboot stop; seven
+completed and one failed. Its permanent halt and original accounting remain
+intact. The [continuation](cs2-continuation.md) completed the remaining forty-six
+runs without replay. The prerequisite and original-envelope records below remain
+historical evidence; the three linked dispositions give the final results. Contract:
 [plan 24 § CS-2](../plan/24-skills-follow-on.md#cs-2--developer-specialists).
 
 ## Owner decisions (September 25, 2026)
@@ -331,19 +340,19 @@ together through repeated `--skill`.
      executable check with both readers passing every hard gate. It also needs a
      benefit on a normal case under the predeclared rule.
 
-## Remaining sequence
+## Disposition and remaining qualification
 
-1. **Continuation.** Reconcile the permanently halted campaign, retain its eight
-   dispatched outcomes, and prepare a separately authorized envelope for only
-   the forty-six undispatched runs. Use the dated provider qualification while
-   it remains valid. After each completed composite block come grading, blind
-   reading and the decision. See the [continuation record](cs2-continuation.md).
-2. **One PR per skill,** in the order `llm-integration`, `mcp-development`,
-   `frontend-design`.
-   - A qualified skill is promoted to the default catalog. The promotion script
-     and package qualification are built with the first skill that qualifies,
-     not before.
-   - Otherwise the skill stays a non-default candidate.
+The preserved eight-run prefix and forty-six continuation runs now have their
+three composite block decisions, functional grading and two independent blind
+reviews per block. The LLM, MCP and frontend dispositions close the comparison
+sequence in that order, with all three packages remaining non-default.
+
+Future default promotion still requires prospectively frozen changes and exact
+authorized evaluation bounds, demonstrated benefit over both baselines, all
+hard gates and exact native-package qualification. Existing failed or unrun
+evidence cannot be relabeled or replayed into a pass. Promotion tooling belongs
+with the first skill that qualifies. Browser acceptance remains with CS-3;
+neither these dispositions nor prerequisite tests establish the six-skill wave.
 
 Explicitly not run until observed:
 
