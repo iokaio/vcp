@@ -78,10 +78,12 @@ historical campaign. See
   must address mandatory source omissions and exact reported-file fidelity,
   then demonstrate useful improvement over both no-skill and nearest-skill
   baselines under newly frozen evaluation inputs.
-- Complete SKL 1.0.1 normal, boundary, hostile-input, missing-tool and near-miss
-  comparisons through the [one-shot successor](../../../docs/development/cs1-skl-continuation.md).
-  Historical 1.0.0 results do not qualify this revision, and the halted first
-  nearest-arm row remains failed.
+- Replace SKL 1.0.1 before any new qualification attempt. Its
+  [one-shot successor](../../../docs/development/cs1-skl-continuation.md)
+  preserved the failed nearest baseline, but the candidate and no-skill rows
+  also finished incomplete. Independent review failed candidate correctness and
+  permanently halted the successor before the second normal case, inherited or
+  confirmation work. Historical 1.0.0 results do not qualify this revision.
 - Run any new comparison under a separately authorized plan and budget using the
   corrected canonical tool ceiling. Preserve the halted campaign and all charges;
   do not resume, replay or transfer receipts to changed candidates.
