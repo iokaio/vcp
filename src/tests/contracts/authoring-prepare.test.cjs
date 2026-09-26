@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { ownedRoot } = require('../support/experiments.cjs');
 const { authoringHost } = require('../support/authoring-host.cjs');
 const { prepare, budgetPreflight } = authoringHost().prep;
@@ -192,6 +193,12 @@ test('candidate arms use explicit user sources and pin separate candidate assets
   const plan = JSON.parse(fs.readFileSync(result.plan));
   assert.equal(plan.candidate_assets.entries.length, 2);
   assert(plan.candidate_assets.files.some(file => file.path === 'skill-authoring/references/package-format.md'));
+  for (const [id, version] of [['document-authoring', '1.0.2'], ['skill-authoring', '1.0.1']]) {
+    const bytes = fs.readFileSync(path.join(plan.candidate_assets.path, id, 'skill.json')), descriptor = JSON.parse(bytes);
+    const entry = plan.candidate_assets.entries.find(entry => entry.id === id);
+    assert.equal(descriptor.version, version); assert.equal(entry.descriptor_sha256, crypto.createHash('sha256').update(bytes).digest('hex'));
+    assert.deepEqual(entry.parts, [descriptor.body, ...descriptor.resources]);
+  }
   for (const row of plan.runs) {
     const profile = JSON.parse(fs.readFileSync(path.join(plan.directory, row.id, 'profile.json')));
     if (row.arm === 'candidate') {

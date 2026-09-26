@@ -28,9 +28,16 @@ unrun evaluations as passing.
 
 Both original VCP packages remain **non-default**. The builtin catalog retains
 21 skills and 44 packaged files; this directory has no automatic loader. Each
-package preserves its exact frozen descriptor, body and resources. Use existing
-explicit source registration and qualified selection for an authorized experiment;
-selection grants no tools, effects or budget.
+package requires existing explicit source registration and qualified selection
+for an authorized experiment; selection grants no tools, effects or budget.
+
+The prospective [document-authoring 1.0.2 correction](../../../docs/development/cs1-document-correction.md)
+addresses claim attribution, the scope of missing evidence, factual content beside
+hostile instructions and concise responses to brief tasks. It has no new comparison
+result or default qualification. Skill-authoring remains 1.0.1 with unchanged bytes.
+The accepted 1.0.1 descriptors, bodies, resources and failed or incomplete outcomes
+remain historical evidence; that acceptance and those results do not transfer to
+the prospective DOC revision.
 
 The closed campaign retained DOC factual failures, no passing usefulness benefit
 and a mandatory authority halt; revised SKL comparisons never ran. See
@@ -39,8 +46,9 @@ and a mandatory authority halt; revised SKL comparisons never ran. See
 
 ## Additional work before default promotion
 
-- Correct DOC source-attribution and missing-evidence failures; demonstrate useful
-  improvement over both no-skill and nearest-skill baselines.
+- Evaluate the prospective DOC 1.0.2 correction for source-attribution and
+  missing-evidence failures; demonstrate useful improvement over both no-skill
+  and nearest-skill baselines.
 - Complete SKL 1.0.1 normal, boundary, hostile-input, missing-tool and near-miss
   comparisons. Historical 1.0.0 results do not qualify this revision.
 - Run any new comparison under a separately authorized plan and budget using the

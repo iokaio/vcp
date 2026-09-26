@@ -112,6 +112,12 @@ test('fixed envelope reserves exactly 54 non-reallocatable slots with balanced p
   assert.equal(envelope.slots.reduce((n, s) => n + s.cap_micros, 0), 162000000);
   assert.equal(envelope.slots.reduce((n, s) => n + s.call_ceiling, 0), 864);
   assert(envelope.slots.every(s => s.output_tokens === '2048' && s.call_ceiling === 16 && s.cap_micros === 3000000));
+  for (const [id, version] of [['document-authoring', '1.0.2'], ['skill-authoring', '1.0.1']]) {
+    const bytes = fs.readFileSync(path.join(envelope.candidate_assets.path, id, 'skill.json')), descriptor = JSON.parse(bytes);
+    const entry = envelope.candidate_assets.entries.find(entry => entry.id === id);
+    assert.equal(descriptor.version, version); assert.equal(entry.descriptor_sha256, sha(bytes));
+    assert.deepEqual(entry.parts, [descriptor.body, ...descriptor.resources]);
+  }
   for (const candidate of ['document-authoring', 'skill-authoring']) {
     const rows = envelope.slots.filter(s => s.candidate === candidate);
     assert.deepEqual(['normal', 'inherited', 'confirmation'].map(p => rows.filter(s => s.phase === p).length), [6, 18, 3]);
