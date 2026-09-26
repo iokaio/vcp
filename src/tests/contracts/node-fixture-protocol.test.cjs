@@ -60,3 +60,71 @@ test('parent accepts an interactive receipt only when its own frame counts match
     assert.throws(() => checkInteractiveReceipt(value, { sent: 2, consumed: 2, unread: 0 }));
   }
 });
+
+// Exercise supervisor protocol failures without launching a Windows process.
+// The receipt alone cannot certify that its enclosing runner completed cleanly.
+test('interactive supervisor rejects truncated envelopes and failed runner completion', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+  const { EventEmitter } = require('node:events');
+  const { PassThrough } = require('node:stream');
+  const filename = path.resolve(__dirname, '../../../scripts/evals/node-fixture-session.cjs');
+  function runner() {
+    const child = new EventEmitter();
+    child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    child.kill = () => { child.emit('close', null, 'SIGTERM'); };
+    const module = { exports: {} };
+    vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
+      module, __dirname: path.dirname(filename), process: {
+        env: { LOCALAPPDATA: path.resolve('fixture-local-app-data') },
+        kill() { throw Object.assign(Error('exited'), { code: 'ESRCH' }); },
+      }, Buffer, setTimeout, clearTimeout,
+      require(name) {
+        if (name === 'node:child_process') return { spawn: () => child, spawnSync: () => ({ status: 0 }) };
+        if (name === 'node:fs') return { readFileSync: () => '{"timeout_ms":1000}', existsSync: () => false };
+        if (name === './node-fixture-protocol.cjs') return { decodeFrame };
+        return require(name);
+      },
+    }, { filename });
+    return { child, session: module.exports.openInteractive('fixture.json') };
+  }
+  const started = JSON.stringify({ started: { pid: 123, profile: 'iokaio.vcp.memory.' + 'a'.repeat(32) } }) + '\n';
+  const receiptLine = JSON.stringify({ receipt: interactiveReceipt() }) + '\n';
+  for (const [suffix, code, diagnostic, expected] of [
+    ['', 0, '', null], ['{"frame":', 0, '', /Partial runner envelope/],
+    ['', 1, '', /Runner failed/], ['', 0, 'runner error', /Runner failed/],
+  ]) {
+    const { child, session } = runner();
+    child.stdout.write(started + receiptLine + suffix);
+    child.stderr.write(diagnostic);
+    child.emit('close', code, null);
+    if (expected) await assert.rejects(session.close(), expected);
+    else assert.equal((await session.close()).exit.code, 0);
+  }
+  for (const [output, expected] of [
+    [receiptLine, /Runner ended without a receipt/],
+    ['{"started":{"pid":-1,"profile":"bad"}}\n', /Runner ended without a receipt/],
+    [started + receiptLine + 'x'.repeat(196609), /Runner envelope exceeds ceiling/],
+  ]) {
+    const { child, session } = runner();
+    child.stdout.write(output);
+    await assert.rejects(session.close(), expected);
+  }
+  // Candidate protocol failure cannot hide subsequent loss of the trusted runner.
+  for (const [receipt, exitCode, suffix = ''] of [[null, 0], [interactiveReceipt(), 1], [interactiveReceipt(), 0], [interactiveReceipt(), 0, '{"frame":']]) {
+    const { child, session } = runner();
+    child.stdout.write(started + JSON.stringify({ frame: frame(null, 'not json') }) + '\n');
+    await assert.rejects(session.receive());
+    if (receipt) child.stdout.write(JSON.stringify({ receipt }) + '\n');
+    if (suffix) child.stdout.write(suffix);
+    child.emit('close', exitCode, null);
+    await assert.rejects(session.close(), error => {
+      if (!receipt) assert.match(error.message, /Runner ended without a receipt/);
+      else if (exitCode) assert.match(error.message, /Runner failed after receipt/);
+      else if (suffix) assert.match(error.message, /Partial runner envelope/);
+      else assert.deepEqual(JSON.parse(JSON.stringify(error.receipt)), receipt);
+      return true;
+    });
+  }
+});

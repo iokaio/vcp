@@ -4,7 +4,7 @@
 // prove each parent-held expectation detects a regression; they are not evidence
 // about any candidate. The Windows AppContainer path has its own integration test.
 const test = require('node:test'), assert = require('node:assert/strict');
-const { grade: gradeWith, gradedCases, inventory, localTrustedExecutor, HarnessFault } = require('../../../scripts/evals/developer-grader.cjs');
+const { grade: gradeWith, gradedCases, inventory, localTrustedExecutor, appContainerExecutor, HarnessFault } = require('../../../scripts/evals/developer-grader.cjs');
 const { load } = require('../../../scripts/evals/developer-oracle.cjs');
 const { sources, reference, workspace } = require('../support/developer-doubles.cjs');
 const executor = localTrustedExecutor();
@@ -158,4 +158,63 @@ test('contract-consistent variations of unstated details are accepted', async ()
   const capacityFirst = sources.boundary.replace("if (['fixture/delay', 'fixture/echo'].includes(method)) {", "if (method === 'fixture/delay' && state.pending.size >= 16) return error(id, -32002);\n  if (['fixture/delay', 'fixture/echo'].includes(method)) {");
   assert.notEqual(capacityFirst, sources.boundary);
   await pass('MCP-boundary-pages-v3', capacityFirst);
+});
+
+test('boundary initialize rejects invalid JSON-RPC envelopes', async () => {
+  for (const mutation of ['delete r.jsonrpc;', "r.jsonrpc = '1.0';", 'r.extra = true;', 'r.error = { code: 0, message: "extra" };']) {
+    await fails('MCP-boundary-pages-v3', wrap('handle', `async (m, s) => { const r = await original(m, s); if (m.method === 'initialize') { ${mutation} } return r; }`));
+  }
+});
+
+test('undeclared UI transitions remain unchanged across all declared states and events', async () => {
+  await fails('UI-boundary-states-v2', wrap('transition', "(state, event) => state === 'idle' && event === 'retry' ? 'loading' : original(state, event)"));
+});
+
+test('normal stream cancellation rejects consumption and aborted chunk processing', async () => {
+  await fails('LLM-normal-stream-v3', wrap('collect', 'async (chunks, signal) => { if (signal.aborted) for await (const chunk of chunks) {} return original(chunks, signal); }'));
+  await fails('LLM-normal-stream-v3', '\nexports.limits.midstream = false;');
+});
+
+test('adapter containment and cleanup faults require regrading even after probe failures', { skip: process.platform !== 'win32' }, async t => {
+  const fs = require('node:fs'), crypto = require('node:crypto');
+  const childProcess = require('node:child_process');
+  const fixtureSession = require('../../../scripts/evals/node-fixture-session.cjs');
+  const adapter = appContainerExecutor({ node: process.execPath, nodeSha256: crypto.createHash('sha256').update(fs.readFileSync(process.execPath)).digest('hex') });
+  const receipt = () => ({ schema: 1, mode: 'interactive', cleanup: 'completed', result: {
+    process: { AppContainer: true, CapabilityCount: 0, TokenSidMatchesProfile: true },
+  } });
+  for (const corrupt of [r => { r.schema = 2; }, r => { r.cleanup = 'failed'; },
+    r => { r.result.process.AppContainer = false; }, r => { r.result.process.CapabilityCount = 1; },
+    r => { r.result.process.TokenSidMatchesProfile = false; }]) {
+    const invalid = receipt(); corrupt(invalid);
+    t.mock.method(childProcess, 'spawnSync', () => ({ status: 0, stdout: JSON.stringify(invalid) }));
+    t.mock.method(fixtureSession, 'openInteractive', () => ({
+      send() {}, receive: async () => { throw Error('Candidate did not reply'); }, close: async () => ({ receipt: invalid }),
+    }));
+    for (const caseId of ['UI-near-miss-parser-v2', 'MCP-normal-tools-v3']) {
+      const result = await gradeWith(caseId, workspace(caseId), adapter);
+      assert.equal(result.functional_pass, null); assert.equal(result.requires_regrade, true);
+    }
+    t.mock.method(fixtureSession, 'openInteractive', () => ({
+      send() {}, receive: async () => { throw Error('Invalid candidate frame'); },
+      close: async () => { throw Object.assign(Error('Invalid candidate frame'), { receipt: invalid }); },
+    }));
+    const poisoned = await gradeWith('MCP-normal-tools-v3', workspace('MCP-normal-tools-v3'), adapter);
+    assert.equal(poisoned.functional_pass, null); assert.equal(poisoned.requires_regrade, true);
+    t.mock.restoreAll();
+  }
+  for (const message of ['Partial runner envelope', 'Invalid runner start identity', 'Runner failed after receipt', 'Runner ended without a receipt']) {
+    t.mock.method(fixtureSession, 'openInteractive', () => ({
+      send() {}, receive: async () => { throw Error('Candidate did not reply'); }, close: async () => { throw Error(message); },
+    }));
+    const result = await gradeWith('MCP-normal-tools-v3', workspace('MCP-normal-tools-v3'), adapter);
+    assert.equal(result.functional_pass, null); assert.equal(result.requires_regrade, true);
+    t.mock.restoreAll();
+  }
+  t.mock.method(fixtureSession, 'openInteractive', () => ({
+    send() {}, receive: async () => { throw Error('Invalid candidate frame'); },
+    close: async () => { throw Object.assign(Error('Invalid candidate frame'), { receipt: receipt() }); },
+  }));
+  const candidateFailure = await gradeWith('MCP-normal-tools-v3', workspace('MCP-normal-tools-v3'), adapter);
+  assert.equal(candidateFailure.functional_pass, false); assert.equal(candidateFailure.requires_regrade, false);
 });

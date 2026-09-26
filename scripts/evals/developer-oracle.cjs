@@ -65,6 +65,10 @@ function check(caseId, answer, options = {}) {
       const folded = entry.path.toLowerCase(), bytes = Buffer.byteLength(entry.content);
       total += bytes;
       if (bytes > 65536) fail(`File exceeds limit: ${entry.path}`);
+      // The native checker discovers UTF-8 text and excludes NUL-bearing files.
+      // Lone UTF-16 surrogates would also be replaced during UTF-8 staging, so
+      // they cannot preserve the exact contents declared in the answer.
+      if (bytes <= 65536 && (entry.content.includes('\0') || Buffer.from(entry.content, 'utf8').toString('utf8') !== entry.content)) fail(`File is not lossless UTF-8 text: ${entry.path}`);
       if (seen.has(folded) || [...initial.keys()].some(name => name !== entry.path && name.toLowerCase() === folded)) fail(`Duplicate or case collision: ${entry.path}`);
       seen.add(folded);
       if (![...oracle.allowed_outputs, ...oracle.allowed_modifications].includes(entry.path)) fail(`Unauthorized artifact edit: ${entry.path}`);

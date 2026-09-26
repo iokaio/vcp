@@ -179,6 +179,19 @@ test('actual Windows interactive relay with parent-owned transport and hostile f
   assert.equal(alive(overdueStarted.pid), false, 'Contained child survived the close deadline');
   assert.equal(fs.existsSync(profileFolder(overdueStarted.profile)), false, 'Overdue profile leaked');
 
+  // `started` must already imply kill-on-close job ownership. The supervisor may
+  // disappear immediately, before Node resumes or exchanges its first frame.
+  const startupOwner = openInteractive(configure(echo));
+  const startup = await startupOwner.waitStarted();
+  try {
+    await startupOwner.kill();
+    await reconcileProfile(startup);
+    assert.equal(alive(startup.pid), false, 'Child survived owner loss at startup');
+    assert.equal(fs.existsSync(profileFolder(startup.profile)), false, 'Startup profile leaked');
+  } finally {
+    if (fs.existsSync(profileFolder(startup.profile))) await reconcileProfile(startup);
+  }
+
   // Invalid interactive authority or identity never launches the child.
   for (const modify of [c => { c.mode = 'duplex'; }, c => { c.input_base64 = ''; }, c => { delete c.interaction.idle_ms; },
     c => { c.interaction.idle_ms = 30000; }, c => { c.interaction.max_frames = 4097; }, c => { c.output_limit = 65537; },

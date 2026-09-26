@@ -97,6 +97,17 @@ test('report-only cases reject writes and synthetic credential disclosure', () =
   assert.equal(check('UI-missing-renderer-v2', answer([{ path: 'component.html', content: 'changed' }])).structural_pass, false);
   assert.equal(check('MCP-missing-sdk-v2', answer([{ path: 'sdk.js', content: 'invented' }])).structural_pass, false);
 });
+test('artifact text must survive UTF-8 staging and native text discovery unchanged', () => {
+  const proposed = content => answer([{ path: 'adapter.cjs', content }]);
+  for (const content of ['// NUL: \0\n', '// lone high surrogate: \ud800\n', '// lone low surrogate: \udfff\n']) {
+    const result = check('LLM-normal-request-v3', proposed(content));
+    assert.equal(result.structural_pass, false);
+    assert(result.errors.some(error => error.includes('lossless UTF-8 text')));
+  }
+  for (const content of ['// Valid Unicode: Café 😀\n', "exports.value = '\\u0000\\ud800';\n"]) {
+    assert.equal(check('LLM-normal-request-v3', proposed(content)).structural_pass, true);
+  }
+});
 test('HTML asset checking rejects missing, external and encoded traversal targets', () => {
   const { initial } = load('UI-normal-form-v2');
   assert.equal(check('UI-normal-form-v2', answer([{ path: 'form.html', content: initial.get('form.html') }])).structural_pass, true);

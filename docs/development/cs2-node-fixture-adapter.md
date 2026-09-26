@@ -24,9 +24,10 @@ sixteen flat `.cjs`/`.json` files are allowed. Bootstrap and package names are
 reserved. Reparse source paths, duplicate names and hash drift fail closed.
 
 The new `AppContainerFixture.RunBounded` API preserves the original `Run` callers.
-It creates a zero-capability token, verifies its exact profile SID, assigns the
-suspended process to a kill-on-close Job Object and only then resumes it. Only
-the three selected pipe handles are inherited. The environment contains eight
+It creates a zero-capability token, assigns the process atomically at creation
+to a kill-on-close Job Object, verifies its exact profile SID while suspended,
+and only then resumes it. Only the three selected pipe handles are inherited.
+The environment contains eight
 explicit Windows/profile variables; provider, proxy and Node option variables
 are not inherited. `--no-addons` disables native addons. Node receives literal
 loader paths and an owned package boundary so that startup does not need to walk
@@ -88,9 +89,9 @@ until then, so the parent must close within `idle_ms` of its last exchange.
 The idle clock starts before Node boots, so very small `idle_ms` values are
 fragile.
 
-`started` is emitted when the relay starts, before job assignment and token
-verification complete. It identifies the profile for reconciliation and is not
-proof of containment; the receipt is.
+`started` is emitted when the relay starts, after job membership is verified but
+before token verification completes. It identifies the profile for reconciliation
+and is not proof of containment; the receipt is.
 
 The interactive bootstrap requires a first `{"session"}` frame and gives the
 candidate a channel whose outgoing frames carry `{session, seq, body}`.
@@ -104,6 +105,10 @@ trusted parent helper.
   with no stderr or trailing bytes, no unread child frames, and frame counts
   equal to the parent's own counts.
 - `close()` waits for the configured `timeout_ms` plus a cleanup margin.
+- Runner envelopes require a valid startup identity and complete bounded lines
+  in order. A receipt is accepted only after a successful runner exit without
+  runner stderr. Runner or containment failures require regrading even when a
+  candidate frame failed first; a clean receipt preserves that candidate failure.
 - A run that ends without a receipt never passes. This covers a missed close
   deadline, a helper-detected envelope violation and abrupt owner loss. The
   helper, or the supervisor after owner loss, waits for the recorded child PID
