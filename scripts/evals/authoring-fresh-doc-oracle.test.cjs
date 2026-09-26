@@ -112,3 +112,18 @@ test('every embedded native fixture is bound by all checker build modes', () => 
     }
   }
 });
+
+// Working files can pass on Windows even when Git's text normalization changes
+// the committed bytes. Validate the actual index a clean CI checkout receives.
+test('indexed prospective fixture bytes match every frozen manifest reference', () => {
+  const { execFileSync } = require('node:child_process');
+  const repository = path.resolve(__dirname, '../..'), fixture = 'src/evals/skills/authoring-qualification';
+  const indexed = relative => execFileSync('git', ['-c', `safe.directory=${repository.replaceAll('\\', '/')}`, 'show', ':' + fixture + '/' + relative], { cwd: repository, maxBuffer: 1024 * 1024 });
+  const manifest = JSON.parse(indexed('manifest.json'));
+  const refs = [...manifest.shared, ...manifest.cases.flatMap(item => [item.task_input, item.expected.oracle, ...item.expected.source_files.map(ref => ({ ...ref, path: item.project + '/' + ref.path }))])];
+  for (const ref of refs) {
+    const bytes = indexed(ref.path);
+    assert.equal(bytes.length, ref.bytes, 'Indexed frozen byte length changed: ' + ref.path);
+    assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), ref.sha256, 'Indexed frozen SHA-256 changed: ' + ref.path);
+  }
+});

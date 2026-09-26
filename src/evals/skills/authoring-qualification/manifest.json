@@ -17,8 +17,8 @@
     },
     {
       "path": "provenance.json",
-      "bytes": 3644,
-      "sha256": "a571124287681b7f5d75c0819b89662c0e021e6b36f27219e235858bd82eee9c"
+      "bytes": 3543,
+      "sha256": "6408a8339360cc323a7db5e76b899dfab9abe655c53541d3d510fefc73ba66f4"
     },
     {
       "path": "private-grader/rubric.json",
