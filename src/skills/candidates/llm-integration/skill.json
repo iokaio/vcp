@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "llm-integration",
+  "version": "1.0.0",
+  "description": "Build or review application integrations for the selected LLM provider and SDK, including streams, tool results, cancellation and honest compatibility evidence.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:llm-integration"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "8ebd54a7cfc6c0f94fb75468db9213edf9eb67bf5f6691f39741d7201e296457"
+  },
+  "resources": []
+}
