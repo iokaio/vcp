@@ -67,9 +67,12 @@ remain historical evidence; that acceptance and those results do not transfer to
 later revisions. Separate prospective
 [DOC 1.0.3 and SKL 1.0.2 revisions](../../../docs/development/cs1-authoring-revisions.md)
 under the requalification fixture address the observed content and
-verification-workflow defects but have no live comparison, native-package
-qualification or promotion evidence. The accepted package files in this directory
-remain unchanged.
+verification-workflow defects. Their subsequent
+[requalification](../../../docs/development/cs1-authoring-requalification-disposition.md)
+is terminal and unqualified: DOC 1.0.3 failed its first candidate row's local-link
+oracle, blind review halted the envelope, and SKL 1.0.2 did not run. Neither has
+native-package qualification or promotion evidence. The accepted package files
+in this directory remain unchanged.
 
 The closed campaign retained DOC factual failures, no passing usefulness benefit
 and a mandatory authority halt; revised SKL comparisons did not run in that
@@ -81,7 +84,8 @@ historical campaign. See
 
 - Preserve DOC 1.0.2's failed fresh normal comparison. DOC 1.0.3 must demonstrate
   that its atomic source-coverage and exact returned-byte checks produce useful
-  improvement over both baselines under newly frozen evaluation inputs.
+  improvement over both baselines under newly frozen evaluation inputs. Its
+  terminal v4 requalification also remains failed and cannot be replayed.
 - Preserve SKL 1.0.1's failed comparison. Its
   [one-shot successor](../../../docs/development/cs1-skl-continuation.md)
   preserved the failed nearest baseline, but the candidate and no-skill rows

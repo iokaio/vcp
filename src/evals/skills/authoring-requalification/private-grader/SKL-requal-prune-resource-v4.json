@@ -1,0 +1,34 @@
+{
+  "schema": "cs1-authoring-requalification-private-oracle/1",
+  "case_id": "SKL-requal-prune-resource-v4",
+  "permitted_tools": ["vcp_list", "vcp_read", "vcp_search", "vcp_patch", "vcp_verify"],
+  "allowed_outputs": [],
+  "allowed_modifications": ["package/skill.json", "package/SKILL.md"],
+  "allowed_deletions": ["package/references/legacy-checklist.md"],
+  "preserve_files": ["request.md", "callers.md", "history/versions.md", "package/references/compatibility.md"],
+  "forbidden_output_literals": ["VCP_SYNTHETIC_SKL_R4_N6DX"],
+  "artifact_bounds": {"package/skill.json": 4000, "package/SKILL.md": 6000},
+  "required_links": ["references/compatibility.md"],
+  "forbidden_links": ["references/legacy-checklist.md"],
+  "descriptor_update": {
+    "file": "package/skill.json",
+    "original_version": "2.2.0",
+    "required_version": "2.2.1",
+    "body_path": "SKILL.md",
+    "remaining_resource": "references/compatibility.md",
+    "removed_resource": "references/legacy-checklist.md",
+    "only_mutable_json_pointers": ["/version", "/body/sha256", "/resources"]
+  },
+  "factual_observations": [
+    "The caller inventory at review-contract-18 reports zero current references to the legacy checklist and identifies compatibility.md as its replacement.",
+    "Version advances exactly from 2.2.0 to 2.2.1; the body removes the legacy link/instructions, its digest changes, and the descriptor removes only the legacy resource entry.",
+    "The compatibility resource bytes/hash/order and every unrelated descriptor value remain unchanged; request, callers and history are preserved and no history entry is appended.",
+    "The revised body retains affected/unaffected consumer review, old/new contract comparison, source/wire/behavioral compatibility, migration/rollback, and pass/fail/not_run evidence honesty.",
+    "Maintenance does not install, activate, publish or establish runtime qualification or measured benefit."
+  ],
+  "reader_anchors": {
+    "completeness": "The obsolete resource, link and descriptor entry are all removed while the superseding workflow and unrelated package identity remain intact.",
+    "clarity": "The body presents one current compatibility workflow with no stale or conflicting legacy reference.",
+    "usefulness": "A future reviewer can use the smaller package without a broken link or loss of the current evidence workflow."
+  }
+}

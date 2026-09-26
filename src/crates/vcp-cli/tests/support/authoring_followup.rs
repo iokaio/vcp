@@ -2,7 +2,7 @@
 // Trusted transport/structural feasibility only. These synthetic artifacts are
 // neither candidate model answers nor evidence of reader quality or authority review.
 use super::*;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Mutex;
 
 const REFRESH: &str = "New instruction scope selected. Review the refreshed context before issuing this operation again.";
@@ -23,6 +23,8 @@ struct Script {
     hashes: BTreeMap<String, String>,
     expected: BTreeMap<String, String>,
     original_descriptor: Option<String>,
+    read_evidence: BTreeMap<String, String>,
+    verification_citations: Option<Vec<String>>,
     refreshes: usize,
     verified: usize,
     requests: usize,
@@ -76,11 +78,40 @@ impl Script {
                         let observed = read["version"]["sha256"].as_str().unwrap();
                         assert_eq!(observed, vcp_protocol::digest_bytes(text.as_bytes()));
                         assert_eq!(read["version"]["bytes"], text.len().to_string());
-                        self.hashes.insert(name, observed.to_owned());
+                        self.hashes.insert(name.clone(), observed.to_owned());
+                        let evidence = output["evidence"]
+                            .as_str()
+                            .expect("successful read has retained evidence");
+                        assert_ne!(
+                            Some(evidence),
+                            output["effect"].as_str(),
+                            "effect IDs are not artifact citations"
+                        );
+                        assert!(
+                            self.read_evidence
+                                .insert(name, evidence.to_owned())
+                                .is_none(),
+                            "each scripted file is read once"
+                        );
                     }
                     Action::Verify => {
                         self.verified += 1;
                         assert_eq!(self.verified, 1, "Never retry an executed checker");
+                        let citations = self
+                            .verification_citations
+                            .as_ref()
+                            .expect("verification citations were frozen before dispatch");
+                        assert!(!citations.is_empty(), "verification cites current reads");
+                        assert_eq!(
+                            citations.iter().collect::<BTreeSet<_>>().len(),
+                            citations.len(),
+                            "verification citations are distinct"
+                        );
+                        assert_eq!(
+                            citations.iter().cloned().collect::<BTreeSet<_>>(),
+                            self.read_evidence.values().cloned().collect(),
+                            "verification cites only successful read evidence"
+                        );
                         assert_eq!(
                             output["verification"]["checks"].as_array().unwrap().len(),
                             1
@@ -133,7 +164,20 @@ impl Script {
                     "vcp_read",
                     json!({"path":name,"max_bytes":16384,"start_line":null,"end_line":null}),
                 ),
-                Action::Verify => ("vcp_verify", json!({"citations":[]})),
+                Action::Verify => {
+                    let citations = self.read_evidence.values().cloned().collect::<Vec<_>>();
+                    assert!(
+                        !citations.is_empty(),
+                        "verification requires current read evidence"
+                    );
+                    assert_eq!(
+                        citations.iter().collect::<BTreeSet<_>>().len(),
+                        citations.len(),
+                        "read evidence citations must be distinct"
+                    );
+                    self.verification_citations = Some(citations.clone());
+                    ("vcp_verify", json!({"citations":citations}))
+                }
                 Action::Descriptor => unreachable!(),
             };
             let id = format!("followup-{index}");
@@ -261,6 +305,8 @@ async fn feasible(case_id: &str) {
         hashes: BTreeMap::new(),
         expected,
         original_descriptor: originals.get("package/skill.json").cloned(),
+        read_evidence: BTreeMap::new(),
+        verification_citations: None,
         refreshes: 0,
         verified: 0,
         requests: 0,
@@ -300,7 +346,23 @@ async fn feasible(case_id: &str) {
     assert_eq!(records.last().unwrap()["conditions"]["completed"], true);
     let script = script.lock().unwrap();
     assert_eq!(script.verified, 1);
-    assert!(script.refreshes <= 1);
+    assert_eq!(
+        script.refreshes, 1,
+        "the bounded scope refresh is exercised"
+    );
+    let citations = script
+        .verification_citations
+        .as_ref()
+        .expect("verification dispatched with read evidence");
+    assert!(!citations.is_empty());
+    assert_eq!(
+        citations.iter().collect::<BTreeSet<_>>().len(),
+        citations.len()
+    );
+    assert_eq!(
+        citations.iter().cloned().collect::<BTreeSet<_>>(),
+        script.read_evidence.values().cloned().collect()
+    );
     assert_eq!(script.requests, operation_count + script.refreshes + 1);
     assert!(script.requests <= 16);
     assert!(script.actions.is_empty() && script.pending.is_none());

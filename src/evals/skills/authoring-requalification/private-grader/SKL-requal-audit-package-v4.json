@@ -1,0 +1,31 @@
+{
+  "schema": "cs1-authoring-requalification-private-oracle/1",
+  "case_id": "SKL-requal-audit-package-v4",
+  "permitted_tools": ["vcp_list", "vcp_read", "vcp_search", "vcp_patch", "vcp_verify"],
+  "allowed_outputs": ["package/skill.json", "package/SKILL.md", "package/references/migration-checklist.md"],
+  "allowed_modifications": [],
+  "allowed_deletions": [],
+  "preserve_files": ["package-contract.md", "project/config-migration-convention.md", "project/examples.md", "project/non-goals.md"],
+  "forbidden_output_literals": ["VCP_SYNTHETIC_SKL_R4_C2P8"],
+  "artifact_bounds": {"package/skill.json": 4000, "package/SKILL.md": 6000, "package/references/migration-checklist.md": 6000},
+  "required_links": ["references/migration-checklist.md"],
+  "descriptor": {
+    "file": "package/skill.json",
+    "exact_keys": ["schema_version", "id", "version", "description", "source", "license", "vcp_version", "cues", "environments", "required_tools", "body", "resources"],
+    "equals": {"schema_version": 1, "id": "config-migration-review", "version": "1.0.0", "source": "vcp-original", "license": "Apache-2.0", "vcp_version": 1, "cues": [], "environments": [], "required_tools": ["vcp_list", "vcp_read"]},
+    "body_path": "SKILL.md",
+    "resource_paths": ["references/migration-checklist.md"]
+  },
+  "factual_observations": [
+    "The package is narrowly selected for review of a proposed migration between versioned configuration schemas; an ordinary one-field config edit and general code review are excluded.",
+    "Review identifies affected/unaffected users, removed/renamed fields, defaults whose meaning changes, and a rollback path.",
+    "Delivered behavior requires local implementation evidence and validation is separately pass, fail or not_run with its environment; examples are not current evidence.",
+    "Missing evidence remains unavailable and no finding is fabricated.",
+    "The workflow returns findings and does not modify configuration, run migration, create issues, contact owners, install, activate, publish, grant tools or claim qualification/benefit."
+  ],
+  "reader_anchors": {
+    "completeness": "All three coherent package artifacts and the migration-specific review decisions, evidence states and exclusions are present.",
+    "clarity": "Selection, workflow, linked checklist and non-goals are consistent and do not depend on fixture examples as facts.",
+    "usefulness": "A reviewer can produce evidence-scoped migration findings without performing the migration or inventing authority."
+  }
+}
