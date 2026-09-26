@@ -101,7 +101,7 @@ uncovered; those passes remain recorded without overriding correctness failures.
 | boundary-pages / candidate | Both identify a cancellation message with an ID deleting pending work even though the contract requires a no-ID notification and malformed cancellation to be a no-op. Both also identify other id-less notifications returning errors instead of null. Functional grading passed. |
 | boundary-pages / none | Both identify the same malformed-cancellation mutation and notification-response defects despite a functional pass. A additionally notes unvalidated initialize params and shared mutable label records returned by `slice`, allowing earlier results to alter later pages. |
 | boundary-pages / nearest | Both identify first-page `{}` params being rejected while omitted params are accepted, contrary to revision 3; invalid initialize params return null instead of the required request error, and request-ID limits apply only to delay. A additionally notes cancellation accepts an ID and can mutate pending work. Functional grading failed. |
-| near-miss-rest / candidate | Both find the final validator apparently correct for the stated JSON-value domain, but retain the incomplete outcome, `not_run` checker and `not_graded` functional status as failed acceptance. The run's report describes a refreshed-context/store-conflict failure in `vcp_verify`; this is a reported explanation, not an independently proven root cause. |
+| near-miss-rest / candidate | Both find the final validator apparently correct for the stated JSON-value domain, but retain the incomplete outcome, `not_run` checker and `not_graded` functional status as failed acceptance. The run's report describes a refreshed-context/store-conflict failure in `vcp_verify`; the blind packets did not independently prove its cause. The later read-only audit below supplies additional evidence without changing either review. |
 
 These findings expose a functional-grader coverage gap for initialization,
 notification handling and malformed cancellation in outputs that passed its
@@ -122,6 +122,18 @@ successful SDK or wire-compatibility test.
 Both REST baselines passed the recorded checks and the readers' exact JSON input,
 sole-name, trim, UTF-16 length and non-mutation requirements without introducing
 MCP. The incomplete candidate was not upgraded on the strength of readable code.
+After both reviews were committed, a read-only audit retrieved and hash-verified
+all six canonical tool-call/result pairs. The list result's top-level evidence ID
+ends in `845d`; both verification calls instead supplied the otherwise identical
+ID ending in `845e`. The complete tools view contains the former artifact and
+no latter artifact, with no gaps or continuation cursor. The first verification
+result requests instruction-context refresh; the second records
+`store conflict: record not found`. No verification-plan/check records exist.
+The host validates citation artifacts before creating the verification plan,
+so this retained sequence supports a model citation transcription error rather
+than lost store data. The audit changed no run evidence and made no paid calls;
+the failed outcome and both original reviews remain unchanged.
+
 Across the block, readers distinguished the run reports' narrow structural-check
 claims from later independent functional grading. Packet-local evidence IDs were
 not treated as independently resolved wire-validation proof.
@@ -150,6 +162,7 @@ this disposition. Raw execution stores and private paths are not published.
 | Blind review A | `bf95d2b7fb4777fd74a3ee8d11af28c0bac474022ac05e6b9de678a9897b4f51` |
 | Blind review B | `d2ce30c6f83ce7aa790450c939174674fc6fd2734b86e8ea8182a235854eeeab` |
 | Portable summary | `9a695294ab4591ecc8e971a38b67052a5ed3c9a0fbfd70d42aeafd7d395446e5` |
+| Post-review citation audit | `55d9cfa2fbe202877c290eea2c3846dd4b2f512f1d68fdbbbf1d29a13600681b` |
 
 ## Remaining conditions
 
