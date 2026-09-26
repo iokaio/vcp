@@ -1,7 +1,10 @@
 # CS-2 continuation after the reboot checkpoint
 
-Status: offline implementation and verification in progress. No continuation
-dispatch or specialist promotion has run.
+Status, September 26, 2026: continuation tooling delivered in
+[PR #185](https://github.com/iokaio/vcp/pull/185). The composite LLM block is
+complete and independently reviewed; [its disposition](cs2-llm-disposition.md)
+retains the skill as non-default because benefit was not demonstrated. MCP and
+frontend qualification remain pending. No specialist has been promoted.
 
 The owner resumed the [checkpoint](cs2-reboot-checkpoint.md) and explicitly
 authorized up to USD 100 in new OpenRouter calls. The continuation allocates
@@ -63,12 +66,18 @@ Eleven continuation-review tests passed, including the complete grading,
 anonymous-packet and two-reader decision path, evidence changes during grading,
 and permanent halts. Seven continuation execution tests passed, including the
 ten-run remainder of the first block, canonical accounting, provider expiry,
-replay refusal and permanent failure after source or workspace drift. Repository
-gates must pass before the source and plan are frozen for dispatch. Independent review
+replay refusal and permanent failure after source or workspace drift. All 83 CS-2
+contract tests, 21 fast harness groups and PR CI passed before source and plan
+freeze. Independent review
 identified and corrected predecessor-directory overlap and fresh accounting
 verification gaps.
 
-Live completion, functional grading, blind review, per-skill qualification and
-native package promotion remain pending. CS-1 default-promotion prerequisites
+The ten fresh LLM runs settled 54 requests / USD 0.082026. All eligible completed
+artifacts passed functional grading; the historical incomplete baseline remains
+failed and not graded. Two independent blind readers found no qualifying normal
+benefit over both baselines. No new provider-refresh probes or paid readers ran.
+
+MCP and frontend completion, grading and qualification remain pending. No native
+package promotion has run. CS-1 default-promotion prerequisites
 remain required for downstream six-skill and eight-skill acceptance. CS-8 through
 CS-10 are undefined in plan 24 and are not invented by this continuation.
