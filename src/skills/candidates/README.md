@@ -49,22 +49,35 @@ for an authorized experiment; selection grants no tools, effects or budget.
 
 The prospective [document-authoring 1.0.2 correction](../../../docs/development/cs1-document-correction.md)
 addresses claim attribution, the scope of missing evidence, factual content beside
-hostile instructions and concise responses to brief tasks. It has no new comparison
-result or default qualification. Skill-authoring remains 1.0.1 with unchanged bytes.
+hostile instructions and concise responses to brief tasks. Its
+[fresh normal comparison](../../../docs/development/cs1-fresh-doc-disposition.md)
+is now terminal and unqualified: all six outcomes are retained, both candidate
+cases fail correctness, and no benefit was established. The format candidate's
+reported bytes add one LF while its actual workspace remains preserved; native
+success does not repair that structural/evidence-honesty failure. DOC inherited
+and confirmation phases did not run. Skill-authoring remains 1.0.1 with unchanged
+bytes. Its subsequent first nearest-arm create-v3 run failed with canonical
+inspection unavailable, permanently halting the fresh envelope. Separate read-only
+reconciliation established 12 settled requests / USD 0.030538 and zero active or
+unresolved ledger liability. The original null result, active-phase marker and
+halt remain preserved; no replay or SKL qualification follows. DOC's bound
+terminal decision remains valid.
 The accepted 1.0.1 descriptors, bodies, resources and failed or incomplete outcomes
 remain historical evidence; that acceptance and those results do not transfer to
 the prospective DOC revision.
 
 The closed campaign retained DOC factual failures, no passing usefulness benefit
-and a mandatory authority halt; revised SKL comparisons never ran. See
+and a mandatory authority halt; revised SKL comparisons did not run in that
+historical campaign. See
 [document-authoring](../../../docs/development/cs1-authoring-skills.md) and
 [skill-authoring](../../../docs/development/cs1-skill-authoring.md) for history.
 
 ## Additional work before default promotion
 
-- Evaluate the prospective DOC 1.0.2 correction for source-attribution and
-  missing-evidence failures; demonstrate useful improvement over both no-skill
-  and nearest-skill baselines.
+- Preserve DOC 1.0.2's failed fresh normal comparison. A prospective correction
+  must address mandatory source omissions and exact reported-file fidelity,
+  then demonstrate useful improvement over both no-skill and nearest-skill
+  baselines under newly frozen evaluation inputs.
 - Complete SKL 1.0.1 normal, boundary, hostile-input, missing-tool and near-miss
   comparisons. Historical 1.0.0 results do not qualify this revision.
 - Run any new comparison under a separately authorized plan and budget using the

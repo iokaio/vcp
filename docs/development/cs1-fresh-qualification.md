@@ -2,9 +2,21 @@
 
 This prospective, non-default evaluation follows the DOC 1.0.2 attribution correction. SKL remains 1.0.1. It makes no quality, qualification or promotion claim. Existing DOC 1.0.0/1.0.1 outcomes, authority failures, claims and permanent halts remain historical evidence.
 
+Status, September 26, 2026: DOC 1.0.2's
+[fresh normal comparison](cs1-fresh-doc-disposition.md) is terminal and
+unqualified, with six retained outcomes, 41 requests and USD 0.092144. Neither
+normal case demonstrated qualifying benefit; inherited and confirmation DOC
+phases did not run. The subsequent SKL 1.0.1 phase permanently halted on its first
+nearest-arm create-v3 run after canonical inspection became unavailable. The
+original active-phase marker and null cost remain preserved; separate read-only
+reconciliation established 12 settled requests / USD 0.030538 and zero active or
+unresolved ledger liability. It does not authorize replay or SKL qualification.
+The DOC decision remains valid. SKL's comparison and quality review remain incomplete, and
+this status does not release either source freeze.
+
 The companion uses two independently drafted DOC normals (`DOC-fresh-format-reference-v1`, `DOC-fresh-acceptance-plan-v1`), the two previously undispatched SKL v3 normals, and twelve inherited v2 cases. It never reuses the old DOC normals as fresh usefulness evidence. Every candidate has six normal runs, eighteen conditional inherited runs and three conditional confirmation runs, with rotated none/nearest/candidate arms. Confirmation repeats the lexicographically first normal that both readers judged beneficial. Inherited cases are regressions, not untouched holdouts.
 
-The existing owner authorization is **USD 100 total new OpenRouter spending**, including the active CS-2 continuation. This harness does not request another budget. It authenticates the exact current CS-2 plan, its frozen source validator, all forty-six settled outcomes and all three bound decisions before preparing or dispatching authoring. CS-2's original eight outcomes are preserved by that validator and are not charged again. The old three CS-1 phases remain 25 executed rows, 181 requests and USD 0.401397, with their exact identities and permanent halts. Their allocations are never transferred.
+The existing owner authorization is **USD 100 total new OpenRouter spending**, including the completed CS-2 continuation. This harness does not request another budget. It authenticates the exact current CS-2 plan, its frozen source validator, all forty-six settled outcomes and all three bound decisions before preparing or dispatching authoring. CS-2's original eight outcomes are preserved by that validator and are not charged again. The old three CS-1 phases remain 25 executed rows, 181 requests and USD 0.401397, with their exact identities and permanent halts. Their allocations are never transferred.
 
 The new maximum is **54 slots × USD 1.75 = USD 94.50**, with at most 16 requests and 2048 output tokens per slot (864 requests total). Preparation requires enough actual remaining authorization for the entire new envelope. Before every run, admission rechecks canonical claims, settled ledgers, zero active/unresolved liability, unique task identities, and reserves the full next USD 1.75/16 requests against both the new envelope and the USD 100 aggregate. Failed settled runs count fully. Unused conditional slots remain unused. No reruns, retries, bootstrap envelopes, reallocation, paid graders or paid refresh probes are provided here.
 

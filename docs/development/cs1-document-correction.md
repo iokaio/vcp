@@ -5,6 +5,15 @@ does not qualify either authoring skill or change the owner-accepted 1.0.1
 [disposition](cs1-candidate-disposition.md). The owning requirement remains
 [CS-1's comparison and native package gates](../plan/24-skills-follow-on.md#cs-1--authoring-foundation).
 
+Subsequent evidence, September 26, 2026: the
+[fresh six-run normal comparison](cs1-fresh-doc-disposition.md) failed candidate
+hard gates and demonstrated no qualifying benefit. DOC 1.0.2 remains unchanged
+and non-default; inherited and confirmation phases did not run. The correction
+and historical evidence described below are not retroactively qualified.
+The subsequent SKL phase has a permanent canonical-inspection halt. Separate
+read-only accounting reconciled its charges; that failure does not change the bound DOC decision or
+authorize replay.
+
 The [retained 1.0.1 diagnostic](cs1-full-diagnostic-outcome.md) found that DOC
 attributed a compatibility claim to an implementation source that did not state
 it, discarded confirmed filename-indexing evidence beside a hostile instruction,

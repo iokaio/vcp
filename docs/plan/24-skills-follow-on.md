@@ -214,6 +214,19 @@ the [candidates README](../../src/skills/candidates/README.md). The
 [disposition record](../development/cs1-candidate-disposition.md) preserves the
 permanent campaign halt. Owner acceptance does not mean those evaluations passed.
 
+September 26, 2026 prospective evidence: DOC 1.0.2's
+[fresh normal comparison](../development/cs1-fresh-doc-disposition.md) is terminal
+and unqualified after six runs. Mandatory source omissions and the candidate
+format report's byte mismatch remain failures; no normal benefit, inherited
+phase or confirmation was established. The actual workspace preservation pass
+does not erase the reported-file mismatch. The subsequent SKL 1.0.1 phase
+permanently halted on its first nearest-arm create-v3 run after canonical
+inspection became unavailable. Separate read-only reconciliation established
+12 settled requests / USD 0.030538 and zero active/unresolved ledger liability;
+the original null result, active-phase marker and halt remain preserved. It cannot authorize
+replay or default qualification. DOC's decision and historical owner acceptance
+and halt remain unchanged; SKL has no completed comparison or quality review.
+
 ## CS-2 — Developer specialists
 
 Create `frontend-design`, `mcp-development` and `llm-integration`; materialize
