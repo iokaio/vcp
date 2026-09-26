@@ -250,6 +250,10 @@ origin scope, DOM/accessibility checks and failure/owner-loss cleanup pass; miss
 tools fail explicitly; all six developer additions satisfy distribution, offline
 discovery, activation/revocation and comparison gates. Record visual-review limits.
 
+The [browser feasibility checkpoint](../development/cs3-browser-feasibility.md)
+records bounded Windows startup failures and preserved cleanup gaps. Browser/server
+qualification remains open; an isolated-host or outer-boundary decision is pending.
+
 ## CS-4 — Document and data adapters
 
 After the six-skill wave, select bounded PDF/XLSX libraries, converters and a
