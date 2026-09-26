@@ -2,8 +2,9 @@
 
 Status: CS-0 scope and qualification design established September 24, 2026;
 CS-1 is accepted and closed by owner direction as non-default candidates, with
-remaining qualification work retained in the candidates README. Later packages remain unaccepted; CS-2 is
-in progress, with its Node adapter, tool ceiling, v5 fixtures and grading prerequisites implemented. Authority:
+remaining qualification work retained in the candidates README. CS-2's three
+comparisons and non-default dispositions are complete; none qualified or was
+promoted. Later packages and qualified six-skill acceptance remain open. Authority:
 [ADR-068](../adr/068-skills-follow-on-before-other-hosts.md). This is a separate
 follow-on ledger, not an expansion or renumbering of the 68 architecture items.
 
@@ -18,7 +19,7 @@ gaps and prompt-audit proposals stay outside this sequence.
 |---|---|---|---|
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
 | CS-1 | CS-0 | Original document-authoring and skill-authoring packages | complete by owner direction — accepted non-default candidates; [remaining qualification work](../../src/skills/candidates/README.md) |
-| CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | in_progress — [implementation and qualification](../development/cs2-developer-skills.md); fixtures v5, grading, in-run checker and campaign tooling implemented; candidates frozen; specialist acceptance pending |
+| CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | complete — three comparisons and non-default dispositions under the owner exit rule; [retained outcomes and qualification gaps](../development/cs2-developer-skills.md); no promotion |
 | CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | planned |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |
 | CS-5 | CS-4 | Original pdf-workflows and spreadsheet-workflows packages | planned |
@@ -241,6 +242,17 @@ On September 25, 2026 the owner resolved three CS-2 questions, recorded in the
 
 The same record holds the pre-authorized campaign envelope and pinned process
 identities.
+
+September 26, 2026 disposition: all three eighteen-run comparisons are complete,
+including the eight preserved historical outcomes and forty-six continuation
+runs. [LLM integration](../development/cs2-llm-disposition.md) passed its candidate
+hard gates but demonstrated no normal benefit.
+[MCP development](../development/cs2-mcp-disposition.md) and
+[frontend design](../development/cs2-frontend-disposition.md) failed candidate
+hard gates and demonstrated no normal benefit. All remain unchanged 1.0.0
+non-default candidates. This closes their per-skill dispositions, not default
+qualification, browser acceptance or the six-skill wave. Historical failures
+and future promotion requirements remain intact.
 
 ## CS-3 — Browser execution and six-skill acceptance
 

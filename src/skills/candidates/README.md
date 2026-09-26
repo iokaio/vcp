@@ -3,13 +3,14 @@
 This directory has no automatic loader. Each package here is selected only
 through an explicit source registration and qualified selection.
 
-## CS-2 developer candidates — campaign-bound, unqualified
+## CS-2 developer candidates — comparisons closed, non-default
 
 `llm-integration`, `mcp-development` and `frontend-design` 1.0.0 are original VCP
 packages frozen for the CS-2 comparison campaign. Eight runs dispatched before
 the owner's reboot stop; their retained outcomes remain unchanged. A separately
-authorized [continuation](../../../docs/development/cs2-continuation.md) covers
-only the remaining forty-six runs. The candidates are neither qualified nor default.
+authorized [continuation](../../../docs/development/cs2-continuation.md) completed
+the remaining forty-six runs. All three per-skill comparisons and non-default
+dispositions are closed. The candidates are neither qualified nor default.
 
 - Each declares one explicit cue and no resources. The bodies send the model to
   the project's installed SDK sources and supplied documents.
@@ -25,8 +26,14 @@ see the [retained outcomes](../../../docs/development/cs2-llm-disposition.md).
 gates failed and neither normal task demonstrated the required benefit. It remains
 non-default; see the [MCP disposition](../../../docs/development/cs2-mcp-disposition.md)
 for every outcome, both readers' findings and functional-grader coverage gaps.
-Frontend qualification remains pending. See the
-[CS-2 record](../../../docs/development/cs2-developer-skills.md).
+
+`frontend-design` completed its eighteen-run comparison with one incomplete
+candidate verification and no normal-task benefit over both baselines. It remains
+non-default; the [frontend disposition](../../../docs/development/cs2-frontend-disposition.md)
+retains every outcome, both readers' scores and their form-correctness disagreement.
+Browser and human layout review remain not_run. No package was promoted, and this
+closure does not establish qualified six-skill acceptance. See the
+[CS-2 record](../../../docs/development/cs2-developer-skills.md) for current status.
 
 ## CS-1 authoring candidates — accepted by owner direction
 
@@ -69,4 +76,5 @@ and a mandatory authority halt; revised SKL comparisons never ran. See
   offline discovery, activation/revocation and resource integrity checks.
 
 No additional paid run, release or default enablement is authorized by acceptance.
-CS-2 through CS-7 retain their own work and acceptance contracts.
+CS-2's failed qualification and promotion gaps remain recorded; CS-3 through
+CS-7 retain their own work and acceptance contracts.

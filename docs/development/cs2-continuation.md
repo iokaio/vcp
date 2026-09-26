@@ -1,10 +1,19 @@
 # CS-2 continuation after the reboot checkpoint
 
-Status, September 26, 2026: continuation tooling delivered in
-[PR #185](https://github.com/iokaio/vcp/pull/185). The composite LLM block is
-complete and independently reviewed; [its disposition](cs2-llm-disposition.md)
-retains the skill as non-default because benefit was not demonstrated. MCP and
-frontend qualification remain pending. No specialist has been promoted.
+Status, September 26, 2026: the continuation delivered in
+[PR #185](https://github.com/iokaio/vcp/pull/185) is complete. All three composite
+blocks are graded, independently reviewed and decided:
+[LLM integration](cs2-llm-disposition.md),
+[MCP development](cs2-mcp-disposition.md) and
+[frontend design](cs2-frontend-disposition.md) remain non-default candidates.
+No specialist qualified or was promoted.
+
+Read-only closure reconciliation authenticated all forty-six fresh outcomes,
+settling **289 requests / USD 0.521696**, with no active or unresolved liability.
+No fresh provider-refresh probes ran. The original eight outcomes, permanent
+halt and historical charges remain intact; they are not part of these fresh
+continuation totals. The original proposal and authorization below are retained
+as historical records, not a renewed allocation.
 
 The owner resumed the [checkpoint](cs2-reboot-checkpoint.md) and explicitly
 authorized up to USD 100 in new OpenRouter calls. The continuation allocates
@@ -77,7 +86,7 @@ artifacts passed functional grading; the historical incomplete baseline remains
 failed and not graded. Two independent blind readers found no qualifying normal
 benefit over both baselines. No new provider-refresh probes or paid readers ran.
 
-MCP and frontend completion, grading and qualification remain pending. No native
+All three block comparisons and non-default dispositions are complete. No native
 package promotion has run. CS-1 default-promotion prerequisites
 remain required for downstream six-skill and eight-skill acceptance. CS-8 through
 CS-10 are undefined in plan 24 and are not invented by this continuation.
