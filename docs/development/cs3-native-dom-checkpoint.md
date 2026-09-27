@@ -145,3 +145,60 @@ prove the phase-1 adversarial and recovery gates before untrusted project runs.
 The current AppContainer input-routing failure remains retained, not waived.
 No further speculative runtime flags, host-policy changes, elevated commands,
 paid runs or production integration are part of this checkpoint.
+
+## September 27 Hyper-V F24 full-DOM attempt
+
+The later disposable-VM attempt built source commit `979d500` against WebView2
+`153.0.4234.48` and SDK `1.0.4191.47`. Its build receipt SHA-256 is
+`ac3ac06df8d0231fcc8ceb3227b48fc920854058014dad1f9db7df693667d31b`;
+the embedded input-manifest SHA-256 is
+`7c035d48e5b07efe1f310cb76c43f6d3188b1a17ea94457faaa5a9143c1d4f70`.
+The launcher ran once as local non-elevated `User` in active VMConnect Basic
+Session 1. The controller was not run through PowerShell Direct: a one-shot
+limited-token interactive task started the already staged, hash-pinned launcher
+in that console session and was removed after it returned.
+
+The retained run identity is `f9690ec599c04ff98775b5912c256720`.
+The 579000-byte host collection report SHA-256 is
+`2b948fc3011874e2b6fdee50a08b9f3c41854e1aabe11af09c4be4324169956f`;
+its embedded native receipt SHA-256 is
+`f0f8f8f6d958adb347654782d55f06249f4e006ed316c9cddadb92169c06127f`
+and launcher-result SHA-256 is
+`f9e4cc5f2670ef2360fda32995973f54f77d059987613a994e733b930f8391fc`.
+Collection was read-only and did not launch or retry the browser.
+
+The F24 readiness strategy resolved the earlier input-routing failure. Five
+ordered, independently reconstructed and hash-checked documents establish:
+
+* native forward focus moved `BODY` to `name` after one trusted F24 down/up
+  pair with no keypress or repeat;
+* the first exact Enter produced one trusted keydown/keypress/keyup and submit,
+  preserving the empty value and yielding `Name is required.`;
+* one literal `Ada` insertion followed by a second trusted F24 down/up pair
+  produced `value=Ada` without another submit; and
+* the second exact Enter produced the second trusted keydown/keypress/keyup and
+  submit and yielded `Saved Ada.`.
+
+No F24, Enter or text action was retried. The five document SHA-256 values are,
+in order, `0e5de04e060f1d102d4a0bd50c0a017b5737a016a561d5b934abbf368de257e1`,
+`1223572b5906a9c44e6598e7bc2b434a8488797d8a55fb6a7379bab61ad476bc`,
+`f519689da986b8cc9bad08951ea4177337c21d7f43df4bafbfdcddabb68f9842`,
+`859b987cfde08264d05f4dce33636a164212d6d1ad28f55d524b13c6cec88a34`
+and `4d86311be6cf80de78d0fe4fc7a9db31ed014b5d17510dc88e6c346214657380`.
+
+The attempt then failed closed in `accessibility_snapshot` with
+`0x80131501` (`InvalidDataException`) before accessibility evidence or the
+negative-origin phase was accepted. The current contract applies the ordinary
+8192-byte DOM-record ceiling to the raw `Accessibility.getFullAXTree` response;
+the small synthetic form's verbose full-tree response is the leading evidenced
+cause, although this receipt does not retain the rejected response length and
+therefore does not prove which accessibility assertion threw. The next change
+must keep the raw protocol response bounded while emitting a compact, independently
+validated accessibility projection; merely removing the ceiling is not acceptable.
+
+Cleanup still completed: process coverage was 7/7, the independent job-zero
+acknowledgement completed, all processes drained, the profile was removed, and
+runtime, host and policy postchecks were unchanged. There were no cleanup errors,
+stderr bytes or queued diagnostic lines. The native outcome remains
+`input_diagnostic_inconclusive_or_failure`; accessibility, origin, owned-server
+and browser-qualification gates remain open.
