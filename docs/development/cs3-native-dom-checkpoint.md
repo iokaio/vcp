@@ -1,6 +1,10 @@
 # CS-3 synthetic DOM diagnostic checkpoint
 
 Status: diagnostic work in progress, not CS-3 completion or browser qualification.
+Later [input-routing diagnostics](cs3-input-routing-diagnostic.md) demonstrate
+keyboard delivery in the same hidden host and isolate a pre-dispatch timing
+dependency. They supersede the unresolved-input/environment recommendation below,
+not the retained failures or outstanding qualification gates.
 See the [phases](cs3-implementation-phases.md),
 [boundary review](cs3-account-boundary-review.md), and
 [six-skill readiness ledger](cs3-six-skill-readiness.md).

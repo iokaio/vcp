@@ -116,6 +116,32 @@ namespace Vcp.Cs3WebViewDraft {
             }
         }
     }
+    // Separate diagnostic sequence: observations cannot satisfy the DOM oracle.
+    public sealed class InputRoutingCommands {
+        public const string TargetParameters = "{\"expression\":\"(() => ({url:location.href,title:document.title,scriptReady:window.__cs3InputEvidence && window.__cs3InputEvidence.scriptReady === true}))()\",\"returnByValue\":true}";
+        static readonly string[] MethodsWithInsert = { "Runtime.evaluate", "Emulation.setFocusEmulationEnabled", "Input.insertText", "Input.dispatchKeyEvent", "Input.dispatchKeyEvent" };
+        static readonly string[] ParametersWithInsert = { TargetParameters, HostProbeContract.FocusParameters, HostProbeContract.InsertParameters, HostProbeContract.EnterDownParameters, HostProbeContract.EnterUpParameters };
+        static readonly string[] MethodsWithoutInsert = { "Runtime.evaluate", "Emulation.setFocusEmulationEnabled", "Input.dispatchKeyEvent", "Input.dispatchKeyEvent" };
+        static readonly string[] ParametersWithoutInsert = { TargetParameters, HostProbeContract.FocusParameters, HostProbeContract.EnterDownParameters, HostProbeContract.EnterUpParameters };
+        readonly string[] methods, parameters;
+        int next, responseBytes;
+        public InputRoutingCommands() : this(true) { }
+        public InputRoutingCommands(bool insertBeforeKey) {
+            methods=insertBeforeKey ? MethodsWithInsert : MethodsWithoutInsert;
+            parameters=insertBeforeKey ? ParametersWithInsert : ParametersWithoutInsert;
+        }
+        public void RequireRequest(string method, string parameters, long elapsed) {
+            if (elapsed < 0 || elapsed >= Evidence.StartupMilliseconds) throw new TimeoutException("Input diagnostic deadline");
+            if (next >= methods.Length || method != methods[next] || parameters != this.parameters[next]) throw new InvalidOperationException("Input diagnostic command sequence differs");
+        }
+        public void Complete(string method, string parameters, string response, long elapsed) {
+            RequireRequest(method,parameters,elapsed);
+            int length=response==null?0:Encoding.UTF8.GetByteCount(response);
+            if (length==0 || length>HostProbeContract.MaximumRecordBytes || responseBytes>HostProbeContract.MaximumAggregateBytes-length || (next>0 && response!="{}")) throw new InvalidDataException("Input diagnostic response bound or shape differs");
+            responseBytes+=length; next++;
+        }
+        public void RequireComplete() { if(next!=methods.Length) throw new InvalidOperationException("Incomplete input diagnostic commands"); }
+    }
     public static class Evidence {
         public const int MaximumEvents = 384, MaximumProcesses = 32, StartupMilliseconds = 20000;
         public static string Quote(string value) {

@@ -44,8 +44,17 @@ and the complete native execution plan before any launch.
 
 The fixed form records passive script readiness and trusted key/submit counters;
 read-only snapshots are checked independently by the parent. Native forward
-focus is not a claim of CDP Tab input. The latest retained run observed focus but
-no delivered Enter events; see the
+focus is not a claim of CDP Tab input. The current source-bound build runs a
+separate input-routing diagnostic: read-only CDP target identity, native focus
+observations, an optional fixed text-insertion control, then Enter. The current
+compiled control omits text insertion and waits 100 ms after focus and at the
+pre-key observation stage, with no post-key delay, within the unchanged
+20-second lifetime. These source-bound timing controls are not a production
+readiness strategy. The [routing report](../../../../../docs/development/cs3-input-routing-diagnostic.md)
+retains the successful and unsuccessful timing comparisons.
+`input_diagnostic_observed` means all diagnostic records were retained, not that
+keyboard input or any full DOM/AX/origin oracle passed. The prior full-form
+assertions remain separate and are not relaxed. See the
 [checkpoint](../../../../../docs/development/cs3-native-dom-checkpoint.md).
 An exit-zero controller receipt means receipt/cleanup completion, not successful
 browser interaction. Always inspect its outcome and qualification fields.

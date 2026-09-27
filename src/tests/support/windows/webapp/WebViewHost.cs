@@ -18,6 +18,10 @@ namespace Vcp.Cs3WebViewDraft {
     internal static class WebViewHost {
         [System.Runtime.InteropServices.DllImport("shell32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
         static extern int SetCurrentProcessExplicitAppUserModelID(string id);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern IntPtr GetFocus();
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
         static HostInput input;
         static ApplicationContext pump;
         static SynchronizationContext sta;
@@ -29,6 +33,12 @@ namespace Vcp.Cs3WebViewDraft {
         static readonly HostLifecycle lifecycle = new HostLifecycle();
         static readonly WebDomSession dom = WebDomContract.CreateSession();
         static readonly HostProbeContract.CommandSequence commands = new HostProbeContract.CommandSequence();
+        // Fixed source-bound diagnostic variant; never configurable by a page.
+        static readonly bool InsertBeforeKey = false;
+        static readonly int InputSettleMilliseconds = 100;
+        static readonly int KeyObservationMilliseconds = 0;
+        static readonly InputRoutingCommands inputCommands = new InputRoutingCommands(InsertBeforeKey);
+        static int nativeGotFocus, nativeLostFocus;
         static readonly HostProbeContract.EvidenceBudget domBudget = new HostProbeContract.EvidenceBudget();
         static readonly List<Stream> responseStreams = new List<Stream>();
         static readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 16384, RecursionLimit = 64 };
@@ -98,6 +108,8 @@ namespace Vcp.Cs3WebViewDraft {
                 if (lifecycle.Stopping) { controller.Close(); controller = null; return; }
                 controller.IsVisible = false;
                 controller.Bounds = new System.Drawing.Rectangle(0,0,1,1);
+                controller.GotFocus += GotNativeFocus;
+                controller.LostFocus += LostNativeFocus;
                 core = controller.CoreWebView2;
                 core.Settings.AreDevToolsEnabled = false;
                 core.Settings.AreDefaultContextMenusEnabled = false;
@@ -191,8 +203,63 @@ namespace Vcp.Cs3WebViewDraft {
             core.NavigationCompleted -= NavigationCompleted;
             try {
                 if (!e.IsSuccess || !initialNavigationSeen || e.NavigationId != navigationId || dom.ResourceCount != WebDomContract.MaxResourceCount) throw new InvalidOperationException("Initial fixture navigation did not complete exactly");
-                await RunDomProbe();
-            } catch (Exception error) { Stop("dom_probe_failed",error.HResult,false); }
+                await RunInputDiagnostic();
+            } catch (Exception error) { Stop("input_probe_failed",error.HResult,false); }
+        }
+        static void GotNativeFocus(object sender, object args) {
+            if(lifecycle.Stopping) return;
+            if(++nativeGotFocus>16) Reject("native_focus_event_bound");
+        }
+        static void LostNativeFocus(object sender, object args) {
+            if(lifecycle.Stopping) return;
+            if(++nativeLostFocus>16) Reject("native_focus_event_bound");
+        }
+        static async Task<string> InputCommand(string method, string parameters) {
+            RequireProbeActive(); inputCommands.RequireRequest(method,parameters,clock.ElapsedMilliseconds);
+            string result=await core.CallDevToolsProtocolMethodAsync(method,parameters);
+            RequireProbeActive(); inputCommands.Complete(method,parameters,result,clock.ElapsedMilliseconds);
+            BoundJson(result); return result;
+        }
+        static async Task InputSnapshot(string id) {
+            string raw=await Snapshot(); RequireProbeActive();
+            var value=Object(raw); IntPtr window=GetFocus(); uint pid=0;
+            if(window!=IntPtr.Zero && GetWindowThreadProcessId(window,out pid)==0) throw new InvalidOperationException("Cannot identify native focus window");
+            value.Add("native_got_focus",nativeGotFocus); value.Add("native_lost_focus",nativeLostFocus);
+            value.Add("native_focus_present",window!=IntPtr.Zero); value.Add("native_focus_pid",pid);
+            EmitInput(id,json.Serialize(value));
+        }
+        static async Task RunInputDiagnostic() {
+            // This run records routing observations only. It cannot emit DOM
+            // completion or claim keyboard, AX, origin or browser qualification.
+            phase="cdp_target_control";
+            string target=await InputCommand("Runtime.evaluate",InputRoutingCommands.TargetParameters);
+            EmitInput("target",target);
+            var result=Object(target); object remoteObject;
+            if(result.Count!=1 || !result.TryGetValue("result",out remoteObject)) throw new InvalidDataException("CDP target returned exception or unexpected fields");
+            var remote=remoteObject as Dictionary<string,object>; object byValue;
+            if(remote==null || !remote.TryGetValue("value",out byValue)) throw new InvalidDataException("CDP target returned no value");
+            EqualString(remote,"type","object");
+            var identity=byValue as Dictionary<string,object>;
+            if(identity==null || identity.Count!=3) throw new InvalidDataException("CDP page identity shape differs");
+            EqualString(identity,"url",WebDomContract.FormUrl); EqualString(identity,"title","CS-3 form fixture"); EqualBoolean(identity,"scriptReady",true);
+            await InputCommand("Emulation.setFocusEmulationEnabled",HostProbeContract.FocusParameters);
+            phase="input_native_focus";
+            controller.MoveFocus(CoreWebView2MoveFocusReason.Next);
+            await Task.Delay(InputSettleMilliseconds); RequireProbeActive();
+            await InputSnapshot("focus");
+            phase=InsertBeforeKey?"independent_text_insertion":"no_insertion_control";
+            if(InsertBeforeKey) await InputCommand("Input.insertText",HostProbeContract.InsertParameters);
+            await Task.Delay(InputSettleMilliseconds); RequireProbeActive();
+            await InputSnapshot("text");
+            phase="independent_enter_delivery";
+            await InputCommand("Input.dispatchKeyEvent",HostProbeContract.EnterDownParameters);
+            await InputCommand("Input.dispatchKeyEvent",HostProbeContract.EnterUpParameters);
+            await Task.Delay(KeyObservationMilliseconds); RequireProbeActive();
+            await InputSnapshot("key");
+            inputCommands.RequireComplete(); RequireProbeActive();
+            Emit("input_complete",0,0,"routing_only");
+            Census(); RequireProbeActive(); ready=true; phase="controller_ready";
+            Emit(phase,0,checked((uint)core.BrowserProcessId),"input_diagnostic");
         }
         static async Task RunDomProbe() {
             phase = "focus_emulation";
@@ -383,6 +450,14 @@ namespace Vcp.Cs3WebViewDraft {
                 Emit("dom_chunk",0,0,id+":"+offset+":"+bytes.Length+":"+hash+":"+data);
             }
         }
+        static void EmitInput(string id, string raw) {
+            byte[] bytes=domBudget.Add(raw); string hash;
+            using(var algorithm=SHA256.Create()) hash=Hex(algorithm.ComputeHash(bytes));
+            for(int offset=0;offset<bytes.Length;offset+=DomChunkBytes) {
+                int count=Math.Min(DomChunkBytes,bytes.Length-offset);
+                Emit("input_chunk",0,0,id+":"+offset+":"+bytes.Length+":"+hash+":"+Convert.ToBase64String(bytes,offset,count));
+            }
+        }
         static string Hex(byte[] bytes) {
             var text=new StringBuilder(bytes.Length*2);
             foreach(byte value in bytes) text.Append(value.ToString("x2",System.Globalization.CultureInfo.InvariantCulture));
@@ -441,7 +516,7 @@ namespace Vcp.Cs3WebViewDraft {
                     core.PermissionRequested -= PermissionRequested;
                     core.LaunchingExternalUriScheme -= LaunchingExternalUriScheme;
                 }
-                if (controller != null) { controller.Close(); controller = null; core = null; Emit("controller_closed",0,0,"job_drain_not_attested"); }
+                if (controller != null) { controller.GotFocus-=GotNativeFocus; controller.LostFocus-=LostNativeFocus; controller.Close(); controller = null; core = null; Emit("controller_closed",0,0,"job_drain_not_attested"); }
                 else Emit("controller_absent",0,0,"job_drain_not_attested");
             } catch (Exception error) { lifecycle.Fail("close_failed",error.HResult); try { Emit("close_failed",error.HResult,0,phase); } catch { } }
             finally { if (pump != null) pump.ExitThread(); }

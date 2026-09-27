@@ -48,7 +48,7 @@ foreach ($dep in $deps) {
     $dep.source=Assert-PlainPath $dep.source ('Pinned dependency '+$dep.name) $true
     if ((Hash $dep.source) -cne $dep.sha256) { throw 'Pinned SDK/loader input differs' }
 }
-$names=@('HostContract.cs','HostContractTests.cs','WebViewHost.cs','WebDomContract.cs','WebDomContractTests.cs','NativeProbe.cs','WebViewSupervisor.cs','WorkerGuardian.cs','ProbeContract.cs','DomEvidence.cs','Invoke-NativeProbe.ps1','Input-Policy.ps1','Controller-helpers.ps1','Pe-Contract.ps1','Test-Contracts.ps1','Test-WorkerGuardian.ps1')
+$names=@('HostContract.cs','HostContractTests.cs','WebViewHost.cs','WebDomContract.cs','WebDomContractTests.cs','NativeProbe.cs','WebViewSupervisor.cs','WorkerGuardian.cs','ProbeContract.cs','DomEvidence.cs','InputDiagnosticEvidence.cs','Invoke-NativeProbe.ps1','Input-Policy.ps1','Controller-helpers.ps1','Pe-Contract.ps1','Test-Contracts.ps1','Test-WorkerGuardian.ps1')
 $sources=@($names | ForEach-Object { $file=Assert-PlainPath (Join-Path $source $_) ('Diagnostic source '+$_) $true; [ordered]@{path=$_;sha256=(Hash $file)} })
 $builderSha256=Hash $PSCommandPath
 $compiler=Assert-PlainPath 'C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe' 'C# compiler' $true
@@ -106,7 +106,7 @@ $buildOutputs=@('WebViewHost.exe','HostContractTests.exe','WebDomContractTests.e
     [ordered]@{path=$_;bytes=(Get-Item -LiteralPath $file).Length;sha256=(Hash $file)}
 }
 $manifest=[ordered]@{
-    schema='cs3-webview2-inputs/1';runtime='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\154.0.4258.37';version='154.0.4258.37'
+    schema='cs3-webview2-inputs/1';probe_kind='input-routing-diagnostic';input_host='message-only-hidden';insert_before_key=$false;settle_milliseconds=100;key_observation_milliseconds=0;runtime='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\154.0.4258.37';version='154.0.4258.37'
     runtime_executable_sha256='3f48b1ab9a5d5e65a96307b6655e29882bd70bb682ce4b67a9e7a7f07f61019d'
     browser_argument='--edge-webview-no-dpi-workaround';host=@($hostFiles);build_outputs=@($buildOutputs);sources=$sources;external_dependencies=@($deps | ForEach-Object { [ordered]@{path=$_.name;sha256=$_.sha256} });toolchain=$toolchain
     builder_sha256=$builderSha256;builder_powershell=$PSVersionTable.PSVersion.ToString();builder_architecture=[Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()

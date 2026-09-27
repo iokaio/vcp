@@ -287,6 +287,10 @@ server tests does not establish browser execution or six-skill qualification.
 The [native DOM checkpoint](../development/cs3-native-dom-checkpoint.md) preserves
 each new attempt, cleanup evidence and remaining limitations. A separate WEB
 preparation cohort and non-default candidate do not authorize a paid campaign.
+The [input-routing diagnostic](../development/cs3-input-routing-diagnostic.md)
+demonstrates hidden-host keyboard delivery with a pre-dispatch timing dependency
+in the existing session. Input readiness and full browser qualification remain
+open; an RDP change or another machine was not needed for this diagnostic.
 
 ## CS-4 — Document and data adapters
 

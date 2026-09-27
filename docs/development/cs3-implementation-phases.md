@@ -14,6 +14,9 @@ Current evidence is tracked in the [native checkpoint](cs3-native-dom-checkpoint
 and [six-skill readiness ledger](cs3-six-skill-readiness.md). The bounded HTTP
 server, non-default candidate and separate six-case WEB preparation inventory
 have offline tests. These are prerequisites; none closes a phase's full exit gate.
+The [input-routing follow-up](cs3-input-routing-diagnostic.md) now demonstrates
+hidden-host input delivery with a pre-dispatch timing dependency. No RDP change
+or new worker was needed for that diagnostic; production readiness is still open.
 
 ## Phase 1 — Prove the proposed Windows boundary
 

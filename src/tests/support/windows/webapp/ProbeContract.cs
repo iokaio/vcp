@@ -69,10 +69,11 @@ public static class ProbeContract {
             if(result.Elapsed<0 || result.Elapsed>20000 || root.GetProperty("hresult").GetString()!="0x00000000" || (result.Version!="" && result.Version!=Version)) throw new IOException("Host failed or expired");
             string kind=root.GetProperty("kind").GetString();
             result.Kind = kind;
-            if(kind==null || kind.Length>(result.Phase=="dom_chunk"?256:64) || !new[]{"host_started","environment_create","environment_created","process_snapshot","reported_process","controller_create","controller_created","controller_ready","stop_received","controller_closed","dom_chunk","dom_complete"}.Contains(result.Phase)) throw new IOException("Unaccepted host phase");
-            if ((result.Phase=="dom_chunk" || result.Phase=="dom_complete") && result.Pid!=0) throw new IOException("Unexpected DOM PID");
+            bool chunk=result.Phase=="dom_chunk" || result.Phase=="input_chunk";
+            if(kind==null || kind.Length>(chunk?256:64) || !new[]{"host_started","environment_create","environment_created","process_snapshot","reported_process","controller_create","controller_created","controller_ready","stop_received","controller_closed","dom_chunk","dom_complete","input_chunk","input_complete"}.Contains(result.Phase)) throw new IOException("Unaccepted host phase");
+            if ((chunk || result.Phase=="dom_complete" || result.Phase=="input_complete") && result.Pid!=0) throw new IOException("Unexpected evidence PID");
             if ((result.Phase=="reported_process" || result.Phase=="controller_ready") && result.Pid==0) throw new IOException("Missing reported PID");
-            if(result.Phase=="controller_ready" && (kind!="browser" || result.Version!=Version)) throw new IOException("Unbound readiness");
+            if(result.Phase=="controller_ready" && ((kind!="browser" && kind!="input_diagnostic") || result.Version!=Version)) throw new IOException("Unbound readiness");
             return result;
         }
     }
@@ -114,6 +115,12 @@ public static class ProbeContract {
         string nonce=new string('a',64);
         string line="{\"schema\":\"cs3-webview2-host/1\",\"nonce\":\""+nonce+"\",\"phase\":\"controller_ready\",\"elapsed_ms\":100,\"hresult\":\"0x00000000\",\"version\":\"154.0.4258.37\",\"pid\":123,\"kind\":\"browser\",\"containment_attested\":false,\"browser_qualified\":false}";
         check(Parse(line,nonce).Pid==123); reject(()=>Parse(line,new string('b',64))); reject(()=>Parse(line.Replace("100,","20001,"),nonce)); reject(()=>Parse(line.Replace("123,","0,"),nonce)); reject(()=>Parse(line.Replace("0x00000000","0x80070005"),nonce)); reject(()=>Parse(line.Replace("\"containment_attested\":false","\"containment_attested\":true"),nonce)); reject(()=>Parse(line.Replace("\"pid\":123","\"pid\":123,\"pid\":456"),nonce)); reject(()=>Parse(line.Replace("controller_ready","navigation_rejected"),nonce));
+        check(Parse(line.Replace("\"kind\":\"browser\"","\"kind\":\"input_diagnostic\""),nonce).Kind=="input_diagnostic");
+        reject(()=>Parse(line.Replace("\"kind\":\"browser\"","\"kind\":\"routing_only\""),nonce));
+        string inputChunk=line.Replace("\"phase\":\"controller_ready\"","\"phase\":\"input_chunk\"").Replace("\"pid\":123","\"pid\":0").Replace("\"kind\":\"browser\"","\"kind\":\"target:0:1:"+new string('a',64)+":eA==\"");
+        check(Parse(inputChunk,nonce).Phase=="input_chunk"); reject(()=>Parse(inputChunk.Replace("\"pid\":0","\"pid\":1"),nonce));
+        string inputComplete=inputChunk.Replace("\"phase\":\"input_chunk\"","\"phase\":\"input_complete\"").Replace("\"kind\":\"target:0:1:"+new string('a',64)+":eA==\"","\"kind\":\"routing_only\"");
+        check(Parse(inputComplete,nonce).Kind=="routing_only");
         var inventory=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) { {@"C:\\approved.exe",new string('f',64)} };
         var diagnostics=new List<object>();
         check(RequireImage(@"C:\\approved.exe",@"C:\\approved.exe",17,123,inventory,diagnostics.Add)==new string('f',64));

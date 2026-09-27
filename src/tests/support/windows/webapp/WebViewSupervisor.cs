@@ -57,6 +57,8 @@ public static partial class NativeProbe {
         var lines=new BlockingCollection<string>(32); Task reader=null; ExceptionDispatchInfo primary=null; var cleanupFailures=new List<string>();
         string phase="prepare_native_launch"; bool ready=false,stopSent=false,hostClosed=false,hostStopped=false; uint readyPid=0;
         var dom = new DomEvidence();
+        var inputDiagnostic = new InputDiagnosticEvidence();
+        string evidenceRoute = null;
         var clock=new Stopwatch();
         Action observe=()=> {
             if(WaitForSingleObject(owner,0)!=258) throw new IOException("Controller owner lost");
@@ -126,10 +128,23 @@ public static partial class NativeProbe {
                 string line;
                 while(lines.TryTake(out line)) {
                     var item=ProbeContract.ParseRetainingRejected(line,nonce,Diagnostic); Event(new { type="host_observation",line });
-                    if (item.Phase=="dom_chunk") dom.Add(item.Kind);
-                    if (item.Phase=="dom_complete") dom.Finish(item.Kind);
+                    if (item.Phase=="dom_chunk" || item.Phase=="dom_complete") {
+                        if (evidenceRoute!=null && evidenceRoute!="dom") throw new IOException("Mixed host evidence routes");
+                        evidenceRoute="dom";
+                        if(item.Phase=="dom_chunk") dom.Add(item.Kind); else dom.Finish(item.Kind);
+                    }
+                    if (item.Phase=="input_chunk" || item.Phase=="input_complete") {
+                        if (evidenceRoute!=null && evidenceRoute!="input_diagnostic") throw new IOException("Mixed host evidence routes");
+                        evidenceRoute="input_diagnostic";
+                        if(item.Phase=="input_chunk") inputDiagnostic.Add(item.Kind); else inputDiagnostic.Finish(item.Kind);
+                    }
                     if(item.Pid!=0) reported.Add(item.Pid);
-                    if(item.Phase=="controller_ready") { if(ready || !dom.Complete) throw new IOException("Duplicate readiness or incomplete independent DOM evidence"); ready=true; readyPid=item.Pid; }
+                    if(item.Phase=="controller_ready") {
+                        if(ready) throw new IOException("Duplicate readiness");
+                        if(item.Kind=="browser" && (evidenceRoute!="dom" || !dom.Complete)) throw new IOException("Incomplete independent DOM evidence");
+                        if(item.Kind=="input_diagnostic" && (evidenceRoute!="input_diagnostic" || !inputDiagnostic.Complete)) throw new IOException("Incomplete independent input diagnostic evidence");
+                        ready=true; readyPid=item.Pid;
+                    }
                     if(item.Phase=="stop_received") { if(!stopSent) throw new IOException("Host STOP without supervisor command"); hostStopped=true; }
                     if(item.Phase=="controller_closed") { if(!hostStopped) throw new IOException("Host closed before STOP"); hostClosed=true; }
                 }
@@ -145,7 +160,9 @@ public static partial class NativeProbe {
             uint exit; Check(GetExitCodeProcess(process.Process,out exit));
             if(exit!=0 || !ready || !hostStopped || !hostClosed) throw new IOException("Incomplete host startup/STOP outcome");
             foreach(uint pid in reported) if(!observed.ContainsKey(pid)) throw new IOException("Reported helper not independently verified");
-            Event(new { type="dom_observed",browser_qualification=false,production_profile_qualified=false,prototype_only=true,documents=dom.Documents,version=ProbeContract.Version,verified_processes=observed.Count });
+            if(evidenceRoute=="dom") Event(new { type="dom_observed",browser_qualification=false,production_profile_qualified=false,prototype_only=true,documents=dom.Documents,version=ProbeContract.Version,verified_processes=observed.Count });
+            else if(evidenceRoute=="input_diagnostic") Event(new { type="input_diagnostic_observed",target_verified=inputDiagnostic.TargetVerified,text_inserted=inputDiagnostic.TextInserted,focus_value=inputDiagnostic.FocusValue,text_value=inputDiagnostic.TextValue,key_value=inputDiagnostic.KeyValue,key_delivered=inputDiagnostic.KeyDelivered,key_downs=inputDiagnostic.KeyDowns,key_presses=inputDiagnostic.KeyPresses,key_ups=inputDiagnostic.KeyUps,submits=inputDiagnostic.Submits,submission_observed=inputDiagnostic.SubmissionObserved,status=inputDiagnostic.Status,browser_qualification=false,production_profile_qualified=false,prototype_only=true,documents=inputDiagnostic.Documents,version=ProbeContract.Version,verified_processes=observed.Count });
+            else throw new IOException("No completed host evidence route");
         } catch(Exception errorValue) {
             primary=ExceptionDispatchInfo.Capture(errorValue); Diagnostic(new { type="primary_failure",phase,exception=Bounded(errorValue.ToString(),2048),hresult=errorValue.HResult });
         } finally {

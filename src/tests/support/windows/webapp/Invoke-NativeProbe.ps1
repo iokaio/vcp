@@ -12,8 +12,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Controller-helpers.ps1')
 . (Join-Path $PSScriptRoot 'Input-Policy.ps1')
 if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne 'X64') { throw 'Native x64 Windows required' }
-Add-Type -Path @((Join-Path $PSScriptRoot 'NativeProbe.cs'),(Join-Path $PSScriptRoot 'WorkerGuardian.cs'),(Join-Path $PSScriptRoot 'WebViewSupervisor.cs'),(Join-Path $PSScriptRoot 'ProbeContract.cs'),(Join-Path $PSScriptRoot 'DomEvidence.cs')) -ErrorAction Stop
-if ($Mode -eq 'compile-only') { [Vcp.Cs3Draft.NativeProbe]::CheckLayouts(); $count=[Vcp.Cs3Draft.ProbeContract]::Test(); $domCount=[Vcp.Cs3Draft.DomEvidence]::Test(); $guardianCount=[Vcp.Cs3Draft.NativeProbe]::TestWorkerGuardianContract(); $scratchCount=[Vcp.Cs3Draft.NativeProbe]::TestScratchVanishedContract(); "Worker compiled; $count protocol/coverage, $domCount DOM evidence, $guardianCount guardian and $scratchCount scratch assertions passed. Only a read-only absent-path check; no native probe method, host, Core, profile, ACL or registry operation invoked."; return }
+Add-Type -Path @((Join-Path $PSScriptRoot 'NativeProbe.cs'),(Join-Path $PSScriptRoot 'WorkerGuardian.cs'),(Join-Path $PSScriptRoot 'WebViewSupervisor.cs'),(Join-Path $PSScriptRoot 'ProbeContract.cs'),(Join-Path $PSScriptRoot 'DomEvidence.cs'),(Join-Path $PSScriptRoot 'InputDiagnosticEvidence.cs')) -ErrorAction Stop
+if ($Mode -eq 'compile-only') { [Vcp.Cs3Draft.NativeProbe]::CheckLayouts(); $count=[Vcp.Cs3Draft.ProbeContract]::Test(); $domCount=[Vcp.Cs3Draft.DomEvidence]::Test(); $inputCount=[Vcp.Cs3Draft.InputDiagnosticEvidence]::Test(); $guardianCount=[Vcp.Cs3Draft.NativeProbe]::TestWorkerGuardianContract(); $scratchCount=[Vcp.Cs3Draft.NativeProbe]::TestScratchVanishedContract(); "Worker compiled; $count protocol/coverage, $domCount DOM evidence, $inputCount input diagnostic, $guardianCount guardian and $scratchCount scratch assertions passed. Only a read-only absent-path check; no native probe method, host, Core, profile, ACL or registry operation invoked."; return }
 if (-not $Execute) { throw 'Draft native execution requires independent review and explicit -Execute' }
 $inputsFile=Join-Path $PSScriptRoot 'inputs.json'
 if ($Mode -eq 'webview2-dom' -and ($ExpectedInputsSha256 -cnotmatch '^[a-f0-9]{64}$' -or (Get-FileHash -LiteralPath $inputsFile).Hash.ToLowerInvariant() -cne $ExpectedInputsSha256)) { throw 'Exact reviewed build-manifest hash required before a new native attempt' }
@@ -231,7 +231,14 @@ try {
     try { Assert-NoWebViewOverrides; $value.policy_unchanged=$true } catch { Record-ControllerCleanupFailure $value 'policy_postcheck' $_ }
     try { $after=Get-InputSnapshot $inputs.runtime -CheckRuntimeAcl -ContainerSid $sid; Assert-SnapshotSame $value.runtime_before $after; $value.runtime_unchanged=$true } catch { Record-ControllerCleanupFailure $value 'runtime_postcheck' $_ }
     if ($value.Contains('host_before')) { try { Assert-SnapshotSame $value.host_before (Get-InputSnapshot (Join-Path $root 'host')); $value.host_unchanged=$true } catch { Record-ControllerCleanupFailure $value 'host_postcheck' $_ } }
-    if (-not $controllerFailure) { $value.outcome=if ($workerExitCode -eq 0 -and $jobEmpty -and $value.processes_drained -and $value.runtime_unchanged -and $value.host_unchanged -and $value.policy_unchanged -and -not $value.cleanup_errors.Count -and @($value.events | Where-Object type -ceq 'dom_observed').Count -eq 1) { 'dom_observed' } else { 'dom_inconclusive_or_failure' } }
+    if (-not $controllerFailure) {
+        $clean = $workerExitCode -eq 0 -and $jobEmpty -and $value.processes_drained -and $value.runtime_unchanged -and $value.host_unchanged -and $value.policy_unchanged -and -not $value.cleanup_errors.Count
+        $inputObserved = @($value.events | Where-Object type -ceq 'input_diagnostic_observed').Count
+        $domObserved = @($value.events | Where-Object type -ceq 'dom_observed').Count
+        if ($clean -and $inputObserved -eq 1 -and $domObserved -eq 0) { $value.outcome='input_diagnostic_observed' }
+        elseif ($clean -and $domObserved -eq 1 -and $inputObserved -eq 0) { $value.outcome='dom_observed' }
+        else { $value.outcome='input_diagnostic_inconclusive_or_failure' }
+    }
     if ($value.profile_created) {
         $value.status = 'cleanup_pending'; $pendingSaved=$false
         try { JsonWrite $receiptPath $value; $pendingSaved=$true } catch { Record-ControllerCleanupFailure $value 'save_cleanup_intent' $_ }
@@ -243,6 +250,10 @@ try {
                 $value.status='cleaned'
             } catch { $value.status='cleanup_failed'; Record-ControllerCleanupFailure $value 'delete_profile' $_ }
         }
+    }
+    if ($value.cleanup_errors.Count) {
+        if ($value.outcome -ceq 'input_diagnostic_observed') { $value.outcome='input_diagnostic_inconclusive_or_failure' }
+        elseif ($value.outcome -ceq 'dom_observed') { $value.outcome='dom_inconclusive_or_failure' }
     }
     try { JsonWrite $receiptPath $value } catch { Record-ControllerCleanupFailure $value 'save_final_receipt' $_; [Console]::Error.WriteLine('Final receipt write failed; primary controller error remains authoritative.') }
 }
