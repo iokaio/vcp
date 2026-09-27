@@ -11,7 +11,7 @@ using System.Text.RegularExpressions;
 
 namespace Vcp.Cs3Draft {
 public sealed class DomEvidence {
-    static readonly string[] Names = { "initial", "focused", "invalid", "success", "accessibility", "origin" };
+    static readonly string[] Names = { "initial", "focused", "invalid", "filled", "success", "accessibility", "origin" };
     static readonly UTF8Encoding Utf8 = new UTF8Encoding(false, true);
     int next, total, lifetime; string hash; MemoryStream pending;
     bool completed, failed;
@@ -78,20 +78,24 @@ public sealed class DomEvidence {
                 Exact(value, "url", "origin"); Equal(value, "url", "https://cs3-fixture.invalid/form.html"); Equal(value, "origin", "https://cs3-fixture.invalid"); return;
             }
             if (name == "accessibility") { Accessibility(value); return; }
-            if (name != "initial" && name != "focused" && name != "invalid" && name != "success") throw new IOException("Unknown DOM oracle");
+            if (name != "initial" && name != "focused" && name != "invalid" && name != "filled" && name != "success") throw new IOException("Unknown DOM oracle");
             Exact(value, "url", "readyState", "title", "name", "value", "required", "error", "status", "active",
-                "scriptReady", "keyDowns", "keyPresses", "keyUps", "submits", "lastKey", "trustedKeys");
+                "scriptReady", "keyDowns", "keyPresses", "keyUps", "submits", "lastKey", "trustedKeys",
+                "readinessDowns", "readinessKeyPresses", "readinessUps", "readinessRepeats", "readinessSequence", "readinessTrusted");
             Equal(value, "url", "https://cs3-fixture.invalid/form.html"); Equal(value, "readyState", "complete");
             Equal(value, "title", "CS-3 form fixture"); Equal(value, "name", "Name");
             if (value.GetProperty("required").ValueKind != JsonValueKind.True) throw new IOException("Required input missing");
-            Equal(value, "value", name == "success" ? "Ada" : "");
+            Equal(value, "value", name == "filled" || name == "success" ? "Ada" : "");
             Equal(value, "error", name == "invalid" ? "Name is required." : "");
             Equal(value, "status", name == "success" ? "Saved Ada." : "");
             Equal(value, "active", name == "initial" ? "BODY" : "name");
             True(value, "scriptReady"); True(value, "trustedKeys");
-            int events = name == "success" ? 2 : (name == "invalid" ? 1 : 0);
+            int events = name == "success" ? 2 : (name == "invalid" || name == "filled" ? 1 : 0);
             Equal(value, "keyDowns", events); Equal(value, "keyPresses", events); Equal(value, "keyUps", events); Equal(value, "submits", events);
             Equal(value, "lastKey", events == 0 ? "" : "Enter");
+            int readiness = name == "initial" ? 0 : (name == "filled" || name == "success" ? 2 : 1);
+            Equal(value, "readinessDowns", readiness); Equal(value, "readinessKeyPresses", 0); Equal(value, "readinessUps", readiness); Equal(value, "readinessRepeats", 0);
+            Equal(value, "readinessSequence", readiness == 0 ? "" : (readiness == 1 ? "DU" : "DUDU")); True(value, "readinessTrusted");
         }
     }
     static string AxText(JsonElement node, string field, params string[] allowedTypes) {
@@ -142,10 +146,11 @@ public sealed class DomEvidence {
     public static int Test() {
         int checks = 0;
         Action<Action> reject = action => { bool failed = false; try { action(); } catch { failed = true; } if (!failed) throw new Exception("Expected DOM rejection"); checks++; };
-        string initial = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"\",\"required\":true,\"error\":\"\",\"status\":\"\",\"active\":\"BODY\",\"scriptReady\":true,\"keyDowns\":0,\"keyPresses\":0,\"keyUps\":0,\"submits\":0,\"lastKey\":\"\",\"trustedKeys\":true}";
-        string focused = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"\",\"required\":true,\"error\":\"\",\"status\":\"\",\"active\":\"name\",\"scriptReady\":true,\"keyDowns\":0,\"keyPresses\":0,\"keyUps\":0,\"submits\":0,\"lastKey\":\"\",\"trustedKeys\":true}";
-        string invalid = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"\",\"required\":true,\"error\":\"Name is required.\",\"status\":\"\",\"active\":\"name\",\"scriptReady\":true,\"keyDowns\":1,\"keyPresses\":1,\"keyUps\":1,\"submits\":1,\"lastKey\":\"Enter\",\"trustedKeys\":true}";
-        string success = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"Ada\",\"required\":true,\"error\":\"\",\"status\":\"Saved Ada.\",\"active\":\"name\",\"scriptReady\":true,\"keyDowns\":2,\"keyPresses\":2,\"keyUps\":2,\"submits\":2,\"lastKey\":\"Enter\",\"trustedKeys\":true}";
+        string initial = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"\",\"required\":true,\"error\":\"\",\"status\":\"\",\"active\":\"BODY\",\"scriptReady\":true,\"keyDowns\":0,\"keyPresses\":0,\"keyUps\":0,\"submits\":0,\"lastKey\":\"\",\"trustedKeys\":true,\"readinessDowns\":0,\"readinessKeyPresses\":0,\"readinessUps\":0,\"readinessRepeats\":0,\"readinessSequence\":\"\",\"readinessTrusted\":true}";
+        string focused = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"\",\"required\":true,\"error\":\"\",\"status\":\"\",\"active\":\"name\",\"scriptReady\":true,\"keyDowns\":0,\"keyPresses\":0,\"keyUps\":0,\"submits\":0,\"lastKey\":\"\",\"trustedKeys\":true,\"readinessDowns\":1,\"readinessKeyPresses\":0,\"readinessUps\":1,\"readinessRepeats\":0,\"readinessSequence\":\"DU\",\"readinessTrusted\":true}";
+        string invalid = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"\",\"required\":true,\"error\":\"Name is required.\",\"status\":\"\",\"active\":\"name\",\"scriptReady\":true,\"keyDowns\":1,\"keyPresses\":1,\"keyUps\":1,\"submits\":1,\"lastKey\":\"Enter\",\"trustedKeys\":true,\"readinessDowns\":1,\"readinessKeyPresses\":0,\"readinessUps\":1,\"readinessRepeats\":0,\"readinessSequence\":\"DU\",\"readinessTrusted\":true}";
+        string filled = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"Ada\",\"required\":true,\"error\":\"\",\"status\":\"\",\"active\":\"name\",\"scriptReady\":true,\"keyDowns\":1,\"keyPresses\":1,\"keyUps\":1,\"submits\":1,\"lastKey\":\"Enter\",\"trustedKeys\":true,\"readinessDowns\":2,\"readinessKeyPresses\":0,\"readinessUps\":2,\"readinessRepeats\":0,\"readinessSequence\":\"DUDU\",\"readinessTrusted\":true}";
+        string success = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"Ada\",\"required\":true,\"error\":\"\",\"status\":\"Saved Ada.\",\"active\":\"name\",\"scriptReady\":true,\"keyDowns\":2,\"keyPresses\":2,\"keyUps\":2,\"submits\":2,\"lastKey\":\"Enter\",\"trustedKeys\":true,\"readinessDowns\":2,\"readinessKeyPresses\":0,\"readinessUps\":2,\"readinessRepeats\":0,\"readinessSequence\":\"DUDU\",\"readinessTrusted\":true}";
         string origin = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"origin\":\"https://cs3-fixture.invalid\"}";
         string root = "{\"nodeId\":\"1\",\"ignored\":false,\"role\":{\"type\":\"internalRole\",\"value\":\"RootWebArea\"},\"name\":{\"type\":\"computedString\",\"value\":\"CS-3 form fixture\"},\"properties\":[]}";
         string textbox = "{\"nodeId\":\"2\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"textbox\"},\"name\":{\"type\":\"computedString\",\"value\":\"Name\"},\"value\":{\"type\":\"string\",\"value\":\"Ada\"},\"properties\":[{\"name\":\"required\",\"value\":{\"type\":\"booleanOrUndefined\",\"value\":true}}]}";
@@ -168,19 +173,28 @@ public sealed class DomEvidence {
             return "{\"nodes\":["+String.Join(",",nodes)+"]}";
         };
 
-        Validate("initial",initial); Validate("focused",focused); Validate("invalid",invalid); Validate("success",success);
-        Validate("accessibility",accessibility); Validate("origin",origin); checks += 6;
+        Validate("initial",initial); Validate("focused",focused); Validate("invalid",invalid); Validate("filled",filled); Validate("success",success);
+        Validate("accessibility",accessibility); Validate("origin",origin); checks += 7;
         var complete = new DomEvidence();
-        add(complete,"initial",initial); add(complete,"focused",focused); add(complete,"invalid",invalid); add(complete,"success",success);
+        add(complete,"initial",initial); add(complete,"focused",focused); add(complete,"invalid",invalid); add(complete,"filled",filled); add(complete,"success",success);
         add(complete,"accessibility",accessibility); add(complete,"origin",origin);
-        if(complete.Documents!=6 || complete.Complete) throw new Exception("Six reconstructed documents must await terminal record"); checks++;
+        if(complete.Documents!=7 || complete.Complete) throw new Exception("Seven reconstructed documents must await terminal record"); checks++;
         complete.Finish("form_and_origin");
-        if(!complete.Complete || complete.Documents!=6) throw new Exception("Full DOM evidence did not complete"); checks++;
+        if(!complete.Complete || complete.Documents!=7) throw new Exception("Full DOM evidence did not complete"); checks++;
 
         reject(() => Validate("initial",initial.Replace("\"required\":true","\"required\":false")));
         reject(() => Validate("initial",initial.Replace("\"value\":\"\"","\"value\":\"\",\"value\":\"Ada\"")));
         reject(() => Validate("initial",initial.Replace("\"scriptReady\":true","\"scriptReady\":false")));
         reject(() => Validate("invalid",invalid.Replace("\"trustedKeys\":true","\"trustedKeys\":false")));
+        reject(() => Validate("focused",focused.Replace("\"readinessUps\":1","\"readinessUps\":0")));
+        reject(() => Validate("focused",focused.Replace("\"readinessKeyPresses\":0","\"readinessKeyPresses\":1")));
+        reject(() => Validate("focused",focused.Replace("\"readinessRepeats\":0","\"readinessRepeats\":1")));
+        reject(() => Validate("focused",focused.Replace("\"readinessSequence\":\"DU\"","\"readinessSequence\":\"UD\"")));
+        reject(() => Validate("focused",focused.Replace("\"readinessTrusted\":true","\"readinessTrusted\":false")));
+        reject(() => Validate("invalid",invalid.Replace("\"readinessDowns\":1","\"readinessDowns\":2")));
+        reject(() => Validate("filled",filled.Replace("\"submits\":1","\"submits\":2")));
+        reject(() => Validate("filled",filled.Replace("\"status\":\"\"","\"status\":\"Saved Ada.\"")));
+        reject(() => Validate("success",success.Replace("\"readinessSequence\":\"DUDU\"","\"readinessSequence\":\"DUDUDU\"")));
         reject(() => Validate("invalid",invalid.Replace("\"keyDowns\":1","\"keyDowns\":0")));
         reject(() => Validate("focused",focused.Replace("\"active\":\"name\"","\"active\":\"BODY\"")));
         reject(() => Validate("focused",focused.Replace("\"status\":\"\"","\"status\":\"Saved Ada.\"")));

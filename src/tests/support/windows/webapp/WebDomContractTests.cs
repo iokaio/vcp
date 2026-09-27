@@ -83,7 +83,16 @@ internal static class WebDomContractTests
         True(WebDomContract.FormJavaScript.Contains("name.focus();"), "invalid submit focuses input");
         True(WebDomContract.FormJavaScript.Contains("Name is required."), "empty-name error");
         True(WebDomContract.FormJavaScript.Contains("'Saved ' + value + '.'"), "named success");
-        True(WebDomContract.FormJavaScript.Contains("keyDowns:0,keyPresses:0,keyUps:0,submits:0,lastKey:'',trustedKeys:true"), "bounded input evidence initialized");
+        True(WebDomContract.FormJavaScript.Contains("keyDowns:0,keyPresses:0,keyUps:0,submits:0,lastKey:'',trustedKeys:true"), "bounded ordinary input evidence initialized");
+        True(WebDomContract.FormJavaScript.Contains("readinessDowns:0,readinessKeyPresses:0,readinessUps:0,readinessRepeats:0,readinessSequence:'',readinessTrusted:true"), "bounded readiness evidence initialized");
+        True(WebDomContract.FormJavaScript.Contains("event.key !== 'F24' || event.code !== 'F24'"), "only exact F24 is intercepted");
+        True(WebDomContract.FormJavaScript.Contains("evidence.readinessSequence + (field === 'keyDowns' ? 'D' : field === 'keyPresses' ? 'P' : 'U')"), "readiness ordering is retained");
+        True(WebDomContract.FormJavaScript.Contains("event.repeat === true ? 1 : 0"), "readiness repeats are retained");
+        True(WebDomContract.FormJavaScript.Contains("evidence.readinessTrusted = evidence.readinessTrusted && event.isTrusted === true"), "readiness trust is retained");
+        True(WebDomContract.FormJavaScript.Contains("event.preventDefault(); event.stopImmediatePropagation(); return true;"), "readiness key is suppressed before ordinary handling");
+        int readinessHandler = WebDomContract.FormJavaScript.IndexOf("const readiness =", StringComparison.Ordinal);
+        int ordinaryHandler = WebDomContract.FormJavaScript.IndexOf("const key =", StringComparison.Ordinal);
+        True(readinessHandler >= 0 && ordinaryHandler > readinessHandler, "readiness interception precedes ordinary accounting");
         True(WebDomContract.FormJavaScript.Contains("Math.min(16, evidence[field] + 1)"), "key counters capped");
         True(WebDomContract.FormJavaScript.Contains("Math.min(16, evidence.submits + 1)"), "submit counter capped");
         True(WebDomContract.FormJavaScript.Contains("event.isTrusted === true"), "trusted input is observed");

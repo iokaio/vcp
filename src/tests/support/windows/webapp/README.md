@@ -67,19 +67,25 @@ and runs only compile/pure contract checks. It does not launch WebView2 or anoth
 browser. Inspect the emitted `inputs.json`, source/toolchain hashes, build output,
 and the complete native execution plan before any launch.
 
-The fixed form records passive script readiness and trusted key/submit counters;
-read-only snapshots are checked independently by the parent. Native forward
-focus is not a claim of CDP Tab input. The current source-bound build runs a
-separate input-routing diagnostic: read-only CDP target identity, native focus
-observations, an optional fixed text-insertion control, then Enter. The current
-compiled control omits text insertion and waits 100 ms after focus and at the
-pre-key observation stage, with no post-key delay, within the unchanged
-20-second lifetime. These source-bound timing controls are not a production
-readiness strategy. The [routing report](../../../../../docs/development/cs3-input-routing-diagnostic.md)
-retains the successful and unsuccessful timing comparisons.
-`input_diagnostic_observed` means all diagnostic records were retained, not that
-keyboard input or any full DOM/AX/origin oracle passed. The prior full-form
-assertions remain separate and are not relaxed. See the
+The fixed form records passive script readiness and separate trusted readiness,
+ordinary-key and submit counters; read-only snapshots are checked independently
+by the parent. Native forward focus is not a claim of CDP Tab input. The retained
+[routing report](../../../../../docs/development/cs3-input-routing-diagnostic.md)
+records the successful and unsuccessful timing controls and remains unchanged.
+
+The current source-bound build is a fresh full-DOM diagnostic. After each fixed
+100-ms pre-dispatch settle window it sends one exact F24 down/up pair, which the
+fixture intercepts and suppresses before ordinary form accounting. Exact trusted
+down-then-up evidence, zero F24 keypress/repeat evidence, unchanged form state and
+unchanged ordinary counters are required before the corresponding Enter. Missing,
+partial, reordered, late or extra F24 evidence fails the run; the sentinel, Enter
+and literal Ada insertion are never retried. The first Enter must produce the
+invalid form state; an ordered `filled` document retains Ada and the second
+sentinel before the next Enter; the second Enter must produce `Saved Ada.`; and
+the existing full accessibility and denied-origin oracles remain unchanged. The
+F24 observation proves only that this synthetic key reached the renderer at that
+moment; the settle window is not promoted to a general WebView2 readiness
+guarantee. See the
 [checkpoint](../../../../../docs/development/cs3-native-dom-checkpoint.md).
 An exit-zero controller receipt means receipt/cleanup completion, not successful
 browser interaction. Always inspect its outcome and qualification fields.

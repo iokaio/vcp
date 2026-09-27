@@ -60,9 +60,11 @@ namespace Vcp.Cs3WebViewDraft {
         public const int MaximumAggregateBytes = 16 * 1024;
         public const int MaximumParameterBytes = 512;
         public const int MaximumCumulativeParameterBytes = 2048;
-        public const int MaximumCumulativeResponseBytes = MaximumRecordBytes + 12;
-        public const int CommandCount = 7;
+        public const int MaximumCumulativeResponseBytes = MaximumRecordBytes + 20;
+        public const int CommandCount = 11;
         public const string FocusParameters = "{\"enabled\":true}";
+        public const string ReadinessDownParameters = "{\"type\":\"keyDown\",\"key\":\"F24\",\"code\":\"F24\",\"windowsVirtualKeyCode\":135}";
+        public const string ReadinessUpParameters = "{\"type\":\"keyUp\",\"key\":\"F24\",\"code\":\"F24\",\"windowsVirtualKeyCode\":135}";
         public const string EnterDownParameters = "{\"type\":\"keyDown\",\"key\":\"Enter\",\"code\":\"Enter\",\"text\":\"\\r\",\"unmodifiedText\":\"\\r\",\"windowsVirtualKeyCode\":13}";
         public const string EnterUpParameters = "{\"type\":\"keyUp\",\"key\":\"Enter\",\"code\":\"Enter\",\"windowsVirtualKeyCode\":13}";
         public const string InsertParameters = "{\"text\":\"Ada\"}";
@@ -71,12 +73,16 @@ namespace Vcp.Cs3WebViewDraft {
         static readonly string[] Methods = {
             "Emulation.setFocusEmulationEnabled",
             "Input.dispatchKeyEvent", "Input.dispatchKeyEvent",
+            "Input.dispatchKeyEvent", "Input.dispatchKeyEvent",
             "Input.insertText", "Input.dispatchKeyEvent", "Input.dispatchKeyEvent",
+            "Input.dispatchKeyEvent", "Input.dispatchKeyEvent",
             "Accessibility.getFullAXTree"
         };
         static readonly string[] Parameters = {
-            FocusParameters, EnterDownParameters, EnterUpParameters,
-            InsertParameters, EnterDownParameters, EnterUpParameters, AxParameters
+            FocusParameters, ReadinessDownParameters, ReadinessUpParameters,
+            EnterDownParameters, EnterUpParameters, InsertParameters,
+            ReadinessDownParameters, ReadinessUpParameters,
+            EnterDownParameters, EnterUpParameters, AxParameters
         };
 
         public static void RequireActive(HostLifecycle lifecycle, long elapsed) {
@@ -85,24 +91,30 @@ namespace Vcp.Cs3WebViewDraft {
         }
         public sealed class CommandSequence {
             int next, parameterBytes, responseBytes;
+            bool inFlight;
+            string pendingMethod, pendingParameters;
             public int Completed { get { return next; } }
-            public void RequireRequest(string method, string parameters, long elapsed) {
+            public void BeginRequest(string method, string parameters, long elapsed) {
                 if (elapsed < 0 || elapsed >= Evidence.StartupMilliseconds) throw new TimeoutException("Protocol command deadline");
+                if (inFlight) throw new InvalidOperationException("Protocol command already in flight");
                 if (next >= CommandCount || method != Methods[next] || parameters != Parameters[next]) throw new InvalidOperationException("Protocol command sequence differs");
                 int bytes = Encoding.UTF8.GetByteCount(parameters ?? "");
                 if (bytes == 0 || bytes > MaximumParameterBytes || parameterBytes > MaximumCumulativeParameterBytes - bytes) throw new InvalidDataException("Protocol parameter byte bound");
+                pendingMethod = method; pendingParameters = parameters; inFlight = true;
             }
             public void Complete(string method, string parameters, string response, long elapsed) {
-                RequireRequest(method,parameters,elapsed);
+                if (!inFlight || method != pendingMethod || parameters != pendingParameters) throw new InvalidOperationException("Protocol completion differs from the in-flight command");
+                if (elapsed < 0 || elapsed >= Evidence.StartupMilliseconds) throw new TimeoutException("Protocol command deadline");
                 int parametersLength = Encoding.UTF8.GetByteCount(parameters);
                 int responseLength = response == null ? 0 : Encoding.UTF8.GetByteCount(response);
                 bool accessibility = method == "Accessibility.getFullAXTree";
                 if ((!accessibility && response != "{}") || (accessibility && (responseLength == 0 || responseLength > MaximumRecordBytes)) ||
                     responseBytes > MaximumCumulativeResponseBytes - responseLength) throw new InvalidDataException("Protocol response contract differs");
                 parameterBytes += parametersLength; responseBytes += responseLength; next++;
+                inFlight = false; pendingMethod = null; pendingParameters = null;
             }
             public void RequireComplete() {
-                if (next != CommandCount) throw new InvalidOperationException("Protocol command sequence incomplete");
+                if (inFlight || next != CommandCount) throw new InvalidOperationException("Protocol command sequence incomplete");
             }
         }
         public sealed class EvidenceBudget {
@@ -125,22 +137,27 @@ namespace Vcp.Cs3WebViewDraft {
         static readonly string[] ParametersWithoutInsert = { TargetParameters, HostProbeContract.FocusParameters, HostProbeContract.EnterDownParameters, HostProbeContract.EnterUpParameters };
         readonly string[] methods, parameters;
         int next, responseBytes;
+        bool inFlight;
+        string pendingMethod, pendingParameters;
         public InputRoutingCommands() : this(true) { }
         public InputRoutingCommands(bool insertBeforeKey) {
             methods=insertBeforeKey ? MethodsWithInsert : MethodsWithoutInsert;
             parameters=insertBeforeKey ? ParametersWithInsert : ParametersWithoutInsert;
         }
-        public void RequireRequest(string method, string parameters, long elapsed) {
+        public void BeginRequest(string method, string parameters, long elapsed) {
             if (elapsed < 0 || elapsed >= Evidence.StartupMilliseconds) throw new TimeoutException("Input diagnostic deadline");
+            if (inFlight) throw new InvalidOperationException("Input diagnostic command already in flight");
             if (next >= methods.Length || method != methods[next] || parameters != this.parameters[next]) throw new InvalidOperationException("Input diagnostic command sequence differs");
+            pendingMethod=method; pendingParameters=parameters; inFlight=true;
         }
         public void Complete(string method, string parameters, string response, long elapsed) {
-            RequireRequest(method,parameters,elapsed);
+            if(!inFlight || method!=pendingMethod || parameters!=pendingParameters) throw new InvalidOperationException("Input diagnostic completion differs from the in-flight command");
+            if (elapsed < 0 || elapsed >= Evidence.StartupMilliseconds) throw new TimeoutException("Input diagnostic deadline");
             int length=response==null?0:Encoding.UTF8.GetByteCount(response);
             if (length==0 || length>HostProbeContract.MaximumRecordBytes || responseBytes>HostProbeContract.MaximumAggregateBytes-length || (next>0 && response!="{}")) throw new InvalidDataException("Input diagnostic response bound or shape differs");
-            responseBytes+=length; next++;
+            responseBytes+=length; next++; inFlight=false; pendingMethod=null; pendingParameters=null;
         }
-        public void RequireComplete() { if(next!=methods.Length) throw new InvalidOperationException("Incomplete input diagnostic commands"); }
+        public void RequireComplete() { if(inFlight || next!=methods.Length) throw new InvalidOperationException("Incomplete input diagnostic commands"); }
     }
     public static class Evidence {
         public const int MaximumEvents = 384, MaximumProcesses = 32, StartupMilliseconds = 20000;
