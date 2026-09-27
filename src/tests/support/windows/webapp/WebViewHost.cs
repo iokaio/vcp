@@ -146,15 +146,15 @@ namespace Vcp.Cs3WebViewDraft {
                 responseStreams.Add(denied);
                 e.Response = environment.CreateWebResourceResponse(denied,403,"Forbidden","Content-Type: text/plain; charset=utf-8\r\nCache-Control: no-store");
                 if (lifecycle.Stopping) return;
+                // Handle the one exact off-origin test before consulting the
+                // normal-phase fixture router, which intentionally latches any
+                // request made after its resource phase has closed.
+                if (negativeExpected && String.Equals(e.Request.Uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) {
+                    CompleteNegativeNavigation(e.Request.Uri);
+                    return;
+                }
                 WebDomResource resource;
                 if (!dom.TryServe(e.Request.Method,e.Request.Uri,out resource)) {
-                    // WebView2 153 can surface the denied top-level request here
-                    // before NavigationStarting. The 403 was installed above;
-                    // count only the exact expected negative-phase URL.
-                    if (negativeExpected && String.Equals(e.Request.Uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) {
-                        CompleteNegativeNavigation(e.Request.Uri);
-                        return;
-                    }
                     Reject("resource_rejected");
                     return;
                 }
