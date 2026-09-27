@@ -10,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.ExceptionServices;
+using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
@@ -169,26 +170,87 @@ public static partial class NativeProbe {
     // open final components as reparse points, and inspect metadata through the held
     // handle. A sharing conflict is an inconclusive probe, not permission to retry
     // with weaker sharing. This is a bounded observation, not a filesystem quota.
-    static long Scratch(string root) {
+    const uint ScratchReadAttributes = 0x80;
+    const uint ScratchDirectoryShare = 1;
+    const uint ScratchFileShare = 3;
+    const uint ScratchOpenExisting = 3;
+    const uint ScratchFlags = 0x02200000;
+    sealed class ScratchOpenFailureEvidence {
+        public string type { get; set; }
+        public string root_tag { get; set; }
+        public string relative_path { get; set; }
+        public bool relative_path_truncated { get; set; }
+        public string relative_path_sha256 { get; set; }
+        public int depth { get; set; }
+        public bool directory_hint { get; set; }
+        public string operation { get; set; }
+        public int native_error { get; set; }
+        public uint desired_access { get; set; }
+        public uint share_mode { get; set; }
+        public uint creation_disposition { get; set; }
+        public uint flags_and_attributes { get; set; }
+        public bool inherit_handle { get; set; }
+    }
+    static void ScratchTag(string value) {
+        if (value != "profile" && value != "probe-temp") throw new ArgumentException("Invalid scratch root tag");
+    }
+    static ScratchOpenFailureEvidence ScratchFailure(string root, string tag, string path, int depth, bool directory, int error) {
+        ScratchTag(tag);
+        if (depth < 0 || depth > 16 || error <= 0) throw new ArgumentException("Invalid scratch failure context");
+        if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(path) || !Path.IsPathRooted(root) || !Path.IsPathRooted(path) || root.Length<3 || path.Length<3 || root[1]!=':' || path[1]!=':' || root[2]!='\\' || path[2]!='\\' || root.IndexOf('/') >= 0 || path.IndexOf('/') >= 0 || root.Any(value=>value<' ') || path.Any(value=>value<' ') || root.StartsWith("\\\\",StringComparison.Ordinal) || path.StartsWith("\\\\",StringComparison.Ordinal)) throw new ArgumentException("Invalid scratch path context");
+        foreach (string part in path.Split('\\')) if (part == "." || part == ".." || part.IndexOf(':') >= 0 && part != path.Substring(0,2)) throw new ArgumentException("Unsafe scratch path context");
+        string boundary=Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+        string full=Path.GetFullPath(path);
+        string prefix=boundary+Path.DirectorySeparatorChar;
+        if (!full.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Scratch failure path escaped its root");
+        string relative=full.Substring(prefix.Length);
+        if (relative.Length == 0 || relative.IndexOfAny(new[]{'\0','\r','\n'}) >= 0) throw new ArgumentException("Invalid scratch relative path");
+        byte[] relativeBytes=Utf8.GetBytes(relative);
+        string digest;
+        using (var hash=SHA256.Create()) digest=BitConverter.ToString(hash.ComputeHash(relativeBytes)).Replace("-","").ToLowerInvariant();
+        bool truncated=relative.Length>512;
+        string retained=truncated?relative.Substring(0,512):relative;
+        if (truncated && char.IsHighSurrogate(retained[retained.Length-1]) && relative.Length>retained.Length && char.IsLowSurrogate(relative[retained.Length])) retained=retained.Substring(0,retained.Length-1);
+        return new ScratchOpenFailureEvidence {
+            type="scratch_open_failure",root_tag=tag,relative_path=retained,relative_path_truncated=truncated,relative_path_sha256=digest,
+            depth=depth,directory_hint=directory,operation="CreateFile",native_error=error,desired_access=ScratchReadAttributes,
+            share_mode=directory?ScratchDirectoryShare:ScratchFileShare,creation_disposition=ScratchOpenExisting,flags_and_attributes=ScratchFlags,inherit_handle=false
+        };
+    }
+    static void PreserveScratchFailure(Win32Exception error, Action report) {
+        try { report(); } catch (Exception) { /* Context must never replace the original native failure. */ }
+        ExceptionDispatchInfo.Capture(error).Throw();
+    }
+    static long Scratch(string root, string tag) {
+        ScratchTag(tag);
+        root=Path.GetFullPath(root);
         var clock = Stopwatch.StartNew(); int entries = 0; long bytes = 0;
         var ancestors = new List<IntPtr>();
         try {
             var names = new Stack<string>();
             for (string part = Path.GetFullPath(root); part != null; part = Path.GetDirectoryName(part)) names.Push(part);
             while (names.Count != 0) ancestors.Add(OpenScratchEntry(names.Pop(), true));
-            WalkScratch(root, 0, clock, ref entries, ref bytes);
+            WalkScratch(root, tag, root, 0, clock, ref entries, ref bytes);
             return bytes;
         } finally { foreach (IntPtr held in ancestors) CloseHandle(held); }
     }
-    static IntPtr OpenScratchEntry(string path, bool directory) {
+    static IntPtr CreateScratchEntryHandle(string path, bool directory) {
         var attributes = new SecurityAttributes { Size = Marshal.SizeOf<SecurityAttributes>(), Inherit = false };
         // FILE_READ_ATTRIBUTES, FILE_SHARE_READ (files also SHARE_WRITE),
         // OPEN_EXISTING, BACKUP_SEMANTICS | OPEN_REPARSE_POINT.
-        IntPtr held = CreateFile(path, 0x80, directory ? 1u : 3u, ref attributes, 3, 0x02200000, IntPtr.Zero);
-        Check(held != new IntPtr(-1));
+        IntPtr held = CreateFile(path, ScratchReadAttributes, directory ? ScratchDirectoryShare : ScratchFileShare, ref attributes, ScratchOpenExisting, ScratchFlags, IntPtr.Zero);
+        int error=Marshal.GetLastWin32Error();
+        if (held == new IntPtr(-1)) throw new Win32Exception(error);
+        return held;
+    }
+    static void ValidateScratchEntry(IntPtr held, bool directory) {
+        var info = ScratchMetadata(held);
+        if ((info.Attributes & 0x400) != 0 || ((info.Attributes & 0x10) != 0) != directory) throw new IOException("Scratch reparse/type change rejected");
+    }
+    static IntPtr OpenScratchEntry(string path, bool directory) {
+        IntPtr held=CreateScratchEntryHandle(path,directory);
         try {
-            var info = ScratchMetadata(held);
-            if ((info.Attributes & 0x400) != 0 || ((info.Attributes & 0x10) != 0) != directory) throw new IOException("Scratch reparse/type change rejected");
+            ValidateScratchEntry(held,directory);
             return held;
         } catch { CloseHandle(held); throw; }
     }
@@ -204,7 +266,7 @@ public static partial class NativeProbe {
             return new ScratchInfo { Attributes = attr, Bytes = bytes };
         } finally { Marshal.FreeHGlobal(p); }
     }
-    static void WalkScratch(string root, int depth, Stopwatch clock, ref int count, ref long bytes) {
+    static void WalkScratch(string boundary, string tag, string root, int depth, Stopwatch clock, ref int count, ref long bytes) {
         if (depth > 16) throw new IOException("Scratch depth ceiling");
         foreach (string path in Directory.EnumerateFileSystemEntries(root)) {
             if (++count > 8192 || clock.ElapsedMilliseconds > 2000) throw new IOException("Scratch entry/time ceiling");
@@ -213,22 +275,29 @@ public static partial class NativeProbe {
             // returned. Skip only ERROR_FILE_NOT_FOUND/ERROR_PATH_NOT_FOUND at
             // this hint/open boundary. Every sharing, access, reparse, type,
             // metadata and recursive-enumeration failure remains fatal.
-            if (!TryOpenScratchChild(path, out directory, out held)) continue;
+            if (!TryOpenScratchChild(boundary,tag,path,depth,out directory,out held)) continue;
             try {
-                if (directory) WalkScratch(path, depth + 1, clock, ref count, ref bytes);
+                if (directory) WalkScratch(boundary,tag,path,depth + 1,clock,ref count,ref bytes);
                 else { bytes = checked(bytes + ScratchMetadata(held).Bytes); if (bytes > 67108864) throw new IOException("Observed scratch byte ceiling"); }
             } finally { CloseHandle(held); }
         }
     }
-    static bool TryOpenScratchChild(string path, out bool directory, out IntPtr held) {
+    static bool TryOpenScratchChild(string boundary, string tag, string path, int depth, out bool directory, out IntPtr held) {
         directory = false; held = IntPtr.Zero;
         try {
             // This metadata hint chooses sharing only. Held-handle validation
             // rejects a replacement or reparse point before any traversal.
             directory = (File.GetAttributes(path) & FileAttributes.Directory) != 0;
-            held = OpenScratchEntry(path, directory);
-            return true;
         } catch(Exception error) when(ScratchEntryVanished(error)) { return false; }
+        try { held=CreateScratchEntryHandle(path,directory); }
+        catch(Exception error) when(ScratchEntryVanished(error)) { return false; }
+        catch(Win32Exception error) {
+            bool directoryHint=directory;
+            PreserveScratchFailure(error,()=>Diagnostic(ScratchFailure(boundary,tag,path,depth,directoryHint,error.NativeErrorCode)));
+            throw;
+        }
+        try { ValidateScratchEntry(held,directory); return true; }
+        catch { CloseHandle(held); held=IntPtr.Zero; throw; }
     }
     static bool ScratchEntryVanished(Exception error) {
         var native=error as Win32Exception;
@@ -245,7 +314,42 @@ public static partial class NativeProbe {
         check(!ScratchEntryVanished(new Win32Exception(5)));
         check(!ScratchEntryVanished(new Win32Exception(32)));
         bool directory; IntPtr held;
-        check(!TryOpenScratchChild(Path.Combine(Path.GetTempPath(),"vcp-cs3-absent-"+Guid.NewGuid().ToString("N")),out directory,out held) && held==IntPtr.Zero);
+        string root=Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        check(!TryOpenScratchChild(root,"probe-temp",Path.Combine(root,"vcp-cs3-absent-"+Guid.NewGuid().ToString("N")),0,out directory,out held) && held==IntPtr.Zero);
+        return checks;
+    }
+    // Pure diagnostic-shape and exception-preservation checks. No path is opened.
+    public static int TestScratchDiagnosticContract() {
+        int checks=0; Action<bool> check=value=>{if(!value) throw new Exception("Scratch diagnostic contract assertion failed"); checks++;};
+        Action<Action> reject=action=>{try{action();throw new Exception("Expected scratch diagnostic rejection");}catch(Exception error){if(error.Message=="Expected scratch diagnostic rejection")throw;}checks++;};
+        string root=Path.Combine(Path.GetTempPath(),"vcp-cs3-context-root");
+        string child=Path.Combine(root,"quoted-\"-unicode-\u2028-\ud83d\ude80");
+        var file=ScratchFailure(root,"profile",child,0,false,5);
+        check(file.type=="scratch_open_failure" && file.root_tag=="profile" && file.relative_path==Path.GetFileName(child) && !file.relative_path_truncated && file.relative_path_sha256.Length==64);
+        check(file.depth==0 && !file.directory_hint && file.operation=="CreateFile" && file.native_error==5);
+        check(file.desired_access==0x80 && file.share_mode==3 && file.creation_disposition==3 && file.flags_and_attributes==0x02200000 && !file.inherit_handle);
+        var directory=ScratchFailure(root,"probe-temp",Path.Combine(root,"directory"),16,true,32);
+        check(directory.root_tag=="probe-temp" && directory.depth==16 && directory.directory_hint && directory.share_mode==1);
+        string serialized=JsonSerializer.Serialize(file);
+        check(Utf8.GetByteCount(serialized)<16384 && !serialized.Contains(root) && !serialized.Contains(Path.GetDirectoryName(root)));
+        string longRelative=string.Join("\\",Enumerable.Repeat(new string('x',120),6));
+        var longPath=ScratchFailure(root,"profile",Path.Combine(root,longRelative),1,false,5);
+        check(longPath.relative_path_truncated && longPath.relative_path.Length<=512 && longPath.relative_path_sha256.Length==64 && Utf8.GetByteCount(JsonSerializer.Serialize(longPath))<16384);
+        reject(()=>ScratchFailure(root,"other",child,0,false,5));
+        reject(()=>ScratchFailure(root,"profile",child,-1,false,5));
+        reject(()=>ScratchFailure(root,"profile",child,17,false,5));
+        reject(()=>ScratchFailure(root,"profile",Path.Combine(Path.GetDirectoryName(root),"vcp-cs3-context-root-sibling","item"),0,false,5));
+        reject(()=>ScratchFailure(root,"profile",root+"\\..\\outside",0,false,5));
+        reject(()=>ScratchFailure(root,"profile",root+"\\file:stream",0,false,5));
+        reject(()=>ScratchFailure(root,"profile",root+"\\control\nname",0,false,5));
+        reject(()=>ScratchFailure(root,"profile",root.Replace('\\','/')+"/item",0,false,5));
+        reject(()=>ScratchFailure(root,"profile","relative\\item",0,false,5));
+        reject(()=>ScratchFailure(root,"profile","\\\\server\\share\\item",0,false,5));
+        reject(()=>ScratchFailure(root,"profile","\\\\?\\C:\\item",0,false,5));
+        var original=new Win32Exception(5); bool same=false;
+        try { PreserveScratchFailure(original,()=>{throw new IOException("formatter failure");}); }
+        catch(Win32Exception caught) { same=Object.ReferenceEquals(original,caught) && caught.NativeErrorCode==5; }
+        check(same);
         return checks;
     }
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetFileInformationByHandleEx(IntPtr file,int kind,IntPtr info,uint bytes);

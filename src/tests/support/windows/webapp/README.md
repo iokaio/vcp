@@ -16,6 +16,15 @@ variant, not a reproduction or pass of the earlier diagnostic. The original
 SDK pins below are historical and remain in Git history; compatibility and a
 new browser-free build must be checked before reviewing any native launch.
 
+The first isolated-guest attempt stopped during scratch observation after the
+WebView2 environment was created. A new source-bound diagnostic records one
+bounded, root-relative `scratch_open_failure` event when `CreateFile` fails,
+including the original native code and unchanged access/share/flag values. It
+never records the absolute profile root. Missing child errors 2/3 remain the
+only skippable hint/open race; metadata, reparse, sharing and access failures
+remain fatal. This is diagnostic context, not a retry, ACL change, relaxed
+observer or browser-qualification result.
+
 This directory contains original VCP diagnostic source imported from the retained
 local GUI draft. It is test support, not a browser product component or imported
 third-party sample. The build keeps these critical sources here, snapshots their

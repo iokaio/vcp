@@ -62,7 +62,7 @@ public static partial class NativeProbe {
         var clock=new Stopwatch();
         Action observe=()=> {
             if(WaitForSingleObject(owner,0)!=258) throw new IOException("Controller owner lost");
-            Scratch(profile); Scratch(temp);
+            Scratch(profile,"profile"); Scratch(temp,"probe-temp");
             foreach(uint pid in JobPids(job)) {
                 if(observed.ContainsKey(pid)) { if(WaitForSingleObject(observed[pid],0)==0) throw new IOException("Numeric PID reused within job census"); continue; }
                 IntPtr held=OpenProcess(0x100400,false,pid); Check(held!=IntPtr.Zero);

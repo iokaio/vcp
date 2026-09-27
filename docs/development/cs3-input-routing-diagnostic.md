@@ -4,6 +4,43 @@ September 27, 2026. Diagnostic evidence only; CS-3 and browser qualification
 remain open. This follows the [earlier DOM checkpoint](cs3-native-dom-checkpoint.md)
 without replacing any failed receipt.
 
+## Isolated Windows VM attempt
+
+A later disposable Hyper-V Windows 11 guest attempt used a fresh variant pinned
+to the guest's installed WebView2 `153.0.4234.48` and SDK `1.0.4191.47`. The VM
+network was disconnected. The launcher ran as the local non-elevated `User` in
+interactive Basic Session 1, not a remote or enhanced session. The exact input
+manifest SHA256 was
+`0fcc2b7765f900756314adb8049cc1e05dd7a491565c501e542ae80811426096`.
+
+This attempt did not reach an input or DOM observation. WebView2 reported a
+successful environment creation, after which the worker's bounded scratch-tree
+observer failed in `OpenScratchEntry` with Win32 error 5 while walking a nested
+browser-writable entry. The receipt does not retain the failed path, root tag or
+directory hint, so it cannot distinguish a delete-pending child from an ACL or
+filesystem-filter denial. Windows documents error 5 when reopening a
+[delete-pending file](https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-createfilew#files),
+but that is only a possible explanation here.
+
+The worker retained incomplete process coverage (5 cumulative, 3 verified) and
+classified the run `input_diagnostic_inconclusive_or_failure`. Three observed
+identities had the expected zero-capability AppContainer SID and owned-job
+membership. Independent job-zero acknowledgement, held-process drainage and
+exact profile deletion completed; `status: cleaned` is cleanup evidence, not a
+diagnostic pass. Runtime, staged host and policy snapshots compared unchanged,
+subject to the existing serviced-runtime limitation. No provider calls occurred.
+
+The collected host report SHA256 is
+`e45e04ad5210305169b7299da67785751b6e1a5619277444880169d7bc75d446`;
+the embedded native receipt is 499822 bytes, SHA256
+`38090f04f736928fc1505db105025b07f1d544e0f73a43f8b5e910ab0911136a`.
+The failed receipt and its frozen build remain unchanged. A new source-bound
+variant will add bounded root-relative failed-open context while preserving the
+original native error, access/share flags, failure classification and cleanup.
+It must not retry, weaken sharing, change ACLs or treat error 5 as a vanished
+entry. This instrumentation requires a fresh manifest, build and single reviewed
+attempt; it does not convert this result into browser qualification.
+
 ## Finding
 
 The same invisible, message-only WebView can receive CDP text and keyboard input
