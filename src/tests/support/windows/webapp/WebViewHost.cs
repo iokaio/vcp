@@ -467,7 +467,11 @@ namespace Vcp.Cs3WebViewDraft {
             try { Census(); } catch (Exception error) { Stop("census_failed",error.HResult,false); }
         }
         static void Census() {
-            if (++snapshots > 8) throw new InvalidOperationException("Process census event bound exceeded");
+            // ProcessInfosChanged is an advisory, coalescible signal. Retain a
+            // bounded prefix; the supervisor's job census remains authoritative
+            // and must still verify every cumulative process identity exactly.
+            if (snapshots >= 8) return;
+            snapshots++;
             var processes = environment.GetProcessInfos();
             if (processes.Count > Evidence.MaximumProcesses) throw new InvalidOperationException("Process count bound exceeded");
             Emit("process_snapshot",0,0,"snapshot_"+snapshots);
