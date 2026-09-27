@@ -148,6 +148,13 @@ namespace Vcp.Cs3WebViewDraft {
                 if (lifecycle.Stopping) return;
                 WebDomResource resource;
                 if (!dom.TryServe(e.Request.Method,e.Request.Uri,out resource)) {
+                    // WebView2 153 can surface the denied top-level request here
+                    // before NavigationStarting. The 403 was installed above;
+                    // count only the exact expected negative-phase URL.
+                    if (negativeExpected && String.Equals(e.Request.Uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) {
+                        CompleteNegativeNavigation(e.Request.Uri);
+                        return;
+                    }
                     Reject("resource_rejected");
                     return;
                 }
@@ -166,16 +173,21 @@ namespace Vcp.Cs3WebViewDraft {
                     navigationId = e.NavigationId;
                     return;
                 }
-                if (negativeExpected && !negativeSeen && String.Equals(e.Uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) {
+                if (negativeExpected && String.Equals(e.Uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) {
                     e.Cancel = true;
-                    negativeSeen = true;
-                    if (!dom.ObserveDeniedNavigation(e.Uri,true)) throw new InvalidOperationException(dom.Failure);
-                    negativeCompletion.SetResult(true);
+                    CompleteNegativeNavigation(e.Uri);
                     return;
                 }
                 e.Cancel = true;
                 Reject("navigation_rejected");
             } catch (Exception error) { e.Cancel = true; Reject("navigation_callback_failed",error.HResult); }
+        }
+        static void CompleteNegativeNavigation(string uri) {
+            if(negativeSeen) return;
+            if(!negativeExpected || negativeCompletion==null || !String.Equals(uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) throw new InvalidOperationException("Unexpected negative navigation completion");
+            if(!dom.ObserveDeniedNavigation(uri,true)) throw new InvalidOperationException(dom.Failure);
+            negativeSeen=true;
+            negativeCompletion.TrySetResult(true);
         }
         static void FrameNavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e) {
             e.Cancel = true;
