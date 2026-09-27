@@ -205,7 +205,7 @@ namespace Vcp.Cs3WebViewDraft {
             try {
                 if (!e.IsSuccess || !initialNavigationSeen || e.NavigationId != navigationId || dom.ResourceCount != WebDomContract.MaxResourceCount) throw new InvalidOperationException("Initial fixture navigation did not complete exactly");
                 await RunDomProbe();
-            } catch (Exception error) { Stop("dom_probe_failed",error.HResult,false); }
+            } catch (Exception error) { phase=Evidence.FailureKind(phase,error); Stop("dom_probe_failed",error.HResult,false); }
         }
         static void GotNativeFocus(object sender, object args) {
             if(lifecycle.Stopping) return;

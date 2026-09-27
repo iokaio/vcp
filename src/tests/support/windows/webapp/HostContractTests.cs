@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 using System;
 using System.Collections;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using Vcp.Cs3WebViewDraft;
@@ -29,6 +30,9 @@ static class HostContractTests {
         Reject(delegate { Evidence.Record(nonce,"phase\nforged",0,0,"",0,""); });
         Reject(delegate { Evidence.Record(nonce,"phase",-1,0,"",0,""); });
         Reject(delegate { Evidence.Record(nonce,"phase",0,0,new string('x',257),0,""); });
+        Check(Evidence.FailureKind("accessibility_snapshot",new InvalidOperationException("specific reason"))=="accessibility_snapshot:InvalidOperationException:specific reason");
+        Check(Evidence.FailureKind("phase",new IOException(new string('x',300))).Length==256);
+        Check(Evidence.FailureKind("phase",new IOException("line\r\nbreak")).IndexOf('\r')<0);
         Check(Evidence.MaximumProcesses==32 && Evidence.StartupMilliseconds==20000);
         Check(HostProbeContract.CommandCount==11 && HostProbeContract.MaximumAccessibilityResponseBytes==64*1024 && HostProbeContract.MaximumCumulativeResponseBytes==HostProbeContract.MaximumAccessibilityResponseBytes+20);
         string axRoot="{\"nodeId\":\"1\",\"ignored\":false,\"role\":{\"type\":\"internalRole\",\"value\":\"RootWebArea\"},\"name\":{\"type\":\"computedString\",\"value\":\"CS-3 form fixture\"},\"properties\":[]}";

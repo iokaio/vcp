@@ -257,6 +257,15 @@ namespace Vcp.Cs3WebViewDraft {
             }
             return b.Append('"').ToString();
         }
+        public static string FailureKind(string phase, Exception error) {
+            string raw=(phase ?? "")+":"+(error == null ? "Exception" : error.GetType().Name)+":"+(error == null ? "unknown" : error.Message);
+            var text=new StringBuilder(Math.Min(raw.Length,256));
+            foreach(char value in raw) {
+                if(text.Length==256) break;
+                text.Append(value>=32 && value<=126 ? value : '?');
+            }
+            return text.ToString();
+        }
         public static string Record(string nonce, string phase, long elapsed, int hresult, string version, uint pid, string kind) {
             if (!Regex.IsMatch(nonce,@"\A[a-f0-9]{64}\z") || !Regex.IsMatch(phase,@"\A[a-z_]{1,64}\z") || elapsed < 0 || elapsed > 120000) throw new ArgumentException("Invalid evidence fields");
             string json = "{\"schema\":\"cs3-webview2-host/1\",\"nonce\":"+Quote(nonce)+",\"phase\":"+Quote(phase)+",\"elapsed_ms\":"+elapsed.ToString(CultureInfo.InvariantCulture)+",\"hresult\":"+Quote("0x"+unchecked((uint)hresult).ToString("x8",CultureInfo.InvariantCulture))+",\"version\":"+Quote(version)+",\"pid\":"+pid.ToString(CultureInfo.InvariantCulture)+",\"kind\":"+Quote(kind)+",\"containment_attested\":false,\"browser_qualified\":false}";
