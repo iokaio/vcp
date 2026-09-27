@@ -41,8 +41,10 @@ for ($ancestor=[IO.Path]::GetDirectoryName($output); $ancestor -and $ancestor.St
 }
 if (Test-Path -LiteralPath $output) { throw 'Refuse to reuse an existing build or run directory' }
 $deps=@(
-    @{source=$CoreAssembly;name='Microsoft.Web.WebView2.Core.dll';sha256='88a3b62f45225a811cdb85df6dfd95c2bff9a0e43e3b04f813b125eaca56cc9f'},
-    @{source=$Loader;name='WebView2Loader.dll';sha256='462b36fd1be6ca9f7563466a89e57c41ef4a4def3e0a84fa885d203aea4a3aaf'}
+    # Fresh Hyper-V diagnostic: Microsoft.Web.WebView2 NuGet 1.0.4191.47,
+    # lib/net462 Core and build/native/x64 loader. Not the earlier host SDK.
+    @{source=$CoreAssembly;name='Microsoft.Web.WebView2.Core.dll';sha256='e6f54c8ce208e3797c427d01ad671b47cb25abc85604753d6ec2546d0ffef550'},
+    @{source=$Loader;name='WebView2Loader.dll';sha256='c66e4a92fdc7a216118e43b7a5024ea2200e8c43f9310bf20d96a0084f82c5bc'}
 )
 foreach ($dep in $deps) {
     $dep.source=Assert-PlainPath $dep.source ('Pinned dependency '+$dep.name) $true
@@ -106,8 +108,9 @@ $buildOutputs=@('WebViewHost.exe','HostContractTests.exe','WebDomContractTests.e
     [ordered]@{path=$_;bytes=(Get-Item -LiteralPath $file).Length;sha256=(Hash $file)}
 }
 $manifest=[ordered]@{
-    schema='cs3-webview2-inputs/1';probe_kind='input-routing-diagnostic';input_host='message-only-hidden';insert_before_key=$false;settle_milliseconds=100;key_observation_milliseconds=0;runtime='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\154.0.4258.37';version='154.0.4258.37'
-    runtime_executable_sha256='3f48b1ab9a5d5e65a96307b6655e29882bd70bb682ce4b67a9e7a7f07f61019d'
+    schema='cs3-webview2-inputs/1';probe_kind='input-routing-diagnostic';input_host='message-only-hidden';insert_before_key=$false;settle_milliseconds=100;key_observation_milliseconds=0;runtime='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\153.0.4234.48';version='153.0.4234.48'
+    runtime_executable_sha256='65afdc3965a6d1c4ccd5b47801fec8a16db15613d35c8e3a6d1fb6c0da970eea'
+    sdk_package='Microsoft.Web.WebView2';sdk_version='1.0.4191.47';sdk_package_sha256='f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0'
     browser_argument='--edge-webview-no-dpi-workaround';host=@($hostFiles);build_outputs=@($buildOutputs);sources=$sources;external_dependencies=@($deps | ForEach-Object { [ordered]@{path=$_.name;sha256=$_.sha256} });toolchain=$toolchain
     builder_sha256=$builderSha256;builder_powershell=$PSVersionTable.PSVersion.ToString();builder_architecture=[Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
     runtime_identity_limitation='Installed Evergreen is serviced in place. Launch-time and before/after identity checks are not continuous immutability proof.'

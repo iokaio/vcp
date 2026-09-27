@@ -1,5 +1,21 @@
 # CS-3 WebView2 diagnostic source
 
+Local Hyper-V staging variant (not yet qualified): based on commit
+`9a27a2cf6cc4fa690a5d05b330ca0df146cc5031`, now pins the guest's observed
+WebView2 `153.0.4234.48` executable SHA256
+`65afdc3965a6d1c4ccd5b47801fec8a16db15613d35c8e3a6d1fb6c0da970eea`.
+The earlier SDK's package version was not recorded, so this new diagnostic uses
+the explicitly versioned Microsoft.Web.WebView2 NuGet package `1.0.4191.47`,
+package SHA256 `f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0`.
+Core (`lib/net462`) SHA256 is
+`e6f54c8ce208e3797c427d01ad671b47cb25abc85604753d6ec2546d0ffef550`;
+loader (`build/native/x64`) SHA256 is
+`c66e4a92fdc7a216118e43b7a5024ea2200e8c43f9310bf20d96a0084f82c5bc`.
+Both vendor LICENSE and NOTICE accompany staged inputs. This is a fresh source
+variant, not a reproduction or pass of the earlier diagnostic. The original
+SDK pins below are historical and remain in Git history; compatibility and a
+new browser-free build must be checked before reviewing any native launch.
+
 This directory contains original VCP diagnostic source imported from the retained
 local GUI draft. It is test support, not a browser product component or imported
 third-party sample. The build keeps these critical sources here, snapshots their
