@@ -252,3 +252,27 @@ owned HTTP-server join, adversarial network/filesystem boundary, cancellation/
 pause/owner-loss matrix, retained UI regrade, model visual review, paid
 comparison or six-skill distribution acceptance. The emitted event therefore
 continues to report `browser_qualification=false` and `prototype_only=true`.
+
+## September 27 isolated Windows owned-server evidence
+
+The bounded server and its contract tests were staged into a fresh guest path
+with portable Node `24.21.0`; nothing was installed and the guest PATH, registry
+and network configuration were unchanged. The Node executable was 93,580,104
+bytes with SHA-256
+`ba4e6d110e8c1592a1ecd390f6b05f3da124b13871a5be62b341a07a853c6c32`.
+The server SHA-256 was
+`c8df371e3958ed5f87a0a461c133d422db393e536c3cc5c74c93e0afffab7c7e`
+and the test SHA-256 was
+`93c1838b5ab471ea1a3fdad769d7e8018e2178ed5bd860d02e90195f50f2b0c1`.
+
+With zero connected guest network adapters, all ten actual Windows server tests
+passed. They covered immutable hash-checked serving, changed/oversized/linked/
+aliased/traversal rejection, forged-inventory rejection, exact host/method/raw-
+path/credential/body boundaries, unrelated-listener preservation, incomplete-
+client and delayed-response shutdown, request and connection-attempt ceilings,
+max-connection drops, and abrupt owner-process loss. The owner-loss test proved
+that only the owned ephemeral listener closed and an unrelated listener survived.
+
+This establishes the server lifecycle independently. It does not join the
+zero-network-capability browser to loopback. A future join must not silently add
+a broad loopback exemption or adopt an existing user-owned service.
