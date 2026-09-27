@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Web.Script.Serialization;
 
 namespace Vcp.Cs3WebViewDraft {
     public sealed class HostInput {
@@ -57,10 +60,11 @@ namespace Vcp.Cs3WebViewDraft {
     // Pure, fixed protocol-input contract shared by the host and offline tests.
     public static class HostProbeContract {
         public const int MaximumRecordBytes = 8 * 1024;
+        public const int MaximumAccessibilityResponseBytes = 64 * 1024;
         public const int MaximumAggregateBytes = 16 * 1024;
         public const int MaximumParameterBytes = 512;
         public const int MaximumCumulativeParameterBytes = 2048;
-        public const int MaximumCumulativeResponseBytes = MaximumRecordBytes + 20;
+        public const int MaximumCumulativeResponseBytes = MaximumAccessibilityResponseBytes + 20;
         public const int CommandCount = 11;
         public const string FocusParameters = "{\"enabled\":true}";
         public const string ReadinessDownParameters = "{\"type\":\"keyDown\",\"key\":\"F24\",\"code\":\"F24\",\"windowsVirtualKeyCode\":135}";
@@ -108,7 +112,7 @@ namespace Vcp.Cs3WebViewDraft {
                 int parametersLength = Encoding.UTF8.GetByteCount(parameters);
                 int responseLength = response == null ? 0 : Encoding.UTF8.GetByteCount(response);
                 bool accessibility = method == "Accessibility.getFullAXTree";
-                if ((!accessibility && response != "{}") || (accessibility && (responseLength == 0 || responseLength > MaximumRecordBytes)) ||
+                if ((!accessibility && response != "{}") || (accessibility && (responseLength == 0 || responseLength > MaximumAccessibilityResponseBytes)) ||
                     responseBytes > MaximumCumulativeResponseBytes - responseLength) throw new InvalidDataException("Protocol response contract differs");
                 parameterBytes += parametersLength; responseBytes += responseLength; next++;
                 inFlight = false; pendingMethod = null; pendingParameters = null;
@@ -126,6 +130,88 @@ namespace Vcp.Cs3WebViewDraft {
                 total += bytes.Length;
                 return bytes;
             }
+        }
+    }
+    // Converts the verbose, bounded CDP tree to the exact semantic evidence the
+    // parent validates. Raw bytes remain identity-bound without consuming the
+    // host event budget or weakening ordinary DOM-document ceilings.
+    public static class HostAccessibilityProjection {
+        static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
+        static Dictionary<string,object> Object(string raw) {
+            var value=Json.DeserializeObject(raw) as Dictionary<string,object>;
+            if(value==null) throw new InvalidDataException("Expected accessibility JSON object");
+            return value;
+        }
+        static string AxValue(Dictionary<string,object> node, string field, params string[] allowedTypes) {
+            object property, type, value;
+            var item=node.TryGetValue(field,out property) ? property as Dictionary<string,object> : null;
+            if(item==null || !item.TryGetValue("type",out type) || !(type is string) || !item.TryGetValue("value",out value) || !(value is string)) return "";
+            bool allowed=false; foreach(string candidate in allowedTypes) if((string)type==candidate) allowed=true;
+            return allowed ? (string)value : "";
+        }
+        static bool AxRequired(Dictionary<string,object> node) {
+            object propertiesValue;
+            var properties=node.TryGetValue("properties",out propertiesValue) ? propertiesValue as object[] : null;
+            if(properties==null) return false;
+            var names=new HashSet<string>(StringComparer.Ordinal); bool found=false, required=false;
+            foreach(object propertyValue in properties) {
+                var property=propertyValue as Dictionary<string,object>; object name, wrapped, type, value;
+                if(property==null || !property.TryGetValue("name",out name) || !(name is string) || !names.Add((string)name)) throw new InvalidDataException("Accessibility property identity differs");
+                if((string)name=="required" && property.TryGetValue("value",out wrapped)) {
+                    var item=wrapped as Dictionary<string,object>;
+                    if(item==null || !item.TryGetValue("type",out type) || !(type is string) || (string)type!="booleanOrUndefined" || !item.TryGetValue("value",out value) || !(value is bool)) throw new InvalidDataException("Accessibility required state differs");
+                    found=true; required=(bool)value;
+                }
+            }
+            return found && required;
+        }
+        static string Hash(byte[] bytes) {
+            using(var algorithm=SHA256.Create()) {
+                var text=new StringBuilder(64); foreach(byte value in algorithm.ComputeHash(bytes)) text.Append(value.ToString("x2",CultureInfo.InvariantCulture)); return text.ToString();
+            }
+        }
+        public static string Create(string raw) {
+            byte[] rawBytes=Encoding.UTF8.GetBytes(raw ?? "");
+            if(rawBytes.Length==0 || rawBytes.Length>HostProbeContract.MaximumAccessibilityResponseBytes) throw new InvalidDataException("Accessibility response byte bound differs");
+            var root=Object(raw); object nodesValue;
+            var nodes=root.TryGetValue("nodes",out nodesValue) ? nodesValue as object[] : null;
+            if(root.Count!=1 || nodes==null || nodes.Length==0 || nodes.Length>128) throw new InvalidDataException("Accessibility node bound or shape differs");
+            var nodeIds=new HashSet<string>(StringComparer.Ordinal);
+            var selected=new Dictionary<string,string[]>(StringComparer.Ordinal);
+            foreach(object nodeValue in nodes) {
+                var node=nodeValue as Dictionary<string,object>; if(node==null) throw new InvalidDataException("Accessibility node shape differs");
+                object nodeIdValue, ignored;
+                string nodeId=node.TryGetValue("nodeId",out nodeIdValue) ? nodeIdValue as string : null;
+                if(String.IsNullOrEmpty(nodeId) || nodeId.Length>128 || !nodeIds.Add(nodeId)) throw new InvalidDataException("Accessibility node identity differs");
+                if(!node.TryGetValue("ignored",out ignored) || !(ignored is bool)) throw new InvalidDataException("Accessibility ignored state differs");
+                if((bool)ignored) continue;
+                string role=AxValue(node,"role","role","internalRole"), name=AxValue(node,"name","computedString"), key=null, value=""; bool required=false;
+                if(role=="RootWebArea" && name=="CS-3 form fixture") key="document";
+                else if(role=="textbox" && name=="Name") { key="textbox"; value=AxValue(node,"value","string"); required=AxRequired(node); if(value!="Ada" || !required) throw new InvalidDataException("Accessible textbox value or required state differs"); }
+                else if(role=="button" && name=="Save") key="button";
+                else if(role=="alert") key="alert";
+                else if(role=="status") key="status";
+                if(key!=null) {
+                    if(name.Length>256) throw new InvalidDataException("Accessibility name exceeds the evidence ceiling");
+                    if(selected.ContainsKey(key)) throw new InvalidDataException("Accessibility projection role is ambiguous");
+                    selected.Add(key,new[]{nodeId,role,name,value,required ? "true" : "false"});
+                }
+            }
+            string[] order={"document","textbox","button","alert","status"};
+            if(selected.Count!=order.Length) throw new InvalidDataException("Required accessibility roles, names or state absent");
+            var output=new StringBuilder();
+            output.Append("{\"schema\":\"cs3-accessibility-projection/1\",\"source_method\":\"Accessibility.getFullAXTree\",\"raw_utf8_bytes\":")
+                .Append(rawBytes.Length.ToString(CultureInfo.InvariantCulture)).Append(",\"raw_sha256\":").Append(Evidence.Quote(Hash(rawBytes)))
+                .Append(",\"raw_node_count\":").Append(nodes.Length.ToString(CultureInfo.InvariantCulture)).Append(",\"nodes\":[");
+            for(int index=0;index<order.Length;index++) {
+                if(index>0) output.Append(','); string[] item=selected[order[index]];
+                output.Append("{\"node_id\":").Append(Evidence.Quote(item[0])).Append(",\"role\":").Append(Evidence.Quote(item[1]))
+                    .Append(",\"name\":").Append(Evidence.Quote(item[2])).Append(",\"value\":").Append(Evidence.Quote(item[3]))
+                    .Append(",\"required\":").Append(item[4]).Append('}');
+            }
+            string projection=output.Append("]}").ToString();
+            if(Encoding.UTF8.GetByteCount(projection)>HostProbeContract.MaximumRecordBytes) throw new InvalidDataException("Accessibility projection exceeds the DOM evidence ceiling");
+            return projection;
         }
     }
     // Separate diagnostic sequence: observations cannot satisfy the DOM oracle.

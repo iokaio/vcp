@@ -98,50 +98,33 @@ public sealed class DomEvidence {
             Equal(value, "readinessSequence", readiness == 0 ? "" : (readiness == 1 ? "DU" : "DUDU")); True(value, "readinessTrusted");
         }
     }
-    static string AxText(JsonElement node, string field, params string[] allowedTypes) {
-        JsonElement outer, type, text;
-        if (!node.TryGetProperty(field, out outer) || outer.ValueKind != JsonValueKind.Object ||
-            !outer.TryGetProperty("type", out type) || type.ValueKind != JsonValueKind.String || !allowedTypes.Contains(type.GetString()) ||
-            !outer.TryGetProperty("value", out text) || text.ValueKind != JsonValueKind.String) return null;
-        return text.GetString();
-    }
     static void Accessibility(JsonElement root) {
-        Exact(root, "nodes"); var nodes = root.GetProperty("nodes");
-        if (nodes.ValueKind != JsonValueKind.Array || nodes.GetArrayLength() == 0 || nodes.GetArrayLength() > 128) throw new IOException("AX node ceiling");
-        bool document = false, textbox = false, button = false, alert = false, status = false;
+        Exact(root, "schema", "source_method", "raw_utf8_bytes", "raw_sha256", "raw_node_count", "nodes");
+        Equal(root, "schema", "cs3-accessibility-projection/1"); Equal(root, "source_method", "Accessibility.getFullAXTree");
+        int rawBytes, rawNodes;
+        if (root.GetProperty("raw_utf8_bytes").ValueKind != JsonValueKind.Number || !root.GetProperty("raw_utf8_bytes").TryGetInt32(out rawBytes) || rawBytes <= 0 || rawBytes > 64*1024) throw new IOException("AX raw byte ceiling");
+        if (root.GetProperty("raw_node_count").ValueKind != JsonValueKind.Number || !root.GetProperty("raw_node_count").TryGetInt32(out rawNodes) || rawNodes < 5 || rawNodes > 128) throw new IOException("AX raw node ceiling");
+        var rawHash=root.GetProperty("raw_sha256");
+        if (rawHash.ValueKind != JsonValueKind.String || !Regex.IsMatch(rawHash.GetString(),"\\A[a-f0-9]{64}\\z")) throw new IOException("AX raw hash differs");
+        var nodes = root.GetProperty("nodes");
+        if (nodes.ValueKind != JsonValueKind.Array || nodes.GetArrayLength() != 5) throw new IOException("AX projection node coverage differs");
+        string[] roles={"RootWebArea","textbox","button","alert","status"};
+        string[] names={"CS-3 form fixture","Name","Save"};
+        string[] values={"","Ada","","",""};
         var nodeIds = new HashSet<string>();
+        int index=0;
         foreach (var node in nodes.EnumerateArray()) {
-            if (node.ValueKind != JsonValueKind.Object) throw new IOException("AX node object required");
-            var keys = new HashSet<string>(); foreach (var p in node.EnumerateObject()) if (!keys.Add(p.Name)) throw new IOException("Duplicate AX field");
-            JsonElement nodeId;
-            if (!node.TryGetProperty("nodeId", out nodeId) || nodeId.ValueKind != JsonValueKind.String ||
-                String.IsNullOrEmpty(nodeId.GetString()) || !nodeIds.Add(nodeId.GetString())) throw new IOException("AX node identity differs");
-            JsonElement ignored;
-            if (!node.TryGetProperty("ignored", out ignored) || (ignored.ValueKind != JsonValueKind.True && ignored.ValueKind != JsonValueKind.False)) throw new IOException("AX ignored state missing");
-            if (ignored.GetBoolean()) continue;
-            string role = AxText(node, "role", "role", "internalRole"), name = AxText(node, "name", "computedString");
-            if (role == "RootWebArea" && name == "CS-3 form fixture") document = true;
-            if (role == "textbox" && name == "Name") {
-                JsonElement properties; bool required = false;
-                var propertyNames = new HashSet<string>();
-                if (node.TryGetProperty("properties", out properties) && properties.ValueKind == JsonValueKind.Array) foreach (var property in properties.EnumerateArray()) {
-                    JsonElement propertyName;
-                    if (property.ValueKind != JsonValueKind.Object || !property.TryGetProperty("name",out propertyName) || propertyName.ValueKind != JsonValueKind.String || !propertyNames.Add(propertyName.GetString())) throw new IOException("AX property identity differs");
-                    if (propertyName.GetString() == "required") {
-                        JsonElement wrapped, wrappedType, wrappedValue;
-                        if (!property.TryGetProperty("value",out wrapped) || wrapped.ValueKind != JsonValueKind.Object ||
-                            !wrapped.TryGetProperty("type",out wrappedType) || wrappedType.ValueKind != JsonValueKind.String || wrappedType.GetString() != "booleanOrUndefined" ||
-                            !wrapped.TryGetProperty("value",out wrappedValue) || (wrappedValue.ValueKind != JsonValueKind.True && wrappedValue.ValueKind != JsonValueKind.False)) throw new IOException("AX required wrapper differs");
-                        required = wrappedValue.GetBoolean();
-                    }
-                }
-                textbox = required && AxText(node, "value", "string") == "Ada";
-            }
-            if (role == "button" && name == "Save") button = true;
-            if (role == "alert") alert = true;
-            if (role == "status") status = true;
+            Exact(node,"node_id","role","name","value","required");
+            var nodeId=node.GetProperty("node_id");
+            if (nodeId.ValueKind != JsonValueKind.String || String.IsNullOrEmpty(nodeId.GetString()) || nodeId.GetString().Length > 128 || !nodeIds.Add(nodeId.GetString())) throw new IOException("AX projection node identity differs");
+            Equal(node,"role",roles[index]);
+            var name=node.GetProperty("name");
+            if(name.ValueKind!=JsonValueKind.String || name.GetString().Length>256 || (index<names.Length && name.GetString()!=names[index])) throw new IOException("AX projection name differs");
+            Equal(node,"value",values[index]);
+            var required=node.GetProperty("required");
+            if ((index==1 && required.ValueKind!=JsonValueKind.True) || (index!=1 && required.ValueKind!=JsonValueKind.False)) throw new IOException("AX projection required state differs");
+            index++;
         }
-        if (!document || !textbox || !button || !alert || !status) throw new IOException("Accessible form roles, name, value or required state missing");
     }
     public static int Test() {
         int checks = 0;
@@ -152,12 +135,12 @@ public sealed class DomEvidence {
         string filled = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"Ada\",\"required\":true,\"error\":\"\",\"status\":\"\",\"active\":\"name\",\"scriptReady\":true,\"keyDowns\":1,\"keyPresses\":1,\"keyUps\":1,\"submits\":1,\"lastKey\":\"Enter\",\"trustedKeys\":true,\"readinessDowns\":2,\"readinessKeyPresses\":0,\"readinessUps\":2,\"readinessRepeats\":0,\"readinessSequence\":\"DUDU\",\"readinessTrusted\":true}";
         string success = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"readyState\":\"complete\",\"title\":\"CS-3 form fixture\",\"name\":\"Name\",\"value\":\"Ada\",\"required\":true,\"error\":\"\",\"status\":\"Saved Ada.\",\"active\":\"name\",\"scriptReady\":true,\"keyDowns\":2,\"keyPresses\":2,\"keyUps\":2,\"submits\":2,\"lastKey\":\"Enter\",\"trustedKeys\":true,\"readinessDowns\":2,\"readinessKeyPresses\":0,\"readinessUps\":2,\"readinessRepeats\":0,\"readinessSequence\":\"DUDU\",\"readinessTrusted\":true}";
         string origin = "{\"url\":\"https://cs3-fixture.invalid/form.html\",\"origin\":\"https://cs3-fixture.invalid\"}";
-        string root = "{\"nodeId\":\"1\",\"ignored\":false,\"role\":{\"type\":\"internalRole\",\"value\":\"RootWebArea\"},\"name\":{\"type\":\"computedString\",\"value\":\"CS-3 form fixture\"},\"properties\":[]}";
-        string textbox = "{\"nodeId\":\"2\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"textbox\"},\"name\":{\"type\":\"computedString\",\"value\":\"Name\"},\"value\":{\"type\":\"string\",\"value\":\"Ada\"},\"properties\":[{\"name\":\"required\",\"value\":{\"type\":\"booleanOrUndefined\",\"value\":true}}]}";
-        string button = "{\"nodeId\":\"3\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"button\"},\"name\":{\"type\":\"computedString\",\"value\":\"Save\"},\"properties\":[]}";
-        string alert = "{\"nodeId\":\"4\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"alert\"},\"name\":{\"type\":\"computedString\",\"value\":\"\"},\"properties\":[]}";
-        string status = "{\"nodeId\":\"5\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"status\"},\"name\":{\"type\":\"computedString\",\"value\":\"Saved Ada.\"},\"properties\":[]}";
-        string accessibility = "{\"nodes\":[" + root + "," + textbox + "," + button + "," + alert + "," + status + "]}";
+        string root = "{\"node_id\":\"1\",\"role\":\"RootWebArea\",\"name\":\"CS-3 form fixture\",\"value\":\"\",\"required\":false}";
+        string textbox = "{\"node_id\":\"2\",\"role\":\"textbox\",\"name\":\"Name\",\"value\":\"Ada\",\"required\":true}";
+        string button = "{\"node_id\":\"3\",\"role\":\"button\",\"name\":\"Save\",\"value\":\"\",\"required\":false}";
+        string alert = "{\"node_id\":\"4\",\"role\":\"alert\",\"name\":\"\",\"value\":\"\",\"required\":false}";
+        string status = "{\"node_id\":\"5\",\"role\":\"status\",\"name\":\"Saved Ada.\",\"value\":\"\",\"required\":false}";
+        string accessibility = "{\"schema\":\"cs3-accessibility-projection/1\",\"source_method\":\"Accessibility.getFullAXTree\",\"raw_utf8_bytes\":12345,\"raw_sha256\":\"" + new string('a',64) + "\",\"raw_node_count\":9,\"nodes\":[" + root + "," + textbox + "," + button + "," + alert + "," + status + "]}";
 
         Action<DomEvidence,string,string> add = (receipt, name, text) => {
             byte[] data = Utf8.GetBytes(text); string hash = Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant();
@@ -167,12 +150,6 @@ public sealed class DomEvidence {
             int length = Utf8.GetByteCount(text); if (length > bytes) throw new Exception("Test document exceeds pad target");
             return text + new string(' ', bytes-length);
         };
-        Func<int,string> axWithIgnored = count => {
-            var nodes = new List<string> { root, textbox, button, alert, status };
-            for (int i=0; i<count; i++) nodes.Add("{\"nodeId\":\"ignored-"+i+"\",\"ignored\":true}");
-            return "{\"nodes\":["+String.Join(",",nodes)+"]}";
-        };
-
         Validate("initial",initial); Validate("focused",focused); Validate("invalid",invalid); Validate("filled",filled); Validate("success",success);
         Validate("accessibility",accessibility); Validate("origin",origin); checks += 7;
         var complete = new DomEvidence();
@@ -202,30 +179,25 @@ public sealed class DomEvidence {
         reject(() => Validate("origin","{\"url\":\"https://blocked.invalid/\",\"origin\":\"https://blocked.invalid\"}"));
         reject(() => Validate("accessibility","{\"nodes\":[]}"));
 
-        string missingButton = "{\"nodes\":["+root+","+textbox+","+alert+","+status+"]}";
-        string ignoredTextbox = accessibility.Replace("\"nodeId\":\"2\",\"ignored\":false","\"nodeId\":\"2\",\"ignored\":true");
-        string falseRequired = accessibility.Replace("\"type\":\"booleanOrUndefined\",\"value\":true","\"type\":\"booleanOrUndefined\",\"value\":false");
-        string wrongValue = accessibility.Replace("\"type\":\"string\",\"value\":\"Ada\"","\"type\":\"string\",\"value\":\"Eve\"");
-        string nestedDuplicate = accessibility.Replace("\"role\":{\"type\":\"role\",\"value\":\"textbox\"}","\"role\":{\"type\":\"role\",\"value\":\"button\",\"value\":\"textbox\"}");
-        string contradictoryRequired = accessibility.Replace("{\"name\":\"required\",\"value\":{\"type\":\"booleanOrUndefined\",\"value\":true}}","{\"name\":\"required\",\"value\":{\"type\":\"booleanOrUndefined\",\"value\":false}},{\"name\":\"required\",\"value\":{\"type\":\"booleanOrUndefined\",\"value\":true}}");
-        string missingWrapperType = accessibility.Replace("\"name\":{\"type\":\"computedString\",\"value\":\"Name\"}","\"name\":{\"value\":\"Name\"}");
-        string wrongValueType = accessibility.Replace("\"value\":{\"type\":\"string\",\"value\":\"Ada\"}","\"value\":{\"type\":\"computedString\",\"value\":\"Ada\"}");
-        string wrongRequiredType = accessibility.Replace("\"type\":\"booleanOrUndefined\",\"value\":true","\"type\":\"boolean\",\"value\":true");
-        string duplicateNodeId = accessibility.Replace("\"nodeId\":\"3\"","\"nodeId\":\"2\"");
-        string missingNodeId = accessibility.Replace("\"nodeId\":\"4\",","");
+        string missingButton = accessibility.Replace(","+button,"");
+        string falseRequired = accessibility.Replace("\"value\":\"Ada\",\"required\":true","\"value\":\"Ada\",\"required\":false");
+        string wrongValue = accessibility.Replace("\"value\":\"Ada\"","\"value\":\"Eve\"");
+        string nestedDuplicate = accessibility.Replace("\"role\":\"textbox\"","\"role\":\"button\",\"role\":\"textbox\"");
+        string duplicateNodeId = accessibility.Replace("\"node_id\":\"3\"","\"node_id\":\"2\"");
+        string missingNodeId = accessibility.Replace("\"node_id\":\"4\",","");
         reject(() => Validate("accessibility",missingButton));
-        reject(() => Validate("accessibility",ignoredTextbox));
         reject(() => Validate("accessibility",falseRequired));
         reject(() => Validate("accessibility",wrongValue));
         reject(() => Validate("accessibility",nestedDuplicate));
-        reject(() => Validate("accessibility",contradictoryRequired));
-        reject(() => Validate("accessibility",missingWrapperType));
-        reject(() => Validate("accessibility",wrongValueType));
-        reject(() => Validate("accessibility",wrongRequiredType));
         reject(() => Validate("accessibility",duplicateNodeId));
         reject(() => Validate("accessibility",missingNodeId));
-        Validate("accessibility",axWithIgnored(123)); checks++;
-        reject(() => Validate("accessibility",axWithIgnored(124)));
+        reject(() => Validate("accessibility",accessibility.Replace("cs3-accessibility-projection/1","wrong")));
+        reject(() => Validate("accessibility",accessibility.Replace("Accessibility.getFullAXTree","Accessibility.getPartialAXTree")));
+        reject(() => Validate("accessibility",accessibility.Replace("12345","65537")));
+        reject(() => Validate("accessibility",accessibility.Replace(new string('a',64),new string('A',64))));
+        reject(() => Validate("accessibility",accessibility.Replace("\"raw_node_count\":9","\"raw_node_count\":129")));
+        Validate("accessibility",accessibility.Replace("Saved Ada.","")); checks++;
+        reject(() => Validate("accessibility",accessibility.Replace("Saved Ada.",new string('x',257))));
 
         string exact8k=pad(initial,8192); Validate("initial",exact8k); checks++;
         reject(() => Validate("initial",pad(initial,8193)));

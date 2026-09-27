@@ -81,7 +81,7 @@ try {
     & $compiler @common /target:winexe "/out:$output\WebViewHost.exe" "/reference:$references\System.Drawing.dll" "/reference:$references\System.Windows.Forms.dll" "/reference:$references\System.Web.Extensions.dll" "/reference:$output\Microsoft.Web.WebView2.Core.dll" "$output\HostContract.cs" "$output\WebDomContract.cs" "$output\WebViewHost.cs"
     if ($LASTEXITCODE -ne 0) { throw 'Host compile failed' }
     foreach ($suite in @('HostContract','WebDomContract')) {
-        & $compiler @common /target:exe "/out:$output\$($suite)Tests.exe" "$output\$suite.cs" "$output\$($suite)Tests.cs"
+        & $compiler @common "/reference:$references\System.Web.Extensions.dll" /target:exe "/out:$output\$($suite)Tests.exe" "$output\$suite.cs" "$output\$($suite)Tests.cs"
         if ($LASTEXITCODE -ne 0) { throw 'Pure test compilation failed' }
         & "$output/$($suite)Tests.exe"
         if ($LASTEXITCODE -ne 0) { throw 'Pure test failed' }

@@ -314,10 +314,10 @@ namespace Vcp.Cs3WebViewDraft {
             AssertSnapshot(success,"Ada", "", "Saved Ada.", "name",2,2,2,2,"Enter",2);
 
             phase = "accessibility_snapshot";
-            string accessibility = await DevTools("Accessibility.getFullAXTree",HostProbeContract.AxParameters);
+            string accessibilityRaw = await DevTools("Accessibility.getFullAXTree",HostProbeContract.AxParameters);
             RequireProbeActive();
+            string accessibility = HostAccessibilityProjection.Create(accessibilityRaw);
             EmitDom("accessibility",accessibility);
-            AssertAccessibility(accessibility);
             AssertSnapshot(await Snapshot(),"Ada", "", "Saved Ada.", "name",2,2,2,2,"Enter",2);
 
             phase = "negative_origin";
@@ -371,12 +371,13 @@ namespace Vcp.Cs3WebViewDraft {
             string result = await core.CallDevToolsProtocolMethodAsync(method,parameters);
             RequireProbeActive();
             commands.Complete(method,parameters,result,clock.ElapsedMilliseconds);
-            if (method == "Accessibility.getFullAXTree") BoundJson(result);
+            if (method == "Accessibility.getFullAXTree") BoundJson(result,HostProbeContract.MaximumAccessibilityResponseBytes);
             return result;
         }
         static void RequireProbeActive() { HostProbeContract.RequireActive(lifecycle,clock.ElapsedMilliseconds); }
-        static void BoundJson(string value) {
-            if (String.IsNullOrEmpty(value) || Encoding.UTF8.GetByteCount(value)>HostProbeContract.MaximumRecordBytes) throw new InvalidDataException("DOM evidence exceeds its per-record bound");
+        static void BoundJson(string value) { BoundJson(value,HostProbeContract.MaximumRecordBytes); }
+        static void BoundJson(string value, int maximumBytes) {
+            if (maximumBytes<=0 || String.IsNullOrEmpty(value) || Encoding.UTF8.GetByteCount(value)>maximumBytes) throw new InvalidDataException("DOM evidence exceeds its per-record bound");
             json.DeserializeObject(value);
         }
         static Dictionary<string,object> Object(string raw) {
@@ -410,44 +411,6 @@ namespace Vcp.Cs3WebViewDraft {
             if(item.Count!=2 || !item.ContainsKey("url") || !item.ContainsKey("origin")) throw new InvalidDataException("Origin snapshot shape differs");
             EqualString(item,"url",WebDomContract.FormUrl);
             EqualString(item,"origin","https://cs3-fixture.invalid");
-        }
-        static void AssertAccessibility(string raw) {
-            var root=Object(raw); object nodesValue;
-            var nodes=root.TryGetValue("nodes",out nodesValue) ? nodesValue as object[] : null;
-            if(nodes==null || nodes.Length==0 || nodes.Length>128) throw new InvalidDataException("Accessibility node bound or shape differs");
-            bool rootArea=false, textbox=false, button=false, alert=false, status=false;
-            foreach(object nodeValue in nodes) {
-                var node=nodeValue as Dictionary<string,object>; if(node==null) throw new InvalidDataException("Accessibility node shape differs");
-                object ignored;
-                if(!node.TryGetValue("ignored",out ignored) || !(ignored is bool)) throw new InvalidDataException("Accessibility ignored state differs");
-                if((bool)ignored) continue;
-                string role=AxValue(node,"role"), name=AxValue(node,"name");
-                if(role=="RootWebArea" && name=="CS-3 form fixture") rootArea=true;
-                if(role=="textbox" && name=="Name" && AxRequired(node)) textbox=true;
-                if(role=="button" && name=="Save") button=true;
-                if(role=="alert") alert=true;
-                if(role=="status") status=true;
-            }
-            if(!rootArea || !textbox || !button || !alert || !status) throw new InvalidDataException("Required accessibility roles, names or state absent");
-        }
-        static string AxValue(Dictionary<string,object> node, string field) {
-            object property, value;
-            var item=node.TryGetValue(field,out property) ? property as Dictionary<string,object> : null;
-            return item!=null && item.TryGetValue("value",out value) && value is string ? (string)value : "";
-        }
-        static bool AxRequired(Dictionary<string,object> node) {
-            object propertiesValue;
-            var properties=node.TryGetValue("properties",out propertiesValue) ? propertiesValue as object[] : null;
-            if(properties==null) return false;
-            foreach(object propertyValue in properties) {
-                var property=propertyValue as Dictionary<string,object>; object name, wrapped, value;
-                if(property!=null && property.TryGetValue("name",out name) && name is string && (string)name=="required" &&
-                    property.TryGetValue("value",out wrapped)) {
-                    var item=wrapped as Dictionary<string,object>;
-                    return item!=null && item.TryGetValue("value",out value) && value is bool && (bool)value;
-                }
-            }
-            return false;
         }
         static void EqualString(Dictionary<string,object> item, string field, string expected) {
             object value;

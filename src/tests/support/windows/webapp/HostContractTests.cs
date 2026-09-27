@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 using System;
 using System.Collections;
+using System.Security.Cryptography;
+using System.Text;
 using Vcp.Cs3WebViewDraft;
 static class HostContractTests {
     static int checks;
@@ -28,7 +30,30 @@ static class HostContractTests {
         Reject(delegate { Evidence.Record(nonce,"phase",-1,0,"",0,""); });
         Reject(delegate { Evidence.Record(nonce,"phase",0,0,new string('x',257),0,""); });
         Check(Evidence.MaximumProcesses==32 && Evidence.StartupMilliseconds==20000);
-        Check(HostProbeContract.CommandCount==11 && HostProbeContract.MaximumCumulativeResponseBytes==HostProbeContract.MaximumRecordBytes+20);
+        Check(HostProbeContract.CommandCount==11 && HostProbeContract.MaximumAccessibilityResponseBytes==64*1024 && HostProbeContract.MaximumCumulativeResponseBytes==HostProbeContract.MaximumAccessibilityResponseBytes+20);
+        string axRoot="{\"nodeId\":\"1\",\"ignored\":false,\"role\":{\"type\":\"internalRole\",\"value\":\"RootWebArea\"},\"name\":{\"type\":\"computedString\",\"value\":\"CS-3 form fixture\"},\"properties\":[]}";
+        string axTextbox="{\"nodeId\":\"2\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"textbox\"},\"name\":{\"type\":\"computedString\",\"value\":\"Name\"},\"value\":{\"type\":\"string\",\"value\":\"Ada\"},\"properties\":[{\"name\":\"required\",\"value\":{\"type\":\"booleanOrUndefined\",\"value\":true}}]}";
+        string axButton="{\"nodeId\":\"3\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"button\"},\"name\":{\"type\":\"computedString\",\"value\":\"Save\"},\"properties\":[]}";
+        string axAlert="{\"nodeId\":\"4\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"alert\"},\"name\":{\"type\":\"computedString\",\"value\":\"\"},\"properties\":[]}";
+        string axStatus="{\"nodeId\":\"5\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"status\"},\"name\":{\"type\":\"computedString\",\"value\":\"Saved Ada.\"},\"properties\":[]}";
+        string axRaw="{\"nodes\":["+axRoot+","+axTextbox+","+axButton+","+axAlert+","+axStatus+"]}";
+        byte[] axBytes=Encoding.UTF8.GetBytes(axRaw); string axHash;
+        using(var algorithm=SHA256.Create()) { var hash=algorithm.ComputeHash(axBytes); var text=new StringBuilder(64); foreach(byte value in hash) text.Append(value.ToString("x2")); axHash=text.ToString(); }
+        string axExpected="{\"schema\":\"cs3-accessibility-projection/1\",\"source_method\":\"Accessibility.getFullAXTree\",\"raw_utf8_bytes\":"+axBytes.Length+",\"raw_sha256\":\""+axHash+"\",\"raw_node_count\":5,\"nodes\":["+
+            "{\"node_id\":\"1\",\"role\":\"RootWebArea\",\"name\":\"CS-3 form fixture\",\"value\":\"\",\"required\":false},"+
+            "{\"node_id\":\"2\",\"role\":\"textbox\",\"name\":\"Name\",\"value\":\"Ada\",\"required\":true},"+
+            "{\"node_id\":\"3\",\"role\":\"button\",\"name\":\"Save\",\"value\":\"\",\"required\":false},"+
+            "{\"node_id\":\"4\",\"role\":\"alert\",\"name\":\"\",\"value\":\"\",\"required\":false},"+
+            "{\"node_id\":\"5\",\"role\":\"status\",\"name\":\"Saved Ada.\",\"value\":\"\",\"required\":false}]}";
+        Check(HostAccessibilityProjection.Create(axRaw)==axExpected);
+        Reject(delegate { HostAccessibilityProjection.Create("{\"nodes\":[]}"); });
+        Reject(delegate { HostAccessibilityProjection.Create(axRaw.Replace("\"nodeId\":\"3\"","\"nodeId\":\"2\"")); });
+        Reject(delegate { HostAccessibilityProjection.Create(axRaw.Replace("\"type\":\"booleanOrUndefined\",\"value\":true","\"type\":\"booleanOrUndefined\",\"value\":false")); });
+        Reject(delegate { HostAccessibilityProjection.Create(axRaw.Replace("\"type\":\"string\",\"value\":\"Ada\"","\"type\":\"string\",\"value\":\"Eve\"")); });
+        Check(HostAccessibilityProjection.Create(axRaw.Replace("Saved Ada.","")).Contains("\"role\":\"status\",\"name\":\"\""));
+        Reject(delegate { HostAccessibilityProjection.Create(axRaw.Replace("Saved Ada.",new string('x',257))); });
+        Reject(delegate { HostAccessibilityProjection.Create(axRaw.Substring(0,axRaw.Length-2)+","+axRoot.Replace("\"nodeId\":\"1\"","\"nodeId\":\"6\"")+"]}"); });
+        Reject(delegate { HostAccessibilityProjection.Create(new string('x',HostProbeContract.MaximumAccessibilityResponseBytes+1)); });
         var skippedSentinel=new HostProbeContract.CommandSequence();
         skippedSentinel.BeginRequest("Emulation.setFocusEmulationEnabled",HostProbeContract.FocusParameters,1);
         skippedSentinel.Complete("Emulation.setFocusEmulationEnabled",HostProbeContract.FocusParameters,"{}",1);
@@ -94,6 +119,22 @@ static class HostContractTests {
         Reject(delegate { badResponse.Complete("Emulation.setFocusEmulationEnabled",HostProbeContract.FocusParameters,"{\"unexpected\":true}",2); });
         Reject(delegate { badResponse.RequireComplete(); });
         Reject(delegate { new HostProbeContract.CommandSequence().RequireComplete(); });
+        Action<HostProbeContract.CommandSequence> advanceToAccessibility = value => {
+            Action<string,string,int> add=(method,parameters,elapsed)=>{value.BeginRequest(method,parameters,elapsed);value.Complete(method,parameters,"{}",elapsed);};
+            add("Emulation.setFocusEmulationEnabled",HostProbeContract.FocusParameters,1);
+            add("Input.dispatchKeyEvent",HostProbeContract.ReadinessDownParameters,2); add("Input.dispatchKeyEvent",HostProbeContract.ReadinessUpParameters,3);
+            add("Input.dispatchKeyEvent",HostProbeContract.EnterDownParameters,4); add("Input.dispatchKeyEvent",HostProbeContract.EnterUpParameters,5);
+            add("Input.insertText",HostProbeContract.InsertParameters,6);
+            add("Input.dispatchKeyEvent",HostProbeContract.ReadinessDownParameters,7); add("Input.dispatchKeyEvent",HostProbeContract.ReadinessUpParameters,8);
+            add("Input.dispatchKeyEvent",HostProbeContract.EnterDownParameters,9); add("Input.dispatchKeyEvent",HostProbeContract.EnterUpParameters,10);
+        };
+        var maximumAccessibility=new HostProbeContract.CommandSequence(); advanceToAccessibility(maximumAccessibility);
+        maximumAccessibility.BeginRequest("Accessibility.getFullAXTree",HostProbeContract.AxParameters,11);
+        maximumAccessibility.Complete("Accessibility.getFullAXTree",HostProbeContract.AxParameters,new string('x',HostProbeContract.MaximumAccessibilityResponseBytes),11);
+        maximumAccessibility.RequireComplete(); checks++;
+        var oversizedAccessibility=new HostProbeContract.CommandSequence(); advanceToAccessibility(oversizedAccessibility);
+        oversizedAccessibility.BeginRequest("Accessibility.getFullAXTree",HostProbeContract.AxParameters,11);
+        Reject(delegate { oversizedAccessibility.Complete("Accessibility.getFullAXTree",HostProbeContract.AxParameters,new string('x',HostProbeContract.MaximumAccessibilityResponseBytes+1),11); });
 
         var routing=new InputRoutingCommands();
         Reject(delegate { routing.BeginRequest("Input.insertText",HostProbeContract.InsertParameters,1); });
