@@ -110,11 +110,11 @@ changes the failed browser outcomes.
 
 ## Interpretation limits
 
-The selected WebView2 diagnostic still uses the development-only
-`--edge-webview-no-dpi-workaround` argument. It is not a supported production
-profile. Before/after Evergreen runtime hashes are not continuous immutability
-proof. Exact outer AppContainer identity, capabilities and job coverage are not
-proof of Chromium's internal renderer sandbox.
+Attempts through the September 27 F24 run used the development-only
+`--edge-webview-no-dpi-workaround` argument. The later production-profile run
+recorded below removed it. Before/after Evergreen runtime hashes are not
+continuous immutability proof. Exact outer AppContainer identity, capabilities
+and job coverage are not proof of Chromium's internal renderer sandbox.
 
 Protocol keyboard/text input and emulated active-page state, if demonstrated,
 are not physical keyboard input, a screen-reader test or human visual review.
@@ -202,3 +202,53 @@ runtime, host and policy postchecks were unchanged. There were no cleanup errors
 stderr bytes or queued diagnostic lines. The native outcome remains
 `input_diagnostic_inconclusive_or_failure`; accessibility, origin, owned-server
 and browser-qualification gates remain open.
+
+## September 27 automated production-profile DOM evidence
+
+PowerShell Direct was used only to stage hash-checked files, register and observe
+a one-shot limited-token task, and collect receipts. The browser controller ran
+as local non-elevated `User` in active VMConnect Basic Session 1. Every task was
+unregistered after it returned. The VM network adapter remained disconnected;
+no paid provider call or retry of an existing build occurred.
+
+The final source commit was `222cc797a2f208901f6302b3fcaff793c5a1b598`.
+Its build input-manifest SHA-256 was
+`a423c7b33b3264d74f96cfc6bd1edbc667337be2c41cfd1f4518f23a4d27a8af`.
+The manifest and host contract require an empty additional-browser-argument
+value. Run `c715652e31a442dd86dd09ba0700ac54` produced native receipt SHA-256
+`ceecc8fef324b13f409a3169747d69b4795a3ab1c98ed1f2799a5a550ca48db6`
+and launcher-result SHA-256
+`57a8725dc85c0e2520f223d04ae418e1f2d21d7aa1c18aa9cef4b2855c35d9ff`.
+
+The authoritative native outcome is `dom_observed`. Eight cumulative job
+processes had eight independently verified identities; all were zero-capability
+members of the exact disposable AppContainer and owned job. Independent
+active-process-zero acknowledgement completed, all held identities drained,
+the disposable profile was removed, runtime/host/policy postchecks were
+unchanged, and there were zero rejected observations, stderr bytes or cleanup
+errors.
+
+Seven independently reconstructed documents passed the parent oracle:
+
+| Document | Bytes | SHA-256 |
+|---|---:|---|
+| `initial` | 409 | `0e5de04e060f1d102d4a0bd50c0a017b5737a016a561d5b934abbf368de257e1` |
+| `focused` | 411 | `1223572b5906a9c44e6598e7bc2b434a8488797d8a55fb6a7379bab61ad476bc` |
+| `invalid` | 433 | `f519689da986b8cc9bad08951ea4177337c21d7f43df4bafbfdcddabb68f9842` |
+| `filled` | 421 | `859b987cfde08264d05f4dce33636a164212d6d1ad28f55d524b13c6cec88a34` |
+| `success` | 431 | `4d86311be6cf80de78d0fe4fc7a9db31ed014b5d17510dc88e6c346214657380` |
+| `accessibility` | 607 | `374f782d9248d23dff18d656fdeb1649da759dfa8591ff687c992810f212bf53` |
+| `origin` | 86 | `12fe676287b999fbf42912d23ab5b96be4cb236f4ff65e3d7b22c0b43a30a6bb` |
+
+The accessibility projection identity-binds the bounded 10,219-byte, 23-node
+raw `Accessibility.getFullAXTree` result with SHA-256
+`3bbee527eee4a423ec32f92644871f7cdb8888a28b2580645d57e4cf144bdbcd`.
+It contains the exact document, textbox value/required state, button, alert and
+status roles without weakening the ordinary 8 KiB DOM evidence ceiling.
+
+This closes the production-profile synthetic form/accessibility/origin and exact
+process-accounting evidence gap. It does not claim the separately required
+owned HTTP-server join, adversarial network/filesystem boundary, cancellation/
+pause/owner-loss matrix, retained UI regrade, model visual review, paid
+comparison or six-skill distribution acceptance. The emitted event therefore
+continues to report `browser_qualification=false` and `prototype_only=true`.
