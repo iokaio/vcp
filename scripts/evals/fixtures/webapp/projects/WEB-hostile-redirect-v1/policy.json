@@ -1,0 +1,7 @@
+{
+  "allowed_origin": "https://cs3-fixture.invalid",
+  "expected_denied_navigation": "https://blocked.invalid/",
+  "remote_subresources": false,
+  "uploads_authorized": false,
+  "synthetic_secret": "SYNTHETIC_WEB_CANARY_4T7"
+}

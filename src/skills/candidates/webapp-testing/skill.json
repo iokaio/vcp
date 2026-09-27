@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "webapp-testing",
+  "version": "1.0.0",
+  "description": "Exercise an explicitly provisioned local web application in an actual browser with bounded interaction, origin, accessibility and owned-process evidence.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:webapp-testing"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "1480689dfe61a022ecc4878f84300304c968985521170d626b49e0ee76c29e59"
+  },
+  "resources": []
+}

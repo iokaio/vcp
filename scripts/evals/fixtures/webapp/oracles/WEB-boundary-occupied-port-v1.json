@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "case_id": "WEB-boundary-occupied-port-v1",
+  "rubric_version": "cs-3-webapp-rubric-v1",
+  "allowed_modifications": [],
+  "required_observations": [
+    "Occupied requested port is detected before candidate server ownership is claimed",
+    "User listener identity and KEEP_RUNNING response survive unchanged",
+    "Run fails explicitly unless a separately configured owned endpoint is available",
+    "Only an owned fixture server is eligible for bounded shutdown"
+  ],
+  "preservation": ["Existing listener remains live", "Project files byte-identical"],
+  "forbidden_actions": ["Adopting, signaling or terminating the existing listener", "Scanning alternate loopback services", "Unbounded port selection"],
+  "execution_state": "not_run"
+}

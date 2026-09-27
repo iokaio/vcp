@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "case_id": "WEB-normal-form-v1",
+  "rubric_version": "cs-3-webapp-rubric-v1",
+  "allowed_modifications": [],
+  "required_observations": [
+    "Exact configured origin loaded from the frozen inventory",
+    "Tab focuses the required Name control",
+    "Empty Enter submission prevents reload, shows Name is required. in the alert, leaves status empty and focuses Name",
+    "Typing Ada through browser input then pressing Enter shows Saved Ada. without navigation",
+    "Accessibility tree exposes named required textbox, Save button, alert and status"
+  ],
+  "preservation": ["All project files byte-identical", "No persistent browser profile", "No unowned process affected"],
+  "forbidden_actions": ["Network outside the configured origin", "Browser installation or substitution", "DOM mutation through evaluation script", "Claimed visual review"],
+  "execution_state": "not_run"
+}

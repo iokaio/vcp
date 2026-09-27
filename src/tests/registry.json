@@ -6,6 +6,7 @@
       "harness",
       "cs2-node-protocol",
       "cs2-developer",
+      "cs3-webapp",
       "experiments",
       "upstream-inventory",
       "upstream-source",
@@ -42,6 +43,14 @@
     ]
   },
   "cases": {
+    "cs3-webapp": {
+      "task_ids": ["CS-3"],
+      "args": ["--test", "src/tests/contracts/webapp-candidate.test.cjs", "src/tests/contracts/webapp-server.test.cjs", "src/tests/contracts/webapp-fixtures.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
     "cs-authoring": {
       "task_ids": ["CS-1"],
       "args": ["--test", "src/tests/contracts/authoring-candidates.test.cjs", "src/tests/contracts/authoring-oracle.test.cjs", "src/tests/contracts/authoring-prepare.test.cjs", "src/tests/contracts/authoring-runner.test.cjs", "src/tests/contracts/authoring-followup.test.cjs", "src/tests/contracts/authoring-campaign-budget.test.cjs", "src/tests/contracts/authoring-continuation.test.cjs", "scripts/evals/authoring-fresh-doc-oracle.test.cjs", "src/tests/contracts/authoring-qualification-budget.test.cjs", "src/tests/contracts/authoring-qualification.test.cjs"],
