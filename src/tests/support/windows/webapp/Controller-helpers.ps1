@@ -15,7 +15,15 @@ function Register-OwnedProcess {
         if ($Identities[$key].CreationFileTime -ne $created) { throw 'Repeated process event changed creation identity' }
         return $Identities[$key].Process
     }
-    $identity = & $OpenIdentity $key
+    try { $identity = & $OpenIdentity $key }
+    catch [ArgumentException] {
+        # The pinned native worker already held and verified this exact process
+        # identity before publishing the event. Preserve a tombstone only when
+        # the process exited before the controller could acquire a second
+        # handle; other open failures and unverified events remain fatal.
+        if ($Event.token_verified -isnot [bool] -or -not $Event.token_verified -or $created -le 0) { throw }
+        $identity=@{ Process=$null; CreationFileTime=$created; ExitedBeforeParentOpen=$true }
+    }
     if ($identity.CreationFileTime -ne $created) { $identity.Process.Dispose(); throw 'PID creation identity changed' }
     $Identities.Add($key,$identity)
     return $identity.Process

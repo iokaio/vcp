@@ -16,6 +16,8 @@ $held=[pscustomobject]@{tag='same held object'}; $identities=@{42=@{Process=$hel
 $actual=Register-OwnedProcess $identities ([pscustomobject]@{pid=42;creation_filetime=100}) { throw 'Must not reopen an existing held PID' }; Check ([object]::ReferenceEquals($actual,$held))
 Reject { Register-OwnedProcess $identities ([pscustomobject]@{pid=42;creation_filetime=101}) { throw 'Must not reopen reused PID' } }
 Reject { Register-OwnedProcess @{} ([pscustomobject]@{pid=43;creation_filetime=100}) { throw 'Uninspectable process must fail' } }
+$short=@{};$shortResult=Register-OwnedProcess $short ([pscustomobject]@{pid=44;creation_filetime=101;token_verified=$true}) { throw [ArgumentException]::new('already exited') };Check ($null -eq $shortResult -and $short[44].ExitedBeforeParentOpen -and $short[44].CreationFileTime -eq 101)
+Reject { Register-OwnedProcess @{} ([pscustomobject]@{pid=45;creation_filetime=102;token_verified=$false}) { throw [ArgumentException]::new('already exited') } }
 Assert-SnapshotSame ([ordered]@{root='synthetic';files=@(@{sha256='a'})}) ([ordered]@{root='synthetic';files=@(@{sha256='a'})}); Check $true
 Reject { Assert-SnapshotSame (@{sha256='a'}) (@{sha256='b'}) }
 $pe=[byte[]]::new(256)

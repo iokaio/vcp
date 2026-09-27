@@ -189,7 +189,7 @@ try {
     } catch { Record-ControllerCleanupFailure $value 'worker_termination' $_ }
     try {
         $wait = [Diagnostics.Stopwatch]::StartNew()
-        foreach ($identity in $owned.Values) { $remaining=[Math]::Max(0,10000-$wait.ElapsedMilliseconds); if (-not $identity.Process.WaitForExit([int]$remaining)) { throw 'Observed process survived worker termination' } }
+        foreach ($identity in $owned.Values) { if ($null -eq $identity.Process) { continue }; $remaining=[Math]::Max(0,10000-$wait.ElapsedMilliseconds); if (-not $identity.Process.WaitForExit([int]$remaining)) { throw 'Observed process survived worker termination' } }
         $observedDrained=$true
     } catch { Record-ControllerCleanupFailure $value 'owned_process_drain' $_ }
     # Retain bounded native diagnostics/events even when processing an earlier
@@ -226,7 +226,7 @@ try {
         catch { Record-ControllerCleanupFailure $value 'independent_job_drain' $_ }
         try { [Vcp.Cs3Draft.NativeProbe]::ClosePort($port) } catch { Record-ControllerCleanupFailure $value 'close_completion_port' $_ }
     }
-    foreach ($identity in $owned.Values) { try { $identity.Process.Dispose() } catch { Record-ControllerCleanupFailure $value 'dispose_owned_process' $_ } }
+    foreach ($identity in $owned.Values) { if ($null -eq $identity.Process) { continue }; try { $identity.Process.Dispose() } catch { Record-ControllerCleanupFailure $value 'dispose_owned_process' $_ } }
     if ($worker) { try { $worker.Dispose() } catch { Record-ControllerCleanupFailure $value 'dispose_worker' $_ } }
     try { Assert-NoWebViewOverrides; $value.policy_unchanged=$true } catch { Record-ControllerCleanupFailure $value 'policy_postcheck' $_ }
     try { $after=Get-InputSnapshot $inputs.runtime -CheckRuntimeAcl -ContainerSid $sid; Assert-SnapshotSame $value.runtime_before $after; $value.runtime_unchanged=$true } catch { Record-ControllerCleanupFailure $value 'runtime_postcheck' $_ }
