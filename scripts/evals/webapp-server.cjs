@@ -212,6 +212,10 @@ async function startOwnedServer(inventory, options = {}) {
     }, limits.requestMs);
     terminalTimer.unref?.();
   };
+  const chargeConnectionAttempt = () => {
+    connectionAttempts += 1;
+    if (connectionAttempts >= limits.maxConnectionAttempts) terminateAdmission('max_connection_attempts');
+  };
   const server = http.createServer({ maxHeaderSize: limits.maxHeaderBytes, requireHostHeader: true }, (request, response) => {
     requests += 1;
     response.setHeader('Connection', 'close');
@@ -245,12 +249,14 @@ async function startOwnedServer(inventory, options = {}) {
   server.headersTimeout = limits.requestMs;
   server.keepAliveTimeout = Math.min(1_000, limits.requestMs);
   server.on('connection', socket => {
-    connectionAttempts += 1;
+    chargeConnectionAttempt();
     sockets.add(socket);
     socket.setTimeout(limits.requestMs, () => socket.destroy());
     socket.once('close', () => sockets.delete(socket));
-    if (connectionAttempts >= limits.maxConnectionAttempts) terminateAdmission('max_connection_attempts');
   });
+  // Once maxConnections is saturated Node rejects new sockets through `drop`
+  // instead of `connection`; those attempts still consume the admission budget.
+  server.on('drop', chargeConnectionAttempt);
   server.on('clientError', (error, socket) => {
     if (!socket.writable) return socket.destroy();
     const status = error?.code === 'HPE_HEADER_OVERFLOW' ? '431 Request Header Fields Too Large' : '400 Bad Request';

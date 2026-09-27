@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { ownedRoot } = require('../support/experiments.cjs');
 const web = require('../../../scripts/evals/webapp-fixtures.cjs');
 
@@ -26,6 +27,7 @@ function writeManifest(root, value) {
 test('WEB preparation cohort is frozen, bounded, independent and explicitly not run', () => {
   const cohort = web.inspect();
   assert.equal(cohort.revision, 'cs-3-webapp-fixtures-v1');
+  assert.equal(cohort.manifest_sha256, web.manifestSha256);
   assert.equal(cohort.loaded.size, 6);
   assert.equal(cohort.inventory.length, 29);
   assert.deepEqual(
@@ -108,6 +110,27 @@ test('WEB loader rejects changed project bytes, changed oracle and extra invento
     fs.writeFileSync(path.join(root, 'unexpected.txt'), 'not declared');
     assert.throws(() => web.inspect(root), /Unexpected WEB fixture inventory/);
   });
+});
+
+test('WEB revision pins prompts, context and coordinated file/manifest changes', async t => {
+  for (const field of ['prompt', 'context', 'source']) {
+    await t.test(field, child => {
+      const root = privateCohort(child), value = manifest(root), task = value.cases[0];
+      if (field === 'prompt') task.prompt = 'A different task under the same revision';
+      else if (field === 'context') task.context = { environment: 'changed' };
+      else {
+        const ref = task.expected.source_files[0], file = path.join(root, task.project, ref.path);
+        fs.appendFileSync(file, '\nchanged');
+        const bytes = fs.readFileSync(file);
+        ref.bytes = bytes.length;
+        ref.sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+      }
+      writeManifest(root, value);
+      assert.throws(() => web.inspect(root), /Frozen WEB manifest changed/);
+      assert.throws(() => web.candidateInput(task.id, root), /Frozen WEB manifest changed/);
+      assert.throws(() => web.oracle(task.id, root), /Frozen WEB manifest changed/);
+    });
+  }
 });
 
 test('WEB loader rejects duplicate and unsafe manifest references', async t => {

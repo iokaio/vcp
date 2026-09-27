@@ -1,0 +1,450 @@
+// SPDX-License-Identifier: Apache-2.0
+// HOST DRAFT ONLY. Browser execution requires the separately reviewed supervisor.
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.Web.Script.Serialization;
+using Microsoft.Web.WebView2.Core;
+using Vcp.Qualification.Webapp;
+
+namespace Vcp.Cs3WebViewDraft {
+    internal static class WebViewHost {
+        [System.Runtime.InteropServices.DllImport("shell32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int SetCurrentProcessExplicitAppUserModelID(string id);
+        static HostInput input;
+        static ApplicationContext pump;
+        static SynchronizationContext sta;
+        static CoreWebView2Environment environment;
+        static CoreWebView2Controller controller;
+        static CoreWebView2 core;
+        static System.Windows.Forms.Timer timer;
+        static readonly Stopwatch clock = new Stopwatch();
+        static readonly HostLifecycle lifecycle = new HostLifecycle();
+        static readonly WebDomSession dom = WebDomContract.CreateSession();
+        static readonly HostProbeContract.CommandSequence commands = new HostProbeContract.CommandSequence();
+        static readonly HostProbeContract.EvidenceBudget domBudget = new HostProbeContract.EvidenceBudget();
+        static readonly List<Stream> responseStreams = new List<Stream>();
+        static readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 16384, RecursionLimit = 64 };
+        static bool ready, begun;
+        static bool initialNavigationSeen, negativeExpected, negativeSeen, probeRunning;
+        static ulong navigationId;
+        static int events, snapshots;
+        static string phase = "startup", version = "";
+        static TaskCompletionSource<bool> negativeCompletion;
+        const int DomChunkBytes = 96;
+
+        [STAThread]
+        static int Main(string[] args) {
+            try {
+                input = HostInput.Parse(args);
+                HostInput.NoOverrides(Environment.GetEnvironmentVariables());
+                System.Runtime.InteropServices.Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID("iokaio.vcp.cs3.webview2.probe"));
+                // The supervisor owns staging, ACLs, hashes, policy and job/token checks.
+                // This host creates no profile, server, network grant or child authority.
+                if (!Directory.Exists(input.Runtime) || !Directory.Exists(input.Profile)) throw new DirectoryNotFoundException("Supervisor must stage exact directories");
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
+                pump = new ApplicationContext();
+                sta = new WindowsFormsSynchronizationContext();
+                SynchronizationContext.SetSynchronizationContext(sta);
+                clock.Start();
+                Emit("host_started",0,0,"");
+                var reader = new Thread(ReadControl) { IsBackground = true };
+                reader.Start();
+                timer = new System.Windows.Forms.Timer { Interval = 100 };
+                timer.Tick += delegate {
+                    if (clock.ElapsedMilliseconds >= Evidence.StartupMilliseconds) { Stop("deadline",unchecked((int)0x800705b4),false); return; }
+                    if (!begun) { begun = true; Begin(); }
+                };
+                timer.Start();
+                Application.Run(pump);
+            } catch (Exception error) {
+                if (input != null) { try { Stop("host_failed",error.HResult,false); } catch { } }
+                lifecycle.Fail("host_failed",error.HResult);
+            } finally {
+                if (controller != null) { try { controller.Close(); } catch (Exception error) { lifecycle.Fail("close_failed",error.HResult); } controller = null; }
+                foreach (Stream stream in responseStreams) { try { stream.Dispose(); } catch (Exception error) { lifecycle.Fail("stream_close_failed",error.HResult); } }
+                if (timer != null) timer.Dispose();
+                if (pump != null) pump.Dispose();
+            }
+            return lifecycle.ExitCode;
+        }
+        static async void Begin() {
+            try {
+                phase = "environment_create"; Emit(phase,0,0,"");
+                HostInput.NoOverrides(Environment.GetEnvironmentVariables());
+                var options = new CoreWebView2EnvironmentOptions();
+                // Sole prospective development-only control for the documented
+                // DPI shell-launch workaround. No sandbox or capability switch.
+                options.AdditionalBrowserArguments = "--edge-webview-no-dpi-workaround";
+                options.ExclusiveUserDataFolderAccess = true;
+                options.IsCustomCrashReportingEnabled = true;
+                environment = await CoreWebView2Environment.CreateAsync(input.Runtime,input.Profile,options);
+                if (lifecycle.Stopping) return;
+                version = environment.BrowserVersionString;
+                if (version != input.Version || !String.Equals(HostInput.Absolute(environment.UserDataFolder),input.Profile,StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Actual version or profile differs");
+                Emit("environment_created",0,0,"");
+                environment.ProcessInfosChanged += ProcessInfosChanged;
+                Census();
+                phase = "controller_create"; Emit(phase,0,0,"");
+                // HWND_MESSAGE (-3), as documented for an invisible WebView.
+                controller = await environment.CreateCoreWebView2ControllerAsync(new IntPtr(-3));
+                if (lifecycle.Stopping) { controller.Close(); controller = null; return; }
+                controller.IsVisible = false;
+                controller.Bounds = new System.Drawing.Rectangle(0,0,1,1);
+                core = controller.CoreWebView2;
+                core.Settings.AreDevToolsEnabled = false;
+                core.Settings.AreDefaultContextMenusEnabled = false;
+                core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+                core.Settings.IsStatusBarEnabled = false;
+                core.Settings.IsZoomControlEnabled = false;
+                core.Settings.IsBuiltInErrorPageEnabled = false;
+                core.Settings.IsPasswordAutosaveEnabled = false;
+                core.Settings.IsGeneralAutofillEnabled = false;
+                core.Settings.AreHostObjectsAllowed = false;
+                core.Settings.IsWebMessageEnabled = false;
+                core.Settings.IsScriptEnabled = true;
+                core.AddWebResourceRequestedFilter("*",CoreWebView2WebResourceContext.All);
+                core.WebResourceRequested += WebResourceRequested;
+                core.NavigationStarting += NavigationStarting;
+                core.FrameNavigationStarting += FrameNavigationStarting;
+                core.NavigationCompleted += NavigationCompleted;
+                core.NewWindowRequested += NewWindowRequested;
+                core.DownloadStarting += DownloadStarting;
+                core.PermissionRequested += PermissionRequested;
+                core.LaunchingExternalUriScheme += LaunchingExternalUriScheme;
+                phase = "fixture_navigation";
+                core.Navigate(WebDomContract.FormUrl);
+                // NavigationCompleted drives the bounded probe. Only its final
+                // evidence record may make the controller ready for supervisor STOP.
+            } catch (Exception error) { Stop("creation_failed",error.HResult,false); }
+        }
+        static void WebResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e) {
+            try {
+                // Install a denial before any inspection; callback exceptions and
+                // shutdown must not leave an implicit network fallback.
+                var denied = new MemoryStream(new byte[0],false);
+                responseStreams.Add(denied);
+                e.Response = environment.CreateWebResourceResponse(denied,403,"Forbidden","Content-Type: text/plain; charset=utf-8\r\nCache-Control: no-store");
+                if (lifecycle.Stopping) return;
+                WebDomResource resource;
+                if (!dom.TryServe(e.Request.Method,e.Request.Uri,out resource)) {
+                    Reject("resource_rejected");
+                    return;
+                }
+                byte[] bytes = Encoding.UTF8.GetBytes(resource.Body);
+                var stream = new MemoryStream(bytes,false);
+                responseStreams.Add(stream);
+                string headers = "Content-Type: " + resource.ContentType + "\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'none'; script-src 'self'; connect-src 'none'; img-src 'none'; style-src 'none'; form-action 'none'";
+                e.Response = environment.CreateWebResourceResponse(stream,200,"OK",headers);
+            } catch (Exception error) { Reject("resource_callback_failed",error.HResult); }
+        }
+        static void NavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e) {
+            if (lifecycle.Stopping) { e.Cancel = true; return; }
+            try {
+                if (!initialNavigationSeen && !negativeExpected && String.Equals(e.Uri,WebDomContract.FormUrl,StringComparison.Ordinal)) {
+                    initialNavigationSeen = true;
+                    navigationId = e.NavigationId;
+                    return;
+                }
+                if (negativeExpected && !negativeSeen && String.Equals(e.Uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) {
+                    e.Cancel = true;
+                    negativeSeen = true;
+                    if (!dom.ObserveDeniedNavigation(e.Uri,true)) throw new InvalidOperationException(dom.Failure);
+                    negativeCompletion.SetResult(true);
+                    return;
+                }
+                e.Cancel = true;
+                Reject("navigation_rejected");
+            } catch (Exception error) { e.Cancel = true; Reject("navigation_callback_failed",error.HResult); }
+        }
+        static void FrameNavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e) {
+            e.Cancel = true;
+            if (!lifecycle.Stopping) Reject("frame_navigation_rejected");
+        }
+        static void NewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs e) {
+            e.Handled = true;
+            if (!lifecycle.Stopping) Reject("popup_rejected");
+        }
+        static void DownloadStarting(object sender, CoreWebView2DownloadStartingEventArgs e) {
+            e.Cancel = true;
+            if (!lifecycle.Stopping) Reject("download_rejected");
+        }
+        static void PermissionRequested(object sender, CoreWebView2PermissionRequestedEventArgs e) {
+            e.State = CoreWebView2PermissionState.Deny; e.Handled = true;
+            if (!lifecycle.Stopping) Reject("permission_rejected");
+        }
+        static void LaunchingExternalUriScheme(object sender, CoreWebView2LaunchingExternalUriSchemeEventArgs e) {
+            e.Cancel = true;
+            if (!lifecycle.Stopping) Reject("external_uri_rejected");
+        }
+        static async void NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e) {
+            if (lifecycle.Stopping) return;
+            if (probeRunning) { Reject("duplicate_navigation_complete"); return; }
+            probeRunning = true;
+            core.NavigationCompleted -= NavigationCompleted;
+            try {
+                if (!e.IsSuccess || !initialNavigationSeen || e.NavigationId != navigationId || dom.ResourceCount != WebDomContract.MaxResourceCount) throw new InvalidOperationException("Initial fixture navigation did not complete exactly");
+                await RunDomProbe();
+            } catch (Exception error) { Stop("dom_probe_failed",error.HResult,false); }
+        }
+        static async Task RunDomProbe() {
+            phase = "focus_emulation";
+            await DevTools("Emulation.setFocusEmulationEnabled",HostProbeContract.FocusParameters);
+            RequireProbeActive();
+            string initial = await Snapshot();
+            RequireProbeActive();
+            EmitDom("initial",initial);
+            AssertSnapshot(initial,"", "", "BODY",0,0,0,0,"");
+
+            phase = "native_forward_focus";
+            // This is WebView2's documented forward-traversal primitive for
+            // entering the first page element. It does not claim CDP Tab input.
+            controller.MoveFocus(CoreWebView2MoveFocusReason.Next);
+            RequireProbeActive();
+            string focused = await Snapshot();
+            RequireProbeActive();
+            EmitDom("focused",focused);
+            AssertSnapshot(focused,"", "", "name",0,0,0,0,"");
+
+            phase = "invalid_form_interaction";
+            await DevTools("Input.dispatchKeyEvent",HostProbeContract.EnterDownParameters);
+            await DevTools("Input.dispatchKeyEvent",HostProbeContract.EnterUpParameters);
+            string invalid = await Snapshot();
+            RequireProbeActive();
+            EmitDom("invalid",invalid);
+            AssertSnapshot(invalid,"", "Name is required.", "name",1,1,1,1,"Enter");
+
+            phase = "valid_form_interaction";
+            await DevTools("Input.insertText",HostProbeContract.InsertParameters);
+            await DevTools("Input.dispatchKeyEvent",HostProbeContract.EnterDownParameters);
+            await DevTools("Input.dispatchKeyEvent",HostProbeContract.EnterUpParameters);
+            string success = await Snapshot();
+            RequireProbeActive();
+            EmitDom("success",success);
+            AssertSnapshot(success,"Ada", "", "name",2,2,2,2,"Enter");
+            var successObject = Object(success);
+            EqualString(successObject,"status","Saved Ada.");
+
+            phase = "accessibility_snapshot";
+            string accessibility = await DevTools("Accessibility.getFullAXTree",HostProbeContract.AxParameters);
+            RequireProbeActive();
+            EmitDom("accessibility",accessibility);
+            AssertAccessibility(accessibility);
+
+            phase = "negative_origin";
+            if (!dom.BeginNegativePhase()) throw new InvalidOperationException(dom.Failure);
+            negativeExpected = true;
+            negativeCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            core.Navigate(WebDomContract.BlockedUrl);
+            await negativeCompletion.Task;
+            if (lifecycle.Stopping || !negativeSeen) return;
+            string origin = await OriginSnapshot();
+            RequireProbeActive();
+            AssertOrigin(origin);
+            EmitDom("origin",origin);
+            if (!dom.Complete()) throw new InvalidOperationException(dom.Failure);
+            commands.RequireComplete();
+            RequireProbeActive();
+
+            Emit("dom_complete",0,0,"form_and_origin");
+            Census();
+            RequireProbeActive();
+            ready = true;
+            phase = "controller_ready";
+            Emit(phase,0,checked((uint)core.BrowserProcessId),"browser");
+            // Wait only for exact supervisor STOP or the fixed total watchdog.
+        }
+        static Task<string> Snapshot() {
+            const string script = "(() => { const n=document.getElementById('name'),e=document.getElementById('name-error'),s=document.getElementById('status'),a=document.activeElement,p=window.__cs3InputEvidence||{}; return {url:location.href,readyState:document.readyState,title:document.title,name:n.labels[0].textContent,value:n.value,required:n.required,error:e.textContent,status:s.textContent,active:a&&a.id?a.id:(a?a.tagName:''),scriptReady:p.scriptReady===true,keyDowns:Number.isInteger(p.keyDowns)?p.keyDowns:-1,keyPresses:Number.isInteger(p.keyPresses)?p.keyPresses:-1,keyUps:Number.isInteger(p.keyUps)?p.keyUps:-1,submits:Number.isInteger(p.submits)?p.submits:-1,lastKey:typeof p.lastKey==='string'?p.lastKey:'',trustedKeys:p.trustedKeys===true}; })()";
+            return ReadScript(script);
+        }
+        static Task<string> OriginSnapshot() {
+            return ReadScript("(() => ({url:location.href,origin:location.origin}))()");
+        }
+        static async Task<string> ReadScript(string script) {
+            // This path is read-only: scripts return snapshots and never assign,
+            // click controls, dispatch DOM events or navigate.
+            RequireProbeActive();
+            string result = await core.ExecuteScriptAsync(script);
+            RequireProbeActive();
+            BoundJson(result);
+            return result;
+        }
+        static async Task<string> DevTools(string method, string parameters) {
+            RequireProbeActive();
+            commands.RequireRequest(method,parameters,clock.ElapsedMilliseconds);
+            string result = await core.CallDevToolsProtocolMethodAsync(method,parameters);
+            RequireProbeActive();
+            commands.Complete(method,parameters,result,clock.ElapsedMilliseconds);
+            if (method == "Accessibility.getFullAXTree") BoundJson(result);
+            return result;
+        }
+        static void RequireProbeActive() { HostProbeContract.RequireActive(lifecycle,clock.ElapsedMilliseconds); }
+        static void BoundJson(string value) {
+            if (String.IsNullOrEmpty(value) || Encoding.UTF8.GetByteCount(value)>HostProbeContract.MaximumRecordBytes) throw new InvalidDataException("DOM evidence exceeds its per-record bound");
+            json.DeserializeObject(value);
+        }
+        static Dictionary<string,object> Object(string raw) {
+            var value=json.DeserializeObject(raw) as Dictionary<string,object>;
+            if(value==null) throw new InvalidDataException("Expected JSON object");
+            return value;
+        }
+        static void AssertSnapshot(string raw, string value, string error, string active, int keyDowns, int keyPresses, int keyUps, int submits, string lastKey) {
+            var item=Object(raw);
+            string[] expected={"url","readyState","title","name","value","required","error","status","active","scriptReady","keyDowns","keyPresses","keyUps","submits","lastKey","trustedKeys"};
+            if(item.Count!=expected.Length) throw new InvalidDataException("Snapshot shape differs");
+            foreach(string name in expected) if(!item.ContainsKey(name)) throw new InvalidDataException("Snapshot field absent");
+            EqualString(item,"url",WebDomContract.FormUrl);
+            EqualString(item,"readyState","complete");
+            EqualString(item,"title","CS-3 form fixture");
+            EqualString(item,"name","Name");
+            EqualString(item,"value",value);
+            EqualString(item,"error",error);
+            EqualString(item,"active",active);
+            object required; if(!item.TryGetValue("required",out required) || !(required is bool) || !(bool)required) throw new InvalidDataException("Required state differs");
+            EqualBoolean(item,"scriptReady",true); EqualBoolean(item,"trustedKeys",true);
+            EqualInteger(item,"keyDowns",keyDowns); EqualInteger(item,"keyPresses",keyPresses); EqualInteger(item,"keyUps",keyUps); EqualInteger(item,"submits",submits);
+            EqualString(item,"lastKey",lastKey);
+            if(value.Length==0) EqualString(item,"status","");
+        }
+        static void AssertOrigin(string raw) {
+            var item=Object(raw);
+            if(item.Count!=2 || !item.ContainsKey("url") || !item.ContainsKey("origin")) throw new InvalidDataException("Origin snapshot shape differs");
+            EqualString(item,"url",WebDomContract.FormUrl);
+            EqualString(item,"origin","https://cs3-fixture.invalid");
+        }
+        static void AssertAccessibility(string raw) {
+            var root=Object(raw); object nodesValue;
+            var nodes=root.TryGetValue("nodes",out nodesValue) ? nodesValue as object[] : null;
+            if(nodes==null || nodes.Length==0 || nodes.Length>128) throw new InvalidDataException("Accessibility node bound or shape differs");
+            bool rootArea=false, textbox=false, button=false, alert=false, status=false;
+            foreach(object nodeValue in nodes) {
+                var node=nodeValue as Dictionary<string,object>; if(node==null) throw new InvalidDataException("Accessibility node shape differs");
+                object ignored;
+                if(!node.TryGetValue("ignored",out ignored) || !(ignored is bool)) throw new InvalidDataException("Accessibility ignored state differs");
+                if((bool)ignored) continue;
+                string role=AxValue(node,"role"), name=AxValue(node,"name");
+                if(role=="RootWebArea" && name=="CS-3 form fixture") rootArea=true;
+                if(role=="textbox" && name=="Name" && AxRequired(node)) textbox=true;
+                if(role=="button" && name=="Save") button=true;
+                if(role=="alert") alert=true;
+                if(role=="status") status=true;
+            }
+            if(!rootArea || !textbox || !button || !alert || !status) throw new InvalidDataException("Required accessibility roles, names or state absent");
+        }
+        static string AxValue(Dictionary<string,object> node, string field) {
+            object property, value;
+            var item=node.TryGetValue(field,out property) ? property as Dictionary<string,object> : null;
+            return item!=null && item.TryGetValue("value",out value) && value is string ? (string)value : "";
+        }
+        static bool AxRequired(Dictionary<string,object> node) {
+            object propertiesValue;
+            var properties=node.TryGetValue("properties",out propertiesValue) ? propertiesValue as object[] : null;
+            if(properties==null) return false;
+            foreach(object propertyValue in properties) {
+                var property=propertyValue as Dictionary<string,object>; object name, wrapped, value;
+                if(property!=null && property.TryGetValue("name",out name) && name is string && (string)name=="required" &&
+                    property.TryGetValue("value",out wrapped)) {
+                    var item=wrapped as Dictionary<string,object>;
+                    return item!=null && item.TryGetValue("value",out value) && value is bool && (bool)value;
+                }
+            }
+            return false;
+        }
+        static void EqualString(Dictionary<string,object> item, string field, string expected) {
+            object value;
+            if(!item.TryGetValue(field,out value) || !(value is string) || !String.Equals((string)value,expected,StringComparison.Ordinal)) throw new InvalidDataException("Snapshot value differs: "+field);
+        }
+        static void EqualInteger(Dictionary<string,object> item, string field, int expected) {
+            object value;
+            if(!item.TryGetValue(field,out value) || !(value is int) || (int)value!=expected || (int)value<0 || (int)value>16) throw new InvalidDataException("Snapshot integer differs: "+field);
+        }
+        static void EqualBoolean(Dictionary<string,object> item, string field, bool expected) {
+            object value;
+            if(!item.TryGetValue(field,out value) || !(value is bool) || (bool)value!=expected) throw new InvalidDataException("Snapshot boolean differs: "+field);
+        }
+        static void EmitDom(string id, string raw) {
+            if(id!="initial" && id!="focused" && id!="invalid" && id!="success" && id!="accessibility" && id!="origin") throw new InvalidOperationException("Unknown DOM evidence id");
+            RequireProbeActive();
+            byte[] bytes=domBudget.Add(raw);
+            string hash;
+            using(var algorithm=SHA256.Create()) hash=Hex(algorithm.ComputeHash(bytes));
+            for(int offset=0;offset<bytes.Length;offset+=DomChunkBytes) {
+                int count=Math.Min(DomChunkBytes,bytes.Length-offset);
+                string data=Convert.ToBase64String(bytes,offset,count);
+                if(data.Length>128) throw new InvalidDataException("DOM evidence chunk exceeds bound");
+                Emit("dom_chunk",0,0,id+":"+offset+":"+bytes.Length+":"+hash+":"+data);
+            }
+        }
+        static string Hex(byte[] bytes) {
+            var text=new StringBuilder(bytes.Length*2);
+            foreach(byte value in bytes) text.Append(value.ToString("x2",System.Globalization.CultureInfo.InvariantCulture));
+            return text.ToString();
+        }
+        static void ProcessInfosChanged(object sender, object args) {
+            if (lifecycle.Stopping) return;
+            try { Census(); } catch (Exception error) { Stop("census_failed",error.HResult,false); }
+        }
+        static void Census() {
+            if (++snapshots > 8) throw new InvalidOperationException("Process census event bound exceeded");
+            var processes = environment.GetProcessInfos();
+            if (processes.Count > Evidence.MaximumProcesses) throw new InvalidOperationException("Process count bound exceeded");
+            Emit("process_snapshot",0,0,"snapshot_"+snapshots);
+            foreach (var process in processes) Emit("reported_process",0,checked((uint)process.ProcessId),process.Kind.ToString());
+        }
+        static void ReadControl() {
+            try {
+                var text = new System.Text.StringBuilder();
+                int c;
+                while ((c = Console.In.Read()) != -1 && c != '\n') {
+                    if (text.Length >= 70) throw new InvalidDataException("Control bound");
+                    text.Append((char)c);
+                }
+                string command = text.ToString();
+                if (command.EndsWith("\r",StringComparison.Ordinal)) command = command.Substring(0,command.Length-1);
+                bool accepted = c == '\n' && HostInput.StopCommand(command,input.Nonce);
+                sta.Post(delegate { Stop(accepted ? "stop_received" : "control_closed",accepted ? 0 : unchecked((int)0x80070057),accepted && ready); },null);
+            } catch { try { sta.Post(delegate { Stop("control_failed",unchecked((int)0x80070057),false); },null); } catch { } }
+        }
+        static void Reject(string reason) { Reject(reason,unchecked((int)0x80070005)); }
+        static void Reject(string reason, int hresult) {
+            // Cancellation handlers run on the STA. Latch before posting cleanup
+            // so an already queued STOP, or a callback during Close, cannot win.
+            lifecycle.Fail(reason,hresult);
+            sta.Post(delegate { Stop(reason,hresult,false); },null);
+        }
+        static void Emit(string state, int hresult, uint pid, string kind) {
+            if (++events > Evidence.MaximumEvents) throw new InvalidOperationException("Event bound exceeded");
+            Console.Out.WriteLine(Evidence.Record(input.Nonce,state,Math.Min(clock.ElapsedMilliseconds,120000),hresult,version,pid,kind)); Console.Out.Flush();
+        }
+        static void Stop(string reason, int hresult, bool success) {
+            if (!lifecycle.BeginStop(reason,hresult,success,clock.ElapsedMilliseconds)) return;
+            if (lifecycle.Failed) { reason = lifecycle.FailureReason; hresult = lifecycle.FailureHResult; }
+            if (timer != null) timer.Stop();
+            try {
+                Emit(reason,hresult,0,phase);
+                if (environment != null) environment.ProcessInfosChanged -= ProcessInfosChanged;
+                if (core != null) {
+                    core.WebResourceRequested -= WebResourceRequested;
+                    core.NavigationStarting -= NavigationStarting;
+                    core.FrameNavigationStarting -= FrameNavigationStarting;
+                    core.NavigationCompleted -= NavigationCompleted;
+                    core.NewWindowRequested -= NewWindowRequested;
+                    core.DownloadStarting -= DownloadStarting;
+                    core.PermissionRequested -= PermissionRequested;
+                    core.LaunchingExternalUriScheme -= LaunchingExternalUriScheme;
+                }
+                if (controller != null) { controller.Close(); controller = null; core = null; Emit("controller_closed",0,0,"job_drain_not_attested"); }
+                else Emit("controller_absent",0,0,"job_drain_not_attested");
+            } catch (Exception error) { lifecycle.Fail("close_failed",error.HResult); try { Emit("close_failed",error.HResult,0,phase); } catch { } }
+            finally { if (pump != null) pump.ExitThread(); }
+        }
+    }
+}

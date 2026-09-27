@@ -4,6 +4,7 @@
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const fixtureRoot = path.resolve(__dirname, 'fixtures/webapp');
 const revision = 'cs-3-webapp-fixtures-v1';
+const manifestSha256 = 'dbe34a441187381f0e5d3f587ea72b0ac15e096ca9d90f99a065ef8e51d84ee8';
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const safe = value => typeof value === 'string' && value.length > 0 && value.length <= 512
   && !value.startsWith('/') && !/[\\:*?"<>|\x00-\x1f\x7f]/.test(value)
@@ -125,6 +126,10 @@ function inspect(at = fixtureRoot) {
   if (kinds.get('normal') !== 2 || kinds.get('boundary') !== 1 || kinds.get('hostile') !== 1 || kinds.get('missing') !== 1 || kinds.get('near_miss') !== 1) throw Error('WEB fixture class coverage differs');
   const actual = walk(root);
   if (JSON.stringify(actual) !== JSON.stringify([...expected].sort())) throw Error('Unexpected WEB fixture inventory');
+  // Validate shape and bounded references first for precise diagnostics, but
+  // never expose a cohort, candidate input or oracle with an unpinned manifest.
+  // This binds prompts/context and the subordinate hashes to this exact revision.
+  if (sha(manifestBytes) !== manifestSha256) throw Error('Frozen WEB manifest changed');
   return { root, revision, manifest, manifest_sha256: sha(manifestBytes), comparison, rubric, loaded, inventory: actual };
 }
 function candidateInput(caseId, at = fixtureRoot) {
@@ -137,4 +142,4 @@ function oracle(caseId, at = fixtureRoot) {
   if (!entry) throw Error('Unknown WEB fixture case');
   return structuredClone(entry.oracle);
 }
-module.exports = { inspect, candidateInput, oracle, revision, fixtureRoot, safe };
+module.exports = { inspect, candidateInput, oracle, revision, manifestSha256, fixtureRoot, safe };

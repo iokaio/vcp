@@ -182,6 +182,37 @@ test('connection-attempt ceiling includes parser failures and closes admission',
   assert.equal(owned.observation().pending_timers, 0);
 });
 
+test('connection-attempt ceiling charges sockets dropped at maxConnections', async t => {
+  const unrelated = http.createServer((_request, response) => response.end('unrelated'));
+  await new Promise((resolve, reject) => { unrelated.once('error', reject); unrelated.listen({ host: '127.0.0.1', port: 0, exclusive: true }, resolve); });
+  t.after(() => new Promise(resolve => unrelated.close(resolve)));
+
+  const owned = await startOwnedServer(fixture(t).inventory, { limits: { maxConnections: 1, maxConnectionAttempts: 3, requestMs: 500, shutdownMs: 100 } });
+  t.after(() => owned.stop());
+  const held = net.connect({ host: '127.0.0.1', port: owned.port });
+  await new Promise((resolve, reject) => { held.once('connect', resolve); held.once('error', reject); });
+  held.write('GET / HTTP/1.1\r\nHost:');
+  const heldClosed = new Promise(resolve => held.once('close', resolve));
+
+  const dropped = async () => {
+    const socket = net.connect({ host: '127.0.0.1', port: owned.port });
+    await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); });
+    await new Promise(resolve => socket.once('close', resolve));
+  };
+  await dropped();
+  await dropped();
+  await assert.rejects(request(owned.port), /ECONNREFUSED|socket hang up/);
+  await heldClosed;
+
+  const observation = owned.observation();
+  assert.equal(observation.terminal_reason, 'max_connection_attempts');
+  assert.equal(observation.connection_attempts, 3);
+  assert.equal(observation.active_sockets, 0);
+  assert.equal(observation.pending_timers, 0);
+  const survivor = await request(unrelated.address().port);
+  assert.equal(survivor.body.toString(), 'unrelated');
+});
+
 test('owner process loss closes only its ephemeral listener', async t => {
   const f = fixture(t);
   const unrelated = http.createServer((_request, response) => response.end('unrelated'));

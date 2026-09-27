@@ -12,7 +12,8 @@ but no comparison campaign has run and it is neither qualified nor default.
 The body records the current execution boundary: VCP has no qualified
 browser/server adapter. It therefore cannot claim browser interaction, scoped
 origin enforcement, DOM/accessibility observation or owned-process cleanup.
-Browser provisioning, WEB fixtures, actual Windows lifecycle qualification,
+Offline WEB preparation fixtures exist; executable browser oracles do not.
+Browser provisioning, WEB browser qualification, actual Windows lifecycle qualification,
 retained CS-2 UI regrading and six-skill distribution acceptance remain open.
 The candidate grants no browser, process, network, installation or publishing
 authority, and it is absent from the builtin catalog.
