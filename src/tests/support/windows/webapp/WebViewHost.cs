@@ -91,9 +91,10 @@ namespace Vcp.Cs3WebViewDraft {
                 phase = "environment_create"; Emit(phase,0,0,"");
                 HostInput.NoOverrides(Environment.GetEnvironmentVariables());
                 var options = new CoreWebView2EnvironmentOptions();
-                // Sole prospective development-only control for the documented
-                // DPI shell-launch workaround. No sandbox or capability switch.
-                options.AdditionalBrowserArguments = "--edge-webview-no-dpi-workaround";
+                // Production-profile qualification permits no extra browser
+                // argument. Keep the assignment conditional so an empty exact
+                // contract cannot be serialized into a synthetic command line.
+                if(!String.IsNullOrEmpty(HostProbeContract.BrowserArgument)) options.AdditionalBrowserArguments = HostProbeContract.BrowserArgument;
                 options.ExclusiveUserDataFolderAccess = true;
                 options.IsCustomCrashReportingEnabled = true;
                 environment = await CoreWebView2Environment.CreateAsync(input.Runtime,input.Profile,options);

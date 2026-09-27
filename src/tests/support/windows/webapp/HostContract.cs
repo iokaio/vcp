@@ -59,6 +59,7 @@ namespace Vcp.Cs3WebViewDraft {
     }
     // Pure, fixed protocol-input contract shared by the host and offline tests.
     public static class HostProbeContract {
+        public const string BrowserArgument = "";
         public const int MaximumRecordBytes = 8 * 1024;
         public const int MaximumAccessibilityResponseBytes = 64 * 1024;
         public const int MaximumAggregateBytes = 16 * 1024;

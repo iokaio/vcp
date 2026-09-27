@@ -34,7 +34,7 @@ static class HostContractTests {
         Check(Evidence.FailureKind("phase",new IOException(new string('x',300))).Length==256);
         Check(Evidence.FailureKind("phase",new IOException("line\r\nbreak")).IndexOf('\r')<0);
         Check(Evidence.MaximumProcesses==32 && Evidence.StartupMilliseconds==20000);
-        Check(HostProbeContract.CommandCount==11 && HostProbeContract.MaximumAccessibilityResponseBytes==64*1024 && HostProbeContract.MaximumCumulativeResponseBytes==HostProbeContract.MaximumAccessibilityResponseBytes+20);
+        Check(HostProbeContract.BrowserArgument=="" && HostProbeContract.CommandCount==11 && HostProbeContract.MaximumAccessibilityResponseBytes==64*1024 && HostProbeContract.MaximumCumulativeResponseBytes==HostProbeContract.MaximumAccessibilityResponseBytes+20);
         string axRoot="{\"nodeId\":\"1\",\"ignored\":false,\"role\":{\"type\":\"internalRole\",\"value\":\"RootWebArea\"},\"name\":{\"type\":\"computedString\",\"value\":\"CS-3 form fixture\"},\"properties\":[]}";
         string axTextbox="{\"nodeId\":\"2\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"textbox\"},\"name\":{\"type\":\"computedString\",\"value\":\"Name\"},\"value\":{\"type\":\"string\",\"value\":\"Ada\"},\"properties\":[{\"name\":\"required\",\"value\":{\"type\":\"booleanOrUndefined\",\"value\":true}}]}";
         string axButton="{\"nodeId\":\"3\",\"ignored\":false,\"role\":{\"type\":\"role\",\"value\":\"button\"},\"name\":{\"type\":\"computedString\",\"value\":\"Save\"},\"properties\":[]}";

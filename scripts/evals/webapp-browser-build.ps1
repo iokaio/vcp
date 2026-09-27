@@ -108,14 +108,14 @@ $buildOutputs=@('WebViewHost.exe','HostContractTests.exe','WebDomContractTests.e
     [ordered]@{path=$_;bytes=(Get-Item -LiteralPath $file).Length;sha256=(Hash $file)}
 }
 $manifest=[ordered]@{
-    schema='cs3-webview2-inputs/1';probe_kind='full-dom-f24-readiness-diagnostic';input_host='message-only-hidden';readiness_key='F24';readiness_windows_virtual_key_code=135;readiness_pairs_per_gate=1;pre_sentinel_settle_milliseconds=100;enter_retries=0;text_insertion_retries=0;runtime='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\153.0.4234.48';version='153.0.4234.48'
+    schema='cs3-webview2-inputs/1';probe_kind='full-dom-f24-production-profile';input_host='message-only-hidden';readiness_key='F24';readiness_windows_virtual_key_code=135;readiness_pairs_per_gate=1;pre_sentinel_settle_milliseconds=100;enter_retries=0;text_insertion_retries=0;runtime='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\153.0.4234.48';version='153.0.4234.48'
     runtime_executable_sha256='65afdc3965a6d1c4ccd5b47801fec8a16db15613d35c8e3a6d1fb6c0da970eea'
     sdk_package='Microsoft.Web.WebView2';sdk_version='1.0.4191.47';sdk_package_sha256='f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0'
-    browser_argument='--edge-webview-no-dpi-workaround';host=@($hostFiles);build_outputs=@($buildOutputs);sources=$sources;external_dependencies=@($deps | ForEach-Object { [ordered]@{path=$_.name;sha256=$_.sha256} });toolchain=$toolchain
+    browser_argument='';host=@($hostFiles);build_outputs=@($buildOutputs);sources=$sources;external_dependencies=@($deps | ForEach-Object { [ordered]@{path=$_.name;sha256=$_.sha256} });toolchain=$toolchain
     builder_sha256=$builderSha256;builder_powershell=$PSVersionTable.PSVersion.ToString();builder_architecture=[Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
     runtime_identity_limitation='Installed Evergreen is serviced in place. Launch-time and before/after identity checks are not continuous immutability proof.'
-    dpi_argument_limitation='Development diagnostic for the documented shell-launch workaround only; not sandbox, capability, compatibility or product evidence.'
-    scope='synthetic in-memory full-DOM readiness diagnostic; sentinel and form outcomes are evidence, not general browser/server qualification or a CS-3 completion claim'
+    browser_argument_policy='No additional browser argument is permitted for the production-profile qualification attempt.'
+    scope='synthetic in-memory full-DOM production-profile qualification input; browser evidence does not by itself establish owned-server or six-skill acceptance'
 }
 [IO.File]::WriteAllText((Join-Path $output 'inputs.json'),($manifest | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
 [ordered]@{build=$output;inputs_sha256=(Hash (Join-Path $output 'inputs.json'));browser_executed=$false;full_plan_user_authorized=$true;root_review_required=$true;launch_ready=$false} | ConvertTo-Json

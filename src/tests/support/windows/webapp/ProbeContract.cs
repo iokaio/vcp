@@ -14,7 +14,7 @@ public sealed class HostObservation {
 }
 public static class ProbeContract {
     public const string Version = "153.0.4234.48";
-    public const string Argument = "--edge-webview-no-dpi-workaround";
+    public const string Argument = "";
     // The caller supplies only queried process metadata here. No file access,
     // hash read or approval occurs for an image outside the exact inventory.
     public static string RequireImage(string queriedPath, string normalizedPath, uint pid, long creation,
