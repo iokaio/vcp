@@ -159,7 +159,7 @@ namespace Vcp.Cs3WebViewDraft {
                 if(property==null || !property.TryGetValue("name",out name) || !(name is string) || !names.Add((string)name)) throw new InvalidDataException("Accessibility property identity differs");
                 if((string)name=="required" && property.TryGetValue("value",out wrapped)) {
                     var item=wrapped as Dictionary<string,object>;
-                    if(item==null || !item.TryGetValue("type",out type) || !(type is string) || (string)type!="booleanOrUndefined" || !item.TryGetValue("value",out value) || !(value is bool)) throw new InvalidDataException("Accessibility required state differs");
+                    if(item==null || !item.TryGetValue("type",out type) || !(type is string) || ((string)type!="booleanOrUndefined" && (string)type!="boolean") || !item.TryGetValue("value",out value) || !(value is bool)) throw new InvalidDataException("Accessibility required state differs");
                     found=true; required=(bool)value;
                 }
             }

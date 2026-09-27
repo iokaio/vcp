@@ -50,6 +50,7 @@ static class HostContractTests {
             "{\"node_id\":\"4\",\"role\":\"alert\",\"name\":\"\",\"value\":\"\",\"required\":false},"+
             "{\"node_id\":\"5\",\"role\":\"status\",\"name\":\"Saved Ada.\",\"value\":\"\",\"required\":false}]}";
         Check(HostAccessibilityProjection.Create(axRaw)==axExpected);
+        Check(HostAccessibilityProjection.Create(axRaw.Replace("booleanOrUndefined","boolean")).Contains("\"role\":\"textbox\",\"name\":\"Name\",\"value\":\"Ada\",\"required\":true"));
         Reject(delegate { HostAccessibilityProjection.Create("{\"nodes\":[]}"); });
         Reject(delegate { HostAccessibilityProjection.Create(axRaw.Replace("\"nodeId\":\"3\"","\"nodeId\":\"2\"")); });
         Reject(delegate { HostAccessibilityProjection.Create(axRaw.Replace("\"type\":\"booleanOrUndefined\",\"value\":true","\"type\":\"booleanOrUndefined\",\"value\":false")); });
