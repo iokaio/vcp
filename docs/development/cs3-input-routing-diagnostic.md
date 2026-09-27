@@ -34,12 +34,45 @@ The collected host report SHA256 is
 `e45e04ad5210305169b7299da67785751b6e1a5619277444880169d7bc75d446`;
 the embedded native receipt is 499822 bytes, SHA256
 `38090f04f736928fc1505db105025b07f1d544e0f73a43f8b5e910ab0911136a`.
-The failed receipt and its frozen build remain unchanged. A new source-bound
-variant will add bounded root-relative failed-open context while preserving the
-original native error, access/share flags, failure classification and cleanup.
-It must not retry, weaken sharing, change ACLs or treat error 5 as a vanished
-entry. This instrumentation requires a fresh manifest, build and single reviewed
-attempt; it does not convert this result into browser qualification.
+The failed receipt and its frozen build remain unchanged. A subsequent
+source-bound variant added bounded root-relative failed-open context while
+preserving the original native error, access/share flags, failure classification
+and cleanup. It did not retry, weaken sharing, change ACLs or treat error 5 as a
+vanished entry.
+
+### Fresh isolated attempt with failed-open context
+
+The fresh variant ran once in the same disposable Hyper-V guest, with networking
+disconnected and the launcher bound to local non-elevated `User`, interactive
+Basic Session 1. Its input manifest SHA256 is
+`00caa8989f197c6900b1eb11ec06be9ecc5ff9b03da877aebf35b7d59f33f530`.
+The new scratch instrumentation emitted no `scratch_open_failure`; the earlier
+error 5 therefore was not reproduced and remains an intermittent retained
+failure rather than an ACL/share relaxation justification.
+
+The host reconstructed all four ordered input documents. The fixed target was
+`https://cs3-fixture.invalid/form.html`; native and DOM focus were on `name`.
+After the two fixed pre-key 100-ms intervals, one Enter down/up produced exactly
+one trusted keydown, keypress, keyup and submit. The reconstructed key snapshot
+retains `error="Name is required."`, an empty input value and active `name`.
+The receipt outcome is `input_diagnostic_observed`; this is routing evidence,
+not the separate full form/accessibility/origin oracle or browser qualification.
+
+All seven cumulative process identities were independently verified. Each
+observed token had the exact zero-capability AppContainer SID and owned-job
+membership. The worker and controller retained independent job-zero ordering,
+the browser exited zero after STOP, process coverage was 7/7, profile cleanup
+completed, and runtime, staged host and policy snapshots compared unchanged.
+There were no cleanup errors, stderr bytes or provider calls.
+
+The collected host report is 575908 bytes, SHA256
+`914dc835e12f697247e8bbde51c9c8725b9633588b3bd7917aa0eaf14475cee6`.
+Its native receipt is 520649 bytes, SHA256
+`7f1478e7ddbdea0bc1e5848d6a63428e27ce3cc92a93b89a0eb2031d9859682c`;
+the launcher result is 973 bytes, SHA256
+`1217b0296f58b4459bdc99bc6321fd8510be3f6de25441a64bfde38d24558e6a`.
+The run identity is `9dddbcc32c91451eb271fb11e6c4d7bc`. The earlier failed
+receipt, old launcher and old build remain unchanged.
 
 ## Finding
 

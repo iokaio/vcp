@@ -17,6 +17,11 @@ have offline tests. These are prerequisites; none closes a phase's full exit gat
 The [input-routing follow-up](cs3-input-routing-diagnostic.md) now demonstrates
 hidden-host input delivery with a pre-dispatch timing dependency. No RDP change
 or new worker was needed for that diagnostic; production readiness is still open.
+A later single reviewed attempt in the disposable Hyper-V guest reproduced the
+delivery with 7/7 process coverage and clean independent drainage, without the
+earlier scratch-open failure. It remains a routing-only diagnostic: the full
+form/accessibility/origin oracle, adversarial boundary checks, owned server
+lifecycle and production readiness gates below are unchanged.
 
 ## Phase 1 — Prove the proposed Windows boundary
 
