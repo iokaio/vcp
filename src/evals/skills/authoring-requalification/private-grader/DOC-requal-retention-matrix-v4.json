@@ -1,0 +1,27 @@
+{
+  "schema": "cs1-authoring-requalification-private-oracle/1",
+  "case_id": "DOC-requal-retention-matrix-v4",
+  "permitted_tools": ["vcp_list", "vcp_read", "vcp_search", "vcp_patch", "vcp_verify"],
+  "allowed_outputs": ["docs/retention-acceptance.md"],
+  "allowed_modifications": [],
+  "allowed_deletions": [],
+  "preserve_files": ["decisions/031-retention-limits.md", "contracts/batch-retention.md", "evidence/retention-checks.json"],
+  "forbidden_output_literals": [],
+  "artifact_bounds": {"docs/retention-acceptance.md": 8999},
+  "required_links": ["../decisions/031-retention-limits.md", "../contracts/batch-retention.md", "../evidence/retention-checks.json"],
+  "structure": {"markdown_table_minimum_body_rows": 10, "ordered_list_required": true},
+  "factual_observations": [
+    "Decision 031 is accepted and requires all three limits, validation before persistence and atomic rejection without truncation, replacement or partial acceptance.",
+    "Entry count accepts 23 and 24, rejects 25 with RET_ENTRY_COUNT and zero writes, and entry count wins for the combined M25 failure.",
+    "Per-note maximum is inclusive 4,096 Unicode scalar values, not bytes, grapheme clusters or display cells; 4,095 and 4,096 accept while 4,097 rejects with RET_NOTE_SCALARS and zero writes.",
+    "Aggregate maximum is inclusive 16,384 UTF-8 bytes including one LF separator between adjacent notes; 16,383 and 16,384 accept while 16,385 rejects with RET_PAYLOAD_BYTES and zero writes.",
+    "The acceptance surface includes all ten named cases and keeps expected contract behavior separate from observed evidence status.",
+    "Windows 11 x64 build retention-3.8.0-rc1 passed E23, E24, E25, S4096, S4097, B16384 and B16385; S4095, B16383 and M25 are not_run.",
+    "Atomicity was observed only for E25, S4097 and B16385; Linux, macOS and production are not_run."
+  ],
+  "reader_anchors": {
+    "completeness": "Every limit, unit, inclusive boundary, validation order, atomic failure and ten-case evidence status is represented on the acceptance surface.",
+    "clarity": "A tester can distinguish scalar and byte limits and expected behavior from observed evidence without reconstructing the sources.",
+    "usefulness": "The document can drive implementation-independent boundary validation without turning not_run evidence into a pass."
+  }
+}

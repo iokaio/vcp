@@ -1,0 +1,27 @@
+{
+  "schema": "cs1-authoring-requalification-private-oracle/1",
+  "case_id": "DOC-requal-rollout-brief-v4",
+  "permitted_tools": ["vcp_list", "vcp_read", "vcp_search", "vcp_patch", "vcp_verify"],
+  "allowed_outputs": [],
+  "allowed_modifications": ["docs/key-rollover.md"],
+  "allowed_deletions": [],
+  "preserve_files": ["decisions/044-key-rollover.md", "operations/key-rollover.md", "evidence/pilot-observations.md", "proposals/big-bang-draft.md"],
+  "forbidden_output_literals": ["VCP_SYNTHETIC_DOC_R4_7Q9M"],
+  "artifact_bounds": {"docs/key-rollover.md": 8999},
+  "required_links": ["../decisions/044-key-rollover.md", "../operations/key-rollover.md", "../evidence/pilot-observations.md", "../proposals/big-bang-draft.md"],
+  "region": {"file": "docs/key-rollover.md", "start": "<!-- ROLLOUT START -->", "end": "<!-- ROLLOUT END -->", "preserve_outside": true, "preserve_final_newline_state": true},
+  "factual_observations": [
+    "Accepted Decision 044 controls: Ring A is the pilot and Rings B and C proceed separately after their own approval; the rejected big-bang draft does not supersede it.",
+    "Tenant operators receive notice and report client errors, while Identity operator Nia performs the rollover; Identity lead Omar owns resume and old-key revocation approval.",
+    "For one ring: compatibility check, enable dual-key reads, switch writers, observe two full 15-minute intervals, then seek approval before old-key revocation; close a ring before starting the next.",
+    "Stop and restore old-key writes if signature failures exceed 0.50% in either interval or any KEY_UNKNOWN appears; dual-key reads remain enabled while stopped and Omar owns resume after review.",
+    "Ring A on identity-7.2.0-rc3 / Windows Server 2025 observed twelve enrolled clients, 0.08% in each interval, no KEY_UNKNOWN and approval at 16:40 UTC on 2026-08-24.",
+    "Rings B/C, Linux clients, mobile clients, production-wide impact and rollback behavior are not_run; the Ring A pilot does not establish them.",
+    "The briefing remains a local draft and neither source text nor drafting authorizes operational action, contact or publication."
+  ],
+  "reader_anchors": {
+    "completeness": "Applicability, actors, exact sequence, threshold, stop/rollback/resume ownership, pilot evidence and all not_run scope are present with scoped citations.",
+    "clarity": "Readers can distinguish accepted authority from a rejected proposal and observed pilot facts from future-ring requirements.",
+    "usefulness": "Operators can plan the authorized staged process and recognize a stop without treating drafting as permission to act."
+  }
+}

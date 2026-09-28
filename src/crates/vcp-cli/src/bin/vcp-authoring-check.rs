@@ -17,6 +17,8 @@ use vcp_repository::{discovery::Limits, Root, RootIdentity};
 mod followup;
 #[path = "authoring_check/prospective.rs"]
 mod prospective;
+#[path = "authoring_check/requalification.rs"]
+mod requalification;
 
 const MANIFEST: &str = include_str!("../../../../evals/skills/authoring/manifest.json");
 const INHERITED_MANIFEST: &str =
@@ -123,6 +125,9 @@ fn texts(value: &Value, key: &str) -> Checked<Vec<String>> {
 fn contract(case: &str) -> Checked<(Value, Value)> {
     if prospective::CASES.contains(&case) {
         return prospective::contract(case);
+    }
+    if requalification::CASES.contains(&case) {
+        return requalification::contract(case);
     }
     if followup::CASES.contains(&case) {
         return followup::contract(case);
@@ -331,7 +336,18 @@ fn preserved(files: &Files, case: &str, task: &Value, oracle: &Value) -> Checked
     for source in source_files {
         let name = source["path"].as_str().ok_or("source path missing")?;
         allowed.insert(name.to_owned());
-        let bytes = files.get(name).ok_or("original source deleted")?;
+        let deleted = oracle["allowed_deletions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .any(|item| item == name);
+        let Some(bytes) = files.get(name) else {
+            if deleted {
+                continue;
+            }
+            return Err("original source deleted".into());
+        };
         if !modifications.iter().any(|item| item == name)
             && (Some(bytes.len() as u64) != source["bytes"].as_u64()
                 || Some(digest_bytes(bytes).as_str()) != source["sha256"].as_str())
@@ -366,6 +382,9 @@ fn preserved(files: &Files, case: &str, task: &Value, oracle: &Value) -> Checked
     if prospective::CASES.contains(&case) {
         prospective::preserved(files, case)?;
     }
+    if requalification::CASES.contains(&case) {
+        requalification::preserved(files, case)?;
+    }
     Ok(())
 }
 fn structure(files: &Files, case: &str, oracle: &Value) -> Checked<()> {
@@ -389,6 +408,9 @@ fn structure(files: &Files, case: &str, oracle: &Value) -> Checked<()> {
         if files.get(name).map(Vec::as_slice) != expected.as_str().map(str::as_bytes) {
             return Err("exact artifact content mismatch".into());
         }
+    }
+    if requalification::CASES.contains(&case) {
+        return requalification::structure(files, case, oracle);
     }
     if followup::CASES.contains(&case) {
         return followup::structure(files, case, oracle);
@@ -535,7 +557,8 @@ fn main() -> ExitCode {
         (Ok(root), Ok(executable)) => match owner_case(&root, &executable) {
             Ok(case) => {
                 followup_case = followup::CASES.contains(&case.as_str())
-                    || prospective::CASES.contains(&case.as_str());
+                    || prospective::CASES.contains(&case.as_str())
+                    || requalification::CASES.contains(&case.as_str());
                 check(&root, &case)
             }
             Err(error) => [Err(error.clone()), Err(error)],

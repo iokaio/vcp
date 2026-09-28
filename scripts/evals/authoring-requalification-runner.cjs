@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 'use strict';
-// Fixed fresh DOC 1.0.2 / SKL 1.0.1 qualification under the existing USD 100
+// Fixed fresh DOC 1.0.3 / SKL 1.0.2 qualification under the existing USD 100
 // authorization. Historical campaigns remain immutable, halted evidence.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { isDeepStrictEqual: equal } = require('node:util');
 const prior = require('./p6-live-runner.cjs'), prep = require('./authoring-prepare.cjs');
 const original = require('./authoring-runner.cjs');
-const campaignBudget = require('./authoring-qualification-budget.cjs');
+const campaignBudget = require('./authoring-requalification-budget.cjs');
 const capture = require('./developer-runner.cjs');
 const { inspectAssets, portable } = require('../skills/builtin-assets.cjs');
 const { requireEmbeddedCatalog } = require('./builtin-generation-prepare.cjs');
@@ -17,12 +17,13 @@ const repository = path.resolve(__dirname, '../..');
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const object = (value, names) => value && typeof value === 'object' && !Array.isArray(value) && equal(Object.keys(value).sort(), [...names].sort());
 const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
-const candidateSources = require('./authoring-candidates.cjs');
+const candidateSources = require('./authoring-requalification-candidates.cjs');
 const candidates = ['document-authoring', 'skill-authoring'], phases = ['normal', 'inherited', 'confirmation'];
 const arms = ['none', 'nearest', 'candidate'];
 const hardGates = ['correctness', 'preservation', 'authority', 'secret_handling', 'evidence_honesty'];
-const manifests = ['src/evals/skills/authoring-inherited/manifest.json', 'src/evals/skills/authoring-followup/manifest.json', 'src/evals/skills/authoring-qualification/manifest.json'];
-const sourceScope = [...new Set([...prep.sourceScope, 'src/evals/skills/authoring-inherited', 'src/evals/skills/authoring-requalification', 'src/evals/skills/authoring-followup', 'src/evals/skills/authoring-qualification', 'scripts/evals/authoring-followup-oracle.cjs', 'scripts/evals/authoring-fresh-doc-oracle.cjs', 'scripts/evals/authoring-qualification.cjs', 'scripts/evals/authoring-qualification-budget.cjs', 'scripts/evals/authoring-qualification-review.cjs', 'scripts/evals/developer-runner.cjs', 'scripts/evals/developer-prepare.cjs', 'scripts/evals/developer-candidates.cjs', 'scripts/evals/developer-oracle.cjs'])];
+const manifests = ['src/evals/skills/authoring-inherited/manifest.json', 'src/evals/skills/authoring-requalification/manifest.json'];
+const checkerManifests = ['src/evals/skills/authoring/manifest.json', 'src/evals/skills/authoring-inherited/manifest.json', 'src/evals/skills/authoring-followup/manifest.json', 'src/evals/skills/authoring-qualification/manifest.json', ...manifests.slice(1)];
+const sourceScope = [...new Set([...prep.sourceScope, 'src/evals/skills/authoring-inherited', 'src/evals/skills/authoring-requalification', 'scripts/evals/authoring-requalification-oracle.cjs', 'scripts/evals/authoring-requalification-candidates.cjs', 'scripts/evals/authoring-requalification.cjs', 'scripts/evals/authoring-requalification-runner.cjs', 'scripts/evals/authoring-requalification-budget.cjs', 'scripts/evals/authoring-requalification-review.cjs', 'scripts/evals/authoring-requalification-review-runner.cjs', 'scripts/evals/developer-runner.cjs', 'scripts/evals/developer-prepare.cjs', 'scripts/evals/developer-candidates.cjs', 'scripts/evals/developer-oracle.cjs'])];
 // Bind the checker to both fixture sets and the complete admission/mapping code.
 const checkerBuildScope = [...sourceScope];
 const phaseName = (candidate, phase) => `${candidate}--${phase}`;
@@ -40,12 +41,11 @@ function tasks() {
   const all = [];
   for (const [index, name] of manifests.entries()) {
     const root = path.dirname(path.join(repository, name)), manifest = JSON.parse(read(path.join(repository, name)));
-    if (manifest.schema_version !== 1 || manifest.revision !== ['cs-1-authoring-fixtures-v2', 'cs-1-followup-fixtures-v3', 'cs-1-fresh-document-fixtures-v1'][index] || manifest.case_count !== [12, 4, 2][index] || manifest.cases.length !== [12, 4, 2][index]) throw Error('Frozen fixture cohort changed');
+    if (manifest.schema_version !== 1 || manifest.revision !== ['cs-1-authoring-fixtures-v2', 'cs-1-authoring-requalification-fixtures-v4'][index] || manifest.case_count !== [12, 4][index] || manifest.cases.length !== [12, 4][index]) throw Error('Frozen fixture cohort changed');
     manifest.shared.forEach(ref => frozen(root, ref));
     for (const task of manifest.cases) {
-      if (index === 1 && task.skill === 'document-authoring') continue;
-      if (all.some(item => item.task.id === task.id) || !/^(DOC|SKL)-[a-z-]+-v[123]$/.test(task.id) || !candidates.includes(task.skill) || task.nearest_skill !== (task.skill === candidates[0] ? 'architecture' : 'testing') || !equal(task.comparison_arms, arms) || task.project !== `projects/${task.id}` || typeof task.prompt !== 'string' || task.prompt.length > 16384 || !Array.isArray(task.expected.source_files) || task.expected.source_files.length > 32) throw Error('Invalid frozen task assignment');
-      if (index === 2 && !['DOC-fresh-format-reference-v1', 'DOC-fresh-acceptance-plan-v1'].includes(task.id)) throw Error('Only the two independently frozen new DOC normals are admitted');
+      if (all.some(item => item.task.id === task.id) || !/^(DOC|SKL)-[a-z-]+-v[1-4]$/.test(task.id) || !candidates.includes(task.skill) || task.nearest_skill !== (task.skill === candidates[0] ? 'architecture' : 'testing') || !equal(task.comparison_arms, arms) || task.project !== `projects/${task.id}` || typeof task.prompt !== 'string' || task.prompt.length > 16384 || !Array.isArray(task.expected.source_files) || task.expected.source_files.length > 32) throw Error('Invalid frozen task assignment');
+      if (index === 1 && !['DOC-requal-retention-matrix-v4', 'DOC-requal-rollout-brief-v4', 'SKL-requal-audit-package-v4', 'SKL-requal-prune-resource-v4'].includes(task.id)) throw Error('Only the four independently frozen requalification normals are admitted');
       frozen(root, task.expected.oracle);
       const files = new Map();
       for (const ref of task.expected.source_files) {
@@ -56,7 +56,7 @@ function tasks() {
         if (files.has(relative)) throw Error('Scaffold collides with task source');
         files.set(relative, bytes);
       }
-      all.push({ task, root, files, fresh: index !== 0 });
+      all.push({ task, root, files, fresh: index === 1 });
     }
   }
   for (const candidate of candidates) for (const fresh of [true, false]) if (all.filter(item => item.task.skill === candidate && item.fresh === fresh).length !== (fresh ? 2 : 6)) throw Error('Candidate task count differs');
@@ -70,7 +70,7 @@ function slots(all = tasks()) {
       const selected = phase === 'confirmation' ? [null] : all.filter(item => item.task.skill === candidate && item.fresh === (phase === 'normal')).map(item => item.task.id).sort();
       for (const caseId of selected) {
         const rotation = (triplet + candidateIndex) % 3;
-        for (let position = 0; position < 3; position++) result.push({ id: `${candidate}--${phase}--${String(triplet).padStart(2, '0')}--${arms[(position + rotation) % 3]}`, candidate, phase, triplet, position, arm: arms[(position + rotation) % 3], case_id: caseId, cap_micros: 1750000, call_ceiling: 16, output_tokens: '2048' });
+        for (let position = 0; position < 3; position++) result.push({ id: `rq1--${candidate}--${phase}--${String(triplet).padStart(2, '0')}--${arms[(position + rotation) % 3]}`, candidate, phase, triplet, position, arm: arms[(position + rotation) % 3], case_id: caseId, cap_micros: 1750000, call_ceiling: 16, output_tokens: '2048' });
         triplet++;
       }
     }
@@ -82,8 +82,8 @@ function checkerRuntime(input) {
   const checker = plain(path.resolve(input.checker)), buildReceipt = plain(path.resolve(input.build_receipt));
   const bytes = read(checker, 256 * 1024 * 1024), receiptBytes = read(buildReceipt, 8 * 1024 * 1024), receipt = JSON.parse(receiptBytes);
   const source = 'src/crates/vcp-cli/src/bin/vcp-authoring-check.rs', builder = path.join(repository, 'scripts/evals/authoring-check-build.ps1');
-  const identities = manifests.map(relative => ({ path: relative, sha256: sha(read(path.join(repository, relative))) }));
-  if (receipt.schema !== 'cs1-authoring-check-build/3' || receipt.exit_code !== 0 || receipt.source_inputs_unchanged !== true || receipt.source !== source || receipt.source_sha256 !== sha(read(path.join(repository, source))) || receipt.fixture_manifest !== manifests[0] || receipt.fixture_manifest_sha256 !== identities[0].sha256 || !equal(receipt.fixture_manifests, identities) || receipt.executable !== checker || receipt.executable_sha256 !== sha(bytes) || !equal(receipt.cargo_command, prep.checkerCargoCommand) || !equal(receipt.source_inputs, prep.identity(repository, checkerBuildScope).files.map(({ path, sha256 }) => ({ path, sha256 }))) || receipt.builder !== builder || receipt.builder_sha256 !== sha(read(builder)) || typeof receipt.toolchain?.rustc !== 'string' || !receipt.toolchain.rustc.startsWith('rustc ') || receipt.toolchain.rustc.length > 4096) throw Error('Qualification checker receipt must bind all three fixture manifests and current sources');
+  const identities = checkerManifests.map(relative => ({ path: relative, sha256: sha(read(path.join(repository, relative))) }));
+  if (receipt.schema !== 'cs1-authoring-check-build/4' || receipt.exit_code !== 0 || receipt.source_inputs_unchanged !== true || receipt.source !== source || receipt.source_sha256 !== sha(read(path.join(repository, source))) || receipt.fixture_manifest !== manifests[0] || receipt.fixture_manifest_sha256 !== sha(read(path.join(repository, manifests[0]))) || !equal(receipt.fixture_manifests, identities) || receipt.executable !== checker || receipt.executable_sha256 !== sha(bytes) || !equal(receipt.cargo_command, prep.checkerCargoCommand) || !equal(receipt.source_inputs, prep.identity(repository, checkerBuildScope).files.map(({ path, sha256 }) => ({ path, sha256 }))) || receipt.builder !== builder || receipt.builder_sha256 !== sha(read(builder)) || typeof receipt.toolchain?.rustc !== 'string' || !receipt.toolchain.rustc.startsWith('rustc ') || receipt.toolchain.rustc.length > 4096) throw Error('Qualification checker receipt must bind all five fixture manifests and current sources');
   if (!process.env.SystemRoot || !path.isAbsolute(process.env.SystemRoot)) throw Error('Explicit Windows SystemRoot required');
   return { source_checker: checker, checker_sha256: sha(bytes), build_receipt: buildReceipt, build_receipt_sha256: sha(receiptBytes), system_root: process.env.SystemRoot, provenance: 'recorded_local_build_not_cryptographic_attestation' };
 }
@@ -100,14 +100,14 @@ function describe(specFile, directory, preparedAt = Date.now()) {
   const previousProfile = JSON.parse(read(previous.profile_source));
   if (!equal(profile.provider, previousProfile.provider) || !equal(profile.routing, previousProfile.routing) || sha(read(providerCatalog)) !== previous.provider_catalog_sha256) throw Error('Fresh qualification must retain the current authorized provider/model/privacy/catalog qualification');
   const candidateAssets = candidateSources.inspect();
-  if (!equal(candidateAssets.entries.map(entry => [entry.id, JSON.parse(read(path.join(candidateAssets.path, entry.id, 'skill.json'))).version]).sort(), [['document-authoring', '1.0.2'], ['skill-authoring', '1.0.1']])) throw Error('Exact DOC 1.0.2 and SKL 1.0.1 required');
-  return { schema: 'cs-1-fresh-qualification-envelope/1', authorization: false, model_calls: 0, directory, prepared_at: preparedAt, execution_mode: 'conditional', budget,
+  if (!equal(candidateAssets.entries.map(entry => [entry.id, JSON.parse(read(path.join(candidateAssets.path, entry.id, 'skill.json'))).version]).sort(), [['document-authoring', '1.0.3'], ['skill-authoring', '1.0.2']])) throw Error('Exact DOC 1.0.3 and SKL 1.0.2 required');
+  return { schema: 'cs-1-authoring-requalification-envelope/1', authorization: false, model_calls: 0, directory, prepared_at: preparedAt, execution_mode: 'conditional', budget,
     spec_source: plain(path.resolve(specFile)), spec_sha256: sha(specBytes), executable, executable_sha256: sha(executableBytes), assets, candidate_assets: candidateAssets,
     source: prep.identity(repository, sourceScope), fixture_manifests: manifests.map(relative => ({ path: relative, sha256: sha(read(path.join(repository, relative))) })),
     profile_source: profileFile, profile_sha256: sha(profileBytes), provider_catalog: providerCatalog, provider_catalog_sha256: sha(read(providerCatalog)),
     toolchain: { node_version: process.version, node_executable: process.execPath, node_sha256: sha(read(process.execPath, 128 * 1024 * 1024)), platform: process.platform, architecture: process.arch },
     runtime: checkerRuntime(spec.runtime), budget_preflight: prep.budgetPreflight(profile, 1750000), aggregate_cap_micros: 94500000, aggregate_call_ceiling: 864, output_bounds: prep.outputBounds, slots: slots(),
-    derivation: 'cs1-fresh-fixed-normal6-inherited18-confirmation3-v1',
+    derivation: 'cs1-requalification-normal6-inherited18-confirmation3-v1',
     benefit_rule: 'each of two independent blinded reviewers: same-case candidate usefulness >= each baseline + 1; completeness and clarity >= each baseline; all candidate hard gates pass',
     confirmation_selection: 'lexicographically_first_common_winning_fresh_case',
     permission_review: { approval: 'existing_owner_grant_exact_envelope_and_phase_hash_required', automatic_effects: prep.checkerEffects, sole_process: 'each phase runtime/vcp-authoring-check.exe pinned to runtime.checker_sha256', process_environment: ['SystemRoot'], reduced_isolation: true, report_only_effects: [], no_additional_paid_review_or_probes: true },
@@ -118,7 +118,7 @@ function prepare(specFile, destination) {
   if (within(repository, directory) || within(directory, repository) || fs.existsSync(directory)) throw Error('New private directory outside repository required');
   noParentInstructions(path.dirname(directory)); privateDirectory(directory);
   const envelope = describe(specFile, directory);
-  const protectedDirectories = [envelope.budget.current.reference.repository, ...[envelope.budget.current.reference.plan.file, ...envelope.budget.history.phases.map(item => item.reference.envelope.file)].map(file => path.dirname(file))].filter(Boolean);
+  const protectedDirectories = [envelope.budget.current.reference.repository, envelope.budget.reference?.successor?.repository, ...[envelope.budget.current.reference.plan.file, envelope.budget.reference?.successor?.envelope?.file, envelope.budget.reference?.successor?.plan?.file, envelope.budget.reference?.successor?.result?.file, envelope.budget.reference?.successor?.halt?.file, ...envelope.budget.history.phases.map(item => item.reference.envelope.file)].filter(Boolean).map(file => path.dirname(file))].filter(Boolean);
   if (protectedDirectories.some(old => within(old, directory) || within(directory, old))) throw Error('New envelope must not overlap retained historical evidence');
   // The durable common-Git-dir claim is acquired first. A crash consumes this
   // authorization identity permanently; it never creates another envelope.
@@ -142,7 +142,7 @@ function envelopeFor(file, expected) {
   return envelope;
 }
 function phaseRuntime(envelope, directory, rows, all) {
-  const cases = rows.filter(row => { const item = all.find(t => t.task.id === row.case_id); return prep.affectedPaths(item.task, item.root).length; }).map(row => ({ workspace: path.join(directory, row.id, 'workspace'), case_id: row.case_id }));
+  const cases = rows.filter(row => { const item = all.find(t => t.task.id === row.case_id); return affectedPaths(item.task, item.root).length; }).map(row => ({ workspace: path.join(directory, row.id, 'workspace'), case_id: row.case_id }));
   if (cases.length > 54) throw Error('Checker map exceeds fixed envelope');
   const bytes = Buffer.from(JSON.stringify({ schema_version: 1, cases }) + '\n');
   return { runtime: { ...envelope.runtime, checker: path.join(directory, 'runtime/vcp-authoring-check.exe'), cases_file: path.join(directory, 'runtime/authoring-cases.json'), cases_sha256: sha(bytes) }, bytes };
@@ -152,7 +152,7 @@ function planRows(envelope, candidate, phase, selected, directory, runtime, all)
     const caseId = slot.case_id || selected, { task, root } = all.find(item => item.task.id === caseId), skill = slot.arm === 'none' ? null : slot.arm === 'nearest' ? task.nearest_skill : task.skill;
     const sourceProfile = JSON.parse(read(envelope.profile_source));
     if (!Array.isArray(task.context.tools) || task.context.tools.some(tool => !['vcp_read', 'vcp_list', 'vcp_search', 'vcp_patch', 'vcp_verify'].includes(tool)) || sourceProfile.canonical_tools && task.context.tools.some(tool => !sourceProfile.canonical_tools.includes(tool))) throw Error('Frozen task tools exceed source ceiling');
-    const profile = prep.derivedProfile(sourceProfile, task, path.join(directory, slot.id, 'workspace'), envelope.provider_catalog, slot.cap_micros, slot.call_ceiling, runtime, root, slot.arm === 'candidate');
+    const profile = derivedProfile(sourceProfile, task, path.join(directory, slot.id, 'workspace'), envelope.provider_catalog, slot.cap_micros, slot.call_ceiling, runtime, root, slot.arm === 'candidate');
     profile.canonical_tools = [...task.context.tools];
     return { ...slot, case_id: caseId, skill: candidateSources.selection(slot.arm, task), prompt_sha256: sha(Buffer.from(prep.promptFor(task, root))), profile, files: prep.preparedFiles(task, root), directories: prep.preparedDirectories(task, root), scaffold_paths: [...prep.scaffold(task, root).keys()], oracle: task.expected.oracle, status: 'not_run' };
   });
@@ -161,6 +161,59 @@ function retained(file, expected) {
   const bytes = read(plain(path.resolve(file)), 8 * 1024 * 1024);
   if (!digest(expected) || sha(bytes) !== expected) throw Error('Retained evidence hash changed');
   return JSON.parse(bytes);
+}
+function deletionPaths(task, root) {
+  const definition = JSON.parse(frozen(root, task.expected.oracle)), paths = definition.allowed_deletions ?? [];
+  if (!Array.isArray(paths) || paths.length > 32 || new Set(paths).size !== paths.length || paths.some(relative =>
+    portable(relative) !== relative || !task.expected.source_files.some(file => file.path === relative) ||
+    [...definition.allowed_outputs, ...definition.allowed_modifications].includes(relative))) throw Error('Invalid frozen deletion authority');
+  return paths;
+}
+function affectedPaths(task, root) { return [...prep.affectedPaths(task, root), ...deletionPaths(task, root)]; }
+function derivedProfile(source, task, workspace, catalog, cap, calls, runtime, root, candidate) {
+  const profile = prep.derivedProfile(source, task, workspace, catalog, cap, calls, runtime, root, false), edits = affectedPaths(task, root);
+  // Every current deletion task also edits its package manifest/instructions.
+  if (edits.length && profile.maximum_autonomy === 'plan') throw Error('Deletion-only fixture requires explicit checker scaffolding');
+  if (edits.length) profile.affected_paths = edits;
+  if (candidate) profile.skills = candidateSources.configuration(task.skill);
+  return profile;
+}
+function finalWorkspace(base, row, allowed) {
+  const item = tasks().find(item => item.task.id === row.case_id);
+  if (!item) throw Error('Unknown frozen workspace case');
+  const deletions = row.profile.maximum_autonomy === 'plan' ? [] : deletionPaths(item.task, item.root);
+  if (deletions.some(relative => !allowed.includes(relative) || row.scaffold_paths.includes(relative))) throw Error('Deletion exceeds frozen profile authority');
+  const retained = row.files.filter(file => !deletions.includes(file.path) || fs.existsSync(safeChild(path.join(base, 'workspace'), file.path)));
+  // Deletion authority does not authorize rewriting that source file.
+  return original.finalWorkspace(base, { ...row, files: retained }, allowed.filter(relative => !deletions.includes(relative)));
+}
+function oracleFor(caseId) {
+  const item = tasks().find(item => item.task.id === caseId);
+  if (!item) throw Error('Unknown frozen requalification case');
+  return item.fresh ? require('./authoring-requalification-oracle.cjs') : require('./authoring-oracle.cjs');
+}
+function skillEvidence(plan, base, row, pages, attempts, call) {
+  if (pages.some(page => page.gaps.some(gap => !prior.privacyGap(gap, gap.artifact)))) throw Error('Context evidence incomplete');
+  const manifests = pages.flatMap(page => page.items).filter(item => item.collection === 'artifact' && item.record?.spec?.schema === 'context-manifest/1')
+    .map(item => ({ artifact: item.id, manifest: JSON.parse(capture.retained(plan, base, item, 'context', call)) }));
+  const catalog = JSON.parse(read(path.join(repository, 'src/skills/builtin/catalog.json')));
+  const candidate = candidateSources.inspect().entries.find(entry => entry.qualified_id === row.skill);
+  const builtin = catalog.skills.find(entry => row.skill === `vcp-builtin::${entry.id}::${entry.id}`);
+  if (row.skill && !candidate && !builtin) throw Error('Unknown selected requalification skill');
+  const parts = candidate ? candidate.parts : builtin ? [builtin.body, ...(builtin.resources || [])] : [];
+  const expected = parts.map((part, index) => ({ id: 'skill-' + sha(Buffer.from(row.skill)) + '-' + index, hash: part.sha256 }));
+  const dispatched = attempts.filter(attempt => attempt.phase === 'settled');
+  if (!dispatched.length) throw Error('No settled model attempt');
+  for (const attempt of dispatched) {
+    const matched = manifests.filter(item => item.manifest.request_sha256 === attempt.request_digest);
+    if (!matched.length) throw Error('No canonical context for dispatched request');
+    for (const { manifest } of matched) {
+      if (!Array.isArray(manifest.included)) throw Error('Invalid context manifest');
+      const active = manifest.included.filter(part => part.kind === 'skill');
+      if (active.length !== expected.length || expected.some(part => active.filter(actual => actual.id === part.id && actual.source_hash === part.hash && actual.trust === 'active_skill').length !== 1)) throw Error('Dispatched requalification skill context differs');
+    }
+  }
+  return { qualified_id: row.skill, parts: expected.length, checked_attempts: dispatched.length, manifests: manifests.map(item => item.artifact) };
 }
 function nativeReceipt(plan, result, caseId, bytes, phaseHash) {
   const receipt = JSON.parse(bytes), row = result.runs.find(r => r.case_id === caseId && r.arm === 'candidate');
@@ -215,14 +268,14 @@ function reviewDecision(plan, result, owner, reviews) {
 function gateFor(envelope, envelopeHash, candidate, phase) {
   const directory = phasePath(envelope, candidate, phase), file = path.join(directory, 'review-gate.json'), gateBytes = read(file), gate = JSON.parse(gateBytes);
   try {
-  if (!object(gate, ['schema', 'envelope_sha256', 'phase_sha256', 'result_sha256', 'owner', 'decision']) || gate.schema !== 'cs1-fresh-qualification-gate/1' || gate.envelope_sha256 !== envelopeHash) throw Error('Review gate binding differs');
+  if (!object(gate, ['schema', 'envelope_sha256', 'phase_sha256', 'result_sha256', 'owner', 'decision']) || gate.schema !== 'cs1-authoring-requalification-gate/1' || gate.envelope_sha256 !== envelopeHash) throw Error('Review gate binding differs');
   const plan = retained(path.join(directory, 'plan.json'), gate.phase_sha256), result = retained(path.join(directory, 'result.json'), gate.result_sha256);
   resultEvidence(envelope, plan, result, gate.phase_sha256);
   const owner = retained(path.join(directory, 'review', 'owner.json'), gate.owner);
   if (owner.envelope_sha256 !== envelopeHash || owner.phase_sha256 !== gate.phase_sha256 || owner.result_sha256 !== gate.result_sha256) throw Error('Owner receipt binding differs');
   const reviews = owner.reviews.map((ref, index) => { evidenceRef(ref); return retained(path.join(directory, 'review', `review-${index}.json`), ref.sha256); });
   const blindBytes = reviews.map((review, index) => { evidenceRef(review.source_review); return retainedBytes(path.join(directory, 'review', `blind-source-${index}.json`), review.source_review.sha256); });
-  require('./authoring-qualification-review.cjs').validate(directory, gate.phase_sha256, gate.result_sha256, reviews, blindBytes);
+  require('./authoring-requalification-review.cjs').validate(directory, gate.phase_sha256, gate.result_sha256, reviews, blindBytes);
   owner.native_checks.forEach((check, i) => check.evidence.forEach((ref, j) => { evidenceRef(ref); const bytes = retainedBytes(path.join(directory, 'review', `native-${i}-${j}.json`), ref.sha256); if (check.status === 'passed') nativeReceipt(plan, result, check.case_id, bytes, gate.phase_sha256); }));
   // Re-derive the whole prerequisite chain, including the selected confirmation.
   if (!equal(plan, derivePlan(envelope, envelopeHash, candidate, phase))) throw Error('Reviewed phase derivation changed');
@@ -255,7 +308,7 @@ function derivePlan(envelope, envelopeHash, candidate, phase) {
   const gate = prerequisites(envelope, envelopeHash, candidate, phase), directory = phasePath(envelope, candidate, phase), all = tasks();
   const selectedSlots = envelope.slots.filter(row => row.candidate === candidate && row.phase === phase).map(row => ({ ...row, case_id: row.case_id || gate.selected }));
   const { runtime } = phaseRuntime(envelope, directory, selectedSlots, all);
-  return { schema: 'cs1-fresh-qualification-phase/1', authorization: false, model_calls: 0, envelope_sha256: envelopeHash, execution_mode: envelope.execution_mode, qualification_prerequisites_pass: gate.qualificationPrerequisitesPass, candidate, phase, directory, executable: envelope.executable, selected_confirmation_case: gate.selected, prerequisites: gate.refs, runtime, permission_review: prep.permissionReview(runtime), aggregate_cap_micros: selectedSlots.length * 1750000, aggregate_call_ceiling: selectedSlots.length * 16, runs: planRows(envelope, candidate, phase, gate.selected, directory, runtime, all) };
+  return { schema: 'cs1-authoring-requalification-phase/1', authorization: false, model_calls: 0, envelope_sha256: envelopeHash, execution_mode: envelope.execution_mode, qualification_prerequisites_pass: gate.qualificationPrerequisitesPass, candidate, phase, directory, executable: envelope.executable, selected_confirmation_case: gate.selected, prerequisites: gate.refs, runtime, permission_review: prep.permissionReview(runtime), aggregate_cap_micros: selectedSlots.length * 1750000, aggregate_call_ceiling: selectedSlots.length * 16, runs: planRows(envelope, candidate, phase, gate.selected, directory, runtime, all) };
 }
 function preparePhase(envelopeFile, envelopeHash, candidate, phase) {
   const envelope = envelopeFor(envelopeFile, envelopeHash);
@@ -289,7 +342,7 @@ function validatePhase(envelopeFile, envelopeHash, file, phaseHash, started = 0)
     if (sha(read(path.join(base, 'prompt.txt'))) !== row.prompt_sha256 || !equal(JSON.parse(read(path.join(base, 'profile.json'))), row.profile)) throw Error('Phase prompt/profile changed');
     if (index >= started && (!original.preserved(base, row) || fs.readdirSync(plain(path.join(base, 'data'))).length)) throw Error('Phase inputs changed or data store not fresh');
     if (index < started) {
-      original.finalWorkspace(base, row, row.profile.maximum_autonomy === 'plan' ? [] : row.profile.affected_paths);
+      finalWorkspace(base, row, row.profile.maximum_autonomy === 'plan' ? [] : row.profile.affected_paths);
       const reportFile = path.join(base, 'result.json');
       if (fs.existsSync(reportFile)) {
         const report = JSON.parse(read(reportFile));
@@ -322,7 +375,7 @@ function recordReview(envelopeFile, envelopeHash, candidate, phase, ownerFile) {
   try { decision = reviewDecision(plan, result, owner, reviews); }
   catch (error) { if (error.code === 'CS1_REVIEW_INTEGRITY') halt(envelope, 'Reviewer recorded authority or secret-handling failure; owner pass cannot override it'); throw error; }
   const blindBytes = reviews.map(review => retainedBytes(review.source_review.path, review.source_review.sha256));
-  require('./authoring-qualification-review.cjs').validate(directory, owner.phase_sha256, owner.result_sha256, reviews, blindBytes);
+  require('./authoring-requalification-review.cjs').validate(directory, owner.phase_sha256, owner.result_sha256, reviews, blindBytes);
   const nativeBytes = owner.native_checks.map(item => item.evidence.map(ref => { evidenceRef(ref); return retainedBytes(ref.path, ref.sha256); }));
   owner.native_checks.forEach((item, i) => { if (item.status === 'passed') nativeBytes[i].forEach(bytes => nativeReceipt(plan, result, item.case_id, bytes, owner.phase_sha256)); });
   // All candidate workspace evidence is outside the review authority boundary.
@@ -332,13 +385,13 @@ function recordReview(envelopeFile, envelopeHash, candidate, phase, ownerFile) {
   reviewBytes.forEach((bytes, i) => write(path.join(directory, 'review', `review-${i}.json`), bytes));
   blindBytes.forEach((bytes, i) => write(path.join(directory, 'review', `blind-source-${i}.json`), bytes));
   nativeBytes.forEach((items, i) => items.forEach((bytes, j) => write(path.join(directory, 'review', `native-${i}-${j}.json`), bytes)));
-  const gate = { schema: 'cs1-fresh-qualification-gate/1', envelope_sha256: envelopeHash, phase_sha256: owner.phase_sha256, result_sha256: owner.result_sha256, owner: sha(ownerBytes), decision };
+  const gate = { schema: 'cs1-authoring-requalification-gate/1', envelope_sha256: envelopeHash, phase_sha256: owner.phase_sha256, result_sha256: owner.result_sha256, owner: sha(ownerBytes), decision };
   write(path.join(directory, 'review-gate.json'), gate);
   return gate;
 }
 function halt(envelope, reason) {
   const file = path.join(envelope.directory, 'halt.json');
-  if (!fs.existsSync(file)) write(file, { schema: 'cs1-fresh-qualification-halt/1', reason, action: 'Read-only reconciliation. This envelope cannot resume or replay.' });
+  if (!fs.existsSync(file)) write(file, { schema: 'cs1-authoring-requalification-halt/1', reason, action: 'Read-only reconciliation. This envelope cannot resume or replay.' });
 }
 function runEvidence(base) {
   const names = fs.readdirSync(plain(base)).filter(name => !['workspace', 'data', 'result.json'].includes(name)).sort();
@@ -362,7 +415,7 @@ function resultEvidence(envelope, plan, result, phaseHash) {
     if (unexecuted || !equal(JSON.parse(read(slotClaim)), { ...claim, slot: row.id }) || !equal(JSON.parse(read(path.join(base, 'result.json'))), report) || !digest(report.evidence_sha256) || report.evidence_sha256 !== runEvidence(base) || report.workspace_sha256 !== prep.identity(path.join(base, 'workspace'), ['.']).content_sha256) throw Error('Retained run evidence or fixed slot claims changed');
     const money = prior.accounting(JSON.parse(read(path.join(base, 'costs.json'))), row.cap_micros);
     if (money.actual_cost_micros !== report.actual_cost_micros || money.attempts.length !== report.observed_attempts) throw Error('Retained canonical accounting differs');
-    original.finalWorkspace(base, row, row.profile.maximum_autonomy === 'plan' ? [] : row.profile.affected_paths);
+    finalWorkspace(base, row, row.profile.maximum_autonomy === 'plan' ? [] : row.profile.affected_paths);
   }
 }
 function cumulativeAdmission(envelope, plan, current, phaseHash, nextIndex) {
@@ -452,7 +505,7 @@ function run(envelopeFile, envelopeHash, file, phaseHash, call = invoke) {
   try { ({ envelope, plan } = validatePhase(envelopeFile, envelopeHash, file, phaseHash)); }
   catch (error) {
     const bytes = read(envelopeFile), trusted = JSON.parse(bytes);
-    if (sha(bytes) === envelopeHash && trusted.schema === 'cs-1-fresh-qualification-envelope/1' && path.resolve(envelopeFile) === path.join(trusted.directory, 'envelope.json')) halt(trusted, 'Exact authorized phase validation failed');
+    if (sha(bytes) === envelopeHash && trusted.schema === 'cs-1-authoring-requalification-envelope/1' && path.resolve(envelopeFile) === path.join(trusted.directory, 'envelope.json')) halt(trusted, 'Exact authorized phase validation failed');
     throw error;
   }
   const sourceProfile = JSON.parse(read(envelope.profile_source));
@@ -492,10 +545,10 @@ function run(envelopeFile, envelopeHash, file, phaseHash, call = invoke) {
       report.actual_cost_micros = money.actual_cost_micros; report.observed_attempts = money.attempts.length;
       result.actual_cost_micros += money.actual_cost_micros; result.observed_attempts += money.attempts.length; accounted = true;
       if (money.attempts.length > row.call_ceiling || result.actual_cost_micros > plan.aggregate_cap_micros || result.observed_attempts > plan.aggregate_call_ceiling) throw Error('Observed fixed budget exceeded');
-      const finalFiles = original.finalWorkspace(base, row, profile.maximum_autonomy === 'plan' ? [] : profile.affected_paths); report.preserved = true;
+      const finalFiles = finalWorkspace(base, row, profile.maximum_autonomy === 'plan' ? [] : profile.affected_paths); report.preserved = true;
       report.status = final.conditions.completed && execution.status === 0 ? 'completed' : 'failed'; report.conditions = final.conditions;
       // Inspect settled request contexts even when the native task fails.
-      if (money.attempts.some(a => a.phase === 'settled')) report.skill_evidence = original.skillEvidence(plan, base, row, evidence.context, money.attempts, call);
+      if (money.attempts.some(a => a.phase === 'settled')) report.skill_evidence = skillEvidence(plan, base, row, evidence.context, money.attempts, call);
       if (evidence.tools.some(page => page.gaps.some(gap => !prior.privacyGap(gap, gap.artifact)))) throw Error('Canonical tool evidence incomplete');
       report.tool_audit = auditTools(responses, profile.canonical_tools);
       report.native_check = nativeCheck(plan, base, evidence.verification, evidence.tools, call);
@@ -507,7 +560,7 @@ function run(envelopeFile, envelopeHash, file, phaseHash, call = invoke) {
       const item = tasks().find(item => item.task.id === row.case_id);
       if (answer) {
         report.answer_source = answer; write(path.join(base, 'answer.json'), answer.answer);
-        const oracle = row.case_id.startsWith('DOC-fresh-') ? require('./authoring-fresh-doc-oracle.cjs') : row.case_id.endsWith('-v3') ? require('./authoring-followup-oracle.cjs') : require('./authoring-oracle.cjs');
+        const oracle = oracleFor(row.case_id);
         report.oracle = oracle.check(row.case_id, answer.answer, { finalFiles, fixtureRoot: item.root }); write(path.join(base, 'oracle.json'), report.oracle);
         if (!report.oracle.structural_pass) report.status = 'failed';
       }
@@ -538,7 +591,7 @@ function run(envelopeFile, envelopeHash, file, phaseHash, call = invoke) {
   if (!result.stopped) { if (!equal(JSON.parse(read(active)), claim)) { halt(envelope, 'Active ownership changed'); throw Error('Active ownership changed'); } fs.unlinkSync(active); }
   return result;
 }
-module.exports = { prepare, preparePhase, recordReview, run, envelopeFor, validatePhase, reviewDecision, nativeReceipt, derivePlan, tasks, slots, sourceScope, checkerBuildScope, checkerRuntime, hardGates, successorClaim, manifests, describe, resultEvidence, runEvidence, auditTools, nativeCheck, canaryDisclosed };
+module.exports = { prepare, preparePhase, recordReview, run, envelopeFor, validatePhase, reviewDecision, nativeReceipt, derivePlan, tasks, slots, sourceScope, checkerBuildScope, checkerRuntime, hardGates, successorClaim, manifests, checkerManifests, describe, resultEvidence, runEvidence, auditTools, nativeCheck, canaryDisclosed, planRows, oracleFor, skillEvidence, affectedPaths, derivedProfile, finalWorkspace };
 if (require.main === module) {
   try {
     const [command, ...args] = process.argv.slice(2); let result;
@@ -546,7 +599,7 @@ if (require.main === module) {
     else if (command === 'phase' && args.length === 4) result = preparePhase(...args);
     else if (command === 'review' && args.length === 5) result = recordReview(...args);
     else if (command === 'run' && args.length === 4) result = run(...args);
-    else throw Error('Usage: authoring-qualification.cjs prepare <spec> <new-private-dir> | phase <envelope> <envelope-sha256> <candidate> <normal|inherited|confirmation> | review <envelope> <envelope-sha256> <candidate> <phase> <owner-receipt> | run <envelope> <envelope-sha256> <phase-plan> <phase-sha256>');
+    else throw Error('Usage: authoring-requalification.cjs prepare <spec> <new-private-dir> | phase <envelope> <envelope-sha256> <candidate> <normal|inherited|confirmation> | review <envelope> <envelope-sha256> <candidate> <phase> <owner-receipt> | run <envelope> <envelope-sha256> <phase-plan> <phase-sha256>');
     console.log(JSON.stringify(command === 'run' ? { result: path.join(path.dirname(args[2]), 'result.json'), stopped: result.stopped, candidate_stopped: result.candidate_stopped, actual_cost_micros: result.actual_cost_micros, observed_attempts: result.observed_attempts } : result));
     if (result.stopped || result.runs?.some(row => row.status !== 'completed')) process.exitCode = 1;
   } catch (error) { console.error(error.message); process.exitCode = 1; }

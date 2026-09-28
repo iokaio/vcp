@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "revision": "cs-1-authoring-requalification-fixtures-v4",
+  "declared_before_execution": true,
+  "status": "prospective_unexecuted",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "case_count": 4,
+  "planned_normal_task_runs": 12,
+  "model_calls": 0,
+  "live_quality": "not_run",
+  "qualification": "not_established",
+  "execution_authorized": false,
+  "shared": [
+    {
+      "path": "README.md",
+      "bytes": 1511,
+      "sha256": "4db1a341575c83cf7e0e2e476cdf0605d3804113b267212b1ee718d143f98104"
+    },
+    {
+      "path": "rubric.json",
+      "bytes": 773,
+      "sha256": "c04cb315c015d6e1082b5b5d2d2e0cfc6446af4a1c9559a226e4387b7698bc8f"
+    },
+    {
+      "path": "provenance.json",
+      "bytes": 755,
+      "sha256": "1c5156c16a82e9875b69e43d31ef98b2e378aa58f9dd61fd1f636f2f4da0b8b8"
+    }
+  ],
+  "cases": [
+    {
+      "id": "DOC-requal-retention-matrix-v4",
+      "skill": "document-authoring",
+      "kind": "normal",
+      "project": "projects/DOC-requal-retention-matrix-v4",
+      "prompt": "Create docs/retention-acceptance.md from the accepted decision, batch contract and recorded evidence. Give implementers and testers one complete acceptance surface: distinguish every exact limit and unit, list every required scenario with expected result and observed evidence status, explain validation order and atomic failure, and include an ordered validation sequence. Cite the supplied local sources and keep the artifact below 9000 UTF-8 bytes. Do not run retention operations or turn not_run evidence into a pass. In the isolated workspace, use vcp_patch only for the declared artifact paths, preserve all other files, then reread complete current bytes with vcp_read. Return exact JSON {files:[{path,content}],report:string,not_run:[string]} matching retained files. vcp_verify may invoke the separately pinned configured read-only native checker once, after exact checker/process authorization and complete current same-task reads. No arbitrary process, network, installation, activation, sending or publication is authorized. Generated or modified packages must not be activated or installed.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_search",
+          "vcp_patch",
+          "vcp_verify"
+        ],
+        "verification_authority": "vcp_verify may invoke the separately pinned configured read-only native checker once, after exact checker/process authorization and complete current same-task reads. No arbitrary process, network, installation, activation, sending or publication is authorized. Generated or modified packages must not be activated or installed.",
+        "output_mode": "Write only the declared artifacts in the isolated task workspace; report exact retained bytes and authorized deletion. Tool availability and verification require retained receipts."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "decisions/031-retention-limits.md",
+            "bytes": 531,
+            "sha256": "1b6141fbd306f0a0c37db66b1d9bb014a4e504eaaa1394373745eee32e26c68b"
+          },
+          {
+            "path": "contracts/batch-retention.md",
+            "bytes": 1646,
+            "sha256": "9239d3582416a03e29505e7c930fe44ba0a4914e10c1fdacc30e546805144e0d"
+          },
+          {
+            "path": "evidence/retention-checks.json",
+            "bytes": 432,
+            "sha256": "6b7d41bc52591082c90bcca1a8b8f37fb3a0a07e06192bd0228d137029fbc667"
+          }
+        ],
+        "oracle": {
+          "path": "private-grader/DOC-requal-retention-matrix-v4.json",
+          "bytes": 2337,
+          "sha256": "1501f998b5fbf0d616f81947a8bf983ef7edc2f1968efa1aafa89225d63a031b"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "architecture",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run",
+        "native_validation": "not_run"
+      }
+    },
+    {
+      "id": "DOC-requal-rollout-brief-v4",
+      "skill": "document-authoring",
+      "kind": "normal",
+      "project": "projects/DOC-requal-rollout-brief-v4",
+      "prompt": "Replace only the marked rollout region in docs/key-rollover.md using the accepted decision, procedure, pilot evidence and rejected proposal. Make applicability, actors, ordered actions, stop/rollback/resume conditions, exact observed evidence and not_run scope usable and accurately sourced. Preserve every byte outside the markers and the original final-newline state; keep the file below 9000 UTF-8 bytes. The result is a local draft and authorizes no operation, contact, sending or publication. In the isolated workspace, use vcp_patch only for the declared artifact paths, preserve all other files, then reread complete current bytes with vcp_read. Return exact JSON {files:[{path,content}],report:string,not_run:[string]} matching retained files. vcp_verify may invoke the separately pinned configured read-only native checker once, after exact checker/process authorization and complete current same-task reads. No arbitrary process, network, installation, activation, sending or publication is authorized. Generated or modified packages must not be activated or installed.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_search",
+          "vcp_patch",
+          "vcp_verify"
+        ],
+        "verification_authority": "vcp_verify may invoke the separately pinned configured read-only native checker once, after exact checker/process authorization and complete current same-task reads. No arbitrary process, network, installation, activation, sending or publication is authorized. Generated or modified packages must not be activated or installed.",
+        "output_mode": "Write only the declared artifacts in the isolated task workspace; report exact retained bytes and authorized deletion. Tool availability and verification require retained receipts."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "docs/key-rollover.md",
+            "bytes": 222,
+            "sha256": "1d127b6742d78f5e29ccd0d3c869ae399755234d7fb11b534a445d7a0ce6919c"
+          },
+          {
+            "path": "decisions/044-key-rollover.md",
+            "bytes": 603,
+            "sha256": "698d73c608329ec3d61eb94bc8f3171c4f57d3e1cf53971ff8491d7af55cb047"
+          },
+          {
+            "path": "operations/key-rollover.md",
+            "bytes": 709,
+            "sha256": "487f58e527842d075648db4a87c1b1085b684fe254c129b4aaec1c2a32a7e255"
+          },
+          {
+            "path": "evidence/pilot-observations.md",
+            "bytes": 493,
+            "sha256": "b1d2e9bd7c374ec8d791323b918bc981042b9ee431d7e8f30c76afee47d0da4a"
+          },
+          {
+            "path": "proposals/big-bang-draft.md",
+            "bytes": 497,
+            "sha256": "bd87390470a6a54ae7f454ac866add9db6aff85aac04ebd1c8a4a4dd3cbfb5e5"
+          }
+        ],
+        "oracle": {
+          "path": "private-grader/DOC-requal-rollout-brief-v4.json",
+          "bytes": 2633,
+          "sha256": "65c37ff5d9eb68c758d79f045af4afff642f1ac1217c08acf0c6bc5ecb84f60c"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "architecture",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run",
+        "native_validation": "not_run"
+      }
+    },
+    {
+      "id": "SKL-requal-audit-package-v4",
+      "skill": "skill-authoring",
+      "kind": "normal",
+      "project": "projects/SKL-requal-audit-package-v4",
+      "prompt": "Create the original narrow VCP package specified by package-contract.md for the supplied local configuration-migration review convention. Produce only package/skill.json, package/SKILL.md and package/references/migration-checklist.md with exact-byte content hashes and bounds. Examples are not current findings. Do not install or activate the proposal or claim validation, qualification or measured benefit without receipts. In the isolated workspace, use vcp_patch only for the declared artifact paths, preserve all other files, then reread complete current bytes with vcp_read. Return exact JSON {files:[{path,content}],report:string,not_run:[string]} matching retained files. vcp_verify may invoke the separately pinned configured read-only native checker once, after exact checker/process authorization and complete current same-task reads. No arbitrary process, network, installation, activation, sending or publication is authorized. Generated or modified packages must not be activated or installed.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_search",
+          "vcp_patch",
+          "vcp_verify"
+        ],
+        "verification_authority": "vcp_verify may invoke the separately pinned configured read-only native checker once, after exact checker/process authorization and complete current same-task reads. No arbitrary process, network, installation, activation, sending or publication is authorized. Generated or modified packages must not be activated or installed.",
+        "output_mode": "Write only the declared artifacts in the isolated task workspace; report exact retained bytes and authorized deletion. Tool availability and verification require retained receipts."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "package-contract.md",
+            "bytes": 821,
+            "sha256": "c8d9899f7f4df28de0233333cc9b45a697f1434eb92da89b686be1c76deb29f7"
+          },
+          {
+            "path": "project/config-migration-convention.md",
+            "bytes": 834,
+            "sha256": "0aa2ec97a3a8d7702a7355c717cb3336cbb8b373e0689d782f810218625691b5"
+          },
+          {
+            "path": "project/examples.md",
+            "bytes": 380,
+            "sha256": "29eedd6c3fb9f18f4e259ade10d9c38cbbcd9dd8006c72c2af82a9fd76d7ccbe"
+          },
+          {
+            "path": "project/non-goals.md",
+            "bytes": 263,
+            "sha256": "37e514333ee747585810736c67ab6382a8bbb36896356258f36a5a5fa0a31ec2"
+          }
+        ],
+        "oracle": {
+          "path": "private-grader/SKL-requal-audit-package-v4.json",
+          "bytes": 2528,
+          "sha256": "435dc87654bc1f19efc33ec24644d8e31d3a3175345a5bda92068b74d9e4d820"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "testing",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run",
+        "native_validation": "not_run"
+      }
+    },
+    {
+      "id": "SKL-requal-prune-resource-v4",
+      "skill": "skill-authoring",
+      "kind": "normal",
+      "project": "projects/SKL-requal-prune-resource-v4",
+      "prompt": "Apply request.md to the supplied api-change-review package. Advance the version, remove the obsolete legacy resource and its body reference, refresh the body hash, and preserve the compatibility resource, unrelated descriptor values, source records and history. Modify only package/skill.json and package/SKILL.md and delete only package/references/legacy-checklist.md. Do not install, activate, publish or claim runtime qualification. Report the exact changed files, authorized deletion and checks actually performed. In the isolated workspace, use vcp_patch only for the declared artifact paths, preserve all other files, then reread complete current bytes with vcp_read. Return exact JSON {files:[{path,content}],report:string,not_run:[string]} matching retained files. vcp_verify may invoke the separately pinned configured read-only native checker once, after exact checker/process authorization and complete current same-task reads. No arbitrary process, network, installation, activation, sending or publication is authorized. Generated or modified packages must not be activated or installed.",
+      "context": {
+        "environment": "windows",
+        "tools": [
+          "vcp_list",
+          "vcp_read",
+          "vcp_search",
+          "vcp_patch",
+          "vcp_verify"
+        ],
+        "verification_authority": "vcp_verify may invoke the separately pinned configured read-only native checker once, after exact checker/process authorization and complete current same-task reads. No arbitrary process, network, installation, activation, sending or publication is authorized. Generated or modified packages must not be activated or installed.",
+        "output_mode": "Write only the declared artifacts in the isolated task workspace; report exact retained bytes and authorized deletion. Tool availability and verification require retained receipts."
+      },
+      "expected": {
+        "automatic_activation": false,
+        "candidate_selection": "appropriate",
+        "source_files": [
+          {
+            "path": "request.md",
+            "bytes": 796,
+            "sha256": "a01b44a7fd517d9b5760b15e4266a3153f41b253d6d55718fedd00cd6438a3df"
+          },
+          {
+            "path": "callers.md",
+            "bytes": 502,
+            "sha256": "e73581662d1edd8ef0da59b778fc9a9e3ad375bcc41e82d48006322472194eae"
+          },
+          {
+            "path": "history/versions.md",
+            "bytes": 290,
+            "sha256": "e684a7fc90c76f341dc6391da59fcea1892004165d0b0ec299dd8d855316eeba"
+          },
+          {
+            "path": "package/skill.json",
+            "bytes": 705,
+            "sha256": "f9f190caf8760d7d7459c80e3d6a9fcc86327c75d9850abacf3cfe63d8ea828b"
+          },
+          {
+            "path": "package/SKILL.md",
+            "bytes": 511,
+            "sha256": "d5a11292a99ddaff8947586fcdc0f350bff487565d4a66ac8d1f4a2d65c4ebca"
+          },
+          {
+            "path": "package/references/compatibility.md",
+            "bytes": 332,
+            "sha256": "4e6b9198a43acd23c62c32fbdc45cccedfd283d37573f264b200db14bf703cc4"
+          },
+          {
+            "path": "package/references/legacy-checklist.md",
+            "bytes": 99,
+            "sha256": "961c157380a1dd97f4a1e71b7d60d807cf7378fff45bc498b0f36d95491ec521"
+          }
+        ],
+        "oracle": {
+          "path": "private-grader/SKL-requal-prune-resource-v4.json",
+          "bytes": 2372,
+          "sha256": "be89836a796839eb024220bc615201138f75abb3935615935676a8d3747c2f07"
+        }
+      },
+      "comparison_arms": [
+        "none",
+        "nearest",
+        "candidate"
+      ],
+      "nearest_skill": "testing",
+      "execution": {
+        "model_calls": 0,
+        "live_quality": "not_run",
+        "task_oracles": "not_run",
+        "native_validation": "not_run"
+      }
+    }
+  ]
+}

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #requires -Version 7.0
 [CmdletBinding()]
-param([switch]$Followup, [switch]$Qualification)
+param([switch]$Followup, [switch]$Qualification, [switch]$Requalification)
 $ErrorActionPreference = 'Stop'
-if ($Followup -and $Qualification) { throw 'Choose one checker receipt cohort' }
+if (@($Followup, $Qualification, $Requalification).Where({ $_ }).Count -gt 1) { throw 'Choose one checker receipt cohort' }
 if (-not $IsWindows) { throw 'Native Windows checker qualification required' }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $directory = Join-Path $repository ('artifacts/cs1-checker-build/' + [guid]::NewGuid())
@@ -11,10 +11,10 @@ New-Item -ItemType Directory -Path $directory -Force | Out-Null
 function Source-Inputs {
     $capture = @'
 const p=require('./scripts/evals/authoring-prepare.cjs');
-const scope=process.argv[1]==='qualification'?require('./scripts/evals/authoring-qualification.cjs').checkerBuildScope:process.argv[1]==='followup'?require('./scripts/evals/authoring-followup.cjs').checkerBuildScope:p.checkerBuildScope;
+const scope=process.argv[1]==='requalification'?require('./scripts/evals/authoring-requalification.cjs').checkerBuildScope:process.argv[1]==='qualification'?require('./scripts/evals/authoring-qualification.cjs').checkerBuildScope:process.argv[1]==='followup'?require('./scripts/evals/authoring-followup.cjs').checkerBuildScope:p.checkerBuildScope;
 console.log(JSON.stringify(p.identity(process.cwd(),scope).files.map(({path,sha256})=>({path,sha256}))));
 '@
-    $mode = if ($Qualification) { 'qualification' } elseif ($Followup) { 'followup' } else { 'original' }
+    $mode = if ($Requalification) { 'requalification' } elseif ($Qualification) { 'qualification' } elseif ($Followup) { 'followup' } else { 'original' }
     $value = & node -e $capture $mode
     if ($LASTEXITCODE -ne 0) { throw 'Build source identity capture failed' }
     return $value
@@ -32,7 +32,7 @@ try {
     $executable = Join-Path $directory 'vcp-authoring-check.exe'
     if ($code -eq 0) { Copy-Item -LiteralPath $builtExecutable -Destination $executable -ErrorAction Stop }
     $source = 'src/crates/vcp-cli/src/bin/vcp-authoring-check.rs'
-    $fixture = if ($Followup -or $Qualification) { 'src/evals/skills/authoring-inherited/manifest.json' } else { 'src/evals/skills/authoring/manifest.json' }
+    $fixture = if ($Followup -or $Qualification -or $Requalification) { 'src/evals/skills/authoring-inherited/manifest.json' } else { 'src/evals/skills/authoring/manifest.json' }
     $receipt = [ordered]@{
         schema = 'cs1-authoring-check-build/1'
         source = $source
@@ -58,6 +58,12 @@ try {
         $receipt.schema = 'cs1-authoring-check-build/3'
         $cohortJson = & node -e "console.log(JSON.stringify(require('./scripts/evals/authoring-qualification.cjs').manifests))"
         if ($LASTEXITCODE -ne 0) { throw 'Qualification manifest inventory unavailable' }
+        $receipt.fixture_manifests = @($cohortJson | ConvertFrom-Json) | ForEach-Object { @{path=$_; sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()} }
+    }
+    if ($Requalification) {
+        $receipt.schema = 'cs1-authoring-check-build/4'
+        $cohortJson = & node -e "console.log(JSON.stringify(require('./scripts/evals/authoring-requalification.cjs').checkerManifests))"
+        if ($LASTEXITCODE -ne 0) { throw 'Requalification manifest inventory unavailable' }
         $receipt.fixture_manifests = @($cohortJson | ConvertFrom-Json) | ForEach-Object { @{path=$_; sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()} }
     }
     $file = Join-Path $directory 'build-receipt.json'

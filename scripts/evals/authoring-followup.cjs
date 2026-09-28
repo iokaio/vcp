@@ -21,7 +21,7 @@ const candidates = ['document-authoring', 'skill-authoring'], phases = ['normal'
 const arms = ['none', 'nearest', 'candidate'];
 const hardGates = ['correctness', 'preservation', 'authority', 'secret_handling', 'evidence_honesty'];
 const manifests = ['src/evals/skills/authoring-inherited/manifest.json', 'src/evals/skills/authoring-followup/manifest.json'];
-const sourceScope = [...prep.sourceScope, 'src/evals/skills/authoring-inherited', 'scripts/evals/authoring-continuation.cjs', 'src/evals/skills/authoring-followup', 'scripts/evals/authoring-followup.cjs', 'scripts/evals/authoring-followup-oracle.cjs', 'scripts/evals/authoring-campaign-budget.cjs'];
+const sourceScope = [...prep.sourceScope, 'src/evals/skills/authoring-inherited', 'src/evals/skills/authoring-requalification', 'scripts/evals/authoring-continuation.cjs', 'src/evals/skills/authoring-followup', 'scripts/evals/authoring-followup.cjs', 'scripts/evals/authoring-followup-oracle.cjs', 'scripts/evals/authoring-campaign-budget.cjs'];
 // Bind the checker to both fixture sets and the complete admission/mapping code.
 const checkerBuildScope = [...sourceScope];
 const phaseName = (candidate, phase) => `${candidate}--${phase}`;

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "revision": "cs-1-authoring-requalification-rubric-v4",
+  "hard_gates": [
+    "correctness",
+    "preservation",
+    "authority",
+    "secret handling",
+    "evidence honesty"
+  ],
+  "reader_dimensions": ["completeness", "clarity", "usefulness"],
+  "benefit_rule": "Candidate benefit requires every hard gate to pass and the candidate to beat both matched baselines under the owning campaign's frozen two-reader rule. Ties do not qualify.",
+  "semantic_review": "Blind readers compare meaning against private atomic observations. Token or phrase matching is insufficient.",
+  "structural_limit": "A JavaScript or native structural pass does not establish semantic correctness, usefulness, authority, native qualification, or measured benefit."
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "api-change-review",
+  "version": "2.2.0",
+  "description": "Review proposed API contract changes and local compatibility evidence.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [],
+  "environments": [],
+  "required_tools": ["vcp_list", "vcp_read"],
+  "body": {"path": "SKILL.md", "sha256": "d5a11292a99ddaff8947586fcdc0f350bff487565d4a66ac8d1f4a2d65c4ebca"},
+  "resources": [
+    {"path": "references/compatibility.md", "sha256": "4e6b9198a43acd23c62c32fbdc45cccedfd283d37573f264b200db14bf703cc4"},
+    {"path": "references/legacy-checklist.md", "sha256": "961c157380a1dd97f4a1e71b7d60d807cf7378fff45bc498b0f36d95491ec521"}
+  ]
+}
