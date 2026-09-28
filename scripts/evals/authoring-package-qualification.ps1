@@ -4,6 +4,7 @@
 param(
     [Parameter(Mandatory)][string]$Executable,
     [Parameter(Mandatory)][string]$PreviousArchive,
+    [string]$BuildReceipt,
     [string]$OutputRoot
 )
 $ErrorActionPreference = 'Stop'
@@ -38,8 +39,25 @@ function Active-Release {
     if ($pointer.release -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid installed release identity' }
     return Join-Path (Join-Path $install 'releases') $pointer.release
 }
+function Package-Installer([string]$Archive, [string]$Name) {
+    $zip = [IO.Compression.ZipFile]::OpenRead($Archive)
+    try {
+        $manifests = @($zip.Entries | Where-Object FullName -ceq 'manifest.json')
+        $installers = @($zip.Entries | Where-Object FullName -ceq 'tools/package-install.ps1')
+        if ($manifests.Count -ne 1 -or $installers.Count -ne 1 -or $manifests[0].Length -gt 4MB -or $installers[0].Length -gt 1MB) { throw 'Bounded unique manifest and packaged installer required' }
+        $reader = [IO.StreamReader]::new($manifests[0].Open())
+        try { $manifest = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+        $identity = @($manifest.files | Where-Object path -ceq 'tools/package-install.ps1')
+        if ($identity.Count -ne 1) { throw 'Packaged installer identity missing' }
+        $destination = Join-Path $resolved ($Name + '-package-install.ps1')
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($installers[0], $destination, $false)
+        if ((Get-FileHash -LiteralPath $destination).Hash.ToLowerInvariant() -cne $identity[0].sha256) { throw 'Packaged installer identity differs' }
+        return $destination
+    } finally { $zip.Dispose() }
+}
 function Install-Step([string]$Action, [string]$Archive) {
-    $arguments = @('-NoProfile', '-File', (Join-Path $repository 'scripts/package-install.ps1'), '-Action', $Action, '-InstallRoot', $install, '-DataRoot', $data)
+    $installer = if ($Action -eq 'Install') { $previousInstaller } else { $candidateInstaller }
+    $arguments = @('-NoProfile', '-File', $installer, '-Action', $Action, '-InstallRoot', $install, '-DataRoot', $data)
     if ($Archive) { $arguments += @('-PackageZip', $Archive) }
     & pwsh @arguments *> (Join-Path $resolved ($Action + '-' + $record.stages.Count + '.log'))
     if ($LASTEXITCODE -ne 0) { throw "$Action failed" }
@@ -56,17 +74,22 @@ function Install-Step([string]$Action, [string]$Archive) {
         }
         if (Test-Path -LiteralPath (Join-Path $release 'skills/candidates')) { throw 'Research candidates must not be installed by default' }
     }
-    $record.stages += @{ action = $Action; release = $release; executable_sha256 = (Get-FileHash -LiteralPath $binary).Hash.ToLowerInvariant(); catalog_sha256 = (Get-FileHash -LiteralPath $catalog).Hash.ToLowerInvariant(); skills = $metadata.skills.Count; version = $metadata.version; protected_data_unchanged = $true }
+    $record.stages += @{ action = $Action; release = $release; executable_sha256 = (Get-FileHash -LiteralPath $binary).Hash.ToLowerInvariant(); installer_sha256 = (Get-FileHash -LiteralPath $installer).Hash.ToLowerInvariant(); catalog_sha256 = (Get-FileHash -LiteralPath $catalog).Hash.ToLowerInvariant(); skills = $metadata.skills.Count; version = $metadata.version; protected_data_unchanged = $true }
     Save-Report
 }
 Save-Report
 try {
-    $resultPath = & pwsh -NoProfile -File (Join-Path $repository 'scripts/package.ps1') -Executable $candidate -OutputRoot $OutputRoot | Select-Object -Last 1
+    $packageArguments = @('-NoProfile', '-File', (Join-Path $repository 'scripts/package.ps1'), '-Executable', $candidate, '-OutputRoot', $OutputRoot)
+    if ($BuildReceipt) { $packageArguments += @('-BuildReceipt', ([IO.Path]::GetFullPath($BuildReceipt))) }
+    $resultPath = & pwsh @packageArguments | Select-Object -Last 1
     if ($LASTEXITCODE -ne 0) { throw 'Candidate packaging failed' }
     $package = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
     $archive = Join-Path (Split-Path -Parent $resultPath) $package.package
     $record.package_result = $resultPath
     $record.archive_sha256 = $package.archive_sha256
+    if ($record.archive_sha256 -ceq $record.previous_archive_sha256) { throw 'Distinct previous and candidate archives required' }
+    $previousInstaller = Package-Installer $previous 'previous'
+    $candidateInstaller = Package-Installer $archive 'candidate'
     Install-Step 'Install' $previous
     Install-Step 'Upgrade' $archive
     if ($record.stages[1].executable_sha256 -cne $record.executable_sha256 -or $record.stages[1].catalog_sha256 -cne $package.manifest.skills.catalog_sha256) { throw 'Installed candidate identity differs' }

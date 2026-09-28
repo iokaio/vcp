@@ -6,10 +6,10 @@ mod authoring_directories;
 mod authoring_followup;
 #[path = "support/canonical_tool_ceiling.rs"]
 mod canonical_tool_ceiling;
-#[path = "support/developer_feasibility.rs"]
-mod developer_feasibility;
 #[path = "support/child_output_owner.rs"]
 mod child_output_owner;
+#[path = "support/developer_feasibility.rs"]
+mod developer_feasibility;
 #[path = "support/history_notice.rs"]
 mod history_notice;
 #[path = "support/hooks.rs"]
@@ -57,6 +57,17 @@ struct Fixture {
     profile: PathBuf,
     binary: PathBuf,
 }
+
+fn explicit_candidate_root() -> PathBuf {
+    // Qualification-only selection of prospectively frozen candidate packages.
+    // This test input never changes production discovery or enables a builtin.
+    std::env::var_os("VCP_TEST_CANDIDATE_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../skills/candidates")
+        })
+}
+
 impl Fixture {
     fn maximum_skill_sources(&self) {
         let mut profile: Value = serde_json::from_slice(&fs::read(&self.profile).unwrap()).unwrap();
@@ -434,9 +445,7 @@ async fn executable_six_candidate_report_only_profiles_complete_without_workspac
         let collection = tempfile::tempdir().unwrap();
         let package = collection.path().join(skill);
         fs::create_dir(&package).unwrap();
-        let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../skills/candidates")
-            .join(skill);
+        let candidate = explicit_candidate_root().join(skill);
         for file in ["skill.json", "SKILL.md"] {
             fs::copy(candidate.join(file), package.join(file)).unwrap();
         }
@@ -515,8 +524,8 @@ async fn executable_six_candidate_report_only_profiles_complete_without_workspac
         let resources = descriptor["resources"].as_array().unwrap();
         assert_eq!(parts.len(), 1 + resources.len());
         for resource in resources {
-            let reference = fs::read_to_string(package.join(resource["path"].as_str().unwrap()))
-                .unwrap();
+            let reference =
+                fs::read_to_string(package.join(resource["path"].as_str().unwrap())).unwrap();
             assert!(parts
                 .iter()
                 .any(|part| part["trust"] == "active_skill" && part["text"] == reference));
@@ -551,6 +560,139 @@ async fn executable_run_unknown_skill_stops_before_provider_dispatch() {
         fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
         "41\n"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn executable_six_candidate_terminal_revocation_is_persisted_without_dispatch() {
+    use std::sync::Mutex;
+    use std::time::Duration;
+    for skill in [
+        "document-authoring",
+        "skill-authoring",
+        "frontend-design",
+        "mcp-development",
+        "llm-integration",
+        "webapp-testing",
+    ] {
+        let server = MockServer::start().await;
+        let mut fixture = Fixture::new(&server.uri(), "budget");
+        fixture.package(true);
+        let candidate = explicit_candidate_root()
+            .join(skill)
+            .canonicalize()
+            .unwrap();
+        let mut profile: Value =
+            serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+        profile["skills"] = json!({"version":1,"revision":"0","sources":[{
+            "id":"explicit-candidate","root_id":vcp_domain::RootId::new(),
+            "kind":"user","enabled":true,"path":candidate
+        }]});
+        fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+        let qualified = format!("explicit-candidate::.::{skill}");
+        let mut child = fixture
+            .terminal_args(&[
+                "run",
+                "Inspect the supplied project",
+                "--autonomy",
+                "autonomous",
+                "--budget-usd",
+                "0.000001",
+            ])
+            .await;
+        let writer = child.session.writer_sender();
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let output = captured.clone();
+        let reader = tokio::spawn(async move {
+            while let Some(bytes) = child.stdout_rx.recv().await {
+                let mut output = output.lock().unwrap();
+                assert!(output.len() + bytes.len() <= 2 * 1024 * 1024);
+                output.extend(bytes);
+            }
+        });
+        let exercise = async {
+            while !String::from_utf8_lossy(&captured.lock().unwrap()).contains("/skills") {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            writer
+                .send(
+                    format!("/pause\r/skills activate {qualified} cs3-explicit-activation\r")
+                        .into_bytes(),
+                )
+                .await
+                .unwrap();
+            while !String::from_utf8_lossy(&captured.lock().unwrap())
+                .contains("cs3-explicit-activation")
+            {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            writer
+                .send(format!("/skills disable {qualified}\r").into_bytes())
+                .await
+                .unwrap();
+            while !String::from_utf8_lossy(&captured.lock().unwrap()).contains("disabled") {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            writer.send(b"/exit\r".to_vec()).await.unwrap();
+            let code = (&mut child.exit_rx).await.unwrap();
+            assert!(matches!(code, 5 | 8), "{skill}: exit {code}");
+        };
+        if tokio::time::timeout(Duration::from_secs(45), exercise)
+            .await
+            .is_err()
+        {
+            child.session.terminate();
+            panic!(
+                "{skill}: terminal revocation timed out: {}",
+                String::from_utf8_lossy(&captured.lock().unwrap())
+            );
+        }
+        reader.await.unwrap();
+        let directory = fs::read_dir(fixture.data.join("workspaces"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.join("workspace.json").is_file())
+            .unwrap();
+        let entry: vcp_cli::settings::WorkspaceEntry =
+            serde_json::from_slice(&fs::read(directory.join("workspace.json")).unwrap()).unwrap();
+        let store = vcp_store::Store::open(
+            &entry.config.canonical_root,
+            entry.config.backend,
+            &[fixture.workspace.canonicalize().unwrap()],
+        )
+        .await
+        .unwrap();
+        let state = store
+            .state()
+            .records
+            .values()
+            .find(|record| {
+                record.collection == vcp_store::contract::Collection::Projection
+                    && record.value["document_type"] == "vcp_task_skills_v1"
+                    && record.value["scope"]["task"] == entry.config.root_task.as_str()
+            })
+            .unwrap();
+        assert!(
+            state.value["active"].as_object().unwrap().is_empty(),
+            "{skill}"
+        );
+        assert!(
+            state.value["disabled"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|id| id == &qualified),
+            "{skill}"
+        );
+        assert_eq!(
+            state.value["revision"], "2",
+            "{skill}: activation and revocation persist once each"
+        );
+        store.close().await.unwrap();
+        assert!(
+            server.received_requests().await.unwrap().is_empty(),
+            "{skill}: offline controls dispatched inference"
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
