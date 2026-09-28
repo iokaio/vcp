@@ -306,7 +306,7 @@ preparation cohort and non-default candidate do not authorize a paid campaign.
 The [input-routing diagnostic](../development/cs3-input-routing-diagnostic.md)
 demonstrates hidden-host keyboard delivery with a pre-dispatch timing dependency
 in the existing session. A later current-host variant observes an intercepted
-Shift sentinel through a bounded renderer-turn barrier before each one-shot form
+Escape sentinel through a bounded renderer-turn barrier before each one-shot form
 action and completes the seven-document oracle twice on fresh profiles. Full
 browser/server and adversarial qualification remain open; an RDP change or
 another machine is not required for continued synthetic browser work.

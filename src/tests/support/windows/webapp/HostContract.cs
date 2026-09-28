@@ -69,9 +69,9 @@ namespace Vcp.Cs3WebViewDraft {
         public const int MaximumCumulativeResponseBytes = MaximumAccessibilityResponseBytes + (2 * MaximumReadinessResponseBytes) + 20;
         public const int CommandCount = 13;
         public const string FocusParameters = "{\"enabled\":true}";
-        public const string ReadinessDownParameters = "{\"type\":\"keyDown\",\"key\":\"Shift\",\"code\":\"ShiftLeft\",\"modifiers\":8,\"windowsVirtualKeyCode\":16}";
-        public const string ReadinessUpParameters = "{\"type\":\"keyUp\",\"key\":\"Shift\",\"code\":\"ShiftLeft\",\"modifiers\":0,\"windowsVirtualKeyCode\":16}";
-        public const string ReadinessBarrierParameters = "{\"expression\":\"new Promise(r=>setTimeout(()=>{const p=window.__cs3InputEvidence||{};r({d:p.readinessDowns,u:p.readinessUps,p:p.readinessKeyPresses,r:p.readinessRepeats,s:p.readinessSequence,t:p.readinessTrusted})},0))\",\"awaitPromise\":true,\"returnByValue\":true}";
+        public const string ReadinessDownParameters = "{\"type\":\"keyDown\",\"key\":\"Escape\",\"code\":\"Escape\",\"windowsVirtualKeyCode\":27}";
+        public const string ReadinessUpParameters = "{\"type\":\"keyUp\",\"key\":\"Escape\",\"code\":\"Escape\",\"windowsVirtualKeyCode\":27}";
+        public const string ReadinessBarrierParameters = "{\"expression\":\"new Promise(r=>{let n=0;const f=()=>{const p=window.__cs3InputEvidence||{},x=(Number.isInteger(p.submits)?p.submits:0)+1,v={d:p.readinessDowns,u:p.readinessUps,p:p.readinessKeyPresses,r:p.readinessRepeats,s:p.readinessSequence,t:p.readinessTrusted};if((v.d===x&&v.u===x)||++n>=50)r(v);else setTimeout(f,0)};f()})\",\"awaitPromise\":true,\"returnByValue\":true}";
         public const string EnterDownParameters = "{\"type\":\"keyDown\",\"key\":\"Enter\",\"code\":\"Enter\",\"text\":\"\\r\",\"unmodifiedText\":\"\\r\",\"windowsVirtualKeyCode\":13}";
         public const string EnterUpParameters = "{\"type\":\"keyUp\",\"key\":\"Enter\",\"code\":\"Enter\",\"windowsVirtualKeyCode\":13}";
         public const string InsertParameters = "{\"text\":\"Ada\"}";

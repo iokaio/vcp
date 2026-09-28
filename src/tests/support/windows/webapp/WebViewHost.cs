@@ -363,9 +363,11 @@ namespace Vcp.Cs3WebViewDraft {
             await DevTools("Input.dispatchKeyEvent",HostProbeContract.ReadinessUpParameters);
             // The current Evergreen runtime can complete dispatch before the
             // page's key handlers are observable through ExecuteScriptAsync.
-            // One awaited zero-delay renderer turn is a read-only barrier. It
-            // never retries Shift or the following form action, and the command
-            // contract rejects missing, late, repeated or untrusted evidence.
+            // One awaited, bounded read-only barrier samples renderer turns
+            // until the already-dispatched pair is observed or its fixed
+            // ceiling expires. It never retries Escape or the following form
+            // action, and the command contract rejects missing, late, repeated
+            // or untrusted evidence.
             await DevTools("Runtime.evaluate",HostProbeContract.ReadinessBarrierParameters);
         }
         static Task<string> Snapshot() {

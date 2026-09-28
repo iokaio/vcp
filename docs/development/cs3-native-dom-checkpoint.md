@@ -335,3 +335,43 @@ browser work. It does not join the browser to the owned server, qualify internal
 Chromium sandboxing, or complete cancellation, pause, owner-loss, adversarial
 filesystem/network, WEB-cohort, retained-UI, paid-comparison or distribution
 acceptance.
+
+## September 28 current-host readiness and census follow-up
+
+A fresh run of the retained Shift-sentinel build completed every DOM,
+accessibility and origin assertion but failed closed when one short-lived
+WebView2 helper disappeared while the supervisor drained the bounded host-event
+queue. The job accounting recorded eight processes and seven independently held
+identities. Cleanup still completed, including independent active-process-zero
+acknowledgement and exact profile removal.
+
+The supervisor now re-censuses the owned job before accepting every host-reported
+PID. This preserves the independent handle, token, job-membership, image-path
+and image-hash checks while removing the event-queue gap. A rebuilt Shift variant
+then established exact 7/7 coverage, but two fresh profiles failed because no
+Shift event reached the renderer; extending the read-only barrier did not turn a
+missing dispatch into evidence. Those failures remain retained and were not
+relabelled as timing successes.
+
+The next frozen variant uses one intercepted Escape down/up pair as the harmless
+readiness sentinel. Escape is suppressed before ordinary form accounting. One
+bounded, awaited, read-only `Runtime.evaluate` request samples at most 50
+zero-delay renderer turns for that already-dispatched pair; it never retries
+Escape, Enter, literal Ada insertion or submission. Missing, partial, repeated,
+late, untrusted or out-of-order evidence still fails closed.
+
+Build input-manifest SHA-256
+`f896647f57abd861de051e073ae7c2e333f737964994b0d3c0bb31adb70ed6ea`
+passed the pure build and contract suite. Two fresh-profile executions produced
+`dom_observed`, seven ordered documents and exact 8/8 independently verified job
+identities. Receipt SHA-256 values were
+`fcaded300b952c1bb981add9a00d941fc813db19be20a16a13d558a8280b19e7`
+and `53d801b1f77f217fab2383a6fe2d3c79846803ce5cebdf674b69c3b00af959e2`.
+Both runs independently drained the job, removed the exact disposable profile,
+and found runtime, host and policy post-state unchanged, with no rejected event,
+stderr byte or cleanup error.
+
+This closes the current-host input-readiness regression only. The receipts remain
+honestly marked prototype/non-qualified. The owned-server join, cancellation,
+pause, adversarial network/filesystem matrix, executable WEB cohort, retained-UI
+regrade and paid comparison gates remain open.

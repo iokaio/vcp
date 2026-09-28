@@ -85,7 +85,7 @@ internal static class WebDomContractTests
         True(WebDomContract.FormJavaScript.Contains("'Saved ' + value + '.'"), "named success");
         True(WebDomContract.FormJavaScript.Contains("keyDowns:0,keyPresses:0,keyUps:0,submits:0,lastKey:'',trustedKeys:true"), "bounded ordinary input evidence initialized");
         True(WebDomContract.FormJavaScript.Contains("readinessDowns:0,readinessKeyPresses:0,readinessUps:0,readinessRepeats:0,readinessSequence:'',readinessTrusted:true"), "bounded readiness evidence initialized");
-        True(WebDomContract.FormJavaScript.Contains("event.key !== 'Shift' || event.code !== 'ShiftLeft'"), "only exact left Shift is intercepted");
+        True(WebDomContract.FormJavaScript.Contains("event.key !== 'Escape' || event.code !== 'Escape'"), "only exact Escape is intercepted");
         True(WebDomContract.FormJavaScript.Contains("evidence.readinessSequence + (field === 'keyDowns' ? 'D' : field === 'keyPresses' ? 'P' : 'U')"), "readiness ordering is retained");
         True(WebDomContract.FormJavaScript.Contains("event.repeat === true ? 1 : 0"), "readiness repeats are retained");
         True(WebDomContract.FormJavaScript.Contains("evidence.readinessTrusted = evidence.readinessTrusted && event.isTrusted === true"), "readiness trust is retained");

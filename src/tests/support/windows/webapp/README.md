@@ -75,17 +75,17 @@ by the parent. Native forward focus is not a claim of CDP Tab input. The retaine
 records the successful and unsuccessful timing controls and remains unchanged.
 
 The current source-bound build is a fresh full-DOM diagnostic. After each fixed
-100-ms pre-dispatch settle window it sends one exact left-Shift down/up pair,
+100-ms pre-dispatch settle window it sends one exact Escape down/up pair,
 which the fixture intercepts and suppresses before ordinary form accounting. An
-awaited, read-only zero-delay renderer turn must then report exact trusted
-down-then-up evidence, zero Shift keypress/repeat evidence, unchanged form state
+awaited, bounded read-only renderer-turn barrier must then report exact trusted
+down-then-up evidence, zero Escape keypress/repeat evidence, unchanged form state
 and unchanged ordinary counters before the corresponding Enter. Missing,
-partial, reordered, late or extra Shift evidence fails the run; the sentinel, Enter
+partial, reordered, late or extra Escape evidence fails the run; the sentinel, Enter
 and literal Ada insertion are never retried. The first Enter must produce the
 invalid form state; an ordered `filled` document retains Ada and the second
 sentinel before the next Enter; the second Enter must produce `Saved Ada.`; and
 the existing full accessibility and denied-origin oracles remain unchanged. The
-Shift observation proves only that this synthetic key reached the renderer at that
+Escape observation proves only that this synthetic key reached the renderer at that
 moment; the settle window is not promoted to a general WebView2 readiness
 guarantee. See the
 [checkpoint](../../../../../docs/development/cs3-native-dom-checkpoint.md).

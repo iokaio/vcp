@@ -109,7 +109,7 @@ $buildOutputs=@('WebViewHost.exe','HostContractTests.exe','WebDomContractTests.e
     [ordered]@{path=$_;bytes=(Get-Item -LiteralPath $file).Length;sha256=(Hash $file)}
 }
 $manifest=[ordered]@{
-    schema='cs3-webview2-inputs/1';probe_kind='full-dom-shift-readiness-production-profile';input_host='message-only-hidden';readiness_key='Shift';readiness_code='ShiftLeft';readiness_windows_virtual_key_code=16;readiness_pairs_per_gate=1;readiness_barrier='one awaited zero-delay Runtime.evaluate turn';pre_sentinel_settle_milliseconds=100;enter_retries=0;text_insertion_retries=0;runtime='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\154.0.4258.37';version='154.0.4258.37'
+    schema='cs3-webview2-inputs/1';probe_kind='full-dom-escape-readiness-production-profile';input_host='message-only-hidden';readiness_key='Escape';readiness_code='Escape';readiness_windows_virtual_key_code=27;readiness_pairs_per_gate=1;readiness_barrier='one awaited bounded Runtime.evaluate turn sampler';pre_sentinel_settle_milliseconds=100;enter_retries=0;text_insertion_retries=0;runtime='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\154.0.4258.37';version='154.0.4258.37'
     runtime_executable_sha256='3f48b1ab9a5d5e65a96307b6655e29882bd70bb682ce4b67a9e7a7f07f61019d'
     sdk_package='Microsoft.Web.WebView2';sdk_version='1.0.4191.47';sdk_package_sha256='f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0'
     browser_argument='';host=@($hostFiles);build_outputs=@($buildOutputs);sources=$sources;external_dependencies=@($deps | ForEach-Object { [ordered]@{path=$_.name;sha256=$_.sha256} });toolchain=$toolchain

@@ -128,6 +128,15 @@ public static partial class NativeProbe {
                 string line;
                 while(lines.TryTake(out line)) {
                     var item=ProbeContract.ParseRetainingRejected(line,nonce,Diagnostic); Event(new { type="host_observation",line });
+                    // Draining the bounded host queue can take much longer than
+                    // the outer 1 ms census interval when DOM evidence arrives
+                    // in chunks. Re-census before accepting every host-reported
+                    // process identity so a short-lived WebView helper cannot
+                    // disappear while the supervisor is busy parsing evidence.
+                    // The host report remains corroborating evidence only: the
+                    // independently opened handle, token, job membership, image
+                    // path and image hash are still authoritative.
+                    if(item.Pid!=0) observe();
                     if (item.Phase=="dom_chunk" || item.Phase=="dom_complete") {
                         if (evidenceRoute!=null && evidenceRoute!="dom") throw new IOException("Mixed host evidence routes");
                         evidenceRoute="dom";
