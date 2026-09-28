@@ -2,6 +2,7 @@
 // HOST DRAFT ONLY. Browser execution requires the separately reviewed supervisor.
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -22,6 +23,14 @@ namespace Vcp.Cs3WebViewDraft {
         static extern IntPtr GetFocus();
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll",SetLastError=true)]
+        static extern IntPtr OpenProcess(uint access, bool inherit, uint processId);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode,SetLastError=true)]
+        static extern bool QueryFullProcessImageName(IntPtr process,uint flags,StringBuilder name,ref uint size);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode,SetLastError=true)]
+        static extern IntPtr CreateFile(string file,uint access,uint share,IntPtr security,uint mode,uint flags,IntPtr template);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        static extern bool CloseHandle(IntPtr handle);
         static HostInput input;
         static ApplicationContext pump;
         static SynchronizationContext sta;
@@ -42,6 +51,9 @@ namespace Vcp.Cs3WebViewDraft {
         static int nativeGotFocus, nativeLostFocus;
         static readonly HostProbeContract.EvidenceBudget domBudget = new HostProbeContract.EvidenceBudget();
         static readonly List<Stream> responseStreams = new List<Stream>();
+        sealed class ReportedHandles { public IntPtr Process,Image; }
+        static readonly Dictionary<uint,ReportedHandles> reportedProcessHandles = new Dictionary<uint,ReportedHandles>();
+        static readonly BlockingCollection<string> brokerResponses = new BlockingCollection<string>(2);
         static readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 16384, RecursionLimit = 64 };
         static bool ready, begun;
         static bool initialNavigationSeen, negativeExpected, negativeSeen, probeRunning;
@@ -81,6 +93,7 @@ namespace Vcp.Cs3WebViewDraft {
             } finally {
                 if (controller != null) { try { controller.Close(); } catch (Exception error) { lifecycle.Fail("close_failed",error.HResult); } controller = null; }
                 foreach (Stream stream in responseStreams) { try { stream.Dispose(); } catch (Exception error) { lifecycle.Fail("stream_close_failed",error.HResult); } }
+                foreach (ReportedHandles handles in reportedProcessHandles.Values) foreach(IntPtr handle in new[]{handles.Process,handles.Image}) { try { if(!CloseHandle(handle)) lifecycle.Fail("process_handle_close_failed",System.Runtime.InteropServices.Marshal.GetHRForLastWin32Error()); } catch (Exception error) { lifecycle.Fail("process_handle_close_failed",error.HResult); } }
                 if (timer != null) timer.Dispose();
                 if (pump != null) pump.Dispose();
             }
@@ -160,6 +173,14 @@ namespace Vcp.Cs3WebViewDraft {
                     return;
                 }
                 byte[] bytes = Encoding.UTF8.GetBytes(resource.Body);
+                string resourceId = String.Equals(resource.Url,WebDomContract.FormUrl,StringComparison.Ordinal) ? "form" :
+                    String.Equals(resource.Url,WebDomContract.ScriptUrl,StringComparison.Ordinal) ? "script" : null;
+                if(resourceId==null) throw new InvalidDataException("Unknown broker resource identity");
+                Emit("broker_request",0,0,resourceId);
+                string acknowledgement;
+                if(!brokerResponses.TryTake(out acknowledgement,3000)) throw new TimeoutException("Owned server broker deadline");
+                string expectedAck="RESOURCE "+input.Nonce+" "+resourceId+" "+Hash(bytes);
+                if(!String.Equals(acknowledgement,expectedAck,StringComparison.Ordinal)) throw new InvalidDataException("Owned server broker acknowledgement differs");
                 var stream = new MemoryStream(bytes,false);
                 responseStreams.Add(stream);
                 string headers = "Content-Type: " + resource.ContentType + "\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'none'; script-src 'self'; connect-src 'none'; img-src 'none'; style-src 'none'; form-action 'none'";
@@ -484,21 +505,44 @@ namespace Vcp.Cs3WebViewDraft {
             var processes = environment.GetProcessInfos();
             if (processes.Count > Evidence.MaximumProcesses) throw new InvalidOperationException("Process count bound exceeded");
             Emit("process_snapshot",0,0,"snapshot_"+snapshots);
-            foreach (var process in processes) Emit("reported_process",0,checked((uint)process.ProcessId),process.Kind.ToString());
+            foreach (var process in processes) {
+                uint pid=checked((uint)process.ProcessId); ReportedHandles handles;
+                if(!reportedProcessHandles.TryGetValue(pid,out handles)) {
+                    IntPtr processHandle=OpenProcess(0x101000,false,pid);
+                    if(processHandle==IntPtr.Zero) throw new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error());
+                    var imageName=new StringBuilder(4096); uint imageLength=4096;
+                    if(!QueryFullProcessImageName(processHandle,0,imageName,ref imageLength)) { int error=System.Runtime.InteropServices.Marshal.GetLastWin32Error(); CloseHandle(processHandle); throw new System.ComponentModel.Win32Exception(error); }
+                    IntPtr imageHandle=CreateFile(imageName.ToString(),0x80000000,7,IntPtr.Zero,3,0,IntPtr.Zero);
+                    if(imageHandle==new IntPtr(-1)) { int error=System.Runtime.InteropServices.Marshal.GetLastWin32Error(); CloseHandle(processHandle); throw new System.ComponentModel.Win32Exception(error); }
+                    handles=new ReportedHandles { Process=processHandle,Image=imageHandle };
+                    reportedProcessHandles.Add(pid,handles);
+                }
+                Emit("reported_process",0,pid,process.Kind.ToString()+":"+handles.Process.ToInt64().ToString("x",System.Globalization.CultureInfo.InvariantCulture)+":"+handles.Image.ToInt64().ToString("x",System.Globalization.CultureInfo.InvariantCulture));
+            }
         }
         static void ReadControl() {
             try {
-                var text = new System.Text.StringBuilder();
-                int c;
-                while ((c = Console.In.Read()) != -1 && c != '\n') {
-                    if (text.Length >= 70) throw new InvalidDataException("Control bound");
-                    text.Append((char)c);
+                while(true) {
+                    var text = new System.Text.StringBuilder();
+                    int c;
+                    while ((c = Console.In.Read()) != -1 && c != '\n') {
+                        if (text.Length >= 160) throw new InvalidDataException("Control bound");
+                        text.Append((char)c);
+                    }
+                    string command = text.ToString();
+                    if (command.EndsWith("\r",StringComparison.Ordinal)) command = command.Substring(0,command.Length-1);
+                    if(c=='\n' && command.StartsWith("RESOURCE "+input.Nonce+" ",StringComparison.Ordinal)) {
+                        if(!brokerResponses.TryAdd(command,1000)) throw new InvalidDataException("Broker response queue bound");
+                        continue;
+                    }
+                    bool accepted = c == '\n' && HostInput.StopCommand(command,input.Nonce);
+                    sta.Post(delegate { Stop(accepted ? "stop_received" : "control_closed",accepted ? 0 : unchecked((int)0x80070057),accepted && ready); },null);
+                    return;
                 }
-                string command = text.ToString();
-                if (command.EndsWith("\r",StringComparison.Ordinal)) command = command.Substring(0,command.Length-1);
-                bool accepted = c == '\n' && HostInput.StopCommand(command,input.Nonce);
-                sta.Post(delegate { Stop(accepted ? "stop_received" : "control_closed",accepted ? 0 : unchecked((int)0x80070057),accepted && ready); },null);
             } catch { try { sta.Post(delegate { Stop("control_failed",unchecked((int)0x80070057),false); },null); } catch { } }
+        }
+        static string Hash(byte[] bytes) {
+            using(var algorithm=SHA256.Create()) return Hex(algorithm.ComputeHash(bytes));
         }
         static void Reject(string reason) { Reject(reason,unchecked((int)0x80070005)); }
         static void Reject(string reason, int hresult) {

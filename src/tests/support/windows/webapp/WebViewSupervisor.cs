@@ -7,6 +7,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -14,9 +16,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
+using Vcp.Qualification.Webapp;
 namespace Vcp.Cs3Draft {
 public static partial class NativeProbe {
     [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool QueryFullProcessImageName(IntPtr process,uint flags,StringBuilder name,ref uint size);
+    [DllImport("kernel32.dll")] static extern uint GetProcessId(IntPtr process);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern uint GetFinalPathNameByHandle(IntPtr file,StringBuilder path,uint length,uint flags);
     [StructLayout(LayoutKind.Sequential)] struct Accounting {
         public long User,Kernel,PeriodUser,PeriodKernel;
         public uint Faults,Total,Active,Terminated;
@@ -35,8 +40,85 @@ public static partial class NativeProbe {
         using(var stream=File.OpenRead(file)) if(Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant()!=expected) throw new IOException("Process image bytes differ");
         return file;
     }
+    static string HeldImage(IntPtr image,uint pid,long creation,Dictionary<string,string> images) {
+        var name=new StringBuilder(4096); uint length=GetFinalPathNameByHandle(image,name,4096,0);
+        if(length==0 || length>=4096) throw new Win32Exception(Marshal.GetLastWin32Error());
+        string raw=name.ToString(), file=raw.StartsWith(@"\\?\",StringComparison.Ordinal)?raw.Substring(4):raw;
+        file=Path.GetFullPath(file); string expected=ProbeContract.RequireImage(raw,file,pid,creation,images,Diagnostic);
+        if((File.GetAttributes(file)&FileAttributes.ReparsePoint)!=0) throw new IOException("Process image redirected");
+        using(var stream=new FileStream(new SafeFileHandle(image,false),FileAccess.Read,4096,false)) {
+            stream.Position=0;
+            if(Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant()!=expected) throw new IOException("Process image bytes differ");
+        }
+        return file;
+    }
     public static void CheckLayouts() {
         if(IntPtr.Size!=8 || Marshal.SizeOf<StartupEx>()!=112 || Marshal.SizeOf<Capabilities>()!=24 || Marshal.SizeOf<ExtendedLimits>()!=144 || Marshal.SizeOf<Accounting>()!=48) throw new IOException("Unexpected x64 layouts");
+    }
+    sealed class OwnedServer : IDisposable {
+        readonly TcpListener listener;
+        readonly Task serving;
+        readonly object gate=new object();
+        int requests; bool disposed;
+        public string Origin { get; private set; }
+        public int Requests { get { lock(gate) return requests; } }
+        public OwnedServer() {
+            listener=new TcpListener(IPAddress.Loopback,0);
+            listener.Start(2);
+            var endpoint=(IPEndPoint)listener.LocalEndpoint;
+            if(!endpoint.Address.Equals(IPAddress.Loopback) || endpoint.Port<=0) throw new IOException("Owned server endpoint differs");
+            Origin="http://127.0.0.1:"+endpoint.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            serving=Task.Run((Action)Serve);
+        }
+        void Serve() {
+            try {
+                for(int index=0;index<2;index++) using(var client=listener.AcceptTcpClient()) using(var stream=client.GetStream()) {
+                    client.ReceiveTimeout=3000; client.SendTimeout=3000;
+                    var bytes=new List<byte>(); int state=0;
+                    while(bytes.Count<4096 && state<4) {
+                        int value=stream.ReadByte(); if(value<0) throw new IOException("Owned server request ended early");
+                        bytes.Add((byte)value);
+                        state=(state==0&&value==13)?1:(state==1&&value==10)?2:(state==2&&value==13)?3:(state==3&&value==10)?4:0;
+                    }
+                    if(state!=4) throw new IOException("Owned server header bound");
+                    string header=Encoding.ASCII.GetString(bytes.ToArray());
+                    string route=index==0?"/form.html":"/form.js";
+                    string expected="GET "+route+" HTTP/1.1\r\nHost: 127.0.0.1:"+((IPEndPoint)listener.LocalEndpoint).Port.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\r\nConnection: close\r\n\r\n";
+                    if(!String.Equals(header,expected,StringComparison.Ordinal)) throw new IOException("Owned server request boundary differs");
+                    byte[] body=Encoding.UTF8.GetBytes(index==0?WebDomContract.FormHtml:WebDomContract.FormJavaScript);
+                    string type=index==0?"text/html; charset=utf-8":"text/javascript; charset=utf-8";
+                    byte[] response=Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: "+body.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\r\nContent-Type: "+type+"\r\nX-Content-Type-Options: nosniff\r\n\r\n");
+                    stream.Write(response,0,response.Length); stream.Write(body,0,body.Length); stream.Flush();
+                    lock(gate) requests++;
+                }
+            } catch(Exception error) { lock(gate) { if(!disposed) throw new IOException("Owned server failed",error); } }
+        }
+        public byte[] Fetch(string id) {
+            string route=id=="form"?"/form.html":id=="script"?"/form.js":null;
+            if(route==null) throw new IOException("Unknown broker resource");
+            var endpoint=(IPEndPoint)listener.LocalEndpoint;
+            using(var client=new TcpClient(AddressFamily.InterNetwork)) {
+                client.ReceiveTimeout=3000; client.SendTimeout=3000; client.Connect(IPAddress.Loopback,endpoint.Port);
+                using(var stream=client.GetStream()) {
+                    byte[] request=Encoding.ASCII.GetBytes("GET "+route+" HTTP/1.1\r\nHost: 127.0.0.1:"+endpoint.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\r\nConnection: close\r\n\r\n");
+                    stream.Write(request,0,request.Length); stream.Flush();
+                    var response=new MemoryStream(); var buffer=new byte[4096]; int count;
+                    while((count=stream.Read(buffer,0,buffer.Length))!=0) { if(response.Length+count>WebDomContract.MaxResourceBytes+4096) throw new IOException("Owned server response bound"); response.Write(buffer,0,count); }
+                    byte[] all=response.ToArray(); byte[] marker=Encoding.ASCII.GetBytes("\r\n\r\n"); int split=-1;
+                    for(int i=0;i<=all.Length-marker.Length;i++) if(all[i]==13&&all[i+1]==10&&all[i+2]==13&&all[i+3]==10){split=i;break;}
+                    if(split<0) throw new IOException("Owned server response headers absent");
+                    string headers=Encoding.ASCII.GetString(all,0,split+4);
+                    byte[] body=new byte[all.Length-split-4]; Buffer.BlockCopy(all,split+4,body,0,body.Length);
+                    byte[] expected=Encoding.UTF8.GetBytes(id=="form"?WebDomContract.FormHtml:WebDomContract.FormJavaScript);
+                    string contentType=id=="form"?"text/html; charset=utf-8":"text/javascript; charset=utf-8";
+                    string exact="HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: "+expected.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\r\nContent-Type: "+contentType+"\r\nX-Content-Type-Options: nosniff\r\n\r\n";
+                    if(!String.Equals(headers,exact,StringComparison.Ordinal) || !body.SequenceEqual(expected)) throw new IOException("Owned server response differs from frozen resource");
+                    return body;
+                }
+            }
+        }
+        public void RequireComplete() { if(!serving.Wait(3000)) throw new TimeoutException("Owned server completion deadline"); if(serving.IsFaulted) serving.GetAwaiter().GetResult(); if(Requests!=2) throw new IOException("Owned server request count differs"); }
+        public void Dispose() { lock(gate) disposed=true; listener.Stop(); try { serving.Wait(3000); } catch { } }
     }
     public static void Run(string root,string profileName,string expectedSid,string runtime,string nonce,string[] imagePaths,string[] imageHashes,long completionPort,IntPtr owner) {
         Name(profileName); CheckLayouts();
@@ -52,7 +134,7 @@ public static partial class NativeProbe {
         IntPtr port=new IntPtr(completionPort); if(port==IntPtr.Zero || port==new IntPtr(-1)) throw new IOException("No independent completion port");
         IntPtr childIn=IntPtr.Zero,childOut=IntPtr.Zero,childErr=IntPtr.Zero;
         FileStream input=null,output=null,error=null; SafeFileHandle inputHandle=null,outputHandle=null,errorHandle=null;
-        var process=new ProcessInfo(); bool initialized=false; Timer deadline=null; BoundedCapture stderr=null;
+        var process=new ProcessInfo(); bool initialized=false; Timer deadline=null; BoundedCapture stderr=null; OwnedServer server=null;
         var observed=new Dictionary<uint,IntPtr>(); var reported=new HashSet<uint>();
         var lines=new BlockingCollection<string>(32); Task reader=null; ExceptionDispatchInfo primary=null; var cleanupFailures=new List<string>();
         string phase="prepare_native_launch"; bool ready=false,stopSent=false,hostClosed=false,hostStopped=false; uint readyPid=0;
@@ -74,6 +156,7 @@ public static partial class NativeProbe {
             ProbeContract.LiveCoverage(Accounts(job).Total,observed.Count);
         };
         try {
+            server=new OwnedServer(); Event(new { type="owned_server_started",origin=server.Origin,network_scope="exact_ipv4_loopback_endpoint",browser_network_capabilities=0 });
             Check(ConvertStringSidToSid(expectedSid,out sid));
             input=Pipe(true,out childIn); output=Pipe(false,out childOut); error=Pipe(false,out childErr);
             inputHandle=input.SafeFileHandle; outputHandle=output.SafeFileHandle; errorHandle=error.SafeFileHandle;
@@ -130,13 +213,32 @@ public static partial class NativeProbe {
                     var item=ProbeContract.ParseRetainingRejected(line,nonce,Diagnostic); Event(new { type="host_observation",line });
                     // Draining the bounded host queue can take much longer than
                     // the outer 1 ms census interval when DOM evidence arrives
-                    // in chunks. Re-census before accepting every host-reported
-                    // process identity so a short-lived WebView helper cannot
-                    // disappear while the supervisor is busy parsing evidence.
+                    // in chunks. Re-census for every bounded host event so a
+                    // short-lived WebView helper cannot disappear while the
+                    // supervisor is busy parsing evidence.
                     // The host report remains corroborating evidence only: the
                     // independently opened handle, token, job membership, image
                     // path and image hash are still authoritative.
-                    if(item.Pid!=0) observe();
+                    observe();
+                    if(item.Phase=="reported_process" && !observed.ContainsKey(item.Pid)) {
+                        string[] identity=item.Kind.Split(':'); long remoteValue,remoteImage;
+                        if(identity.Length!=3 || !new[]{"Browser","Renderer","Gpu","Utility"}.Contains(identity[0]) || !Int64.TryParse(identity[1],System.Globalization.NumberStyles.AllowHexSpecifier,System.Globalization.CultureInfo.InvariantCulture,out remoteValue) || !Int64.TryParse(identity[2],System.Globalization.NumberStyles.AllowHexSpecifier,System.Globalization.CultureInfo.InvariantCulture,out remoteImage) || remoteValue==0 || remoteImage==0) throw new IOException("Host-held process handle identity differs");
+                        IntPtr held,imageHandle; Check(DuplicateHandle(process.Process,new IntPtr(remoteValue),GetCurrentProcess(),out held,0,false,2));
+                        try { Check(DuplicateHandle(process.Process,new IntPtr(remoteImage),GetCurrentProcess(),out imageHandle,0,false,2)); } catch { CloseHandle(held); throw; }
+                        try {
+                            if(GetProcessId(held)!=item.Pid) throw new IOException("Host-held process handle resolves to another PID");
+                            VerifyToken(held,job,expectedSid,item.Pid); string image=HeldImage(imageHandle,item.Pid,Creation(held),images);
+                            observed.Add(item.Pid,held); held=IntPtr.Zero;
+                            Event(new { type="owned_process",pid=item.Pid,creation_filetime=Creation(observed[item.Pid]),image,token_verified=true,source="duplicated_host_hold" });
+                        } finally { if(held!=IntPtr.Zero) CloseHandle(held); CloseHandle(imageHandle); }
+                    }
+                    if(item.Phase=="broker_request") {
+                        byte[] served=server.Fetch(item.Kind); string hash;
+                        using(var algorithm=SHA256.Create()) hash=Convert.ToHexString(algorithm.ComputeHash(served)).ToLowerInvariant();
+                        byte[] response=Utf8.GetBytes("RESOURCE "+nonce+" "+item.Kind+" "+hash+"\n");
+                        input.Write(response,0,response.Length); input.Flush();
+                        Event(new { type="owned_server_relay",resource=item.Kind,bytes=served.Length,sha256=hash });
+                    }
                     if (item.Phase=="dom_chunk" || item.Phase=="dom_complete") {
                         if (evidenceRoute!=null && evidenceRoute!="dom") throw new IOException("Mixed host evidence routes");
                         evidenceRoute="dom";
@@ -159,6 +261,7 @@ public static partial class NativeProbe {
                 }
                 if(ready && !stopSent) {
                     observe();
+                    server.RequireComplete(); Event(new { type="owned_server_complete",requests=server.Requests,unexpected_requests=0 });
                     foreach(uint pid in reported) if(!observed.ContainsKey(pid)) throw new IOException("Host-reported PID lacks independent held identity");
                     if(!observed.ContainsKey(readyPid) || WaitForSingleObject(observed[readyPid],0)!=258) throw new IOException("Ready browser is not independently live");
                     byte[] stop=Utf8.GetBytes("STOP "+nonce+"\n"); input.Write(stop,0,stop.Length); input.Flush(); stopSent=true;
@@ -178,6 +281,7 @@ public static partial class NativeProbe {
         } catch(Exception errorValue) {
             primary=ExceptionDispatchInfo.Capture(errorValue); Diagnostic(new { type="primary_failure",phase,exception=Bounded(errorValue.ToString(),2048),hresult=errorValue.HResult });
         } finally {
+            if(server!=null) Cleanup("owned_server_stop",()=>{server.Dispose(); Event(new { type="owned_server_stopped",requests=server.Requests,listener_closed=true });},cleanupFailures);
             if(deadline!=null) Cleanup("deadline_drain",()=>{using(var done=new ManualResetEvent(false)){deadline.Dispose(done); if(!done.WaitOne(5000)) throw new IOException("Deadline callback drain failed");}},cleanupFailures);
             if(job!=IntPtr.Zero) {
                 Cleanup("terminate_and_drain_job",()=> {

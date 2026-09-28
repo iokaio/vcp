@@ -308,7 +308,9 @@ demonstrates hidden-host keyboard delivery with a pre-dispatch timing dependency
 in the existing session. A later current-host variant observes an intercepted
 Escape sentinel through a bounded renderer-turn barrier before each one-shot form
 action and completes the seven-document oracle twice on fresh profiles. Full
-browser/server and adversarial qualification remain open; an RDP change or
+browser/server join now also completes twice through an exact hash-acknowledged
+mediator while the browser retains zero network capabilities. Cancellation,
+pause, outer-owner-loss and the remaining adversarial qualification stay open; an RDP change or
 another machine is not required for continued synthetic browser work.
 
 ## CS-4 — Document and data adapters

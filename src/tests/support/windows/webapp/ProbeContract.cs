@@ -70,7 +70,11 @@ public static class ProbeContract {
             string kind=root.GetProperty("kind").GetString();
             result.Kind = kind;
             bool chunk=result.Phase=="dom_chunk" || result.Phase=="input_chunk";
-            if(kind==null || kind.Length>(chunk?256:64) || !new[]{"host_started","environment_create","environment_created","process_snapshot","reported_process","controller_create","controller_created","controller_ready","stop_received","controller_closed","dom_chunk","dom_complete","input_chunk","input_complete"}.Contains(result.Phase)) throw new IOException("Unaccepted host phase");
+            if(kind==null || kind.Length>(chunk?256:64) || !new[]{"host_started","environment_create","environment_created","process_snapshot","reported_process","controller_create","controller_created","controller_ready","stop_received","controller_closed","broker_request","dom_chunk","dom_complete","input_chunk","input_complete"}.Contains(result.Phase)) throw new IOException("Unaccepted host phase");
+            if(result.Phase=="broker_request") {
+                if(result.Pid!=0 || (kind!="form" && kind!="script")) throw new IOException("Invalid broker request identity");
+                return result;
+            }
             if ((chunk || result.Phase=="dom_complete" || result.Phase=="input_complete") && result.Pid!=0) throw new IOException("Unexpected evidence PID");
             if ((result.Phase=="reported_process" || result.Phase=="controller_ready") && result.Pid==0) throw new IOException("Missing reported PID");
             if(result.Phase=="controller_ready" && ((kind!="browser" && kind!="input_diagnostic") || result.Version!=Version)) throw new IOException("Unbound readiness");
@@ -117,6 +121,9 @@ public static class ProbeContract {
         check(Parse(line,nonce).Pid==123); reject(()=>Parse(line,new string('b',64))); reject(()=>Parse(line.Replace("100,","20001,"),nonce)); reject(()=>Parse(line.Replace("123,","0,"),nonce)); reject(()=>Parse(line.Replace("0x00000000","0x80070005"),nonce)); reject(()=>Parse(line.Replace("\"containment_attested\":false","\"containment_attested\":true"),nonce)); reject(()=>Parse(line.Replace("\"pid\":123","\"pid\":123,\"pid\":456"),nonce)); reject(()=>Parse(line.Replace("controller_ready","navigation_rejected"),nonce));
         check(Parse(line.Replace("\"kind\":\"browser\"","\"kind\":\"input_diagnostic\""),nonce).Kind=="input_diagnostic");
         reject(()=>Parse(line.Replace("\"kind\":\"browser\"","\"kind\":\"routing_only\""),nonce));
+        string broker=line.Replace("\"phase\":\"controller_ready\"","\"phase\":\"broker_request\"").Replace("\"pid\":123","\"pid\":0").Replace("\"kind\":\"browser\"","\"kind\":\"form\"");
+        check(Parse(broker,nonce).Kind=="form"); check(Parse(broker.Replace("\"form\"","\"script\""),nonce).Kind=="script");
+        reject(()=>Parse(broker.Replace("\"pid\":0","\"pid\":1"),nonce)); reject(()=>Parse(broker.Replace("\"form\"","\"other\""),nonce));
         string inputChunk=line.Replace("\"phase\":\"controller_ready\"","\"phase\":\"input_chunk\"").Replace("\"pid\":123","\"pid\":0").Replace("\"kind\":\"browser\"","\"kind\":\"target:0:1:"+new string('a',64)+":eA==\"");
         check(Parse(inputChunk,nonce).Phase=="input_chunk"); reject(()=>Parse(inputChunk.Replace("\"pid\":0","\"pid\":1"),nonce));
         string inputComplete=inputChunk.Replace("\"phase\":\"input_chunk\"","\"phase\":\"input_complete\"").Replace("\"kind\":\"target:0:1:"+new string('a',64)+":eA==\"","\"kind\":\"routing_only\"");

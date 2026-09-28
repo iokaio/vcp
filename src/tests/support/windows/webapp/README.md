@@ -74,7 +74,13 @@ by the parent. Native forward focus is not a claim of CDP Tab input. The retaine
 [routing report](../../../../../docs/development/cs3-input-routing-diagnostic.md)
 records the successful and unsuccessful timing controls and remains unchanged.
 
-The current source-bound build is a fresh full-DOM diagnostic. After each fixed
+The current source-bound build is a joined owned-server/full-DOM diagnostic. The
+supervisor owns one OS-assigned IPv4 loopback endpoint. The zero-capability
+AppContainer never receives loopback or external network access: its two exact
+virtual-origin resource requests cross the existing bounded control pipe, the
+supervisor fetches only the matching server route, and the host serves its frozen
+bytes only after an exact response-hash acknowledgement. Unknown routes, methods,
+responses or acknowledgements fail closed. After each fixed
 100-ms pre-dispatch settle window it sends one exact Escape down/up pair,
 which the fixture intercepts and suppresses before ordinary form accounting. An
 awaited, bounded read-only renderer-turn barrier must then report exact trusted

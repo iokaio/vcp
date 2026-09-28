@@ -375,3 +375,45 @@ This closes the current-host input-readiness regression only. The receipts remai
 honestly marked prototype/non-qualified. The owned-server join, cancellation,
 pause, adversarial network/filesystem matrix, executable WEB cohort, retained-UI
 regrade and paid comparison gates remain open.
+
+## September 28 owned-server join
+
+The next build adds the narrow mediator selected by the CS-3 plan. The supervisor
+owns one OS-assigned `127.0.0.1` endpoint. The AppContainer browser retains zero
+network capabilities and cannot address that listener or any other service.
+Instead, each exact virtual-origin resource request crosses the existing bounded
+host/supervisor pipe. The supervisor fetches only the corresponding fixed route,
+requires the exact HTTP response shape and frozen bytes, and returns a resource
+identity plus SHA-256 acknowledgement. The host serves its matching frozen bytes
+only after that acknowledgement. Unknown route, method, response, ordering,
+content type, body, hash, acknowledgement or extra request fails closed.
+
+Build input-manifest SHA-256
+`412caaef19f6d6b6ad1547f307a06ce3c15bc7afb10390a0d314ff966c1e2890`
+completed twice on fresh profiles. Each run observed exactly two server requests
+and zero unexpected requests. The form response was 603 bytes with SHA-256
+`ce74c52ad5229b0acbd83d1cc5758c13ad46a16c08a245b6f1022ffe6b31ac9e`;
+the script response was 2,340 bytes with SHA-256
+`bddee2938501d573cbd26877e6cd8ca8441a82bc9701a112b37a0345e99d15f9`.
+Both listeners closed before the independent job drain completed. The receipts
+retained seven ordered browser documents, exact 8/8 process coverage, unchanged
+runtime/host/policy state, exact profile removal and no rejected observation,
+stderr byte or cleanup error. Receipt SHA-256 values were
+`fd7cebb9e3bcb16069ffaa1b56a0129c579aeb8f56f8e76d9b3ba185171772a7`
+and `9ac2321c352e273eb6589fad3992b458a60aa63d4ecf8d1e643a0d4a8660fe23`.
+
+To close the retained short-lived-helper race, the trusted host opens and holds
+both a query/synchronize process handle and a read handle to each reported image
+while the helper is live. The supervisor duplicates both handles from the known
+host process, requires the retained process handle to resolve to the reported
+PID, independently verifies its AppContainer token and job membership, resolves
+the file path from the duplicated file handle, and checks that file's approved
+path and SHA-256. The host supplies no accepted pathname. Both exact-source runs
+above exercised eight complete identities without relying on PID reuse timing.
+
+This establishes the successful owned-server/browser join, not every phase-2
+adversarial lifecycle row. In particular, abrupt loss of the outer controller
+still drains the controller-owned guardian job but cannot yet prove automatic
+removal of the already-created AppContainer profile. Cancellation, pause and
+outer-owner-loss acceptance therefore remain open, as do the WEB/UI and paid
+comparison gates.
