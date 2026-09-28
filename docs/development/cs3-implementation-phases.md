@@ -2,8 +2,12 @@
 
 Status: in progress; production-profile synthetic DOM and joined owned-server
 evidence are repeatable on the current Windows host. Exact source-bound pause,
-cancellation and outer-owner-loss cleanup also pass. The executable WEB cohort,
-remaining hostile boundary checks and six-skill acceptance remain open.
+cancellation and outer-owner-loss cleanup also pass. The
+[native adversarial matrix](cs3-boundary-acceptance.md) and
+[package acceptance](cs3-package-acceptance.md) now pass their bounded controls.
+The [frozen WEB cohort](cs3-frozen-web-execution.md) has passed its six oracles,
+with exact-source pause, cancellation and owner-loss evidence. Generated-UI
+adapter qualification, retained UI regrading and six-skill acceptance remain open.
 Contract: [plan 24, CS-3](../plan/24-skills-follow-on.md#cs-3--browser-execution-and-six-skill-acceptance).
 
 On September 26, 2026 the owner authorized implementation of the full CS-3

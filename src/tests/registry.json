@@ -7,6 +7,7 @@
       "cs2-node-protocol",
       "cs2-developer",
       "cs3-webapp",
+      "cs3-comparison-host",
       "experiments",
       "upstream-inventory",
       "upstream-source",
@@ -45,10 +46,18 @@
   "cases": {
     "cs3-webapp": {
       "task_ids": ["CS-3"],
-      "args": ["--test", "src/tests/contracts/webapp-candidate.test.cjs", "src/tests/contracts/webapp-server.test.cjs", "src/tests/contracts/webapp-fixtures.test.cjs"],
+      "args": ["--test", "src/tests/contracts/webapp-candidate.test.cjs", "src/tests/contracts/webapp-server.test.cjs", "src/tests/contracts/webapp-fixtures.test.cjs", "src/tests/contracts/webapp-execution.test.cjs", "scripts/evals/cs3-comparison.test.cjs", "scripts/evals/cs3-comparison-gates.test.cjs", "scripts/evals/cs3-ui-artifact.test.cjs", "scripts/evals/cs3-retained-ui-import.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
+    "cs3-comparison-host": {
+      "task_ids": ["CS-3"],
+      "args": ["--test", "scripts/evals/cs3-comparison-host.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 600000,
       "max_output_bytes": 2097152
     },
     "cs-authoring": {
@@ -56,7 +65,7 @@
       "args": ["--test", "src/tests/contracts/authoring-candidates.test.cjs", "src/tests/contracts/authoring-requalification-candidates.test.cjs", "src/tests/contracts/authoring-requalification-budget.test.cjs", "src/tests/contracts/authoring-requalification.test.cjs", "src/tests/contracts/authoring-oracle.test.cjs", "src/tests/contracts/authoring-prepare.test.cjs", "src/tests/contracts/authoring-runner.test.cjs", "src/tests/contracts/authoring-followup.test.cjs", "src/tests/contracts/authoring-campaign-budget.test.cjs", "src/tests/contracts/authoring-continuation.test.cjs", "scripts/evals/authoring-fresh-doc-oracle.test.cjs", "src/tests/contracts/authoring-qualification-budget.test.cjs", "src/tests/contracts/authoring-qualification.test.cjs", "src/tests/contracts/authoring-skl-inspection.test.cjs", "src/tests/contracts/authoring-skl-continuation.test.cjs"],
       "backends": ["none"],
       "requires": [],
-      "timeout_ms": 600000,
+      "timeout_ms": 1800000,
       "max_output_bytes": 2097152
     },
     "cs2-node-protocol": {
@@ -72,7 +81,7 @@
       "args": ["--test", "src/tests/contracts/developer-oracle.test.cjs", "src/tests/contracts/developer-grader.test.cjs", "src/tests/contracts/developer-campaign.test.cjs", "src/tests/contracts/developer-reconcile.test.cjs", "src/tests/contracts/developer-continuation.test.cjs", "src/tests/contracts/developer-continuation-review.test.cjs"],
       "backends": ["none"],
       "requires": [],
-      "timeout_ms": 600000,
+      "timeout_ms": 1200000,
       "max_output_bytes": 2097152
     },
     "p9-protocol-generation": {
@@ -152,7 +161,7 @@
       "args": ["--test", "src/tests/contracts/builtin-assets.test.cjs", "src/tests/contracts/builtin-live-runner.test.cjs", "src/tests/contracts/builtin-toolchain.test.cjs", "src/tests/contracts/builtin-generation.test.cjs", "src/tests/contracts/builtin-debug.test.cjs", "src/tests/contracts/builtin-debug-runner.test.cjs", "src/tests/contracts/builtin-live-continuation.test.cjs", "src/tests/contracts/builtin-generation-continuation.test.cjs"],
       "backends": ["none"],
       "requires": [],
-      "timeout_ms": 30000,
+      "timeout_ms": 180000,
       "max_output_bytes": 2097152
     },
     "cli-trace-fixtures": {

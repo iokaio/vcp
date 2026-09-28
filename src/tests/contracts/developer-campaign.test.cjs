@@ -386,15 +386,23 @@ test('failed runs retain answers and all responses before malformed output can h
   }
 });
 
-test('an expired provider window refuses dispatch but keeps completed evidence verifiable', async t => {
-  const f = fixture(t, { windowMs: 10000 }), prepared = f.prepare(), plan = json(prepared.plan);
-  assert.equal(f.host.runner.windowCovers(plan, plan.runs.filter(row => row.block === 'llm-integration')), false);
-  assert.throws(() => f.host.runner.run(prepared.plan, prepared.sha256, 'llm-integration', () => assert.fail()), /cannot cover the whole block; no claim was consumed/);
-  assert.equal(fs.existsSync(path.join(f.git, 'vcp-cs2-developer-campaign.json')), false);
-  assert.deepEqual(fs.readdirSync(path.join(plan.directory, 'claims')), []);
-  await new Promise(resolve => setTimeout(resolve, Math.max(0, f.host.prep.qualificationEnds(f.profile) - Date.now() + 50)));
-  f.host.runner.identical(plan, prepared.plan);
-  assert.throws(() => f.host.runner.validate(plan, prepared.plan), /qualification is not current/);
+test('an expired provider window refuses dispatch but keeps completed evidence verifiable', t => {
+  // Preparation hashes the real source inventory and can exceed ten seconds on
+  // Windows. Advance only this test's clock so both admission boundaries are
+  // exercised independently of filesystem speed; production clocks are unchanged.
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const f = fixture(t, { windowMs: 10000 }), prepared = f.prepare(), plan = json(prepared.plan);
+    assert.equal(f.host.runner.windowCovers(plan, plan.runs.filter(row => row.block === 'llm-integration')), false);
+    assert.throws(() => f.host.runner.run(prepared.plan, prepared.sha256, 'llm-integration', () => assert.fail()), /cannot cover the whole block; no claim was consumed/);
+    assert.equal(fs.existsSync(path.join(f.git, 'vcp-cs2-developer-campaign.json')), false);
+    assert.deepEqual(fs.readdirSync(path.join(plan.directory, 'claims')), []);
+    now = f.host.prep.qualificationEnds(f.profile) + 50;
+    f.host.runner.identical(plan, prepared.plan);
+    assert.throws(() => f.host.runner.validate(plan, prepared.plan), /qualification is not current/);
+  } finally { Date.now = realNow; }
 });
 
 // A synthetic completed llm-integration block: runs and retained evidence are

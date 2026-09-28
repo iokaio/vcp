@@ -1,0 +1,72 @@
+# CS-3 delivery checkpoint — 2026-09-28
+
+CS-3 remains open. This increment implements and tests independent qualification
+work; it does not waive the original-artifact regrade or claim six successful
+skill comparisons. No candidate is promoted into the default catalog.
+
+## Acceptance evidence
+
+- [Adversarial boundary qualification](cs3-boundary-acceptance.md): actual Windows
+  positive/negative filesystem, junction, network and job-breakaway controls.
+- [Frozen WEB execution](cs3-frozen-web-execution.md): real browser interactions,
+  six frozen case outcomes and source-bound lifecycle controls.
+- [Generated UI execution](cs3-generated-ui-execution.md): exact returned HTML,
+  isolated-world observations, genuine input and independent receipt validation.
+  The record distinguishes offline tests from native control qualification.
+- [Package acceptance](cs3-package-acceptance.md): distinct baseline/candidate
+  install, upgrade, rollback and re-upgrade; exact-installed offline discovery,
+  explicit activation and persisted revocation for all six candidates.
+- [Six-skill readiness](cs3-six-skill-readiness.md): prospective corrections,
+  bounded comparison implementation, pinned DeepSeek/OpenRouter selection and
+  the approved USD 100 envelope. No new paid comparison calls were made.
+
+## Regression checks
+
+The initial full fast-suite attempt is retained at
+`artifacts/cs3-delivery-check-native/a8d19453-0494-4a27-8a4e-a26115bc1ccc`.
+It was not green. Targeted reruns preserve the failed attempts rather than
+rewriting them or claiming a later complete-suite run.
+
+| Check | Retained result |
+|---|---|
+| CS-2 developer | 83/83 passed; `artifacts/cs3-reviewed-developer-check/4fb3b649-ca5b-4693-844c-c0a897849f8c/manifest.json` |
+| Builtin contracts | 47 passed, five existing environment-dependent skips; `artifacts/cs3-reviewed-builtin-check/af057019-2445-440a-b137-9dae1c52a56c/manifest.json` |
+| CS-3 focused contracts | Passed after motion, candidate and baseline-freeze corrections; `artifacts/cs3-final-reviewed-contract-check/24cb95d4-df54-4b22-a971-a81891ee504f/manifest.json` |
+| CS-3 comparison host | 9/9 passed, including frozen external-builtin drift; `artifacts/tests/02ad9e15-cd48-45e9-9cf7-39a96c29b20b/manifest.json` |
+| CS-1 authoring | 132/132 passed, zero skips; `artifacts/cs3-post-build-authoring-1800/55fa722c-d142-45f8-a040-fd6e06b87388/manifest.json` |
+| Upstream source | Passed after relocating the generated default Cargo target; `artifacts/cs3-clean-upstream-check/adc82dde-4a37-40e3-9325-6f223c5abc3f/manifest.json` |
+| Live runner / bootstrap / P8 qualification | Passed with the physical Node executable; receipts `0d4b40aa-3e0f-4958-b0d4-eb74d03c5b82`, `a884a8b8-fa29-4eeb-97ef-75e3668e6381`, `08982d7a-5973-4bf1-8d27-f12a3db91f95` under `artifacts/cs3-physical-node-check` |
+
+The developer expiry fixture now advances a test-only clock explicitly. It
+retains refusal before any claim and refusal after expiry, without depending on
+how quickly Windows hashes the source inventory. The production clock is unchanged.
+Measured developer execution took about 811 seconds; the registry allows 1,200.
+Builtin execution previously took about 89 seconds and the final registered run
+took about 43; the registry allows 180. Two 600-second authoring attempts timed
+out with active tests, so its harness allowance is 1,800 seconds; the completed
+132-test attempt took about 1,408 seconds. These are
+test-harness scheduling limits, not relaxed product or browser deadlines.
+
+The native receipt writer retries only Windows access/sharing errors for the
+same owned atomic replacement, bounded to ten attempts. Before each attempt it
+rechecks the exact path and old/new hashes; unrelated errors or changed bytes
+fail immediately. A real Windows lock test verifies both released-lock success
+and persistent-lock failure with the original exception and unchanged files:
+`artifacts/cs3-receipt-replacement-native-e98e0452eebb402b99c641ba59d8c347/result.json`,
+SHA-256 `5d3af8401c0bc8b2b38c0a20fe7b4a4b83d3d14de89b28f1d5abf32dfbb497d3`.
+Buffered flush on close precedes replacement; power-loss durability is not claimed.
+
+## External prerequisite
+
+The [retained UI recovery record](cs3-retained-ui-recovery.md) identifies the
+missing authenticated CS-2 packet index, six packets and private label mapping.
+Local artifacts, Git objects, named backups and eligible older VCP sessions did
+not recover those bytes. Hashes, source-review summaries and newly generated
+outputs cannot stand in for them. The importer authenticates recovered originals
+before staging, but a synthetic import is not a historical browser regrade.
+
+The comparison preparation gate remains closed while that prerequisite is absent.
+The current CS-3 exit condition is therefore unsatisfied, regardless of the
+independent engineering and test results above. Restoring the authentic retained
+bundle is required to continue that acceptance path; changing the requirement
+would be an explicit owner decision, not an implementation assumption.

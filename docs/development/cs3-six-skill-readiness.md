@@ -31,10 +31,14 @@ The authoritative historical dispositions are the
 [LLM result](cs2-llm-disposition.md). Owner acceptance closed CS-1 and the
 per-skill CS-2 dispositions; it did not satisfy the CS-3 comparison gate.
 
-## Exact implementation gaps before freezing a campaign
+## Retained starting-gap inventory (historical, not current implementation status)
 
-Implementation readiness is separate from comparison success. Completing an
-item below makes a candidate testable; it does not demonstrate benefit.
+This table preserves the starting defects and proposed ownership paths before
+the prospective CS-3 increment below. It is not a current missing-implementation
+checklist: the separately versioned cohort, executable oracles and later native
+receipts supersede its implementation gaps without changing historical package
+identities or outcomes. Implementation readiness remains separate from comparison
+success; a testable candidate has not thereby demonstrated benefit.
 
 | Candidate | Retained defect or missing evidence | Prospective owner paths |
 |---|---|---|
@@ -62,8 +66,11 @@ server independently passed all ten Windows lifecycle and adversarial contract
 tests with every guest network adapter disconnected. The current-host joined
 mediator then completed twice with exact server bytes, browser assertions and
 cleanup. These are prerequisite controls, not full browser qualification: the
-browser cancellation, pause, outer-owner-loss, adversarial filesystem and
-WEB-cohort matrices remain open.
+browser cancellation, pause and outer-owner-loss matrices subsequently passed
+with the exact receipts in the native checkpoint. The filesystem/network denial
+matrix now passes with source-bound operation identities and before/after canary
+hashes in [boundary acceptance](cs3-boundary-acceptance.md). The WEB-cohort
+execution matrix remains a separate prerequisite.
 The retained frontend artifacts have not been regraded through that interface.
 
 ## Comparison gate
@@ -159,13 +166,123 @@ envelope is intentionally narrower:
   catalog and generation-record GETs are metadata operations, not model calls;
 - USD 34.70 remains unallocated and cannot be transferred automatically.
 
-The per-run reservation bounds a worst-case 163,840 input tokens plus 2,048
-output tokens on each of sixteen requests, including the explicit USD 0.001
-per-request routing ceiling. That arithmetic is under USD 0.60. Actual campaign
-profiles retain the repository's conservative full-endpoint input reservation,
-2,048 output-token ceiling, zero transport retries and stop-on-unknown-charge
-rules. The campaign may lower these limits but may not increase them. Historical
-unused headroom and settled costs contribute zero authorization.
+The native reservation uses three disjoint full-endpoint input partitions:
+input, cache read and cache write. This snapshot conservatively prices all three
+at USD 0.2088 per million tokens. At 163,840 tokens per partition, the rounded
+reservation is 34,210 microdollars each, plus 635 for 2,048 output tokens and
+1,000 for the request ceiling: USD 0.104265 for the first request. The earlier
+single-partition arithmetic was incorrect. USD 0.60 does not guarantee admission
+of sixteen worst-case requests. It remains a valid cumulative per-run cap:
+after each actual settlement, the native ledger must still reserve the next
+full request; insufficient remaining balance ends the task. The sixteen-request
+limit is an independent ceiling, never a promise to spend sixteen reservations.
+Profiles retain the 2,048 output-token ceiling, zero transport retries and
+stop-on-unknown-charge rules. Historical unused headroom and settled costs
+contribute zero authorization.
+
+## Prospective completion cohort
+
+The new `src/evals/skills/cs3-comparison/` tree preserves every prior candidate
+and cohort. Document-authoring 1.0.4 derives from the already failed 1.0.3
+requalification revision and adds the demonstrated source-link correction.
+MCP-development 1.0.1 adds explicit lifecycle, unknown-key and notification
+validation guidance. Skill-authoring 1.0.2 is retained from its unrun historical
+requalification package. Frontend-design and LLM-integration retain their existing
+1.0.0 body bytes after audit. Prospective webapp-testing 1.0.1 changes only the
+stale adapter-availability paragraph to distinguish supplied host observations
+from model execution authority; the historical 1.0.0 package is unchanged.
+Its descriptor SHA-256 is
+`ed0680c19a9719e2357412639e21e3a7dcf162efb5c1c3c225d8209489fc5a8f`
+and body SHA-256 is
+`12cebf4451700950a032d1923a5cd39b75b21a30728973bdf903d799e4d71e4f`.
+This correction does not promote or automatically activate the candidate.
+
+Thirty new non-WEB tasks cover two substantive artifact tasks and four edge
+cases per skill. The six untouched WEB v1 cases retain their original source
+bytes and bind separate host browser receipts. The adapter explicitly asks the
+model to interpret supplied host evidence, never to claim it launched a browser.
+Every arm has the same report-only VCP tool boundary. Exact returned file bytes
+are materialized by the trusted grader; MCP and LLM implementations execute only
+inside the qualified Node AppContainer, while frontend artifacts require actual
+browser grading. Skill-package digest sealing is a declared deterministic host
+step, not model-supplied cryptographic evidence.
+
+`cs3-comparison.cjs` freezes 108 one-shot slots in six reviewed blocks. It binds
+the candidate inventory, fixtures, execution code, build receipt, executable,
+catalog, provider snapshot, toolchain and four prerequisite receipts before
+preparation succeeds. Canonical VCP context proves the selected skills on each
+settled request. Every admission revalidates the external packaged baseline assets
+beside the executable against the frozen inventory and embedded catalog; a changed
+baseline bundle cannot silently change the comparison. Canonical ledgers settle actual charges and must show zero active
+or unresolved liability before the next slot. The review helper produces two
+independently shuffled opaque packets, requires all candidate hard gates and
+the same normal-task benefit over both baselines, and retains an unqualified
+disposition for ties, failures or disagreement. Preparation is still unpaid;
+the retained UI regrade and remaining exact prerequisite receipts gate dispatch.
+
+Raw prerequisite admission is schema-specific in `cs3-comparison-gates.cjs`.
+It reconstructs the three bracketed native denial runs (50 operations), exact
+Node positive/negative oracle coverage and the six WEB results, binding current
+verifier sources and native/build hashes. Per-case WEB projections must match
+their authenticated aggregate rows exactly. The `web-project` command emits
+those projections only after raw validation. Generic `status: passed` summaries
+do not qualify. Preparation and every dispatch revalidate this evidence chain;
+the historical UI gate remains fail-closed while its regrade validator and
+missing artifacts are unavailable. Boundary receipt12 and Node controls03 passed
+the new read-only validators. Source-current WEB22 passed raw admission and
+generated all six exact case projections with zero model calls. Its aggregate
+SHA-256 is `99621fcaeacd3c261e8f6c894b9ece46cd58d40a2db088b196d840159eff0275`,
+native receipt SHA-256 is
+`5cbd079b2a94db6b3124c1e3bea9331b133e6ed3e3c936ca53c63223e6b0da11`,
+and build inputs SHA-256 is
+`0853ac97b5b65e52d72ae8c1a185d3722d8cb93a079d51fc2fe595e73a96a55b`.
+The first restricted-shell native-receipt read returned `EPERM`; the unrestricted
+read-only validation succeeded without changing the protected receipt.
+WEB19 passed against its then-current source, but later native wrapper/UI-host
+changes superseded it. WEB20 completed native execution, but current admission
+correctly rejected its stale `UiArtifactHost.cs` hash. Neither historical receipt
+is silently promoted to the source-current WEB22 result.
+
+The prospective executable Node oracles now pass source-bound native controls
+in the existing zero-capability AppContainer. Receipt
+`artifacts/cs3-comparison-node-controls-03.json`, SHA-256
+`d5b3c4d2d28744720d191c7028dfb87b2580109c79a867fd36daad1fffb53168`,
+records five correct controls passing all 24 assertions and nine deliberate
+mutants rejected. The controls exercise complete MCP response envelopes,
+initialization state, notifications, strict schemas, discovery and resource
+values; embedding transport/error identity, ordering and Unicode bounds;
+fragmented-stream completion, cancellation and iterator cleanup; and the frozen
+WEB near-miss's ASCII-only normalization. The exact oracle SHA-256 is
+`a588ee3c2391c07ab687b03af78e3588297547e7425103f6e789a18953340bfe`;
+the Node executable SHA-256 is
+`3331e1ffe19874215472217c5e94f5a0c6d8e18c4ac7111d3937aa0ad5e9b4a5`.
+The initial control launch rejected the NVM reparse path before execution;
+resolving the installed executable's physical path preserved that protection.
+These are zero-call oracle controls, not candidate comparison outcomes.
+
+Full paid preparation remains explicitly blocked until the prospective UI
+artifact validator joins required native browser actions to the exact returned
+HTML resource bytes. A generic list of passing booleans or a hash of arbitrary
+JSON is rejected. Reader packets must include real browser grades before either
+reader judges the frontend block. Retained UI regrading remains an independent
+prerequisite; neither new artifacts nor the retained source fixtures replace
+missing historical generated outputs.
+
+The synthetic canonical-host integration suite exercises a complete eighteen-slot
+block with exact arm contexts and settled ledgers, ordinary malformed answers,
+unknown-charge stops, incomplete streamed-canary disclosure, mid-block halts and
+durable no-replay claims. It copies the verifier source into isolated temporary
+trees and substitutes a synthetic CLI/inspector and test-only prerequisite/UI
+dependencies; separate raw-gate tests reject forged coverage, swapped case
+projections and generic success summaries. The host suite never calls a provider,
+reads credentials or launches the synthetic executables. Missing frontend output is
+retained as a canonical failed result with `not_run_output_invalid`, never an
+invented browser receipt. These checks validate orchestration failure handling;
+they provide no model-quality or browser observations. The registered
+`cs3-comparison-host` case passed all nine tests, including external baseline-asset
+drift, in run `02ad9e15-cd48-45e9-9cf7-39a96c29b20b` before the narrowly versioned
+WEB prose correction; its runner and native evidence logic are unchanged by that
+correction, and the candidate integrity tests passed on the new bytes.
 
 The native offline discovery comparison was rerun after the first restricted-shell
 attempt failed before any stage with `Access denied` while inventorying retained
@@ -181,10 +298,18 @@ promotes a candidate or substitutes for package rollback and revocation acceptan
 ## Readiness decision
 
 Paid work is authorized only inside the USD 100 outer boundary and the narrower
-enumerated allocations above. Candidate corrections/audits, new untouched
-inputs, the remaining joined-browser and WEB evidence, the exact execution and
-toolchain bundle still gate task dispatch. The dated endpoint qualification is
-now passing. Preparation continues to say `model_calls: 0`; execution must bind its
-exact plan hash, one-shot claim and current qualification before consuming a
-slot. A failed qualification, unknown charge or integrity/authority failure
-halts rather than drawing from the unallocated remainder.
+enumerated allocations above. Prospective candidate corrections/audits, untouched
+inputs and the comparison implementation are present. The remaining acceptance
+work is the source-current final native/UI validation, recovery and regrading of
+the historical generated UI artifacts, and the still-unrun six-skill campaign
+with both independent reader dispositions. Missing historical outputs cannot be
+replaced by new model artifacts or a prospective UI control. A bounded read-only
+scan of 75 eligible pre-September-28 VCP session records (200,555,848 bytes; no
+size skips) found no retained UI commitments, case output records or backup
+locators, so it did not change that recovery gate.
+
+Preparation continues to say `model_calls: 0`. After prerequisites exist,
+execution must bind the exact plan hash, build/toolchain, one-shot claim and
+currently valid endpoint qualification before consuming a slot. A failed
+qualification, unknown charge or integrity/authority failure halts rather than
+drawing from the unallocated remainder.

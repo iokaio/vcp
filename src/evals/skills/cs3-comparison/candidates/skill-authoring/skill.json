@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "skill-authoring",
+  "version": "1.0.2",
+  "description": "Create or revise original VCP skill packages with precise selection, versioned content and independent workflow evaluation.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:skill-authoring"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "535d2016f0a2909c7fa162d0e3e6abaa9748b10a21ed892c1d5e0ff22eb443bc"
+  },
+  "resources": [
+    {
+      "path": "references/package-format.md",
+      "sha256": "1a3adf475a357b17aeb9757dc8fb09835fea1e5c7874ffd08770ea5454d467ce"
+    }
+  ]
+}

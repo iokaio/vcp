@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "frontend-design",
+  "version": "1.0.0",
+  "description": "Design and implement interfaces in the existing framework, with complete interaction states and explicit accessibility and visual-review evidence.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:frontend-design"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "1a5a604c172627cd264edd1790fa57585c21670021789c934d8eff714410643e"
+  },
+  "resources": []
+}

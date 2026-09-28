@@ -293,7 +293,8 @@ discovery, activation/revocation and comparison gates. Record visual-review limi
 
 The [browser feasibility checkpoint](../development/cs3-browser-feasibility.md)
 records bounded Windows startup failures and preserved cleanup gaps. Browser/server
-qualification remains open; an isolated-host or outer-boundary decision is pending.
+qualification remains open; the selected continuation uses the original
+zero-capability AppContainer, not the rejected account/firewall proposal.
 
 The [phased implementation](../development/cs3-implementation-phases.md) retains
 the exact exit conditions. A reviewed account/firewall proposal failed to
@@ -312,11 +313,24 @@ browser/server join now also completes twice through an exact hash-acknowledged
 mediator while the browser retains zero network capabilities. Subsequent exact
 source-bound probes pass a one-second startup pause, cancellation immediately
 after resume, and outer-controller owner loss with independently verified process,
-listener and profile drainage. The frozen WEB cases and remaining hostile
-filesystem/network checks stay open; an RDP change or another machine is not
+listener and profile drainage. The [native adversarial matrix](../development/cs3-boundary-acceptance.md)
+now passes host-file, junction, IPv4/IPv6 and no-breakaway controls with bracketed
+positive controls. [Package acceptance](../development/cs3-package-acceptance.md)
+also passes install/upgrade/rollback and exact-installed six-candidate offline
+activation/revocation checks. The [frozen WEB execution record](../development/cs3-frozen-web-execution.md)
+now retains all six oracle outcomes and exact-source pause, cancellation and
+owner-loss controls. Generated-UI adapter qualification, retained UI regrading and
+the six-skill comparison gate remain open; an RDP change or another machine is not
 required for continued browser work. The owner-approved USD 100 six-skill
 campaign envelope and pinned DeepSeek/OpenRouter endpoint are recorded in the
 [six-skill readiness ledger](../development/cs3-six-skill-readiness.md).
+The [retained UI recovery record](../development/cs3-retained-ui-recovery.md)
+documents the missing historical output bytes and exhausted local Git/private
+evidence searches. Their hashes and source-review summaries cannot substitute
+for the original artifacts; that regrade gate remains unsatisfied.
+The [delivery checkpoint](../development/cs3-delivery-checkpoint.md) collects
+verified increments, retained regression results and the external prerequisite;
+it does not mark CS-3 complete.
 
 ## CS-4 — Document and data adapters
 
