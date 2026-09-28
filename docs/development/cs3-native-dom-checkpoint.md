@@ -417,3 +417,51 @@ still drains the controller-owned guardian job but cannot yet prove automatic
 removal of the already-created AppContainer profile. Cancellation, pause and
 outer-owner-loss acceptance therefore remain open, as do the WEB/UI and paid
 comparison gates.
+
+## September 28 outer-owner-loss recovery
+
+The controller now scans only exact `run-<nonce>/native-receipt.json` entries in
+its own source-bound build before creating another profile. A receipt is eligible
+only when its profile/name/SID/path contract still matches and the recorded
+controller PID plus creation time is absent. The worker and browser jobs both use
+kill-on-close, so loss of that exact controller closes the nested ownership
+chain. Recovery then calls `DeleteAppContainerProfile` only for the recorded
+name/SID and requires the exact profile root to be absent before recording
+drainage. A still-live controller, changed receipt, redirected tree, mismatched
+SID or undeletable profile fails closed.
+
+Two destructive-to-the-owned-controller attempts found and retained recovery
+defects. Build `ec1cf145...` deleted its profile but could not add the new fields
+to a deserialized PowerShell object. Build `50bc8d97...` corrected that issue,
+then deleted its profile but could not replace the receipt because the killed
+controller left the fixed `.next` pathname open. The final implementation adds
+fields explicitly and writes through a unique PID/GUID temporary path, so it
+never adopts or waits on a killed writer's temporary file.
+
+Build input-manifest SHA-256
+`2d296f415e6d0efe63fa3e3af7156aaf710d627435e7537debf6b7e92d1e2315`
+was cut while its receipt was `running`. The exact controller was matched by PID
+5372 and creation FILETIME 134350808258329090 before forced termination. A new
+process reconciled receipt `42d07df765ac4fe79627155f27508234` to
+`owner_loss_recovered`; the exact profile was absent, `processes_drained=true`,
+and the final receipt SHA-256 was
+`fb104a775c1aa8929d22ceb895f7d2a404420cf7d8d7b549c276a5cc2d55b837`.
+No unowned process or profile was a cleanup target.
+
+The same final source added explicit lifecycle cut points. Build manifest
+`fcd7384b5a5c9ccd3409113fad00623e9fcf1410157689d637e707f278d27761`
+held the freshly created host suspended for one second before its one allowed
+resume, then completed the full joined DOM/server oracle with 8/8 identities,
+clean profile removal and one `controller_pause_observed` record. Receipt
+`2ec4db7929e84da0856a0e743c8bdabd` has SHA-256
+`aba87caac96d6abb52d7a8fdef1473f0ada00c57f1ddbd0206de382d2a90235d`.
+A second fresh profile was cancelled immediately after that resume. Only the
+owned worker was terminated; its nested job killed the suspended host, the
+owned listener closed, independent drainage completed and the exact profile was
+removed. Receipt `fc0f5954e82f43d1a7a4fba77d428e15` records
+`cancelled_clean`, five bounded events and SHA-256
+`b77dc0356a30b01e63750f78ed514181ae5e5df85def14d83a5b6b38ee8390d0`.
+
+This closes pause, explicit cancellation and abrupt outer-owner-loss recovery
+for the synthetic joined boundary. The remaining hostile filesystem/network
+matrix, executable WEB/UI and comparison acceptance remain open.

@@ -408,8 +408,15 @@ async fn executable_run_skill_activation_precedes_first_provider_request() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn executable_authoring_report_only_profiles_complete_without_workspace_edits() {
-    for skill in ["document-authoring", "skill-authoring"] {
+async fn executable_six_candidate_report_only_profiles_complete_without_workspace_edits() {
+    for skill in [
+        "document-authoring",
+        "skill-authoring",
+        "frontend-design",
+        "mcp-development",
+        "llm-integration",
+        "webapp-testing",
+    ] {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/responses"))
@@ -433,13 +440,13 @@ async fn executable_authoring_report_only_profiles_complete_without_workspace_ed
         for file in ["skill.json", "SKILL.md"] {
             fs::copy(candidate.join(file), package.join(file)).unwrap();
         }
-        if skill == "skill-authoring" {
-            fs::create_dir(package.join("references")).unwrap();
-            fs::copy(
-                candidate.join("references/package-format.md"),
-                package.join("references/package-format.md"),
-            )
-            .unwrap();
+        let descriptor: Value =
+            serde_json::from_slice(&fs::read(package.join("skill.json")).unwrap()).unwrap();
+        for resource in descriptor["resources"].as_array().unwrap() {
+            let relative = resource["path"].as_str().unwrap();
+            let destination = package.join(relative);
+            fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            fs::copy(candidate.join(relative), destination).unwrap();
         }
         // Report-only CS-1 cases still need a nonempty acceptance scope. These
         // source paths support verification; they do not grant editing authority.
@@ -505,10 +512,11 @@ async fn executable_authoring_report_only_profiles_complete_without_workspace_ed
         assert!(parts
             .iter()
             .any(|part| part["trust"] == "active_skill" && part["text"] == body));
-        assert_eq!(parts.len(), if skill == "skill-authoring" { 2 } else { 1 });
-        if skill == "skill-authoring" {
-            let reference =
-                fs::read_to_string(package.join("references/package-format.md")).unwrap();
+        let resources = descriptor["resources"].as_array().unwrap();
+        assert_eq!(parts.len(), 1 + resources.len());
+        for resource in resources {
+            let reference = fs::read_to_string(package.join(resource["path"].as_str().unwrap()))
+                .unwrap();
             assert!(parts
                 .iter()
                 .any(|part| part["trust"] == "active_skill" && part["text"] == reference));

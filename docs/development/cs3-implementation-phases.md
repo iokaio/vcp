@@ -1,16 +1,19 @@
 # CS-3 implementation phases
 
-Status: in progress; production-profile synthetic DOM evidence is repeatable on
-the current Windows host and was also completed on the now-unavailable isolated
-Hyper-V worker. Owned-server/adversarial browser qualification and six-skill
-acceptance remain open.
+Status: in progress; production-profile synthetic DOM and joined owned-server
+evidence are repeatable on the current Windows host. Exact source-bound pause,
+cancellation and outer-owner-loss cleanup also pass. The executable WEB cohort,
+remaining hostile boundary checks and six-skill acceptance remain open.
 Contract: [plan 24, CS-3](../plan/24-skills-follow-on.md#cs-3--browser-execution-and-six-skill-acceptance).
 
 On September 26, 2026 the owner authorized implementation of the full CS-3
 plan, including careful investigation and provisioning of the proposed restricted
-Windows account/firewall boundary. Delivery stops at a committed review PR;
-merge is not requested. That approval does not make the proposed boundary
-qualified, establish a dollar/call ceiling, or invalidate earlier failed evidence.
+Windows account/firewall boundary. On September 28 the owner requested the next
+PR, authorized proceeding through the normal repository delivery workflow, and
+approved an outer ceiling of USD 100 for a newly selected DeepSeek/OpenRouter
+campaign. The exact model, endpoint, per-stage call ceilings and retained balance
+are recorded in the six-skill readiness ledger. Neither authorization invalidates
+earlier failed evidence or permits spending outside that recorded envelope.
 
 Current evidence is tracked in the [native checkpoint](cs3-native-dom-checkpoint.md)
 and [six-skill readiness ledger](cs3-six-skill-readiness.md). The bounded HTTP
@@ -117,11 +120,12 @@ existing candidates remain unqualified; the sixth requires its first comparison.
 Independent review must check correctness, preservation, authority, secrets and
 evidence honesty as well as benefit over both baselines on a normal task.
 
-Prepare a concrete source/fixture/model/provider/toolchain proposal with dollar
-and call ceilings before paid dispatch. Prior allocations cannot be replayed,
-reassigned or transferred. The owner's authorization to implement is not an
-unbounded paid evaluation allowance. A failed or tied comparison stays failed
-or unqualified; do not promise that implementation guarantees a positive result.
+Use the exact source/fixture/model/provider/toolchain proposal and dollar/call
+ceilings recorded in the readiness ledger before paid dispatch. Prior allocations
+cannot be replayed, reassigned or transferred. The USD 100 outer authorization is
+not an unbounded paid evaluation allowance. A failed or tied comparison stays
+failed or unqualified; do not promise that implementation guarantees a positive
+result.
 
 Exit: all six required comparisons qualify, or retain explicit unqualified
 results and report that the current CS-3 exit condition is unsatisfied.
@@ -133,7 +137,8 @@ install/upgrade/rollback, offline discovery, explicit activation and revocation,
 source precedence and integrity for all six additions. Run relevant repository
 gates, review the complete diff and ensure host recovery evidence is retained.
 
-Commit attributable increments and create the requested review PR. Its title,
+Commit attributable increments and create the requested PR. Its title,
 description and test record must distinguish completed phases from unavailable
 or failed acceptance gates. Keep CS-3 open if any required gate is unresolved;
-a partial PR must not claim completion. Stop before merge.
+a partial PR must not claim completion. Follow the repository's normal checked
+delivery workflow; do not bypass a required check or review.

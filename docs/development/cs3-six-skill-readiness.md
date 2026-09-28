@@ -1,8 +1,9 @@
 # CS-3 six-skill readiness and paid-proposal inputs
 
-Status: preparation only, September 27, 2026. No paid call, candidate change,
-fixture change, replay, promotion or six-skill acceptance is authorized or
-recorded here. This inventory supports phase 4 of the
+Status: preparation continued September 28, 2026. The owner approved at most
+USD 100 of new OpenRouter spending and directed selection of a DeepSeek model.
+That grant does not authorize replay, promotion, weakened gates or an unknown
+charge. This inventory supports phase 4 of the
 [CS-3 implementation plan](cs3-implementation-phases.md#phase-4--six-skill-comparison-acceptance)
 and preserves every historical result and halt.
 
@@ -117,27 +118,62 @@ Preparation must produce one reviewable, hash-bound proposal containing:
 10. conditional phase order and stop rules so an early failed skill does not
     silently spend later allocations or transfer unused slots.
 
-The exact model/provider/catalog and current price snapshot are **not available
-in the repository**, so an exact dollar request cannot be calculated here without
-guessing. Historical campaigns used per-run ceilings of 16 requests and, in
-different envelopes, USD 3 or USD 1.75. Those are retained controls and costs,
-not current prices or transferable authorization.
+## Approved DeepSeek selection and outer budget
 
-If the owner deliberately selects the former 16-request ceiling for the new
-proposal, the arithmetic ceiling is `108 × 16 = 1,728` root/helper requests.
-This is a proposed maximum, not an estimate or authorization. Let `C` be the new
-approved per-run dollar cap derived from the selected current price snapshot and
-token/request limits; the base campaign ceiling is then `108 × C`, plus only
-separately enumerated refresh, reviewer or confirmation allowances. Until `C`
-and every extra category are frozen, the aggregate dollar ceiling is
-**unavailable**. Historical unused headroom and settled costs contribute zero
-authorization to this proposal.
+The fixed candidate is `deepseek/deepseek-v3.2`, not a moving `latest` alias,
+through OpenRouter's exact `gmicloud/fp8` endpoint. The September 28 catalog
+observation reports FP8, 163,840 context tokens, 147,456 maximum completion
+tokens and `tools`, `tool_choice` and `max_tokens` support. The selected endpoint
+rates are USD 0.0000002088 per input token, USD 0.0000003096 per output token and
+USD 0.0000000216 per cache-read token. The raw endpoint-catalog SHA-256 is
+`c93eee799b749b281965defa84493c114bbc385d2e217e2200336a23b2f4426d`;
+the dated two-request probe spec SHA-256 is
+`31d399bd9cf5d1a78ce464601bf2c62697482386861aa4bb2112c9079594f0aa`.
+`scripts/evals/cs3-deepseek-qualification.ps1` reproduces the fail-closed public
+catalog capture and exact endpoint selection. The source-bound conformance
+binary SHA-256 was
+`25c2173eed940daba9939bcc5e8dd94a5a3ddd84a784a1423468205b2613df46`.
+Its exact two-request tool/continuation pair passed with zero retries and settled
+197 microdollars with zero active or unresolved liability. The retained result
+SHA-256 is `e5b5f2420bcc40db34fc61498287f4fe187cc5aaca3b8f15f8c9056ed348e1c2`.
+Authenticated generation records and a fresh catalog were joined offline from
+source manifest
+`2b6b684c40e3a938afa7f3d2404ebf456e8f457978b4d0b4f1d880d4750b49e9`.
+The resulting qualified snapshot has ID
+`1a98c52bc127353f84fdcdd6ae2cddbd5c5f6f0c20aa13857d596a37963b10f0`,
+SHA-256 `3b27765962c2c0cbf8b244c1b88dbd580dd73995118fdad1bad36bde89db3d03`,
+and remains valid through `1790691803185` Unix milliseconds. It qualifies the
+dated Responses text/tool and fixed-provider boundary, not tokenizer byte bounds,
+quality or a moving alias.
+
+The approved outer ceiling is USD 100 in new charges. The executable campaign
+envelope is intentionally narrower:
+
+- at most USD 0.25 and two requests for the one-shot endpoint conformance pair
+  (completed: USD 0.000197 and two requests);
+- at most USD 0.60 and sixteen root/helper requests for each of 108 task runs,
+  or USD 64.80 and 1,728 requests total;
+- at most USD 0.25 and two requests for one provider refresh pair, only if the
+  original dated qualification cannot cover the next unopened block;
+- zero paid retries, replays, confirmations, graders, readers or adjudication;
+  catalog and generation-record GETs are metadata operations, not model calls;
+- USD 34.70 remains unallocated and cannot be transferred automatically.
+
+The per-run reservation bounds a worst-case 163,840 input tokens plus 2,048
+output tokens on each of sixteen requests, including the explicit USD 0.001
+per-request routing ceiling. That arithmetic is under USD 0.60. Actual campaign
+profiles retain the repository's conservative full-endpoint input reservation,
+2,048 output-token ceiling, zero transport retries and stop-on-unknown-charge
+rules. The campaign may lower these limits but may not increase them. Historical
+unused headroom and settled costs contribute zero authorization.
 
 ## Readiness decision
 
-Offline preparation may continue, but paid phase 4 is not ready for authorization.
-Candidate corrections/audits, new untouched inputs, the remaining joined-browser
-and WEB evidence, the exact execution/toolchain bundle, provider/model selection
-and a current price snapshot are still missing. A prepared envelope must say
-`authorization: false` and `model_calls: 0` until the owner approves its exact
-hash, initial phase, dollar ceiling, request ceiling and process authority.
+Paid work is authorized only inside the USD 100 outer boundary and the narrower
+enumerated allocations above. Candidate corrections/audits, new untouched
+inputs, the remaining joined-browser and WEB evidence, the exact execution and
+toolchain bundle still gate task dispatch. The dated endpoint qualification is
+now passing. Preparation continues to say `model_calls: 0`; execution must bind its
+exact plan hash, one-shot claim and current qualification before consuming a
+slot. A failed qualification, unknown charge or integrity/authority failure
+halts rather than drawing from the unallocated remainder.

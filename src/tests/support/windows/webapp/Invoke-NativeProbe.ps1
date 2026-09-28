@@ -6,7 +6,9 @@ param(
     [ValidateSet('compile-only','webview2-dom','worker','reconcile')][string]$Mode = 'compile-only',
     [switch]$Execute,
     [string]$Receipt,
-    [string]$ExpectedInputsSha256
+    [string]$ExpectedInputsSha256,
+    [ValidateRange(0,5000)][int]$PauseBeforeResumeMilliseconds = 0,
+    [switch]$CancelAfterResume
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Controller-helpers.ps1')
@@ -23,7 +25,9 @@ foreach ($entry in $inputs.sources) { if ($entry.path -notmatch '^[A-Za-z-]+\.(c
 function Hash([string]$File) { (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant() }
 function JsonWrite([string]$File, $Value) {
     $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($Value | ConvertTo-Json -Depth 12))
-    $temporary = $File + '.next'
+    # A killed controller may leave its fixed temporary path open in a dying
+    # descendant. Recovery must not adopt, overwrite or wait on that path.
+    $temporary = $File + '.next.' + $PID + '.' + [guid]::NewGuid().ToString('N')
     [IO.File]::WriteAllBytes($temporary, $bytes)
     [IO.File]::Move($temporary, $File, $true)
 }
@@ -45,6 +49,37 @@ function ReadReceipt([string]$File) {
     $expected = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('Packages\' + $value.name + '\AC')
     if ($value.root -cne $expected) { throw 'Receipt root differs from exact owned profile' }
     return $value
+}
+function Test-ExactControllerAlive($Value) {
+    try {
+        $process = [Diagnostics.Process]::GetProcessById([int]$Value.controller_pid)
+        try { return $process.StartTime.ToFileTimeUtc() -eq [long]$Value.controller_creation_filetime }
+        finally { $process.Dispose() }
+    } catch { return $false }
+}
+function Recover-AbandonedProfile([string]$File) {
+    $value = ReadReceipt $File
+    if (-not $value.profile_created -or $value.status -eq 'cleaned' -or $value.status -eq 'owner_loss_recovered') { return $false }
+    if (Test-ExactControllerAlive $value) { throw 'Owned receipt still has its exact live controller' }
+    if ($value.status -notin @('profile_created','staged','running','cleanup_pending','cleanup_failed')) { throw 'Owned receipt is not recoverable' }
+    $parent = [IO.Path]::GetDirectoryName($value.root)
+    if (Test-Path -LiteralPath $parent) { [Vcp.Cs3Draft.NativeProbe]::RegularTree($parent) }
+    $deleted = -not (Test-Path -LiteralPath $value.root)
+    $failure = $null
+    for ($attempt = 1; -not $deleted -and $attempt -le 40; $attempt++) {
+        try {
+            [Vcp.Cs3Draft.NativeProbe]::DeleteProfile($value.name, $value.sid)
+            $deleted = -not (Test-Path -LiteralPath $value.root)
+        } catch { $failure = $_; Start-Sleep -Milliseconds 250 }
+    }
+    if (-not $deleted) { throw "Exact owner-loss profile did not drain for deletion: $failure" }
+    $value.processes_drained = $true
+    $value | Add-Member -NotePropertyName owner_loss_recovered -NotePropertyValue $true -Force
+    $value | Add-Member -NotePropertyName recovery_basis -NotePropertyValue 'Exact controller identity absent; nested kill-on-close job handles closed; exact AppContainer profile deletion succeeded.' -Force
+    $value.status = 'owner_loss_recovered'
+    $value.outcome = 'owner_loss_recovered'
+    JsonWrite $File $value
+    return $true
 }
 function VerifyDistribution([string]$Root, $ExpectedEntries) {
     [Vcp.Cs3Draft.NativeProbe]::RegularTree($Root)
@@ -78,17 +113,21 @@ if ($Mode -eq 'worker') {
     } catch { [Console]::Error.WriteLine($_.Exception.ToString()); exit 1 }
 }
 if ($Mode -eq 'reconcile') {
-    # An abrupt entire-controller loss cannot provide complete process evidence.
-    # Preserve its profile for independent reconciliation instead of deleting
-    # storage potentially still in use. Only a recorded drained run is removable.
-    $value = ReadReceipt $Receipt
-    if (-not $value.profile_created -or -not $value.processes_drained -or $value.status -cnotin @('cleanup_pending','cleanup_failed')) { throw 'Receipt lacks confirmed process drainage; native investigation required' }
-    if (Test-Path -LiteralPath ([IO.Path]::GetDirectoryName($value.root))) { [Vcp.Cs3Draft.NativeProbe]::RegularTree([IO.Path]::GetDirectoryName($value.root)) }
-    [Vcp.Cs3Draft.NativeProbe]::DeleteProfile($value.name, $value.sid)
-    if (Test-Path -LiteralPath $value.root) { throw 'Exact profile files remain' }
-    $value.status = 'cleaned'; JsonWrite $Receipt $value; return
+    if (-not (Recover-AbandonedProfile $Receipt)) { throw 'Receipt needs no owner-loss recovery' }
+    return
 }
 if ($Receipt) { throw 'A new compatibility attempt cannot adopt an old receipt' }
+if ($Mode -eq 'webview2-dom') {
+    # A killed outer controller cannot write a final receipt. Before creating a
+    # new profile, recover every exact source-bound receipt in this build. The
+    # worker and browser jobs both use kill-on-close, so disappearance of the
+    # exact controller closes the nested ownership chain. Successful exact
+    # AppContainer deletion is the final fail-closed drainage boundary.
+    foreach ($candidate in @(Get-ChildItem -LiteralPath $PSScriptRoot -Directory -Filter 'run-*' | ForEach-Object { Join-Path $_.FullName 'native-receipt.json' } | Where-Object { Test-Path -LiteralPath $_ })) {
+        $pending = ReadReceipt $candidate
+        if ($pending.status -notin @('cleaned','owner_loss_recovered')) { $null = Recover-AbandonedProfile $candidate }
+    }
+}
 Assert-NoWebViewOverrides
 $runtimeBefore=Get-InputSnapshot $inputs.runtime -CheckRuntimeAcl
 if ((Hash (Join-Path $inputs.runtime 'msedgewebview2.exe')) -cne $inputs.runtime_executable_sha256) { throw 'Installed runtime executable differs' }
@@ -103,7 +142,7 @@ $root = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('Packa
 if (Test-Path -LiteralPath ([IO.Path]::GetDirectoryName($root))) { throw 'Owned profile path already exists' }
 $receiptPath = Join-Path $runDirectory 'native-receipt.json'
 $controllerProcess = [Diagnostics.Process]::GetCurrentProcess()
-$value = [ordered]@{ schema='cs3-native-probe-receipt/1';name=$name;sid=$sid;root=$root;mode=$Mode;status='creation_intent';profile_created=$false;worker_launch_attempted=$false;processes_drained=$false;controller_pid=$PID;controller_creation_filetime=$controllerProcess.StartTime.ToFileTimeUtc();inputs_sha256=(Hash $inputsFile);host_nonce=([guid]::NewGuid().ToString('N')+[guid]::NewGuid().ToString('N'));runtime_before=$runtimeBefore;provider_calls=0;outcome='not_run';events=@();primary_controller_failure=$null;cleanup_errors=@();worker_stderr_truncated=$false;runtime_unchanged=$false;policy_unchanged=$false;host_unchanged=$false;serviced_input_limitation='Installed Evergreen is serviced in place. Before/after inventory/ACL/hash equality is not immutable-during-execution proof. No runtime locks or servicing changes.' }
+$value = [ordered]@{ schema='cs3-native-probe-receipt/1';name=$name;sid=$sid;root=$root;mode=$Mode;status='creation_intent';profile_created=$false;worker_launch_attempted=$false;processes_drained=$false;controller_pid=$PID;controller_creation_filetime=$controllerProcess.StartTime.ToFileTimeUtc();inputs_sha256=(Hash $inputsFile);host_nonce=([guid]::NewGuid().ToString('N')+[guid]::NewGuid().ToString('N'));runtime_before=$runtimeBefore;provider_calls=0;outcome='not_run';pause_before_resume_milliseconds=$PauseBeforeResumeMilliseconds;cancel_after_resume=[bool]$CancelAfterResume;events=@();primary_controller_failure=$null;cleanup_errors=@();worker_stderr_truncated=$false;runtime_unchanged=$false;policy_unchanged=$false;host_unchanged=$false;serviced_input_limitation='Installed Evergreen is serviced in place. Before/after inventory/ACL/hash equality is not immutable-during-execution proof. No runtime locks or servicing changes.' }
 $value.diagnostic_only = $true
 $value.prototype_only = $true
 $value.production_profile_qualified = $false
@@ -113,7 +152,7 @@ $value.browser_family = 'webview2'
 $controllerProcess.Dispose()
 JsonWrite $receiptPath $value
 $worker = $null; $workerLaunchAttempted=$false; $port = [IntPtr]::Zero; $owned = @{}; $jobEmpty = $false
-$controllerFailure = $null; $stderr = $null; $line = $null; $stdoutEof=$false; $outputBytes=0; $workerStopped=$false; $workerExitCode=$null; $observedDrained=$false; $independentEmpty=$false; $drainHandshakeSeen=$false
+$controllerFailure = $null; $stderr = $null; $line = $null; $stdoutEof=$false; $outputBytes=0; $workerStopped=$false; $workerExitCode=$null; $observedDrained=$false; $independentEmpty=$false; $drainHandshakeSeen=$false; $intentionalCancellation=$false
 try {
     $createdSid = [Vcp.Cs3Draft.NativeProbe]::CreateProfile($name)
     $value.profile_created = $true; $value.status = 'profile_created'; JsonWrite $receiptPath $value
@@ -159,7 +198,16 @@ try {
         if ($event.type -in @('created_suspended','owned_process')) {
             $null = Register-OwnedProcess $owned $event
         }
-        if ($event.type -eq 'created_suspended') { $worker.StandardInput.WriteLine('RESUME'); $worker.StandardInput.Flush() }
+        if ($event.type -eq 'created_suspended') {
+            if ($PauseBeforeResumeMilliseconds -gt 0) {
+                Start-Sleep -Milliseconds $PauseBeforeResumeMilliseconds
+                if ($worker.HasExited) { throw 'Worker exited during bounded pre-resume pause' }
+                $value.events += [ordered]@{type='controller_pause_observed';milliseconds=$PauseBeforeResumeMilliseconds;created_process_still_suspended=$true}
+                JsonWrite $receiptPath $value
+            }
+            $worker.StandardInput.WriteLine('RESUME'); $worker.StandardInput.Flush()
+            if ($CancelAfterResume) { $intentionalCancellation=$true; $worker.Kill() }
+        }
         if ($event.type -eq 'job_empty_waiting_for_ack') {
             if ($drainHandshakeSeen) { throw 'Duplicate job drain handshake' }
             $drainHandshakeSeen=$true
@@ -233,9 +281,11 @@ try {
     if ($value.Contains('host_before')) { try { Assert-SnapshotSame $value.host_before (Get-InputSnapshot (Join-Path $root 'host')); $value.host_unchanged=$true } catch { Record-ControllerCleanupFailure $value 'host_postcheck' $_ } }
     if (-not $controllerFailure) {
         $clean = $workerExitCode -eq 0 -and $jobEmpty -and $value.processes_drained -and $value.runtime_unchanged -and $value.host_unchanged -and $value.policy_unchanged -and -not $value.cleanup_errors.Count
+        $cancelledClean = $intentionalCancellation -and $value.processes_drained -and $value.runtime_unchanged -and $value.host_unchanged -and $value.policy_unchanged -and -not $value.cleanup_errors.Count
         $inputObserved = @($value.events | Where-Object type -ceq 'input_diagnostic_observed').Count
         $domObserved = @($value.events | Where-Object type -ceq 'dom_observed').Count
-        if ($clean -and $inputObserved -eq 1 -and $domObserved -eq 0) { $value.outcome='input_diagnostic_observed' }
+        if ($cancelledClean -and $inputObserved -eq 0 -and $domObserved -eq 0) { $value.outcome='cancelled_clean' }
+        elseif ($clean -and $inputObserved -eq 1 -and $domObserved -eq 0) { $value.outcome='input_diagnostic_observed' }
         elseif ($clean -and $domObserved -eq 1 -and $inputObserved -eq 0) { $value.outcome='dom_observed' }
         else { $value.outcome='input_diagnostic_inconclusive_or_failure' }
     }

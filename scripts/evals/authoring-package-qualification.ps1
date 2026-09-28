@@ -25,7 +25,7 @@ $sentinel = Join-Path $data 'user-state.txt'
 [IO.File]::WriteAllText($sentinel, 'original synthetic user state')
 $sentinelHash = (Get-FileHash -LiteralPath $sentinel).Hash
 $record = [ordered]@{
-    schema = 'cs-authoring-package-qualification/1'; task = 'CS-1'
+    schema = 'cs-authoring-package-qualification/1'; task = 'CS-3'
     status = 'running'; directory = $resolved; stages = @()
     executable_sha256 = (Get-FileHash -LiteralPath $candidate).Hash.ToLowerInvariant()
     previous_archive_sha256 = (Get-FileHash -LiteralPath $previous).Hash.ToLowerInvariant()
@@ -51,7 +51,7 @@ function Install-Step([string]$Action, [string]$Archive) {
     $catalog = Join-Path $release 'skills/builtin/catalog.json'
     $metadata = Get-Content -LiteralPath $catalog -Raw | ConvertFrom-Json
     if ($Action -eq 'Upgrade') {
-        foreach ($id in @('document-authoring', 'skill-authoring')) {
+        foreach ($id in @('document-authoring', 'skill-authoring', 'frontend-design', 'mcp-development', 'llm-integration', 'webapp-testing')) {
             if ($metadata.skills.id -contains $id -or (Test-Path -LiteralPath (Join-Path $release ('skills/builtin/' + $id)))) { throw 'Research candidate leaked into installed builtin skills' }
         }
         if (Test-Path -LiteralPath (Join-Path $release 'skills/candidates')) { throw 'Research candidates must not be installed by default' }

@@ -309,9 +309,14 @@ in the existing session. A later current-host variant observes an intercepted
 Escape sentinel through a bounded renderer-turn barrier before each one-shot form
 action and completes the seven-document oracle twice on fresh profiles. Full
 browser/server join now also completes twice through an exact hash-acknowledged
-mediator while the browser retains zero network capabilities. Cancellation,
-pause, outer-owner-loss and the remaining adversarial qualification stay open; an RDP change or
-another machine is not required for continued synthetic browser work.
+mediator while the browser retains zero network capabilities. Subsequent exact
+source-bound probes pass a one-second startup pause, cancellation immediately
+after resume, and outer-controller owner loss with independently verified process,
+listener and profile drainage. The frozen WEB cases and remaining hostile
+filesystem/network checks stay open; an RDP change or another machine is not
+required for continued browser work. The owner-approved USD 100 six-skill
+campaign envelope and pinned DeepSeek/OpenRouter endpoint are recorded in the
+[six-skill readiness ledger](../development/cs3-six-skill-readiness.md).
 
 ## CS-4 — Document and data adapters
 
