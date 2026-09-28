@@ -167,6 +167,17 @@ profiles retain the repository's conservative full-endpoint input reservation,
 rules. The campaign may lower these limits but may not increase them. Historical
 unused headroom and settled costs contribute zero authorization.
 
+The native offline discovery comparison was rerun after the first restricted-shell
+attempt failed before any stage with `Access denied` while inventorying retained
+AppContainer evidence. The unrestricted read-only rerun passed both contract and
+comparison stages with source unchanged, zero model calls and manifest SHA-256
+`b44b639aa112e0e104dfd18d3ef60e875a6536d6d018209a0b0d545e3a0c1db9`.
+Its `skills.json` SHA-256 is
+`314d9f5a5ab8f8ca799960e8370f64036e3304684bb9f300bc674b2ec3b13e07`.
+This retains the existing catalog discovery boundary; the separate six-candidate
+explicit activation test passed for all six report-only profiles. Neither result
+promotes a candidate or substitutes for package rollback and revocation acceptance.
+
 ## Readiness decision
 
 Paid work is authorized only inside the USD 100 outer boundary and the narrower
