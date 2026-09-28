@@ -18,7 +18,7 @@ if (-not $Execute) { throw 'Draft native execution requires independent review a
 $inputsFile=Join-Path $PSScriptRoot 'inputs.json'
 if ($Mode -eq 'webview2-dom' -and ($ExpectedInputsSha256 -cnotmatch '^[a-f0-9]{64}$' -or (Get-FileHash -LiteralPath $inputsFile).Hash.ToLowerInvariant() -cne $ExpectedInputsSha256)) { throw 'Exact reviewed build-manifest hash required before a new native attempt' }
 $inputs=Get-Content -LiteralPath $inputsFile -Raw | ConvertFrom-Json
-if ($inputs.schema -cne 'cs3-webview2-inputs/1' -or $inputs.version -cne '153.0.4234.48' -or $inputs.browser_argument -cne '' -or $inputs.runtime -cne 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application\153.0.4234.48') { throw 'Exact prospective inputs differ' }
+if ($inputs.schema -cne 'cs3-webview2-inputs/1' -or $inputs.version -cne '154.0.4258.37' -or $inputs.browser_argument -cne '' -or $inputs.runtime -cne 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application\154.0.4258.37') { throw 'Exact prospective inputs differ' }
 foreach ($entry in $inputs.sources) { if ($entry.path -notmatch '^[A-Za-z-]+\.(cs|ps1)$' -or (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $entry.path)).Hash.ToLowerInvariant() -cne $entry.sha256) { throw 'Frozen draft source changed; compile a new reviewed input manifest' } }
 function Hash([string]$File) { (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant() }
 function JsonWrite([string]$File, $Value) {

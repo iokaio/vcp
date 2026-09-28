@@ -276,3 +276,62 @@ that only the owned ephemeral listener closed and an unrelated listener survived
 This establishes the server lifecycle independently. It does not join the
 zero-network-capability browser to loopback. A future join must not silently add
 a broad loopback exemption or adopt an existing user-owned service.
+
+## September 27 current-host continuation
+
+The disposable Hyper-V worker used above is no longer available after a storage
+failure. Its frozen receipts remain historical evidence; no result was relabeled
+or transferred. Continuation moved to the current Windows host without changing
+an account, firewall rule, Windows feature, existing browser profile or runtime
+ACL. The new variant pins installed Evergreen WebView2 `154.0.4258.37`, executable
+SHA-256 `3f48b1ab9a5d5e65a96307b6655e29882bd70bb682ce4b67a9e7a7f07f61019d`,
+and the same WebView2 SDK `1.0.4191.47` package SHA-256
+`f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0`.
+
+Three native failures remain retained before the successful variant:
+
+| Run | Input manifest SHA-256 | Receipt SHA-256 | Result |
+|---|---|---|---|
+| `8f1962cd3f2a4a979ead8b6150db801c` | `5f80d83ae47d208848b2cb1b69a03db6d0f6b79b823e8bc73d8be1813485a23c` | `73133e1a245a451d5ef08fb85e541c6e9bb8d321c4da57d655ccf0256d39df0a` | F24 dispatch completed, but the immediate focused snapshot retained zero readiness events. |
+| `11b7436c9bf442a088ceb81b1956f315` | `1e6ac50eede0a36d92e4ddb6e188496ea12edfedc27556c8b6b3c7a2a1a7c4ea` | `566c21b1a05f5ce69da18a0af60cae1f0bc82e611b1acdc59b321ee3b4d5dc8d` | An awaited zero-delay renderer turn returned a bounded response that the first exact-byte parser rejected. |
+| `cfe980492caf48558ab1f0327daff687` | `2fa06ee927c358593b8b61f338828ed89bef8ac37c96c82ae6cf6feb5c381a1e` | `df46829100b0b2d2537fcac36193e3600b4680f4e3ce34eb985ace59bbe76cd2` | The bounded semantic parser established zero F24 readiness counts after the renderer turn. |
+
+All three attempts finished `status=cleaned`, verified 7/7 process identities,
+removed their fresh profiles, recorded no cleanup error, and preserved unchanged
+runtime, policy and staged-host snapshots. A compile-only intermediate failed
+before native execution because the host-only build lacked a JSON type reference;
+that build created no profile or browser process.
+
+The next source-bound variant replaced only the controlled readiness key with
+left Shift. The fixed fixture intercepts and suppresses that exact key before
+ordinary form accounting. One down/up pair is sent after each existing 100-ms
+pre-dispatch window, followed by one awaited zero-delay `Runtime.evaluate` turn.
+The barrier must report exact trusted `DU`/`DUDU` counts, no keypress or repeat,
+and no ordinary form event before the corresponding Enter. Shift and Enter are
+never retried, and no synthetic DOM submission is used.
+
+Build input-manifest SHA-256
+`2a4f75a0610d57ce0c0736aa1cadd1fd8eaa8048d6531814a6ac449855058d25`
+completed twice on fresh profiles:
+
+| Run | Receipt bytes | Receipt SHA-256 | Result |
+|---|---:|---|---|
+| `23276c71a2e5491596e901e37287f132` | 533590 | `74bf055d0d73f9a84a8335976b24bf0509b52e61f9a980a79dfdbe1f234589a9` | `dom_observed`; 8/8 identities; clean exit and profile removal. |
+| `94c9df6188ec49e78641721c997a04de` | 533615 | `f8ca16adb4effc21b466db7d45caab7ace338ba46eb4c264d59975a25fdb2bdd` | Fresh-profile confirmation; `dom_observed`; 8/8 identities; clean exit and profile removal. |
+
+Both runs reconstructed the same initial, focused, invalid, filled, success and
+origin documents recorded above. The current-host accessibility projection is
+607 bytes, SHA-256
+`9c58ed0865fd31f6aec2819163ada902e31ef7931250b19b39ee40a943397dff`,
+and binds a 10,218-byte, 23-node raw tree with SHA-256
+`82ce683d164f946d613a756fc570bd42f1d3239dd4d610c7b44de94b937e174b`.
+Both receipts report zero provider calls, no stderr or cleanup error, clean
+browser exit, unchanged runtime/policy/host snapshots, and the intentionally
+honest `browser_qualification=false`, `production_profile_qualified=false` and
+`prototype_only=true` markers.
+
+This removes dependence on the failed Hyper-V machine for continued synthetic
+browser work. It does not join the browser to the owned server, qualify internal
+Chromium sandboxing, or complete cancellation, pause, owner-loss, adversarial
+filesystem/network, WEB-cohort, retained-UI, paid-comparison or distribution
+acceptance.

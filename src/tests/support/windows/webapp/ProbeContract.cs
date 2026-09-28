@@ -13,7 +13,7 @@ public sealed class HostObservation {
     public string Phase, Version, Kind; public uint Pid; public long Elapsed;
 }
 public static class ProbeContract {
-    public const string Version = "153.0.4234.48";
+    public const string Version = "154.0.4258.37";
     public const string Argument = "";
     // The caller supplies only queried process metadata here. No file access,
     // hash read or approval occurs for an image outside the exact inventory.
@@ -113,7 +113,7 @@ public static class ProbeContract {
         LiveCoverage(2,1); checks++; LiveCoverage(2,2); checks++;
         reject(()=>LiveCoverage(1,2)); reject(()=>LiveCoverage(129,1)); reject(()=>LiveCoverage(1,-1));
         string nonce=new string('a',64);
-        string line="{\"schema\":\"cs3-webview2-host/1\",\"nonce\":\""+nonce+"\",\"phase\":\"controller_ready\",\"elapsed_ms\":100,\"hresult\":\"0x00000000\",\"version\":\"153.0.4234.48\",\"pid\":123,\"kind\":\"browser\",\"containment_attested\":false,\"browser_qualified\":false}";
+        string line="{\"schema\":\"cs3-webview2-host/1\",\"nonce\":\""+nonce+"\",\"phase\":\"controller_ready\",\"elapsed_ms\":100,\"hresult\":\"0x00000000\",\"version\":\"154.0.4258.37\",\"pid\":123,\"kind\":\"browser\",\"containment_attested\":false,\"browser_qualified\":false}";
         check(Parse(line,nonce).Pid==123); reject(()=>Parse(line,new string('b',64))); reject(()=>Parse(line.Replace("100,","20001,"),nonce)); reject(()=>Parse(line.Replace("123,","0,"),nonce)); reject(()=>Parse(line.Replace("0x00000000","0x80070005"),nonce)); reject(()=>Parse(line.Replace("\"containment_attested\":false","\"containment_attested\":true"),nonce)); reject(()=>Parse(line.Replace("\"pid\":123","\"pid\":123,\"pid\":456"),nonce)); reject(()=>Parse(line.Replace("controller_ready","navigation_rejected"),nonce));
         check(Parse(line.Replace("\"kind\":\"browser\"","\"kind\":\"input_diagnostic\""),nonce).Kind=="input_diagnostic");
         reject(()=>Parse(line.Replace("\"kind\":\"browser\"","\"kind\":\"routing_only\""),nonce));

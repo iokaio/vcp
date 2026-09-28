@@ -62,14 +62,16 @@ namespace Vcp.Cs3WebViewDraft {
         public const string BrowserArgument = "";
         public const int MaximumRecordBytes = 8 * 1024;
         public const int MaximumAccessibilityResponseBytes = 64 * 1024;
+        public const int MaximumReadinessResponseBytes = 512;
         public const int MaximumAggregateBytes = 16 * 1024;
         public const int MaximumParameterBytes = 512;
         public const int MaximumCumulativeParameterBytes = 2048;
-        public const int MaximumCumulativeResponseBytes = MaximumAccessibilityResponseBytes + 20;
-        public const int CommandCount = 11;
+        public const int MaximumCumulativeResponseBytes = MaximumAccessibilityResponseBytes + (2 * MaximumReadinessResponseBytes) + 20;
+        public const int CommandCount = 13;
         public const string FocusParameters = "{\"enabled\":true}";
-        public const string ReadinessDownParameters = "{\"type\":\"keyDown\",\"key\":\"F24\",\"code\":\"F24\",\"windowsVirtualKeyCode\":135}";
-        public const string ReadinessUpParameters = "{\"type\":\"keyUp\",\"key\":\"F24\",\"code\":\"F24\",\"windowsVirtualKeyCode\":135}";
+        public const string ReadinessDownParameters = "{\"type\":\"keyDown\",\"key\":\"Shift\",\"code\":\"ShiftLeft\",\"modifiers\":8,\"windowsVirtualKeyCode\":16}";
+        public const string ReadinessUpParameters = "{\"type\":\"keyUp\",\"key\":\"Shift\",\"code\":\"ShiftLeft\",\"modifiers\":0,\"windowsVirtualKeyCode\":16}";
+        public const string ReadinessBarrierParameters = "{\"expression\":\"new Promise(r=>setTimeout(()=>{const p=window.__cs3InputEvidence||{};r({d:p.readinessDowns,u:p.readinessUps,p:p.readinessKeyPresses,r:p.readinessRepeats,s:p.readinessSequence,t:p.readinessTrusted})},0))\",\"awaitPromise\":true,\"returnByValue\":true}";
         public const string EnterDownParameters = "{\"type\":\"keyDown\",\"key\":\"Enter\",\"code\":\"Enter\",\"text\":\"\\r\",\"unmodifiedText\":\"\\r\",\"windowsVirtualKeyCode\":13}";
         public const string EnterUpParameters = "{\"type\":\"keyUp\",\"key\":\"Enter\",\"code\":\"Enter\",\"windowsVirtualKeyCode\":13}";
         public const string InsertParameters = "{\"text\":\"Ada\"}";
@@ -78,15 +80,19 @@ namespace Vcp.Cs3WebViewDraft {
         static readonly string[] Methods = {
             "Emulation.setFocusEmulationEnabled",
             "Input.dispatchKeyEvent", "Input.dispatchKeyEvent",
+            "Runtime.evaluate",
             "Input.dispatchKeyEvent", "Input.dispatchKeyEvent",
             "Input.insertText", "Input.dispatchKeyEvent", "Input.dispatchKeyEvent",
+            "Runtime.evaluate",
             "Input.dispatchKeyEvent", "Input.dispatchKeyEvent",
             "Accessibility.getFullAXTree"
         };
         static readonly string[] Parameters = {
             FocusParameters, ReadinessDownParameters, ReadinessUpParameters,
+            ReadinessBarrierParameters,
             EnterDownParameters, EnterUpParameters, InsertParameters,
             ReadinessDownParameters, ReadinessUpParameters,
+            ReadinessBarrierParameters,
             EnterDownParameters, EnterUpParameters, AxParameters
         };
 
@@ -113,14 +119,32 @@ namespace Vcp.Cs3WebViewDraft {
                 int parametersLength = Encoding.UTF8.GetByteCount(parameters);
                 int responseLength = response == null ? 0 : Encoding.UTF8.GetByteCount(response);
                 bool accessibility = method == "Accessibility.getFullAXTree";
-                if ((!accessibility && response != "{}") || (accessibility && (responseLength == 0 || responseLength > MaximumAccessibilityResponseBytes)) ||
+                bool readiness = method == "Runtime.evaluate";
+                if ((!accessibility && !readiness && response != "{}") ||
+                    (readiness && (responseLength == 0 || responseLength > MaximumReadinessResponseBytes)) ||
+                    (accessibility && (responseLength == 0 || responseLength > MaximumAccessibilityResponseBytes)) ||
                     responseBytes > MaximumCumulativeResponseBytes - responseLength) throw new InvalidDataException("Protocol response contract differs");
+                if (readiness) AssertReadinessBarrier(response,next==3 ? 1 : 2);
                 parameterBytes += parametersLength; responseBytes += responseLength; next++;
                 inFlight = false; pendingMethod = null; pendingParameters = null;
             }
             public void RequireComplete() {
                 if (inFlight || next != CommandCount) throw new InvalidOperationException("Protocol command sequence incomplete");
             }
+        }
+        public static void AssertReadinessBarrier(string raw, int expectedPairs) {
+            if(expectedPairs<1 || expectedPairs>2 || String.IsNullOrEmpty(raw) || Encoding.UTF8.GetByteCount(raw)>MaximumReadinessResponseBytes) throw new InvalidDataException("Readiness barrier bound differs");
+            var serializer=new JavaScriptSerializer { MaxJsonLength=MaximumReadinessResponseBytes, RecursionLimit=6 };
+            var root=serializer.DeserializeObject(raw) as Dictionary<string,object>; object resultValue;
+            if(root==null || root.Count!=1 || !root.TryGetValue("result",out resultValue)) throw new InvalidDataException("Readiness barrier root differs");
+            var result=resultValue as Dictionary<string,object>; object typeValue,valueValue,descriptionValue;
+            if(result==null || (result.Count!=2 && result.Count!=3) || !result.TryGetValue("type",out typeValue) || !(typeValue is string) || (string)typeValue!="object" || !result.TryGetValue("value",out valueValue)) throw new InvalidDataException("Readiness barrier result differs");
+            if(result.Count==3 && (!result.TryGetValue("description",out descriptionValue) || !(descriptionValue is string) || (string)descriptionValue!="Object")) throw new InvalidDataException("Readiness barrier description differs");
+            var value=valueValue as Dictionary<string,object>; object downValue,upValue,pressValue,repeatValue,sequenceValue,trustedValue;
+            if(value==null || value.Count!=6 || !value.TryGetValue("d",out downValue) || !value.TryGetValue("u",out upValue) || !value.TryGetValue("p",out pressValue) || !value.TryGetValue("r",out repeatValue) || !value.TryGetValue("s",out sequenceValue) || !value.TryGetValue("t",out trustedValue)) throw new InvalidDataException("Readiness barrier value differs");
+            if(!(downValue is int) || (int)downValue!=expectedPairs || !(upValue is int) || (int)upValue!=expectedPairs || !(pressValue is int) || (int)pressValue!=0 || !(repeatValue is int) || (int)repeatValue!=0) throw new InvalidDataException("Readiness barrier count differs");
+            string sequence=expectedPairs==1?"DU":"DUDU";
+            if(!(sequenceValue is string) || (string)sequenceValue!=sequence || !(trustedValue is bool) || !(bool)trustedValue) throw new InvalidDataException("Readiness barrier sequence differs");
         }
         public sealed class EvidenceBudget {
             int total;

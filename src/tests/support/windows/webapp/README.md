@@ -1,11 +1,12 @@
 # CS-3 WebView2 diagnostic source
 
-Local Hyper-V staging variant (not yet qualified): based on commit
-`9a27a2cf6cc4fa690a5d05b330ca0df146cc5031`, now pins the guest's observed
-WebView2 `153.0.4234.48` executable SHA256
-`65afdc3965a6d1c4ccd5b47801fec8a16db15613d35c8e3a6d1fb6c0da970eea`.
-The earlier SDK's package version was not recorded, so this new diagnostic uses
-the explicitly versioned Microsoft.Web.WebView2 NuGet package `1.0.4191.47`,
+Current-host continuation variant (not yet qualified): based on the retained
+isolated-worker source merged in PR #198, now pins this host's observed WebView2
+`154.0.4258.37` executable SHA256
+`3f48b1ab9a5d5e65a96307b6655e29882bd70bb682ce4b67a9e7a7f07f61019d`.
+The unavailable worker's receipts remain historical evidence in the native DOM
+checkpoint. This fresh diagnostic uses the same explicitly versioned
+Microsoft.Web.WebView2 NuGet package `1.0.4191.47`,
 package SHA256 `f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0`.
 Core (`lib/net462`) SHA256 is
 `e6f54c8ce208e3797c427d01ad671b47cb25abc85604753d6ec2546d0ffef550`;
@@ -74,16 +75,17 @@ by the parent. Native forward focus is not a claim of CDP Tab input. The retaine
 records the successful and unsuccessful timing controls and remains unchanged.
 
 The current source-bound build is a fresh full-DOM diagnostic. After each fixed
-100-ms pre-dispatch settle window it sends one exact F24 down/up pair, which the
-fixture intercepts and suppresses before ordinary form accounting. Exact trusted
-down-then-up evidence, zero F24 keypress/repeat evidence, unchanged form state and
-unchanged ordinary counters are required before the corresponding Enter. Missing,
-partial, reordered, late or extra F24 evidence fails the run; the sentinel, Enter
+100-ms pre-dispatch settle window it sends one exact left-Shift down/up pair,
+which the fixture intercepts and suppresses before ordinary form accounting. An
+awaited, read-only zero-delay renderer turn must then report exact trusted
+down-then-up evidence, zero Shift keypress/repeat evidence, unchanged form state
+and unchanged ordinary counters before the corresponding Enter. Missing,
+partial, reordered, late or extra Shift evidence fails the run; the sentinel, Enter
 and literal Ada insertion are never retried. The first Enter must produce the
 invalid form state; an ordered `filled` document retains Ada and the second
 sentinel before the next Enter; the second Enter must produce `Saved Ada.`; and
 the existing full accessibility and denied-origin oracles remain unchanged. The
-F24 observation proves only that this synthetic key reached the renderer at that
+Shift observation proves only that this synthetic key reached the renderer at that
 moment; the settle window is not promoted to a general WebView2 readiness
 guarantee. See the
 [checkpoint](../../../../../docs/development/cs3-native-dom-checkpoint.md).

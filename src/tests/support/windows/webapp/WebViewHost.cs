@@ -361,6 +361,12 @@ namespace Vcp.Cs3WebViewDraft {
             phase="input_readiness_sentinel";
             await DevTools("Input.dispatchKeyEvent",HostProbeContract.ReadinessDownParameters);
             await DevTools("Input.dispatchKeyEvent",HostProbeContract.ReadinessUpParameters);
+            // The current Evergreen runtime can complete dispatch before the
+            // page's key handlers are observable through ExecuteScriptAsync.
+            // One awaited zero-delay renderer turn is a read-only barrier. It
+            // never retries Shift or the following form action, and the command
+            // contract rejects missing, late, repeated or untrusted evidence.
+            await DevTools("Runtime.evaluate",HostProbeContract.ReadinessBarrierParameters);
         }
         static Task<string> Snapshot() {
             const string script = "(() => { const n=document.getElementById('name'),e=document.getElementById('name-error'),s=document.getElementById('status'),a=document.activeElement,p=window.__cs3InputEvidence||{}; return {url:location.href,readyState:document.readyState,title:document.title,name:n.labels[0].textContent,value:n.value,required:n.required,error:e.textContent,status:s.textContent,active:a&&a.id?a.id:(a?a.tagName:''),scriptReady:p.scriptReady===true,keyDowns:Number.isInteger(p.keyDowns)?p.keyDowns:-1,keyPresses:Number.isInteger(p.keyPresses)?p.keyPresses:-1,keyUps:Number.isInteger(p.keyUps)?p.keyUps:-1,submits:Number.isInteger(p.submits)?p.submits:-1,lastKey:typeof p.lastKey==='string'?p.lastKey:'',trustedKeys:p.trustedKeys===true,readinessDowns:Number.isInteger(p.readinessDowns)?p.readinessDowns:-1,readinessKeyPresses:Number.isInteger(p.readinessKeyPresses)?p.readinessKeyPresses:-1,readinessUps:Number.isInteger(p.readinessUps)?p.readinessUps:-1,readinessRepeats:Number.isInteger(p.readinessRepeats)?p.readinessRepeats:-1,readinessSequence:typeof p.readinessSequence==='string'?p.readinessSequence:'',readinessTrusted:p.readinessTrusted===true}; })()";

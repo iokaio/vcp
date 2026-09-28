@@ -41,8 +41,9 @@ for ($ancestor=[IO.Path]::GetDirectoryName($output); $ancestor -and $ancestor.St
 }
 if (Test-Path -LiteralPath $output) { throw 'Refuse to reuse an existing build or run directory' }
 $deps=@(
-    # Fresh Hyper-V diagnostic: Microsoft.Web.WebView2 NuGet 1.0.4191.47,
-    # lib/net462 Core and build/native/x64 loader. Not the earlier host SDK.
+    # Current-host continuation: Microsoft.Web.WebView2 NuGet 1.0.4191.47,
+    # lib/net462 Core and build/native/x64 loader. The package bytes are the
+    # same reviewed inputs used by the retained isolated-worker diagnostic.
     @{source=$CoreAssembly;name='Microsoft.Web.WebView2.Core.dll';sha256='e6f54c8ce208e3797c427d01ad671b47cb25abc85604753d6ec2546d0ffef550'},
     @{source=$Loader;name='WebView2Loader.dll';sha256='c66e4a92fdc7a216118e43b7a5024ea2200e8c43f9310bf20d96a0084f82c5bc'}
 )
@@ -108,8 +109,8 @@ $buildOutputs=@('WebViewHost.exe','HostContractTests.exe','WebDomContractTests.e
     [ordered]@{path=$_;bytes=(Get-Item -LiteralPath $file).Length;sha256=(Hash $file)}
 }
 $manifest=[ordered]@{
-    schema='cs3-webview2-inputs/1';probe_kind='full-dom-f24-production-profile';input_host='message-only-hidden';readiness_key='F24';readiness_windows_virtual_key_code=135;readiness_pairs_per_gate=1;pre_sentinel_settle_milliseconds=100;enter_retries=0;text_insertion_retries=0;runtime='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\153.0.4234.48';version='153.0.4234.48'
-    runtime_executable_sha256='65afdc3965a6d1c4ccd5b47801fec8a16db15613d35c8e3a6d1fb6c0da970eea'
+    schema='cs3-webview2-inputs/1';probe_kind='full-dom-shift-readiness-production-profile';input_host='message-only-hidden';readiness_key='Shift';readiness_code='ShiftLeft';readiness_windows_virtual_key_code=16;readiness_pairs_per_gate=1;readiness_barrier='one awaited zero-delay Runtime.evaluate turn';pre_sentinel_settle_milliseconds=100;enter_retries=0;text_insertion_retries=0;runtime='C:\Program Files (x86)\Microsoft\EdgeWebView\Application\154.0.4258.37';version='154.0.4258.37'
+    runtime_executable_sha256='3f48b1ab9a5d5e65a96307b6655e29882bd70bb682ce4b67a9e7a7f07f61019d'
     sdk_package='Microsoft.Web.WebView2';sdk_version='1.0.4191.47';sdk_package_sha256='f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0'
     browser_argument='';host=@($hostFiles);build_outputs=@($buildOutputs);sources=$sources;external_dependencies=@($deps | ForEach-Object { [ordered]@{path=$_.name;sha256=$_.sha256} });toolchain=$toolchain
     builder_sha256=$builderSha256;builder_powershell=$PSVersionTable.PSVersion.ToString();builder_architecture=[Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()

@@ -1,4 +1,4 @@
-I propose keeping the [five-phase plan](/D:/code/Github/vcp/docs/development/cs3-implementation-phases.md), with explicit exit gates. The next milestone should be **reliable browser execution**, not another isolated successful diagnostic.
+I propose keeping the [five-phase plan](../development/cs3-implementation-phases.md), with explicit exit gates. The next milestone should be **reliable browser execution**, not another isolated successful diagnostic.
 
 ### 1. Finish browser readiness and boundary qualification
 
@@ -37,7 +37,7 @@ Regrade retained CS-2 UI artifacts without modifying their historical bytes or o
 
 Candidate corrections and offline preparation can run alongside browser work. Prioritize the documented document-authoring and MCP defects; avoid gratuitous rewrites elsewhere.
 
-Then freeze fresh tasks, candidate versions, baselines and independent grading. The current contract requires **108 model task runs**, plus separately specified review allowances. This needs a new, explicit dollar/request budget. [Comparison requirements](/D:/code/Github/vcp/docs/development/cs3-six-skill-readiness.md:52)
+Then freeze fresh tasks, candidate versions, baselines and independent grading. The current contract requires **108 model task runs**, plus separately specified review allowances. This needs a new, explicit dollar/request budget. [Comparison requirements](../development/cs3-six-skill-readiness.md#comparison-gate)
 
 **Exit:** all six satisfy correctness and comparative-benefit requirements. Ties or failures cannot be relabeled complete.
 

@@ -49,17 +49,19 @@ descriptor/content integrity, negative selection, baseline selection and
 preservation checks. Browser feasibility, the frontend regrade and WEB oracle
 controls must have exact receipts. None of those checks needs model spending.
 
-The isolated Windows work now has exact production-profile synthetic DOM and
-owned-server evidence recorded in the
-[native DOM checkpoint](cs3-native-dom-checkpoint.md). The browser ran without
-additional browser arguments and produced deterministic interaction,
-accessibility and denied-origin receipts; the bounded server independently
-passed all ten Windows lifecycle and adversarial contract tests with every guest
-network adapter disconnected. These are prerequisite controls, not full browser
-qualification: the zero-network-capability browser has not been joined to the
-owned server, and the browser cancellation, pause, owner-loss, adversarial
-network/filesystem and WEB-cohort matrices remain open. The retained frontend
-artifacts have not been regraded through that interface.
+The Windows work now has exact production-profile synthetic DOM and owned-server
+evidence recorded in the [native DOM checkpoint](cs3-native-dom-checkpoint.md).
+The browser ran without additional browser arguments and produced deterministic
+interaction, accessibility and denied-origin receipts in the isolated worker.
+After that worker became unavailable, the same seven-document oracle completed
+twice on fresh current-host profiles under WebView2 `154.0.4258.37`, with an
+intercepted Shift readiness sentinel and exact 8/8 process coverage. The bounded
+server independently passed all ten Windows lifecycle and adversarial contract
+tests with every guest network adapter disconnected. These are prerequisite
+controls, not full browser qualification: the zero-network-capability browser
+has not been joined to the owned server, and the browser cancellation, pause,
+owner-loss, adversarial network/filesystem and WEB-cohort matrices remain open.
+The retained frontend artifacts have not been regraded through that interface.
 
 ## Comparison gate
 

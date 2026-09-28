@@ -69,7 +69,7 @@ namespace Vcp.Qualification.Webapp
             "  const status = document.getElementById('status');\n" +
             "  const evidence = window.__cs3InputEvidence = {scriptReady:false,keyDowns:0,keyPresses:0,keyUps:0,submits:0,lastKey:'',trustedKeys:true,readinessDowns:0,readinessKeyPresses:0,readinessUps:0,readinessRepeats:0,readinessSequence:'',readinessTrusted:true};\n" +
             "  const readiness = (field, event) => {\n" +
-            "    if (event.key !== 'F24' || event.code !== 'F24') return false;\n" +
+            "    if (event.key !== 'Shift' || event.code !== 'ShiftLeft') return false;\n" +
             "    if (field === 'keyDowns') evidence.readinessDowns = Math.min(16, evidence.readinessDowns + 1);\n" +
             "    else if (field === 'keyPresses') evidence.readinessKeyPresses = Math.min(16, evidence.readinessKeyPresses + 1);\n" +
             "    else if (field === 'keyUps') evidence.readinessUps = Math.min(16, evidence.readinessUps + 1);\n" +

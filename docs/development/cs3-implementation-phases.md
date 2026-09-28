@@ -1,8 +1,9 @@
 # CS-3 implementation phases
 
-Status: in progress; production-profile synthetic DOM evidence complete in the
-isolated Hyper-V worker, but owned-server/adversarial browser qualification and
-six-skill acceptance remain open.
+Status: in progress; production-profile synthetic DOM evidence is repeatable on
+the current Windows host and was also completed on the now-unavailable isolated
+Hyper-V worker. Owned-server/adversarial browser qualification and six-skill
+acceptance remain open.
 Contract: [plan 24, CS-3](../plan/24-skills-follow-on.md#cs-3--browser-execution-and-six-skill-acceptance).
 
 On September 26, 2026 the owner authorized implementation of the full CS-3
@@ -24,6 +25,15 @@ process coverage and clean independent drainage. The final attempt used no
 additional browser arguments. It remains synthetic in-memory browser evidence:
 adversarial boundary checks, the owned-server join and the paid comparison gate
 below are unchanged.
+
+After that worker became unavailable following a storage failure, a fresh
+current-host variant pinned installed WebView2 `154.0.4258.37`. F24 was not
+delivered on that runtime even after an awaited renderer turn, so the retained
+failed attempts were not replayed. An intercepted left-Shift down/up sentinel,
+checked through one read-only renderer-turn barrier before either one-shot Enter,
+then completed the same seven-document oracle twice on fresh profiles. Both runs
+verified 8/8 job identities and clean drainage. This establishes a viable local
+continuation route, not the remaining browser/server or adversarial gates.
 
 ## Phase 1 — Prove the proposed Windows boundary
 
