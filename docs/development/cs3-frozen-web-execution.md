@@ -115,9 +115,9 @@ collector-sourced identities. The six-case projection at
 `2c072b53165cf3289f7436d0b2745fd5c6b421e66ef8b69af8b0dc3c67da0e8c`.
 No provider calls or visual-review claims are attached to this checkpoint.
 
-## Current source-22 lifecycle checkpoint
+## Source-22 lifecycle checkpoint
 
-The final source closure adds exact owned-receipt atomic replacement checks and
+This source closure adds exact owned-receipt atomic replacement checks and
 bounded retry for access/sharing conflicts. Every attempt revalidates source and
 destination bytes; no permission, sharing or native deadline is relaxed. It uses
 ordinary buffered persistence, not a power-loss durability guarantee. An earlier
@@ -141,5 +141,6 @@ cleanup errors. Full WEB execution retains all eight documents, ten resource
 relays, exact 9/9 process coverage and independent job-zero acknowledgement. The
 six-case aggregate `artifacts/cs3-frozen-web-22/web-oracles.json` passes, SHA-256
 `99621fcaeacd3c261e8f6c894b9ece46cd58d40a2db088b196d840159eff0275`.
-The comparison gate independently joins its exact current 23-source closure and
-all six case projections. Provider calls remain zero.
+The comparison gate independently joined that exact 23-source closure and all
+six case projections. Provider calls remain zero. Later source changes require
+new lifecycle and projection evidence; this checkpoint is not reassigned to them.

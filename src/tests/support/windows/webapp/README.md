@@ -120,6 +120,13 @@ the staged script's bounded `reconcile` mode
 and an exact retained receipt; follow its fail-closed instructions rather than
 deleting an unresolved profile.
 
+Live receipts checkpoint ownership and lifecycle intent, not every ordinary
+event. The controller retains the bounded event stream in memory and saves it
+with cleanup intent and the final receipt. Independent job-zero observation
+precedes the drain acknowledgement without a disk write between them. Abrupt
+owner loss can leave incomplete event history; recovery is not normal acceptance
+and neither the journal nor the receipt claims power-loss durability.
+
 The fixed Evergreen runtime is serviced in place. Exact launch-time and
 before/after hashes and inventories do not prove continuous runtime immutability.
 `--edge-webview-no-dpi-workaround` is a development diagnostic for the documented

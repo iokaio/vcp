@@ -27,6 +27,18 @@ The initial full fast-suite attempt is retained at
 It was not green. Targeted reruns preserve the failed attempts rather than
 rewriting them or claiming a later complete-suite run.
 
+The first committed draft, `dba1dfdc`, subsequently passed the complete Linux
+"Repository and harness" CI job, including the SDK/editor tests, registered fast
+suite and imported-source verification:
+[workflow run 36468972991](https://github.com/iokaio/vcp/actions/runs/36468972991).
+The two opt-in Windows workflow jobs were skipped by their existing event
+conditions; the local native receipts remain separate evidence, not claims that
+those skipped jobs ran. Later source changes require their own CI result.
+The downloaded fast-suite manifest retains 23/23 registered cases passing under
+the PR's synthetic merge commit `e43bbafccc6d91abafc8395c362ebc999dedc828`:
+`artifacts/cs3-ci-36468972991/f4992ba7-ee00-47dc-9009-872f8372ce7f/manifest.json`,
+SHA-256 `012f4e11ade352a3032a2e447edc9cd7aea9dc4a1bd612115af63e3f5a4e3f7b`.
+
 | Check | Retained result |
 |---|---|
 | CS-2 developer | 83/83 passed; `artifacts/cs3-reviewed-developer-check/4fb3b649-ca5b-4693-844c-c0a897849f8c/manifest.json` |
@@ -55,6 +67,20 @@ and persistent-lock failure with the original exception and unchanged files:
 `artifacts/cs3-receipt-replacement-native-e98e0452eebb402b99c641ba59d8c347/result.json`,
 SHA-256 `5d3af8401c0bc8b2b38c0a20fe7b4a4b83d3d14de89b28f1d5abf32dfbb497d3`.
 Buffered flush on close precedes replacement; power-loss durability is not claimed.
+
+A later idle native control exposed receipt-write backpressure: UI assertions
+and 9/9 process coverage completed, but the unchanged 15-second drain ACK deadline
+expired. A read-only replay of its 157 events measured 157 full serializations,
+82,673,965 cumulative bytes and 4,647 milliseconds before filesystem overhead.
+The controller now checkpoints ownership immediately after registration and before
+resume, retains all prelaunch/pause/cleanup intent writes, and saves the complete
+bounded event stream during cleanup. It sends ACK immediately after independent
+job-zero observation, without an intervening disk write. The same replay needs
+ten ownership serializations, 5,030,722 bytes and 342 milliseconds. Both independent
+reviews and 46 pure protocol/policy checks pass; final native evidence must bind
+this newer source. Startup and ACK deadlines were not increased. An abrupt crash
+can lose ordinary events since the last checkpoint; such partial receipts cannot
+qualify normal execution and remain eligible only for exact owner-loss recovery.
 
 ## External prerequisite
 

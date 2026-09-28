@@ -225,6 +225,11 @@ try {
         $value.events += $event
         if ($event.type -in @('created_suspended','owned_process')) {
             $null = Register-OwnedProcess $owned $event
+            # Persist ownership before resume and retain the owner-loss cut
+            # point. Ordinary host/chunk events stay in the bounded in-memory
+            # stream until cleanup; rewriting the runtime inventory for each
+            # chunk can backpressure the worker's fixed startup/drain clocks.
+            JsonWrite $receiptPath $value
         }
         if ($event.type -eq 'created_suspended') {
             if ($PauseBeforeResumeMilliseconds -gt 0) {
@@ -244,11 +249,12 @@ try {
             $independentEmpty=[Vcp.Cs3Draft.NativeProbe]::WaitForEmpty($port)
             if (-not $independentEmpty) { throw 'No independent job-zero notification before acknowledgement' }
             $value.events += [ordered]@{type='controller_job_zero_observed';sole_job_handle_still_owned_by_worker=$true}
-            JsonWrite $receiptPath $value
+            # The independent zero observation authorizes this acknowledgement,
+            # not a disk write. Cleanup intent and the final receipt persist the
+            # complete bounded event stream after the live handshake finishes.
             $worker.StandardInput.WriteLine('DRAINED'); $worker.StandardInput.Flush()
         }
         if ($event.type -eq 'job_empty') { $jobEmpty=$true }
-        JsonWrite $receiptPath $value
         $line = [Vcp.Cs3Draft.NativeProbe]::ReadBounded($worker.StandardOutput.BaseStream,16384,$true)
     }
     if (-not $worker.WaitForExit(10000)) { throw 'Worker exit deadline' }

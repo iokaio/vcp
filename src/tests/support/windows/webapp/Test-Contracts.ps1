@@ -7,6 +7,21 @@ $ErrorActionPreference='Stop'
 $script:checks=0
 function Check([bool]$Value) { if (-not $Value) { throw 'Pure PowerShell assertion failed' }; $script:checks++ }
 function Reject([scriptblock]$Action) { $failed=$false; try { & $Action } catch { $failed=$true }; Check $failed }
+# Parse the real controller without invoking it. Pin the live protocol ordering:
+# ownership is checkpointed, ordinary stream events do not rewrite the receipt,
+# and independent job-zero observation precedes ACK without intervening disk I/O.
+$tokens=$null;$parseErrors=$null
+$controller=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Invoke-NativeProbe.ps1'),[ref]$tokens,[ref]$parseErrors)
+Check ($parseErrors.Count -eq 0)
+$eventLoop=$controller.Find({param($node) $node -is [Management.Automation.Language.WhileStatementAst] -and $node.Condition.Extent.Text.Contains('$worker.HasExited')},$true)
+$writes=@($eventLoop.Body.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'JsonWrite'},$true))
+Check ($writes.Count -eq 2)
+$ownership=@($eventLoop.Body.Statements|Where-Object {$_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text.Contains('Register-OwnedProcess $owned $event')})
+Check ($ownership.Count -eq 1 -and $ownership[0].Extent.Text.Contains('JsonWrite $receiptPath $value'))
+$ack=@($eventLoop.Body.Statements|Where-Object {$_ -is [Management.Automation.Language.IfStatementAst] -and $_.Extent.Text.Contains('Duplicate job drain handshake')})
+$ackText=$ack[0].Extent.Text
+$zeroAt=$ackText.IndexOf('::WaitForEmpty($port)');$sendAt=$ackText.IndexOf("WriteLine('DRAINED')")
+Check ($ack.Count -eq 1 -and -not $ackText.Contains('JsonWrite') -and $zeroAt -ge 0 -and $sendAt -gt $zeroAt -and $ackText.Contains("if (-not `$independentEmpty) { throw"))
 Assert-NoPolicyValueNames @('another-app.exe'); Check $true
 foreach ($name in @('iokaio.vcp.cs3.webview2.probe','webviewhost.EXE','*')) { Reject { Assert-NoPolicyValueNames @($name) } }
 Assert-NoWritableRuntimeRule 'S-1-15-2-1' ([int][Security.AccessControl.FileSystemRights]::ReadAndExecute) 'Allow'; Check $true
