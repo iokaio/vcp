@@ -1,0 +1,21 @@
+{
+  "schema": "cs3-prospective-ui-acceptance-decision/1",
+  "decision_id": "CS3-owner-prospective-ui-replacement-2026-09-28",
+  "authority": "owner_explicit_approval_of_prospective_replacement",
+  "historical_ui_regrade": "not_run_originals_unavailable",
+  "historical_results": "preserved_without_regrade_or_promotion",
+  "superseded_admission_gate": "ui_regrade",
+  "replacement_admission_gate": "ui_qualification",
+  "qualification_sha256": "818074b97799d7d1bf52852dc16ba704de49f6f7f763924b3b6d909d7fc25163",
+  "replacement_evaluation": {
+    "cohort": "cohort.cjs",
+    "skill": "frontend-design",
+    "cases": 6,
+    "arms_per_case": 3,
+    "normal_artifacts": "exact_returned_html_native_browser_graded",
+    "hard_gates": "unchanged",
+    "independent_readers": 2,
+    "benefit_requirement": "both_readers_over_both_baselines_on_same_normal_task"
+  },
+  "budget_accounting_secrets_and_no_replay": "unchanged"
+}

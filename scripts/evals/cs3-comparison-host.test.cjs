@@ -34,7 +34,7 @@ function syntheticHost(gitDirectory, directory = __dirname) {
   }
   return { campaign: load('cs3-comparison.cjs'), review: load('cs3-comparison-review.cjs') };
 }
-function fixture(t) {
+function fixture(t, expiryOffset = 86400000) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-cs3-host-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const gitDirectory = path.join(directory, 'git-common'); fs.mkdirSync(gitDirectory);
@@ -48,14 +48,18 @@ function fixture(t) {
   fs.cpSync(path.join(repository, 'src/skills/builtin'), path.join(directory, 'skills/builtin'), { recursive: true });
   const executable = ref('vcp.exe', Buffer.concat([Buffer.from('synthetic never-executed CLI\n'), fs.readFileSync(path.join(directory, 'skills/builtin/catalog.json'))]));
   const catalog = ref('catalog.json', '{}'), node = ref('node.exe', 'synthetic never-executed node');
-  const future = String(Date.now() + 86400000);
+  const future = String(Date.now() + expiryOffset);
   const profile = ref('profile.json', { version: 1, trust_workspace: true, workspace: directory, maximum_autonomy: 'plan', automatic_effects: [], catalog: catalog.path,
     max_requests: 16, max_transport_retries: 0, output_tokens: '2048', deadline_seconds: 600,
     provider: { raw_sha256: catalog.sha256, observed_at: String(Date.now()), max_input: '1000', max_output: '2048', valid_until: future,
       compatibility: { byte_ceiling_qualified: false, responses_text_tools: true, provider_preferences_qualified: true, valid_until: future, model: 'deepseek/deepseek-v3.2', endpoint: 'gmicloud/fp8' },
       price: { currency: 'USD', valid_until: future, rates: Object.fromEntries(['input', 'output', 'cache_read', 'cache_write', 'request', 'provider_tool'].map(category => [category, { micros: category === 'request' ? '1' : '0', per_units: '1' }])) } } });
-  const build_receipt = ref('build.json', { executable_sha256: executable.sha256, source_inputs_unchanged: true });
-  const gates = Object.fromEntries(['browser_boundary', 'web_oracles', 'ui_regrade', 'node_fixture'].map(name => [name, ref(name + '.json', { status: 'passed', model_calls: 0 })]));
+  const build_receipt = ref('build.json', { schema: 'cs3-comparison-build/1', status: 'passed', exit_code: 0,
+    executable_sha256: executable.sha256, expected_executable_sha256: executable.sha256, executable: executable.path,
+    source_inputs_unchanged: true, toolchain_unchanged: true, expected_executable_matches: true, qualification_build: true,
+    production_release: false, provider_calls: 0, tests_executed: 0, builder_sha256: sha(fs.readFileSync(path.join(sourceRoot, 'scripts/evals/cs3-comparison-build.ps1'))),
+    target_directory: directory, compiler_artifact: { reason: 'compiler-artifact', target: { name: 'vcp' }, profile: { test: false }, features: ['qualification'], executable: path.join(directory, 'debug/vcp.exe') } });
+  const gates = Object.fromEntries(['browser_boundary', 'web_oracles', 'ui_qualification', 'node_fixture'].map(name => [name, ref(name + '.json', { status: 'passed', model_calls: 0 })]));
   const web_evidence = require('./fixtures/webapp/manifest.json').cases.map(task => ({ case_id: task.id, ...ref(task.id + '.json', { case_id: task.id, status: task.kind === 'missing' ? 'expected_not_run' : task.kind === 'near_miss' ? 'bug_detected' : 'passed' }) }));
   const spec = ref('spec.json', { executable, catalog, node, profile, build_receipt, gates, web_evidence });
   const prepared = host.campaign.prepare(spec.path, path.join(directory, 'campaign')), plan = json(prepared.plan);
@@ -152,6 +156,15 @@ test('unknown canonical charge halts before another paid slot and cannot replay'
   assert(fs.existsSync(path.join(f.plan.directory, 'claims', result.runs[0].id + '.json')));
   await assert.rejects(f.host.campaign.run(f.prepared.plan, f.prepared.sha256, 'document-authoring', fake.cli), /halted/);
   assert.equal(fake.calls.length, 1);
+});
+
+test('short qualification window denies block before durable claim or dispatch', async t => {
+  const f = fixture(t, 3600000), fake = fakeCli(f.plan);
+  await assert.rejects(f.host.campaign.run(f.prepared.plan, f.prepared.sha256, 'document-authoring', fake.cli), /qualification window/);
+  assert.equal(fake.calls.length, 0);
+  assert.deepEqual(fs.readdirSync(path.join(f.plan.directory, 'claims')), []);
+  assert.equal(fs.existsSync(path.join(f.plan.directory, 'active-block.json')), false);
+  assert.equal(fs.existsSync(path.join(f.plan.directory, 'halt.json')), false);
 });
 test('wrong canonical skill context halts with settled cost preserved', async t => {
   const f = fixture(t), fake = fakeCli(f.plan, { contextAt: 1 });

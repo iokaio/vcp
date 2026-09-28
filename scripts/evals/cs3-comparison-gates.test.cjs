@@ -54,9 +54,9 @@ test('native Node controls require all exact positive assertions and rejected mu
     const bad = structuredClone(receipt); mutate(bad); assert.throws(() => gates.nodeControls(bad, node));
   }
 });
-function isolatedWeb(adapter, retained) {
+function isolatedWeb(adapter, retained, decision) {
   const filename = require.resolve('./cs3-comparison-gates.cjs'), actual = createRequire(filename), module = { exports: {} };
-  const scopedRequire = name => name === './webapp-execution.cjs' ? adapter : name === './cs3-retained-ui-import.cjs' && retained ? retained : actual(name);
+  const scopedRequire = name => name === './webapp-execution.cjs' ? adapter : name === './cs3-retained-ui-import.cjs' && retained ? retained : name.endsWith('/acceptance-decision.json') && decision ? decision : actual(name);
   new Function('exports', 'require', 'module', '__filename', '__dirname', fs.readFileSync(filename, 'utf8'))(module.exports, scopedRequire, module, filename, path.dirname(filename));
   return module.exports;
 }
@@ -94,7 +94,46 @@ test('generic prerequisite summaries cannot satisfy raw evidence schemas', () =>
   assert.throws(() => gates.denial(summary, {}, {}), /native denial/);
   assert.throws(() => gates.nodeControls(summary, {}), /native Node/);
   assert.throws(() => gates.web(summary, {}, []), /raw execution/);
+  assert.throws(() => gates.uiQualification(summary, {}), /matrix identity/);
   assert.throws(() => gates.retainedUi(summary, {}), /Historical retained UI regrade validator is unavailable/);
   assert.throws(() => gates.retainedUi({ schema: 'cs3-retained-ui-import/1', status: 'prepared' }, {}), /unavailable/);
   assert.throws(() => gates.retainedUi({ schema: 'cs3-ui-artifact-browser/1', status: 'passed' }, {}), /unavailable/);
+});
+
+test('prospective UI admission authenticates approved exact controls and every native artifact/vector', t => {
+  const { ref } = temporary(t), ui = require('./cs3-ui-artifact.cjs'), controls = require('./cs3-ui-controls.cjs');
+  const decision = structuredClone(require('../../src/evals/skills/cs3-comparison/acceptance-decision.json'));
+  const receipt = { schema: 'cs3-ui-control-qualification/1', status: 'passed', model_calls: 0, visual_review: 'not_run',
+    operating_condition: 'serial native execution; no concurrent compiler/test workload', positive_controls: 6, negative_controls: 17,
+    source_closure_sha256: sha(JSON.stringify(ui.sourceNames.map(name => ({ path: name, sha256: hashFile('src/tests/support/windows/webapp/' + name) })))),
+    controls: ui.cases.flatMap(case_id => controls.variants(case_id).map(variant => {
+      const files = controls.artifact(case_id, variant), failed = gates.uiFailures(case_id, variant);
+      const documents = variant === 'transparent' ? 2 : case_id === ui.cases[0] ? 10 : 9;
+      const assertions = ui.assertions(case_id).map(name => ({ name, passed: !failed.includes(name) }));
+      const coverage = [{ type: 'job_process_coverage', complete: true, total_processes: 9, verified_identities: 9 }];
+      return { case_id, variant, documents, expected_failed_assertions: failed, coverage, collector_diagnostics: [], receipt: {
+        case_id, artifact_sha256: sha(JSON.stringify(files, null, 2) + '\n'), status: failed.length ? 'failed' : 'passed', assertions,
+        native_receipt: ref(case_id + '-' + variant + '.json', { synthetic_test_only: variant, case_id, events: [...coverage, { type: 'ui_artifact_observed', documents }] }) } };
+    })) };
+  let calls = 0;
+  const scoped = isolatedWeb({ validateUiArtifact(row, files, caseId) { calls++; assert.equal(row.case_id, caseId); assert.equal(typeof files['index.html'], 'string'); return row; } }, null, decision);
+  const authenticate = value => {
+    const reference = ref('matrix.json', value); decision.qualification_sha256 = reference.sha256;
+    return scoped.uiQualification(value, reference);
+  };
+  const result = authenticate(receipt);
+  assert.equal(result.controls, 23); assert.equal(calls, 23); assert.equal(result.historical_ui_regrade, 'not_run_originals_unavailable');
+  const reference = ref('matrix.json', receipt); decision.qualification_sha256 = reference.sha256;
+  assert.throws(() => gates.uiQualification(receipt, reference), /matrix identity/); // Real fixed approval never trusts synthetic controls.
+  assert.throws(() => scoped.uiQualification({ ...receipt, status: 'failed' }, reference), /matrix identity/);
+  for (const mutate of [r => { r.controls.pop(); }, r => { r.controls[1] = r.controls[0]; }, r => { r.source_closure_sha256 = '0'.repeat(64); },
+    r => { r.controls[0].receipt.artifact_sha256 = '0'.repeat(64); }, r => { r.controls[1].expected_failed_assertions = []; },
+    r => { r.controls[1].receipt.assertions[8].passed = true; }, r => { r.controls[0].coverage = []; }, r => { r.controls[0].documents = 1; },
+    r => { r.controls[1].receipt.native_receipt = r.controls[0].receipt.native_receipt; }]) {
+    const changed = structuredClone(receipt); mutate(changed); assert.throws(() => authenticate(changed));
+  }
+  const realValidator = isolatedWeb(require('./webapp-execution.cjs'), null, decision);
+  const syntheticRef = ref('matrix.json', receipt); decision.qualification_sha256 = syntheticRef.sha256;
+  assert.throws(() => realValidator.uiQualification(receipt, syntheticRef), /observed UI browser receipt/);
+  assert.throws(() => isolatedWeb({}, null, decision).uiQualification(receipt, syntheticRef), /validator unavailable/);
 });

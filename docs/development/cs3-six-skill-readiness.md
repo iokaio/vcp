@@ -51,8 +51,15 @@ success; a testable candidate has not thereby demonstrated benefit.
 
 Before paid preparation, all six exact candidate versions must also pass offline
 descriptor/content integrity, negative selection, baseline selection and
-preservation checks. Browser feasibility, the frontend regrade and WEB oracle
-controls must have exact receipts. None of those checks needs model spending.
+preservation checks. Browser feasibility and WEB oracle controls require exact
+receipts. The original prerequisite also required the historical frontend
+regrade; the owner's subsequent explicit prospective-replacement approval
+supersedes that admission dependency only, as recorded in
+[`acceptance-decision.json`](../../src/evals/skills/cs3-comparison/acceptance-decision.json).
+The replacement `ui_qualification` authenticates the existing 23 native UI
+controls; the six fresh UI cases and eighteen arms provide the replacement
+evaluation. Historical regrading remains not run. None of the prerequisite
+controls needs model spending.
 
 The Windows work now has exact production-profile synthetic DOM and a repeatable
 joined owned-server/browser mediator recorded in the
@@ -221,7 +228,14 @@ or unresolved liability before the next slot. The review helper produces two
 independently shuffled opaque packets, requires all candidate hard gates and
 the same normal-task benefit over both baselines, and retains an unqualified
 disposition for ties, failures or disagreement. Preparation is still unpaid;
-the retained UI regrade and remaining exact prerequisite receipts gate dispatch.
+all four exact prerequisite receipts, including prospective UI qualification,
+gate dispatch under the source-pinned owner decision.
+
+Executable admission also requires a successful `cs3-comparison-build/1`
+receipt: zero exit status, unchanged source and toolchain, matching expected and
+staged executable hashes, current builder source, exact qualification compiler
+artifact, zero provider calls/tests, and no production-release claim. A failed
+builder cannot qualify using only its executable hash and source-stability flag.
 
 Raw prerequisite admission is schema-specific in `cs3-comparison-gates.cjs`.
 It reconstructs the three bracketed native denial runs (50 operations), exact
@@ -230,8 +244,9 @@ verifier sources and native/build hashes. Per-case WEB projections must match
 their authenticated aggregate rows exactly. The `web-project` command emits
 those projections only after raw validation. Generic `status: passed` summaries
 do not qualify. Preparation and every dispatch revalidate this evidence chain;
-the historical UI gate remains fail-closed while its regrade validator and
-missing artifacts are unavailable. Boundary receipt12 and Node controls03 passed
+the historical regrade remains explicitly `not_run_originals_unavailable`, not
+a manufactured passing receipt. Its former admission slot is replaced by the
+approved `ui_qualification` gate. Boundary receipt12 and Node controls03 passed
 the new read-only validators. Source-current WEB26 passed raw admission and
 generated all six exact case projections with zero model calls. Its aggregate
 SHA-256 is `a5bb97a72a07650d2682808de02d5f9fd71d445758167685652ab2ad6956dab5`,
@@ -275,9 +290,12 @@ rejects generic success flags and hash-bound empty native JSON even with the
 exact reviewed 23-source closure. The isolated missing-dependency test still
 proves fail-closed behavior; exporting a function does not waive prerequisites.
 Reader packets must include real browser grades before either reader judges the
-frontend block. Paid preparation remains blocked on historical UI recovery and
-regrading; neither these controls nor new artifacts replace missing historical
-generated outputs. Visual review remains separately `not_run`.
+frontend block. The owner-approved admission revision now authenticates the exact
+matrix hash, all 23 generated control HTML inventories and expected vectors,
+raw native/build receipts, lifecycle projections and the current source closure.
+Read-only admission of the real matrix passed all 23 controls with zero calls.
+This is qualification of the replacement evaluation, not recovery or regrading
+of historical generated outputs. Visual review remains separately `not_run`.
 
 The synthetic canonical-host integration suite exercises a complete eighteen-slot
 block with exact arm contexts and settled ledgers, ordinary malformed answers,
@@ -311,16 +329,34 @@ promotes a candidate or substitutes for package rollback and revocation acceptan
 Paid work is authorized only inside the USD 100 outer boundary and the narrower
 enumerated allocations above. Prospective candidate corrections/audits, untouched
 inputs and the comparison implementation are present. The remaining acceptance
-work is recovery and regrading of the historical generated UI artifacts, and
-the still-unrun six-skill campaign
-with both independent reader dispositions. Missing historical outputs cannot be
-replaced by new model artifacts or a prospective UI control. A bounded read-only
+work is the still-unrun six-skill campaign with both independent reader
+dispositions, including the owner-approved prospective frontend replacement.
+Historical generated UI outputs remain missing and their regrade remains not
+run; no new artifact is labeled as a recovered historical output. A bounded read-only
 scan of 75 eligible pre-September-28 VCP session records (200,555,848 bytes; no
 size skips) found no retained UI commitments, case output records or backup
-locators, so it did not change that recovery gate.
+locators. The owner explicitly accepted prospective evaluation after that
+recovery effort; the tracked decision changes admission, not historical facts.
 
 Preparation continues to say `model_calls: 0`. After prerequisites exist,
 execution must bind the exact plan hash, build/toolchain, one-shot claim and
 currently valid endpoint qualification before consuming a slot. A failed
 qualification, unknown charge or integrity/authority failure halts rather than
 drawing from the unallocated remainder.
+
+Before writing a block claim, the runner requires the earliest catalog,
+compatibility and price expiry to exceed the current time plus
+`18 × (deadline_seconds + 180) × 1000` milliseconds. This reserves enough
+qualification lifetime for the entire block's bounded CLI calls; every
+individual dispatch still checks expiry. It does not promise unlimited offline
+review time. Any refresh occurs before a new unopened plan is frozen, never by
+mutating an existing frozen profile or replaying its consumed slots.
+
+The selected prospective profile sets a 180-second task deadline, 60-second
+provider timeout, 2,048 output tokens and at most sixteen requests with no
+transport retries. Catalog, compatibility and price validity all end at
+`1790691803185` Unix milliseconds. Its pre-block window is therefore strictly
+greater than 6,480,000 milliseconds (108 minutes); all six blocks' maximum CLI
+runtime totals 10 hours 48 minutes, excluding offline grading and review.
+The earlier qualification probe remains settled at 197 microdollars with zero
+active reservation or unresolved liability; it does not authorize replay.

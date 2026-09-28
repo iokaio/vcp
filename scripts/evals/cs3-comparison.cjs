@@ -82,12 +82,24 @@ function profile(spec, task, workspace, arm) {
     affected_paths: Object.keys(task.files).length ? Object.keys(task.files) : ['status.txt'],
     ...(arm === 'candidate' ? { skills: candidates.configuration(task.skill) } : {}) };
 }
+function buildProvenance(build, executable) {
+  if (build.schema !== 'cs3-comparison-build/1' || build.status !== 'passed' || build.exit_code !== 0 || build.source_inputs_unchanged !== true
+    || build.toolchain_unchanged !== true || build.expected_executable_matches !== true || build.executable_sha256 !== executable.sha256
+    || build.expected_executable_sha256 !== executable.sha256 || build.executable !== executable.path || build.qualification_build !== true
+    || build.production_release !== false || build.provider_calls !== 0 || build.tests_executed !== 0
+    || build.builder_sha256 !== sha(read(path.join(root, 'scripts/evals/cs3-comparison-build.ps1')))) throw Error('Exact successful qualification build provenance required');
+  const artifact = build.compiler_artifact;
+  if (!path.isAbsolute(build.target_directory || '') || !artifact || artifact.reason !== 'compiler-artifact' || artifact.target?.name !== 'vcp'
+    || artifact.profile?.test !== false || !equal(artifact.features, ['qualification']) || !path.isAbsolute(artifact.executable || '')
+    || path.resolve(artifact.executable) !== path.resolve(build.target_directory, 'debug/vcp.exe')) throw Error('Exact qualification compiler artifact required');
+  return build;
+}
 function describe(spec, directory) {
   noSecrets(spec);
   if (typeof require('./webapp-execution.cjs').validateUiArtifact !== 'function') throw Error('Prospective UI native artifact validator is not implemented; full campaign preparation is blocked');
   if (!equal(Object.keys(spec).sort(), ['build_receipt', 'catalog', 'executable', 'gates', 'node', 'profile', 'web_evidence'])) throw Error('Unexpected campaign specification fields');
   const executableBytes = bound(spec.executable, 1024 * 1024 * 1024), catalogBytes = bound(spec.catalog), build = JSON.parse(bound(spec.build_receipt));
-  if (build.executable_sha256 !== spec.executable.sha256 || build.source_inputs_unchanged !== true) throw Error('Exact successful executable build provenance required');
+  buildProvenance(build, spec.executable);
   const assetsRoot = path.join(path.dirname(spec.executable.path), 'skills/builtin');
   const assets = inspectAssets(assetsRoot).inventory; requireEmbeddedCatalog(executableBytes, read(path.join(assetsRoot, 'catalog.json')));
   const sourceProfile = JSON.parse(bound(spec.profile));
@@ -181,6 +193,13 @@ function skillEvidence(plan, row, base, pages, attempts, call) {
   }
   return { checked_attempts: attempts.filter(a => a.phase === 'settled').length, expected_parts: expected.length };
 }
+function qualificationWindow(profile, now = Date.now()) {
+  const deadline = profile.deadline_seconds;
+  const expiries = [profile.provider?.valid_until, profile.provider?.compatibility?.valid_until, profile.provider?.price?.valid_until].map(Number);
+  if (!Number.isSafeInteger(deadline) || deadline <= 0 || !Number.isSafeInteger(now) || expiries.some(value => !Number.isSafeInteger(value))
+    || Math.min(...expiries) <= now + 18 * (deadline + 180) * 1000) throw Error('Provider qualification window cannot cover a complete eighteen-slot block');
+  return { required_milliseconds: 18 * (deadline + 180) * 1000, earliest_expiry: Math.min(...expiries) };
+}
 async function run(file, authorization, skill, call = invoke) {
   const plan = validate(JSON.parse(read(file)), authorization);
   if (!candidates.ids.includes(skill) || fs.existsSync(path.join(plan.directory, 'halt.json'))) throw Error('Unknown skill or terminal halted envelope');
@@ -189,6 +208,7 @@ async function run(file, authorization, skill, call = invoke) {
   }
   const active = path.join(plan.directory, 'active-block.json');
   if (fs.existsSync(active)) throw Error('Interrupted active block requires read-only reconciliation');
+  qualificationWindow(JSON.parse(bound(plan.spec.profile)));
   write(path.join(plan.directory, 'claims', 'block-' + skill + '.json'), { plan_sha256: authorization, skill });
   write(active, { plan_sha256: authorization, skill });
   const tasks = cohort(plan.spec.web_evidence), reports = [];
@@ -258,7 +278,7 @@ async function run(file, authorization, skill, call = invoke) {
   if (!result.stopped) fs.unlinkSync(active);
   return result;
 }
-module.exports = { limits, arms, cohort, prompt, materialize, profile, describe, prepare, validate, admission, run, sourceIdentity, claimFile };
+module.exports = { limits, arms, cohort, prompt, materialize, profile, buildProvenance, describe, prepare, validate, admission, qualificationWindow, run, sourceIdentity, claimFile };
 if (require.main === module) {
   const [command, ...args] = process.argv.slice(2);
   Promise.resolve().then(() => command === 'prepare' ? prepare(...args) : command === 'run' ? run(...args) : (() => { throw Error('Usage: prepare SPEC PRIVATE_DIRECTORY | run PLAN SHA256 SKILL'); })()).then(result => process.stdout.write(JSON.stringify(result, null, 2) + '\n')).catch(error => { process.stderr.write(error.message + '\n'); process.exitCode = 1; });

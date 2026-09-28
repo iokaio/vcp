@@ -96,6 +96,37 @@ test('public UI validator is the qualified implementation and rejects fabricated
     native_receipt: reference('native.json', {}), build: reference('inputs.json', { sources }) };
   assert.throws(() => adapter.validateUiArtifact(receipt, files, caseId), /Clean observed native receipt required/);
 });
+test('pre-block qualification window uses all expiries and requires strict complete-block margin', () => {
+  const now = 1000000, required = 18 * (180 + 180) * 1000;
+  const profile = { deadline_seconds: 180, provider: { valid_until: String(now + required + 1), compatibility: { valid_until: String(now + required + 1) }, price: { valid_until: String(now + required + 1) } } };
+  assert.equal(campaign.qualificationWindow(profile, now).required_milliseconds, required);
+  for (const owner of ['snapshot', 'compatibility', 'price']) {
+    const changed = structuredClone(profile);
+    (owner === 'snapshot' ? changed.provider : changed.provider[owner]).valid_until = String(now + required);
+    assert.throws(() => campaign.qualificationWindow(changed, now), /qualification window/);
+  }
+  const invalid = structuredClone(profile); delete invalid.provider.price.valid_until;
+  assert.throws(() => campaign.qualificationWindow(invalid, now), /qualification window/);
+});
+
+test('failed or mismatched qualification builds cannot satisfy executable provenance', () => {
+  const executable = { path: path.resolve('artifacts/synthetic-vcp.exe'), sha256: '1'.repeat(64) }, target = path.resolve('artifacts/synthetic-target');
+  const build = { schema: 'cs3-comparison-build/1', status: 'passed', exit_code: 0, source_inputs_unchanged: true, toolchain_unchanged: true,
+    expected_executable_matches: true, executable_sha256: executable.sha256, expected_executable_sha256: executable.sha256, executable: executable.path,
+    qualification_build: true, production_release: false, provider_calls: 0, tests_executed: 0,
+    builder_sha256: sha(fs.readFileSync(path.join(__dirname, 'cs3-comparison-build.ps1'))), target_directory: target,
+    compiler_artifact: { reason: 'compiler-artifact', target: { name: 'vcp' }, profile: { test: false }, features: ['qualification'], executable: path.join(target, 'debug/vcp.exe') } };
+  assert.equal(campaign.buildProvenance(build, executable), build);
+  for (const mutate of [b => { b.status = 'failed'; }, b => { b.exit_code = 1; }, b => { b.schema = 'other'; },
+    b => { b.source_inputs_unchanged = false; }, b => { b.toolchain_unchanged = false; }, b => { b.expected_executable_matches = false; },
+    b => { b.expected_executable_sha256 = '0'.repeat(64); }, b => { b.executable_sha256 = '0'.repeat(64); }, b => { b.executable = target; },
+    b => { b.qualification_build = false; }, b => { b.production_release = true; }, b => { b.provider_calls = 1; }, b => { b.tests_executed = 1; },
+    b => { b.builder_sha256 = '0'.repeat(64); }, b => { b.compiler_artifact.features.push('other'); }, b => { b.compiler_artifact.profile.test = true; },
+    b => { b.compiler_artifact.executable = target; }, b => { b.compiler_artifact.target.name = 'other'; }]) {
+    const changed = structuredClone(build); mutate(changed); assert.throws(() => campaign.buildProvenance(changed, executable), /qualification/);
+  }
+});
+
 test('source profile cannot inherit hooks or other externally active settings', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-cs3-profile-test-'));
   try {

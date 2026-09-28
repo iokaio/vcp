@@ -116,6 +116,86 @@ deferral branch was not observed in this final matrix; its classifier is covered
 by pure acceptance/rejection tests, and unresolved native identities remain fatal.
 
 These controls qualify the two new generated-UI tasks, not missing historical
-CS-2 artifacts. Original retained UI regrading and the paid six-skill comparisons
-remain separate acceptance conditions. Visual review remains `not_run`; model
-calls for this qualification are zero.
+CS-2 artifacts. The owner's explicit
+[prospective replacement decision](../plan/24-skills-follow-on.md#cs-3--browser-execution-and-six-skill-acceptance)
+allows new canonical UI outputs to replace the unavailable historical regrade for
+CS-3 acceptance; it does not retroactively regrade or certify the missing bytes.
+The paid six-skill comparisons and their independent reviews remain required.
+Visual review remains `not_run`; model calls for this qualification are zero.
+
+## Grading prospective paid output slots without replay
+
+After the canonical `frontend-design` block finishes, its six normal output slots
+are `UI-cs3-filter-selection-v1--{none,nearest,candidate}` and
+`UI-cs3-disclosure-form-v1--{none,nearest,candidate}`. Read their exact
+`materialized-files.json` files; never reconstruct HTML from prose or modify the
+canonical output. Validate the complete block with
+`cs3-comparison-review.block(planPath, planHash, 'frontend-design')` first.
+
+Do not place any new file inside a canonical slot directory: its evidence digest
+includes all top-level files other than `result.json`. Use new build directories
+under repository `artifacts`, and a separate private sibling directory for browser
+projections and the six-row `browser-grades.json`. Leave the paid run, its result,
+claims and accounting untouched.
+
+For each valid materialized output, compile a new immutable resource with the
+existing command below. Resolve `$slotId`, `$caseId` and `$materialized` from the
+validated frozen plan, not from model-supplied paths. `$build` must be a new absolute
+directory under repository `artifacts`. Use the pinned physical Node executable;
+the builder also verifies the generator runtime and artifact bytes before/after
+compilation. Set `$pwsh` to the current PowerShell executable path. Ensure the
+builder's `node` command resolves to the pinned provisioned runtime (prepend its
+directory to the child process PATH if needed); call projection/settlement with
+that physical executable as well. Each build and native invocation needs a fresh
+PowerShell process.
+
+```powershell
+& $pwsh -NoProfile -File scripts/evals/webapp-browser-build.ps1 `
+  -CoreAssembly D:/code/Github/vcp/artifacts/cs3-frozen-web-26/Microsoft.Web.WebView2.Core.dll `
+  -Loader D:/code/Github/vcp/artifacts/cs3-frozen-web-26/WebView2Loader.dll `
+  -OutputDirectory $build -UiArtifact $materialized -UiCase $caseId
+
+$inputs = Join-Path $build inputs.json
+$buildHash = (Get-FileHash -LiteralPath $inputs -Algorithm SHA256).Hash.ToLowerInvariant()
+& $pwsh -NoProfile -File (Join-Path $build Invoke-NativeProbe.ps1) `
+  -Mode webview2-dom -Execute -ExpectedInputsSha256 $buildHash
+```
+
+Finish all builds before native execution; run the six browser probes strictly
+serially with other compilation/tests idle. Retain every native result. A native
+failure is not a passing or ordinary failed UI grade and must not be converted to
+`not_run_output_invalid`. A clean native result may correctly grade the candidate
+`failed`; preserve that result without repeating its paid call.
+
+Project a completed native receipt with:
+
+```text
+node scripts/evals/cs3-ui-artifact.cjs project CASE_ID MATERIALIZED_JSON CANONICAL_SLOT_ID NATIVE_RECEIPT INPUTS_JSON BUILD_SHA256
+```
+
+The projection's run ID must be the canonical paid slot ID, not the native probe
+GUID. The native identity remains hash-bound through `NATIVE_RECEIPT`. Save the
+projection unchanged in the separate private browser-evidence directory. The
+existing `project` API returns the same object; the existing exclusive-create
+`p6-live-runner.boundaries.write` helper can persist it without overwriting evidence.
+
+The browser-grades envelope has `plan_sha256`, `skill: "frontend-design"`, and six
+`runs`. Each materialized slot contributes `run_id`, `artifact_sha256`, `status`,
+and `receipt: {path, sha256}` pointing to its authenticated projection. If and only
+if materialization is absent and the canonical result records `status: "failed"`
+with `output_error`, use `status: "not_run_output_invalid"` and the exact
+`canonical_result_sha256`, without an invented browser receipt.
+
+Validate the envelope with `cs3-comparison-review.browserGrades`, then use the
+same immutable envelope for both blind packet preparation and settlement:
+
+```text
+node scripts/evals/cs3-comparison-review.cjs prepare PLAN PLAN_SHA frontend-design NEW_REVIEW_DIRECTORY BROWSER_GRADES
+node scripts/evals/cs3-comparison-review.cjs settle PLAN PLAN_SHA frontend-design REVIEW_DIRECTORY READER_A READER_B BROWSER_GRADES
+```
+
+These commands perform no paid model calls. Two independently prepared blind
+reader receipts remain required; browser measurements are not pixel-level visual
+review. Do not invoke `cs3-comparison.cjs run` again to supply missing browser
+grades or repair a failed slot. The next skill block remains gated by the completed
+disposition of this one.

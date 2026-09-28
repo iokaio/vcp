@@ -8,9 +8,11 @@ cancellation and outer-owner-loss cleanup also pass. The
 The [frozen WEB cohort](cs3-frozen-web-execution.md) has passed its six oracles,
 with exact-source pause, cancellation and owner-loss evidence. The bounded
 [generated-UI adapter](cs3-generated-ui-execution.md) passes all 23 native controls
-with exact expected results and clean drainage. Retained UI regrading and
-six-skill acceptance remain open; unavailable authentic historical output bytes
-block that regrade and the dependent comparison preparation gate.
+with exact expected results and clean drainage. Prospective UI evaluation and
+six-skill acceptance remain open. The September 28 owner decision in
+[plan 24](../plan/24-skills-follow-on.md#cs-3--browser-execution-and-six-skill-acceptance)
+replaces the unavailable historical regrade with the newly frozen prospective
+frontend evaluation; the missing historical evidence remains permanently recorded.
 Contract: [plan 24, CS-3](../plan/24-skills-follow-on.md#cs-3--browser-execution-and-six-skill-acceptance).
 
 On September 26, 2026 the owner authorized implementation of the full CS-3
@@ -113,7 +115,10 @@ Author the non-default `webapp-testing` candidate and test descriptor integrity
 and explicit selection. Deterministic browser assertions cover form submission,
 keyboard/focus, validation, filters, loading/error/retry, viewport overflow and
 reduced motion. Regrade retained CS-2 UI workspaces using a separately bound,
-read-only import; preserve all historical outcomes. Document that DOM assertions
+read-only import if authentic originals become available; preserve all historical
+outcomes. For the owner-approved completion campaign, use the new prospective
+frontend block and its actual browser grades in place of that unavailable regrade.
+Document that DOM assertions
 and screenshots cannot establish model pixel inspection or human visual review.
 
 Exit: complete WEB fixtures and real-browser oracle controls; candidate ready for

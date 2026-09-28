@@ -20,7 +20,7 @@ gaps and prompt-audit proposals stay outside this sequence.
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
 | CS-1 | CS-0 | Original document-authoring and skill-authoring packages | complete by owner direction — accepted non-default candidates; [remaining qualification work](../../src/skills/candidates/README.md) |
 | CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | complete — three comparisons and non-default dispositions under the owner exit rule; [retained outcomes and qualification gaps](../development/cs2-developer-skills.md); no promotion |
-| CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | in progress — bounded browser/server, WEB/UI controls and package acceptance pass; retained UI regrade and six-skill comparisons remain open; [phased implementation](../development/cs3-implementation-phases.md) |
+| CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | in progress — bounded browser/server, WEB/UI controls and package acceptance pass; owner-approved prospective UI replacement and six-skill comparisons remain open; historical evidence gap preserved; [phased implementation](../development/cs3-implementation-phases.md) |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |
 | CS-5 | CS-4 | Original pdf-workflows and spreadsheet-workflows packages | planned |
 | CS-6 | CS-5 | Combined eight-addition default catalog and exact-package acceptance | planned |
@@ -285,6 +285,17 @@ and future promotion requirements remain intact.
 
 ## CS-3 — Browser execution and six-skill acceptance
 
+September 28, 2026 owner decision: after being offered restoration of the missing
+CS-2 UI bundle or an explicit prospective replacement, the owner authorized
+"what needs to be done." The selected replacement is the newly frozen CS-3
+frontend comparison: six tasks across three arms, with actual browser grading
+of all six returned normal-task artifacts over the qualified 23-control adapter.
+This supersedes the historical-regrade prerequisite for this CS-3 completion
+campaign, not the original results. The unavailable historical artifacts remain
+an explicit evidence gap and are never marked regraded. The USD 100 ceiling,
+one-shot claims, independent readers, candidate correctness/benefit requirements,
+security boundaries and promotion restrictions remain unchanged.
+
 Qualify the owned browser/server lifecycle and deliver `webapp-testing`. Materialize
 WEB fixtures and join them with CS-2 UI tasks. Exit: actual Windows interactions,
 origin scope, DOM/accessibility checks and failure/owner-loss cleanup pass; missing
@@ -321,15 +332,17 @@ activation/revocation checks. The [frozen WEB execution record](../development/c
 now retains all six oracle outcomes and exact-source pause, cancellation and
 owner-loss controls. The bounded [generated-UI adapter](../development/cs3-generated-ui-execution.md)
 also passes all 23 native positive/adversarial controls on the final source, with
-exact expected assertion vectors and clean process/profile drainage. Retained UI
-regrading and the six-skill comparison gate remain open; an RDP change or another
+exact expected assertion vectors and clean process/profile drainage. The prospective
+replacement evaluation and six-skill comparison gate remain open; an RDP change or another
 machine is not required for continued browser work. The owner-approved USD 100 six-skill
 campaign envelope and pinned DeepSeek/OpenRouter endpoint are recorded in the
 [six-skill readiness ledger](../development/cs3-six-skill-readiness.md).
 The [retained UI recovery record](../development/cs3-retained-ui-recovery.md)
 documents the missing historical output bytes and exhausted local Git/private
 evidence searches. Their hashes and source-review summaries cannot substitute
-for the original artifacts; that regrade gate remains unsatisfied.
+for the original artifacts; the historical regrade remains unavailable. The
+owner-approved prospective replacement above now governs this campaign's UI
+acceptance; its actual comparisons still must run and be independently graded.
 The [delivery checkpoint](../development/cs3-delivery-checkpoint.md) collects
 verified increments, retained regression results and the external prerequisite;
 it does not mark CS-3 complete.

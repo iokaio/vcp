@@ -93,8 +93,54 @@ function retainedUi(receipt, reference) {
   if (!result || result.status !== 'passed' || result.model_calls !== 0) throw Error('Historical retained UI regrade is incomplete');
   return result;
 }
+function uiFailures(caseId, variant) {
+  const ui = require('./cs3-ui-artifact.cjs'), filter = caseId === ui.cases[0];
+  if (['positive', 'poisoned-positive', 'inactive-motion'].includes(variant)) return [];
+  if (['negative', 'poisoned-negative'].includes(variant)) return filter ? ['selection_persists_hidden'] : ['whitespace_validation', 'trimmed_success_no_reload'];
+  if (variant === 'keyboard-decoy') return ['keyboard_reachability', 'focus_visible'];
+  if (variant === 'hidden-feedback') return filter ? ['initial_state', 'filter_case_insensitive', 'selection_persists_hidden', 'clear_hidden_selection'] : ['empty_validation', 'whitespace_validation', 'trimmed_success_no_reload'];
+  if (variant === 'transparent') return ui.assertions(caseId);
+  if (variant === 'static-shadow') return ['focus_visible'];
+  if (['pseudo-motion', 'mixed-motion'].includes(variant)) return ['reduced_motion'];
+  if (variant === 'broken-submit' && !filter) return ['empty_validation'];
+  throw Error('Unknown UI qualification variant');
+}
+function uiQualification(receipt, reference) {
+  const decision = require('../../src/evals/skills/cs3-comparison/acceptance-decision.json');
+  const ui = require('./cs3-ui-artifact.cjs'), controls = require('./cs3-ui-controls.cjs'), adapter = require('./webapp-execution.cjs');
+  if (decision.schema !== 'cs3-prospective-ui-acceptance-decision/1' || decision.authority !== 'owner_explicit_approval_of_prospective_replacement'
+    || decision.historical_ui_regrade !== 'not_run_originals_unavailable' || decision.replacement_admission_gate !== 'ui_qualification') throw Error('Explicit prospective replacement decision required');
+  if (!reference || reference.sha256 !== decision.qualification_sha256 || !equal(JSON.parse(bound(reference)), receipt)) throw Error('Approved UI qualification matrix identity differs');
+  if (typeof adapter.validateUiArtifact !== 'function') throw Error('Qualified UI browser validator unavailable');
+  const expected = ui.cases.flatMap(case_id => controls.variants(case_id).map(variant => ({ case_id, variant })));
+  if (receipt.schema !== 'cs3-ui-control-qualification/1' || receipt.status !== 'passed' || receipt.model_calls !== 0 || receipt.visual_review !== 'not_run'
+    || receipt.operating_condition !== 'serial native execution; no concurrent compiler/test workload' || receipt.positive_controls !== 6 || receipt.negative_controls !== 17
+    || !Array.isArray(receipt.controls) || !equal(receipt.controls.map(({ case_id, variant }) => ({ case_id, variant })), expected)) throw Error('Exact 23-control UI qualification required');
+  const sources = ui.sourceNames.map(name => ({ path: name, sha256: sha(read(path.join(root, 'src/tests/support/windows/webapp', name))) }));
+  if (receipt.source_closure_sha256 !== sha(JSON.stringify(sources))) throw Error('UI qualification source closure differs');
+  const nativeHashes = new Set();
+  for (const row of receipt.controls) {
+    const files = controls.artifact(row.case_id, row.variant), failures = uiFailures(row.case_id, row.variant);
+    const artifactHash = sha(JSON.stringify(files, null, 2) + '\n');
+    if (!row.receipt || row.receipt.artifact_sha256 !== artifactHash || !equal(row.expected_failed_assertions, failures)) throw Error('UI control artifact or expected vector differs');
+    const nativeBytes = bound(row.receipt.native_receipt), native = JSON.parse(nativeBytes);
+    if (nativeHashes.has(row.receipt.native_receipt.sha256)) throw Error('Reused UI native control receipt');
+    nativeHashes.add(row.receipt.native_receipt.sha256);
+    const measured = adapter.validateUiArtifact(row.receipt, files, row.case_id);
+    if (measured.status !== (failures.length ? 'failed' : 'passed') || !equal(measured.assertions, ui.assertions(row.case_id).map(name => ({ name, passed: !failures.includes(name) })))) throw Error('UI control measured assertion vector differs');
+    const coverage = native.events.filter(event => event.type === 'job_process_coverage');
+    const diagnostics = native.events.filter(event => ['collector_capture_failure', 'exited_image_query_deferred', 'job_pid_inventory_rejected'].includes(event.type));
+    const observation = native.events.find(event => event.type === 'ui_artifact_observed');
+    const documents = row.variant === 'transparent' ? 2 : row.case_id === ui.cases[0] ? 10 : 9;
+    // Deferred image-query diagnostics are retained, not promoted into identity
+    // evidence. The shared native grader requires complete held-job coverage.
+    if (!equal(row.coverage, coverage) || !equal(row.collector_diagnostics, diagnostics) || row.documents !== documents || observation?.documents !== documents) throw Error('UI control lifecycle projection differs');
+  }
+  return { schema: receipt.schema, status: 'passed', controls: 23, positive_controls: 6, negative_controls: 17,
+    decision_id: decision.decision_id, historical_ui_regrade: decision.historical_ui_regrade, model_calls: 0 };
+}
 function validate(spec) {
-  const keys = ['browser_boundary', 'web_oracles', 'ui_regrade', 'node_fixture'];
+  const keys = ['browser_boundary', 'web_oracles', 'ui_qualification', 'node_fixture'];
   if (!spec.gates || !equal(Object.keys(spec.gates).sort(), keys.sort())) throw Error('All four prerequisite gates required');
   bound(spec.node, 128 * 1024 * 1024);
   const receipts = Object.fromEntries(Object.entries(spec.gates).map(([name, ref]) => [name, JSON.parse(bound(ref))]));
@@ -103,7 +149,7 @@ function validate(spec) {
     node_fixture: nodeControls(receipts.node_fixture, spec.node),
     web_oracles: web(receipts.web_oracles, spec.gates.web_oracles, spec.web_evidence),
   };
-  result.ui_regrade = retainedUi(receipts.ui_regrade, spec.gates.ui_regrade);
+  result.ui_qualification = uiQualification(receipts.ui_qualification, spec.gates.ui_qualification);
   return result;
 }
 function projectWeb(reference, destination) {
@@ -120,7 +166,7 @@ function projectWeb(reference, destination) {
   write(path.join(directory, 'projection.json'), result);
   return result;
 }
-module.exports = { bound, denial, nodeControls, web, retainedUi, validate, projectWeb, nodeChecks };
+module.exports = { bound, denial, nodeControls, web, retainedUi, uiQualification, uiFailures, validate, projectWeb, nodeChecks };
 if (require.main === module) {
   try {
     const [command, referenceFile, destination, ...extra] = process.argv.slice(2);

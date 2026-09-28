@@ -1,8 +1,9 @@
 # CS-3 delivery checkpoint — 2026-09-28
 
-CS-3 remains open. This increment implements and tests independent qualification
-work; it does not waive the original-artifact regrade or claim six successful
-skill comparisons. No candidate is promoted into the default catalog.
+CS-3 remains open. The owner has now approved replacing the unavailable historical
+UI regrade with a newly frozen prospective evaluation, while preserving the
+historical evidence gap. This does not claim six successful skill comparisons.
+No candidate is promoted into the default catalog.
 
 ## Acceptance evidence
 
@@ -145,8 +146,29 @@ the recovery record retains the exact scope and evidence.
 The follow-up repository check passed in
 `artifacts/cs3-retained-verifier-repository-check/3b9d6449-4635-4c34-a794-b7f1150cc712/manifest.json`.
 
-The comparison preparation gate remains closed while that prerequisite is absent.
-The current CS-3 exit condition is therefore unsatisfied, regardless of the
-independent engineering and test results above. Restoring the authentic retained
-bundle is required to continue that acceptance path; changing the requirement
-would be an explicit owner decision, not an implementation assumption.
+The subsequent explicit owner approval selects the prospective replacement
+recorded in plan 24. Admission must authenticate the 23 native UI controls, and
+the new six-task/three-arm frontend block must retain actual browser grades for
+all six returned normal artifacts. The old outputs are still unavailable and
+are not claimed to have been regraded. Comparison correctness, benefit,
+independent-reader, security and accounting requirements are unchanged.
+
+The revised admission implementation passed 18 focused tests, the complete
+10-test synthetic host suite, and all 23 real UI-control receipt checks. The
+registered CS-3 contract run passed 80/80 assertions in
+`artifacts/cs3-prospective-admission-contract-check/d2b4ceb7-0fa3-460e-8b58-5efe9fdb85b9/manifest.json`;
+the corresponding repository check passed in
+`artifacts/cs3-prospective-admission-repository-check/1fcc78d0-cb31-407f-82ab-a74d01e21883/manifest.json`.
+
+The actual locked/offline qualification build passed with unchanged source and
+toolchain in `artifacts/cs3-comparison-build/64463a67-151b-4c17-b352-f3fbffbe61dc/build-receipt.json`
+(SHA-256 `6834cfa021eee429ac9cea5e265b039bbfa90614f7a5c144e5d6ed349e6d849a`).
+Its staged executable matches the installed qualification executable exactly:
+`d08ff1069d6700a8aebc7ba668b510ce98867dc6ec2f68b7fed079b34bc5312e`.
+The earlier build receipt in `58ef9965-a7e2-410f-a449-4d7fd6b1578e` remains failed:
+Cargo succeeded, but builtin staging lacked its parent directory. The builder
+now creates that fresh parent, and failed partial receipts cannot pass admission.
+This cached qualification build is not a clean-room reproducibility claim or a
+production release. Read-only admission of the exact prospective specification
+passed all four prerequisite gates and the full-block qualification window with
+zero provider calls before campaign preparation.
