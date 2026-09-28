@@ -58,6 +58,9 @@ public static class ProbeContract {
     public static void LiveCoverage(uint cumulative, int verified) {
         if (verified < 0 || cumulative > 128 || cumulative < verified) throw new IOException("Invalid live job process accounting");
     }
+    // A terminated process may deny a new image-name query. Deferral is never
+    // verification: the caller must later bind its exact held identity/image.
+    public static bool CanDeferExitedImage(int error,uint waitResult) { return error==5 && waitResult==0; }
     public static HostObservation Parse(string line, string nonce) {
         if (line == null || Encoding.UTF8.GetByteCount(line)>2048) throw new IOException("Host line byte bound");
         using (var doc = JsonDocument.Parse(line, new JsonDocumentOptions { MaxDepth=4 })) {
@@ -69,13 +72,13 @@ public static class ProbeContract {
             if(result.Elapsed<0 || result.Elapsed>20000 || root.GetProperty("hresult").GetString()!="0x00000000" || (result.Version!="" && result.Version!=Version)) throw new IOException("Host failed or expired");
             string kind=root.GetProperty("kind").GetString();
             result.Kind = kind;
-            bool chunk=result.Phase=="dom_chunk" || result.Phase=="input_chunk";
-            if(kind==null || kind.Length>(chunk?256:64) || !new[]{"host_started","environment_create","environment_created","process_snapshot","reported_process","controller_create","controller_created","controller_ready","stop_received","controller_closed","broker_request","dom_chunk","dom_complete","input_chunk","input_complete"}.Contains(result.Phase)) throw new IOException("Unaccepted host phase");
+            bool chunk=result.Phase=="dom_chunk" || result.Phase=="input_chunk" || result.Phase=="web_chunk" || result.Phase=="ui_chunk";
+            if(kind==null || kind.Length>(chunk?256:64) || !new[]{"host_started","environment_create","environment_created","process_snapshot","reported_process","controller_create","controller_created","controller_ready","stop_received","controller_closed","broker_request","dom_chunk","dom_complete","input_chunk","input_complete","web_chunk","web_complete","ui_chunk","ui_complete","ui_failure"}.Contains(result.Phase)) throw new IOException("Unaccepted host phase");
             if(result.Phase=="broker_request") {
-                if(result.Pid!=0 || (kind!="form" && kind!="script")) throw new IOException("Invalid broker request identity");
+                if(result.Pid!=0 || (kind!="form" && kind!="script" && !Vcp.Qualification.Webapp.FrozenWebResources.Sequence.Contains(kind) && !(kind=="ui-artifact"&&Vcp.Qualification.Webapp.UiArtifactResource.Enabled))) throw new IOException("Invalid broker request identity");
                 return result;
             }
-            if ((chunk || result.Phase=="dom_complete" || result.Phase=="input_complete") && result.Pid!=0) throw new IOException("Unexpected evidence PID");
+            if ((chunk || result.Phase=="dom_complete" || result.Phase=="input_complete" || result.Phase=="web_complete" || result.Phase=="ui_complete" || result.Phase=="ui_failure") && result.Pid!=0) throw new IOException("Unexpected evidence PID");
             if ((result.Phase=="reported_process" || result.Phase=="controller_ready") && result.Pid==0) throw new IOException("Missing reported PID");
             if(result.Phase=="controller_ready" && ((kind!="browser" && kind!="input_diagnostic") || result.Version!=Version)) throw new IOException("Unbound readiness");
             return result;
@@ -116,6 +119,8 @@ public static class ProbeContract {
         Coverage(2,2); checks++; reject(()=>Coverage(2,1)); reject(()=>Coverage(129,129));
         LiveCoverage(2,1); checks++; LiveCoverage(2,2); checks++;
         reject(()=>LiveCoverage(1,2)); reject(()=>LiveCoverage(129,1)); reject(()=>LiveCoverage(1,-1));
+        check(CanDeferExitedImage(5,0)); check(!CanDeferExitedImage(5,258)); check(!CanDeferExitedImage(5,UInt32.MaxValue)); check(!CanDeferExitedImage(87,0));
+        reject(()=>Coverage(9,8));
         string nonce=new string('a',64);
         string line="{\"schema\":\"cs3-webview2-host/1\",\"nonce\":\""+nonce+"\",\"phase\":\"controller_ready\",\"elapsed_ms\":100,\"hresult\":\"0x00000000\",\"version\":\"154.0.4258.37\",\"pid\":123,\"kind\":\"browser\",\"containment_attested\":false,\"browser_qualified\":false}";
         check(Parse(line,nonce).Pid==123); reject(()=>Parse(line,new string('b',64))); reject(()=>Parse(line.Replace("100,","20001,"),nonce)); reject(()=>Parse(line.Replace("123,","0,"),nonce)); reject(()=>Parse(line.Replace("0x00000000","0x80070005"),nonce)); reject(()=>Parse(line.Replace("\"containment_attested\":false","\"containment_attested\":true"),nonce)); reject(()=>Parse(line.Replace("\"pid\":123","\"pid\":123,\"pid\":456"),nonce)); reject(()=>Parse(line.Replace("controller_ready","navigation_rejected"),nonce));

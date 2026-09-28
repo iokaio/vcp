@@ -273,8 +273,9 @@ public static partial class NativeProbe {
             bool directory; IntPtr held;
             // A direct child may already be delete-pending when its name is
             // returned. Skip only ERROR_FILE_NOT_FOUND/ERROR_PATH_NOT_FOUND at
-            // this hint/open boundary. Every sharing, access, reparse, type,
-            // metadata and recursive-enumeration failure remains fatal.
+            // this hint/open boundary. An access-denied open may additionally
+            // be confirmed vanished by one metadata query under held ancestors.
+            // No live inaccessible entry or sharing/reparse failure is accepted.
             if (!TryOpenScratchChild(boundary,tag,path,depth,out directory,out held)) continue;
             try {
                 if (directory) WalkScratch(boundary,tag,path,depth + 1,clock,ref count,ref bytes);
@@ -293,6 +294,10 @@ public static partial class NativeProbe {
         catch(Exception error) when(ScratchEntryVanished(error)) { return false; }
         catch(Win32Exception error) {
             bool directoryHint=directory;
+            if(ScratchConfirmedVanished(error,()=>File.GetAttributes(path))) {
+                Diagnostic(new {type="scratch_disappeared_after_open_denied",open_failure=ScratchFailure(boundary,tag,path,depth,directoryHint,error.NativeErrorCode),confirmation="FILE_OR_PATH_NOT_FOUND"});
+                return false;
+            }
             PreserveScratchFailure(error,()=>Diagnostic(ScratchFailure(boundary,tag,path,depth,directoryHint,error.NativeErrorCode)));
             throw;
         }
@@ -302,6 +307,15 @@ public static partial class NativeProbe {
     static bool ScratchEntryVanished(Exception error) {
         var native=error as Win32Exception;
         return error is FileNotFoundException || error is DirectoryNotFoundException || (native!=null && (native.NativeErrorCode==2 || native.NativeErrorCode==3));
+    }
+    static bool ScratchConfirmedVanished(Win32Exception error,Action confirm) {
+        // CreateFile may return ACCESS_DENIED for a delete-pending file. This
+        // does not classify denial as absence: only a subsequent explicit
+        // FILE/PATH_NOT_FOUND does. Never reopen, wait, follow a link or change
+        // sharing/permissions; every other result preserves the original error.
+        if(error.NativeErrorCode!=5) return false;
+        try { confirm(); } catch(Exception confirmation) { return ScratchEntryVanished(confirmation); }
+        return false;
     }
     // Pure classification plus one read-only missing-path check; no native
     // browser/profile/ACL/registry operation is performed.
@@ -313,6 +327,15 @@ public static partial class NativeProbe {
         check(ScratchEntryVanished(new Win32Exception(3)));
         check(!ScratchEntryVanished(new Win32Exception(5)));
         check(!ScratchEntryVanished(new Win32Exception(32)));
+        check(ScratchConfirmedVanished(new Win32Exception(5),()=>{throw new FileNotFoundException();}));
+        check(ScratchConfirmedVanished(new Win32Exception(5),()=>{throw new DirectoryNotFoundException();}));
+        check(ScratchConfirmedVanished(new Win32Exception(5),()=>{throw new Win32Exception(2);}));
+        check(ScratchConfirmedVanished(new Win32Exception(5),()=>{throw new Win32Exception(3);}));
+        check(!ScratchConfirmedVanished(new Win32Exception(5),()=>{}));
+        check(!ScratchConfirmedVanished(new Win32Exception(5),()=>{throw new Win32Exception(5);}));
+        check(!ScratchConfirmedVanished(new Win32Exception(5),()=>{throw new Win32Exception(32);}));
+        bool queried=false;
+        check(!ScratchConfirmedVanished(new Win32Exception(32),()=>{queried=true;throw new FileNotFoundException();}) && !queried);
         bool directory; IntPtr held;
         string root=Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         check(!TryOpenScratchChild(root,"probe-temp",Path.Combine(root,"vcp-cs3-absent-"+Guid.NewGuid().ToString("N")),0,out directory,out held) && held==IntPtr.Zero);

@@ -52,27 +52,115 @@ public static partial class NativeProbe {
         }
         return file;
     }
+    // Capture handles independently of expensive scratch traversal, image hashing
+    // and DOM parsing. No identity is accepted by this thread: the supervisor
+    // subsequently checks every held process token, job, creation time and image.
+    sealed class ProcessCollector : IDisposable {
+        internal sealed class Held {
+            internal uint Pid;
+            internal IntPtr Process,Image;
+            internal long Created;
+        }
+        readonly object gate=new object();
+        readonly Dictionary<uint,Held> held=new Dictionary<uint,Held>();
+        readonly ManualResetEventSlim stopped=new ManualResetEventSlim(false);
+        readonly Thread thread;
+        readonly IntPtr job;
+        readonly Dictionary<string,string> images;
+        ExceptionDispatchInfo failure;
+        internal ProcessCollector(IntPtr ownedJob,Dictionary<string,string> approvedImages) {
+            images=new Dictionary<string,string>(approvedImages,approvedImages.Comparer);
+            Check(DuplicateHandle(GetCurrentProcess(),ownedJob,GetCurrentProcess(),out job,0,false,2));
+            thread=new Thread(Collect) { IsBackground=true,Name="cs3-owned-process-handles" };
+            try { thread.Start(); } catch { CloseHandle(job); stopped.Dispose(); throw; }
+        }
+        void Collect() {
+            try {
+                while(!stopped.IsSet) {
+                    foreach(uint pid in JobPids(job)) {
+                        lock(gate) {
+                            Held prior;
+                            if(held.TryGetValue(pid,out prior)) {
+                                if(WaitForSingleObject(prior.Process,0)==0) throw new IOException("Numeric PID reused during handle collection");
+                                continue;
+                            }
+                            if(held.Count>=128) throw new IOException("Process handle collection ceiling");
+                        }
+                        IntPtr process=OpenProcess(0x100400,false,pid),image=IntPtr.Zero;
+                        Check(process!=IntPtr.Zero);
+                        try {
+                            bool member; Check(IsProcessInJob(process,job,out member));
+                            if(!member || GetProcessId(process)!=pid) throw new IOException("Collected process outside owned job");
+                            var name=new StringBuilder(4096); uint length=4096;
+                            Check(QueryFullProcessImageName(process,0,name,ref length));
+                            long created=Creation(process);
+                            string file=Path.GetFullPath(name.ToString());
+                            ProbeContract.RequireImage(name.ToString(),file,pid,created,images,Diagnostic);
+                            var attributes=new SecurityAttributes { Size=Marshal.SizeOf<SecurityAttributes>(),Inherit=false };
+                            // Read-only, shared read/delete, never an executable load.
+                            image=CreateFile(file,0x80000000,5,ref attributes,3,0,IntPtr.Zero);
+                            if(image==new IntPtr(-1)) { image=IntPtr.Zero; throw new Win32Exception(Marshal.GetLastWin32Error()); }
+                            var item=new Held { Pid=pid,Process=process,Image=image,Created=created };
+                            lock(gate) held.Add(pid,item);
+                            process=image=IntPtr.Zero;
+                        } finally { if(image!=IntPtr.Zero) CloseHandle(image); if(process!=IntPtr.Zero) CloseHandle(process); }
+                    }
+                    stopped.Wait(1);
+                }
+            } catch(Exception error) { lock(gate) failure=ExceptionDispatchInfo.Capture(error); }
+            finally { CloseHandle(job); }
+        }
+        internal Held[] Snapshot() {
+            lock(gate) { if(failure!=null) failure.Throw(); return held.Values.ToArray(); }
+        }
+        internal void Stop() {
+            stopped.Set();
+            if(!thread.Join(5000)) throw new IOException("Process collector did not drain");
+        }
+        public void Dispose() {
+            Stop();
+            lock(gate) {
+                foreach(var item in held.Values) { CloseHandle(item.Image); CloseHandle(item.Process); }
+                held.Clear();
+            }
+            stopped.Dispose();
+        }
+    }
     public static void CheckLayouts() {
         if(IntPtr.Size!=8 || Marshal.SizeOf<StartupEx>()!=112 || Marshal.SizeOf<Capabilities>()!=24 || Marshal.SizeOf<ExtendedLimits>()!=144 || Marshal.SizeOf<Accounting>()!=48) throw new IOException("Unexpected x64 layouts");
     }
     sealed class OwnedServer : IDisposable {
         readonly TcpListener listener;
+        readonly TcpClient idleClient, idleAccepted;
         readonly Task serving;
         readonly object gate=new object();
+        TcpClient activeClient;
         int requests; bool disposed;
         public string Origin { get; private set; }
         public int Requests { get { lock(gate) return requests; } }
         public OwnedServer() {
             listener=new TcpListener(IPAddress.Loopback,0);
+            try {
             listener.Start(2);
             var endpoint=(IPEndPoint)listener.LocalEndpoint;
             if(!endpoint.Address.Equals(IPAddress.Loopback) || endpoint.Port<=0) throw new IOException("Owned server endpoint differs");
             Origin="http://127.0.0.1:"+endpoint.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            // One intentionally idle, separately held connection demonstrates
+            // that exact /ready and DOM conditions do not require network idle.
+            idleClient=new TcpClient(AddressFamily.InterNetwork); idleClient.Connect(IPAddress.Loopback,endpoint.Port);
+            idleAccepted=listener.AcceptTcpClient();
             serving=Task.Run((Action)Serve);
+            } catch {
+                if(idleAccepted!=null) idleAccepted.Dispose();
+                if(idleClient!=null) idleClient.Dispose();
+                listener.Stop();
+                throw;
+            }
         }
         void Serve() {
             try {
-                for(int index=0;index<2;index++) using(var client=listener.AcceptTcpClient()) using(var stream=client.GetStream()) {
+                for(int index=0;index<(UiArtifactResource.Enabled?11:10);index++) using(var client=listener.AcceptTcpClient()) using(var stream=client.GetStream()) {
+                    lock(gate) { if(disposed) return; activeClient=client; }
                     client.ReceiveTimeout=3000; client.SendTimeout=3000;
                     var bytes=new List<byte>(); int state=0;
                     while(bytes.Count<4096 && state<4) {
@@ -82,19 +170,22 @@ public static partial class NativeProbe {
                     }
                     if(state!=4) throw new IOException("Owned server header bound");
                     string header=Encoding.ASCII.GetString(bytes.ToArray());
-                    string route=index==0?"/form.html":"/form.js";
+                    var frozen=index<2?null:index==10?UiArtifactResource.Resource:FrozenWebResources.Find(FrozenWebResources.Sequence[index-2]);
+                    string route=index==0?"/form.html":index==1?"/form.js":frozen.Route;
                     string expected="GET "+route+" HTTP/1.1\r\nHost: 127.0.0.1:"+((IPEndPoint)listener.LocalEndpoint).Port.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\r\nConnection: close\r\n\r\n";
                     if(!String.Equals(header,expected,StringComparison.Ordinal)) throw new IOException("Owned server request boundary differs");
-                    byte[] body=Encoding.UTF8.GetBytes(index==0?WebDomContract.FormHtml:WebDomContract.FormJavaScript);
-                    string type=index==0?"text/html; charset=utf-8":"text/javascript; charset=utf-8";
-                    byte[] response=Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: "+body.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\r\nContent-Type: "+type+"\r\nX-Content-Type-Options: nosniff\r\n\r\n");
+                    byte[] body=frozen==null?Encoding.UTF8.GetBytes(index==0?WebDomContract.FormHtml:WebDomContract.FormJavaScript):frozen.Bytes;
+                    string type=frozen==null?(index==0?"text/html; charset=utf-8":"text/javascript; charset=utf-8"):frozen.ContentType;
+                    string status=frozen==null?"200 OK":frozen.Status+" "+frozen.Reason;
+                    byte[] response=Encoding.ASCII.GetBytes("HTTP/1.1 "+status+"\r\nConnection: close\r\nContent-Length: "+body.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\r\nContent-Type: "+type+"\r\nX-Content-Type-Options: nosniff\r\n\r\n");
                     stream.Write(response,0,response.Length); stream.Write(body,0,body.Length); stream.Flush();
                     lock(gate) requests++;
                 }
             } catch(Exception error) { lock(gate) { if(!disposed) throw new IOException("Owned server failed",error); } }
         }
         public byte[] Fetch(string id) {
-            string route=id=="form"?"/form.html":id=="script"?"/form.js":null;
+            var frozen=id=="form" || id=="script"?null:id=="ui-artifact"&&UiArtifactResource.Enabled?UiArtifactResource.Resource:FrozenWebResources.Find(id);
+            string route=id=="form"?"/form.html":id=="script"?"/form.js":frozen.Route;
             if(route==null) throw new IOException("Unknown broker resource");
             var endpoint=(IPEndPoint)listener.LocalEndpoint;
             using(var client=new TcpClient(AddressFamily.InterNetwork)) {
@@ -109,16 +200,27 @@ public static partial class NativeProbe {
                     if(split<0) throw new IOException("Owned server response headers absent");
                     string headers=Encoding.ASCII.GetString(all,0,split+4);
                     byte[] body=new byte[all.Length-split-4]; Buffer.BlockCopy(all,split+4,body,0,body.Length);
-                    byte[] expected=Encoding.UTF8.GetBytes(id=="form"?WebDomContract.FormHtml:WebDomContract.FormJavaScript);
-                    string contentType=id=="form"?"text/html; charset=utf-8":"text/javascript; charset=utf-8";
-                    string exact="HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: "+expected.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\r\nContent-Type: "+contentType+"\r\nX-Content-Type-Options: nosniff\r\n\r\n";
+                    byte[] expected=frozen==null?Encoding.UTF8.GetBytes(id=="form"?WebDomContract.FormHtml:WebDomContract.FormJavaScript):frozen.Bytes;
+                    string contentType=frozen==null?(id=="form"?"text/html; charset=utf-8":"text/javascript; charset=utf-8"):frozen.ContentType;
+                    string status=frozen==null?"200 OK":frozen.Status+" "+frozen.Reason;
+                    string exact="HTTP/1.1 "+status+"\r\nConnection: close\r\nContent-Length: "+expected.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\r\nContent-Type: "+contentType+"\r\nX-Content-Type-Options: nosniff\r\n\r\n";
                     if(!String.Equals(headers,exact,StringComparison.Ordinal) || !body.SequenceEqual(expected)) throw new IOException("Owned server response differs from frozen resource");
                     return body;
                 }
             }
         }
-        public void RequireComplete() { if(!serving.Wait(3000)) throw new TimeoutException("Owned server completion deadline"); if(serving.IsFaulted) serving.GetAwaiter().GetResult(); if(Requests!=2) throw new IOException("Owned server request count differs"); }
-        public void Dispose() { lock(gate) disposed=true; listener.Stop(); try { serving.Wait(3000); } catch { } }
+        public void RequireComplete(int expected) {
+            if(expected==2) { if(Requests!=2) throw new IOException("Diagnostic server request count differs"); Dispose(); return; }
+            if(expected!=(UiArtifactResource.Enabled?11:10) || !serving.Wait(3000)) throw new TimeoutException("Owned server completion deadline");
+            if(serving.IsFaulted) serving.GetAwaiter().GetResult();
+            if(Requests!=expected || !idleClient.Connected || !idleAccepted.Connected || idleClient.Client.Poll(0,SelectMode.SelectRead) || idleAccepted.Client.Poll(0,SelectMode.SelectRead)) throw new IOException("Owned server request/idle-connection contract differs");
+        }
+        public void Dispose() {
+            lock(gate) { disposed=true; if(activeClient!=null) activeClient.Dispose(); }
+            idleClient.Dispose(); idleAccepted.Dispose(); listener.Stop();
+            if(!serving.Wait(3000)) throw new IOException("Owned server task did not drain");
+            serving.GetAwaiter().GetResult();
+        }
     }
     public static void Run(string root,string profileName,string expectedSid,string runtime,string nonce,string[] imagePaths,string[] imageHashes,long completionPort,IntPtr owner) {
         Name(profileName); CheckLayouts();
@@ -134,22 +236,54 @@ public static partial class NativeProbe {
         IntPtr port=new IntPtr(completionPort); if(port==IntPtr.Zero || port==new IntPtr(-1)) throw new IOException("No independent completion port");
         IntPtr childIn=IntPtr.Zero,childOut=IntPtr.Zero,childErr=IntPtr.Zero;
         FileStream input=null,output=null,error=null; SafeFileHandle inputHandle=null,outputHandle=null,errorHandle=null;
-        var process=new ProcessInfo(); bool initialized=false; Timer deadline=null; BoundedCapture stderr=null; OwnedServer server=null;
+        var process=new ProcessInfo(); bool initialized=false; Timer deadline=null; BoundedCapture stderr=null; OwnedServer server=null; ProcessCollector collector=null;
         var observed=new Dictionary<uint,IntPtr>(); var reported=new HashSet<uint>();
         var lines=new BlockingCollection<string>(32); Task reader=null; ExceptionDispatchInfo primary=null; var cleanupFailures=new List<string>();
         string phase="prepare_native_launch"; bool ready=false,stopSent=false,hostClosed=false,hostStopped=false; uint readyPid=0;
         var dom = new DomEvidence();
+        var web = new FrozenWebEvidence();
+        var ui = new UiArtifactEvidence();
         var inputDiagnostic = new InputDiagnosticEvidence();
         string evidenceRoute = null;
+        var deferredExitedImages=new Dictionary<uint,long>();
         var clock=new Stopwatch();
+        Action collect=()=> {
+            if(collector==null) return;
+            foreach(var item in collector.Snapshot()) {
+                IntPtr known;
+                if(observed.TryGetValue(item.Pid,out known)) {
+                    if(Creation(known)!=item.Created) throw new IOException("Collected process creation identity differs");
+                    continue;
+                }
+                long deferredCreation;
+                if(deferredExitedImages.TryGetValue(item.Pid,out deferredCreation) && deferredCreation!=item.Created) throw new IOException("Deferred collected identity differs");
+                VerifyToken(item.Process,job,expectedSid,item.Pid);
+                string image=HeldImage(item.Image,item.Pid,item.Created,images);
+                IntPtr copy; Check(DuplicateHandle(GetCurrentProcess(),item.Process,GetCurrentProcess(),out copy,0,false,2));
+                observed.Add(item.Pid,copy); deferredExitedImages.Remove(item.Pid);
+                Event(new {type="owned_process",pid=item.Pid,creation_filetime=item.Created,image,token_verified=true,source="independent_handle_collector"});
+            }
+        };
         Action observe=()=> {
             if(WaitForSingleObject(owner,0)!=258) throw new IOException("Controller owner lost");
+            collect();
             Scratch(profile,"profile"); Scratch(temp,"probe-temp");
             foreach(uint pid in JobPids(job)) {
                 if(observed.ContainsKey(pid)) { if(WaitForSingleObject(observed[pid],0)==0) throw new IOException("Numeric PID reused within job census"); continue; }
+                if(deferredExitedImages.ContainsKey(pid)) continue;
                 IntPtr held=OpenProcess(0x100400,false,pid); Check(held!=IntPtr.Zero);
                 try {
-                    VerifyToken(held,job,expectedSid,pid); string image=Image(held,pid,images);
+                    VerifyToken(held,job,expectedSid,pid); string image;
+                    try { image=Image(held,pid,images); }
+                    catch(Win32Exception errorValue) {
+                        // Image-query access can disappear during process teardown
+                        // just before its process object becomes signaled. Wait
+                        // once for at most 50 ms; a still-live identity fails.
+                        if(!ProbeContract.CanDeferExitedImage(errorValue.NativeErrorCode,WaitForSingleObject(held,errorValue.NativeErrorCode==5?50u:0u))) throw;
+                        long creation=Creation(held); deferredExitedImages.Add(pid,creation);
+                        Event(new {type="exited_image_query_deferred",pid,creation_filetime=creation,verified=false});
+                        CloseHandle(held); continue;
+                    }
                     observed.Add(pid,held); Event(new { type="owned_process",pid,creation_filetime=Creation(held),image,token_verified=true });
                 } catch { CloseHandle(held); throw; }
             }
@@ -195,6 +329,7 @@ public static partial class NativeProbe {
             Check(CreateProcess(executable,new StringBuilder(String.Join(" ",args.Select(Quote))),IntPtr.Zero,IntPtr.Zero,true,0x08080404u,env,profile,ref startup,out process));
             foreach(IntPtr h in new[]{childIn,childOut,childErr}) CloseHandle(h); childIn=childOut=childErr=IntPtr.Zero;
             VerifyToken(process.Process,job,expectedSid,process.Pid); Image(process.Process,process.Pid,images);
+            collector=new ProcessCollector(job,images);
             // Hold a separate process handle for census identity; initial handle
             // remains independently owned by ProcessInfo and controller handshake.
             observe();
@@ -227,8 +362,11 @@ public static partial class NativeProbe {
                         try { Check(DuplicateHandle(process.Process,new IntPtr(remoteImage),GetCurrentProcess(),out imageHandle,0,false,2)); } catch { CloseHandle(held); throw; }
                         try {
                             if(GetProcessId(held)!=item.Pid) throw new IOException("Host-held process handle resolves to another PID");
+                            long deferredCreation;
+                            if(deferredExitedImages.TryGetValue(item.Pid,out deferredCreation) && Creation(held)!=deferredCreation) throw new IOException("Deferred process creation identity differs");
                             VerifyToken(held,job,expectedSid,item.Pid); string image=HeldImage(imageHandle,item.Pid,Creation(held),images);
                             observed.Add(item.Pid,held); held=IntPtr.Zero;
+                            deferredExitedImages.Remove(item.Pid);
                             Event(new { type="owned_process",pid=item.Pid,creation_filetime=Creation(observed[item.Pid]),image,token_verified=true,source="duplicated_host_hold" });
                         } finally { if(held!=IntPtr.Zero) CloseHandle(held); CloseHandle(imageHandle); }
                     }
@@ -249,10 +387,19 @@ public static partial class NativeProbe {
                         evidenceRoute="input_diagnostic";
                         if(item.Phase=="input_chunk") inputDiagnostic.Add(item.Kind); else inputDiagnostic.Finish(item.Kind);
                     }
+                    if(item.Phase=="web_chunk" || item.Phase=="web_complete") {
+                        if(!dom.Complete) throw new IOException("WEB preceded synthetic qualification");
+                        if(item.Phase=="web_chunk") web.Add(item.Kind); else web.Finish(item.Kind);
+                    }
+                    if(item.Phase=="ui_chunk" || item.Phase=="ui_complete" || item.Phase=="ui_failure") {
+                        if(!UiArtifactResource.Enabled || !web.Complete)throw new IOException("Unexpected UI artifact evidence");
+                        if(item.Phase=="ui_chunk")ui.Add(item.Kind);else if(item.Phase=="ui_complete")ui.Finish(item.Kind);
+                    }
                     if(item.Pid!=0) reported.Add(item.Pid);
                     if(item.Phase=="controller_ready") {
                         if(ready) throw new IOException("Duplicate readiness");
-                        if(item.Kind=="browser" && (evidenceRoute!="dom" || !dom.Complete)) throw new IOException("Incomplete independent DOM evidence");
+                        if(item.Kind=="browser" && (evidenceRoute!="dom" || !dom.Complete || !web.Complete)) throw new IOException("Incomplete independent DOM/WEB evidence");
+                        if(UiArtifactResource.Enabled&&!ui.Complete)throw new IOException("Incomplete UI candidate evidence");
                         if(item.Kind=="input_diagnostic" && (evidenceRoute!="input_diagnostic" || !inputDiagnostic.Complete)) throw new IOException("Incomplete independent input diagnostic evidence");
                         ready=true; readyPid=item.Pid;
                     }
@@ -261,7 +408,10 @@ public static partial class NativeProbe {
                 }
                 if(ready && !stopSent) {
                     observe();
-                    server.RequireComplete(); Event(new { type="owned_server_complete",requests=server.Requests,unexpected_requests=0 });
+                    if(deferredExitedImages.Count!=0) throw new IOException("Exited process image identity remains unresolved");
+                    server.RequireComplete(evidenceRoute=="dom"?(UiArtifactResource.Enabled?11:10):2);
+                    if(evidenceRoute=="dom") Event(new { type="owned_server_complete",requests=server.Requests,unexpected_requests=0,unrelated_connection_open=true,readiness_path="/ready",readiness_status=204 });
+                    else Event(new { type="owned_server_complete",requests=server.Requests,unexpected_requests=0 });
                     foreach(uint pid in reported) if(!observed.ContainsKey(pid)) throw new IOException("Host-reported PID lacks independent held identity");
                     if(!observed.ContainsKey(readyPid) || WaitForSingleObject(observed[readyPid],0)!=258) throw new IOException("Ready browser is not independently live");
                     byte[] stop=Utf8.GetBytes("STOP "+nonce+"\n"); input.Write(stop,0,stop.Length); input.Flush(); stopSent=true;
@@ -275,9 +425,10 @@ public static partial class NativeProbe {
             uint exit; Check(GetExitCodeProcess(process.Process,out exit));
             if(exit!=0 || !ready || !hostStopped || !hostClosed) throw new IOException("Incomplete host startup/STOP outcome");
             foreach(uint pid in reported) if(!observed.ContainsKey(pid)) throw new IOException("Reported helper not independently verified");
-            if(evidenceRoute=="dom") Event(new { type="dom_observed",browser_qualification=false,production_profile_qualified=false,prototype_only=true,documents=dom.Documents,version=ProbeContract.Version,verified_processes=observed.Count });
+            if(evidenceRoute=="dom") { Event(new { type="frozen_web_observed",manifest_sha256=FrozenWebResources.ManifestSha256,documents=web.Documents,denied_navigation_attempts=1,visual_review="not_run" }); Event(new { type="dom_observed",browser_qualification=false,production_profile_qualified=false,prototype_only=true,documents=dom.Documents,version=ProbeContract.Version,verified_processes=observed.Count }); }
             else if(evidenceRoute=="input_diagnostic") Event(new { type="input_diagnostic_observed",target_verified=inputDiagnostic.TargetVerified,text_inserted=inputDiagnostic.TextInserted,focus_value=inputDiagnostic.FocusValue,text_value=inputDiagnostic.TextValue,key_value=inputDiagnostic.KeyValue,key_delivered=inputDiagnostic.KeyDelivered,key_downs=inputDiagnostic.KeyDowns,key_presses=inputDiagnostic.KeyPresses,key_ups=inputDiagnostic.KeyUps,submits=inputDiagnostic.Submits,submission_observed=inputDiagnostic.SubmissionObserved,status=inputDiagnostic.Status,browser_qualification=false,production_profile_qualified=false,prototype_only=true,documents=inputDiagnostic.Documents,version=ProbeContract.Version,verified_processes=observed.Count });
             else throw new IOException("No completed host evidence route");
+            if(UiArtifactResource.Enabled)Event(new {type="ui_artifact_observed",case_id=UiArtifactResource.CaseId,artifact_sha256=UiArtifactResource.ArtifactSha256,status=ui.Passed?"passed":"failed",documents=ui.Documents,assertions=ui.Assertions,visual_review="not_run"});
         } catch(Exception errorValue) {
             primary=ExceptionDispatchInfo.Capture(errorValue); Diagnostic(new { type="primary_failure",phase,exception=Bounded(errorValue.ToString(),2048),hresult=errorValue.HResult });
         } finally {
@@ -288,12 +439,15 @@ public static partial class NativeProbe {
                     Check(TerminateJobObject(job,1)); var wait=Stopwatch.StartNew();
                     while(JobPids(job).Length!=0 && wait.ElapsedMilliseconds<10000) Thread.Sleep(10);
                     if(JobPids(job).Length!=0) throw new IOException("Job remains active");
+                    if(collector!=null) collector.Stop();
+                    Cleanup("final_collected_identities",collect,cleanupFailures);
                     var counts=Accounts(job);
                     Cleanup("final_process_coverage",()=>ProbeContract.Coverage(counts.Total,observed.Count),cleanupFailures);
                     Diagnostic(new { type="job_process_coverage",total_processes=counts.Total,verified_identities=observed.Count,complete=counts.Total==observed.Count });
                     Event(new { type="job_empty_waiting_for_ack" }); WaitForDrainAcknowledgement(owner);
                     Diagnostic(new { type="job_empty",independent_notification_acknowledged=true });
                 },cleanupFailures);
+                if(collector!=null) Cleanup("process_collector_dispose",()=>collector.Dispose(),cleanupFailures);
                 Cleanup("close_job",()=>Check(CloseHandle(job)),cleanupFailures); job=IntPtr.Zero;
             }
             Cleanup("host_exit",()=>ProcessExit(process.Process,"after_cleanup"),cleanupFailures);

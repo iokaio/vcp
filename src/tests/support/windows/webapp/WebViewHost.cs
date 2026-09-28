@@ -16,7 +16,7 @@ using Microsoft.Web.WebView2.Core;
 using Vcp.Qualification.Webapp;
 
 namespace Vcp.Cs3WebViewDraft {
-    internal static class WebViewHost {
+    internal static partial class WebViewHost {
         [System.Runtime.InteropServices.DllImport("shell32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode)]
         static extern int SetCurrentProcessExplicitAppUserModelID(string id);
         [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -160,6 +160,8 @@ namespace Vcp.Cs3WebViewDraft {
                 responseStreams.Add(denied);
                 e.Response = environment.CreateWebResourceResponse(denied,403,"Forbidden","Content-Type: text/plain; charset=utf-8\r\nCache-Control: no-store");
                 if (lifecycle.Stopping) return;
+                if (uiRunning) { ServeUi(e); return; }
+                if (webCasesRunning) { ServeWebCase(e); return; }
                 // Handle the one exact off-origin test before consulting the
                 // normal-phase fixture router, which intentionally latches any
                 // request made after its resource phase has closed.
@@ -189,6 +191,12 @@ namespace Vcp.Cs3WebViewDraft {
         }
         static void NavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e) {
             if (lifecycle.Stopping) { e.Cancel = true; return; }
+            if(uiRunning) {e.Cancel=true;try {StartUiNavigation(e);}catch(Exception error){Reject("ui_navigation_callback_failed",error.HResult);}return;}
+            if (webCasesRunning) {
+                e.Cancel=true;
+                try { StartWebNavigation(e); } catch(Exception error) { e.Cancel=true; Reject("web_navigation_callback_failed",error.HResult); }
+                return;
+            }
             try {
                 if (!initialNavigationSeen && !negativeExpected && String.Equals(e.Uri,WebDomContract.FormUrl,StringComparison.Ordinal)) {
                     initialNavigationSeen = true;
@@ -213,22 +221,27 @@ namespace Vcp.Cs3WebViewDraft {
         }
         static void FrameNavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e) {
             e.Cancel = true;
+            if(uiRunning){uiBoundaryViolation=true;return;}
             if (!lifecycle.Stopping) Reject("frame_navigation_rejected");
         }
         static void NewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs e) {
             e.Handled = true;
+            if(uiRunning){uiBoundaryViolation=true;return;}
             if (!lifecycle.Stopping) Reject("popup_rejected");
         }
         static void DownloadStarting(object sender, CoreWebView2DownloadStartingEventArgs e) {
             e.Cancel = true;
+            if(uiRunning){uiBoundaryViolation=true;return;}
             if (!lifecycle.Stopping) Reject("download_rejected");
         }
         static void PermissionRequested(object sender, CoreWebView2PermissionRequestedEventArgs e) {
             e.State = CoreWebView2PermissionState.Deny; e.Handled = true;
+            if(uiRunning){uiBoundaryViolation=true;return;}
             if (!lifecycle.Stopping) Reject("permission_rejected");
         }
         static void LaunchingExternalUriScheme(object sender, CoreWebView2LaunchingExternalUriSchemeEventArgs e) {
             e.Cancel = true;
+            if(uiRunning){uiBoundaryViolation=true;return;}
             if (!lifecycle.Stopping) Reject("external_uri_rejected");
         }
         static async void NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e) {
@@ -371,6 +384,8 @@ namespace Vcp.Cs3WebViewDraft {
             RequireProbeActive();
 
             Emit("dom_complete",0,0,"form_and_origin");
+            await RunFrozenWebCases();
+            await RunUiArtifact();
             Census();
             RequireProbeActive();
             ready = true;
@@ -497,14 +512,14 @@ namespace Vcp.Cs3WebViewDraft {
             try { Census(); } catch (Exception error) { Stop("census_failed",error.HResult,false); }
         }
         static void Census() {
-            // ProcessInfosChanged is an advisory, coalescible signal. Retain a
-            // bounded prefix; the supervisor's job census remains authoritative
-            // and must still verify every cumulative process identity exactly.
-            if (snapshots >= 8) return;
+            // Snapshot notifications are coalescible. Bound their diagnostic
+            // emissions, but keep acquiring each new identity after the prefix;
+            // later navigations can create a short-lived renderer.
+            if (snapshots >= 128) throw new InvalidOperationException("Process snapshot callback bound exceeded");
             snapshots++;
             var processes = environment.GetProcessInfos();
             if (processes.Count > Evidence.MaximumProcesses) throw new InvalidOperationException("Process count bound exceeded");
-            Emit("process_snapshot",0,0,"snapshot_"+snapshots);
+            if(snapshots<=8) Emit("process_snapshot",0,0,"snapshot_"+snapshots);
             foreach (var process in processes) {
                 uint pid=checked((uint)process.ProcessId); ReportedHandles handles;
                 if(!reportedProcessHandles.TryGetValue(pid,out handles)) {
@@ -516,8 +531,8 @@ namespace Vcp.Cs3WebViewDraft {
                     if(imageHandle==new IntPtr(-1)) { int error=System.Runtime.InteropServices.Marshal.GetLastWin32Error(); CloseHandle(processHandle); throw new System.ComponentModel.Win32Exception(error); }
                     handles=new ReportedHandles { Process=processHandle,Image=imageHandle };
                     reportedProcessHandles.Add(pid,handles);
+                    Emit("reported_process",0,pid,process.Kind.ToString()+":"+handles.Process.ToInt64().ToString("x",System.Globalization.CultureInfo.InvariantCulture)+":"+handles.Image.ToInt64().ToString("x",System.Globalization.CultureInfo.InvariantCulture));
                 }
-                Emit("reported_process",0,pid,process.Kind.ToString()+":"+handles.Process.ToInt64().ToString("x",System.Globalization.CultureInfo.InvariantCulture)+":"+handles.Image.ToInt64().ToString("x",System.Globalization.CultureInfo.InvariantCulture));
             }
         }
         static void ReadControl() {
@@ -567,6 +582,8 @@ namespace Vcp.Cs3WebViewDraft {
                     core.NavigationStarting -= NavigationStarting;
                     core.FrameNavigationStarting -= FrameNavigationStarting;
                     core.NavigationCompleted -= NavigationCompleted;
+                    core.NavigationCompleted -= CompleteWebNavigation;
+                    core.NavigationCompleted -= CompleteUiNavigation;
                     core.NewWindowRequested -= NewWindowRequested;
                     core.DownloadStarting -= DownloadStarting;
                     core.PermissionRequested -= PermissionRequested;

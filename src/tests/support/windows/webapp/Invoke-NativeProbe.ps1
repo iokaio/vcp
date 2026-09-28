@@ -14,7 +14,9 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Controller-helpers.ps1')
 . (Join-Path $PSScriptRoot 'Input-Policy.ps1')
 if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne 'X64') { throw 'Native x64 Windows required' }
-Add-Type -Path @((Join-Path $PSScriptRoot 'NativeProbe.cs'),(Join-Path $PSScriptRoot 'WorkerGuardian.cs'),(Join-Path $PSScriptRoot 'WebViewSupervisor.cs'),(Join-Path $PSScriptRoot 'ProbeContract.cs'),(Join-Path $PSScriptRoot 'DomEvidence.cs'),(Join-Path $PSScriptRoot 'InputDiagnosticEvidence.cs'),(Join-Path $PSScriptRoot 'WebDomContract.cs')) -ErrorAction Stop
+Add-Type -Path @((Join-Path $PSScriptRoot 'NativeProbe.cs'),(Join-Path $PSScriptRoot 'WorkerGuardian.cs'),(Join-Path $PSScriptRoot 'WebViewSupervisor.cs'),(Join-Path $PSScriptRoot 'ProbeContract.cs'),(Join-Path $PSScriptRoot 'DomEvidence.cs'),(Join-Path $PSScriptRoot 'FrozenWebEvidence.cs'),(Join-Path $PSScriptRoot 'FrozenWebResources.cs'),(Join-Path $PSScriptRoot 'UiArtifactResource.cs'),(Join-Path $PSScriptRoot 'UiArtifactEvidence.cs'),(Join-Path $PSScriptRoot 'InputDiagnosticEvidence.cs'),(Join-Path $PSScriptRoot 'WebDomContract.cs')) -ErrorAction Stop
+if ($Mode -eq 'compile-only') { $webCount=[Vcp.Cs3Draft.FrozenWebEvidence]::Test(); "PASS $webCount independent frozen WEB evidence assertions." }
+if ($Mode -eq 'compile-only') { $uiCount=[Vcp.Cs3Draft.UiArtifactEvidence]::Test(); "PASS $uiCount independent UI artifact evidence assertions." }
 if ($Mode -eq 'compile-only') { [Vcp.Cs3Draft.NativeProbe]::CheckLayouts(); $count=[Vcp.Cs3Draft.ProbeContract]::Test(); $domCount=[Vcp.Cs3Draft.DomEvidence]::Test(); $inputCount=[Vcp.Cs3Draft.InputDiagnosticEvidence]::Test(); $guardianCount=[Vcp.Cs3Draft.NativeProbe]::TestWorkerGuardianContract(); $scratchCount=[Vcp.Cs3Draft.NativeProbe]::TestScratchVanishedContract(); $scratchDiagnosticCount=[Vcp.Cs3Draft.NativeProbe]::TestScratchDiagnosticContract(); "Worker compiled; $count protocol/coverage, $domCount DOM evidence, $inputCount input diagnostic, $guardianCount guardian, $scratchCount scratch and $scratchDiagnosticCount scratch diagnostic assertions passed. Only a read-only absent-path check; no native probe method, host, Core, profile, ACL or registry operation invoked."; return }
 if (-not $Execute) { throw 'Draft native execution requires independent review and explicit -Execute' }
 $inputsFile=Join-Path $PSScriptRoot 'inputs.json'
@@ -23,13 +25,39 @@ $inputs=Get-Content -LiteralPath $inputsFile -Raw | ConvertFrom-Json
 if ($inputs.schema -cne 'cs3-webview2-inputs/1' -or $inputs.version -cne '154.0.4258.37' -or $inputs.browser_argument -cne '' -or $inputs.runtime -cne 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application\154.0.4258.37') { throw 'Exact prospective inputs differ' }
 foreach ($entry in $inputs.sources) { if ($entry.path -notmatch '^[A-Za-z-]+\.(cs|ps1)$' -or (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $entry.path)).Hash.ToLowerInvariant() -cne $entry.sha256) { throw 'Frozen draft source changed; compile a new reviewed input manifest' } }
 function Hash([string]$File) { (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant() }
+function ReceiptHash([string]$File, [switch]$AllowMissing) {
+    $stream=$null
+    try {
+        $stream=[IO.FileStream]::new($File,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::Read -bor [IO.FileShare]::Delete))
+        if($stream.Length -gt 4MB){throw 'Receipt identity byte ceiling'}
+        return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)).ToLowerInvariant()
+    } catch {
+        $failure=$_.Exception
+        while($failure.InnerException){$failure=$failure.InnerException}
+        if($AllowMissing -and $failure -is [IO.FileNotFoundException]){return $null}
+        throw
+    } finally {if($stream){$stream.Dispose()}}
+}
 function JsonWrite([string]$File, $Value) {
+    $full=[IO.Path]::GetFullPath($File);$parent=[IO.Path]::GetDirectoryName($full)
+    if([IO.Path]::GetDirectoryName($parent) -cne $PSScriptRoot -or [IO.Path]::GetFileName($parent) -cnotmatch '^run-[a-f0-9]{32}$' -or [IO.Path]::GetFileName($full) -cne 'native-receipt.json'){throw 'Receipt write is outside exact owned run'}
+    [Vcp.Cs3Draft.NativeProbe]::RegularTree($parent)
+    $previous=ReceiptHash $full -AllowMissing
     $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($Value | ConvertTo-Json -Depth 12))
+    if($bytes.Length -gt 4MB){throw 'Receipt serialization byte ceiling'}
+    $expected=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
     # A killed controller may leave its fixed temporary path open in a dying
     # descendant. Recovery must not adopt, overwrite or wait on that path.
     $temporary = $File + '.next.' + $PID + '.' + [guid]::NewGuid().ToString('N')
-    [IO.File]::WriteAllBytes($temporary, $bytes)
-    [IO.File]::Move($temporary, $File, $true)
+    $stream=[IO.FileStream]::new($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+    # Dispose flushes the managed buffer before the atomic replacement. This
+    # journal does not claim power-loss durability; synchronous disk flushes on
+    # every event would block the bounded worker acknowledgement protocol.
+    try {$stream.Write($bytes,0,$bytes.Length)} finally {$stream.Dispose()}
+    Complete-OwnedReceiptReplacement -Validate {
+        [Vcp.Cs3Draft.NativeProbe]::RegularTree($parent)
+        if((ReceiptHash $temporary) -cne $expected -or (ReceiptHash $full -AllowMissing) -cne $previous){throw 'Receipt bytes changed during atomic replacement'}
+    } -Move {[IO.File]::Move($temporary,$full,$true)}
 }
 function PrivateAcl([string]$Directory, [string]$ContainerSid, [string]$Rights = 'ReadAndExecute') {
     $acl = [Security.AccessControl.DirectorySecurity]::new(); $acl.SetAccessRuleProtection($true, $false)

@@ -34,3 +34,20 @@ function Record-ControllerCleanupFailure {
     if ($detail.Length -gt 2048) { $detail=$detail.Substring(0,2048) }
     $ReceiptValue.cleanup_errors += [ordered]@{ operation=$Operation; detail=$detail }
 }
+function Complete-OwnedReceiptReplacement {
+    param([Parameter(Mandatory)][scriptblock]$Validate, [Parameter(Mandatory)][scriptblock]$Move,
+        [scriptblock]$Delay = { Start-Sleep -Milliseconds 25 })
+    # Only atomic replacement sharing/access conflicts may wait. Validation runs
+    # before every attempt, so changed source/destination bytes never get adopted.
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        & $Validate
+        try { & $Move; return }
+        catch {
+            $failure = $_.Exception
+            while ($failure.InnerException) { $failure = $failure.InnerException }
+            $native = if ($failure -is [ComponentModel.Win32Exception]) { $failure.NativeErrorCode } else { $failure.HResult -band 0xffff }
+            if ($native -notin @(5,32) -or $attempt -eq 9) { throw }
+            & $Delay
+        }
+    }
+}

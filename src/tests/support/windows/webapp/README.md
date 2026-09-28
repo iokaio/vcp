@@ -1,5 +1,12 @@
 # CS-3 WebView2 diagnostic source
 
+The successor fixed WEB adapter is documented in
+[frozen WEB execution](../../../../../docs/development/cs3-frozen-web-execution.md).
+It preserves the synthetic diagnostic, then executes exact compiled WEB v1 bytes
+with a separately reconstructed eight-document oracle and ten total owned-server
+requests. It admits no arbitrary project path or page-provided command. Native
+launch remains dependent on the separately reviewed adversarial boundary.
+
 Current-host continuation variant (not yet qualified): based on the retained
 isolated-worker source merged in PR #198, now pins this host's observed WebView2
 `154.0.4258.37` executable SHA256

@@ -18,6 +18,18 @@ Reject { Register-OwnedProcess $identities ([pscustomobject]@{pid=42;creation_fi
 Reject { Register-OwnedProcess @{} ([pscustomobject]@{pid=43;creation_filetime=100}) { throw 'Uninspectable process must fail' } }
 $short=@{};$shortResult=Register-OwnedProcess $short ([pscustomobject]@{pid=44;creation_filetime=101;token_verified=$true}) { throw [ArgumentException]::new('already exited') };Check ($null -eq $shortResult -and $short[44].ExitedBeforeParentOpen -and $short[44].CreationFileTime -eq 101)
 Reject { Register-OwnedProcess @{} ([pscustomobject]@{pid=45;creation_filetime=102;token_verified=$false}) { throw [ArgumentException]::new('already exited') } }
+$state=@{moves=0;validations=0;delays=0}
+Complete-OwnedReceiptReplacement -Validate {$state.validations++} -Move {$state.moves++;if($state.moves -eq 1){throw [UnauthorizedAccessException]::new('synthetic transient access conflict')}} -Delay {$state.delays++}
+Check ($state.moves -eq 2 -and $state.validations -eq 2 -and $state.delays -eq 1)
+$state=@{moves=0;validations=0;delays=0}
+Reject {Complete-OwnedReceiptReplacement -Validate {$state.validations++} -Move {$state.moves++;throw [IO.IOException]::new('synthetic sharing conflict',-2147024864)} -Delay {$state.delays++}}
+Check ($state.moves -eq 10 -and $state.validations -eq 10 -and $state.delays -eq 9)
+$state=@{moves=0;validations=0;delays=0}
+Reject {Complete-OwnedReceiptReplacement -Validate {$state.validations++;if($state.validations -gt 1){throw 'synthetic changed receipt'}} -Move {$state.moves++;throw [UnauthorizedAccessException]::new('synthetic access conflict')} -Delay {$state.delays++}}
+Check ($state.moves -eq 1 -and $state.validations -eq 2 -and $state.delays -eq 1)
+$state=@{moves=0;delays=0}
+Reject {Complete-OwnedReceiptReplacement -Validate {} -Move {$state.moves++;throw [IO.IOException]::new('synthetic unrelated failure',-2147024894)} -Delay {$state.delays++}}
+Check ($state.moves -eq 1 -and $state.delays -eq 0)
 Assert-SnapshotSame ([ordered]@{root='synthetic';files=@(@{sha256='a'})}) ([ordered]@{root='synthetic';files=@(@{sha256='a'})}); Check $true
 Reject { Assert-SnapshotSame (@{sha256='a'}) (@{sha256='b'}) }
 $pe=[byte[]]::new(256)

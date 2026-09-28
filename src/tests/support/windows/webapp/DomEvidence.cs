@@ -10,8 +10,17 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Vcp.Cs3Draft {
-public sealed class DomEvidence {
-    static readonly string[] Names = { "initial", "focused", "invalid", "filled", "success", "accessibility", "origin" };
+public class DomEvidence {
+    string[] Names;
+    Action<string,string> validator;
+    string terminal;
+    public DomEvidence() : this(false) { }
+    protected DomEvidence(bool web) {
+        Names=web?new[]{"web-initial","web-tab","web-invalid","web-success","web-ax","web-poll-error","web-poll-success","web-hostile"}:new[]{"initial","focused","invalid","filled","success","accessibility","origin"};
+        validator=web?(Action<string,string>)FrozenWebEvidence.Validate:Validate; terminal=web?"frozen_web_v1":"form_and_origin";
+    }
+    protected void Configure(string[] names,Action<string,string> validate,string complete) { if(next!=0 || pending!=null) throw new IOException("Evidence already started"); Names=names;validator=validate;terminal=complete; }
+    protected void FinishPrefix() { if(failed || completed || pending!=null) throw new IOException("Invalid partial evidence terminal");completed=true; }
     static readonly UTF8Encoding Utf8 = new UTF8Encoding(false, true);
     int next, total, lifetime; string hash; MemoryStream pending;
     bool completed, failed;
@@ -35,12 +44,12 @@ public sealed class DomEvidence {
         if (pending.Length == total) {
             byte[] all = pending.ToArray();
             if (Convert.ToHexString(SHA256.HashData(all)).ToLowerInvariant() != hash) throw new IOException("DOM snapshot hash differs");
-            Validate(Names[next], Utf8.GetString(all));
+            validator(Names[next],Utf8.GetString(all));
             lifetime += all.Length; next++; pending.Dispose(); pending = null;
         }
     }
     public void Finish(string kind) {
-        if (failed || completed || pending != null || next != Names.Length || kind != "form_and_origin") { failed = true; throw new IOException("Incomplete DOM evidence"); }
+        if (failed || completed || pending != null || next != Names.Length || kind != terminal) { failed = true; throw new IOException("Incomplete DOM evidence"); }
         completed = true;
     }
     static void Exact(JsonElement value, params string[] names) {

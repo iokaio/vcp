@@ -4,7 +4,9 @@
 param(
     [Parameter(Mandatory)][string]$CoreAssembly,
     [Parameter(Mandatory)][string]$Loader,
-    [Parameter(Mandatory)][string]$OutputDirectory
+    [Parameter(Mandatory)][string]$OutputDirectory,
+    [string]$UiArtifact,
+    [ValidateSet('UI-cs3-filter-selection-v1','UI-cs3-disclosure-form-v1')][string]$UiCase
 )
 $ErrorActionPreference='Stop'
 if (-not $IsWindows -or [IntPtr]::Size -ne 8) { throw 'Native x64 Windows required' }
@@ -51,8 +53,26 @@ foreach ($dep in $deps) {
     $dep.source=Assert-PlainPath $dep.source ('Pinned dependency '+$dep.name) $true
     if ((Hash $dep.source) -cne $dep.sha256) { throw 'Pinned SDK/loader input differs' }
 }
-$names=@('HostContract.cs','HostContractTests.cs','WebViewHost.cs','WebDomContract.cs','WebDomContractTests.cs','NativeProbe.cs','WebViewSupervisor.cs','WorkerGuardian.cs','ProbeContract.cs','DomEvidence.cs','InputDiagnosticEvidence.cs','Invoke-NativeProbe.ps1','Input-Policy.ps1','Controller-helpers.ps1','Pe-Contract.ps1','Test-Contracts.ps1','Test-WorkerGuardian.ps1')
+$names=@('HostContract.cs','HostContractTests.cs','WebViewHost.cs','FrozenWebHost.cs','FrozenWebResources.cs','FrozenWebEvidence.cs','UiArtifactResource.cs','UiArtifactHost.cs','UiArtifactEvidence.cs','WebDomContract.cs','WebDomContractTests.cs','NativeProbe.cs','WebViewSupervisor.cs','WorkerGuardian.cs','ProbeContract.cs','DomEvidence.cs','InputDiagnosticEvidence.cs','Invoke-NativeProbe.ps1','Input-Policy.ps1','Controller-helpers.ps1','Pe-Contract.ps1','Test-Contracts.ps1','Test-WorkerGuardian.ps1')
 $sources=@($names | ForEach-Object { $file=Assert-PlainPath (Join-Path $source $_) ('Diagnostic source '+$_) $true; [ordered]@{path=$_;sha256=(Hash $file)} })
+$uiPayload=$null;$uiIdentity=[ordered]@{enabled=$false}
+if([bool]$UiArtifact -ne [bool]$UiCase){throw 'UI artifact inventory and exact case must be supplied together'}
+if($UiArtifact){
+    $UiArtifact=Assert-PlainPath $UiArtifact 'Materialized UI artifact inventory' $true
+    $uiGenerator=Join-Path $PSScriptRoot 'cs3-ui-artifact.cjs'
+    $uiGeneratorHash=Hash $uiGenerator
+    $uiInputHash=Hash $UiArtifact
+    $uiNode=& node -p "require('node:fs').realpathSync(process.execPath)"
+    if($LASTEXITCODE -ne 0){throw 'Physical UI generator runtime unavailable'}
+    $uiNode=Assert-PlainPath $uiNode 'UI generator runtime' $true
+    $uiNodeHash=Hash $uiNode
+    $uiRaw=& $uiNode $uiGenerator compile $UiCase $UiArtifact
+    if($LASTEXITCODE -ne 0){throw 'UI resource generation failed'}
+    $uiPayload=$uiRaw | ConvertFrom-Json
+    if($uiPayload.schema -cne 'cs3-ui-compiled-resource/1' -or $uiPayload.artifact_sha256 -cne $uiInputHash){throw 'Generated UI inventory differs'}
+    $uiIdentity=[ordered]@{enabled=$true;case_id=$UiCase;artifact_sha256=$uiInputHash;html_sha256=$uiPayload.html_sha256;html_bytes=$uiPayload.html_bytes;generator_sha256=$uiGeneratorHash;generator_node_sha256=$uiNodeHash}
+    foreach($entry in $sources){if($entry.path -ceq 'UiArtifactResource.cs'){$entry.template_sha256=$entry.sha256;$entry.sha256=$uiPayload.source_sha256}}
+}
 $builderSha256=Hash $PSCommandPath
 $compiler=Assert-PlainPath 'C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe' 'C# compiler' $true
 $references=Assert-PlainPath 'C:/Program Files (x86)/Reference Assemblies/Microsoft/Framework/.NETFramework/v4.8' '.NET Framework reference root' $false
@@ -62,8 +82,10 @@ New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
 Assert-ArtifactChain $output $artifacts
 foreach ($entry in $sources) {
     $origin=Join-Path $source $entry.path; $target=Join-Path $output $entry.path
-    if ((Hash $origin) -cne $entry.sha256) { throw 'Source changed before staging' }
-    [IO.File]::Copy($origin,$target,$false)
+    $originalHash=if($entry.template_sha256){$entry.template_sha256}else{$entry.sha256}
+    if ((Hash $origin) -cne $originalHash) { throw 'Source changed before staging' }
+    if($entry.template_sha256){[IO.File]::WriteAllText($target,$uiPayload.source,[Text.UTF8Encoding]::new($false))}
+    else{[IO.File]::Copy($origin,$target,$false)}
     if ((Hash $target) -cne $entry.sha256) { throw 'Staged source differs' }
 }
 foreach ($dep in $deps) {
@@ -79,7 +101,7 @@ $oldTemp=$env:TEMP; $oldTmp=$env:TMP
 try {
     $env:TEMP=$buildTemp; $env:TMP=$buildTemp
     # Compilation and these pure contract checks never start WebView2 or another browser.
-    & $compiler @common /target:winexe "/out:$output\WebViewHost.exe" "/reference:$references\System.Drawing.dll" "/reference:$references\System.Windows.Forms.dll" "/reference:$references\System.Web.Extensions.dll" "/reference:$output\Microsoft.Web.WebView2.Core.dll" "$output\HostContract.cs" "$output\WebDomContract.cs" "$output\WebViewHost.cs"
+    & $compiler @common /target:winexe "/out:$output\WebViewHost.exe" "/reference:$references\System.Drawing.dll" "/reference:$references\System.Windows.Forms.dll" "/reference:$references\System.Web.Extensions.dll" "/reference:$output\Microsoft.Web.WebView2.Core.dll" "$output\HostContract.cs" "$output\WebDomContract.cs" "$output\FrozenWebResources.cs" "$output\FrozenWebHost.cs" "$output\UiArtifactResource.cs" "$output\UiArtifactHost.cs" "$output\WebViewHost.cs"
     if ($LASTEXITCODE -ne 0) { throw 'Host compile failed' }
     foreach ($suite in @('HostContract','WebDomContract')) {
         & $compiler @common "/reference:$references\System.Web.Extensions.dll" /target:exe "/out:$output\$($suite)Tests.exe" "$output\$suite.cs" "$output\$($suite)Tests.cs"
@@ -95,8 +117,10 @@ try {
     $env:TEMP=$oldTemp; $env:TMP=$oldTmp
 }
 foreach ($entry in $sources) {
-    if ((Hash (Join-Path $source $entry.path)) -cne $entry.sha256 -or (Hash (Join-Path $output $entry.path)) -cne $entry.sha256) { throw 'Source changed during build' }
+    $originalHash=if($entry.template_sha256){$entry.template_sha256}else{$entry.sha256}
+    if ((Hash (Join-Path $source $entry.path)) -cne $originalHash -or (Hash (Join-Path $output $entry.path)) -cne $entry.sha256) { throw 'Source changed during build' }
 }
+if($uiPayload -and ((Hash $UiArtifact) -cne $uiInputHash -or (Hash $uiGenerator) -cne $uiGeneratorHash -or (Hash $uiNode) -cne $uiNodeHash)){throw 'UI generator or artifact inputs changed during build'}
 foreach ($dep in $deps) { if ((Hash $dep.source) -cne $dep.sha256 -or (Hash (Join-Path $output $dep.name)) -cne $dep.sha256) { throw 'Pinned dependency changed during build' } }
 foreach ($entry in $toolchain) { if ((Hash $entry.path) -cne $entry.sha256) { throw 'Compiler or reference assembly changed during build' } }
 if ((Hash $PSCommandPath) -cne $builderSha256) { throw 'Builder changed during build' }
@@ -116,7 +140,8 @@ $manifest=[ordered]@{
     builder_sha256=$builderSha256;builder_powershell=$PSVersionTable.PSVersion.ToString();builder_architecture=[Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
     runtime_identity_limitation='Installed Evergreen is serviced in place. Launch-time and before/after identity checks are not continuous immutability proof.'
     browser_argument_policy='No additional browser argument is permitted for the production-profile qualification attempt.'
-    scope='synthetic full-DOM browser joined through an exact hash-acknowledged relay to one owned ephemeral IPv4 loopback server; WEB cohort and six-skill acceptance remain separate'
+    scope='synthetic DOM followed by exact frozen WEB v1 form, polling and hostile redirect oracles through a hash-acknowledged owned server; six-skill comparison remains separate'
+    frozen_web_manifest_sha256='dbe34a441187381f0e5d3f587ea72b0ac15e096ca9d90f99a065ef8e51d84ee8';frozen_web_documents=8;owned_server_requests=$(if($uiPayload){11}else{10});open_idle_connection=$true;ui_artifact=$uiIdentity
 }
 [IO.File]::WriteAllText((Join-Path $output 'inputs.json'),($manifest | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
 [ordered]@{build=$output;inputs_sha256=(Hash (Join-Path $output 'inputs.json'));browser_executed=$false;full_plan_user_authorized=$true;root_review_required=$true;launch_ready=$false} | ConvertTo-Json

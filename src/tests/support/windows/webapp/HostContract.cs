@@ -142,10 +142,11 @@ namespace Vcp.Cs3WebViewDraft {
             if(result.Count==3 && (!result.TryGetValue("description",out descriptionValue) || !(descriptionValue is string) || (string)descriptionValue!="Object")) throw new InvalidDataException("Readiness barrier description differs");
             var value=valueValue as Dictionary<string,object>; object downValue,upValue,pressValue,repeatValue,sequenceValue,trustedValue;
             if(value==null || value.Count!=6 || !value.TryGetValue("d",out downValue) || !value.TryGetValue("u",out upValue) || !value.TryGetValue("p",out pressValue) || !value.TryGetValue("r",out repeatValue) || !value.TryGetValue("s",out sequenceValue) || !value.TryGetValue("t",out trustedValue)) throw new InvalidDataException("Readiness barrier value differs");
-            if(!(downValue is int) || (int)downValue!=expectedPairs || !(upValue is int) || (int)upValue!=expectedPairs || !(pressValue is int) || (int)pressValue!=0 || !(repeatValue is int) || (int)repeatValue!=0) throw new InvalidDataException("Readiness barrier count differs");
+            if(!(downValue is int) || (int)downValue!=expectedPairs || !(upValue is int) || (int)upValue!=expectedPairs || !(pressValue is int) || (int)pressValue!=0 || !(repeatValue is int) || (int)repeatValue!=0) throw new InvalidDataException("Readiness barrier count differs: expected="+expectedPairs+";d="+ReadinessCount(downValue)+";u="+ReadinessCount(upValue)+";p="+ReadinessCount(pressValue)+";r="+ReadinessCount(repeatValue));
             string sequence=expectedPairs==1?"DU":"DUDU";
             if(!(sequenceValue is string) || (string)sequenceValue!=sequence || !(trustedValue is bool) || !(bool)trustedValue) throw new InvalidDataException("Readiness barrier sequence differs");
         }
+        static string ReadinessCount(object value) { return value is int?((int)value).ToString(System.Globalization.CultureInfo.InvariantCulture):"non-integer"; }
         public sealed class EvidenceBudget {
             int total;
             public int TotalBytes { get { return total; } }

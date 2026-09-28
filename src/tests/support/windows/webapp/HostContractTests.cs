@@ -40,6 +40,8 @@ static class HostContractTests {
         HostProbeContract.AssertReadinessBarrier(readinessOne,1); HostProbeContract.AssertReadinessBarrier(readinessTwo,2); checks+=2;
         HostProbeContract.AssertReadinessBarrier(readinessOne.Replace("\"value\":", "\"description\":\"Object\",\"value\":"),1); checks++;
         Reject(delegate { HostProbeContract.AssertReadinessBarrier(readinessOne.Replace("\"d\":1","\"d\":0"),1); });
+        try { HostProbeContract.AssertReadinessBarrier(readinessOne.Replace("\"d\":1","\"d\":0"),1); Check(false); } catch(InvalidDataException error) { Check(error.Message=="Readiness barrier count differs: expected=1;d=0;u=1;p=0;r=0"); }
+        try { HostProbeContract.AssertReadinessBarrier(readinessOne.Replace("\"d\":1","\"d\":\"private-page-payload\""),1); Check(false); } catch(InvalidDataException error) { Check(error.Message=="Readiness barrier count differs: expected=1;d=non-integer;u=1;p=0;r=0" && !error.Message.Contains("private-page-payload")); }
         Reject(delegate { HostProbeContract.AssertReadinessBarrier(readinessOne.Replace("\"t\":true","\"t\":false"),1); });
         Reject(delegate { HostProbeContract.AssertReadinessBarrier(readinessOne.Replace("\"d\":1","\"x\":1"),1); });
         Reject(delegate { HostProbeContract.AssertReadinessBarrier(readinessOne.Replace("\"value\":", "\"description\":\"Array\",\"value\":"),1); });
