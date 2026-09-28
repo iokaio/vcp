@@ -1,6 +1,8 @@
 # CS-3 six-skill readiness and paid-proposal inputs
 
-Status: preparation continued September 28, 2026. The owner approved at most
+Status: the [prospective campaign](cs3-prospective-campaign-disposition.md) halted
+on its seventh slot on September 28, 2026; no comparison block completed.
+The owner approved at most
 USD 100 of new OpenRouter spending and directed selection of a DeepSeek model.
 That grant does not authorize replay, promotion, weakened gates or an unknown
 charge. This inventory supports phase 4 of the
@@ -329,8 +331,11 @@ promotes a candidate or substitutes for package rollback and revocation acceptan
 Paid work is authorized only inside the USD 100 outer boundary and the narrower
 enumerated allocations above. Prospective candidate corrections/audits, untouched
 inputs and the comparison implementation are present. The remaining acceptance
-work is the still-unrun six-skill campaign with both independent reader
-dispositions, including the owner-approved prospective frontend replacement.
+work is completion of six-skill comparison acceptance with both independent
+reader dispositions, including the owner-approved prospective frontend
+replacement. The prepared campaign subsequently halted on its seventh slot;
+it cannot resume or replay. The linked disposition records six settled failures,
+one unresolved provider reservation and 101 untouched slots.
 Historical generated UI outputs remain missing and their regrade remains not
 run; no new artifact is labeled as a recovered historical output. A bounded read-only
 scan of 75 eligible pre-September-28 VCP session records (200,555,848 bytes; no

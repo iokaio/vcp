@@ -4,6 +4,9 @@ CS-3 remains open. The owner has now approved replacing the unavailable historic
 UI regrade with a newly frozen prospective evaluation, while preserving the
 historical evidence gap. This does not claim six successful skill comparisons.
 No candidate is promoted into the default catalog.
+The [prospective paid campaign](cs3-prospective-campaign-disposition.md) subsequently
+halted on its seventh slot with unresolved provider liability; its six settled
+normal-task outputs failed. Comparison acceptance remains unsatisfied.
 
 ## Acceptance evidence
 
@@ -22,7 +25,8 @@ No candidate is promoted into the default catalog.
   explicit activation and persisted revocation for all six candidates.
 - [Six-skill readiness](cs3-six-skill-readiness.md): prospective corrections,
   bounded comparison implementation, pinned DeepSeek/OpenRouter selection and
-  the approved USD 100 envelope. No new paid comparison calls were made.
+  the approved USD 100 envelope. The subsequent seven-slot attempt and exact
+  terminal accounting halt are recorded separately above.
 
 ## Regression checks
 

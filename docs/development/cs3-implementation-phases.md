@@ -13,6 +13,8 @@ six-skill acceptance remain open. The September 28 owner decision in
 [plan 24](../plan/24-skills-follow-on.md#cs-3--browser-execution-and-six-skill-acceptance)
 replaces the unavailable historical regrade with the newly frozen prospective
 frontend evaluation; the missing historical evidence remains permanently recorded.
+The [prospective campaign](cs3-prospective-campaign-disposition.md) halted on its
+seventh slot with unresolved provider liability; no comparison block completed.
 Contract: [plan 24, CS-3](../plan/24-skills-follow-on.md#cs-3--browser-execution-and-six-skill-acceptance).
 
 On September 26, 2026 the owner authorized implementation of the full CS-3
