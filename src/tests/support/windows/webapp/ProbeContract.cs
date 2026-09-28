@@ -61,6 +61,9 @@ public static class ProbeContract {
     // A terminated process may deny a new image-name query. Deferral is never
     // verification: the caller must later bind its exact held identity/image.
     public static bool CanDeferExitedImage(int error,uint waitResult) { return error==5 && waitResult==0; }
+    public static bool CanDeferCollectedImage(string stage,int error,uint waitResult,long creation) {
+        return stage=="image_query" && creation>0 && CanDeferExitedImage(error,waitResult);
+    }
     public static HostObservation Parse(string line, string nonce) {
         if (line == null || Encoding.UTF8.GetByteCount(line)>2048) throw new IOException("Host line byte bound");
         using (var doc = JsonDocument.Parse(line, new JsonDocumentOptions { MaxDepth=4 })) {
@@ -120,6 +123,10 @@ public static class ProbeContract {
         LiveCoverage(2,1); checks++; LiveCoverage(2,2); checks++;
         reject(()=>LiveCoverage(1,2)); reject(()=>LiveCoverage(129,1)); reject(()=>LiveCoverage(1,-1));
         check(CanDeferExitedImage(5,0)); check(!CanDeferExitedImage(5,258)); check(!CanDeferExitedImage(5,UInt32.MaxValue)); check(!CanDeferExitedImage(87,0));
+        check(CanDeferCollectedImage("image_query",5,0,1));
+        foreach(string stage in new[]{"open_process","job_membership","creation","image_open",null}) check(!CanDeferCollectedImage(stage,5,0,1));
+        check(!CanDeferCollectedImage("image_query",5,258,1)); check(!CanDeferCollectedImage("image_query",5,UInt32.MaxValue,1));
+        check(!CanDeferCollectedImage("image_query",87,0,1)); check(!CanDeferCollectedImage("image_query",5,0,0));
         reject(()=>Coverage(9,8));
         string nonce=new string('a',64);
         string line="{\"schema\":\"cs3-webview2-host/1\",\"nonce\":\""+nonce+"\",\"phase\":\"controller_ready\",\"elapsed_ms\":100,\"hresult\":\"0x00000000\",\"version\":\"154.0.4258.37\",\"pid\":123,\"kind\":\"browser\",\"containment_attested\":false,\"browser_qualified\":false}";

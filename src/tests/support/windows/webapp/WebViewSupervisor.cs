@@ -86,23 +86,38 @@ public static partial class NativeProbe {
                             }
                             if(held.Count>=128) throw new IOException("Process handle collection ceiling");
                         }
-                        IntPtr process=OpenProcess(0x100400,false,pid),image=IntPtr.Zero;
-                        Check(process!=IntPtr.Zero);
+                        IntPtr process=IntPtr.Zero,image=IntPtr.Zero;
+                        long created=0; string stage="open_process";
                         try {
+                            process=OpenProcess(0x100400,false,pid); Check(process!=IntPtr.Zero);
+                            stage="job_membership";
                             bool member; Check(IsProcessInJob(process,job,out member));
                             if(!member || GetProcessId(process)!=pid) throw new IOException("Collected process outside owned job");
+                            stage="creation"; created=Creation(process);
                             var name=new StringBuilder(4096); uint length=4096;
+                            stage="image_query";
                             Check(QueryFullProcessImageName(process,0,name,ref length));
-                            long created=Creation(process);
                             string file=Path.GetFullPath(name.ToString());
                             ProbeContract.RequireImage(name.ToString(),file,pid,created,images,Diagnostic);
                             var attributes=new SecurityAttributes { Size=Marshal.SizeOf<SecurityAttributes>(),Inherit=false };
                             // Read-only, shared read/delete, never an executable load.
+                            stage="image_open";
                             image=CreateFile(file,0x80000000,5,ref attributes,3,0,IntPtr.Zero);
                             if(image==new IntPtr(-1)) { image=IntPtr.Zero; throw new Win32Exception(Marshal.GetLastWin32Error()); }
                             var item=new Held { Pid=pid,Process=process,Image=image,Created=created };
                             lock(gate) held.Add(pid,item);
                             process=image=IntPtr.Zero;
+                        } catch(Win32Exception error) {
+                            // Preserve the original native error before any other
+                            // API call. Only an already-held, exact exited process
+                            // may defer image querying; no open failure is ignored.
+                            int nativeError=error.NativeErrorCode;
+                            uint wait=process==IntPtr.Zero?UInt32.MaxValue:WaitForSingleObject(process,stage=="image_query" && nativeError==5?50u:0u);
+                            bool defer=ProbeContract.CanDeferCollectedImage(stage,nativeError,wait,created);
+                            Diagnostic(new {type="collector_capture_failure",stage,pid,creation_filetime=created,native_error=nativeError,process_handle_held=process!=IntPtr.Zero,process_signaled=wait==0,image_deferred=defer});
+                            if(!defer) throw;
+                            lock(gate) held.Add(pid,new Held {Pid=pid,Process=process,Image=IntPtr.Zero,Created=created});
+                            process=IntPtr.Zero;
                         } finally { if(image!=IntPtr.Zero) CloseHandle(image); if(process!=IntPtr.Zero) CloseHandle(process); }
                     }
                     stopped.Wait(1);
@@ -120,7 +135,7 @@ public static partial class NativeProbe {
         public void Dispose() {
             Stop();
             lock(gate) {
-                foreach(var item in held.Values) { CloseHandle(item.Image); CloseHandle(item.Process); }
+                foreach(var item in held.Values) { if(item.Image!=IntPtr.Zero) CloseHandle(item.Image); CloseHandle(item.Process); }
                 held.Clear();
             }
             stopped.Dispose();
@@ -257,6 +272,14 @@ public static partial class NativeProbe {
                 }
                 long deferredCreation;
                 if(deferredExitedImages.TryGetValue(item.Pid,out deferredCreation) && deferredCreation!=item.Created) throw new IOException("Deferred collected identity differs");
+                if(item.Image==IntPtr.Zero) {
+                    if(!deferredExitedImages.ContainsKey(item.Pid)) {
+                        VerifyToken(item.Process,job,expectedSid,item.Pid);
+                        deferredExitedImages.Add(item.Pid,item.Created);
+                        Event(new {type="exited_image_query_deferred",pid=item.Pid,creation_filetime=item.Created,verified=false,source="independent_handle_collector"});
+                    }
+                    continue;
+                }
                 VerifyToken(item.Process,job,expectedSid,item.Pid);
                 string image=HeldImage(item.Image,item.Pid,item.Created,images);
                 IntPtr copy; Check(DuplicateHandle(GetCurrentProcess(),item.Process,GetCurrentProcess(),out copy,0,false,2));
