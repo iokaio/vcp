@@ -39,6 +39,15 @@ the PR's synthetic merge commit `e43bbafccc6d91abafc8395c362ebc999dedc828`:
 `artifacts/cs3-ci-36468972991/f4992ba7-ee00-47dc-9009-872f8372ce7f/manifest.json`,
 SHA-256 `012f4e11ade352a3032a2e447edc9cd7aea9dc4a1bd612115af63e3f5a4e3f7b`.
 
+The receipt-backpressure and collector corrections also passed the complete
+Repository and harness job, most recently at source commit `12c502fd` in
+[workflow run 36471857260](https://github.com/iokaio/vcp/actions/runs/36471857260).
+Its retained fast-suite manifest records 23/23 passing cases under synthetic merge
+commit `a8a5025c88ecd9e2aa05c7b8d77dfb9d1a0b98e2`:
+`artifacts/cs3-ci-36471857260/98d408f1-8980-4a21-b3dd-38cb6ccbebb2/manifest.json`,
+SHA-256 `451afe4e95a286354fa90cf25b0e053c057555c3a1dce739eb0bb86963f62386`.
+The opt-in Windows jobs were again skipped; local native qualification is separate.
+
 | Check | Retained result |
 |---|---|
 | CS-2 developer | 83/83 passed; `artifacts/cs3-reviewed-developer-check/4fb3b649-ca5b-4693-844c-c0a897849f8c/manifest.json` |
@@ -81,6 +90,20 @@ reviews and 46 pure protocol/policy checks pass; final native evidence must bind
 this newer source. Startup and ACK deadlines were not increased. An abrupt crash
 can lose ordinary events since the last checkpoint; such partial receipts cannot
 qualify normal execution and remain eligible only for exact owner-loss recovery.
+
+A later pseudo-motion control returned its exact expected UI failure vector,
+9/9 process coverage and drain acknowledgement, but the handle collector retained
+a strict job-PID inventory exception. That run remains failed; the original
+assigned/returned counts were not logged, so a teardown race is not a proven
+diagnosis. The supervisor now stops and joins the collector and validates its
+held identities before deliberate job termination. Each step has an independent
+cleanup boundary, so a stop or collection failure cannot skip termination.
+Teardown polls the job's active count, matching the existing worker guardian;
+live PID inventory checks, exact lifetime-process coverage and the independent
+job-zero acknowledgement remain mandatory. Sixteen injected-failure assertions
+cover every combination of stop, collection and termination failure. New bounded
+PID-count diagnostics preserve the counts if a future strict inventory check
+fails. Native qualification must bind this corrected source before acceptance.
 
 ## External prerequisite
 

@@ -31,6 +31,25 @@ public static partial class NativeProbe {
         try { Check(QueryInformationJobObject(job,1,p,(uint)Marshal.SizeOf<Accounting>(),IntPtr.Zero)); return Marshal.PtrToStructure<Accounting>(p); }
         finally { Marshal.FreeHGlobal(p); }
     }
+    static void DrainCollectorAndJob(Action stop,Action collect,Action terminate,List<string> failures) {
+        Cleanup("process_collector_stop",stop,failures);
+        Cleanup("final_collected_identities",collect,failures);
+        Cleanup("terminate_and_drain_job",terminate,failures);
+    }
+    public static int TestCollectorCleanupContract() {
+        int checks=0; TextWriter original=Console.Out;
+        using(var output=new StringWriter()) try {
+            Console.SetOut(output);
+            for(int mask=0;mask<8;mask++) {
+                var order=new List<int>(); var failures=new List<string>();
+                Action<int> step=index=>{order.Add(index);if((mask&(1<<index))!=0)throw new IOException("injected cleanup failure");};
+                DrainCollectorAndJob(()=>step(0),()=>step(1),()=>step(2),failures);
+                if(!order.SequenceEqual(new[]{0,1,2}))throw new IOException("Collector cleanup order differs"); checks++;
+                if(failures.Count!=Enumerable.Range(0,3).Count(index=>(mask&(1<<index))!=0))throw new IOException("Collector cleanup failure disappeared"); checks++;
+            }
+        } finally {Console.SetOut(original);}
+        return checks;
+    }
     static string Image(IntPtr process,uint pid,Dictionary<string,string> images) {
         var name=new StringBuilder(4096); uint length=4096;
         Check(QueryFullProcessImageName(process,0,name,ref length));
@@ -458,12 +477,13 @@ public static partial class NativeProbe {
             if(server!=null) Cleanup("owned_server_stop",()=>{server.Dispose(); Event(new { type="owned_server_stopped",requests=server.Requests,listener_closed=true });},cleanupFailures);
             if(deadline!=null) Cleanup("deadline_drain",()=>{using(var done=new ManualResetEvent(false)){deadline.Dispose(done); if(!done.WaitOne(5000)) throw new IOException("Deadline callback drain failed");}},cleanupFailures);
             if(job!=IntPtr.Zero) {
-                Cleanup("terminate_and_drain_job",()=> {
+                // Stop the live PID collector before deliberate job teardown.
+                // Each boundary is independent: even a failed stop or final
+                // identity check must still attempt termination and drainage.
+                DrainCollectorAndJob(()=>{if(collector!=null)collector.Stop();},collect,()=> {
                     Check(TerminateJobObject(job,1)); var wait=Stopwatch.StartNew();
-                    while(JobPids(job).Length!=0 && wait.ElapsedMilliseconds<10000) Thread.Sleep(10);
-                    if(JobPids(job).Length!=0) throw new IOException("Job remains active");
-                    if(collector!=null) collector.Stop();
-                    Cleanup("final_collected_identities",collect,cleanupFailures);
+                    while(Accounts(job).Active!=0 && wait.ElapsedMilliseconds<10000) Thread.Sleep(10);
+                    if(Accounts(job).Active!=0) throw new IOException("Job remains active");
                     var counts=Accounts(job);
                     Cleanup("final_process_coverage",()=>ProbeContract.Coverage(counts.Total,observed.Count),cleanupFailures);
                     Diagnostic(new { type="job_process_coverage",total_processes=counts.Total,verified_identities=observed.Count,complete=counts.Total==observed.Count });

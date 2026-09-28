@@ -22,6 +22,12 @@ $ack=@($eventLoop.Body.Statements|Where-Object {$_ -is [Management.Automation.La
 $ackText=$ack[0].Extent.Text
 $zeroAt=$ackText.IndexOf('::WaitForEmpty($port)');$sendAt=$ackText.IndexOf("WriteLine('DRAINED')")
 Check ($ack.Count -eq 1 -and -not $ackText.Contains('JsonWrite') -and $zeroAt -ge 0 -and $sendAt -gt $zeroAt -and $ackText.Contains("if (-not `$independentEmpty) { throw"))
+$supervisor=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'WebViewSupervisor.cs'))
+$teardown=$supervisor.Substring($supervisor.IndexOf('// Stop the live PID collector before deliberate job teardown.'))
+Check ($teardown.Contains('DrainCollectorAndJob(()=>{if(collector!=null)collector.Stop();},collect,()=> {'))
+Check (-not $teardown.Contains('JobPids(') -and $teardown.Contains('Accounts(job).Active!=0'))
+Check ($teardown.IndexOf('TerminateJobObject(job,1)') -lt $teardown.IndexOf('ProbeContract.Coverage(counts.Total,observed.Count)'))
+Check ($teardown.IndexOf('ProbeContract.Coverage(counts.Total,observed.Count)') -lt $teardown.IndexOf('WaitForDrainAcknowledgement(owner)'))
 Assert-NoPolicyValueNames @('another-app.exe'); Check $true
 foreach ($name in @('iokaio.vcp.cs3.webview2.probe','webviewhost.EXE','*')) { Reject { Assert-NoPolicyValueNames @($name) } }
 Assert-NoWritableRuntimeRule 'S-1-15-2-1' ([int][Security.AccessControl.FileSystemRights]::ReadAndExecute) 'Allow'; Check $true

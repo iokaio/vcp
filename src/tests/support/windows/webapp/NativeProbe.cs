@@ -161,7 +161,10 @@ public static partial class NativeProbe {
         try {
             Check(QueryInformationJobObject(job, 3, p, (uint)(8 + 64 * IntPtr.Size), IntPtr.Zero));
             int total = Marshal.ReadInt32(p), count = Marshal.ReadInt32(p, 4);
-            if (total != count || count < 0 || count > 32) throw new IOException("Incomplete or excessive job process inventory");
+            if (total != count || count < 0 || count > 32) {
+                Diagnostic(new {type="job_pid_inventory_rejected",assigned=total,returned=count,maximum=32});
+                throw new IOException("Incomplete or excessive job process inventory");
+            }
             return Enumerable.Range(0, count).Select(i => checked((uint)Marshal.ReadIntPtr(p, 8 + i * IntPtr.Size).ToInt64())).ToArray();
         } finally { Marshal.FreeHGlobal(p); }
     }
