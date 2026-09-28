@@ -1,6 +1,6 @@
 # CS-3 six-skill readiness and paid-proposal inputs
 
-Status: preparation only, September 26, 2026. No paid call, candidate change,
+Status: preparation only, September 27, 2026. No paid call, candidate change,
 fixture change, replay, promotion or six-skill acceptance is authorized or
 recorded here. This inventory supports phase 4 of the
 [CS-3 implementation plan](cs3-implementation-phases.md#phase-4--six-skill-comparison-acceptance)
@@ -48,6 +48,18 @@ Before paid preparation, all six exact candidate versions must also pass offline
 descriptor/content integrity, negative selection, baseline selection and
 preservation checks. Browser feasibility, the frontend regrade and WEB oracle
 controls must have exact receipts. None of those checks needs model spending.
+
+The isolated Windows work now has exact production-profile synthetic DOM and
+owned-server evidence recorded in the
+[native DOM checkpoint](cs3-native-dom-checkpoint.md). The browser ran without
+additional browser arguments and produced deterministic interaction,
+accessibility and denied-origin receipts; the bounded server independently
+passed all ten Windows lifecycle and adversarial contract tests with every guest
+network adapter disconnected. These are prerequisite controls, not full browser
+qualification: the zero-network-capability browser has not been joined to the
+owned server, and the browser cancellation, pause, owner-loss, adversarial
+network/filesystem and WEB-cohort matrices remain open. The retained frontend
+artifacts have not been regraded through that interface.
 
 ## Comparison gate
 
@@ -120,8 +132,8 @@ authorization to this proposal.
 ## Readiness decision
 
 Offline preparation may continue, but paid phase 4 is not ready for authorization.
-Candidate corrections/audits, new untouched inputs, browser and WEB evidence,
-the exact execution/toolchain bundle, provider/model selection and a current
-price snapshot are still missing. A prepared envelope must say
+Candidate corrections/audits, new untouched inputs, the remaining joined-browser
+and WEB evidence, the exact execution/toolchain bundle, provider/model selection
+and a current price snapshot are still missing. A prepared envelope must say
 `authorization: false` and `model_calls: 0` until the owner approves its exact
 hash, initial phase, dollar ceiling, request ceiling and process authority.
