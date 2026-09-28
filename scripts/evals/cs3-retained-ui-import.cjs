@@ -82,30 +82,82 @@ function protect(directory) {
   if (!sid || sid.length !== 1) throw Error('Private staging owner SID unavailable');
   execFileSync('icacls', [directory, '/inheritance:r', '/grant:r', `*${sid[0]}:(OI)(CI)F`, '*S-1-5-18:(OI)(CI)F'], { windowsHide: true, stdio: 'pipe' });
 }
+function manifestFor(imported) {
+  return { schema: 'cs3-retained-ui-import/1', status: 'prepared', browser_regrade: 'not_run', model_calls: 0,
+    representation: 'authenticated historical reader-packet projection; final files were redacted by the historical reviewer harness, not original unredacted workspace bytes',
+    historical_commitments: historical, importer_sha256: sha(read(__filename)), input_files: imported.input_files, originals_unchanged: true,
+    runs: imported.runs.map(run => ({ ...run, files: run.files.map(({ content, ...identity }) => identity) })) };
+}
+function stagedInventory(directory, expectedManifest, manifestBytes) {
+  const files = new Map([['source-manifest.json', { bytes: manifestBytes.length, sha256: sha(manifestBytes) }]]), directories = new Set();
+  for (const run of expectedManifest.runs) for (const file of run.files) {
+    const relative = `${run.workspace}/${file.path}`; portable(relative);
+    if (files.has(relative)) throw Error('Duplicate staged artifact identity');
+    files.set(relative, file);
+    for (let parent = path.posix.dirname(relative); parent !== '.'; parent = path.posix.dirname(parent)) directories.add(parent);
+  }
+  const observed = []; let entries = 0;
+  function visit(relative = '', depth = 0) {
+    if (depth > 12) throw Error('Staged inventory depth bound');
+    const children = fs.readdirSync(plain(path.join(directory, relative))).sort();
+    if (children.length > 1024) throw Error('Staged inventory entry bound');
+    for (const name of children) {
+      if (++entries > 1024) throw Error('Staged inventory entry bound');
+      const child = relative ? `${relative}/${name}` : name; portable(child);
+      const file = plain(path.join(directory, child)), info = fs.lstatSync(file);
+      if (info.isDirectory()) {
+        if (!directories.delete(child)) throw Error('Unexpected staged directory');
+        observed.push({ path: child, type: 'directory' }); visit(child, depth + 1);
+      } else {
+        const expected = files.get(child);
+        if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || !expected) throw Error('Unexpected or linked staged file');
+        const bytes = read(file, child === 'source-manifest.json' ? 2 * 1024 * 1024 : 65536);
+        if (bytes.length !== expected.bytes || sha(bytes) !== expected.sha256) throw Error('Staged artifact bytes differ');
+        files.delete(child); observed.push({ path: child, type: 'file', bytes: bytes.length, sha256: sha(bytes) });
+      }
+    }
+  }
+  visit();
+  if (files.size || directories.size) throw Error('Staged artifact inventory incomplete');
+  return observed;
+}
+function verify(directory, mappingFile, stagingDirectory) {
+  // Original locations are explicit caller inputs, never manifest-controlled
+  // locators. No production trust-root override and no browser grading here.
+  const imported = inspect(directory, mappingFile), output = plain(path.resolve(stagingDirectory));
+  if (!fs.existsSync(output) || !fs.lstatSync(output).isDirectory() || [repository, imported.directory, path.dirname(imported.mapping_file)].some(root => within(root, output) || within(output, root))) throw Error('Separate existing private staging directory required');
+  privateDirectory(output); noParentInstructions(output);
+  const manifestFile = path.join(output, 'source-manifest.json'), bytes = read(manifestFile, 2 * 1024 * 1024), manifest = JSON.parse(bytes), expected = manifestFor(imported);
+  if (!equal(manifest, expected)) throw Error('Staged source manifest differs from authenticated originals or current importer');
+  const inventory = stagedInventory(output, expected, bytes);
+  const after = inspect(directory, mappingFile);
+  if (!equal(after, imported) || !read(manifestFile, 2 * 1024 * 1024).equals(bytes) || !equal(stagedInventory(output, expected, bytes), inventory)) throw Error('Originals or staged artifacts changed during verification');
+  return { schema: 'cs3-retained-ui-staging-verification/1', status: 'verified', browser_regrade: 'not_run', model_calls: 0,
+    directory: output, manifest_sha256: sha(bytes), importer_sha256: expected.importer_sha256, original_input_files: imported.input_files,
+    staged_inventory_sha256: sha(JSON.stringify(inventory)), runs: expected.runs.length, files: inventory.filter(entry => entry.type === 'file').length,
+    originals_unchanged: true, staging_unchanged: true };
+}
 function prepare(directory, mappingFile, destination) {
   // No public bypass for commitments: absent/changed originals fail before writes.
   const imported = inspect(directory, mappingFile), output = plain(path.resolve(destination));
   if (fs.existsSync(output) || [repository, imported.directory, path.dirname(imported.mapping_file)].some(root => within(root, output) || within(output, root))) throw Error('New separate private staging directory required');
   privateDirectory(output); noParentInstructions(path.dirname(output));
   fs.mkdirSync(output, { mode: 0o700 }); protect(output);
-  const runs = imported.runs.map(run => {
+  for (const run of imported.runs) {
     for (const file of run.files) {
       const target = plain(path.join(output, run.workspace, file.path));
       fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 }); fs.writeFileSync(target, file.content, { flag: 'wx', mode: 0o600 });
       if (sha(read(target, 65536)) !== file.sha256) throw Error('Staged retained artifact differs');
     }
-    return { ...run, files: run.files.map(({ content, ...identity }) => identity) };
-  });
+  }
   const after = inspect(directory, mappingFile);
   if (!equal(imported.input_files, after.input_files) || !equal(imported.runs, after.runs)) throw Error('Retained originals changed during import');
-  const manifest = { schema: 'cs3-retained-ui-import/1', status: 'prepared', browser_regrade: 'not_run', model_calls: 0,
-    representation: 'authenticated historical reader-packet projection; final files were redacted by the historical reviewer harness, not original unredacted workspace bytes',
-    historical_commitments: historical, importer_sha256: sha(read(__filename)), input_files: imported.input_files, originals_unchanged: true, runs };
+  const manifest = manifestFor(imported);
   const target = path.join(output, 'source-manifest.json'); fs.writeFileSync(target, JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
-  return { manifest: target, sha256: sha(read(target)), status: 'prepared', browser_regrade: 'not_run', runs: runs.length };
+  return { manifest: target, sha256: sha(read(target)), status: 'prepared', browser_regrade: 'not_run', runs: manifest.runs.length };
 }
-module.exports = { historical, caseIds, inspect, prepare };
+module.exports = { historical, caseIds, inspect, prepare, verify };
 if (require.main === module) {
-  try { const [command, directory, mapping, destination, ...extra] = process.argv.slice(2); if (command !== 'prepare' || !directory || !mapping || !destination || extra.length) throw Error('Usage: prepare RETAINED_PACKET_DIRECTORY MAPPING_JSON NEW_PRIVATE_DESTINATION'); console.log(JSON.stringify(prepare(directory, mapping, destination))); }
+  try { const [command, directory, mapping, destination, ...extra] = process.argv.slice(2); if (!['prepare', 'verify'].includes(command) || !directory || !mapping || !destination || extra.length) throw Error('Usage: prepare|verify RETAINED_PACKET_DIRECTORY MAPPING_JSON PRIVATE_STAGING_DIRECTORY'); console.log(JSON.stringify(command === 'prepare' ? prepare(directory, mapping, destination) : verify(directory, mapping, destination))); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -69,8 +69,11 @@ cleanup. These are prerequisite controls, not full browser qualification: the
 browser cancellation, pause and outer-owner-loss matrices subsequently passed
 with the exact receipts in the native checkpoint. The filesystem/network denial
 matrix now passes with source-bound operation identities and before/after canary
-hashes in [boundary acceptance](cs3-boundary-acceptance.md). The WEB-cohort
-execution matrix remains a separate prerequisite.
+hashes in [boundary acceptance](cs3-boundary-acceptance.md). The separate
+[WEB-cohort execution matrix](cs3-frozen-web-execution.md#current-source-26-lifecycle-checkpoint)
+now passes all six oracles and final-source lifecycle controls; the
+[generated-UI adapter](cs3-generated-ui-execution.md#qualified-native-controls)
+also passes its 23 native controls.
 The retained frontend artifacts have not been regraded through that interface.
 
 ## Comparison gate

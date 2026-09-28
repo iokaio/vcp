@@ -91,3 +91,82 @@ test('synthetic staging exercises production code without exposing a production 
     assert.throws(() => isolated.exports.prepare(f.packets, f.mappingFile, output), /New separate/);
   } finally { f.cleanup(); fs.rmSync(outputRoot, { recursive: true, force: true }); }
 });
+
+function stagedFixture(t, onDirectory) {
+  const f = fixture(), outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-cs3-ui-verify-'));
+  t.after(() => { f.cleanup(); fs.rmSync(outputRoot, { recursive: true, force: true }); });
+  const commitments = f.seal(), file = require.resolve('./cs3-retained-ui-import.cjs');
+  const source = fs.readFileSync(file, 'utf8').replace(importer.historical.index, commitments.index).replace(importer.historical.mapping, commitments.mapping);
+  const isolated = new Module(file, module); isolated.filename = file; isolated.paths = module.paths;
+  if (onDirectory) {
+    const originalRequire = isolated.require.bind(isolated);
+    isolated.require = name => name === 'node:fs' ? { ...fs, readdirSync(directory, ...args) { onDirectory(directory); return fs.readdirSync(directory, ...args); } } : originalRequire(name);
+  }
+  isolated._compile(source, file);
+  const output = path.join(outputRoot, 'prepared'), staged = isolated.exports.prepare(f.packets, f.mappingFile, output);
+  return { ...f, output, staged, api: isolated.exports, manifest: JSON.parse(fs.readFileSync(staged.manifest)) };
+}
+test('read-only verify authenticates exact staged metadata, all eighteen runs and original commitments', t => {
+  const f = stagedFixture(t), before = fs.readFileSync(f.staged.manifest);
+  const result = f.api.verify(f.packets, f.mappingFile, f.output);
+  assert.equal(result.schema, 'cs3-retained-ui-staging-verification/1'); assert.equal(result.status, 'verified');
+  assert.equal(result.browser_regrade, 'not_run'); assert.equal(result.model_calls, 0); assert.equal(result.runs, 18);
+  assert.equal(result.originals_unchanged, true); assert.equal(result.staging_unchanged, true);
+  assert.equal(result.files, 1 + f.manifest.runs.reduce((count, run) => count + run.files.length, 0));
+  assert.equal(result.manifest_sha256, sha(before)); assert(fs.readFileSync(f.staged.manifest).equals(before));
+  assert.throws(() => importer.verify(f.packets, f.mappingFile, f.output), /commitment differs/);
+  assert.throws(() => importer.verify(path.join(f.root, 'absent'), f.mappingFile, f.output), /originals are unavailable/);
+});
+test('verify rejects changed schema, metadata, hashes, source locators, ordering and importer identity', t => {
+  const f = stagedFixture(t), original = fs.readFileSync(f.staged.manifest);
+  for (const update of [
+    m => { m.status = 'passed'; }, m => { m.browser_regrade = 'passed'; }, m => { m.extra = true; },
+    m => { m.runs[0].arm = 'candidate'; }, m => { m.runs[0].completed = !m.runs[0].completed; },
+    m => { m.runs[0].checks.functional = 'passed'; }, m => { m.runs[0].files[0].sha256 = '0'.repeat(64); },
+    m => { m.runs[0].workspace = '../escape'; }, m => { m.runs.reverse(); },
+    m => { m.importer_sha256 = '0'.repeat(64); }, m => { m.input_files[0].path = 'Z:/untrusted-locator'; },
+  ]) {
+    const manifest = JSON.parse(original); update(manifest); fs.writeFileSync(f.staged.manifest, JSON.stringify(manifest));
+    assert.throws(() => f.api.verify(f.packets, f.mappingFile, f.output), /source manifest differs/);
+  }
+  fs.writeFileSync(f.staged.manifest, original);
+  assert.equal(f.api.verify(f.packets, f.mappingFile, f.output).status, 'verified');
+});
+test('verify rejects changed or missing staged bytes and any extra file or empty directory', t => {
+  const f = stagedFixture(t), run = f.manifest.runs[0], target = path.join(f.output, run.workspace, run.files[0].path), original = fs.readFileSync(target);
+  fs.appendFileSync(target, 'changed'); assert.throws(() => f.api.verify(f.packets, f.mappingFile, f.output), /bytes differ/);
+  fs.unlinkSync(target); assert.throws(() => f.api.verify(f.packets, f.mappingFile, f.output), /inventory incomplete/); fs.writeFileSync(target, original);
+  const extra = path.join(f.output, 'unexpected.txt'); fs.writeFileSync(extra, 'extra');
+  assert.throws(() => f.api.verify(f.packets, f.mappingFile, f.output), /Unexpected or linked/); fs.unlinkSync(extra);
+  const extraDirectory = path.join(f.output, 'unexpected'); fs.mkdirSync(extraDirectory);
+  assert.throws(() => f.api.verify(f.packets, f.mappingFile, f.output), /Unexpected staged directory/); fs.rmdirSync(extraDirectory);
+  assert.equal(f.api.verify(f.packets, f.mappingFile, f.output).status, 'verified');
+});
+test('verify rejects staged hard links, directory junctions and linked staging roots', t => {
+  const f = stagedFixture(t), run = f.manifest.runs[0], target = path.join(f.output, run.workspace, run.files[0].path);
+  const backup = path.join(f.root, 'linked-content'); fs.writeFileSync(backup, fs.readFileSync(target)); fs.unlinkSync(target); fs.linkSync(backup, target);
+  assert.throws(() => f.api.verify(f.packets, f.mappingFile, f.output), /linked staged file/);
+  fs.unlinkSync(target); fs.copyFileSync(backup, target);
+  const link = path.join(path.dirname(f.output), 'linked-root'); fs.symlinkSync(f.output, link, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.throws(() => f.api.verify(f.packets, f.mappingFile, link), /Symlink|junction/);
+  const childLink = path.join(f.output, 'linked-child'); fs.symlinkSync(path.dirname(target), childLink, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.throws(() => f.api.verify(f.packets, f.mappingFile, f.output), /Symlink|junction/);
+});
+test('verify re-authenticates originals after staged reads rather than trusting unchanged flags', t => {
+  let armed = false, f;
+  f = stagedFixture(t, directory => {
+    if (armed && directory === f.output) { armed = false; fs.appendFileSync(path.join(f.packets, importer.caseIds[0] + '.json'), '\n'); }
+  });
+  armed = true;
+  assert.throws(() => f.api.verify(f.packets, f.mappingFile, f.output), /packet changed/);
+});
+test('verify repeats staged reads and rejects mid-verification artifact mutation', t => {
+  let visits = 0, armed = false, f;
+  f = stagedFixture(t, directory => {
+    if (armed && directory === f.output && ++visits === 2) {
+      const run = f.manifest.runs[0]; fs.appendFileSync(path.join(f.output, run.workspace, run.files[0].path), 'changed');
+    }
+  });
+  armed = true;
+  assert.throws(() => f.api.verify(f.packets, f.mappingFile, f.output), /bytes differ/);
+});

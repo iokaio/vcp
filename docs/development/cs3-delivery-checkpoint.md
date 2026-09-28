@@ -62,7 +62,7 @@ SHA-256 `1801cce59b967fef09fbfd00c0c1dae27a98eb19b76751dbff728292c686af32`.
 |---|---|
 | CS-2 developer | 83/83 passed; `artifacts/cs3-reviewed-developer-check/4fb3b649-ca5b-4693-844c-c0a897849f8c/manifest.json` |
 | Builtin contracts | 47 passed, five existing environment-dependent skips; `artifacts/cs3-reviewed-builtin-check/af057019-2445-440a-b137-9dae1c52a56c/manifest.json` |
-| CS-3 focused contracts | 71/71 passed after final native qualification and public-validator integration; `artifacts/cs3-final-qualified-contract-check/d3174124-06d1-463f-a70f-6eaa007aa02b/manifest.json` |
+| CS-3 focused contracts | 77/77 passed after adding read-only staged-import verification; `artifacts/cs3-retained-verifier-contract-check/fca80954-5395-4de4-8c51-bd63c80c2904/manifest.json` |
 | CS-3 comparison host | 9/9 passed, including frozen external-builtin drift; `artifacts/tests/02ad9e15-cd48-45e9-9cf7-39a96c29b20b/manifest.json` |
 | CS-1 authoring | 132/132 passed, zero skips; `artifacts/cs3-post-build-authoring-1800/55fa722c-d142-45f8-a040-fd6e06b87388/manifest.json` |
 | Upstream source | Passed after relocating the generated default Cargo target; `artifacts/cs3-clean-upstream-check/adc82dde-4a37-40e3-9325-6f223c5abc3f/manifest.json` |
@@ -136,7 +136,14 @@ missing authenticated CS-2 packet index, six packets and private label mapping.
 Local artifacts, Git objects, named backups and eligible older VCP sessions did
 not recover those bytes. Hashes, source-review summaries and newly generated
 outputs cannot stand in for them. The importer authenticates recovered originals
-before staging, but a synthetic import is not a historical browser regrade.
+before staging. Its read-only verifier also re-authenticates the originals and
+exact staged inventory, rejecting stale importer identities, tampering, extra
+entries and linked files. These controls do not constitute a historical browser
+regrade. A task-linked remote recovery audit found only CI logs/manifests in the
+original disposition's artifact, with no packet or mapping commitment match;
+the recovery record retains the exact scope and evidence.
+The follow-up repository check passed in
+`artifacts/cs3-retained-verifier-repository-check/3b9d6449-4635-4c34-a794-b7f1150cc712/manifest.json`.
 
 The comparison preparation gate remains closed while that prerequisite is absent.
 The current CS-3 exit condition is therefore unsatisfied, regardless of the

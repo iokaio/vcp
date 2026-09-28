@@ -36,6 +36,19 @@ Searched locations and records:
   Across 200,555,848 bytes, with no size skips, it found no retained UI
   commitments, case-output records, reader-packet schemas or backup locators.
   Unrelated session contents were not searched and no originals were modified.
+- A subsequent read-only remote check followed disposition commit `b4250123`
+  through PR #191 (merge `5172806b`) and its linked continuation PR #185 (head
+  `62677790`, merge `5b0919a2`). Their bodies, comments and reviews expose no
+  packet/archive attachments; PR #191's attachment/cross-reference timeline also
+  provides no locator. The repository releases API returned an empty list.
+  Their four head/merge workflow runs (`36234242371`, `36234449136`,
+  `36221001114`, `36221365120`) expose only delivery-check artifacts. The
+  historical workflow uploads `artifacts/tests/`, with three-day retention.
+  The exact PR #191 artifact was downloaded: 43 files comprising 42 stdout/stderr
+  logs and one fast-suite manifest, with no UI payload or matching required hash.
+  The sole reader-packet text occurrence is a test name, not packet contents.
+  This establishes absence only on these task-linked surfaces, not deletion
+  everywhere. No remote state was changed.
 
 | Required historical artifact | SHA-256 |
 |---|---|
@@ -46,6 +59,9 @@ Searched locations and records:
 
 The ignored Git scan receipt is `artifacts/cs3-retained-ui-git-scan.json`, SHA-256
 `2128e1f3fe31be06199bf60c0e64addae0d40a46ec20d84afb7f8eb2d8068964`.
+The remote fast-suite manifest is retained at
+`artifacts/cs3-remote-ui-recovery-36234242371/868094f4-0d6f-4764-b611-637dea7d1473/manifest.json`,
+SHA-256 `98b8cec04c2efa6635adb69b3121f38972416547d71979fabd30c18b4d2a73b4`.
 The [frontend disposition](cs2-frontend-disposition.md) retains further grading and
 review commitments. Recovery needs an authentic campaign workspace or the indexed
 reader packets and their mapping. Reader packets contain reviewed, redacted final
@@ -89,3 +105,46 @@ bytes, duplicate labels, junction rejection and private staging with unchanged
 originals. These synthetic tests do not claim recovery of the missing historical
 bundle. Production commitment enforcement and explicit failure for missing originals
 are tested separately.
+
+## Read-only staged-import verification
+
+After importing authenticated originals, verify the staged copy immediately
+before a future regrade consumes it:
+
+```powershell
+node scripts/evals/cs3-retained-ui-import.cjs verify <packet-directory> <mapping-json> <existing-private-staging-directory>
+```
+
+All three locations are explicit caller inputs. The command never follows the
+historical mapping's embedded locator or a source-manifest replacement locator.
+It re-authenticates the fixed historical commitments and frozen fixture sources,
+recomputes the complete expected source manifest using the current importer, and
+compares all eighteen run identities, arm mappings, historical completion/check
+states, provenance, file lengths and hashes. Unknown fields or a stale importer
+hash fail verification; they require a fresh authenticated import, not an edited
+manifest.
+
+The staged directory must contain exactly that manifest and the declared files
+and parent directories. Changed or missing bytes, extra files, even empty extra
+directories, symbolic links, junctions and multiply linked staged files fail.
+Traversal and file reads are bounded. The verifier then re-authenticates the
+originals and repeats the manifest and staged inventory reads to detect changes
+during verification. It does not modify originals, staging, permissions or
+manifests, and it launches no browser or model request.
+
+The JSON result has schema `cs3-retained-ui-staging-verification/1`, status
+`verified`, `browser_regrade: not_run` and `model_calls: 0`. It binds the manifest,
+original inputs, current importer and observed staged inventory. This verifies
+content and path policy at the observed reads, not continuous filesystem
+immutability, power-loss durability or a fresh ACL audit. The existing importer
+sets private staging permissions; the verifier checks its separate, ordinary,
+non-repository/non-sync-root location but does not change or certify its current
+access-control list. The future native consumer must bind and recheck the exact
+bytes it consumes.
+
+Twelve importer/verifier contract tests pass, including synthetic exact staging,
+production rejection of synthetic trust roots, changed schemas/run metadata,
+stale importer or artifact hashes, extra directories/files, hard links/junctions,
+and changes to originals or staged artifacts during verification. These are
+implementation controls only: no historical originals were recovered, no
+historical browser regrade ran, and no comparison prerequisite was waived.
