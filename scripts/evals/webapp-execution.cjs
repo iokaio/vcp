@@ -118,7 +118,8 @@ async function runNonBrowser() {
   if(fixtures.inspect().manifest_sha256!==original.manifest_sha256)throw Error('Frozen source changed during execution');
   return results;
 }
-module.exports={embeddedInventory,gradeNative,validateDocument,nearMissOracle,runNonBrowser};
+module.exports={embeddedInventory,gradeNative,validateDocument,nearMissOracle,runNonBrowser,
+  validateUiArtifact:require('./cs3-ui-artifact.cjs').validateUiArtifact};
 if(require.main===module)runNonBrowser().then(results=>{
   const inventory=embeddedInventory();
   if(process.argv[2]) {const file=fs.readFileSync(process.argv[2]),directory=path.dirname(path.dirname(path.resolve(process.argv[2])));results.push(...gradeNative(JSON.parse(file),{bytes:fs.readFileSync(path.join(directory,'inputs.json')),directory,expectedSha256:process.argv[4]}));inventory.native_receipt_sha256=sha(file);}

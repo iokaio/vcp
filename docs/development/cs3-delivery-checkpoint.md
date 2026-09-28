@@ -12,7 +12,10 @@ skill comparisons. No candidate is promoted into the default catalog.
   six frozen case outcomes and source-bound lifecycle controls.
 - [Generated UI execution](cs3-generated-ui-execution.md): exact returned HTML,
   isolated-world observations, genuine input and independent receipt validation.
-  The record distinguishes offline tests from native control qualification.
+  All 23 final-source native controls passed qualification: six positive grades
+  and 17 deliberate negative grades matched their exact expected vectors, with
+  independently verified process drainage and profile removal. This does not
+  substitute for regrading the missing original CS-2 outputs.
 - [Package acceptance](cs3-package-acceptance.md): distinct baseline/candidate
   install, upgrade, rollback and re-upgrade; exact-installed offline discovery,
   explicit activation and persisted revocation for all six candidates.
@@ -48,15 +51,30 @@ commit `a8a5025c88ecd9e2aa05c7b8d77dfb9d1a0b98e2`:
 SHA-256 `451afe4e95a286354fa90cf25b0e053c057555c3a1dce739eb0bb86963f62386`.
 The opt-in Windows jobs were again skipped; local native qualification is separate.
 
+The teardown-order correction `45b7ed6d` passed the same complete job in
+[workflow run 36473617548](https://github.com/iokaio/vcp/actions/runs/36473617548),
+with 23/23 fast-suite cases under synthetic merge commit
+`970f931a0e7d2c2ce936abaf158721cf138571c8`:
+`artifacts/cs3-ci-36473617548/41e1a1b2-6d3b-4cc3-8b84-7459e7cb6293/manifest.json`,
+SHA-256 `1801cce59b967fef09fbfd00c0c1dae27a98eb19b76751dbff728292c686af32`.
+
 | Check | Retained result |
 |---|---|
 | CS-2 developer | 83/83 passed; `artifacts/cs3-reviewed-developer-check/4fb3b649-ca5b-4693-844c-c0a897849f8c/manifest.json` |
 | Builtin contracts | 47 passed, five existing environment-dependent skips; `artifacts/cs3-reviewed-builtin-check/af057019-2445-440a-b137-9dae1c52a56c/manifest.json` |
-| CS-3 focused contracts | Passed after motion, candidate and baseline-freeze corrections; `artifacts/cs3-final-reviewed-contract-check/24cb95d4-df54-4b22-a971-a81891ee504f/manifest.json` |
+| CS-3 focused contracts | 71/71 passed after final native qualification and public-validator integration; `artifacts/cs3-final-qualified-contract-check/d3174124-06d1-463f-a70f-6eaa007aa02b/manifest.json` |
 | CS-3 comparison host | 9/9 passed, including frozen external-builtin drift; `artifacts/tests/02ad9e15-cd48-45e9-9cf7-39a96c29b20b/manifest.json` |
 | CS-1 authoring | 132/132 passed, zero skips; `artifacts/cs3-post-build-authoring-1800/55fa722c-d142-45f8-a040-fd6e06b87388/manifest.json` |
 | Upstream source | Passed after relocating the generated default Cargo target; `artifacts/cs3-clean-upstream-check/adc82dde-4a37-40e3-9325-6f223c5abc3f/manifest.json` |
 | Live runner / bootstrap / P8 qualification | Passed with the physical Node executable; receipts `0d4b40aa-3e0f-4958-b0d4-eb74d03c5b82`, `a884a8b8-fa29-4eeb-97ef-75e3668e6381`, `08982d7a-5973-4bf1-8d27-f12a3db91f95` under `artifacts/cs3-physical-node-check` |
+
+The final repository gate passed with 656 Markdown files, 2,940 relative links,
+68 tasks and 56 release tasks:
+`artifacts/cs3-final-qualified-repository-check/2fdf363c-50ad-428e-9785-23bc00901569/manifest.json`.
+All ten changed PowerShell scripts parsed without errors; whitespace checks and
+a changed-line credential-pattern scan passed. The public UI validator is the
+same implementation used for native projection and rejects fabricated native
+evidence even when its source closure is correctly bound.
 
 The developer expiry fixture now advances a test-only clock explicitly. It
 retains refusal before any claim and refusal after expiry, without depending on
@@ -103,7 +121,13 @@ live PID inventory checks, exact lifetime-process coverage and the independent
 job-zero acknowledgement remain mandatory. Sixteen injected-failure assertions
 cover every combination of stop, collection and termination failure. New bounded
 PID-count diagnostics preserve the counts if a future strict inventory check
-fails. Native qualification must bind this corrected source before acceptance.
+fails. Final qualification binds this corrected source: the focused pseudo-motion
+control and all 22 remaining controls passed without retries on that source.
+WEB26 then passed all six frozen oracles plus pause, cancellation and controller
+owner loss on the same source closure. Its six-case aggregate is
+`artifacts/cs3-frozen-web-26/web-oracles.json`, SHA-256
+`a5bb97a72a07650d2682808de02d5f9fd71d445758167685652ab2ad6956dab5`.
+The linked execution records retain exact native identities and prior failures.
 
 ## External prerequisite
 

@@ -229,19 +229,20 @@ those projections only after raw validation. Generic `status: passed` summaries
 do not qualify. Preparation and every dispatch revalidate this evidence chain;
 the historical UI gate remains fail-closed while its regrade validator and
 missing artifacts are unavailable. Boundary receipt12 and Node controls03 passed
-the new read-only validators. Source-current WEB22 passed raw admission and
+the new read-only validators. Source-current WEB26 passed raw admission and
 generated all six exact case projections with zero model calls. Its aggregate
-SHA-256 is `99621fcaeacd3c261e8f6c894b9ece46cd58d40a2db088b196d840159eff0275`,
+SHA-256 is `a5bb97a72a07650d2682808de02d5f9fd71d445758167685652ab2ad6956dab5`,
 native receipt SHA-256 is
-`5cbd079b2a94db6b3124c1e3bea9331b133e6ed3e3c936ca53c63223e6b0da11`,
+`73b3c71bdbabe7965832e69b95ffd751b19def38e24b1d047d7f915a02d60d3a`,
 and build inputs SHA-256 is
-`0853ac97b5b65e52d72ae8c1a185d3722d8cb93a079d51fc2fe595e73a96a55b`.
+`06f2e631169aa6427becd1b18d3da15a838a01015bab30545c277ae05e26ce4d`.
 The first restricted-shell native-receipt read returned `EPERM`; the unrestricted
 read-only validation succeeded without changing the protected receipt.
 WEB19 passed against its then-current source, but later native wrapper/UI-host
 changes superseded it. WEB20 completed native execution, but current admission
-correctly rejected its stale `UiArtifactHost.cs` hash. Neither historical receipt
-is silently promoted to the source-current WEB22 result.
+correctly rejected its stale `UiArtifactHost.cs` hash. WEB22 similarly remains
+then-current history after later native corrections. None of those receipts is
+silently promoted to the source-current WEB26 result.
 
 The prospective executable Node oracles now pass source-bound native controls
 in the existing zero-capability AppContainer. Receipt
@@ -260,13 +261,20 @@ The initial control launch rejected the NVM reparse path before execution;
 resolving the installed executable's physical path preserved that protection.
 These are zero-call oracle controls, not candidate comparison outcomes.
 
-Full paid preparation remains explicitly blocked until the prospective UI
-artifact validator joins required native browser actions to the exact returned
-HTML resource bytes. A generic list of passing booleans or a hash of arbitrary
-JSON is rejected. Reader packets must include real browser grades before either
-reader judges the frontend block. Retained UI regrading remains an independent
-prerequisite; neither new artifacts nor the retained source fixtures replace
-missing historical generated outputs.
+The prospective UI adapter is now exported after all 23 current-source native
+controls qualified with clean lifecycle evidence: six positives passed and
+17 negatives failed their exact expected assertions. The matrix receipt
+`artifacts/cs3-ui-final-controls.json` has SHA-256
+`818074b97799d7d1bf52852dc16ba704de49f6f7f763924b3b6d909d7fc25163`.
+Qualification used serial native execution without concurrent compiler/test
+workload. The public-interface test exercises the real shared validator and
+rejects generic success flags and hash-bound empty native JSON even with the
+exact reviewed 23-source closure. The isolated missing-dependency test still
+proves fail-closed behavior; exporting a function does not waive prerequisites.
+Reader packets must include real browser grades before either reader judges the
+frontend block. Paid preparation remains blocked on historical UI recovery and
+regrading; neither these controls nor new artifacts replace missing historical
+generated outputs. Visual review remains separately `not_run`.
 
 The synthetic canonical-host integration suite exercises a complete eighteen-slot
 block with exact arm contexts and settled ledgers, ordinary malformed answers,
@@ -300,8 +308,8 @@ promotes a candidate or substitutes for package rollback and revocation acceptan
 Paid work is authorized only inside the USD 100 outer boundary and the narrower
 enumerated allocations above. Prospective candidate corrections/audits, untouched
 inputs and the comparison implementation are present. The remaining acceptance
-work is the source-current final native/UI validation, recovery and regrading of
-the historical generated UI artifacts, and the still-unrun six-skill campaign
+work is recovery and regrading of the historical generated UI artifacts, and
+the still-unrun six-skill campaign
 with both independent reader dispositions. Missing historical outputs cannot be
 replaced by new model artifacts or a prospective UI control. A bounded read-only
 scan of 75 eligible pre-September-28 VCP session records (200,555,848 bytes; no

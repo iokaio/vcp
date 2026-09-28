@@ -69,6 +69,33 @@ test('full preparation fails closed when its UI validator dependency is absent',
   new Function('exports', 'require', 'module', '__filename', '__dirname', fs.readFileSync(filename, 'utf8'))(module.exports, scopedRequire, module, filename, path.dirname(filename));
   assert.throws(() => module.exports.describe({}, path.join(os.tmpdir(), 'unused-cs3-output')), /UI native artifact validator/);
 });
+
+test('public UI validator is the qualified implementation and rejects fabricated native evidence', t => {
+  const adapter = require('./webapp-execution.cjs'), ui = require('./cs3-ui-artifact.cjs');
+  assert.equal(typeof adapter.validateUiArtifact, 'function');
+  assert.equal(adapter.validateUiArtifact, ui.validateUiArtifact);
+  assert.throws(() => campaign.describe({}, path.join(os.tmpdir(), 'unused-cs3-output')), /Unexpected campaign specification fields/);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-cs3-public-ui-test-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const files = { 'index.html': '<!doctype html><title>Draft</title>' }, caseId = ui.cases[0], artifactHash = sha(JSON.stringify(files));
+  assert.throws(() => adapter.validateUiArtifact({ status: 'passed' }, files, caseId), /Exact observed UI browser receipt/);
+  // Valid source closure cannot turn arbitrary, hash-bound JSON into an actual
+  // native browser observation. This exercises the public entry point, no stub.
+  const sources = ui.sourceNames.map(name => {
+    const original = fs.readFileSync(path.resolve(__dirname, '../../src/tests/support/windows/webapp', name));
+    const generated = name === 'UiArtifactResource.cs', bytes = generated ? Buffer.from(ui.renderResource(caseId, files, artifactHash)) : original;
+    fs.writeFileSync(path.join(directory, name), bytes);
+    return { path: name, sha256: sha(bytes), ...(generated ? { template_sha256: sha(original) } : {}) };
+  });
+  const reference = (name, content) => {
+    const file = path.join(directory, name), bytes = JSON.stringify(content); fs.writeFileSync(file, bytes);
+    return { path: file, sha256: sha(bytes) };
+  };
+  const receipt = { schema: 'cs3-ui-artifact-browser/1', case_id: caseId, artifact_sha256: artifactHash, status: 'passed',
+    cleanup: 'completed', containment: 'qualified', visual_review: 'not_run', assertions: ui.assertions(caseId).map(name => ({ name, passed: true })),
+    native_receipt: reference('native.json', {}), build: reference('inputs.json', { sources }) };
+  assert.throws(() => adapter.validateUiArtifact(receipt, files, caseId), /Clean observed native receipt required/);
+});
 test('source profile cannot inherit hooks or other externally active settings', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-cs3-profile-test-'));
   try {

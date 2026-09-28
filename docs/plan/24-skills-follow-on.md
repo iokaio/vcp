@@ -20,7 +20,7 @@ gaps and prompt-audit proposals stay outside this sequence.
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
 | CS-1 | CS-0 | Original document-authoring and skill-authoring packages | complete by owner direction — accepted non-default candidates; [remaining qualification work](../../src/skills/candidates/README.md) |
 | CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | complete — three comparisons and non-default dispositions under the owner exit rule; [retained outcomes and qualification gaps](../development/cs2-developer-skills.md); no promotion |
-| CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | in progress — [phased implementation](../development/cs3-implementation-phases.md); browser and six-skill acceptance remain open |
+| CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | in progress — bounded browser/server, WEB/UI controls and package acceptance pass; retained UI regrade and six-skill comparisons remain open; [phased implementation](../development/cs3-implementation-phases.md) |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |
 | CS-5 | CS-4 | Original pdf-workflows and spreadsheet-workflows packages | planned |
 | CS-6 | CS-5 | Combined eight-addition default catalog and exact-package acceptance | planned |
@@ -292,13 +292,13 @@ tools fail explicitly; all six developer additions satisfy distribution, offline
 discovery, activation/revocation and comparison gates. Record visual-review limits.
 
 The [browser feasibility checkpoint](../development/cs3-browser-feasibility.md)
-records bounded Windows startup failures and preserved cleanup gaps. Browser/server
-qualification remains open; the selected continuation uses the original
+records historical bounded Windows startup failures and preserved cleanup gaps.
+The qualified continuation below uses the original
 zero-capability AppContainer, not the rejected account/firewall proposal.
 
 The [phased implementation](../development/cs3-implementation-phases.md) retains
 the exact exit conditions. A reviewed account/firewall proposal failed to
-establish the required restrictions. Further WebView2 diagnostics pursue the
+establish the required restrictions. The subsequent WebView2 diagnostics use the
 existing zero-capability AppContainer; preparing a candidate or passing isolated
 server tests does not establish browser execution or six-skill qualification.
 The [native DOM checkpoint](../development/cs3-native-dom-checkpoint.md) preserves
@@ -319,9 +319,11 @@ positive controls. [Package acceptance](../development/cs3-package-acceptance.md
 also passes install/upgrade/rollback and exact-installed six-candidate offline
 activation/revocation checks. The [frozen WEB execution record](../development/cs3-frozen-web-execution.md)
 now retains all six oracle outcomes and exact-source pause, cancellation and
-owner-loss controls. Generated-UI adapter qualification, retained UI regrading and
-the six-skill comparison gate remain open; an RDP change or another machine is not
-required for continued browser work. The owner-approved USD 100 six-skill
+owner-loss controls. The bounded [generated-UI adapter](../development/cs3-generated-ui-execution.md)
+also passes all 23 native positive/adversarial controls on the final source, with
+exact expected assertion vectors and clean process/profile drainage. Retained UI
+regrading and the six-skill comparison gate remain open; an RDP change or another
+machine is not required for continued browser work. The owner-approved USD 100 six-skill
 campaign envelope and pinned DeepSeek/OpenRouter endpoint are recorded in the
 [six-skill readiness ledger](../development/cs3-six-skill-readiness.md).
 The [retained UI recovery record](../development/cs3-retained-ui-recovery.md)

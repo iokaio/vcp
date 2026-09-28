@@ -41,7 +41,7 @@ The missing-browser case truthfully records browser checks as not run. The
 original near-miss implementation fails the non-ASCII requirement; detecting
 that defect is an oracle result, not a claim that the frozen source was fixed.
 
-Seven Node execution/oracle tests and 26 independent native WEB evidence assertions
+Eight Node execution/oracle tests and 26 independent native WEB evidence assertions
 pass. The original normalization source fails its non-ASCII oracle as expected;
 the occupied-port and missing-browser oracles pass their explicit conditions.
 
@@ -144,3 +144,48 @@ six-case aggregate `artifacts/cs3-frozen-web-22/web-oracles.json` passes, SHA-25
 The comparison gate independently joined that exact 23-source closure and all
 six case projections. Provider calls remain zero. Later source changes require
 new lifecycle and projection evidence; this checkpoint is not reassigned to them.
+
+## Current source-26 lifecycle checkpoint
+
+The final reviewed closure retains ownership checkpoints before resume, buffers
+bounded ordinary observations until cleanup, and acknowledges drainage only after
+the independent job-zero notification. Neither the 20-second startup ceiling nor
+the 15-second acknowledgement ceiling changed. Ordinary observations can be absent
+from a controller-crash journal; such a partial journal cannot qualify a run.
+
+The collector records bounded failing-stage diagnostics. Only image-query error 5
+on an already-held, creation-bound process confirmed exited within 50 ms may defer
+image resolution. It is not counted as verified until an independently checked
+held image resolves the exact identity. Open-process failures, live processes and
+unresolved identities still fail. The final matrix exercised the existing
+synchronous exited-image path twice, not the new collector deferral path.
+
+Cleanup now stops and joins the collector, validates retained identities, and then
+terminates the job, with independent error boundaries so a collector failure cannot
+skip termination. Sixteen injected-failure assertions cover all eight combinations
+of stop, identity-validation and termination failures. Drainage checks the job's
+[active-process accounting](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information),
+exact cumulative process coverage and the independent job-zero acknowledgement.
+The strict live PID inventory check remains unchanged and now records rejected
+counts. A prior collector inventory failure during teardown remains retained; its
+original counts were not recorded, so a specific OS race is not asserted as proven.
+
+Build-26 input-manifest SHA-256:
+`06f2e631169aa6427becd1b18d3da15a838a01015bab30545c277ae05e26ce4d`.
+
+| Control | Run | Receipt SHA-256 |
+| --- | --- | --- |
+| 1-second pause and all WEB oracles | `cdaeac7be0814f99b34fb32b7b7681b9` | `73b3c71bdbabe7965832e69b95ffd751b19def38e24b1d047d7f915a02d60d3a` |
+| Explicit cancellation | `18e570de43a7430ba9b40a1bc24a3736` | `32d571855707096489fe44fe9a4cfefd81dd37427481e3f3f30262b0617790c1` |
+| Exact controller owner loss and recovery | `596d4d41e8ac45f6a46fda755cea94f9` | `2d4728948e6dd534f505892d8b9b8060b40ecbfcb17aa125995c37abd4007b61` |
+
+All three profiles are independently absent, processes drained and cleanup errors
+empty. Full WEB execution has eight documents, ten resource relays, the expected
+hostile-origin denial, exact 9/9 process coverage and independent drain
+acknowledgement. The six-case aggregate
+`artifacts/cs3-frozen-web-26/web-oracles.json` passes with SHA-256
+`a5bb97a72a07650d2682808de02d5f9fd71d445758167685652ab2ad6956dab5`.
+All native qualification ran serially without concurrent compilation or tests.
+The matching generated-UI controls are recorded in
+[generated UI execution](cs3-generated-ui-execution.md). No provider calls or
+visual-review claims are attached to this checkpoint.

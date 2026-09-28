@@ -63,7 +63,59 @@ UI oracle sources, server relay and complete parent assertion vector. A generic
 JSON object saying `passed` cannot qualify an artifact. Both passing and failed
 authentic candidate observations are retained. Visual review remains `not_run`.
 
-Current offline evidence: seven generator/validation contracts and eight WEB/adapter
-contracts pass. Native UI
-positive/negative controls and original CS-2 regrading are not established by
-these tests and remain required before paid frontend comparison acceptance.
+## Qualified native controls
+
+Seven generator/validation contracts and eight WEB/adapter contracts pass. The
+final native matrix independently projects all 23 controls against the exact
+current 23-source closure, generated HTML, process identities and cleanup evidence:
+six positive grades and 17 expected negative grades. A negative grade is a correct
+oracle result for the seeded defect, not a passing candidate artifact.
+
+| Controls | Required observed result |
+| --- | --- |
+| Positive, poisoned-positive, inactive-motion; both cases | All 11 assertions pass |
+| Negative and poisoned-negative; picker | Hidden selection persistence fails |
+| Negative and poisoned-negative; form | Whitespace validation and trimmed success fail |
+| Keyboard decoy; both cases | Reachability and focus fail |
+| Hidden feedback; picker | Initial state, filtering, hidden selection and clearing fail |
+| Hidden feedback; form | All three submission feedback assertions fail |
+| Static shadow; both cases | Visible focus fails |
+| Pseudo-motion and mixed-motion; both cases | Reduced motion fails |
+| Broken submit button; form | Empty validation fails |
+| Transparent page; both cases | Exact two-document prefix, `ui-keyboard:control_missing`, all assertions false |
+
+Every nontransparent control supplies all ten picker or nine form documents.
+Transparent controls terminate the bounded choreography as authentic candidate
+failures; all controls still require complete WEB/runtime/process/cleanup evidence.
+All owned profiles are independently absent. Native runs were strictly serial,
+with compilers and tests idle. No parallel-native qualification is claimed.
+
+The retained projection is `artifacts/cs3-ui-final-controls.json`, SHA-256
+`818074b97799d7d1bf52852dc16ba704de49f6f7f763924b3b6d909d7fc25163`.
+It includes each exact artifact, build and native receipt hash. Its normalized
+23-source closure (generated resource replaced by its reviewed template identity)
+has SHA-256 `1f2f0c5001ad490c625325fa0a49d7ef365640a139af4ae85809be24c1e07a13`.
+Twenty-two slots are retained under `artifacts/cs3-ui-matrix-11-*`; the identical
+current-source picker pseudo-motion slot is the focused
+`cs3-ui-teardown-diagnostic-02` run `2f405a8c5ba74abfac95d3b3fbc0c236`.
+No already-passed exact-source slot was rerun merely to populate that directory.
+
+Real positive-receipt checks reject changed assertions, changed HTML and changed
+reviewed supervisor source. `webapp-execution.validateUiArtifact` now exposes the
+same authenticated validator used by the projection command. Final pause, cancel
+and owner-loss evidence is in the matching
+[source-26 lifecycle checkpoint](cs3-frozen-web-execution.md#current-source-26-lifecycle-checkpoint).
+
+Earlier failures remain retained and are not upgraded: a parallel synthetic input
+readiness failure; source-08 startup and drain-acknowledgement failures; source-09
+collector access denial without a captured native stage; and source-10 collector
+PID-inventory rejection without original count diagnostics. Corrections preserve
+the original deadlines, exact identity coverage and independent drainage checks.
+The final controls have no harness failures or hidden retries. The new collector
+deferral branch was not observed in this final matrix; its classifier is covered
+by pure acceptance/rejection tests, and unresolved native identities remain fatal.
+
+These controls qualify the two new generated-UI tasks, not missing historical
+CS-2 artifacts. Original retained UI regrading and the paid six-skill comparisons
+remain separate acceptance conditions. Visual review remains `not_run`; model
+calls for this qualification are zero.

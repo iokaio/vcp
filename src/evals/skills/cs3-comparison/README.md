@@ -46,5 +46,7 @@ task. The next skill block requires a fully revalidated terminal disposition;
 an integrity, authority, secret-disclosure or unknown-charge failure stops the
 whole envelope.
 
-No campaign has been prepared or dispatched from this tree. The retained UI
-artifact recovery/regrade and prospective UI native adapter remain prerequisites.
+No campaign has been prepared or dispatched from this tree. The prospective UI
+native adapter is exported after its current-source controls qualified. Retained
+historical UI artifact recovery/regrade remains a separate unmet prerequisite;
+the new controls do not replace those missing outputs.
