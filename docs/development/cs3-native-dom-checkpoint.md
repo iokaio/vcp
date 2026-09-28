@@ -110,11 +110,11 @@ changes the failed browser outcomes.
 
 ## Interpretation limits
 
-The selected WebView2 diagnostic still uses the development-only
-`--edge-webview-no-dpi-workaround` argument. It is not a supported production
-profile. Before/after Evergreen runtime hashes are not continuous immutability
-proof. Exact outer AppContainer identity, capabilities and job coverage are not
-proof of Chromium's internal renderer sandbox.
+Attempts through the September 27 F24 run used the development-only
+`--edge-webview-no-dpi-workaround` argument. The later production-profile run
+recorded below removed it. Before/after Evergreen runtime hashes are not
+continuous immutability proof. Exact outer AppContainer identity, capabilities
+and job coverage are not proof of Chromium's internal renderer sandbox.
 
 Protocol keyboard/text input and emulated active-page state, if demonstrated,
 are not physical keyboard input, a screen-reader test or human visual review.
@@ -145,3 +145,134 @@ prove the phase-1 adversarial and recovery gates before untrusted project runs.
 The current AppContainer input-routing failure remains retained, not waived.
 No further speculative runtime flags, host-policy changes, elevated commands,
 paid runs or production integration are part of this checkpoint.
+
+## September 27 Hyper-V F24 full-DOM attempt
+
+The later disposable-VM attempt built source commit `979d500` against WebView2
+`153.0.4234.48` and SDK `1.0.4191.47`. Its build receipt SHA-256 is
+`ac3ac06df8d0231fcc8ceb3227b48fc920854058014dad1f9db7df693667d31b`;
+the embedded input-manifest SHA-256 is
+`7c035d48e5b07efe1f310cb76c43f6d3188b1a17ea94457faaa5a9143c1d4f70`.
+The launcher ran once as local non-elevated `User` in active VMConnect Basic
+Session 1. The controller was not run through PowerShell Direct: a one-shot
+limited-token interactive task started the already staged, hash-pinned launcher
+in that console session and was removed after it returned.
+
+The retained run identity is `f9690ec599c04ff98775b5912c256720`.
+The 579000-byte host collection report SHA-256 is
+`2b948fc3011874e2b6fdee50a08b9f3c41854e1aabe11af09c4be4324169956f`;
+its embedded native receipt SHA-256 is
+`f0f8f8f6d958adb347654782d55f06249f4e006ed316c9cddadb92169c06127f`
+and launcher-result SHA-256 is
+`f9e4cc5f2670ef2360fda32995973f54f77d059987613a994e733b930f8391fc`.
+Collection was read-only and did not launch or retry the browser.
+
+The F24 readiness strategy resolved the earlier input-routing failure. Five
+ordered, independently reconstructed and hash-checked documents establish:
+
+* native forward focus moved `BODY` to `name` after one trusted F24 down/up
+  pair with no keypress or repeat;
+* the first exact Enter produced one trusted keydown/keypress/keyup and submit,
+  preserving the empty value and yielding `Name is required.`;
+* one literal `Ada` insertion followed by a second trusted F24 down/up pair
+  produced `value=Ada` without another submit; and
+* the second exact Enter produced the second trusted keydown/keypress/keyup and
+  submit and yielded `Saved Ada.`.
+
+No F24, Enter or text action was retried. The five document SHA-256 values are,
+in order, `0e5de04e060f1d102d4a0bd50c0a017b5737a016a561d5b934abbf368de257e1`,
+`1223572b5906a9c44e6598e7bc2b434a8488797d8a55fb6a7379bab61ad476bc`,
+`f519689da986b8cc9bad08951ea4177337c21d7f43df4bafbfdcddabb68f9842`,
+`859b987cfde08264d05f4dce33636a164212d6d1ad28f55d524b13c6cec88a34`
+and `4d86311be6cf80de78d0fe4fc7a9db31ed014b5d17510dc88e6c346214657380`.
+
+The attempt then failed closed in `accessibility_snapshot` with
+`0x80131501` (`InvalidDataException`) before accessibility evidence or the
+negative-origin phase was accepted. The current contract applies the ordinary
+8192-byte DOM-record ceiling to the raw `Accessibility.getFullAXTree` response;
+the small synthetic form's verbose full-tree response is the leading evidenced
+cause, although this receipt does not retain the rejected response length and
+therefore does not prove which accessibility assertion threw. The next change
+must keep the raw protocol response bounded while emitting a compact, independently
+validated accessibility projection; merely removing the ceiling is not acceptable.
+
+Cleanup still completed: process coverage was 7/7, the independent job-zero
+acknowledgement completed, all processes drained, the profile was removed, and
+runtime, host and policy postchecks were unchanged. There were no cleanup errors,
+stderr bytes or queued diagnostic lines. The native outcome remains
+`input_diagnostic_inconclusive_or_failure`; accessibility, origin, owned-server
+and browser-qualification gates remain open.
+
+## September 27 automated production-profile DOM evidence
+
+PowerShell Direct was used only to stage hash-checked files, register and observe
+a one-shot limited-token task, and collect receipts. The browser controller ran
+as local non-elevated `User` in active VMConnect Basic Session 1. Every task was
+unregistered after it returned. The VM network adapter remained disconnected;
+no paid provider call or retry of an existing build occurred.
+
+The final source commit was `222cc797a2f208901f6302b3fcaff793c5a1b598`.
+Its build input-manifest SHA-256 was
+`a423c7b33b3264d74f96cfc6bd1edbc667337be2c41cfd1f4518f23a4d27a8af`.
+The manifest and host contract require an empty additional-browser-argument
+value. Run `c715652e31a442dd86dd09ba0700ac54` produced native receipt SHA-256
+`ceecc8fef324b13f409a3169747d69b4795a3ab1c98ed1f2799a5a550ca48db6`
+and launcher-result SHA-256
+`57a8725dc85c0e2520f223d04ae418e1f2d21d7aa1c18aa9cef4b2855c35d9ff`.
+
+The authoritative native outcome is `dom_observed`. Eight cumulative job
+processes had eight independently verified identities; all were zero-capability
+members of the exact disposable AppContainer and owned job. Independent
+active-process-zero acknowledgement completed, all held identities drained,
+the disposable profile was removed, runtime/host/policy postchecks were
+unchanged, and there were zero rejected observations, stderr bytes or cleanup
+errors.
+
+Seven independently reconstructed documents passed the parent oracle:
+
+| Document | Bytes | SHA-256 |
+|---|---:|---|
+| `initial` | 409 | `0e5de04e060f1d102d4a0bd50c0a017b5737a016a561d5b934abbf368de257e1` |
+| `focused` | 411 | `1223572b5906a9c44e6598e7bc2b434a8488797d8a55fb6a7379bab61ad476bc` |
+| `invalid` | 433 | `f519689da986b8cc9bad08951ea4177337c21d7f43df4bafbfdcddabb68f9842` |
+| `filled` | 421 | `859b987cfde08264d05f4dce33636a164212d6d1ad28f55d524b13c6cec88a34` |
+| `success` | 431 | `4d86311be6cf80de78d0fe4fc7a9db31ed014b5d17510dc88e6c346214657380` |
+| `accessibility` | 607 | `374f782d9248d23dff18d656fdeb1649da759dfa8591ff687c992810f212bf53` |
+| `origin` | 86 | `12fe676287b999fbf42912d23ab5b96be4cb236f4ff65e3d7b22c0b43a30a6bb` |
+
+The accessibility projection identity-binds the bounded 10,219-byte, 23-node
+raw `Accessibility.getFullAXTree` result with SHA-256
+`3bbee527eee4a423ec32f92644871f7cdb8888a28b2580645d57e4cf144bdbcd`.
+It contains the exact document, textbox value/required state, button, alert and
+status roles without weakening the ordinary 8 KiB DOM evidence ceiling.
+
+This closes the production-profile synthetic form/accessibility/origin and exact
+process-accounting evidence gap. It does not claim the separately required
+owned HTTP-server join, adversarial network/filesystem boundary, cancellation/
+pause/owner-loss matrix, retained UI regrade, model visual review, paid
+comparison or six-skill distribution acceptance. The emitted event therefore
+continues to report `browser_qualification=false` and `prototype_only=true`.
+
+## September 27 isolated Windows owned-server evidence
+
+The bounded server and its contract tests were staged into a fresh guest path
+with portable Node `24.21.0`; nothing was installed and the guest PATH, registry
+and network configuration were unchanged. The Node executable was 93,580,104
+bytes with SHA-256
+`ba4e6d110e8c1592a1ecd390f6b05f3da124b13871a5be62b341a07a853c6c32`.
+The server SHA-256 was
+`c8df371e3958ed5f87a0a461c133d422db393e536c3cc5c74c93e0afffab7c7e`
+and the test SHA-256 was
+`93c1838b5ab471ea1a3fdad769d7e8018e2178ed5bd860d02e90195f50f2b0c1`.
+
+With zero connected guest network adapters, all ten actual Windows server tests
+passed. They covered immutable hash-checked serving, changed/oversized/linked/
+aliased/traversal rejection, forged-inventory rejection, exact host/method/raw-
+path/credential/body boundaries, unrelated-listener preservation, incomplete-
+client and delayed-response shutdown, request and connection-attempt ceilings,
+max-connection drops, and abrupt owner-process loss. The owner-loss test proved
+that only the owned ephemeral listener closed and an unrelated listener survived.
+
+This establishes the server lifecycle independently. It does not join the
+zero-network-capability browser to loopback. A future join must not silently add
+a broad loopback exemption or adopt an existing user-owned service.

@@ -62,7 +62,7 @@ public static partial class NativeProbe {
         var clock=new Stopwatch();
         Action observe=()=> {
             if(WaitForSingleObject(owner,0)!=258) throw new IOException("Controller owner lost");
-            Scratch(profile); Scratch(temp);
+            Scratch(profile,"profile"); Scratch(temp,"probe-temp");
             foreach(uint pid in JobPids(job)) {
                 if(observed.ContainsKey(pid)) { if(WaitForSingleObject(observed[pid],0)==0) throw new IOException("Numeric PID reused within job census"); continue; }
                 IntPtr held=OpenProcess(0x100400,false,pid); Check(held!=IntPtr.Zero);
@@ -155,7 +155,10 @@ public static partial class NativeProbe {
                     byte[] stop=Utf8.GetBytes("STOP "+nonce+"\n"); input.Write(stop,0,stop.Length); input.Flush(); stopSent=true;
                 }
                 if(WaitForSingleObject(process.Process,0)==0 && reader.IsCompleted && lines.Count==0) break;
-                Thread.Sleep(10);
+                // Short-lived WebView2 helpers can complete inside a 10 ms
+                // polling gap. Keep the controller responsive while retaining
+                // the fixed outer deadline and exact final process accounting.
+                Thread.Sleep(1);
             }
             uint exit; Check(GetExitCodeProcess(process.Process,out exit));
             if(exit!=0 || !ready || !hostStopped || !hostClosed) throw new IOException("Incomplete host startup/STOP outcome");

@@ -1,5 +1,30 @@
 # CS-3 WebView2 diagnostic source
 
+Local Hyper-V staging variant (not yet qualified): based on commit
+`9a27a2cf6cc4fa690a5d05b330ca0df146cc5031`, now pins the guest's observed
+WebView2 `153.0.4234.48` executable SHA256
+`65afdc3965a6d1c4ccd5b47801fec8a16db15613d35c8e3a6d1fb6c0da970eea`.
+The earlier SDK's package version was not recorded, so this new diagnostic uses
+the explicitly versioned Microsoft.Web.WebView2 NuGet package `1.0.4191.47`,
+package SHA256 `f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0`.
+Core (`lib/net462`) SHA256 is
+`e6f54c8ce208e3797c427d01ad671b47cb25abc85604753d6ec2546d0ffef550`;
+loader (`build/native/x64`) SHA256 is
+`c66e4a92fdc7a216118e43b7a5024ea2200e8c43f9310bf20d96a0084f82c5bc`.
+Both vendor LICENSE and NOTICE accompany staged inputs. This is a fresh source
+variant, not a reproduction or pass of the earlier diagnostic. The original
+SDK pins below are historical and remain in Git history; compatibility and a
+new browser-free build must be checked before reviewing any native launch.
+
+The first isolated-guest attempt stopped during scratch observation after the
+WebView2 environment was created. A new source-bound diagnostic records one
+bounded, root-relative `scratch_open_failure` event when `CreateFile` fails,
+including the original native code and unchanged access/share/flag values. It
+never records the absolute profile root. Missing child errors 2/3 remain the
+only skippable hint/open race; metadata, reparse, sharing and access failures
+remain fatal. This is diagnostic context, not a retry, ACL change, relaxed
+observer or browser-qualification result.
+
 This directory contains original VCP diagnostic source imported from the retained
 local GUI draft. It is test support, not a browser product component or imported
 third-party sample. The build keeps these critical sources here, snapshots their
@@ -42,19 +67,25 @@ and runs only compile/pure contract checks. It does not launch WebView2 or anoth
 browser. Inspect the emitted `inputs.json`, source/toolchain hashes, build output,
 and the complete native execution plan before any launch.
 
-The fixed form records passive script readiness and trusted key/submit counters;
-read-only snapshots are checked independently by the parent. Native forward
-focus is not a claim of CDP Tab input. The current source-bound build runs a
-separate input-routing diagnostic: read-only CDP target identity, native focus
-observations, an optional fixed text-insertion control, then Enter. The current
-compiled control omits text insertion and waits 100 ms after focus and at the
-pre-key observation stage, with no post-key delay, within the unchanged
-20-second lifetime. These source-bound timing controls are not a production
-readiness strategy. The [routing report](../../../../../docs/development/cs3-input-routing-diagnostic.md)
-retains the successful and unsuccessful timing comparisons.
-`input_diagnostic_observed` means all diagnostic records were retained, not that
-keyboard input or any full DOM/AX/origin oracle passed. The prior full-form
-assertions remain separate and are not relaxed. See the
+The fixed form records passive script readiness and separate trusted readiness,
+ordinary-key and submit counters; read-only snapshots are checked independently
+by the parent. Native forward focus is not a claim of CDP Tab input. The retained
+[routing report](../../../../../docs/development/cs3-input-routing-diagnostic.md)
+records the successful and unsuccessful timing controls and remains unchanged.
+
+The current source-bound build is a fresh full-DOM diagnostic. After each fixed
+100-ms pre-dispatch settle window it sends one exact F24 down/up pair, which the
+fixture intercepts and suppresses before ordinary form accounting. Exact trusted
+down-then-up evidence, zero F24 keypress/repeat evidence, unchanged form state and
+unchanged ordinary counters are required before the corresponding Enter. Missing,
+partial, reordered, late or extra F24 evidence fails the run; the sentinel, Enter
+and literal Ada insertion are never retried. The first Enter must produce the
+invalid form state; an ordered `filled` document retains Ada and the second
+sentinel before the next Enter; the second Enter must produce `Saved Ada.`; and
+the existing full accessibility and denied-origin oracles remain unchanged. The
+F24 observation proves only that this synthetic key reached the renderer at that
+moment; the settle window is not promoted to a general WebView2 readiness
+guarantee. See the
 [checkpoint](../../../../../docs/development/cs3-native-dom-checkpoint.md).
 An exit-zero controller receipt means receipt/cleanup completion, not successful
 browser interaction. Always inspect its outcome and qualification fields.

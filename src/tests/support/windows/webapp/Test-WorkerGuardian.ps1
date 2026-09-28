@@ -19,7 +19,8 @@ Add-Type -Path @(
     (Join-Path $PSScriptRoot 'WorkerGuardian.cs'),
     (Join-Path $PSScriptRoot 'WebViewSupervisor.cs'),
     (Join-Path $PSScriptRoot 'ProbeContract.cs'),
-    (Join-Path $PSScriptRoot 'DomEvidence.cs')
+    (Join-Path $PSScriptRoot 'DomEvidence.cs'),
+    (Join-Path $PSScriptRoot 'InputDiagnosticEvidence.cs')
 ) -ErrorAction Stop
 
 $workerEnvironment = [ordered]@{}

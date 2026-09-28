@@ -13,12 +13,12 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Input-Policy.ps1')
 if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne 'X64') { throw 'Native x64 Windows required' }
 Add-Type -Path @((Join-Path $PSScriptRoot 'NativeProbe.cs'),(Join-Path $PSScriptRoot 'WorkerGuardian.cs'),(Join-Path $PSScriptRoot 'WebViewSupervisor.cs'),(Join-Path $PSScriptRoot 'ProbeContract.cs'),(Join-Path $PSScriptRoot 'DomEvidence.cs'),(Join-Path $PSScriptRoot 'InputDiagnosticEvidence.cs')) -ErrorAction Stop
-if ($Mode -eq 'compile-only') { [Vcp.Cs3Draft.NativeProbe]::CheckLayouts(); $count=[Vcp.Cs3Draft.ProbeContract]::Test(); $domCount=[Vcp.Cs3Draft.DomEvidence]::Test(); $inputCount=[Vcp.Cs3Draft.InputDiagnosticEvidence]::Test(); $guardianCount=[Vcp.Cs3Draft.NativeProbe]::TestWorkerGuardianContract(); $scratchCount=[Vcp.Cs3Draft.NativeProbe]::TestScratchVanishedContract(); "Worker compiled; $count protocol/coverage, $domCount DOM evidence, $inputCount input diagnostic, $guardianCount guardian and $scratchCount scratch assertions passed. Only a read-only absent-path check; no native probe method, host, Core, profile, ACL or registry operation invoked."; return }
+if ($Mode -eq 'compile-only') { [Vcp.Cs3Draft.NativeProbe]::CheckLayouts(); $count=[Vcp.Cs3Draft.ProbeContract]::Test(); $domCount=[Vcp.Cs3Draft.DomEvidence]::Test(); $inputCount=[Vcp.Cs3Draft.InputDiagnosticEvidence]::Test(); $guardianCount=[Vcp.Cs3Draft.NativeProbe]::TestWorkerGuardianContract(); $scratchCount=[Vcp.Cs3Draft.NativeProbe]::TestScratchVanishedContract(); $scratchDiagnosticCount=[Vcp.Cs3Draft.NativeProbe]::TestScratchDiagnosticContract(); "Worker compiled; $count protocol/coverage, $domCount DOM evidence, $inputCount input diagnostic, $guardianCount guardian, $scratchCount scratch and $scratchDiagnosticCount scratch diagnostic assertions passed. Only a read-only absent-path check; no native probe method, host, Core, profile, ACL or registry operation invoked."; return }
 if (-not $Execute) { throw 'Draft native execution requires independent review and explicit -Execute' }
 $inputsFile=Join-Path $PSScriptRoot 'inputs.json'
 if ($Mode -eq 'webview2-dom' -and ($ExpectedInputsSha256 -cnotmatch '^[a-f0-9]{64}$' -or (Get-FileHash -LiteralPath $inputsFile).Hash.ToLowerInvariant() -cne $ExpectedInputsSha256)) { throw 'Exact reviewed build-manifest hash required before a new native attempt' }
 $inputs=Get-Content -LiteralPath $inputsFile -Raw | ConvertFrom-Json
-if ($inputs.schema -cne 'cs3-webview2-inputs/1' -or $inputs.version -cne '154.0.4258.37' -or $inputs.browser_argument -cne '--edge-webview-no-dpi-workaround' -or $inputs.runtime -cne 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application\154.0.4258.37') { throw 'Exact prospective inputs differ' }
+if ($inputs.schema -cne 'cs3-webview2-inputs/1' -or $inputs.version -cne '153.0.4234.48' -or $inputs.browser_argument -cne '' -or $inputs.runtime -cne 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application\153.0.4234.48') { throw 'Exact prospective inputs differ' }
 foreach ($entry in $inputs.sources) { if ($entry.path -notmatch '^[A-Za-z-]+\.(cs|ps1)$' -or (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $entry.path)).Hash.ToLowerInvariant() -cne $entry.sha256) { throw 'Frozen draft source changed; compile a new reviewed input manifest' } }
 function Hash([string]$File) { (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant() }
 function JsonWrite([string]$File, $Value) {
@@ -189,7 +189,7 @@ try {
     } catch { Record-ControllerCleanupFailure $value 'worker_termination' $_ }
     try {
         $wait = [Diagnostics.Stopwatch]::StartNew()
-        foreach ($identity in $owned.Values) { $remaining=[Math]::Max(0,10000-$wait.ElapsedMilliseconds); if (-not $identity.Process.WaitForExit([int]$remaining)) { throw 'Observed process survived worker termination' } }
+        foreach ($identity in $owned.Values) { if ($null -eq $identity.Process) { continue }; $remaining=[Math]::Max(0,10000-$wait.ElapsedMilliseconds); if (-not $identity.Process.WaitForExit([int]$remaining)) { throw 'Observed process survived worker termination' } }
         $observedDrained=$true
     } catch { Record-ControllerCleanupFailure $value 'owned_process_drain' $_ }
     # Retain bounded native diagnostics/events even when processing an earlier
@@ -226,7 +226,7 @@ try {
         catch { Record-ControllerCleanupFailure $value 'independent_job_drain' $_ }
         try { [Vcp.Cs3Draft.NativeProbe]::ClosePort($port) } catch { Record-ControllerCleanupFailure $value 'close_completion_port' $_ }
     }
-    foreach ($identity in $owned.Values) { try { $identity.Process.Dispose() } catch { Record-ControllerCleanupFailure $value 'dispose_owned_process' $_ } }
+    foreach ($identity in $owned.Values) { if ($null -eq $identity.Process) { continue }; try { $identity.Process.Dispose() } catch { Record-ControllerCleanupFailure $value 'dispose_owned_process' $_ } }
     if ($worker) { try { $worker.Dispose() } catch { Record-ControllerCleanupFailure $value 'dispose_worker' $_ } }
     try { Assert-NoWebViewOverrides; $value.policy_unchanged=$true } catch { Record-ControllerCleanupFailure $value 'policy_postcheck' $_ }
     try { $after=Get-InputSnapshot $inputs.runtime -CheckRuntimeAcl -ContainerSid $sid; Assert-SnapshotSame $value.runtime_before $after; $value.runtime_unchanged=$true } catch { Record-ControllerCleanupFailure $value 'runtime_postcheck' $_ }

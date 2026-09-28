@@ -67,8 +67,18 @@ namespace Vcp.Qualification.Webapp
             "  const name = document.getElementById('name');\n" +
             "  const error = document.getElementById('name-error');\n" +
             "  const status = document.getElementById('status');\n" +
-            "  const evidence = window.__cs3InputEvidence = {scriptReady:false,keyDowns:0,keyPresses:0,keyUps:0,submits:0,lastKey:'',trustedKeys:true};\n" +
-            "  const key = (field, event) => { evidence[field] = Math.min(16, evidence[field] + 1); evidence.lastKey = String(event.key || '').slice(0, 16); evidence.trustedKeys = evidence.trustedKeys && event.isTrusted === true; };\n" +
+            "  const evidence = window.__cs3InputEvidence = {scriptReady:false,keyDowns:0,keyPresses:0,keyUps:0,submits:0,lastKey:'',trustedKeys:true,readinessDowns:0,readinessKeyPresses:0,readinessUps:0,readinessRepeats:0,readinessSequence:'',readinessTrusted:true};\n" +
+            "  const readiness = (field, event) => {\n" +
+            "    if (event.key !== 'F24' || event.code !== 'F24') return false;\n" +
+            "    if (field === 'keyDowns') evidence.readinessDowns = Math.min(16, evidence.readinessDowns + 1);\n" +
+            "    else if (field === 'keyPresses') evidence.readinessKeyPresses = Math.min(16, evidence.readinessKeyPresses + 1);\n" +
+            "    else if (field === 'keyUps') evidence.readinessUps = Math.min(16, evidence.readinessUps + 1);\n" +
+            "    evidence.readinessRepeats = Math.min(16, evidence.readinessRepeats + (event.repeat === true ? 1 : 0));\n" +
+            "    evidence.readinessSequence = (evidence.readinessSequence + (field === 'keyDowns' ? 'D' : field === 'keyPresses' ? 'P' : 'U')).slice(0, 16);\n" +
+            "    evidence.readinessTrusted = evidence.readinessTrusted && event.isTrusted === true;\n" +
+            "    event.preventDefault(); event.stopImmediatePropagation(); return true;\n" +
+            "  };\n" +
+            "  const key = (field, event) => { if (readiness(field, event)) return; evidence[field] = Math.min(16, evidence[field] + 1); evidence.lastKey = String(event.key || '').slice(0, 16); evidence.trustedKeys = evidence.trustedKeys && event.isTrusted === true; };\n" +
             "  document.addEventListener('keydown', event => key('keyDowns', event), true);\n" +
             "  document.addEventListener('keypress', event => key('keyPresses', event), true);\n" +
             "  document.addEventListener('keyup', event => key('keyUps', event), true);\n" +

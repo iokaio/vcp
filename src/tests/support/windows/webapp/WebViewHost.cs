@@ -37,6 +37,7 @@ namespace Vcp.Cs3WebViewDraft {
         static readonly bool InsertBeforeKey = false;
         static readonly int InputSettleMilliseconds = 100;
         static readonly int KeyObservationMilliseconds = 0;
+        static readonly int ReadinessSettleMilliseconds = 100;
         static readonly InputRoutingCommands inputCommands = new InputRoutingCommands(InsertBeforeKey);
         static int nativeGotFocus, nativeLostFocus;
         static readonly HostProbeContract.EvidenceBudget domBudget = new HostProbeContract.EvidenceBudget();
@@ -90,9 +91,10 @@ namespace Vcp.Cs3WebViewDraft {
                 phase = "environment_create"; Emit(phase,0,0,"");
                 HostInput.NoOverrides(Environment.GetEnvironmentVariables());
                 var options = new CoreWebView2EnvironmentOptions();
-                // Sole prospective development-only control for the documented
-                // DPI shell-launch workaround. No sandbox or capability switch.
-                options.AdditionalBrowserArguments = "--edge-webview-no-dpi-workaround";
+                // Production-profile qualification permits no extra browser
+                // argument. Keep the assignment conditional so an empty exact
+                // contract cannot be serialized into a synthetic command line.
+                if(!String.IsNullOrEmpty(HostProbeContract.BrowserArgument)) options.AdditionalBrowserArguments = HostProbeContract.BrowserArgument;
                 options.ExclusiveUserDataFolderAccess = true;
                 options.IsCustomCrashReportingEnabled = true;
                 environment = await CoreWebView2Environment.CreateAsync(input.Runtime,input.Profile,options);
@@ -145,6 +147,13 @@ namespace Vcp.Cs3WebViewDraft {
                 responseStreams.Add(denied);
                 e.Response = environment.CreateWebResourceResponse(denied,403,"Forbidden","Content-Type: text/plain; charset=utf-8\r\nCache-Control: no-store");
                 if (lifecycle.Stopping) return;
+                // Handle the one exact off-origin test before consulting the
+                // normal-phase fixture router, which intentionally latches any
+                // request made after its resource phase has closed.
+                if (negativeExpected && String.Equals(e.Request.Uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) {
+                    CompleteNegativeNavigation(e.Request.Uri);
+                    return;
+                }
                 WebDomResource resource;
                 if (!dom.TryServe(e.Request.Method,e.Request.Uri,out resource)) {
                     Reject("resource_rejected");
@@ -165,16 +174,21 @@ namespace Vcp.Cs3WebViewDraft {
                     navigationId = e.NavigationId;
                     return;
                 }
-                if (negativeExpected && !negativeSeen && String.Equals(e.Uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) {
+                if (negativeExpected && String.Equals(e.Uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) {
                     e.Cancel = true;
-                    negativeSeen = true;
-                    if (!dom.ObserveDeniedNavigation(e.Uri,true)) throw new InvalidOperationException(dom.Failure);
-                    negativeCompletion.SetResult(true);
+                    CompleteNegativeNavigation(e.Uri);
                     return;
                 }
                 e.Cancel = true;
                 Reject("navigation_rejected");
             } catch (Exception error) { e.Cancel = true; Reject("navigation_callback_failed",error.HResult); }
+        }
+        static void CompleteNegativeNavigation(string uri) {
+            if(negativeSeen) return;
+            if(!negativeExpected || negativeCompletion==null || !String.Equals(uri,WebDomContract.BlockedUrl,StringComparison.Ordinal)) throw new InvalidOperationException("Unexpected negative navigation completion");
+            if(!dom.ObserveDeniedNavigation(uri,true)) throw new InvalidOperationException(dom.Failure);
+            negativeSeen=true;
+            negativeCompletion.TrySetResult(true);
         }
         static void FrameNavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e) {
             e.Cancel = true;
@@ -203,8 +217,8 @@ namespace Vcp.Cs3WebViewDraft {
             core.NavigationCompleted -= NavigationCompleted;
             try {
                 if (!e.IsSuccess || !initialNavigationSeen || e.NavigationId != navigationId || dom.ResourceCount != WebDomContract.MaxResourceCount) throw new InvalidOperationException("Initial fixture navigation did not complete exactly");
-                await RunInputDiagnostic();
-            } catch (Exception error) { Stop("input_probe_failed",error.HResult,false); }
+                await RunDomProbe();
+            } catch (Exception error) { phase=Evidence.FailureKind(phase,error); Stop("dom_probe_failed",error.HResult,false); }
         }
         static void GotNativeFocus(object sender, object args) {
             if(lifecycle.Stopping) return;
@@ -215,13 +229,16 @@ namespace Vcp.Cs3WebViewDraft {
             if(++nativeLostFocus>16) Reject("native_focus_event_bound");
         }
         static async Task<string> InputCommand(string method, string parameters) {
-            RequireProbeActive(); inputCommands.RequireRequest(method,parameters,clock.ElapsedMilliseconds);
+            RequireProbeActive(); inputCommands.BeginRequest(method,parameters,clock.ElapsedMilliseconds);
             string result=await core.CallDevToolsProtocolMethodAsync(method,parameters);
             RequireProbeActive(); inputCommands.Complete(method,parameters,result,clock.ElapsedMilliseconds);
             BoundJson(result); return result;
         }
         static async Task InputSnapshot(string id) {
-            string raw=await Snapshot(); RequireProbeActive();
+            // Preserve the frozen routing-only evidence shape even though the
+            // selected full-DOM route records additional readiness fields.
+            const string script="(() => { const n=document.getElementById('name'),e=document.getElementById('name-error'),s=document.getElementById('status'),a=document.activeElement,p=window.__cs3InputEvidence||{}; return {url:location.href,readyState:document.readyState,title:document.title,name:n.labels[0].textContent,value:n.value,required:n.required,error:e.textContent,status:s.textContent,active:a&&a.id?a.id:(a?a.tagName:''),scriptReady:p.scriptReady===true,keyDowns:Number.isInteger(p.keyDowns)?p.keyDowns:-1,keyPresses:Number.isInteger(p.keyPresses)?p.keyPresses:-1,keyUps:Number.isInteger(p.keyUps)?p.keyUps:-1,submits:Number.isInteger(p.submits)?p.submits:-1,lastKey:typeof p.lastKey==='string'?p.lastKey:'',trustedKeys:p.trustedKeys===true}; })()";
+            string raw=await ReadScript(script); RequireProbeActive();
             var value=Object(raw); IntPtr window=GetFocus(); uint pid=0;
             if(window!=IntPtr.Zero && GetWindowThreadProcessId(window,out pid)==0) throw new InvalidOperationException("Cannot identify native focus window");
             value.Add("native_got_focus",nativeGotFocus); value.Add("native_lost_focus",nativeLostFocus);
@@ -268,17 +285,21 @@ namespace Vcp.Cs3WebViewDraft {
             string initial = await Snapshot();
             RequireProbeActive();
             EmitDom("initial",initial);
-            AssertSnapshot(initial,"", "", "BODY",0,0,0,0,"");
+            AssertSnapshot(initial,"", "", "", "BODY",0,0,0,0,"",0);
 
             phase = "native_forward_focus";
             // This is WebView2's documented forward-traversal primitive for
             // entering the first page element. It does not claim CDP Tab input.
             controller.MoveFocus(CoreWebView2MoveFocusReason.Next);
             RequireProbeActive();
+            await Task.Delay(ReadinessSettleMilliseconds);
+            RequireProbeActive();
+            await ReadinessSentinel();
+            phase = "native_forward_focus";
             string focused = await Snapshot();
             RequireProbeActive();
             EmitDom("focused",focused);
-            AssertSnapshot(focused,"", "", "name",0,0,0,0,"");
+            AssertSnapshot(focused,"", "", "", "name",0,0,0,0,"",1);
 
             phase = "invalid_form_interaction";
             await DevTools("Input.dispatchKeyEvent",HostProbeContract.EnterDownParameters);
@@ -286,24 +307,31 @@ namespace Vcp.Cs3WebViewDraft {
             string invalid = await Snapshot();
             RequireProbeActive();
             EmitDom("invalid",invalid);
-            AssertSnapshot(invalid,"", "Name is required.", "name",1,1,1,1,"Enter");
+            AssertSnapshot(invalid,"", "Name is required.", "", "name",1,1,1,1,"Enter",1);
 
             phase = "valid_form_interaction";
             await DevTools("Input.insertText",HostProbeContract.InsertParameters);
+            await Task.Delay(ReadinessSettleMilliseconds);
+            RequireProbeActive();
+            await ReadinessSentinel();
+            phase = "valid_form_interaction";
+            string filled = await Snapshot();
+            RequireProbeActive();
+            AssertSnapshot(filled,"Ada", "", "", "name",1,1,1,1,"Enter",2);
+            EmitDom("filled",filled);
             await DevTools("Input.dispatchKeyEvent",HostProbeContract.EnterDownParameters);
             await DevTools("Input.dispatchKeyEvent",HostProbeContract.EnterUpParameters);
             string success = await Snapshot();
             RequireProbeActive();
             EmitDom("success",success);
-            AssertSnapshot(success,"Ada", "", "name",2,2,2,2,"Enter");
-            var successObject = Object(success);
-            EqualString(successObject,"status","Saved Ada.");
+            AssertSnapshot(success,"Ada", "", "Saved Ada.", "name",2,2,2,2,"Enter",2);
 
             phase = "accessibility_snapshot";
-            string accessibility = await DevTools("Accessibility.getFullAXTree",HostProbeContract.AxParameters);
+            string accessibilityRaw = await DevTools("Accessibility.getFullAXTree",HostProbeContract.AxParameters);
             RequireProbeActive();
+            string accessibility = HostAccessibilityProjection.Create(accessibilityRaw);
             EmitDom("accessibility",accessibility);
-            AssertAccessibility(accessibility);
+            AssertSnapshot(await Snapshot(),"Ada", "", "Saved Ada.", "name",2,2,2,2,"Enter",2);
 
             phase = "negative_origin";
             if (!dom.BeginNegativePhase()) throw new InvalidOperationException(dom.Failure);
@@ -312,6 +340,7 @@ namespace Vcp.Cs3WebViewDraft {
             core.Navigate(WebDomContract.BlockedUrl);
             await negativeCompletion.Task;
             if (lifecycle.Stopping || !negativeSeen) return;
+            AssertSnapshot(await Snapshot(),"Ada", "", "Saved Ada.", "name",2,2,2,2,"Enter",2);
             string origin = await OriginSnapshot();
             RequireProbeActive();
             AssertOrigin(origin);
@@ -328,8 +357,13 @@ namespace Vcp.Cs3WebViewDraft {
             Emit(phase,0,checked((uint)core.BrowserProcessId),"browser");
             // Wait only for exact supervisor STOP or the fixed total watchdog.
         }
+        static async Task ReadinessSentinel() {
+            phase="input_readiness_sentinel";
+            await DevTools("Input.dispatchKeyEvent",HostProbeContract.ReadinessDownParameters);
+            await DevTools("Input.dispatchKeyEvent",HostProbeContract.ReadinessUpParameters);
+        }
         static Task<string> Snapshot() {
-            const string script = "(() => { const n=document.getElementById('name'),e=document.getElementById('name-error'),s=document.getElementById('status'),a=document.activeElement,p=window.__cs3InputEvidence||{}; return {url:location.href,readyState:document.readyState,title:document.title,name:n.labels[0].textContent,value:n.value,required:n.required,error:e.textContent,status:s.textContent,active:a&&a.id?a.id:(a?a.tagName:''),scriptReady:p.scriptReady===true,keyDowns:Number.isInteger(p.keyDowns)?p.keyDowns:-1,keyPresses:Number.isInteger(p.keyPresses)?p.keyPresses:-1,keyUps:Number.isInteger(p.keyUps)?p.keyUps:-1,submits:Number.isInteger(p.submits)?p.submits:-1,lastKey:typeof p.lastKey==='string'?p.lastKey:'',trustedKeys:p.trustedKeys===true}; })()";
+            const string script = "(() => { const n=document.getElementById('name'),e=document.getElementById('name-error'),s=document.getElementById('status'),a=document.activeElement,p=window.__cs3InputEvidence||{}; return {url:location.href,readyState:document.readyState,title:document.title,name:n.labels[0].textContent,value:n.value,required:n.required,error:e.textContent,status:s.textContent,active:a&&a.id?a.id:(a?a.tagName:''),scriptReady:p.scriptReady===true,keyDowns:Number.isInteger(p.keyDowns)?p.keyDowns:-1,keyPresses:Number.isInteger(p.keyPresses)?p.keyPresses:-1,keyUps:Number.isInteger(p.keyUps)?p.keyUps:-1,submits:Number.isInteger(p.submits)?p.submits:-1,lastKey:typeof p.lastKey==='string'?p.lastKey:'',trustedKeys:p.trustedKeys===true,readinessDowns:Number.isInteger(p.readinessDowns)?p.readinessDowns:-1,readinessKeyPresses:Number.isInteger(p.readinessKeyPresses)?p.readinessKeyPresses:-1,readinessUps:Number.isInteger(p.readinessUps)?p.readinessUps:-1,readinessRepeats:Number.isInteger(p.readinessRepeats)?p.readinessRepeats:-1,readinessSequence:typeof p.readinessSequence==='string'?p.readinessSequence:'',readinessTrusted:p.readinessTrusted===true}; })()";
             return ReadScript(script);
         }
         static Task<string> OriginSnapshot() {
@@ -346,16 +380,17 @@ namespace Vcp.Cs3WebViewDraft {
         }
         static async Task<string> DevTools(string method, string parameters) {
             RequireProbeActive();
-            commands.RequireRequest(method,parameters,clock.ElapsedMilliseconds);
+            commands.BeginRequest(method,parameters,clock.ElapsedMilliseconds);
             string result = await core.CallDevToolsProtocolMethodAsync(method,parameters);
             RequireProbeActive();
             commands.Complete(method,parameters,result,clock.ElapsedMilliseconds);
-            if (method == "Accessibility.getFullAXTree") BoundJson(result);
+            if (method == "Accessibility.getFullAXTree") BoundJson(result,HostProbeContract.MaximumAccessibilityResponseBytes);
             return result;
         }
         static void RequireProbeActive() { HostProbeContract.RequireActive(lifecycle,clock.ElapsedMilliseconds); }
-        static void BoundJson(string value) {
-            if (String.IsNullOrEmpty(value) || Encoding.UTF8.GetByteCount(value)>HostProbeContract.MaximumRecordBytes) throw new InvalidDataException("DOM evidence exceeds its per-record bound");
+        static void BoundJson(string value) { BoundJson(value,HostProbeContract.MaximumRecordBytes); }
+        static void BoundJson(string value, int maximumBytes) {
+            if (maximumBytes<=0 || String.IsNullOrEmpty(value) || Encoding.UTF8.GetByteCount(value)>maximumBytes) throw new InvalidDataException("DOM evidence exceeds its per-record bound");
             json.DeserializeObject(value);
         }
         static Dictionary<string,object> Object(string raw) {
@@ -363,9 +398,9 @@ namespace Vcp.Cs3WebViewDraft {
             if(value==null) throw new InvalidDataException("Expected JSON object");
             return value;
         }
-        static void AssertSnapshot(string raw, string value, string error, string active, int keyDowns, int keyPresses, int keyUps, int submits, string lastKey) {
+        static void AssertSnapshot(string raw, string value, string error, string status, string active, int keyDowns, int keyPresses, int keyUps, int submits, string lastKey, int readinessPairs) {
             var item=Object(raw);
-            string[] expected={"url","readyState","title","name","value","required","error","status","active","scriptReady","keyDowns","keyPresses","keyUps","submits","lastKey","trustedKeys"};
+            string[] expected={"url","readyState","title","name","value","required","error","status","active","scriptReady","keyDowns","keyPresses","keyUps","submits","lastKey","trustedKeys","readinessDowns","readinessKeyPresses","readinessUps","readinessRepeats","readinessSequence","readinessTrusted"};
             if(item.Count!=expected.Length) throw new InvalidDataException("Snapshot shape differs");
             foreach(string name in expected) if(!item.ContainsKey(name)) throw new InvalidDataException("Snapshot field absent");
             EqualString(item,"url",WebDomContract.FormUrl);
@@ -374,56 +409,21 @@ namespace Vcp.Cs3WebViewDraft {
             EqualString(item,"name","Name");
             EqualString(item,"value",value);
             EqualString(item,"error",error);
+            EqualString(item,"status",status);
             EqualString(item,"active",active);
             object required; if(!item.TryGetValue("required",out required) || !(required is bool) || !(bool)required) throw new InvalidDataException("Required state differs");
             EqualBoolean(item,"scriptReady",true); EqualBoolean(item,"trustedKeys",true);
             EqualInteger(item,"keyDowns",keyDowns); EqualInteger(item,"keyPresses",keyPresses); EqualInteger(item,"keyUps",keyUps); EqualInteger(item,"submits",submits);
             EqualString(item,"lastKey",lastKey);
-            if(value.Length==0) EqualString(item,"status","");
+            EqualInteger(item,"readinessDowns",readinessPairs); EqualInteger(item,"readinessKeyPresses",0); EqualInteger(item,"readinessUps",readinessPairs); EqualInteger(item,"readinessRepeats",0);
+            EqualString(item,"readinessSequence",new StringBuilder(readinessPairs*2).Insert(0,"DU",readinessPairs).ToString());
+            EqualBoolean(item,"readinessTrusted",true);
         }
         static void AssertOrigin(string raw) {
             var item=Object(raw);
             if(item.Count!=2 || !item.ContainsKey("url") || !item.ContainsKey("origin")) throw new InvalidDataException("Origin snapshot shape differs");
             EqualString(item,"url",WebDomContract.FormUrl);
             EqualString(item,"origin","https://cs3-fixture.invalid");
-        }
-        static void AssertAccessibility(string raw) {
-            var root=Object(raw); object nodesValue;
-            var nodes=root.TryGetValue("nodes",out nodesValue) ? nodesValue as object[] : null;
-            if(nodes==null || nodes.Length==0 || nodes.Length>128) throw new InvalidDataException("Accessibility node bound or shape differs");
-            bool rootArea=false, textbox=false, button=false, alert=false, status=false;
-            foreach(object nodeValue in nodes) {
-                var node=nodeValue as Dictionary<string,object>; if(node==null) throw new InvalidDataException("Accessibility node shape differs");
-                object ignored;
-                if(!node.TryGetValue("ignored",out ignored) || !(ignored is bool)) throw new InvalidDataException("Accessibility ignored state differs");
-                if((bool)ignored) continue;
-                string role=AxValue(node,"role"), name=AxValue(node,"name");
-                if(role=="RootWebArea" && name=="CS-3 form fixture") rootArea=true;
-                if(role=="textbox" && name=="Name" && AxRequired(node)) textbox=true;
-                if(role=="button" && name=="Save") button=true;
-                if(role=="alert") alert=true;
-                if(role=="status") status=true;
-            }
-            if(!rootArea || !textbox || !button || !alert || !status) throw new InvalidDataException("Required accessibility roles, names or state absent");
-        }
-        static string AxValue(Dictionary<string,object> node, string field) {
-            object property, value;
-            var item=node.TryGetValue(field,out property) ? property as Dictionary<string,object> : null;
-            return item!=null && item.TryGetValue("value",out value) && value is string ? (string)value : "";
-        }
-        static bool AxRequired(Dictionary<string,object> node) {
-            object propertiesValue;
-            var properties=node.TryGetValue("properties",out propertiesValue) ? propertiesValue as object[] : null;
-            if(properties==null) return false;
-            foreach(object propertyValue in properties) {
-                var property=propertyValue as Dictionary<string,object>; object name, wrapped, value;
-                if(property!=null && property.TryGetValue("name",out name) && name is string && (string)name=="required" &&
-                    property.TryGetValue("value",out wrapped)) {
-                    var item=wrapped as Dictionary<string,object>;
-                    return item!=null && item.TryGetValue("value",out value) && value is bool && (bool)value;
-                }
-            }
-            return false;
         }
         static void EqualString(Dictionary<string,object> item, string field, string expected) {
             object value;
@@ -438,7 +438,7 @@ namespace Vcp.Cs3WebViewDraft {
             if(!item.TryGetValue(field,out value) || !(value is bool) || (bool)value!=expected) throw new InvalidDataException("Snapshot boolean differs: "+field);
         }
         static void EmitDom(string id, string raw) {
-            if(id!="initial" && id!="focused" && id!="invalid" && id!="success" && id!="accessibility" && id!="origin") throw new InvalidOperationException("Unknown DOM evidence id");
+            if(id!="initial" && id!="focused" && id!="invalid" && id!="filled" && id!="success" && id!="accessibility" && id!="origin") throw new InvalidOperationException("Unknown DOM evidence id");
             RequireProbeActive();
             byte[] bytes=domBudget.Add(raw);
             string hash;
@@ -468,7 +468,11 @@ namespace Vcp.Cs3WebViewDraft {
             try { Census(); } catch (Exception error) { Stop("census_failed",error.HResult,false); }
         }
         static void Census() {
-            if (++snapshots > 8) throw new InvalidOperationException("Process census event bound exceeded");
+            // ProcessInfosChanged is an advisory, coalescible signal. Retain a
+            // bounded prefix; the supervisor's job census remains authoritative
+            // and must still verify every cumulative process identity exactly.
+            if (snapshots >= 8) return;
+            snapshots++;
             var processes = environment.GetProcessInfos();
             if (processes.Count > Evidence.MaximumProcesses) throw new InvalidOperationException("Process count bound exceeded");
             Emit("process_snapshot",0,0,"snapshot_"+snapshots);

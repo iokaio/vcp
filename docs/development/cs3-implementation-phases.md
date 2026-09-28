@@ -1,7 +1,8 @@
 # CS-3 implementation phases
 
-Status: in progress; synthetic browser diagnostics only, no browser qualification
-or six-skill acceptance claim.
+Status: in progress; production-profile synthetic DOM evidence complete in the
+isolated Hyper-V worker, but owned-server/adversarial browser qualification and
+six-skill acceptance remain open.
 Contract: [plan 24, CS-3](../plan/24-skills-follow-on.md#cs-3--browser-execution-and-six-skill-acceptance).
 
 On September 26, 2026 the owner authorized implementation of the full CS-3
@@ -17,6 +18,12 @@ have offline tests. These are prerequisites; none closes a phase's full exit gat
 The [input-routing follow-up](cs3-input-routing-diagnostic.md) now demonstrates
 hidden-host input delivery with a pre-dispatch timing dependency. No RDP change
 or new worker was needed for that diagnostic; production readiness is still open.
+A later sequence of reviewed, source-bound attempts in the disposable Hyper-V
+guest established the full form, accessibility and origin oracle with exact 8/8
+process coverage and clean independent drainage. The final attempt used no
+additional browser arguments. It remains synthetic in-memory browser evidence:
+adversarial boundary checks, the owned-server join and the paid comparison gate
+below are unchanged.
 
 ## Phase 1 — Prove the proposed Windows boundary
 
