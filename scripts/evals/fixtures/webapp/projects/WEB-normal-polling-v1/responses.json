@@ -1,0 +1,5 @@
+{
+  "readiness": {"path": "/ready", "status": 204},
+  "poll": {"path": "/poll", "first": {"status": 503}, "retry": {"status": 200, "body": [{"id": "a", "label": "Alpha"}, {"id": "b", "label": "Beta"}]}},
+  "connection_may_remain_open": true
+}

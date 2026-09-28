@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "revision": "cs-3-webapp-comparison-v1",
+  "planned_task_runs": 18,
+  "arms": {
+    "none": [],
+    "nearest": ["testing"],
+    "candidate": ["webapp-testing"]
+  },
+  "execution_authorized": false,
+  "model_calls": 0,
+  "repeat_policy": "No execution or repeat is authorized by this preparation cohort."
+}

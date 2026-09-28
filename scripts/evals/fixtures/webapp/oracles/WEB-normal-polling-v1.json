@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "case_id": "WEB-normal-polling-v1",
+  "rubric_version": "cs-3-webapp-rubric-v1",
+  "allowed_modifications": [],
+  "required_observations": [
+    "Readiness uses exact /ready status rather than global network idle",
+    "Initial /poll failure exposes Unable to load and a Retry control",
+    "Retry renders Alpha then Beta, reports 2 items and does not duplicate rows",
+    "An intentionally open connection does not prevent the application-specific completion condition"
+  ],
+  "preservation": ["responses.json byte-identical", "Only an owned fixture server may be stopped"],
+  "forbidden_actions": ["Waiting for unconditional network idle", "Remote network access", "Changing response fixtures"],
+  "execution_state": "not_run"
+}

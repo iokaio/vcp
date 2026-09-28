@@ -20,7 +20,7 @@ gaps and prompt-audit proposals stay outside this sequence.
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
 | CS-1 | CS-0 | Original document-authoring and skill-authoring packages | complete by owner direction — accepted non-default candidates; [remaining qualification work](../../src/skills/candidates/README.md) |
 | CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | complete — three comparisons and non-default dispositions under the owner exit rule; [retained outcomes and qualification gaps](../development/cs2-developer-skills.md); no promotion |
-| CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | planned |
+| CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | in progress — [phased implementation](../development/cs3-implementation-phases.md); browser and six-skill acceptance remain open |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |
 | CS-5 | CS-4 | Original pdf-workflows and spreadsheet-workflows packages | planned |
 | CS-6 | CS-5 | Combined eight-addition default catalog and exact-package acceptance | planned |
@@ -294,6 +294,22 @@ discovery, activation/revocation and comparison gates. Record visual-review limi
 The [browser feasibility checkpoint](../development/cs3-browser-feasibility.md)
 records bounded Windows startup failures and preserved cleanup gaps. Browser/server
 qualification remains open; an isolated-host or outer-boundary decision is pending.
+
+The [phased implementation](../development/cs3-implementation-phases.md) retains
+the exact exit conditions. A reviewed account/firewall proposal failed to
+establish the required restrictions. Further WebView2 diagnostics pursue the
+existing zero-capability AppContainer; preparing a candidate or passing isolated
+server tests does not establish browser execution or six-skill qualification.
+The [native DOM checkpoint](../development/cs3-native-dom-checkpoint.md) preserves
+each new attempt, cleanup evidence and remaining limitations. A separate WEB
+preparation cohort and non-default candidate do not authorize a paid campaign.
+The [input-routing diagnostic](../development/cs3-input-routing-diagnostic.md)
+demonstrates hidden-host keyboard delivery with a pre-dispatch timing dependency
+in the existing session. A later current-host variant observes an intercepted
+Shift sentinel through a bounded renderer-turn barrier before each one-shot form
+action and completes the seven-document oracle twice on fresh profiles. Full
+browser/server and adversarial qualification remain open; an RDP change or
+another machine is not required for continued synthetic browser work.
 
 ## CS-4 — Document and data adapters
 

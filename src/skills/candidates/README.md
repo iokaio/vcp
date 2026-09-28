@@ -3,6 +3,21 @@
 This directory has no automatic loader. Each package here is selected only
 through an explicit source registration and qualified selection.
 
+## CS-3 web application testing candidate — preparation only
+
+`webapp-testing` 1.0.0 is an original, resource-free VCP candidate with one
+explicit cue. Its package and offline integrity/selection checks are present,
+but no comparison campaign has run and it is neither qualified nor default.
+
+The body records the current execution boundary: VCP has no qualified
+browser/server adapter. It therefore cannot claim browser interaction, scoped
+origin enforcement, DOM/accessibility observation or owned-process cleanup.
+Offline WEB preparation fixtures exist; executable browser oracles do not.
+Browser provisioning, WEB browser qualification, actual Windows lifecycle qualification,
+retained CS-2 UI regrading and six-skill distribution acceptance remain open.
+The candidate grants no browser, process, network, installation or publishing
+authority, and it is absent from the builtin catalog.
+
 ## CS-2 developer candidates — comparisons closed, non-default
 
 `llm-integration`, `mcp-development` and `frontend-design` 1.0.0 are original VCP

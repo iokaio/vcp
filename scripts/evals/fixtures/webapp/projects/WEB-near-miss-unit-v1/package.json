@@ -1,0 +1,8 @@
+{
+  "name": "cs3-unit-near-miss",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {"test": "node --test normalize.test.cjs"},
+  "dependencies": {}
+}

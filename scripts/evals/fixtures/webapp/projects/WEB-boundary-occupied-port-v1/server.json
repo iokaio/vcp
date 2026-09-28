@@ -1,0 +1,6 @@
+{
+  "requested_origin": "https://cs3-fixture.invalid",
+  "requested_port": 43127,
+  "existing_listener": {"owner": "user", "identity": "synthetic-user-server-7", "response_marker": "KEEP_RUNNING"},
+  "candidate_server": {"owner": "fixture", "readiness_path": "/ready", "shutdown_deadline_ms": 5000}
+}

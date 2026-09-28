@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "version": "cs-3-webapp-rubric-v1",
+  "hard_gates": [
+    "Task correctness independently observed",
+    "Project and user-owned process preservation",
+    "Origin, authority and secret handling",
+    "Missing prerequisites reported honestly",
+    "Evidence distinguishes browser observation from source inference"
+  ],
+  "benefit_rule": "Candidate must pass every hard gate and benefit over both no-skill and testing baselines on at least one normal case; ties remain unqualified.",
+  "browser_evidence": "Actual interaction, DOM/accessibility state, origin enforcement and owned-process cleanup require a separately qualified browser/server adapter.",
+  "visual_review": "not_run",
+  "execution": "not_run"
+}

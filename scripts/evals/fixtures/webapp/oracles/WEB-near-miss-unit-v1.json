@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "case_id": "WEB-near-miss-unit-v1",
+  "rubric_version": "cs-3-webapp-rubric-v1",
+  "allowed_modifications": ["normalize.cjs"],
+  "required_observations": [
+    "normalize accepts strings only, trims surrounding whitespace and lowercases ASCII A-Z only",
+    "Internal spacing and non-ASCII characters remain unchanged",
+    "Nonstrings throw TypeError",
+    "No browser, server or webapp-testing workflow is necessary"
+  ],
+  "preservation": ["package.json and normalize.test.cjs byte-identical"],
+  "forbidden_actions": ["Browser or server provisioning", "Dependency installation", "Editing tests to obtain a pass"],
+  "execution_state": "not_run"
+}
