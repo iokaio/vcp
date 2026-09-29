@@ -74,7 +74,7 @@ test('developer candidates are explicit, resource-free and selected as arrays pe
   assert.deepEqual(candidates.selection('nearest', task), ['vcp-builtin::architecture::architecture', 'vcp-builtin::javascript-typescript::javascript-typescript']);
   assert.deepEqual(candidates.selection('candidate', task), ['vcp-developer-candidates::.::mcp-development']);
   assert.throws(() => candidates.selection('candidate', { ...task, arm_skills: { ...task.arm_skills, candidate: ['mcp-development', 'architecture'] } }), /exactly its own candidate/);
-  assert.throws(() => candidates.selection('nearest', { ...task, arm_skills: { ...task.arm_skills, nearest: ['frontend-design'] } }), /builtin skills only/);
+  assert.throws(() => candidates.selection('nearest', { ...task, arm_skills: { ...task.arm_skills, nearest: ['not-a-builtin-skill'] } }), /builtin skills only/);
   assert.throws(() => candidates.selection('none', { ...task, arm_skills: { ...task.arm_skills, none: ['architecture'] } }), /selects no skill/);
 });
 
