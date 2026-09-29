@@ -81,3 +81,49 @@ dispatch later WEB/DOC groups. Deliberately invalid outputs stay unqualified.
 An earlier synthetic attempt was cancelled after finding an incorrect fixture
 marker prefix; it is not counted as passing. Repository consistency also passed
 under run `02083b70-a608-46e0-ac41-9478ac2abea7`.
+
+## Historical validation cost
+
+The genuine historical prerequisite wrapper subsequently passed both original
+validations, with no provider calls or claims. Repeated full validation took
+minutes per invocation. A diagnostic prefix measured 4,775,458 filesystem calls
+in 193.7 seconds, including 572 inventory traversals; the diagnostic then stopped
+because its instrumentation omitted `realpathSync.native`. That incomplete
+instrumented run is not acceptance evidence or a completed timing benchmark.
+
+The continuation now retains only a private, process-local copy of a genuinely
+computed historical proof. Its complete observed file bytes and identities,
+directory reads, negative existence checks, metadata properties, exact common-Git
+lookups, runtime and environment are checked again before and after reuse.
+The first authenticated reviewer still executes unchanged, its archived module
+exports are evicted, and unsupported operations or unexpected changes fail closed.
+No serialized cache or caller-supplied proof can authorize a comparison. The
+observation ceiling is 500,000 entries after the real evidence exceeded the initial
+100,000-entry limit; file and aggregate byte ceilings remain enforced.
+
+Retirement discards this private copy immediately after adding its exact approved
+barriers, then recomputes the original proof. It does not automatically refresh
+on unexpected drift. The credential-free old-entrypoint denial check has a
+30-minute ceiling because all four immutable entrypoints revalidate history;
+provider deadlines, request ceilings and dollar allocations are unchanged.
+The genuine real-history equivalence check passed three invocations against the
+original pre-optimization validation: 605,952, 61,816 and 64,392 milliseconds,
+each with proof SHA-256
+`738783a64f5c3faf3ec65888ebaeaa41ade83c70107b53d79ece7c1b43d6b9c4`.
+Receipt `artifacts/cs3-history-reuse-check-01.json`, SHA-256
+`88893f085ea331738a1393e7e59cb009dab46c511e5901b071e9add029cd5df2`,
+records unchanged inputs and helper sources, zero model/native calls and zero
+claims. This is a read-only implementation regression, not six-skill acceptance.
+
+The registered footprint regression passed 20/20 tests with no skips in 72.4
+seconds: run `10410ff1-5262-4987-901f-c81fb93e0807`, manifest SHA-256
+`539d5ccf31afa89cdd4b14a1299f1b3e84e72c4b5e1ff759be765fe259bfa67d`.
+It covers changed bytes, metadata, links, directory entries, missing paths,
+descriptor reads, unsupported and caught operations, module/runtime substitution,
+hook restoration, fresh common-Git observations, explicit invalidation and the
+fixed observation bound, including the actual frozen WEB inventory's descriptor
+stat/read/stat sequence. The separate seven retirement tests also passed after
+adding the invalidation boundary; neither suite dispatches a provider request.
+The registered shared suite passed 145/145 with no skips in 190.2 seconds:
+run `65f4b820-d37f-4af2-88a6-4240439bc325`, manifest SHA-256
+`b288eace1926837c8a0703085171d29764851e93d45b225506e7d4c797dcd415`.

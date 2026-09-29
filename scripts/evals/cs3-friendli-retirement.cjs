@@ -101,7 +101,10 @@ function denied(prepared) {
   // The fixed child supplies a no-dispatch fake transport and has no credential.
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (['OPENROUTER_API_KEY', 'NODE_OPTIONS', 'NODE_PATH'].includes(key.toUpperCase())) delete env[key];
-  const output = execFileSync(process.execPath, arguments_, { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 180000, maxBuffer: 1024 * 1024, env });
+  // The four immutable old entrypoints each revalidate their complete historical
+  // chain before observing the halt. Real history validation takes minutes;
+  // this unpaid, credential-free denial proof has no native/provider deadline.
+  const output = execFileSync(process.execPath, arguments_, { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 1800000, maxBuffer: 1024 * 1024, env });
   const value = JSON.parse(output);
   need(equal(value, { schema: 'cs3-friendli-retirement-denial/1', runtime_groups: skills, document_preparation_denied: true, transport_calls: 0, model_calls: 0 })
     && !fs.existsSync(path.join(prepared.directory, 'never-created-doc')), 'Actual archived entrypoints did not deny retired dispatch');
@@ -115,6 +118,10 @@ function retire(preparedFile, hash) {
   need(equal(observe(prepared.input), prepared.proof), 'Unused reservations changed before retirement');
   const claim = ownership(preparedRef, prepared); write(claimFile(), claim);
   for (const barrier of barriers(prepared)) write(barrier.path, barrier.value);
+  // These exact authorized additions change directory reads in the old runtime
+  // validator. Discard only the memoized proof: the next observation must run
+  // the original authenticated reviewer again, then prove the same result.
+  recovery.invalidateHistoryProofReuse();
   need(equal(observe(prepared.input, true), prepared.proof), 'Only additive retirement barriers may change');
   const denial = denied(prepared);
   need(equal(observe(prepared.input, true), prepared.proof) && equal(producer(), prepared.producer), 'Retirement denial mutated evidence or source');

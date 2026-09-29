@@ -198,3 +198,35 @@ substituted. The separate genuine new-build receipt
 `f147f9a461b299a56572919ce3666ede4f9a3d1ac9ffad92de06db48efa151de`
 joins by the exact executable digest above. This proves package acceptance, not
 comparison benefit, default promotion or completion of CS-3.
+
+## September 29 fixed Friendli mixed-package acceptance
+
+The fresh worktree's initial qualification build passed with unchanged source
+and toolchain observations. Its executable passed Install, Upgrade, Rollback and
+Upgrade against the retained archive `21b76426969abcec46752a49de6fd1463ac7fa798da65817eb60464f3bff36bd`.
+All four stages preserved the protected-data sentinel and 21-entry builtin
+catalog. The exact mixed candidates are DOC 1.0.5, SKL 1.0.3 and the four unchanged
+UI/MCP/LLM/WEB packages; they remain explicit non-default additions.
+
+All five installed tests passed with no failures or skips, covering report-only
+activation, persistent terminal revocation, relocatable/lazy integrity-checked
+discovery, inspection without provider admission, and terminal setup reporting.
+Candidate files, executable, catalog, runner and test source stayed unchanged.
+The actual acceptance wrapper validated these raw reports with zero provider calls.
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Initial qualification build receipt | `324c6d737387a952faddfb8b96b72701d5608a8518472f41e269ade0f2fdb857` |
+| Qualification executable | `80abee25060672b23f8c8251ffc7d38f5d4bd7980b4bf9c3257eced4916fd74f` |
+| Unsigned archive | `998bd04497779c01ff1d6f9148a0e9481f742dd52522efadf8c9d9eed8d2f7cb` |
+| Four-stage installation report | `4fd8661578db796fb280f087ec5f45a02cbc383157d4e16fbf7e0bae33bbec8d` |
+| Exact installed-candidate tests | `c38695026f2a86ff082b122883d21a879681d67c4df58040953e8f571a3a278a` |
+| Validated acceptance wrapper | `454b92d5f6837b6da6a0296b78e3f211738a0c7dc82ad4e22caae04d29f1085f` |
+
+Evidence is retained in `D:/code/Github/vcp-cs3-skill-remediation/artifacts/`
+under build run `3af21e53-adc2-4aaa-be26-253cb8f1e35d` and installed-test run
+`b6d54aa1-0dee-4eb1-b4f5-36b7c3892c8d`. The installation report is under temporary
+directory `vcp-authoring-install-1e2e873b-9eed-4137-bf2d-a0d5e41fde63`.
+The initial build is package-input evidence only: after final decision/helper
+changes, a new source capture and genuine build must retain this executable
+digest before paid execution. These results do not establish comparison benefit.

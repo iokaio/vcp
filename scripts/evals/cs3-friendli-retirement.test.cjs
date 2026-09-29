@@ -46,10 +46,16 @@ function fixture(t) {
   const proof = { oldRoot, manifest, groups, document, historical: { protected_inventories: [oldSkl, reader].map(directory => ({ directory, inventory: prep.identity(directory, ['.']) })) } };
   const input = { decision, history: put(path.join(privateRoot, 'history.json'), { archive: put(path.join(privateRoot, 'archive-receipt.json'), { archive }) }),
     manifest: manifestRef, recovery_decision: put(path.join(privateRoot, 'recovery.json'), { synthetic: true }) };
-  const state = { childCalls: 0, rejectPrerequisites: false, failChild: false };
+  const state = { childCalls: 0, invalidations: 0, rejectPrerequisites: false, failChild: false };
   const local = name => {
     if (name === './cs3-comparison.cjs') return { ...realCore, claimFile: () => path.join(common, 'old-common.json'), workspaceFiles, prompt };
-    if (name === './cs3-controller-recovery-qualification.cjs') return { friendliRetirementPrerequisites(value, approved) {
+    if (name === './cs3-controller-recovery-qualification.cjs') return { invalidateHistoryProofReuse() {
+      // Invalidation is allowed only after every authorized barrier exists. It
+      // discards reuse; it must not substitute a successful historical proof.
+      assert(fs.existsSync(document.claim_path));
+      for (const group of groups) assert(fs.existsSync(path.join(group.plan.control_directory, 'halt.json')));
+      state.invalidations++;
+    }, friendliRetirementPrerequisites(value, approved) {
       assert.deepEqual(value, { history: JSON.parse(fs.readFileSync(input.history.path)), manifest: input.manifest }); assert.deepEqual(approved, input.recovery_decision);
       if (state.rejectPrerequisites) throw Error('Synthetic archived prerequisite rejection');
       // The archived semantic reviewer is explicitly fake, but its current-byte
@@ -62,7 +68,7 @@ function fixture(t) {
     } };
     if (name === 'node:child_process') return { execFileSync(command, args, options) {
       state.childCalls++; assert.equal(command, process.execPath); assert.equal(args[0], childFile); assert.equal(args[1], oldRoot);
-      assert.equal(args[2], manifestRef.path); assert.equal(args.length, 16); assert.equal(options.timeout, 180000); assert.equal(options.windowsHide, true);
+      assert.equal(args[2], manifestRef.path); assert.equal(args.length, 16); assert.equal(options.timeout, 1800000); assert.equal(options.windowsHide, true);
       assert(!Object.keys(options.env).some(key => ['OPENROUTER_API_KEY', 'NODE_OPTIONS', 'NODE_PATH'].includes(key.toUpperCase())));
       for (const group of groups) assert(fs.existsSync(path.join(group.plan.control_directory, 'halt.json')));
       assert(fs.existsSync(document.claim_path)); assert(!fs.existsSync(args[3]));
@@ -85,7 +91,7 @@ test('synthetic prepare/retire/validate fences exactly 72 pristine plus 18 unpre
   assert.equal(measured.transferred_cap_micros, 54000000); assert.equal(measured.transferred_request_ceiling, 1440);
   assert.equal(record.model_calls, 0); assert.equal(record.consumed_liabilities_released, false); assert.equal(record.barriers.length, 5);
   assert.deepEqual(measured.shared_controls, JSON.parse(fs.readFileSync(prepared.path)).proof.shared_controls);
-  assert.equal(f.state.childCalls, 1); assert(fs.existsSync(f.api.claimFile()));
+  assert.equal(f.state.childCalls, 1); assert.equal(f.state.invalidations, 1); assert(fs.existsSync(f.api.claimFile()));
   assert.deepEqual([f.oldRoot, f.archive, f.oldSkl, f.reader].map(root => prep.identity(root, ['.'])), old);
   assert.throws(() => f.api.retire(prepared.path, prepared.sha256), /unconsumed/);
   assert.throws(() => f.api.prepare(f.inputFile, path.join(f.privateRoot, 'again'))); assert.equal(f.state.childCalls, 1);

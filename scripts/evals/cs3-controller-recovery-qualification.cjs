@@ -6,6 +6,7 @@ const fs = require('node:fs'), path = require('node:path'), crypto = require('no
 const { isDeepStrictEqual: equal } = require('node:util');
 const prep = require('./authoring-prepare.cjs'), ui = require('./cs3-ui-artifact.cjs');
 const gates = require('./cs3-comparison-gates.cjs');
+const reuseHistoryProof = require('./cs3-proof-footprint.cjs').createProofReuse();
 const { plain, read, within, noParentInstructions, privateDirectory, write } = require('./p6-live-runner.cjs').boundaries;
 const root = path.resolve(__dirname, '../..'), decisionFile = path.join(root, 'src/evals/skills/cs3-controller-recovery/qualification-decision.json');
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -219,6 +220,19 @@ function recomputeProof(proof, decisionRef) {
 // Fixed prospective SKL admission only; this does not qualify the replacement
 // candidate or alter the original all-six historical final-join contract.
 function skillRemediationPrerequisites(input, decisionRef) {
+  const key = JSON.stringify({ input, decisionRef });
+  // The footprint owns only copied data. No archived exports are kept, and an
+  // injected require-cache object cannot replace fresh authenticated execution.
+  const guard = () => {
+    const approved = decision(decisionRef), archive = json(input.archive);
+    pin(approved.historical_archive_receipt_sha256, input.archive.sha256, 'historical archive');
+    need(archive.source?.content_sha256 === approved.historical_source_sha256 && Array.isArray(archive.source.files), 'Historical archive source identity differs');
+    for (const item of archive.source.files) need(!require.cache[path.resolve(approved.historical_root, item.path)], 'Unverified cached historical module');
+  };
+  return reuseHistoryProof(key, () => originalSkillRemediationPrerequisites(input, decisionRef), guard);
+}
+function invalidateHistoryProofReuse() { reuseHistoryProof.clear(); }
+function originalSkillRemediationPrerequisites(input, decisionRef) {
   const approved = decision(decisionRef);
   need(equal(Object.keys(input).sort(), ['archive', 'retirement', 'terminal_disposition', 'terminal_plan']), 'Exact SKL historical prerequisites required');
   pin('729cd66e7d190349960fbe5fc9d7adfac5dd431ca6310a632101691455929fb7', input.retirement.sha256, 'original retirement');
@@ -400,7 +414,7 @@ function projectMixed(inputFile, outputFile, allFresh = false) {
   write(output, proof); return reference(output);
 }
 const projectFresh = (inputFile, outputFile) => projectMixed(inputFile, outputFile, true);
-module.exports = { decision, uiDecision, sourceClosure, historicalProjection, mixedHistoricalProjection, freshHistoricalProjection, skillRemediationPrerequisites, friendliRetirementPrerequisites, nativePrerequisites, validate, project, projectMixed, projectFresh };
+module.exports = { decision, uiDecision, sourceClosure, historicalProjection, mixedHistoricalProjection, freshHistoricalProjection, skillRemediationPrerequisites, invalidateHistoryProofReuse, friendliRetirementPrerequisites, nativePrerequisites, validate, project, projectMixed, projectFresh };
 if (require.main === module) {
   try { const [command, first, second] = process.argv.slice(2); const result = command === 'project-history' ? project(first, second) : command === 'project-mixed-history' ? projectMixed(first, second) : command === 'project-fresh-history' ? projectFresh(first, second) : command === 'validate' ? validate(JSON.parse(read(first))) : (() => { throw Error('Usage: project-history INPUT NEW_PRIVATE_FILE | project-mixed-history INPUT NEW_PRIVATE_FILE | project-fresh-history INPUT NEW_PRIVATE_FILE | validate SPEC'); })(); process.stdout.write(JSON.stringify(result, null, 2) + '\n'); }
   catch (error) { process.stderr.write(error.message + '\n'); process.exitCode = 1; }

@@ -241,7 +241,7 @@ test('SKL prerequisite projection authenticates actual preserved terminal review
   input.terminal_disposition = f.put(path.join(value.control_directory, 'terminal-disposition-skill-authoring.json'), { status: 'terminal_unqualified' });
   assert.equal(f.helper.skillRemediationPrerequisites(input, decision).status, 'terminal_unqualified');
   const source = path.join(f.old, 'scripts/evals/cs3-document-remediation.cjs'); f.put(source, 'module.exports={priorTerminal:()=>({forged:true})}');
-  assert.throws(() => f.helper.skillRemediationPrerequisites(input, decision), /source differs/);
+  assert.throws(() => f.helper.skillRemediationPrerequisites(input, decision), /source differs|file bytes or identity changed/);
 });
 
 test('native-only prerequisite projection retains exact lifecycle gates without claiming six-skill completion', t => {
@@ -342,6 +342,9 @@ test('all-fresh consumers cannot substitute qualification, old plans, roles, can
   assert.throws(() => f.helper.freshHistoricalProjection(f.freshInput, f.saveDecision()), /candidate inventory pin/);
   f.pins.friendli_transfer_candidate_inventory_sha256['frontend-design'] = sha(JSON.stringify(original.candidate_assets));
   const currentWeb = path.join(f.root, 'scripts/evals/fixtures/webapp/manifest.json'); f.put(currentWeb, { substituted: true });
+  // Previous independent mutants rewrote the decision fixture. Re-execute the
+  // genuine proof so this case specifically exercises the WEB join below it.
+  f.helper.invalidateHistoryProofReuse();
   assert.throws(() => f.helper.freshHistoricalProjection(f.freshInput, f.saveDecision()), /WEB inputs changed/);
 });
 
@@ -351,5 +354,6 @@ test('all-fresh qualification fails for a failed new disposition or predecessor 
   assert.throws(() => f.helper.freshHistoricalProjection(f.freshInput, f.saveDecision()), /genuinely qualify/); f.put(file, original);
   const history = JSON.parse(f.bound(f.shared.history)), terminal = JSON.parse(f.bound(history.terminal_plan));
   plan.test_mutate = path.join(terminal.directory, terminal.runs[0].id, 'result.json'); row.plan = f.put(row.plan.path, plan);
+  f.helper.invalidateHistoryProofReuse();
   assert.throws(() => f.helper.freshHistoricalProjection(f.freshInput, f.saveDecision()), /predecessor evidence changed/);
 });

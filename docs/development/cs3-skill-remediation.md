@@ -109,3 +109,10 @@ archive, executes its retained reviewer under a hash-checked module loader, chec
 both evidence inventories before and after review, and requires all six actual
 two-reader qualification outcomes. Final lineage pins remain null until real
 source/build/evidence capture; this code is not a completion receipt.
+
+The genuine historical and corrected-native wrappers and the [exact mixed
+package acceptance](cs3-package-acceptance.md#september-29-fixed-friendli-mixed-package-acceptance)
+now supply the SKL decision's history, native, package, candidate, cohort and
+executable pins. This does not reserve or dispatch a request. Final frozen-source
+build provenance, actual retirement, funded Friendli conformance, native
+preflight and live comparison outcomes are still required.
