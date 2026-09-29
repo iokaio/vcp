@@ -71,7 +71,7 @@ function tasks(spec) {
 function validateSpec(spec) {
   if (!equal(Object.keys(spec).sort(), ['build_receipt', 'catalog', 'executable', 'gates', 'node', 'profile', 'remediation', 'runtime_amendment', 'web_evidence'])
     || !equal(spec.runtime_amendment, { decision: spec.remediation?.runtime_decision })
-    || !equal(Object.keys(spec.remediation).sort(), ['allocation', 'decision', 'prior_terminal', 'qualification', 'runtime_decision', 'runtime_preflight'])) throw Error('Exact runtime amendment specification required');
+    || !equal(Object.keys(spec.remediation).sort(), ['allocation', 'decision', 'prior_terminal', 'qualification', 'runtime_decision', 'runtime_preflight', ...(spec.remediation.preflight_supplement ? ['preflight_supplement'] : [])].sort())) throw Error('Exact runtime amendment specification required');
   const approved = decision(spec.runtime_amendment.decision); doc().validateAllocation(spec);
   const profile = bound(spec.profile);
   if (profile.deadline_seconds !== 600 || profile.provider_timeout_seconds !== 120 || profile.max_requests !== 16 || profile.output_tokens !== '2048' || profile.max_transport_retries !== 0) throw Error('Runtime amendment profile limits differ');
@@ -106,7 +106,7 @@ function project(manifest, reference, skill) {
   return { ...manifest.base, schema: 'cs3-comparison-isolated-plan/1', limits, control_directory: path.join(manifest.directory, skill),
     runs: manifest.base.runs.filter(row => row.skill === skill), isolated: { manifest: reference, skill },
     phase_rule: 'Five serial eighteen-slot groups. Fresh SKL plus exact seventy-two retired assignments; one shot each. Safe provider-only uncertainty debits the full slot and fails quality. Authenticated supplied model canary or reader security failures make only their skill terminal; execution, authority or evidence-integrity failures halt all groups. No retry or replay.',
-    runtime_amendment: { decision: manifest.spec.runtime_amendment.decision, oracle_amendment: manifest.oracle_amendment, accounting: { fixed_conservative_micros: 35063737, outer_cap_micros: 100000000 } } };
+    runtime_amendment: { decision: manifest.spec.runtime_amendment.decision, oracle_amendment: manifest.oracle_amendment, accounting: { fixed_conservative_micros: 35063737 + (manifest.spec.remediation.preflight_supplement ? 1800000 : 0), outer_cap_micros: 100000000 } } };
 }
 function prepare(specFile, destination, dryRun = false) {
   const directory = plain(path.resolve(destination));

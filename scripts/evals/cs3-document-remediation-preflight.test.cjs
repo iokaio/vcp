@@ -42,11 +42,13 @@ test('preflight capture validation rejects descriptor, coverage, provenance-view
 });
 // Scope only the external allocation/qualification prerequisites and Git claims.
 // The adapter, input guards, exclusive writes and invocation path remain real.
-function synthetic(t) {
+function synthetic(t, syntheticOriginal = false) {
   const f = fixture(t), state = { approved: true, source: { exact: 'synthetic-source' }, qualification: true, allocationChecks: 0 };
   const file = path.join(__dirname, 'cs3-document-remediation-preflight.cjs'), actual = createRequire(file), module = { exports: {} };
   const git = path.join(f.directory, 'git'); fs.mkdirSync(git);
   const local = name => {
+    if (name === 'test:original-failure') return state.original;
+    if (name === './cs3-preflight-supplement.cjs') return { validate: () => { assert(state.supplement, 'Supplement unavailable'); return state.supplement; } };
     if (name === 'node:child_process') return { ...actual(name), execFileSync: (command, args) => { assert.equal(command, 'git'); assert.deepEqual(args, ['rev-parse', '--git-common-dir']); return git; } };
     if (name === './cs3-document-remediation.cjs') return { validateAllocation: () => { state.allocationChecks++; if (!state.approved) throw Error('Allocation/terminal/build proof rejected'); } };
     if (name === './cs3-comparison.cjs') return { sourceIdentity: () => state.source };
@@ -57,7 +59,12 @@ function synthetic(t) {
     if (name === './developer-runner.cjs') { const real = actual(name); return { ...real, retained: (...args) => state.native ? state.native.artifacts.find(row => row.item.id === args[2].id).bytes : real.retained(...args) }; }
     return actual(name);
   };
-  new Function('require', 'module', 'exports', '__dirname', fs.readFileSync(file, 'utf8'))(local, module, module.exports, __dirname);
+  let source = fs.readFileSync(file, 'utf8');
+  // Synthetic-only replacement of the two fixed historical hashes; no production
+  // hook or live receipt bypass. Every archive/raw/claim/inventory check is real.
+  if (syntheticOriginal) source = source.replace("'7750247906d72b676161760a04fc3e572d41469b2c8e514cffb1defc66ab1e88'", "require('test:original-failure').result_sha256")
+    .replace("'819fda929dda9c2d658f80ee7c66fc7c659e8dea8f4076ef1bbebe1db3fb3b14'", "require('test:original-failure').plan_sha256");
+  new Function('require', 'module', 'exports', '__dirname', source)(local, module, module.exports, __dirname);
   const catalog = f.put('catalog.json', {}), profile = { max_requests: 16, output_tokens: '2048', deadline_seconds: 600, provider_timeout_seconds: 120,
     max_transport_retries: 0, maximum_autonomy: 'plan', automatic_effects: [], provider: { raw_sha256: catalog.sha256, compatibility: { model: 'deepseek/deepseek-v3.2', endpoint: 'deepinfra/fp4' } } };
   const blank = f.put('proof.json', {}), node = fs.realpathSync(process.execPath);
@@ -147,4 +154,99 @@ test('adapter retains and revalidates an actual-oracle positive synthetic four-r
   assert.throws(() => f.helper.run(plan.path, plan.sha256, () => assert.fail('Cannot replay')), /EEXIST/);
   const report = JSON.parse(fs.readFileSync(result.path)); report.reads = 1; fs.writeFileSync(result.path, JSON.stringify(report));
   assert.throws(() => f.helper.validate({ path: result.path, sha256: sha(fs.readFileSync(result.path)) }, f.spec), /outcome differs/);
+});
+
+function failedNative() {
+  const scope = { workspace: 'w', session: 's', task: 't' }, amount = { currency: 'USD', micros: '129576' };
+  const error = Buffer.from(JSON.stringify({ error: { code: 429, metadata: { provider_name: 'DeepInfra', is_byok: false, provider_error_code: 'engine_overloaded', limit_source: 'upstream_provider_shared_pool' } } }));
+  const attempt = { id: 'attempt', scope, root: 't', role: 'main', previous: null, reservation: 'reservation', phase: 'reconciliation_pending',
+    charged: '0', quote: { amount }, uncertain: 'retained response did not complete', send_intent: 'sent', request_digest: 'a'.repeat(64) };
+  const reservation = { id: 'reservation', attempt: 'attempt', scope, root: 't', role: 'main', phase: attempt.phase, amount, charged: '0', liability: '129576', protected_draw: '0', protected_returned: '0' };
+  const costs = [{ gaps: [], items: [
+    { collection: 'ledger', id: 'ledger', visibility: 'available', record: { scope, currency: 'USD', cap: '600000', active: '0', protected: '0', allocations: {}, settled: '0', unresolved: '129576', overrun: false } },
+    { collection: 'attempt', id: 'attempt', visibility: 'available', record: attempt }, { collection: 'reservation', id: 'reservation', visibility: 'available', record: reservation },
+  ] }];
+  const facts = [
+    ...['task', 'turn'].map(collection => ({ collection, id: collection, value: { scope, state: 'paused', reason: 'provider outcome requires accounting reconciliation' } })),
+    { collection: 'effect', id: 'read', value: { id: 'read', scope, state: 'succeeded', exit_code: null, reason: 'broker observed bounded file results; no automatic replay' } },
+    { collection: 'artifact', id: 'response', value: { state: 'aborted', length: String(error.length), sha256: sha(error), spec: { id: 'response', scope, source: 'retained-codex-attempt:attempt', channel: 'response' } } },
+  ];
+  const output = [{ type: 'accepted', scope }, { type: 'event', event: { event: { data: { facts } } } },
+    { type: 'result', scope, exit_code: 7, conditions: { unresolved_effect: true, cancelled: false, budget_exhausted: false, required_input: false, incomplete: false, invalid_configuration: false, internal_failure: false, durably_paused: true, completed: false } }];
+  return { evidence: { costs }, artifacts: [], output, errorBytes: error, stdout: output.map(row => JSON.stringify(row)).join('\n') + '\n', stderr: '', status: 7, error: null };
+}
+function replacementFixture(t) {
+  const f = synthetic(t, true), sourceArchive = path.join(f.directory, 'source-archive');
+  fs.mkdirSync(path.join(sourceArchive, 'scripts/evals'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, 'cs3-read-preflight.cjs'), path.join(sourceArchive, 'scripts/evals/cs3-read-preflight.cjs'));
+  const prep = require('./authoring-prepare.cjs'); f.state.source = prep.identity(sourceArchive, ['scripts']);
+  f.state.native = failedNative(); const plan = f.helper.prepare(f.specFile, f.destination), failed = f.helper.run(plan.path, plan.sha256, () => f.state.native);
+  assert.equal(failed.status, 'failed');
+  f.state.original = { result_sha256: failed.sha256, plan_sha256: plan.sha256 };
+  const predecessor = { result: { path: failed.path, sha256: failed.sha256 }, source_archive: sourceArchive,
+    inventory: prep.identity(f.destination, ['.']), terminal_response: f.put('terminal-429.bin', f.state.native.errorBytes) };
+  f.state.supplement = { slots: 3, slot_cap_micros: 600000, slot_requests: 16, additional_cap_micros: 1800000, original_failure_sha256: failed.sha256 };
+  f.spec.remediation.preflight_supplement = f.put('supplement.json', {}); f.put('spec.json', f.spec);
+  return { ...f, predecessor, sourceArchive, prep, predecessorsFile: f.put('predecessors.json', [predecessor]).path };
+}
+test('provider-only failed proof conservatively preserves liability and rejects effect, scope, response and accounting substitutions', () => {
+  const profile = { maximum_autonomy: 'plan', automatic_effects: [], canonical_tools: ['vcp_read', 'vcp_verify'] };
+  const verify = f => helper.failedObservation(f.output.map(x => JSON.stringify(x)).join('\n'), f.evidence.costs, { status: f.status, error: f.error }, profile, f.errorBytes);
+  assert.deepEqual(verify(failedNative()), { status: 'conservative_failed_preflight_preserved', conservative_debit_micros: 600000, reserved_requests: 16, actual_cost_micros: null,
+    known_settled_micros: 0, unresolved_micros: 129576, observed_attempts: 1, scope: { workspace: 'w', session: 's', task: 't' } });
+  const mutations = [f => f.evidence.costs[0].items[0].record.active = '1', f => f.output[2].scope.task = 'foreign',
+    f => f.output[1].event.event.data.facts.find(x => x.collection === 'effect').value.state = 'failed',
+    f => f.output[1].event.event.data.facts.find(x => x.collection === 'turn').value.reason = 'owner lost',
+    f => f.output[1].event.event.data.facts.find(x => x.collection === 'artifact').value.spec.scope = { task: 'foreign' },
+    f => f.output[1].event.event.data.facts = f.output[1].event.event.data.facts.filter(x => x.collection !== 'artifact'),
+    f => { const extra = structuredClone(f.output[1].event.event.data.facts.find(x => x.collection === 'artifact')); extra.id = extra.value.spec.id = 'extra'; extra.value.spec.source = 'retained-codex-attempt:foreign'; f.output[1].event.event.data.facts.push(extra); },
+    f => f.errorBytes = Buffer.from('{}'), f => f.error = 'controller timed out', f => f.output[2].conditions.completed = true];
+  for (const mutate of mutations) { const f = failedNative(); mutate(f); assert.throws(() => verify(f)); }
+});
+test('one-shot supplemental replacement preserves original ownership and runs the unchanged success oracle', t => {
+  const f = replacementFixture(t), oldClaim = fs.readFileSync(f.helper.claimFile()), oldInventory = f.prep.identity(f.destination, ['.']);
+  const observation = f.helper.validateFailedPredecessor(f.predecessor, f.spec);
+  assert.equal(observation.conservative_debit_micros, 600000); assert.equal(observation.actual_cost_micros, null);
+  const next = path.join(f.directory, 'replacement-1'), plan = f.helper.prepareReplacement(f.specFile, next, 1, f.predecessorsFile);
+  assert(!fs.existsSync(f.helper.claimFile(1))); f.state.native = nativeFixture(); let calls = 0;
+  const result = f.helper.runReplacement(plan.path, plan.sha256, (_exe, _args, timeout) => { calls++; assert.equal(timeout, 780000); return f.state.native; });
+  assert.equal(result.status, 'passed'); assert.equal(f.helper.validateReplacementResult(result, f.spec).reads, 2); assert.equal(calls, 1);
+  assert.deepEqual(fs.readFileSync(f.helper.claimFile()), oldClaim); assert.deepEqual(f.prep.identity(f.destination, ['.']), oldInventory);
+  assert.throws(() => f.helper.runReplacement(plan.path, plan.sha256, () => assert.fail('No replay')), /EEXIST/);
+  assert.throws(() => f.helper.prepare(f.specFile, path.join(f.directory, 'hidden-original')), /explicit replacement/);
+  const passed = { result: { path: result.path, sha256: result.sha256 }, source_archive: f.sourceArchive, inventory: f.prep.identity(next, ['.']), terminal_response: f.predecessor.terminal_response };
+  const chain = f.put('after-success.json', [f.predecessor, passed]);
+  assert.throws(() => f.helper.prepareReplacement(f.specFile, path.join(f.directory, 'replacement-2'), 2, chain.path), /Failed preflight plan\/result/);
+});
+test('replacement admission rejects skipped, duplicate, changed, unallocated and extra ordinal histories without claims', t => {
+  const f = replacementFixture(t);
+  for (const [ordinal, predecessors] of [[0, []], [4, [f.predecessor]], [2, [f.predecessor]], [2, [f.predecessor, f.predecessor]]]) {
+    const chain = f.put('bad-chain.json', predecessors); assert.throws(() => f.helper.prepareReplacement(f.specFile, path.join(f.directory, 'never'), ordinal, chain.path), /replacement chain/);
+  }
+  const changed = structuredClone(f.predecessor); changed.inventory.files.pop();
+  assert.throws(() => f.helper.validateFailedPredecessor(changed, f.spec), /full inventory/);
+  const relocated = structuredClone(f.spec); relocated.executable = f.put('relocated-executable', fs.readFileSync(f.spec.executable.path));
+  assert.equal(f.helper.validateFailedPredecessor(f.predecessor, relocated).status, 'conservative_failed_preflight_preserved');
+  relocated.executable = f.put('wrong-executable', 'different'); assert.throws(() => f.helper.validateFailedPredecessor(f.predecessor, relocated), /identities/);
+  f.state.supplement.additional_cap_micros = 2400000; assert.throws(() => f.helper.prepareReplacement(f.specFile, path.join(f.directory, 'never'), 1, f.predecessorsFile), /supplement differs/);
+  assert(!fs.existsSync(f.helper.claimFile(1))); assert(!fs.existsSync(path.join(f.directory, 'never')));
+});
+test('at most three separately claimed upstream failures preserve every predecessor and reserve each complete slot', t => {
+  const f = replacementFixture(t), predecessors = [f.predecessor]; let calls = 0;
+  for (let ordinal = 1; ordinal <= 3; ordinal++) {
+    const chain = f.put('chain-' + ordinal + '.json', predecessors), base = path.join(f.directory, 'replacement-' + ordinal);
+    const plan = f.helper.prepareReplacement(f.specFile, base, ordinal, chain.path);
+    const result = f.helper.runReplacement(plan.path, plan.sha256, () => { calls++; return f.state.native; });
+    assert.equal(result.status, 'failed'); assert.equal(result.actual_cost_micros, null);
+    const claim = JSON.parse(fs.readFileSync(f.helper.claimFile(ordinal)));
+    assert.equal(claim.cap_micros, 600000); assert.equal(claim.request_ceiling, 16); assert.equal(claim.replacement.ordinal, ordinal);
+    assert.deepEqual(claim.replacement.predecessors, predecessors);
+    const next = { result: { path: result.path, sha256: result.sha256 }, source_archive: f.sourceArchive,
+      inventory: f.prep.identity(base, ['.']), terminal_response: f.predecessor.terminal_response };
+    if (ordinal <= 2) assert.equal(f.helper.validateFailedPredecessor(next, f.spec, { ordinal, predecessors: [...predecessors] }).conservative_debit_micros, 600000);
+    predecessors.push(next);
+  }
+  const chain = f.put('fourth.json', predecessors);
+  assert.throws(() => f.helper.prepareReplacement(f.specFile, path.join(f.directory, 'fourth'), 4, chain.path), /replacement chain/);
+  assert.equal(calls, 3); assert(!fs.existsSync(path.join(f.directory, 'fourth')));
 });

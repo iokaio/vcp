@@ -104,6 +104,18 @@ test('runtime preparation denies missing prerequisites, old time bounds and tran
   assert(!fs.existsSync(f.module.claimFile()));
 });
 
+test('supplemental compatibility reservation remains debited for every projected runtime group', t => {
+  const f = fixture(t);
+  f.spec.remediation.preflight_supplement = f.put('supplement.json', { synthetic_test_only: true });
+  const manifest = f.module.describe(f.spec, path.join(f.directory, 'runtime'));
+  const ref = f.put('manifest.json', manifest);
+  for (const group of manifest.groups) {
+    const plan = f.module.project(manifest, ref, group.skill);
+    assert.equal(plan.runtime_amendment.accounting.fixed_conservative_micros, 36863737);
+    assert.equal(plan.runtime_amendment.accounting.fixed_conservative_micros + plan.limits.aggregate_micros, 90863737);
+  }
+});
+
 test('frozen runtime source and late DOC terminal evidence cannot be substituted', t => {
   const f = fixture(t), ready = f.module.prepare(f.put('spec.json', f.spec).path, path.join(f.directory, 'runtime')), plan = json(ready.plans[0].path);
   f.state.source = { changed: true }; assert.throws(() => f.module.validate(plan, ready.plans[0].sha256), /Frozen runtime/);

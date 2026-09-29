@@ -141,5 +141,12 @@ qualification pair passed with two settled responses costing USD 0.000197.
 also passed all four installation stages and five installed tests. This is new
 evidence for DOC 1.0.5, not reuse of DOC 1.0.4 acceptance.
 
-New-binary preflight, fresh comparisons, browser grades and independent
+The first new-binary preflight failed on a confirmed upstream HTTP 429, with
+USD 0.001342 settled and USD 0.129576 unresolved. Its full USD 0.60 allocation
+and all original evidence remain reserved. The
+[prospective compatibility supplement](cs3-runtime-amendment.md#current-verification-state)
+is implemented within the existing USD 100 authorization; it is not a
+successful preflight or a replay of any comparison observation.
+
+A passed new-binary preflight, fresh comparisons, browser grades and independent
 dispositions remain required. CS-3 remains incomplete until those gates pass.

@@ -171,9 +171,14 @@ function reserve(specFile, destination) {
 }
 function validateAllocation(spec) {
   const approved = decision(spec.remediation.decision), allocation = JSON.parse(bound(spec.remediation.allocation));
+  // A supplemental compatibility allocation never replaces the original claim,
+  // releases its liability, or changes the native executable. It may bind a new
+  // genuine build receipt after the replacement verifier source was frozen.
+  const supplement = spec.remediation.preflight_supplement
+    ? require('./cs3-preflight-supplement.cjs').validate(spec.remediation.preflight_supplement, spec) : null;
   if (allocation.schema !== 'cs3-document-remediation-allocation/2' || allocation.cap_micros !== 22450000 || allocation.request_ceiling !== 594
     || allocation.preserved_prior_allocation_micros !== 66613737 || allocation.combined_cap_micros !== 89063737 || allocation.transferred_cap_micros !== 43200000 || allocation.transferred_requests !== 1152
-    || !equal(allocation.spec, { decision: spec.remediation.decision, prior_terminal: spec.remediation.prior_terminal, runtime_decision: spec.remediation.runtime_decision, executable: spec.executable, build_receipt: spec.build_receipt })
+    || !equal(allocation.spec, { decision: spec.remediation.decision, prior_terminal: spec.remediation.prior_terminal, runtime_decision: spec.remediation.runtime_decision, executable: supplement?.original_executable || spec.executable, build_receipt: supplement?.original_build_receipt || spec.build_receipt })
     || !equal(json(allocationClaim()), { allocation: spec.remediation.allocation })
     || plain(path.dirname(spec.remediation.allocation.path)) !== allocation.directory) throw Error('Separate one-shot remediation allocation required');
   if (!equal(priorTerminal(spec.remediation.prior_terminal, approved), allocation.terminal)) throw Error('Terminal predecessor proof changed');
@@ -182,13 +187,13 @@ function validateAllocation(spec) {
 }
 function validateSpec(spec) {
   if (!equal(Object.keys(spec).sort(), ['build_receipt', 'catalog', 'executable', 'gates', 'node', 'profile', 'remediation', 'web_evidence'])
-    || !equal(Object.keys(spec.remediation).sort(), ['allocation', 'decision', 'prior_terminal', 'qualification', 'runtime_decision', 'runtime_preflight', 'runtime_terminal'])) throw Error('Exact fixed remediation specification required');
+    || !equal(Object.keys(spec.remediation).sort(), ['allocation', 'decision', 'prior_terminal', 'qualification', 'runtime_decision', 'runtime_preflight', 'runtime_terminal', ...(spec.remediation.preflight_supplement ? ['preflight_supplement'] : [])].sort())) throw Error('Exact fixed remediation specification required');
   const approved = validateAllocation(spec), profile = JSON.parse(bound(spec.profile));
   if (profile.deadline_seconds !== 600 || profile.provider_timeout_seconds !== 120 || profile.max_requests !== 16 || profile.output_tokens !== '2048' || profile.max_transport_retries !== 0) throw Error('Fixed prospective profile bounds required');
   require('./cs3-read-preflight.cjs').validateQualification(spec.remediation.qualification, spec);
   require('./cs3-document-remediation-preflight.cjs').validate(spec.remediation.runtime_preflight, spec);
   const runtime = require('./cs3-runtime-amendment.cjs').terminal(spec.remediation.runtime_terminal, spec);
-  return { decision_sha256: spec.remediation.decision.sha256, allocation_sha256: spec.remediation.allocation.sha256, runtime, accounting: { fixed_conservative_micros: 78263737, outer_cap_micros: 100000000 }, approved };
+  return { decision_sha256: spec.remediation.decision.sha256, allocation_sha256: spec.remediation.allocation.sha256, runtime, accounting: { fixed_conservative_micros: 78263737 + (spec.remediation.preflight_supplement ? 1800000 : 0), outer_cap_micros: 100000000 }, approved };
 }
 function describe(spec, directory, checkExpiry = true) {
   noSecrets(spec); const approved = validateSpec(spec);

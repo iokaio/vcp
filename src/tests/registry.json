@@ -56,7 +56,7 @@
     },
     "cs3-document-remediation": {
       "task_ids": ["CS-3"],
-      "args": ["--test", "scripts/evals/cs3-document-remediation-candidate.test.cjs", "scripts/evals/cs3-document-remediation-oracle.test.cjs", "scripts/evals/cs3-document-remediation.test.cjs", "scripts/evals/cs3-document-remediation-build.test.cjs", "scripts/evals/cs3-document-remediation-preflight.test.cjs"],
+      "args": ["--test", "scripts/evals/cs3-document-remediation-candidate.test.cjs", "scripts/evals/cs3-document-remediation-oracle.test.cjs", "scripts/evals/cs3-document-remediation.test.cjs", "scripts/evals/cs3-document-remediation-build.test.cjs", "scripts/evals/cs3-document-remediation-preflight.test.cjs", "scripts/evals/cs3-preflight-supplement.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 60000,

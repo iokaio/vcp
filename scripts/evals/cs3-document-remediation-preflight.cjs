@@ -7,6 +7,7 @@ const { execFileSync } = require('node:child_process');
 const { isDeepStrictEqual: equal } = require('node:util');
 const prior = require('./p6-live-runner.cjs'), capture = require('./developer-runner.cjs');
 const original = require('./cs3-read-preflight.cjs');
+const prep = require('./authoring-prepare.cjs'), policy = require('./cs3-comparison-policy.cjs');
 const { fixedProfileReasons } = require('./builtin-live-runner.cjs');
 const { plain, read, write, within, filesUnder, privateDirectory, noParentInstructions, noSecrets, frames, inspection, invoke } = prior.boundaries;
 const root = path.resolve(__dirname, '../..'), sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -18,7 +19,8 @@ const reference = file => ({ path: plain(path.resolve(file)), sha256: sha(read(f
 function requireThat(value, reason) { if (!value) throw Error(reason); }
 function specIdentity(spec) {
   return { executable: spec.executable, build_receipt: spec.build_receipt, catalog: spec.catalog, node: spec.node, profile: spec.profile,
-    remediation: Object.fromEntries(['decision', 'prior_terminal', 'runtime_decision', 'allocation', 'qualification'].map(key => [key, spec.remediation?.[key]])) };
+    remediation: { ...Object.fromEntries(['decision', 'prior_terminal', 'runtime_decision', 'allocation', 'qualification'].map(key => [key, spec.remediation?.[key]])),
+      ...(spec.remediation?.preflight_supplement ? { preflight_supplement: spec.remediation.preflight_supplement } : {}) } };
 }
 function sourceProfile(spec, current) {
   requireThat(equal(spec, specIdentity(spec)), 'Exact remediation preflight inputs required'); noSecrets(spec);
@@ -39,26 +41,35 @@ function derived(spec, directory, current) {
   return { ...sourceProfile(spec, current), workspace: path.join(directory, 'workspace'), catalog: spec.catalog.path,
     budget_usd: '0.600000', affected_paths: ['status.txt'], canonical_tools: ['vcp_read', 'vcp_verify'] };
 }
-function claimFile() {
+function claimFile(ordinal = 0) {
+  requireThat(Number.isInteger(ordinal) && ordinal >= 0 && ordinal <= 3, 'Fixed replacement ordinal required');
   const common = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
-  return path.join(path.resolve(root, common), 'vcp-cs3-document-remediation-preflight1.json');
+  return path.join(path.resolve(root, common), ordinal ? `vcp-cs3-document-remediation-preflight-replacement${ordinal}.json` : 'vcp-cs3-document-remediation-preflight1.json');
 }
-function prepare(specFile, destination) {
+function ownership(plan, planRef) {
+  return { schema: 'cs3-document-remediation-preflight-claim/1', plan: planRef, allocation: plan.spec.remediation.allocation,
+    ...(plan.replacement ? { replacement: plan.replacement, preflight_supplement: plan.spec.remediation.preflight_supplement } : {}), cap_micros: 600000, request_ceiling: 16 };
+}
+function prepare(specFile, destination, replacement = null) {
   const spec = JSON.parse(read(specFile)), directory = plain(path.resolve(destination));
-  requireThat(!within(root, directory) && !within(directory, root) && !fs.existsSync(directory) && !fs.existsSync(claimFile()), 'New private unconsumed remediation preflight required');
+  requireThat(replacement !== null || !spec.remediation?.preflight_supplement, 'Supplement requires explicit replacement preparation');
+  if (replacement) validateReplacement(spec, replacement);
+  requireThat(!within(root, directory) && !within(directory, root) && !fs.existsSync(directory) && !fs.existsSync(claimFile(replacement?.ordinal || 0)), 'New private unconsumed remediation preflight required');
   noParentInstructions(path.dirname(directory)); privateDirectory(directory);
   const profile = derived(spec, directory, true);
   fs.mkdirSync(directory, { mode: 0o700 }); fs.mkdirSync(path.join(directory, 'workspace')); fs.mkdirSync(path.join(directory, 'data'));
   write(path.join(directory, 'workspace/status.txt'), original.CONTENT); write(path.join(directory, 'profile.json'), profile); write(path.join(directory, 'prompt.txt'), original.PROMPT);
-  const plan = { schema: 'cs3-document-remediation-preflight-plan/1', directory, spec, source: campaign().sourceIdentity(),
+  const plan = { schema: replacement ? 'cs3-document-remediation-preflight-plan/2' : 'cs3-document-remediation-preflight-plan/1', ...(replacement ? { replacement } : {}), directory, spec, source: campaign().sourceIdentity(),
     node: reference(fs.realpathSync(process.execPath)), profile_sha256: sha(read(path.join(directory, 'profile.json'))),
     prompt_sha256: sha(original.PROMPT), cap_micros: 600000, request_ceiling: 16 };
   write(path.join(directory, 'plan.json'), plan); return reference(path.join(directory, 'plan.json'));
 }
 function checkPlan(ref, current) {
   const plan = json(ref);
-  requireThat(plan.schema === 'cs3-document-remediation-preflight-plan/1' && plain(path.dirname(ref.path)) === plan.directory
+  requireThat(plan.schema === (plan.replacement ? 'cs3-document-remediation-preflight-plan/2' : 'cs3-document-remediation-preflight-plan/1') && plain(path.dirname(ref.path)) === plan.directory
     && equal(plan.source, campaign().sourceIdentity()) && equal(plan.node, reference(fs.realpathSync(process.execPath))), 'Remediation preflight source/runtime changed');
+  requireThat(!!plan.replacement === !!plan.spec.remediation?.preflight_supplement, 'Replacement allocation/plan mismatch');
+  if (plan.replacement) validateReplacement(plan.spec, plan.replacement);
   privateDirectory(plan.directory); noParentInstructions(plan.directory);
   requireThat(equal(JSON.parse(read(path.join(plan.directory, 'profile.json'))), derived(plan.spec, plan.directory, current))
     && sha(read(path.join(plan.directory, 'profile.json'))) === plan.profile_sha256
@@ -76,8 +87,8 @@ function invocation(plan) {
 function run(planFile, authorization, call = invoke) {
   const planRef = { path: plain(path.resolve(planFile)), sha256: authorization }, plan = checkPlan(planRef, true), base = plan.directory;
   requireThat(fs.readdirSync(path.join(base, 'data')).length === 0, 'Preflight native data already used');
-  const claim = { schema: 'cs3-document-remediation-preflight-claim/1', plan: planRef, allocation: plan.spec.remediation.allocation, cap_micros: 600000, request_ceiling: 16 };
-  write(claimFile(), claim); write(path.join(base, 'claim.json'), claim);
+  const claim = ownership(plan, planRef);
+  write(claimFile(plan.replacement?.ordinal || 0), claim); write(path.join(base, 'claim.json'), claim);
   const args = invocation(plan); write(path.join(base, 'attempted.json'), { executable: plan.spec.executable, args });
   const report = { schema: 'cs3-document-remediation-preflight/1', plan: planRef, status: 'failed', actual_cost_micros: null, raw: {}, artifacts: [] };
   try {
@@ -135,16 +146,104 @@ function validate(ref, spec) {
   const report = json(ref), plan = checkPlan(report.plan, false), base = plan.directory;
   requireThat(report.schema === 'cs3-document-remediation-preflight/1' && plain(ref.path) === path.join(base, 'result.json')
     && equal(plan.spec, specIdentity(spec)), 'Preflight does not bind exact remediation inputs');
-  const claim = { schema: 'cs3-document-remediation-preflight-claim/1', plan: report.plan, allocation: plan.spec.remediation.allocation, cap_micros: 600000, request_ceiling: 16 };
-  requireThat(equal(json(reference(claimFile())), claim) && equal(json(reference(path.join(base, 'claim.json'))), claim), 'One-shot remediation preflight ownership differs');
+  const claim = ownership(plan, report.plan);
+  requireThat(equal(json(reference(claimFile(plan.replacement?.ordinal || 0))), claim) && equal(json(reference(path.join(base, 'claim.json'))), claim), 'One-shot remediation preflight ownership differs');
   requireThat(equal(JSON.parse(read(path.join(base, 'attempted.json'))), { executable: plan.spec.executable, args: invocation(plan) }), 'Native preflight invocation differs');
   const raw = retained(report, base), observed = original.oracle(raw.evidence, raw.artifacts, raw.stdout, raw.exit);
   requireThat(Object.entries(observed).every(([key, value]) => equal(report[key], value)), 'Remediation preflight outcome differs from raw evidence');
   return observed;
 }
-module.exports = { prepare, run, validate, retained, specIdentity, checkPlan, invocation, claimFile };
+function archivedSource(archive, source) {
+  archive = plain(archive); requireThat(path.isAbsolute(archive) && equal(prep.identity(archive, source.scope), source), 'Historical preflight source archive changed');
+  const actual = prep.identity(archive, ['.']), directories = new Set(source.directories);
+  for (const relative of [...source.directories, ...source.files.map(item => item.path)]) for (let p = path.posix.dirname(relative); p !== '.'; p = path.posix.dirname(p)) directories.add(p);
+  requireThat(equal(actual.files.map(item => item.path.slice(2)).sort(), source.files.map(item => item.path).sort())
+    && equal(actual.directories.filter(item => item !== '.').map(item => item.slice(2)).sort(), [...directories].sort()), 'Historical archive has undeclared entries');
+}
+function failedObservation(stdout, costs, exit, profile, terminal) {
+  const output = frames(stdout), accepted = output.filter(item => item.type === 'accepted'), final = output.filter(item => item.type === 'result');
+  requireThat(accepted.length === 1 && final.length === 1, 'Exact failed native task required');
+  const money = policy.accounting(costs, 600000);
+  requireThat(money.unresolved_attempts === 1 && money.actual_cost_micros === null, 'One bounded provider liability required');
+  const facts = output.flatMap(item => item.event?.event?.data?.facts || []), effects = new Map(), descriptors = new Map();
+  for (const fact of facts) {
+    if (fact.collection === 'effect') { requireThat(fact.id === fact.value?.id, 'Effect fact identity differs'); effects.set(fact.id, fact.value); }
+    if (fact.collection === 'artifact') { requireThat(fact.id === fact.value?.spec?.id, 'Artifact fact identity differs'); descriptors.set(fact.id, fact.value); }
+  }
+  // Project authenticated canonical final effect facts, not invented inspection receipts.
+  policy.pendingSafety(exit, output, { tools: [{ gaps: [], items: [...effects.values()].map(record => ({ collection: 'effect', visibility: 'available', record })) }] }, profile, money);
+  const pending = money.attempts.find(item => item.phase === 'reconciliation_pending');
+  requireThat(pending.uncertain === 'retained response did not complete', 'Unsupported provider failure');
+  for (const descriptor of [...descriptors.values()].filter(item => item.spec?.channel === 'response')) {
+    const attempts = money.attempts.filter(item => (item.send_intent || item.phase === 'settled') && descriptor.spec.source === 'retained-codex-attempt:' + item.id);
+    requireThat(attempts.length === 1 && equal(descriptor.spec.scope, money.ledger_scope), 'Unbound or foreign preflight response');
+  }
+  for (const attempt of money.attempts.filter(item => item.send_intent || item.phase === 'settled')) {
+    const responses = [...descriptors.values()].filter(item => item.spec?.channel === 'response' && item.spec.source === 'retained-codex-attempt:' + attempt.id);
+    requireThat(responses.length === 1 && equal(responses[0].spec.scope, money.ledger_scope)
+      && responses[0].state === (attempt === pending ? 'aborted' : 'complete'), 'Dispatched preflight response membership differs');
+  }
+  const descriptor = [...descriptors.values()].find(item => item.spec?.channel === 'response' && item.spec.source === 'retained-codex-attempt:' + pending.id);
+  requireThat(descriptor && Number(descriptor.length) === terminal.length && sha(terminal) === descriptor.sha256, 'Failed provider response bytes differ');
+  const error = JSON.parse(terminal).error;
+  requireThat(error?.code === 429 && error.metadata?.provider_name === 'DeepInfra' && error.metadata.is_byok === false
+    && error.metadata.provider_error_code === 'engine_overloaded' && error.metadata.limit_source === 'upstream_provider_shared_pool', 'Only exact retained upstream429 qualifies a replacement');
+  return { status: 'conservative_failed_preflight_preserved', conservative_debit_micros: 600000, reserved_requests: 16,
+    actual_cost_micros: null, known_settled_micros: money.known_settled_micros, unresolved_micros: money.unresolved_liability_micros,
+    observed_attempts: money.attempts.length, scope: money.ledger_scope };
+}
+function validateFailedPredecessor(ref, spec, expected = { ordinal: 0, predecessors: [] }) {
+  requireThat(ref && equal(Object.keys(ref).sort(), ['inventory', 'result', 'source_archive', 'terminal_response']) && path.isAbsolute(ref.source_archive || ''), 'Exact failed predecessor reference required');
+  const report = json(ref.result), plan = json(report.plan), base = plain(path.dirname(ref.result.path)), ordinal = expected.ordinal;
+  requireThat(Number.isInteger(ordinal) && ordinal >= 0 && ordinal <= 2 && Array.isArray(expected.predecessors) && expected.predecessors.length === ordinal, 'Fixed predecessor position required');
+  if (!ordinal) requireThat(ref.result.sha256 === '7750247906d72b676161760a04fc3e572d41469b2c8e514cffb1defc66ab1e88'
+    && report.plan.sha256 === '819fda929dda9c2d658f80ee7c66fc7c659e8dea8f4076ef1bbebe1db3fb3b14' && !plan.replacement && !plan.spec.remediation?.preflight_supplement, 'Exact original failed preflight required');
+  else requireThat(equal(plan.replacement, expected) && equal(plan.spec.remediation?.preflight_supplement, spec.remediation?.preflight_supplement), 'Replacement predecessor order/allocation differs');
+  requireThat(report.schema === 'cs3-document-remediation-preflight/1' && report.status === 'failed' && report.actual_cost_micros === null
+    && equal(report.artifacts, []) && plan.schema === `cs3-document-remediation-preflight-plan/${ordinal ? 2 : 1}` && plan.directory === base
+    && plain(ref.result.path) === path.join(base, 'result.json') && plain(report.plan.path) === path.join(base, 'plan.json')
+    && plan.cap_micros === 600000 && plan.request_ceiling === 16, 'Failed preflight plan/result differs');
+  const comparable = value => { const result = specIdentity(value); result.executable = { sha256: result.executable.sha256 }; delete result.build_receipt; delete result.remediation.preflight_supplement; return result; };
+  requireThat(equal(comparable(plan.spec), comparable(spec)), 'Failed/current compatibility identities differ');
+  bound(plan.spec.executable, 1024 * 1024 * 1024); bound(spec.executable, 1024 * 1024 * 1024); bound(plan.spec.build_receipt); bound(plan.spec.catalog); bound(plan.spec.profile);
+  requireThat(equal(plan.node, reference(fs.realpathSync(process.execPath))), 'Historical preflight controller changed');
+  requireThat(!within(base, plain(ref.source_archive)) && !within(plain(ref.source_archive), base), 'Historical source archive must be separate');
+  archivedSource(ref.source_archive, plan.source);
+  requireThat(sha(read(path.join(ref.source_archive, 'scripts/evals/cs3-read-preflight.cjs'))) === sha(read(path.join(__dirname, 'cs3-read-preflight.cjs'))), 'Original behavioral oracle changed');
+  const profile = JSON.parse(read(path.join(base, 'profile.json'))), inputProfile = json(plan.spec.profile);
+  requireThat(equal(profile, { ...inputProfile, workspace: path.join(base, 'workspace'), catalog: plan.spec.catalog.path, budget_usd: '0.600000', affected_paths: ['status.txt'], canonical_tools: ['vcp_read', 'vcp_verify'] })
+    && inputProfile.maximum_autonomy === 'plan' && equal(inputProfile.automatic_effects, []) && inputProfile.deadline_seconds === 600 && inputProfile.provider_timeout_seconds === 120
+    && inputProfile.max_requests === 16 && inputProfile.output_tokens === '2048' && inputProfile.max_transport_retries === 0
+    && ['processes', 'checks', 'mcp', 'mcp_http'].every(key => inputProfile[key] === undefined || equal(inputProfile[key], [])), 'Historical read-only preflight profile differs');
+  requireThat(sha(read(path.join(base, 'profile.json'))) === plan.profile_sha256 && read(path.join(base, 'prompt.txt')).toString() === original.PROMPT && plan.prompt_sha256 === sha(original.PROMPT)
+    && equal(filesUnder(path.join(base, 'workspace')), ['status.txt']) && read(path.join(base, 'workspace/status.txt')).toString() === original.CONTENT
+    && equal(JSON.parse(read(path.join(base, 'attempted.json'))), { executable: plan.spec.executable, args: invocation(plan) }), 'Historical invocation/workspace changed');
+  const claim = ownership(plan, report.plan);
+  requireThat(equal(json(reference(claimFile(ordinal))), claim) && equal(json(reference(path.join(base, 'claim.json'))), claim), 'Failed predecessor one-shot ownership differs');
+  requireThat(equal(prep.identity(base, ['.']), ref.inventory), 'Failed predecessor full inventory changed');
+  requireThat(equal(Object.keys(report.raw).sort(), ['costs', 'exit.json', 'stderr.txt', 'stdout.jsonl']), 'Failed raw inventory differs');
+  for (const [name, value] of Object.entries(report.raw)) { requireThat(plain(value.path) === path.join(base, name === 'costs' ? 'costs.json' : name), 'Failed raw path differs'); bound(value); }
+  const result = failedObservation(bound(report.raw['stdout.jsonl']).toString(), json(report.raw.costs), json(report.raw['exit.json']), profile, bound(ref.terminal_response));
+  requireThat(equal(prep.identity(base, ['.']), ref.inventory), 'Failed predecessor changed during validation');
+  return result;
+}
+function validateReplacement(spec, replacement) {
+  requireThat(replacement && equal(Object.keys(replacement).sort(), ['ordinal', 'predecessors']) && Number.isInteger(replacement.ordinal)
+    && replacement.ordinal >= 1 && replacement.ordinal <= 3 && Array.isArray(replacement.predecessors) && replacement.predecessors.length === replacement.ordinal
+    && new Set(replacement.predecessors.map(item => item.result?.path)).size === replacement.ordinal, 'Fixed unique ordered replacement chain required');
+  const approved = require('./cs3-preflight-supplement.cjs').validate(spec.remediation?.preflight_supplement, spec);
+  requireThat(approved.slots === 3 && approved.slot_cap_micros === 600000 && approved.slot_requests === 16 && approved.additional_cap_micros === 1800000
+    && approved.original_failure_sha256 === replacement.predecessors[0].result.sha256, 'Replacement supplement differs');
+  replacement.predecessors.forEach((ref, ordinal) => validateFailedPredecessor(ref, spec, { ordinal, predecessors: replacement.predecessors.slice(0, ordinal) }));
+}
+function prepareReplacement(specFile, destination, ordinal, predecessorsFile) {
+  return prepare(specFile, destination, { ordinal: Number(ordinal), predecessors: JSON.parse(read(predecessorsFile, 16 * 1024 * 1024)) });
+}
+function runReplacement(planFile, authorization, call = invoke) { requireThat(json({ path: plain(path.resolve(planFile)), sha256: authorization }).replacement, 'Replacement plan required'); return run(planFile, authorization, call); }
+function validateReplacementResult(ref, spec) { requireThat(json(json(ref).plan).replacement, 'Replacement result required'); return validate(ref, spec); }
+module.exports = { prepare, run, validate, retained, specIdentity, checkPlan, invocation, claimFile, prepareReplacement, runReplacement, validateReplacementResult, validateFailedPredecessor, failedObservation };
 if (require.main === module) {
-  try { const [command, ...args] = process.argv.slice(2); const result = command === 'prepare' ? prepare(...args) : command === 'run' ? run(...args) : (() => { throw Error('Usage: prepare SPEC NEW_PRIVATE_DIRECTORY | run PLAN SHA256'); })();
+  try { const [command, ...args] = process.argv.slice(2); const result = command === 'prepare' ? prepare(...args) : command === 'run' ? run(...args) : command === 'prepare-replacement' ? prepareReplacement(...args) : command === 'run-replacement' ? runReplacement(...args) : (() => { throw Error('Usage: prepare SPEC NEW_PRIVATE_DIRECTORY | run PLAN SHA256 | prepare-replacement SPEC NEW_PRIVATE_DIRECTORY ORDINAL PREDECESSORS | run-replacement PLAN SHA256'); })();
     process.stdout.write(JSON.stringify(result, null, 2) + '\n'); if (result.status === 'failed') process.exitCode = 1;
   } catch (error) { process.stderr.write(error.message + '\n'); process.exitCode = 1; }
 }

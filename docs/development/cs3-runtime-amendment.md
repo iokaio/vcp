@@ -136,5 +136,36 @@ The genuine new binary and final pinned build passed, as recorded in the
 [build checkpoint](cs3-document-remediation.md#shared-prospective-allocation-and-admission).
 The new provider qualification passed with two settled responses costing
 USD 0.000197. Exact DOC 1.0.5 package acceptance passed four installation stages
-and all five installed tests. The new-binary preflight, live comparisons, browser
-grading and reader dispositions are still required. CS-3 remains incomplete.
+and all five installed tests.
+
+The first new-binary preflight failed on an authenticated DeepInfra HTTP 429
+(`engine_overloaded` / `upstream_provider_shared_pool`). It had two settled
+responses costing USD 0.001342 and one unresolved reservation of USD 0.129576.
+The failure arrived 1.204 seconds after submission, with about 570 seconds left;
+it was not the task deadline. Both earlier responses used valid whole-file/null
+and ranged/integer read arguments, but incomplete verification is not a pass.
+Its result hash is
+`7750247906d72b676161760a04fc3e572d41469b2c8e514cffb1defc66ab1e88`.
+The failed result, original claim, source archive and full USD 0.60 reservation
+remain intact.
+
+A prospective compatibility supplement is implemented under the existing
+owner approval: at most three separately claimed preflights, USD 1.80 and 48
+requests total. It adds to, rather than releases, the preserved USD 89.063737
+allocation: combined maximum USD 90.863737 / 2,421 requests, leaving USD 9.136263
+unallocated. Each successor requires authenticated provider-overload evidence
+from its predecessor; a passing predecessor cannot be replayed. The original
+behavioral oracle, native executable identity and comparison slots do not change.
+This is preparation, not a claimed supplemental allocation or successful preflight.
+
+The supplement passed independent source review and 18 focused tests. Registered
+regressions passed 39 DOC-remediation tests and 23 runtime-amendment tests, with
+no skips. Their manifest hashes are
+`ba7302ef4a542b54e39e2f16382aaa88fa8d1d444d124b58b9824586ec942f5e`
+and `a5842fbd23a8ad7bfd09877b3a8077ff60d12f900c19339bb6144144462222fc`.
+The original failed observation also passed the new read-only source, ownership,
+raw-response and conservative-accounting validator. These are admission proofs,
+not live compatibility success.
+
+A passed new-binary preflight, live comparisons, browser grading and reader
+dispositions are still required. CS-3 remains incomplete.

@@ -95,6 +95,10 @@ function fixture(t) {
     if (name === './cs3-comparison-gates.cjs') return { validate: () => ({ synthetic_test_only: true }) };
     if (name === './cs3-read-preflight.cjs') return { validateQualification() { calls.qualification++; } };
     if (name === './cs3-document-remediation-preflight.cjs') return { validate() { calls.preflight++; } };
+    if (name === './cs3-preflight-supplement.cjs') return { validate(ref) {
+      assert.deepEqual(ref, calls.supplementRef, 'Synthetic supplemental approval is exact');
+      return { original_build_receipt: buildReceipt, additional_cap_micros: 1800000 };
+    } };
     if (name === './cs3-runtime-amendment.cjs') return { ...runtime.exports, terminal(ref) { assert(ref); calls.runtimeTerminal++; return { synthetic_terminal_only: true }; } };
     return actualRequire(name);
   }, module, filename, path.join(root, 'scripts/evals'));
@@ -134,6 +138,21 @@ test('fixed allocation admits one independently bound eighteen-slot experiment w
   f.put(block, owner); f.put(active, { ...owner, plan_sha256: '0'.repeat(64) }); assert.throws(() => helper.validate(plan, prepared.sha256), /block and active ownership/);
   assert.throws(() => helper.prepare(specRef.path, path.join(f.directory, 'replay')), /one-shot/);
 });
+test('supplement preserves the original allocation and adds its full reservation to DOC admission', t => {
+  const f = fixture(t), helper = f.module;
+  f.spec.remediation.allocation = helper.reserve(f.reserveSpec.path, path.join(f.directory, 'allocation'));
+  const originalAllocation = fs.readFileSync(f.spec.remediation.allocation.path);
+  const originalBuild = f.spec.build_receipt;
+  f.spec.build_receipt = f.put('new-verifier-build.json', json(originalBuild.path));
+  assert.throws(() => helper.validateAllocation(f.spec), /one-shot remediation allocation/);
+  f.calls.supplementRef = f.put('supplement.json', { synthetic_test_only: true });
+  f.spec.remediation.preflight_supplement = f.calls.supplementRef;
+  assert.equal(helper.validateSpec(f.spec).accounting.fixed_conservative_micros, 80063737);
+  assert.deepEqual(fs.readFileSync(f.spec.remediation.allocation.path), originalAllocation);
+  f.spec.build_receipt = f.put('bad-new-build.json', { ...json(originalBuild.path), status: 'failed' });
+  assert.throws(() => helper.validateSpec(f.spec), /qualification build/);
+});
+
 test('missing terminal pin, changed historical raw file, active global halt and excluded DOC drift deny reservation', t => {
   const f = fixture(t), helper = f.module;
   const decisionFile = f.spec.remediation.decision.path, original = fs.readFileSync(decisionFile);
