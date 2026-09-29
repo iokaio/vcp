@@ -3,13 +3,13 @@
 Status: complete, September 29, 2026; delivery recorded in
 [PR #210](https://github.com/iokaio/vcp/pull/210). Owner direction replaces
 the original-only implementation rule and the universal comparative-evaluation
-gate in [the previous plan](../../plan/24-skills-follow-on.md).
-Decision: [ADR-069](../../adr/069-practical-skill-ports.md).
+gate in [the previous plan](../plan/24-skills-follow-on.md).
+Decision: [ADR-069](../adr/069-practical-skill-ports.md).
 
 ## Goal and scope
 
 Deliver the eight workflow skills selected by the
-[original research](../claudeskills.md): document authoring, skill authoring,
+[original research](claudeskills.md): document authoring, skill authoring,
 frontend design, MCP development, provider-neutral LLM integration, web testing,
 PDF workflows, and spreadsheets. Preserve the existing 21 language and general
 workflow families. Rewrite the six additions using reusable, appropriately
@@ -28,7 +28,7 @@ are excluded. A public GitHub directory is not sufficient permission to copy.
 ## Source selection
 
 The first source revision is `8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4`.
-The [per-skill audit](../../../src/third_party/components/anthropic-skills.json)
+The [per-skill audit](../../src/third_party/components/anthropic-skills.json)
 records all 19 skills, license paths/digests, and decisions. Recheck that record
 when the pin or selected files change; do not infer asset rights from a skill's
 top-level license. Selected ports carry their own license and source notes in
@@ -111,7 +111,7 @@ behavior; do not import its server/provider stack or replace VCP's authority.
 Keep the Munarium refresh in its own PR. SP-01/SP-03 are shared prerequisites;
 each SP-04 through SP-11 delivery has a separate PR containing its package,
 catalog/coverage/notices changes and relevant tests. The requested plan path is
-`docs/research/skillsplan-new/.md`.
+`docs/research/skillsplan-new.md`.
 
 ## Completion
 
@@ -137,7 +137,7 @@ the `Repository and harness` CI check in PR #210.
 | Representative document workflow | Incident-update reader exercise preserved required structure, reported unknown facts, and ignored hostile source instructions |
 | Representative frontend workflow | Existing framework/tokens preserved; keyboard, empty/error/pending/success and narrow/wide layouts checked in a real browser; three screenshots visually inspected |
 | Representative LLM integration | Five mock tests passed for selected provider/model/history preservation, tool validation, timeout/error handling and effect limits; no live provider call |
-| Munarium refresh | 426 imported-library and 19 VCP tests passed; native consumers, provenance and regenerated protocol checks passed; see [the refresh report](../../evaluations/sp-02-munarium-refresh.md) |
+| Munarium refresh | 426 imported-library and 19 VCP tests passed; native consumers, provenance and regenerated protocol checks passed; see [the refresh report](../evaluations/sp-02-munarium-refresh.md) |
 | Combined installed CLI and archive | Six native CLI tests passed, including exact delivery of all eight installed workflows, source precedence, integrity and unchanged authority/workspace; the executable plus assets passed all 97 archive-entry checks |
 
 Reproduce the helper tests with `python -m unittest discover -s src/tests/skills`

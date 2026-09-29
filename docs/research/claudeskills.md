@@ -1,6 +1,6 @@
 # Claude skills: lessons and a VCP follow-on plan
 
-> Current skills delivery follows [the replacement plan](skillsplan-new/.md) and ADR-069. The original-only rule and universal comparative-promotion gates below are historical, superseded by owner direction on September 29, 2026. Original workflow goals and recorded outcomes remain useful.
+> Current skills delivery follows [the replacement plan](skillsplan-new.md) and ADR-069. The original-only rule and universal comparative-promotion gates below are historical, superseded by owner direction on September 29, 2026. Original workflow goals and recorded outcomes remain useful.
 
 Status: retained research. The owner authorized the [formal skills follow-on](../plan/24-skills-follow-on.md) under [ADR-068](../adr/068-skills-follow-on-before-other-hosts.md) on September 24, 2026. No skill, dependency, tool, activation rule or runtime behavior is added by this document.
 
