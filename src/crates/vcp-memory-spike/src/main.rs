@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! P0-02 bounded local-corpus experiment; not a production memory service.
-//! Calls the retained Munarium datastore API at 8da666067000ca1ee9c131bc67e70b978862faa3.
+//! Calls the retained Munarium datastore API at 2c40480fdc2378e66dc23acdfaf82b529b9d22ee.
 use munarium_datastore::{
     lexical::{self, LexicalPlan, PlanTerm},
     model::*,

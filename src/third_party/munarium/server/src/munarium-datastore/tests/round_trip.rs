@@ -10,14 +10,26 @@
 
 use std::collections::BTreeMap;
 
-use munarium_datastore::fusion::FusionWeights;
 use munarium_datastore::model::*;
-use munarium_datastore::shard::{OpenShard, ShardWriter, MANIFEST, RECORDS_BODY, VECTOR_DATA};
-use munarium_datastore::store::{ArtifactStore, LocalFileStore};
-use munarium_datastore::vector::Candidate;
-use munarium_datastore::verify::{Limits, ReaderCapabilities};
+use munarium_datastore::shard::ShardWriter;
+use munarium_datastore::store::LocalFileStore;
 use munarium_datastore::PreparedChunk;
+// Sealing needs the lexical engine (a build without it refuses; see
+// `a_build_without_the_lexical_engine_refuses_to_seal`), so the tests that
+// seal, reopen and query, and what only they use, need it too.
+#[cfg(feature = "lexical-tantivy")]
+use munarium_datastore::{
+    fusion::FusionWeights,
+    shard::{OpenShard, MANIFEST, RECORDS_BODY, VECTOR_DATA},
+    store::ArtifactStore,
+    vector::Candidate,
+    verify::{Limits, ReaderCapabilities},
+};
 use sha2::{Digest, Sha256};
+
+#[cfg(all(target_os = "linux", feature = "lexical-tantivy"))]
+#[path = "support/restricted_filesystem.rs"]
+mod restricted_filesystem;
 
 fn chunk(
     id: &str,
@@ -181,6 +193,7 @@ fn plan() -> ArtifactBuildPlan {
     }
 }
 
+#[cfg(feature = "lexical-tantivy")]
 fn build_into(dir: &std::path::Path) -> (LocalFileStore, String) {
     let store = LocalFileStore::new(dir).unwrap();
     let mut w = ShardWriter::new(Some(3));
@@ -192,6 +205,7 @@ fn build_into(dir: &std::path::Path) -> (LocalFileStore, String) {
     (store, sealed.artifact_id)
 }
 
+#[cfg(feature = "lexical-tantivy")]
 /// The gate itself.
 #[test]
 fn build_seal_reopen_verify_and_query_with_no_server() {
@@ -243,6 +257,95 @@ fn build_seal_reopen_verify_and_query_with_no_server() {
     assert!(hits[0].lexical_rank.is_some() && hits[0].vector_rank.is_some());
 }
 
+#[cfg(feature = "lexical-tantivy")]
+/// Metadata is a string map; reserved-looking keys and exact decimal strings
+/// must survive the actual artifact format, not a Value-only simulation.
+#[test]
+fn json_feature_artifact_write() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = std::env::var_os("MUNARIUM_JSON_ARTIFACT_WRITE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| temporary.path().to_path_buf());
+    let store = LocalFileStore::new(&root).unwrap();
+    let mut writer = ShardWriter::new(Some(3));
+    for mut c in fixture() {
+        c.metadata
+            .insert("$serde_json::private::Number".into(), "123".into());
+        c.metadata
+            .insert("decimal".into(), "12345678901234567890.123456789".into());
+        c.metadata.insert(
+            "nested-json-text".into(),
+            r#"{"$serde_json::private::Number":"text"}"#.into(),
+        );
+        writer.add(c).unwrap();
+    }
+    let mut specification = spec();
+    specification.chunker.params.insert(
+        "$serde_json::private::Number".into(),
+        Param::Text("ordinary text".into()),
+    );
+    let sealed = writer.seal(&specification, &plan(), &store).unwrap();
+    sealed.publish_manifest(&store).unwrap();
+    std::fs::write(root.join("qualification-id.txt"), &sealed.artifact_id).unwrap();
+    drop(store);
+    assert_json_artifact(&root);
+}
+
+#[cfg(feature = "lexical-tantivy")]
+fn assert_json_artifact(root: &std::path::Path) {
+    let id = std::fs::read_to_string(root.join("qualification-id.txt")).unwrap();
+    let store = LocalFileStore::new(root).unwrap();
+    let shard =
+        OpenShard::open(&store, &id, &ReaderCapabilities::v1(), &Limits::default()).unwrap();
+    let record = shard.record("s1#1").unwrap();
+    assert_eq!(record.source_id, "s1");
+    assert_eq!(record.source_path, "corpus/s1.md");
+    assert!(record.text.contains("washington"));
+    assert_eq!(record.metadata["$serde_json::private::Number"], "123");
+    assert_eq!(record.metadata["decimal"], "12345678901234567890.123456789");
+    assert_eq!(
+        record.metadata["nested-json-text"],
+        r#"{"$serde_json::private::Number":"text"}"#
+    );
+    assert_eq!(
+        shard.vector_candidates(&[1.0, 0.0, 0.0], 3).unwrap()[0].chunk_id,
+        "s1#0"
+    );
+}
+
+#[cfg(feature = "lexical-tantivy")]
+#[test]
+#[ignore = "requires artifact from another feature configuration; tools/test-json-features.ps1"]
+fn json_feature_artifact_read_other_configuration() {
+    let root = std::env::var_os("MUNARIUM_JSON_ARTIFACT_READ")
+        .expect("required artifact from the other feature configuration");
+    assert_json_artifact(std::path::Path::new(&root));
+}
+
+#[test]
+fn json_feature_typed_parameters_reject_unsupported_values() {
+    for raw in ["0.5", "18446744073709551615", "[]", "{}"] {
+        assert!(serde_json::from_str::<Param>(raw).is_err(), "{raw}");
+    }
+    for raw in [
+        "-9223372036854775808",
+        "9223372036854775807",
+        "null",
+        "true",
+        r#""0.123456789012345678901""#,
+    ] {
+        let value: Param = serde_json::from_str(raw).unwrap();
+        assert_eq!(
+            munarium_datastore::canonical::canonical_bytes(&value).unwrap(),
+            raw.as_bytes()
+        );
+    }
+    for value in [serde_json::json!(0.5), serde_json::json!(u64::MAX)] {
+        assert!(munarium_datastore::canonical::canonical_bytes(&value).is_err());
+    }
+}
+
+#[cfg(feature = "lexical-tantivy")]
 /// What converges, and what does not.
 ///
 /// The content-pure manifest means two builds of the same inputs produce the
@@ -290,6 +393,7 @@ fn the_logical_id_converges_even_though_the_artifact_id_need_not() {
     }
 }
 
+#[cfg(feature = "lexical-tantivy")]
 /// The sidecars, which ARE deterministic, converge byte-for-byte. That is what
 /// makes the logical id reproducible rather than merely equal by luck.
 #[test]
@@ -307,6 +411,7 @@ fn the_canonical_sidecars_are_byte_identical_across_builds() {
     }
 }
 
+#[cfg(feature = "lexical-tantivy")]
 /// A substituted manifest is caught by its hash BEFORE its contents are used
 /// to decide what to read. This is the ordering property of `open`.
 #[test]
@@ -335,6 +440,7 @@ fn a_tampered_manifest_is_refused() {
     assert!(err.to_string().contains("integrity"), "{err}");
 }
 
+#[cfg(feature = "lexical-tantivy")]
 /// A corrupt component is caught by its own checksum, even though the manifest
 /// is intact — the two checks are independent for a reason.
 #[test]
@@ -356,6 +462,7 @@ fn a_corrupt_component_is_refused() {
     assert!(err.to_string().contains("integrity"), "{err}");
 }
 
+#[cfg(feature = "lexical-tantivy")]
 /// A REQUIRED component that is gone is fatal; an OPTIONAL one that is gone is
 /// not. Both decided from the manifest, not from what is on disk.
 #[test]
@@ -390,6 +497,7 @@ fn a_missing_required_component_is_fatal_and_an_optional_one_is_not() {
     assert!(err.to_string().contains("required component"), "{err}");
 }
 
+#[cfg(feature = "lexical-tantivy")]
 /// An artifact that declares a newer envelope than this reader supports is
 /// refused BEFORE anything is opened, rather than being opened and misread.
 #[test]
@@ -449,6 +557,7 @@ fn the_writer_refuses_ambiguous_or_partial_input() {
     assert!(err.to_string().contains("no chunks"), "{err}");
 }
 
+#[cfg(feature = "lexical-tantivy")]
 /// A lexical-only corpus is a first-class shape, not a degraded one.
 #[test]
 fn a_lexical_only_artifact_builds_and_opens() {
@@ -485,6 +594,7 @@ fn a_lexical_only_artifact_builds_and_opens() {
     assert_eq!(shard.records().len(), 3);
 }
 
+#[cfg(feature = "lexical-tantivy")]
 /// The manifest carries no attempt-specific metadata, which is what makes the
 /// convergence above possible. Asserted on the SERIALIZED bytes, because that
 /// is what gets hashed.
@@ -516,6 +626,7 @@ fn the_sealed_manifest_carries_no_build_metadata() {
 // ---------------------------------------------------------------------------
 
 /// A plan naming the diskann engine: same corpus, different physical engine.
+#[cfg(feature = "lexical-tantivy")]
 fn diskann_plan() -> ArtifactBuildPlan {
     #[cfg(feature = "vector-diskann")]
     let graph = Some(munarium_datastore::vector_diskann::GraphParams::default().to_plan_map());
@@ -546,6 +657,7 @@ fn diskann_plan() -> ArtifactBuildPlan {
     p
 }
 
+#[cfg(feature = "lexical-tantivy")]
 #[cfg(feature = "vector-diskann")]
 #[test]
 fn a_diskann_artifact_seals_opens_and_answers_like_the_exact_one() {
@@ -610,6 +722,7 @@ fn a_diskann_artifact_seals_opens_and_answers_like_the_exact_one() {
     assert_eq!(approx, exact);
 }
 
+#[cfg(feature = "lexical-tantivy")]
 #[cfg(feature = "vector-diskann")]
 #[test]
 fn a_reader_without_the_feature_bit_refuses_the_approximate_artifact() {
@@ -638,6 +751,7 @@ fn a_reader_without_the_feature_bit_refuses_the_approximate_artifact() {
     }
 }
 
+#[cfg(feature = "lexical-tantivy")]
 #[cfg(not(feature = "vector-diskann"))]
 #[test]
 fn a_diskann_plan_refuses_to_seal_without_the_engine() {
@@ -655,6 +769,7 @@ fn a_diskann_plan_refuses_to_seal_without_the_engine() {
     }
 }
 
+#[cfg(feature = "lexical-tantivy")]
 #[test]
 fn an_unknown_vector_engine_is_refused_at_seal() {
     let dir = tempfile::tempdir().unwrap();
@@ -671,4 +786,189 @@ fn an_unknown_vector_engine_is_refused_at_seal() {
         }
         other => panic!("expected an Invalid refusal, got {other:?}"),
     }
+}
+
+#[cfg(feature = "lexical-tantivy")]
+#[test]
+fn demotion_reports_bounded_pool_and_keeps_the_late_candidate() {
+    use munarium_datastore::lexical::{Demotion, LexicalPlan, PlanTerm};
+    let dir = tempfile::tempdir().unwrap();
+    let store = LocalFileStore::new(dir.path()).unwrap();
+    let mut writer = ShardWriter::new(Some(3));
+    for i in 0..20 {
+        writer
+            .add(chunk(
+                &format!("c{i:02}"),
+                "s1",
+                i,
+                if i == 19 {
+                    "vacation handbook guidance employees managers scheduling annual leave requests"
+                } else {
+                    "vacation catalog"
+                },
+                Some(vec![1.0, 0.0, 0.0]),
+            ))
+            .unwrap();
+    }
+    let sealed = writer.seal(&spec(), &plan(), &store).unwrap();
+    sealed.publish_manifest(&store).unwrap();
+    let shard = OpenShard::open(
+        &store,
+        &sealed.artifact_id,
+        &ReaderCapabilities::v1(),
+        &Limits::default(),
+    )
+    .unwrap();
+    let query = LexicalPlan {
+        terms: shard
+            .analyze("vacation")
+            .unwrap()
+            .into_iter()
+            .map(PlanTerm::user)
+            .collect(),
+        minimum_should_match: 1,
+        demotions: vec![Demotion {
+            contains: "catalog".into(),
+            multiplier: 0.01,
+        }],
+        ..Default::default()
+    };
+    // The longer handbook has a strictly lower raw BM25 score than every
+    // catalog row. This puts it outside a ten-row pool regardless of how
+    // Tantivy chooses between equal-score catalog rows at the cutoff.
+    let raw_query = LexicalPlan {
+        demotions: Vec::new(),
+        ..query.clone()
+    };
+    let raw = shard.lexical_candidates(&raw_query, 20).unwrap();
+    assert_eq!(raw.len(), 20);
+    assert_eq!(raw[19].chunk_id, "c19");
+    assert!(raw[..19].iter().all(|c| c.score > raw[19].score));
+    // At k=5 the 4x pool reaches c19, which rises above every catalog row.
+    // The entire pool is present, so ties then break on chunk id.
+    let batch = shard.lexical_candidates_diagnosed(&query, 5).unwrap();
+    assert_eq!(
+        batch
+            .candidates
+            .iter()
+            .map(|c| c.chunk_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["c19", "c00", "c01", "c02", "c03"]
+    );
+    assert_eq!(batch.diagnostics.candidate_limit, 20);
+    assert_eq!(batch.diagnostics.fetched, 20);
+    assert_eq!(batch.diagnostics.accepted, 5);
+    assert_eq!(batch.diagnostics.rejected, 15);
+    assert_eq!(batch.diagnostics.rejection_reason, Some("rank_cutoff"));
+    assert_eq!(batch.diagnostics.visited, None);
+    assert_eq!(batch.diagnostics.work_limit, None);
+    assert_eq!(batch.diagnostics.exhausted, None);
+    assert_eq!(batch.diagnostics.refill_count, 0);
+    // Characterize the boundary honestly: k=1 overfetches only ten rows;
+    // the late candidate is outside that pool. No unbounded refill is added.
+    let narrow = shard.lexical_candidates_diagnosed(&query, 1).unwrap();
+    assert_eq!(narrow.diagnostics.candidate_limit, 10);
+    assert_eq!(narrow.diagnostics.fetched, 10);
+    assert_eq!(narrow.diagnostics.accepted, 1);
+    assert_eq!(narrow.diagnostics.rejected, 9);
+    assert_eq!(narrow.candidates.len(), 1);
+    assert_ne!(narrow.candidates[0].chunk_id, "c19");
+    assert!(narrow.candidates[0].score < batch.candidates[0].score);
+    let zero = shard.lexical_candidates_diagnosed(&query, 0).unwrap();
+    assert!(zero.candidates.is_empty());
+    assert_eq!(zero.diagnostics.fetched, 10);
+}
+
+#[cfg(feature = "lexical-tantivy")]
+#[test]
+fn concurrent_generation_build_does_not_change_an_open_pin() {
+    let old_dir = tempfile::tempdir().unwrap();
+    let (old_store, old_id) = build_into(old_dir.path());
+    let old = std::sync::Arc::new(
+        OpenShard::open(
+            &old_store,
+            &old_id,
+            &ReaderCapabilities::v1(),
+            &Limits::default(),
+        )
+        .unwrap(),
+    );
+    let reader = old.clone();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let reader_barrier = barrier.clone();
+    let thread = std::thread::spawn(move || {
+        reader_barrier.wait();
+        for _ in 0..32 {
+            let batch = reader
+                .vector_candidates_diagnosed(&[1.0, 0.0, 0.0], 1)
+                .unwrap();
+            assert_eq!(batch.candidates[0].chunk_id, "s1#0");
+            assert_eq!(batch.diagnostics.visited, Some(3));
+        }
+    });
+    barrier.wait();
+    let new_dir = tempfile::tempdir().unwrap();
+    let store = LocalFileStore::new(new_dir.path()).unwrap();
+    let mut writer = ShardWriter::new(Some(3));
+    // The replacement snapshot omits s1#0. An old pin still reads it.
+    for c in fixture().into_iter().skip(1) {
+        writer.add(c).unwrap();
+    }
+    let mut new_spec = spec();
+    new_spec.snapshot.watermark_seq += 1;
+    let sealed = writer.seal(&new_spec, &plan(), &store).unwrap();
+    sealed.publish_manifest(&store).unwrap();
+    let new = OpenShard::open(
+        &store,
+        &sealed.artifact_id,
+        &ReaderCapabilities::v1(),
+        &Limits::default(),
+    )
+    .unwrap();
+    assert_ne!(old.artifact_id, new.artifact_id);
+    assert!(new.record("s1#0").is_none());
+    assert!(old.record("s1#0").is_some());
+    thread.join().unwrap();
+}
+
+#[cfg(feature = "vector-diskann")]
+#[test]
+fn diskann_build_rejects_invalid_dimensions_before_allocating() {
+    use munarium_datastore::vector::VectorIndex;
+    use munarium_datastore::vector_diskann::{DiskAnnVectorIndex, GraphParams};
+
+    let entries = vec![("one".into(), vec![1.0]), ("two".into(), vec![2.0])];
+    // One row used to panic on capacity overflow; two also overflowed the
+    // count * dims multiplication. Neither requires a large input allocation.
+    for count in [1, 2] {
+        for dims in [usize::MAX, usize::MAX / 2, 2, 0] {
+            let result = DiskAnnVectorIndex::build(dims, &entries[..count], GraphParams::default());
+            assert!(matches!(result, Err(munarium_datastore::Error::Invalid(_))));
+        }
+    }
+    let index = DiskAnnVectorIndex::build(1, &entries, GraphParams::default()).unwrap();
+    assert_eq!(index.len(), 2);
+}
+
+/// A build without the lexical engine cannot seal: every plan names a lexical
+/// engine, and the seal refuses rather than publish an artifact that claims an
+/// engine it does not carry (shard.rs `lexical_component`). Such a build is a
+/// model, verification, flat-vector and fusion configuration; see
+/// docs/embedded-support.md.
+#[cfg(not(feature = "lexical-tantivy"))]
+#[test]
+fn a_build_without_the_lexical_engine_refuses_to_seal() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = LocalFileStore::new(dir.path()).unwrap();
+    let mut w = ShardWriter::new(Some(3));
+    for c in fixture() {
+        w.add(c).unwrap();
+    }
+    let err = w
+        .seal(&spec(), &plan(), &store)
+        .expect_err("sealing must refuse without the lexical engine");
+    assert!(
+        matches!(&err, munarium_datastore::Error::Unsupported(m) if m.contains("no lexical engine")),
+        "{err}"
+    );
 }

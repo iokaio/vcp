@@ -1,6 +1,6 @@
 # Munarium source patch series
 
-Base: `iokaio/munarium@8da666067000ca1ee9c131bc67e70b978862faa3`.
+Base: `iokaio/munarium@2c40480fdc2378e66dc23acdfaf82b529b9d22ee` (Server 1.3.0).
 The [selection](../../components/munarium-selection.json) owns patch order and
 digests. Committed source already includes these changes; normal builds do not
 fetch source or apply patches.
@@ -8,7 +8,7 @@ fetch source or apply patches.
 `0001-shared-workspace.patch` changes only the three selected library manifests.
 Each names the existing Codex Cargo workspace explicitly and materializes the
 original Munarium package version, edition, license and inherited dependency
-requirements/features. It preserves the libraries' 1.2.1 version and source
+requirements/features. It preserves the libraries' 1.3.0 version and source
 behavior. Each changed manifest carries a VCP modification notice. Original
 Apache-2.0 headers, LICENSE and NOTICE remain intact.
 

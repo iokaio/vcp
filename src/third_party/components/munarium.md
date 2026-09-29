@@ -1,8 +1,9 @@
 # Munarium local-library selection
 
-Revision: `8da666067000ca1ee9c131bc67e70b978862faa3` from
+Revision: `2c40480fdc2378e66dc23acdfaf82b529b9d22ee` (Server 1.3.0) from
 `https://github.com/iokaio/munarium`. State: imported, not VCP-qualified.
-Owner: P0-07 selection, P0-02 local-memory experiment, P5 production integration.
+Owner: P0-07 selection, SP-02 source refresh, P0-02 local-memory experiment,
+P5 production integration.
 Root and selected original source declare Apache-2.0; upstream NOTICE identifies
 Copyright (c) 2026 Ioka LLC. Keep original LICENSE, NOTICE and source headers with
 this import; this record does not license transitive dependencies by inference.
@@ -24,10 +25,10 @@ fixtures remain under its test directory. Preserve their upstream provenance;
 the PostgreSQL analyzer fixture does not require a running PostgreSQL service.
 
 The original `server/Cargo.toml`, lockfile and Rust 1.98.0 toolchain describe the
-baseline. The [selection](munarium-selection.json) imports 70 files with a
+current baseline. The [selection](munarium-selection.json) imports 80 files with a
 [manifest-only patch](../patches/munarium/README.md) that registers the three
 libraries in the Codex workspace and materializes upstream package/dependency
-requirements. Rust implementation and test bodies remain unchanged. The retained
+requirements. Rust implementation and test bodies match that revision. The retained
 root Cargo files are provenance inputs, not a second build entry point.
 The [shared import evidence](../../../docs/evaluations/p0-07-munarium-import.md)
 records 200 passing tests with a 147-package normal/build graph. The
@@ -37,6 +38,19 @@ a release notice bundle. [Build instructions](../../../docs/development/munarium
 consume committed source directly. Rust 1.98.0 versus Codex's 1.95.0 remains an
 integration qualification choice; no second engine or supported compiler range
 is implied.
+
+The [SP-02 refresh report](../../../docs/evaluations/sp-02-munarium-refresh.md)
+records validation of Server 1.3.0 against VCP's shared graph. The original
+200-test results above describe the earlier 1.2.1 import. Current improvements
+include checked artifact lengths, poison-safe caches and source locks,
+deterministic reference-store fixtures, and optional retrieval diagnostics.
+The shared lockfile updates only the three local Munarium package versions;
+external versions remain unchanged.
+
+Upstream's [embedded support contract](https://github.com/iokaio/munarium/blob/2c40480fdc2378e66dc23acdfaf82b529b9d22ee/server/docs/embedded-support.md)
+now promises the declared datastore surface and a Rust 1.92 minimum for its
+qualified dependency resolution. Core and store-mem are internal upstream APIs
+that remain pinned here. VCP keeps its gate defaults and existing compilers.
 
 The datastore owns local file/index effects, not canonical VCP authority.
 The in-memory store is a reference fixture, not durable canonical storage; its
