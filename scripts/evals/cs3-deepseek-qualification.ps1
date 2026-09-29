@@ -6,7 +6,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$PrivateDirectory,
-    [ValidateSet('gmicloud/fp8','deepinfra/fp4')][string]$Endpoint = 'gmicloud/fp8'
+    [ValidateSet('gmicloud/fp8','deepinfra/fp4','friendli')][string]$Endpoint = 'gmicloud/fp8'
 )
 $ErrorActionPreference = 'Stop'
 $model = 'deepseek/deepseek-v3.2'

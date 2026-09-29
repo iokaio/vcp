@@ -47,12 +47,20 @@ function synthetic(t, syntheticOriginal = false) {
   const file = path.join(__dirname, 'cs3-document-remediation-preflight.cjs'), actual = createRequire(file), module = { exports: {} };
   const git = path.join(f.directory, 'git'); fs.mkdirSync(git);
   const local = name => {
+    if (name === './cs3-skill-remediation.cjs') return { validateQualification: spec => {
+      state.skillAllocationChecks = (state.skillAllocationChecks || 0) + 1;
+      assert(spec.skill_remediation && !spec.remediation);
+      if (!state.approved) throw Error('Skill allocation/history/recovery/package/build proof rejected');
+      if (state.foreignQualification) throw Error('Funded qualification claim rejected');
+      if (!state.qualification) throw Error('Skill qualification rejected');
+    } };
     if (name === 'test:original-failure') return state.original;
     if (name === './cs3-preflight-supplement.cjs') return { validate: () => { assert(state.supplement, 'Supplement unavailable'); return state.supplement; } };
     if (name === 'node:child_process') return { ...actual(name), execFileSync: (command, args) => { assert.equal(command, 'git'); assert.deepEqual(args, ['rev-parse', '--git-common-dir']); return git; } };
     if (name === './cs3-document-remediation.cjs') return { validateAllocation: () => { state.allocationChecks++; if (!state.approved) throw Error('Allocation/terminal/build proof rejected'); } };
     if (name === './cs3-comparison.cjs') return { sourceIdentity: () => state.source };
-    if (name === './cs3-read-preflight.cjs') return { ...actual(name), validateQualification: () => { if (!state.qualification) throw Error('Qualification rejected'); } };
+    if (name === './cs3-read-preflight.cjs') return { ...actual(name), validateQualification: (_ref,spec) => { assert(spec.remediation && !spec.skill_remediation); if (!state.qualification) throw Error('Qualification rejected'); },
+      validateSkillQualification: (_ref,spec) => { assert(spec.skill_remediation && !spec.remediation); if (!state.qualification) throw Error('Skill qualification rejected'); } };
     if (name === './builtin-live-runner.cjs') return { ...actual(name), fixedProfileReasons: () => [] };
     if (name === './p6-live-runner.cjs') { const real = actual(name); return { ...real, boundaries: { ...real.boundaries, privateDirectory: () => {}, noParentInstructions: () => {},
       inspection: (...args) => state.native ? structuredClone(state.native.evidence[args[3]]) : real.boundaries.inspection(...args) } }; }
@@ -77,6 +85,85 @@ test('prepare requires original allocation and qualification proofs before creat
   for (const key of ['approved', 'qualification']) { const f = synthetic(t); f.state[key] = false; assert.throws(() => f.helper.prepare(f.specFile, f.destination), /rejected/i); assert(!fs.existsSync(f.destination)); assert(!fs.existsSync(f.helper.claimFile())); }
   const f = synthetic(t); f.profile.processes = [{ id: 'forbidden' }]; f.spec.profile = f.put('profile-input.json', f.profile); f.put('spec.json', f.spec);
   assert.throws(() => f.helper.prepare(f.specFile, f.destination), /read-only/); assert(!fs.existsSync(f.destination));
+});
+
+function skillFixture(t) {
+  const f = synthetic(t), blank = f.spec.remediation.decision;
+  delete f.spec.remediation;
+  f.profile.provider.compatibility.endpoint = 'friendli'; f.spec.profile = f.put('profile-input.json', f.profile);
+  f.spec.skill_remediation = { decision: blank, allocation: blank, history: blank, recovery_native: blank, package_acceptance: blank, qualification: blank };
+  f.put('spec.json', f.spec); return f;
+}
+
+test('SKL selects its exact funded lineage and qualification before any observation or claim', t => {
+  const f = skillFixture(t);
+  assert.deepEqual(f.helper.specIdentity({ ...f.spec, skill_remediation: { ...f.spec.skill_remediation, runtime_preflight: { pending: true } }, gates: {} }), f.spec);
+  for (const key of ['approved', 'qualification', 'foreignQualification']) {
+    const rejected = skillFixture(t); rejected.state[key] = key === 'foreignQualification';
+    assert.throws(() => rejected.helper.prepare(rejected.specFile, rejected.destination), /rejected/i);
+    assert(!fs.existsSync(rejected.destination)); assert(!fs.existsSync(rejected.helper.claimFile(0, 'skill')));
+  }
+  const plan = f.helper.prepare(f.specFile, f.destination), stored = JSON.parse(fs.readFileSync(plan.path));
+  assert.equal(stored.schema, 'cs3-skill-remediation-preflight-plan/1');
+  assert.deepEqual(stored.spec, f.spec); assert.equal(f.state.skillAllocationChecks, 1); assert.equal(f.state.allocationChecks, 0);
+  assert.equal(fs.readFileSync(path.join(f.destination, 'prompt.txt'), 'utf8'), require('./cs3-read-preflight.cjs').PROMPT);
+  assert.equal(fs.readFileSync(path.join(f.destination, 'workspace/status.txt'), 'utf8'), require('./cs3-read-preflight.cjs').CONTENT);
+});
+
+test('SKL rejects DOC selectors, unknown namespaces, supplements and replacement ordinals', t => {
+  const mutations = [spec => spec.remediation = {}, spec => spec.skill_remediation = null,
+    spec => spec.skill_remediation.preflight_supplement = {}, spec => spec.skill_remediation.unfunded = {},
+    spec => { spec.skl_remediation = spec.skill_remediation; delete spec.skill_remediation; }];
+  for (const mutate of mutations) {
+    const f = skillFixture(t); mutate(f.spec); f.put('spec.json', f.spec);
+    assert.throws(() => f.helper.prepare(f.specFile, f.destination));
+    assert(!fs.existsSync(f.destination)); assert(!fs.existsSync(f.helper.claimFile(0, 'skill')));
+  }
+  const f = skillFixture(t), predecessors = f.put('predecessors.json', []);
+  assert.throws(() => f.helper.prepareReplacement(f.specFile, f.destination, 1, predecessors.path), /no replacement/);
+  assert.throws(() => f.helper.claimFile(1, 'skill'), /no replacement/);
+  assert.throws(() => f.helper.claimFile(0, 'custom'), /Fixed remediation claim mode/);
+  assert(!fs.existsSync(f.destination));
+});
+
+test('fixed preflight profile cannot switch between legacy DeepInfra and fresh-SKL Friendli', t => {
+  for (const [skill, endpoint] of [[false, 'friendli'], [true, 'deepinfra/fp4'], [true, 'foreign']]) {
+    const f = skill ? skillFixture(t) : synthetic(t);
+    f.profile.provider.compatibility.endpoint = endpoint; f.spec.profile = f.put('profile-input.json', f.profile); f.put('spec.json', f.spec);
+    assert.throws(() => f.helper.prepare(f.specFile, f.destination), /Fixed read-only remediation profile/);
+    assert(!fs.existsSync(f.destination)); assert(!fs.existsSync(f.helper.claimFile(0, skill ? 'skill' : 'document')));
+  }
+});
+
+test('SKL cannot consume or overwrite DOC ownership and has its own one-use failed claim', t => {
+  const f = skillFixture(t), docClaim = f.helper.claimFile();
+  fs.writeFileSync(docClaim, 'historical DOC ownership'); const preserved = fs.readFileSync(docClaim);
+  const plan = f.helper.prepare(f.specFile, f.destination); let calls = 0;
+  const result = f.helper.run(plan.path, plan.sha256, () => { calls++; throw Error('Synthetic SKL native failure'); });
+  assert.equal(result.status, 'failed'); assert.equal(result.actual_cost_micros, null);
+  assert.equal(JSON.parse(fs.readFileSync(result.path)).schema, 'cs3-skill-remediation-preflight/1');
+  const claim = JSON.parse(fs.readFileSync(f.helper.claimFile(0, 'skill')));
+  assert.equal(claim.schema, 'cs3-skill-remediation-preflight-claim/1'); assert.deepEqual(claim.plan, plan);
+  assert.deepEqual(claim.allocation, f.spec.skill_remediation.allocation); assert.equal(claim.cap_micros, 600000); assert.equal(claim.request_ceiling, 16);
+  assert.deepEqual(fs.readFileSync(docClaim), preserved);
+  assert.throws(() => f.helper.run(plan.path, plan.sha256, () => assert.fail('No replay')), /EEXIST/);
+  assert.throws(() => f.helper.prepare(f.specFile, path.join(f.directory, 'second')), /unconsumed/);
+  assert.equal(calls, 1);
+});
+
+test('SKL retains the unchanged behavioral oracle and rejects schema, claim and source substitutions', t => {
+  const f = skillFixture(t); f.state.native = nativeFixture();
+  const plan = f.helper.prepare(f.specFile, f.destination), result = f.helper.run(plan.path, plan.sha256, () => f.state.native);
+  assert.equal(f.helper.validate(result, { ...f.spec, skill_remediation: { ...f.spec.skill_remediation, runtime_preflight: result } }).status, 'passed');
+  const report = JSON.parse(fs.readFileSync(result.path));
+  report.schema = 'cs3-document-remediation-preflight/1'; fs.writeFileSync(result.path, JSON.stringify(report));
+  assert.throws(() => f.helper.validate({ path: result.path, sha256: sha(fs.readFileSync(result.path)) }, f.spec), /exact remediation/);
+  report.schema = 'cs3-skill-remediation-preflight/1'; fs.writeFileSync(result.path, JSON.stringify(report));
+  const ref = { path: result.path, sha256: sha(fs.readFileSync(result.path)) }, claimPath = f.helper.claimFile(0, 'skill'), claim = fs.readFileSync(claimPath);
+  fs.writeFileSync(claimPath, JSON.stringify({ ...JSON.parse(claim), schema: 'cs3-document-remediation-preflight-claim/1' }));
+  assert.throws(() => f.helper.validate(ref, f.spec), /ownership differs/);
+  fs.writeFileSync(claimPath, claim); f.state.source = { changed: 'candidate source' };
+  assert.throws(() => f.helper.validate(ref, f.spec), /source\/runtime/);
 });
 test('frozen source or workspace drift prevents invocation and durable paid claim', t => {
   let f = synthetic(t), ref = f.helper.prepare(f.specFile, f.destination); f.state.source = { exact: 'changed' };

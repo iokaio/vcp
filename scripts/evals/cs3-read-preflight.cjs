@@ -52,8 +52,16 @@ function sources() {
   return Object.fromEntries([...files].sort().map(file => [file, sha(read(path.join(root, file)))]));
 }
 function validateQualification(ref, spec) {
+  return validateFixedQualification(ref, spec, ENDPOINT, 'cs3-successor-provider-qualification/1');
+}
+function validateSkillQualification(ref, spec) {
+  return validateFixedQualification(ref, spec, 'friendli', 'cs3-skill-provider-qualification/1', 'Friendli');
+}
+// Deliberately private: callers cannot opt into an arbitrary endpoint or schema.
+// Both public entries retain the same raw conformance, accounting and source joins.
+function validateFixedQualification(ref, spec, ENDPOINT, wrapperSchema, providerName) {
   const wrapper = json(ref), profile = json(spec.profile), catalog = json(spec.catalog);
-  requireThat(wrapper.schema === 'cs3-successor-provider-qualification/1' && wrapper.model === MODEL && wrapper.endpoint === ENDPOINT, 'Successor qualification identity required');
+  requireThat(wrapper.schema === wrapperSchema && wrapper.model === MODEL && wrapper.endpoint === ENDPOINT, 'Fixed qualification identity required');
   requireThat(equal(Object.keys(wrapper).sort(),['binary','catalog','endpoint','model','probe_claim','profile','qualification_claim','schema','snapshot','sources']),'Qualification wrapper fields differ');
   requireThat(equal(wrapper.profile, spec.profile) && equal(wrapper.catalog, spec.catalog), 'Qualification profile/catalog reference differs');
   const input = json(wrapper.sources), claim = json(wrapper.probe_claim), qualified = json(wrapper.qualification_claim), snapshot = json(wrapper.snapshot);
@@ -68,6 +76,7 @@ function validateQualification(ref, spec) {
   requireThat(snapshot.observed_at === input.observed_at && snapshot.valid_until === input.valid_until && count(input.valid_until) > count(input.observed_at) && count(input.valid_until) <= count(probe.observed_at) + 86400000, 'Qualification dated window differs');
   const endpoint = data => { requireThat(data.data?.id === MODEL, 'Catalog model differs'); const rows = data.data.endpoints.filter(row => row.tag === ENDPOINT); requireThat(rows.length === 1 && rows[0].status === 0 && ['tools', 'tool_choice', 'max_tokens'].every(p => rows[0].supported_parameters.includes(p)), 'Exact available tool endpoint required'); return rows[0]; };
   const selected = endpoint(catalog), previous = endpoint(original);
+  requireThat(providerName === undefined || (selected.provider_name === providerName && previous.provider_name === providerName), 'Fixed served provider required');
   requireThat(selected.context_length === previous.context_length && selected.max_completion_tokens === previous.max_completion_tokens && equal(selected.pricing, previous.pricing), 'Endpoint capabilities or tariffs changed');
   requireThat(report.schema === 'p6-provider-conformance/1' && report.status === 'observed' && report.responses_text_tools === true && report.candidate?.raw_sha256 === probe.catalog_sha256 && report.candidate.price?.model === MODEL && report.candidate.price?.provider === ENDPOINT, 'Successful exact conformance observation required');
   requireThat(['context','max_input','max_output'].every(key=>snapshot[key]===report.candidate[key]) && count(snapshot.context)===selected.context_length && count(snapshot.max_input)===(selected.max_prompt_tokens??selected.context_length) && count(snapshot.max_output)===Math.min(selected.context_length,selected.max_completion_tokens) && equal(snapshot.price.rates,report.candidate.price.rates) && snapshot.price.currency==='USD' && snapshot.price.model===MODEL && snapshot.price.provider===ENDPOINT && snapshot.price.valid_until===input.valid_until,'Qualified endpoint bounds or tariff differs from actual probe');
@@ -241,5 +250,5 @@ function validate(ref, spec) {
   const observed=oracle(evidence,artifacts,bound(report.raw['stdout.jsonl']).toString(),json(report.raw['exit.json'])); bound(report.raw['stderr.txt']);
   requireThat(Object.entries(observed).every(([key,value])=>equal(report[key],value)),'Preflight claimed outcome differs from raw evidence'); return observed;
 }
-module.exports={prepare,run,validate,validateQualification,validatePriorRuntime,priorFailure,sameExecutableIdentity,oracle,completedResponses,bound,sources,dollarMicros,gapAllowed,CONTENT,ANSWER,WHOLE,RANGE,PROMPT};
+module.exports={prepare,run,validate,validateQualification,validateSkillQualification,validatePriorRuntime,priorFailure,sameExecutableIdentity,oracle,completedResponses,bound,sources,dollarMicros,gapAllowed,CONTENT,ANSWER,WHOLE,RANGE,PROMPT};
 if(require.main===module){try{const [command,...args]=process.argv.slice(2);let result;if(command==='prepare')result=prepare(...args);else if(command==='run')result=run(...args);else throw Error('Usage: prepare SPEC NEW_PRIVATE_DIRECTORY | run PLAN SHA256');process.stdout.write(JSON.stringify(result,null,2)+'\n');if(result.status==='failed')process.exitCode=1;}catch(error){process.stderr.write(error.message+'\n');process.exitCode=1;}}

@@ -13,19 +13,34 @@ const { plain, read, write, within, filesUnder, privateDirectory, noParentInstru
 const root = path.resolve(__dirname, '../..'), sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const views = ['costs', 'routing', 'outputs', 'context', 'tools', 'verification'];
 const remediation = () => require('./cs3-document-remediation.cjs');
+const skillRemediation = () => require('./cs3-skill-remediation.cjs');
 const campaign = () => require('./cs3-comparison.cjs');
 const bound = original.bound, json = ref => JSON.parse(bound(ref));
 const reference = file => ({ path: plain(path.resolve(file)), sha256: sha(read(file, 1024 * 1024 * 1024)) });
 function requireThat(value, reason) { if (!value) throw Error(reason); }
+function mode(spec) {
+  if (Object.hasOwn(spec, 'skill_remediation')) {
+    requireThat(spec.skill_remediation && typeof spec.skill_remediation === 'object' && !Array.isArray(spec.skill_remediation)
+      && !Object.hasOwn(spec, 'remediation'), 'Exclusive fixed skill remediation selector required');
+    return 'skill';
+  }
+  return 'document';
+}
+function schema(spec, suffix) { return `cs3-${mode(spec)}-remediation-preflight${suffix}`; }
 function specIdentity(spec) {
+  if (mode(spec) === 'skill') return { executable: spec.executable, build_receipt: spec.build_receipt, catalog: spec.catalog, node: spec.node, profile: spec.profile,
+    skill_remediation: Object.fromEntries(['decision', 'allocation', 'history', 'recovery_native', 'package_acceptance', 'qualification'].map(key => [key, spec.skill_remediation[key]])) };
   return { executable: spec.executable, build_receipt: spec.build_receipt, catalog: spec.catalog, node: spec.node, profile: spec.profile,
     remediation: { ...Object.fromEntries(['decision', 'prior_terminal', 'runtime_decision', 'allocation', 'qualification'].map(key => [key, spec.remediation?.[key]])),
       ...(spec.remediation?.preflight_supplement ? { preflight_supplement: spec.remediation.preflight_supplement } : {}) } };
 }
 function sourceProfile(spec, current) {
   requireThat(equal(spec, specIdentity(spec)), 'Exact remediation preflight inputs required'); noSecrets(spec);
-  remediation().validateAllocation(spec);
-  original.validateQualification(spec.remediation.qualification, spec);
+  const skill = mode(spec) === 'skill';
+  // SKL also joins the probe claim to its separately funded allocation. A valid
+  // but foreign qualification pair cannot fund this fresh preflight.
+  if (skill) skillRemediation().validateQualification(spec);
+  else { remediation().validateAllocation(spec); original.validateQualification(spec.remediation.qualification, spec); }
   requireThat(equal(spec.node, reference(fs.realpathSync(process.execPath))), 'Exact preflight controller required');
   const profile = json(spec.profile); bound(spec.catalog);
   const allowed = ['version', 'workspace', 'trust_workspace', 'sync_roots', 'maximum_autonomy', 'automatic_effects', 'budget_usd', 'provider', 'catalog', 'affected_paths', 'canonical_tools', 'max_requests', 'output_tokens', 'provider_timeout_seconds', 'max_transport_retries', 'deadline_seconds', 'processes', 'checks', 'mcp', 'mcp_http'];
@@ -34,41 +49,46 @@ function sourceProfile(spec, current) {
     && profile.max_transport_retries === 0 && profile.maximum_autonomy === 'plan' && equal(profile.automatic_effects, [])
     && ['processes', 'checks', 'mcp', 'mcp_http'].every(key => profile[key] === undefined || equal(profile[key], []))
     && profile.provider?.raw_sha256 === spec.catalog.sha256 && profile.provider?.compatibility?.model === 'deepseek/deepseek-v3.2'
-    && profile.provider?.compatibility?.endpoint === 'deepinfra/fp4', 'Fixed read-only remediation profile required');
+    && profile.provider?.compatibility?.endpoint === (skill ? 'friendli' : 'deepinfra/fp4'), 'Fixed read-only remediation profile required');
   return profile;
 }
 function derived(spec, directory, current) {
   return { ...sourceProfile(spec, current), workspace: path.join(directory, 'workspace'), catalog: spec.catalog.path,
     budget_usd: '0.600000', affected_paths: ['status.txt'], canonical_tools: ['vcp_read', 'vcp_verify'] };
 }
-function claimFile(ordinal = 0) {
+function claimFile(ordinal = 0, kind = 'document') {
+  requireThat(kind === 'document' || kind === 'skill', 'Fixed remediation claim mode required');
   requireThat(Number.isInteger(ordinal) && ordinal >= 0 && ordinal <= 3, 'Fixed replacement ordinal required');
+  requireThat(kind !== 'skill' || ordinal === 0, 'Skill preflight has no replacement allocation');
   const common = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
+  if (kind === 'skill') return path.join(path.resolve(root, common), 'vcp-cs3-skill-remediation-preflight1.json');
   return path.join(path.resolve(root, common), ordinal ? `vcp-cs3-document-remediation-preflight-replacement${ordinal}.json` : 'vcp-cs3-document-remediation-preflight1.json');
 }
 function ownership(plan, planRef) {
-  return { schema: 'cs3-document-remediation-preflight-claim/1', plan: planRef, allocation: plan.spec.remediation.allocation,
+  return { schema: schema(plan.spec, '-claim/1'), plan: planRef, allocation: (mode(plan.spec) === 'skill' ? plan.spec.skill_remediation : plan.spec.remediation).allocation,
     ...(plan.replacement ? { replacement: plan.replacement, preflight_supplement: plan.spec.remediation.preflight_supplement } : {}), cap_micros: 600000, request_ceiling: 16 };
 }
 function prepare(specFile, destination, replacement = null) {
   const spec = JSON.parse(read(specFile)), directory = plain(path.resolve(destination));
+  requireThat(mode(spec) !== 'skill' || replacement === null, 'Skill preflight has no replacement allocation');
   requireThat(replacement !== null || !spec.remediation?.preflight_supplement, 'Supplement requires explicit replacement preparation');
   if (replacement) validateReplacement(spec, replacement);
-  requireThat(!within(root, directory) && !within(directory, root) && !fs.existsSync(directory) && !fs.existsSync(claimFile(replacement?.ordinal || 0)), 'New private unconsumed remediation preflight required');
+  requireThat(!within(root, directory) && !within(directory, root) && !fs.existsSync(directory) && !fs.existsSync(claimFile(replacement?.ordinal || 0, mode(spec))), 'New private unconsumed remediation preflight required');
   noParentInstructions(path.dirname(directory)); privateDirectory(directory);
   const profile = derived(spec, directory, true);
   fs.mkdirSync(directory, { mode: 0o700 }); fs.mkdirSync(path.join(directory, 'workspace')); fs.mkdirSync(path.join(directory, 'data'));
   write(path.join(directory, 'workspace/status.txt'), original.CONTENT); write(path.join(directory, 'profile.json'), profile); write(path.join(directory, 'prompt.txt'), original.PROMPT);
-  const plan = { schema: replacement ? 'cs3-document-remediation-preflight-plan/2' : 'cs3-document-remediation-preflight-plan/1', ...(replacement ? { replacement } : {}), directory, spec, source: campaign().sourceIdentity(),
+  const plan = { schema: schema(spec, replacement ? '-plan/2' : '-plan/1'), ...(replacement ? { replacement } : {}), directory, spec, source: campaign().sourceIdentity(),
     node: reference(fs.realpathSync(process.execPath)), profile_sha256: sha(read(path.join(directory, 'profile.json'))),
     prompt_sha256: sha(original.PROMPT), cap_micros: 600000, request_ceiling: 16 };
   write(path.join(directory, 'plan.json'), plan); return reference(path.join(directory, 'plan.json'));
 }
 function checkPlan(ref, current) {
   const plan = json(ref);
-  requireThat(plan.schema === (plan.replacement ? 'cs3-document-remediation-preflight-plan/2' : 'cs3-document-remediation-preflight-plan/1') && plain(path.dirname(ref.path)) === plan.directory
+  requireThat(plan.schema === schema(plan.spec, plan.replacement ? '-plan/2' : '-plan/1') && plain(path.dirname(ref.path)) === plan.directory
     && equal(plan.source, campaign().sourceIdentity()) && equal(plan.node, reference(fs.realpathSync(process.execPath))), 'Remediation preflight source/runtime changed');
   requireThat(!!plan.replacement === !!plan.spec.remediation?.preflight_supplement, 'Replacement allocation/plan mismatch');
+  requireThat(mode(plan.spec) !== 'skill' || !plan.replacement, 'Skill preflight has no replacement allocation');
   if (plan.replacement) validateReplacement(plan.spec, plan.replacement);
   privateDirectory(plan.directory); noParentInstructions(plan.directory);
   requireThat(equal(JSON.parse(read(path.join(plan.directory, 'profile.json'))), derived(plan.spec, plan.directory, current))
@@ -88,9 +108,9 @@ function run(planFile, authorization, call = invoke) {
   const planRef = { path: plain(path.resolve(planFile)), sha256: authorization }, plan = checkPlan(planRef, true), base = plan.directory;
   requireThat(fs.readdirSync(path.join(base, 'data')).length === 0, 'Preflight native data already used');
   const claim = ownership(plan, planRef);
-  write(claimFile(plan.replacement?.ordinal || 0), claim); write(path.join(base, 'claim.json'), claim);
+  write(claimFile(plan.replacement?.ordinal || 0, mode(plan.spec)), claim); write(path.join(base, 'claim.json'), claim);
   const args = invocation(plan); write(path.join(base, 'attempted.json'), { executable: plan.spec.executable, args });
-  const report = { schema: 'cs3-document-remediation-preflight/1', plan: planRef, status: 'failed', actual_cost_micros: null, raw: {}, artifacts: [] };
+  const report = { schema: schema(plan.spec, '/1'), plan: planRef, status: 'failed', actual_cost_micros: null, raw: {}, artifacts: [] };
   try {
     const execution = call(plan.spec.executable.path, args, 780000);
     write(path.join(base, 'stdout.jsonl'), execution.stdout); write(path.join(base, 'stderr.txt'), execution.stderr); write(path.join(base, 'exit.json'), { status: execution.status, error: execution.error });
@@ -144,10 +164,10 @@ function retained(report, base) {
 }
 function validate(ref, spec) {
   const report = json(ref), plan = checkPlan(report.plan, false), base = plan.directory;
-  requireThat(report.schema === 'cs3-document-remediation-preflight/1' && plain(ref.path) === path.join(base, 'result.json')
+  requireThat(report.schema === schema(plan.spec, '/1') && plain(ref.path) === path.join(base, 'result.json')
     && equal(plan.spec, specIdentity(spec)), 'Preflight does not bind exact remediation inputs');
   const claim = ownership(plan, report.plan);
-  requireThat(equal(json(reference(claimFile(plan.replacement?.ordinal || 0))), claim) && equal(json(reference(path.join(base, 'claim.json'))), claim), 'One-shot remediation preflight ownership differs');
+  requireThat(equal(json(reference(claimFile(plan.replacement?.ordinal || 0, mode(plan.spec)))), claim) && equal(json(reference(path.join(base, 'claim.json'))), claim), 'One-shot remediation preflight ownership differs');
   requireThat(equal(JSON.parse(read(path.join(base, 'attempted.json'))), { executable: plan.spec.executable, args: invocation(plan) }), 'Native preflight invocation differs');
   const raw = retained(report, base), observed = original.oracle(raw.evidence, raw.artifacts, raw.stdout, raw.exit);
   requireThat(Object.entries(observed).every(([key, value]) => equal(report[key], value)), 'Remediation preflight outcome differs from raw evidence');
@@ -228,6 +248,7 @@ function validateFailedPredecessor(ref, spec, expected = { ordinal: 0, predecess
   return result;
 }
 function validateReplacement(spec, replacement) {
+  requireThat(mode(spec) === 'document', 'Skill preflight has no replacement allocation');
   requireThat(replacement && equal(Object.keys(replacement).sort(), ['ordinal', 'predecessors']) && Number.isInteger(replacement.ordinal)
     && replacement.ordinal >= 1 && replacement.ordinal <= 3 && Array.isArray(replacement.predecessors) && replacement.predecessors.length === replacement.ordinal
     && new Set(replacement.predecessors.map(item => item.result?.path)).size === replacement.ordinal, 'Fixed unique ordered replacement chain required');

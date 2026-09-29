@@ -156,7 +156,9 @@ function validate(spec) {
     node_fixture: nodeControls(receipts.node_fixture, spec.node),
     web_oracles: web(receipts.web_oracles, spec.gates.web_oracles, spec.web_evidence),
   };
-  result.ui_qualification = uiQualification(receipts.ui_qualification, spec.gates.ui_qualification);
+  result.ui_qualification = spec.skill_remediation
+    ? recoveryUiQualification(receipts.ui_qualification, spec.gates.ui_qualification, JSON.parse(bound(spec.skill_remediation.recovery_native)).decision)
+    : uiQualification(receipts.ui_qualification, spec.gates.ui_qualification);
   return result;
 }
 function projectWeb(reference, destination) {

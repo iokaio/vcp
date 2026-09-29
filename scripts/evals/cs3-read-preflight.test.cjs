@@ -54,31 +54,63 @@ test('helper source closure is deterministic and excludes the mutable comparison
 });
 test('provider USD observation rounds upward using decimal arithmetic, including exponent notation',()=>{assert.equal(helper.dollarMicros(0.000100468),101);assert.equal(helper.dollarMicros(0.000001),1);assert.equal(helper.dollarMicros(1e-7),1);assert.equal(helper.dollarMicros(0),0);assert.throws(()=>helper.dollarMicros(-1));assert.throws(()=>helper.dollarMicros('0.1'));});
 test('only exact fixed-provider explanatory routing gap is allowed outside privacy gaps',()=>{const gap={reason:'no automatic routing decision retained for this task; fixed provider or no admitted routed request',requested_model:'attempt.quote.price.model',served_model:'captured response bytes when observed; never inferred from requested model',visibility:'unavailable'};assert(helper.gapAllowed('routing',gap));assert(!helper.gapAllowed('tools',gap));assert(!helper.gapAllowed('routing',{...gap,reason:'missing capture'}));assert(!helper.gapAllowed('routing',{...gap,extra:true}));});
-function qualification(t, mutate = ()=>{}) {
+function qualification(t, mutate = ()=>{}, skill = false) {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'cs3-read-qualification-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
   const put=(name,value)=>{const file=path.join(dir,name);fs.writeFileSync(file,typeof value==='string'?value:JSON.stringify(value));return {path:file,sha256:sha(fs.readFileSync(file))};};
-  const model='deepseek/deepseek-v3.2',endpoint='deepinfra/fp4',revision=model+'-20251201';
-  const selected={tag:endpoint,model_id:model,provider_name:'DeepInfra',name:'DeepInfra | '+revision,status:0,context_length:163840,max_completion_tokens:16384,supported_parameters:['tools','tool_choice','max_tokens'],pricing:{prompt:'0.00000026',completion:'0.00000038'}};
+  const model='deepseek/deepseek-v3.2',endpoint=skill?'friendli':'deepinfra/fp4',provider=skill?'Friendli':'DeepInfra',revision=model+'-20251201';
+  const selected={tag:endpoint,model_id:model,provider_name:provider,name:provider+' | '+revision,status:0,context_length:163840,max_completion_tokens:16384,supported_parameters:['tools','tool_choice','max_tokens'],pricing:skill?{prompt:'0.0000005',completion:'0.0000015',input_cache_read:'0.00000025'}:{prompt:'0.00000026',completion:'0.00000038'}};
   const catalog=put('catalog.json',{data:{id:model,endpoints:[selected]}}),binary=put('probe.exe','synthetic only');
   const probe={model,endpoint,cap_usd:'0.250000',max_output_tokens:2048,catalog:catalog.path,catalog_sha256:catalog.sha256,observed_at:'1000',valid_until:'86401000'};
-  const probeSpec=put('spec.json',probe),candidate={raw_sha256:catalog.sha256,context:'163840',max_input:'163840',max_output:'16384',price:{model,provider:endpoint,rates:{input:{micros:'260000',per_units:'1000000'}}}};
+  const probeSpec=put('spec.json',probe),candidate={raw_sha256:catalog.sha256,context:'163840',max_input:'163840',max_output:'16384',price:{model,provider:endpoint,rates:skill?{input:{micros:'500000',per_units:'1000000'},output:{micros:'1500000',per_units:'1000000'},cached_input:{micros:'250000',per_units:'1000000'}}:{input:{micros:'260000',per_units:'1000000'}}}};
   const report={schema:'p6-provider-conformance/1',status:'observed',responses_text_tools:true,candidate,actual_cost_micros:'2',ledger:{currency:'USD',cap:'250000',active:'0',unresolved:'0',overrun:false,settled:'2'},responses:[0,1].map(i=>({response_id:'response-'+i,status:'Completed',served_model:model,served_provider:null,usage:{cost:{currency:'USD',micros:'1'}},calls:i?[]:[{name:'vcp_conformance_echo',arguments:{marker:'VCP_CONFORMANCE_☃'}}],completed_messages:i?{answer:'VCP_CONFORMANCE_OK'}:{}}))};
-  const generations=[0,1].map(i=>({data:{id:'response-'+i,model:revision,cancelled:false,streamed:true,is_byok:false,provider_name:'DeepInfra',total_cost:0.000001,provider_responses:[{status:200,is_byok:false,provider_name:'DeepInfra',model_permaslug:revision,endpoint_id:'observed-endpoint'}]}}));
+  const generations=[0,1].map(i=>({data:{id:'response-'+i,model:revision,cancelled:false,streamed:true,is_byok:false,provider_name:provider,total_cost:0.000001,provider_responses:[{status:200,is_byok:false,provider_name:provider,model_permaslug:revision,endpoint_id:'observed-endpoint'}]}}));
   mutate({report,generations,selected});
   const generationRefs=generations.map((g,i)=>put('generation-'+i+'.json',g));
   const input={probe_spec:probeSpec,report:put('report.json',report),generations:generationRefs,catalog,observed_at:'2000',valid_until:'86400000'};
-  const sources=put('sources.json',input),qualified={schema:'p6-provider-qualification/1',authorized_sources_sha256:sources.sha256,attribution:generations.map((g,i)=>({method:'generation-single-attempt-exact-catalog-model-provider/2',generation_sha256:generationRefs[i].sha256,response_id:'response-'+i,requested_model:model,catalog_endpoint:endpoint,provider_name:'DeepInfra',observed_endpoint_id:'observed-endpoint',observed_model_revision:revision}))};
+  const sources=put('sources.json',input),qualified={schema:'p6-provider-qualification/1',authorized_sources_sha256:sources.sha256,attribution:generations.map((g,i)=>({method:'generation-single-attempt-exact-catalog-model-provider/2',generation_sha256:generationRefs[i].sha256,response_id:'response-'+i,requested_model:model,catalog_endpoint:endpoint,provider_name:provider,observed_endpoint_id:'observed-endpoint',observed_model_revision:revision}))};
   const snapshot={context:candidate.context,max_input:candidate.max_input,max_output:candidate.max_output,observed_at:input.observed_at,valid_until:input.valid_until,raw_sha256:catalog.sha256,compatibility:{id:'p6-generation-qualified/'+sources.sha256,model,endpoint,responses_text_tools:true,provider_preferences_qualified:true,deny_data_collection:true,require_zdr:false},price:{...candidate.price,currency:'USD',valid_until:input.valid_until}};
   const root=path.resolve(__dirname,'../..'),sourceNames={binary:'src/crates/vcp-cli/src/bin/vcp-provider-conformance.rs',lease:'src/crates/vcp-lifecycle/src/foundation/conformance.rs',settlement:'src/crates/vcp-lifecycle/src/foundation/worker/conformance.rs',catalog:'src/crates/vcp-models/src/catalog.rs'};
   const claim={binary_sha256:binary.sha256,spec:probe,spec_sha256:probeSpec.sha256,source_sha256:Object.fromEntries(Object.entries(sourceNames).map(([key,file])=>[key,sha(fs.readFileSync(path.join(root,file)))]))};
-  const profile=put('profile.json',{provider:snapshot}),wrapper={schema:'cs3-successor-provider-qualification/1',model,endpoint,profile,catalog,binary,sources,probe_claim:put('claim.json',claim),qualification_claim:put('qualified.json',qualified),snapshot:put('snapshot.json',snapshot)};
-  return {ref:put('wrapper.json',wrapper),spec:{profile,catalog},put,wrapper,claim};
+  const profile=put('profile.json',{provider:snapshot}),wrapper={schema:skill?'cs3-skill-provider-qualification/1':'cs3-successor-provider-qualification/1',model,endpoint,profile,catalog,binary,sources,probe_claim:put('claim.json',claim),qualification_claim:put('qualified.json',qualified),snapshot:put('snapshot.json',snapshot)};
+  return {ref:put('wrapper.json',wrapper),spec:{profile,catalog},put,wrapper,claim,snapshot};
 }
 test('qualification rederives source, catalog, generation attribution and both exact charged responses',t=>{const f=qualification(t);assert.deepEqual(helper.validateQualification(f.ref,f.spec),{status:'passed',actual_cost_micros:2,observed_attempts:2,model:'deepseek/deepseek-v3.2',endpoint:'deepinfra/fp4'});});
 test('qualification rejects internally rehashed missing/unknown charges, bad echo and wrong served endpoint',t=>{
   for(const mutate of [f=>f.report.ledger.unresolved='1',f=>f.report.actual_cost_micros='0',f=>f.generations[0].data.total_cost=0,f=>f.generations[0].data.provider_responses.push(f.generations[0].data.provider_responses[0]),f=>f.generations[1].data.provider_responses[0].endpoint_id='other',f=>f.report.responses[0].calls[0].arguments.marker='fake',f=>f.report.responses[1].served_model='wrong']){const f=qualification(t,mutate);assert.throws(()=>helper.validateQualification(f.ref,f.spec));}
 });
 test('qualification rejects recomputed wrapper over stale embedded source hashes',t=>{const f=qualification(t);f.claim.source_sha256.lease='0'.repeat(64);f.wrapper.probe_claim=f.put('claim.json',f.claim);f.ref=f.put('wrapper.json',f.wrapper);assert.throws(()=>helper.validateQualification(f.ref,f.spec),/source closure/);});
+
+test('Friendli is available only through the fixed fresh-SKL wrapper, never legacy or arbitrary endpoint arguments',t=>{
+  const skill=qualification(t,()=>{},true),legacy=qualification(t);
+  assert.deepEqual(helper.validateSkillQualification(skill.ref,skill.spec),{status:'passed',actual_cost_micros:2,observed_attempts:2,model:'deepseek/deepseek-v3.2',endpoint:'friendli'});
+  assert.throws(()=>helper.validateQualification(skill.ref,skill.spec,'friendli'),/qualification identity/);
+  assert.throws(()=>helper.validateSkillQualification(legacy.ref,legacy.spec,'deepinfra\/fp4'),/qualification identity/);
+  assert.equal(helper.validateFixedQualification,undefined);
+  for(const [schema,endpoint] of [['cs3-successor-provider-qualification/1','friendli'],['cs3-skill-provider-qualification/1','deepinfra/fp4'],['cs3-skill-provider-qualification/1','foreign']]){
+    const f=qualification(t,()=>{},true);f.wrapper.schema=schema;f.wrapper.endpoint=endpoint;f.ref=f.put('wrapper.json',f.wrapper);
+    assert.throws(()=>helper.validateSkillQualification(f.ref,f.spec),/qualification identity/);
+  }
+});
+
+test('Friendli qualification still binds both real served generations, calls, charges and exact endpoint identity',t=>{
+  for(const mutate of [f=>f.report.ledger.unresolved='1',f=>f.report.responses.pop(),f=>f.report.actual_cost_micros='250001',
+    f=>f.generations[0].data.provider_name='DeepInfra',f=>f.generations[1].data.provider_responses[0].provider_name='DeepInfra',
+    f=>f.report.responses[1].served_provider='deepinfra/fp4',f=>f.generations[1].data.provider_responses[0].endpoint_id='other',
+    f=>f.report.responses[0].calls[0].arguments.marker='wrong',f=>f.generations[0].data.total_cost=0]){
+    const f=qualification(t,mutate,true);assert.throws(()=>helper.validateSkillQualification(f.ref,f.spec));
+  }
+  const f=qualification(t,()=>{},true);f.claim.source_sha256.binary='0'.repeat(64);f.wrapper.probe_claim=f.put('claim.json',f.claim);f.ref=f.put('wrapper.json',f.wrapper);
+  assert.throws(()=>helper.validateSkillQualification(f.ref,f.spec),/source closure/);
+});
+
+test('Friendli does not assume ZDR or relax denied collection, tariff, bounds or lifetime checks',t=>{
+  for(const mutate of [s=>s.compatibility.require_zdr=true,s=>s.compatibility.deny_data_collection=false,
+    s=>s.price.rates.input.micros='1',s=>s.max_output='999999',s=>s.valid_until='999999999',s=>s.observed_at='0']){
+    const f=qualification(t,()=>{},true);mutate(f.snapshot);f.wrapper.snapshot=f.put('snapshot.json',f.snapshot);
+    f.spec.profile=f.wrapper.profile=f.put('profile.json',{provider:f.snapshot});f.ref=f.put('wrapper.json',f.wrapper);
+    assert.throws(()=>helper.validateSkillQualification(f.ref,f.spec));
+  }
+});
 test('UUID enumeration order is irrelevant but actual tool continuation is mandatory',()=>{const f=fixture();f.artifacts.reverse();assert.equal(check(f).status,'passed');const req=f.artifacts.find(a=>a.item.id==='request-2');req.bytes=Buffer.from(JSON.stringify({model:'deepseek/deepseek-v3.2',input:[]}));assert.throws(()=>check(f),/captured dispatched request/);});
 test('foreign task accounting, final frame or response provenance cannot qualify',()=>{
   let f=fixture();f.evidence.costs[0].items[0].record.scope={workspace:'workspace',session:'session',task:'foreign'};assert.throws(()=>check(f),/another task/);

@@ -10,6 +10,8 @@
       "cs3-comparison-host",
       "cs3-document-remediation",
       "cs3-runtime-amendment",
+      "cs3-skill-remediation",
+      "cs3-skill-remediation-host",
       "experiments",
       "upstream-inventory",
       "upstream-source",
@@ -68,6 +70,22 @@
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
+    "cs3-skill-remediation": {
+      "task_ids": ["CS-3"],
+      "args": ["--test", "scripts/evals/cs3-skill-remediation-candidate.test.cjs", "scripts/evals/cs3-skill-remediation-oracle.test.cjs", "scripts/evals/cs3-skill-remediation.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
+    "cs3-skill-remediation-host": {
+      "task_ids": ["CS-3"],
+      "args": ["--test", "scripts/evals/cs3-skill-remediation.integration.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 720000,
       "max_output_bytes": 2097152
     },
     "cs3-comparison-host": {

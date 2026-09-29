@@ -20,10 +20,10 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const arms = ['none', 'nearest', 'candidate'];
 const limits = Object.freeze({ runs: 108, slot_micros: 600000, slot_requests: 16, aggregate_micros: 64800000, aggregate_requests: 1728, output_tokens: '2048' });
 // Bind the complete local verifier/helper closure, including transitive imports.
-const sourceScope = ['src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'src/evals/skills/cs3-runtime-remediation', 'scripts/evals', 'scripts/skills/builtin-assets.cjs', 'src/tests/support/windows'];
-function conservative(plan) { return plan.successor || plan.runtime_amendment?.accounting || plan.remediation?.accounting || null; }
-function planTasks(plan) { return plan.runtime_amendment ? require('./cs3-runtime-amendment.cjs').tasks(plan.spec) : plan.remediation ? require('./cs3-document-remediation.cjs').tasks() : cohort(plan.spec.web_evidence, plan.spec.successor); }
-function candidateRegistry(spec) { return spec.runtime_amendment ? candidates : spec.remediation ? require('./cs3-document-remediation.cjs').candidateRegistry : candidates; }
+const sourceScope = ['src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'src/evals/skills/cs3-runtime-remediation', 'src/evals/skills/cs3-skill-remediation', 'src/evals/skills/cs3-controller-recovery', 'scripts/evals', 'scripts/skills/builtin-assets.cjs', 'src/tests/support/windows'];
+function conservative(plan) { return plan.successor || plan.skill_remediation?.accounting || plan.runtime_amendment?.accounting || plan.remediation?.accounting || null; }
+function planTasks(plan) { return plan.skill_remediation ? require('./cs3-skill-remediation.cjs').tasks() : plan.runtime_amendment ? require('./cs3-runtime-amendment.cjs').tasks(plan.spec) : plan.remediation ? require('./cs3-document-remediation.cjs').tasks() : cohort(plan.spec.web_evidence, plan.spec.successor); }
+function candidateRegistry(spec) { return spec.skill_remediation ? require('./cs3-skill-remediation.cjs').candidateRegistry : spec.runtime_amendment ? candidates : spec.remediation ? require('./cs3-document-remediation.cjs').candidateRegistry : candidates; }
 function bound(ref, maximum = 16 * 1024 * 1024) {
   if (!ref || typeof ref.path !== 'string' || !path.isAbsolute(ref.path) || !/^[a-f0-9]{64}$/.test(ref.sha256)) throw Error('Absolute hash-bound evidence required');
   const bytes = read(plain(ref.path), maximum);
@@ -82,7 +82,7 @@ function profile(spec, task, workspace, arm, checkExpiry = true) {
   const reasons = fixedProfileReasons(original, checkExpiry ? Date.now() : 0);
   const allowed = ['version', 'workspace', 'trust_workspace', 'sync_roots', 'maximum_autonomy', 'automatic_effects', 'budget_usd', 'provider', 'catalog', 'affected_paths', 'canonical_tools', 'max_requests', 'output_tokens', 'provider_timeout_seconds', 'max_transport_retries', 'deadline_seconds', 'processes', 'checks', 'mcp', 'mcp_http'];
   if (Object.keys(original).some(key => !allowed.includes(key))) reasons.push('Source profile contains an unapproved field, hook, observer, skill source or routing setting');
-  if (reasons.length || original.max_requests !== 16 || original.output_tokens !== '2048' || original.provider?.compatibility?.model !== 'deepseek/deepseek-v3.2' || original.provider.compatibility.endpoint !== (spec.successor || spec.remediation ? 'deepinfra/fp4' : 'gmicloud/fp8')) throw Error('Exact current qualified DeepSeek profile required: ' + reasons.join('; '));
+  if (reasons.length || original.max_requests !== 16 || original.output_tokens !== '2048' || original.provider?.compatibility?.model !== 'deepseek/deepseek-v3.2' || original.provider.compatibility.endpoint !== (spec.skill_remediation ? 'friendli' : spec.successor || spec.remediation ? 'deepinfra/fp4' : 'gmicloud/fp8')) throw Error('Exact current qualified DeepSeek profile required: ' + reasons.join('; '));
   return { ...original, workspace, catalog: spec.catalog.path, budget_usd: '0.600000', maximum_autonomy: 'plan', automatic_effects: [],
     canonical_tools: task.kind === 'near_miss' && !task.outputs.length ? ['vcp_verify'] : ['vcp_list', 'vcp_read', 'vcp_search', 'vcp_verify'],
     affected_paths: Object.keys(task.files).length ? Object.keys(task.files) : ['status.txt'],
@@ -101,6 +101,7 @@ function buildProvenance(build, executable) {
   return build;
 }
 function describe(spec, directory) {
+  if (spec.skill_remediation) return require('./cs3-skill-remediation.cjs').describe(spec, directory);
   if (spec.runtime_amendment) return require('./cs3-runtime-amendment.cjs').describe(spec, directory);
   if (spec.remediation) return require('./cs3-document-remediation.cjs').describe(spec, directory);
   noSecrets(spec);
@@ -144,6 +145,7 @@ function claimFile(successor = false) {
   return path.join(path.resolve(root, common), successor ? 'vcp-cs3-deepseek-20260928-successor-v2-claim.json' : 'vcp-cs3-deepseek-20260928-comparison-claim.json');
 }
 function prepare(specFile, destination) {
+  if (JSON.parse(read(specFile)).skill_remediation) return require('./cs3-skill-remediation.cjs').prepare(specFile, destination);
   if (JSON.parse(read(specFile)).runtime_amendment) return require('./cs3-runtime-amendment.cjs').prepare(specFile, destination);
   if (JSON.parse(read(specFile)).remediation) return require('./cs3-document-remediation.cjs').prepare(specFile, destination);
   const directory = plain(path.resolve(destination));
@@ -164,7 +166,8 @@ function prepare(specFile, destination) {
   return { plan: path.join(directory, 'plan.json'), sha256: sha(read(path.join(directory, 'plan.json'))), runs: plan.runs.length, model_calls: 0 };
 }
 function validate(plan, hash, checkExpiry = true) {
-  if (plan.remediation) require('./cs3-document-remediation.cjs').validate(plan, hash);
+  if (plan.skill_remediation) require('./cs3-skill-remediation.cjs').validate(plan, hash);
+  else if (plan.remediation) require('./cs3-document-remediation.cjs').validate(plan, hash);
   else if (plan.isolated) require('./cs3-comparison-isolated.cjs').validate(plan, hash);
   else if (plan.segment) require('./cs3-comparison-segment.cjs').validate(plan, hash);
   else if (plan.schema !== (plan.spec.successor ? 'cs3-comparison-plan/2' : 'cs3-comparison-plan/1') || sha(read(path.join(plan.directory, 'plan.json'))) !== hash || !equal(JSON.parse(read(claimFile(plan.spec.successor))), { directory: plan.directory, plan_sha256: hash })) throw Error('Exact envelope ownership required');
@@ -191,6 +194,7 @@ function reportFile(plan, id) { return retainedPrefix(plan, id) ? path.join(cont
 function slotReport(plan, id) { return JSON.parse(read(reportFile(plan, id))); }
 function claimed(plan, id) { return retainedPrefix(plan, id) || fs.existsSync(path.join(controlDirectory(plan), 'claims', id + '.json')); }
 function admission(plan) {
+  if (plan.skill_remediation) return require('./cs3-skill-remediation.cjs').admission(plan);
   if (plan.runtime_amendment) return require('./cs3-runtime-amendment.cjs').admission(plan);
   if (plan.remediation) return require('./cs3-document-remediation.cjs').admission(plan);
   if (plan.isolated) return require('./cs3-comparison-isolated.cjs').admission(plan);
@@ -240,8 +244,8 @@ function qualificationWindow(profile, now = Date.now()) {
 async function run(file, authorization, skill, call = invoke) {
   const plan = validate(JSON.parse(read(file)), authorization);
   const control = controlDirectory(plan);
-  if (!candidates.ids.includes(skill) || plan.remediation && skill !== 'document-authoring' || plan.isolated && skill !== plan.isolated.skill || fs.existsSync(path.join(control, 'halt.json'))) throw Error('Unknown skill or terminal halted envelope');
-  for (const priorSkill of plan.isolated ? [] : candidates.ids.slice(0, candidates.ids.indexOf(skill))) {
+  if (!candidates.ids.includes(skill) || plan.skill_remediation && skill !== 'skill-authoring' || plan.remediation && skill !== 'document-authoring' || plan.isolated && skill !== plan.isolated.skill || fs.existsSync(path.join(control, 'halt.json'))) throw Error('Unknown skill or terminal halted envelope');
+  for (const priorSkill of plan.isolated || plan.skill_remediation ? [] : candidates.ids.slice(0, candidates.ids.indexOf(skill))) {
     require('./cs3-comparison-review.cjs').validateDisposition(file, authorization, priorSkill);
   }
   const active = path.join(control, 'active-block.json');
@@ -289,8 +293,8 @@ async function run(file, authorization, skill, call = invoke) {
       if (capture.canaryDisclosed(base, { forbidden_output_literals: forbidden })) throw Error('Synthetic canary disclosed in canonical output');
       try {
         const answer = capture.responseAnswer(responses, money.attempts); write(path.join(base, 'answer.json'), answer.answer);
-        const selectedOracle = plan.runtime_amendment ? task.skill === 'skill-authoring' ? require('./cs3-runtime-skill-oracle.cjs') : require('./cs3-runtime-boundary-oracle.cjs') : oracle;
-        const files = selectedOracle.artifact(task, answer.answer), text = plan.runtime_amendment ? selectedOracle.textual(task, answer.answer, files) : plan.remediation ? require('./cs3-document-remediation-oracle.cjs').textual(task, answer.answer, files) : plan.successor ? require('./cs3-doc-successor-oracle.cjs').textual(task, answer.answer, files) : oracle.textual(task, answer.answer, files);
+        const selectedOracle = plan.skill_remediation ? require('./cs3-skill-remediation-oracle.cjs') : plan.runtime_amendment ? task.skill === 'skill-authoring' ? require('./cs3-runtime-skill-oracle.cjs') : require('./cs3-runtime-boundary-oracle.cjs') : oracle;
+        const files = selectedOracle.artifact(task, answer.answer), text = plan.skill_remediation || plan.runtime_amendment ? selectedOracle.textual(task, answer.answer, files) : plan.remediation ? require('./cs3-document-remediation-oracle.cjs').textual(task, answer.answer, files) : plan.successor ? require('./cs3-doc-successor-oracle.cjs').textual(task, answer.answer, files) : oracle.textual(task, answer.answer, files);
         report.textual = text;
         materialize(task, files, base);
         if (!text.passed) report.status = 'failed';
@@ -313,14 +317,15 @@ async function run(file, authorization, skill, call = invoke) {
     } catch (error) {
       report.status = 'failed'; report.reason = error.message; report.accounted = accounted;
       if (!dispatched) { report.actual_cost_micros = 0; report.accounted = true; }
-      const failure = plan.isolated ? require('./cs3-comparison-isolated.cjs').failure(plan, authorization, row, report, error) : {};
+      const failure = plan.skill_remediation ? require('./cs3-skill-remediation.cjs').failure(plan, authorization, row, report, error)
+        : plan.isolated ? require('./cs3-comparison-isolated.cjs').failure(plan, authorization, row, report, error) : {};
       if (!fs.existsSync(path.join(base, 'result.json'))) write(path.join(base, 'result.json'), report);
       if (!fs.existsSync(path.join(control, 'halt.json'))) write(path.join(control, 'halt.json'), { plan_sha256: authorization, slot: row.id, reason: error.message, ...failure, action: 'Read-only reconciliation only; consumed claims never replay.' });
       reports.push(report); break;
     }
   }
   const result = { schema: 'cs3-comparison-block/1', plan_sha256: authorization, skill, runs: reports, stopped: fs.existsSync(path.join(control, 'halt.json')), actual_cost_micros: reports.every(r => r.actual_cost_micros !== null) ? reports.reduce((sum, r) => sum + r.actual_cost_micros, 0) : null, observed_attempts: reports.reduce((sum, r) => sum + r.observed_attempts, 0) };
-  if (conservative(plan) && (!result.stopped || (plan.isolated || plan.remediation) && reports.every(r => Number.isSafeInteger(r.conservative_debit_micros)))) for (const field of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) result[field] = reports.reduce((sum, r) => sum + r[field], 0);
+  if (conservative(plan) && (!result.stopped || (plan.isolated || plan.remediation || plan.skill_remediation) && reports.every(r => Number.isSafeInteger(r.conservative_debit_micros)))) for (const field of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) result[field] = reports.reduce((sum, r) => sum + r[field], 0);
   write(path.join(control, `result-${skill}.json`), result);
   if (!result.stopped) fs.unlinkSync(active);
   return result;

@@ -29,9 +29,12 @@ function fixture(t) {
   put(path.join(old, 'scripts/evals/historical-dependency.cjs'), 'module.exports={authenticated:true};');
   put(path.join(old, 'scripts/evals/cs3-comparison-review.cjs'), `const fs=require('node:fs'),path=require('node:path');require('./historical-dependency.cjs');
 module.exports={validateDisposition:(file,hash,skill)=>JSON.parse(fs.readFileSync(path.join(JSON.parse(fs.readFileSync(file)).control_directory,'disposition-'+skill+'.json'))),
+validateTerminalDisposition:file=>JSON.parse(fs.readFileSync(path.join(JSON.parse(fs.readFileSync(file)).control_directory,'terminal-disposition-skill-authoring.json'))),
 block:file=>({result:JSON.parse(fs.readFileSync(file)).test_result})};`);
+  put(path.join(old, 'scripts/evals/cs3-document-remediation.cjs'), 'module.exports={priorTerminal:(ref,decision)=>({audit_sha256:ref.sha256,synthetic:true})};');
+  put(path.join(old, 'src/evals/skills/cs3-document-remediation/decision.json'), { synthetic: true });
   fs.cpSync(old, archive, { recursive: true });
-  const scope = ['scripts', 'src/tests/support/windows/webapp'];
+  const scope = ['scripts', 'src/tests/support/windows/webapp', 'src/evals/skills/cs3-document-remediation'];
   const identity = (target, selected) => { const value = realPrep.identity(target, selected); if ([old, archive].includes(target) && JSON.stringify(selected) === JSON.stringify(scope)) value.content_sha256 = pins.historical_source_sha256; return value; };
   const source = identity(old, scope), archiveFile = put(path.join(directory, 'archive-receipt.json'), { schema: 'cs3-frozen-preflight-supplement-source-archive/1', commit: '6de62de0' + '0'.repeat(32), archive, source,
     source_before_after_equal: true, archive_source_equal: true, model_calls: 0, claims_created: 0 });
@@ -106,6 +109,30 @@ function finalFixture(t) {
       artifact_sha256: row.materialized.sha256, case_id: row.case_id, status: 'passed', assertions: row.browser.assertions, test_html: JSON.parse(f.bound(row.materialized))['index.html'] }) })) };
   return { ...f, historical, spec };
 }
+function mixedFixture(t) {
+  const f = finalFixture(t), future = path.join(f.directory, 'future-skl'), archive = path.join(f.directory, 'future-skl-archive');
+  fs.cpSync(f.old, future, { recursive: true });
+  // This synthetic reviewed module deliberately depends on the separately
+  // authenticated old reviewer, as real SKL admission does for its predecessor.
+  f.put(path.join(future, 'scripts/evals/cs3-comparison-review.cjs'), `const fs=require('node:fs');const old=require(${JSON.stringify(path.join(f.old, 'scripts/evals/cs3-comparison-review.cjs'))});
+module.exports={...old,validateDisposition:(file,hash,skill)=>{const plan=JSON.parse(fs.readFileSync(file));const value=old.validateDisposition(file,hash,skill);if(plan.test_mutate)fs.writeFileSync(plan.test_mutate,'mutated');return value;}};`);
+  const frozenDecision = { ...structuredClone(f.pins), skill_remediation_lineage: { ...structuredClone(f.pins.skill_remediation_lineage) } };
+  f.put(path.join(future, 'src/evals/skills/cs3-controller-recovery/qualification-decision.json'), frozenDecision);
+  const scope = ['scripts', 'src/evals', 'src/tests/support/windows/webapp'], source = realPrep.identity(future, scope);
+  fs.cpSync(future, archive, { recursive: true });
+  const commit = '1'.repeat(40), archiveRef = f.put(path.join(f.directory, 'future-archive-receipt.json'), { schema: 'cs3-frozen-skill-remediation-source-archive/1', commit, archive, source,
+    source_before_after_equal: true, archive_source_equal: true, model_calls: 0, claims_created: 0 });
+  const selected = f.input.plans[0], plan = JSON.parse(f.bound(selected.plan));
+  plan.source = source; plan.skill_remediation = { synthetic: true }; plan.spec.build_receipt.sha256 = '2'.repeat(64);
+  plan.candidate_assets = { entries: [{ id: 'skill-authoring', version: '1.0.3' }], files: [{ path: 'skill-authoring/skill.json', sha256: '3'.repeat(64) }] };
+  plan.spec.gates.ui_qualification.sha256 = f.pins.new_ui_matrix_sha256; plan.spec.gates.web_oracles.sha256 = f.pins.new_web_sha256;
+  const skillPlan = f.put(path.join(f.directory, 'new-skl-plan.json'), plan);
+  f.pins.skill_remediation_lineage = { archive_schema: 'cs3-frozen-skill-remediation-source-archive/1', candidate_version: '1.0.3', root: future, commit,
+    source_sha256: source.content_sha256, archive_receipt_sha256: archiveRef.sha256, build_receipt_sha256: plan.spec.build_receipt.sha256,
+    executable_sha256: f.pins.executable_sha256, candidate_inventory_sha256: sha(JSON.stringify(plan.candidate_assets)) };
+  const input = { historical_archive: f.input.archive, skill_archive: archiveRef, plans: [{ skill: 'skill-authoring', plan: skillPlan }, ...f.input.plans.slice(1)] };
+  return { ...f, future, futureArchive: archive, mixedInput: input, newPlan: plan, skillPlan, frozenDecision };
+}
 test('missing decision pins fail closed and legacy UI gate retains its original decision', t => {
   const helper = actual('./cs3-controller-recovery-qualification.cjs'), file = path.join(__dirname, '../../src/evals/skills/cs3-controller-recovery/qualification-decision.json');
   const production = () => helper.decision({ path: file, sha256: sha(fs.readFileSync(file)) });
@@ -173,4 +200,55 @@ test('summary-only cuts and changed reader-visible assertions cannot qualify', t
   f.spec.cancel.receipt = f.put(f.spec.cancel.receipt.path, original); f.pins.new_cancel_sha256 = f.spec.cancel.receipt.sha256; f.spec.decision = f.saveDecision();
   const row = f.spec.fresh_ui[0], value = JSON.parse(f.bound(row.receipt)); value.assertions[0].passed = false;
   row.receipt = f.put(row.receipt.path, value); assert.throws(() => f.helper.validate(f.spec), /reader evidence/);
+});
+
+test('SKL prerequisite projection authenticates actual preserved terminal reviewer, not a passed summary', t => {
+  const f = fixture(t), decision = f.saveDecision(), selected = f.input.plans[0], value = JSON.parse(f.bound(selected.plan));
+  value.runtime_amendment = { synthetic: true }; selected.plan = f.put(selected.plan.path, value);
+  const disposition = f.put(path.join(value.control_directory, 'disposition-skill-authoring.json'), { status: 'unqualified' });
+  const input = { archive: f.input.archive, retirement: { path: path.join(f.directory, 'retirement.json'), sha256: '729cd66e7d190349960fbe5fc9d7adfac5dd431ca6310a632101691455929fb7' }, terminal_plan: selected.plan, terminal_disposition: disposition };
+  const result = f.helper.skillRemediationPrerequisites(input, decision); assert.equal(result.status, 'unqualified'); assert.equal(result.model_calls, 0);
+  input.terminal_disposition = f.put(disposition.path, { status: 'qualified' }); assert.throws(() => f.helper.skillRemediationPrerequisites(input, decision), /authentic terminal failure/);
+  input.terminal_disposition = f.put(path.join(value.control_directory, 'terminal-disposition-skill-authoring.json'), { status: 'terminal_unqualified' });
+  assert.equal(f.helper.skillRemediationPrerequisites(input, decision).status, 'terminal_unqualified');
+  const source = path.join(f.old, 'scripts/evals/cs3-document-remediation.cjs'); f.put(source, 'module.exports={priorTerminal:()=>({forged:true})}');
+  assert.throws(() => f.helper.skillRemediationPrerequisites(input, decision), /source differs/);
+});
+
+test('native-only prerequisite projection retains exact lifecycle gates without claiming six-skill completion', t => {
+  const f = finalFixture(t), { historical_proof, fresh_ui, ...spec } = f.spec;
+  const result = f.helper.nativePrerequisites(spec); assert.equal(result.ui_qualification.controls, 23); assert.equal(result.six_skills_qualified, undefined);
+  const native = JSON.parse(f.bound(spec.cancel.receipt)); native.events = []; spec.cancel.receipt = f.put(spec.cancel.receipt.path, native);
+  f.pins.new_cancel_sha256 = spec.cancel.receipt.sha256; spec.decision = f.saveDecision(); assert.throws(() => f.helper.nativePrerequisites(spec), /Cut token/);
+});
+
+test('mixed final proof authenticates five old reviews and one new SKL without a pin cycle', t => {
+  const f = mixedFixture(t), before = fs.readFileSync(path.join(f.future, 'src/evals/skills/cs3-controller-recovery/qualification-decision.json'));
+  const proof = f.helper.mixedHistoricalProjection(f.mixedInput, f.saveDecision());
+  assert.equal(proof.dispositions.length, 6); assert.equal(proof.ui_outputs.length, 6);
+  assert.notEqual(proof.lineages.historical.source_sha256, proof.lineages.skill_remediation.source_sha256);
+  const ref = f.put(path.join(f.directory, 'mixed-proof.json'), proof); f.pins.historical_comparison_proof_sha256 = ref.sha256;
+  f.spec.historical_proof = ref; f.spec.decision = f.saveDecision();
+  assert.equal(f.helper.validate(f.spec).six_skills_qualified, true);
+  assert.deepEqual(fs.readFileSync(path.join(f.future, 'src/evals/skills/cs3-controller-recovery/qualification-decision.json')), before);
+  assert.equal(JSON.parse(before).skill_remediation_lineage.source_sha256, null, 'Frozen paid source never needs its future final-acceptance pins');
+});
+
+test('mixed lineage cannot substitute old SKL, another archive or mutable cached reviewer', t => {
+  const f = mixedFixture(t), decision = f.saveDecision();
+  const wrong = structuredClone(f.mixedInput); wrong.plans[0] = f.input.plans[0];
+  assert.throws(() => f.helper.mixedHistoricalProjection(wrong, decision), /comparison identity/);
+  wrong.plans[0] = f.mixedInput.plans[0]; wrong.skill_archive = f.input.archive;
+  assert.throws(() => f.helper.mixedHistoricalProjection(wrong, decision), /skill_remediation archive/);
+  const reviewer = path.join(f.future, 'scripts/evals/cs3-comparison-review.cjs'); let invoked = false;
+  require.cache[reviewer] = { exports: { validateDisposition() { invoked = true; return { status: 'qualified' }; } } };
+  assert.throws(() => f.helper.mixedHistoricalProjection(f.mixedInput, decision), /cached historical/); assert.equal(invoked, false); delete require.cache[reviewer];
+  f.pins.skill_remediation_lineage.source_sha256 = null; assert.throws(() => f.helper.mixedHistoricalProjection(f.mixedInput, f.saveDecision()), /lineage pins/);
+});
+
+test('a new-lineage reviewer cannot mutate earlier old evidence during the mixed projection', t => {
+  const f = mixedFixture(t), oldUi = JSON.parse(f.bound(f.mixedInput.plans[1].plan));
+  f.newPlan.test_mutate = path.join(oldUi.directory, oldUi.runs[0].id, 'result.json');
+  f.mixedInput.plans[0].plan = f.put(f.skillPlan.path, f.newPlan);
+  assert.throws(() => f.helper.mixedHistoricalProjection(f.mixedInput, f.saveDecision()), /Mixed-lineage evidence changed/);
 });

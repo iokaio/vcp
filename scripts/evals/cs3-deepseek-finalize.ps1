@@ -15,7 +15,7 @@ $resultFile = Join-Path $directory 'probe-output/result.json'
 if (-not (Test-Path -LiteralPath $specFile -PathType Leaf) -or -not (Test-Path -LiteralPath $resultFile -PathType Leaf)) { throw 'Completed probe inputs are absent' }
 $spec = Get-Content -LiteralPath $specFile -Raw | ConvertFrom-Json
 $result = Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json
-if ($spec.model -cne 'deepseek/deepseek-v3.2' -or @('gmicloud/fp8','deepinfra/fp4') -cnotcontains $spec.endpoint -or
+if ($spec.model -cne 'deepseek/deepseek-v3.2' -or @('gmicloud/fp8','deepinfra/fp4','friendli') -cnotcontains $spec.endpoint -or
     $result.status -cne 'observed' -or $result.responses_text_tools -ne $true -or
     $result.ledger.active -cne '0' -or $result.ledger.unresolved -cne '0' -or @($result.responses).Count -ne 2) {
     throw 'Exact settled DeepSeek conformance pair required'

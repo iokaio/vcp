@@ -168,13 +168,13 @@ function validateDisposition(planFile, planHash, skill) {
   return disposition;
 }
 function terminalEvidence(planFile, planHash) {
-  const plan = campaign.validate(JSON.parse(read(planFile)), planHash, false), skill = plan.isolated?.skill;
-  if (plan.schema !== 'cs3-comparison-isolated-plan/1' || typeof skill !== 'string' || !skill || plan.runs.length !== 18 || plan.runs.some(row => row.skill !== skill)) throw Error('Terminal disposition requires one exact isolated eighteen-slot plan');
-  const evidence = require('./cs3-comparison-isolated.cjs').validateTerminal(plan, planHash);
+  const plan = campaign.validate(JSON.parse(read(planFile)), planHash, false), skl = !!plan.skill_remediation, skill = skl ? 'skill-authoring' : plan.isolated?.skill;
+  if (plan.schema !== (skl ? 'cs3-skill-remediation-plan/1' : 'cs3-comparison-isolated-plan/1') || typeof skill !== 'string' || !skill || plan.runs.length !== 18 || plan.runs.some(row => row.skill !== skill)) throw Error('Terminal disposition requires one exact isolated eighteen-slot plan');
+  const evidence = (skl ? require('./cs3-skill-remediation.cjs') : require('./cs3-comparison-isolated.cjs')).validateTerminal(plan, planHash);
   if (evidence?.skill !== skill || evidence.plan_sha256 !== planHash || evidence.reason !== 'supplied_synthetic_canary' || evidence.no_unresolved_execution_effects !== true
     || !Array.isArray(evidence.claimed_ids) || !evidence.claimed_ids.length || evidence.claimed_ids.length > 18
     || !equal(evidence.claimed_ids, plan.runs.slice(0, evidence.claimed_ids.length).map(row => row.id))) throw Error('Authenticated isolated synthetic-canary terminal evidence required');
-  const disposition = { schema: 'cs3-comparison-isolated-terminal-disposition/1', plan_sha256: planHash, skill, status: 'terminal_unqualified',
+  const disposition = { schema: skl ? 'cs3-skill-remediation-terminal-disposition/1' : 'cs3-comparison-isolated-terminal-disposition/1', plan_sha256: planHash, skill, status: 'terminal_unqualified',
     candidate_qualified: false, independent_blind_readers: 0, blind_review: 'not_run_incomplete_or_security_halted_block',
     claimed_ids: evidence.claimed_ids, undispatched_ids: plan.runs.slice(evidence.claimed_ids.length).map(row => row.id),
     evidence, model_calls: 0 };

@@ -37,11 +37,32 @@ function uiDecision(ref) {
   need(/^[a-f0-9]{64}$/.test(approved.new_ui_matrix_sha256 || ''), 'New UI matrix remains unqualified');
   return { ...historical, decision_id: approved.decision_id, qualification_sha256: approved.new_ui_matrix_sha256 };
 }
-function archivedSource(approved, archiveRef) {
-  pin(approved.historical_archive_receipt_sha256, archiveRef?.sha256, 'historical archive');
-  const archive = json(archiveRef), oldRoot = plain(approved.historical_root);
-  need(archive.schema === 'cs3-frozen-preflight-supplement-source-archive/1' && archive.commit.startsWith(approved.historical_commit)
-    && archive.source.content_sha256 === approved.historical_source_sha256 && archive.source_before_after_equal === true
+function lineage(approved, kind) {
+  if (kind === 'historical') return { root: approved.historical_root, commit: approved.historical_commit, source_sha256: approved.historical_source_sha256,
+    archive_receipt_sha256: approved.historical_archive_receipt_sha256, archive_schema: 'cs3-frozen-preflight-supplement-source-archive/1',
+    build_receipt_sha256: approved.historical_build_receipt_sha256, executable_sha256: approved.executable_sha256,
+    ui_sha256: approved.historical_ui_matrix_sha256, web_sha256: approved.historical_web_sha256 };
+  need(kind === 'skill_remediation', 'Only two fixed source lineages are supported');
+  const selected = approved.skill_remediation_lineage;
+  need(selected && equal(Object.keys(selected).sort(), ['archive_receipt_sha256', 'archive_schema', 'build_receipt_sha256', 'candidate_inventory_sha256', 'candidate_version', 'commit', 'executable_sha256', 'root', 'source_sha256'])
+    && selected.archive_schema === 'cs3-frozen-skill-remediation-source-archive/1' && selected.candidate_version === '1.0.3'
+    && typeof selected.root === 'string' && path.isAbsolute(selected.root) && /^[a-f0-9]{40}$/.test(selected.commit || '')
+    && ['archive_receipt_sha256', 'build_receipt_sha256', 'candidate_inventory_sha256', 'executable_sha256', 'source_sha256'].every(key => /^[a-f0-9]{64}$/.test(selected[key] || '')),
+  'Missing fixed SKL lineage pins');
+  const directory = plain(selected.root);
+  need(directory !== root && !within(directory, root) && !within(root, directory)
+    && !within(approved.historical_root, directory) && !within(directory, approved.historical_root)
+    && selected.source_sha256 !== approved.historical_source_sha256 && selected.archive_receipt_sha256 !== approved.historical_archive_receipt_sha256
+    && selected.build_receipt_sha256 !== approved.historical_build_receipt_sha256, 'SKL lineage must preserve a distinct authenticated source/build');
+  return { ...selected, ui_sha256: approved.new_ui_matrix_sha256, web_sha256: approved.new_web_sha256 };
+}
+function archivedSource(approved, archiveRef, kind = 'historical') {
+  const selected = lineage(approved, kind);
+  pin(selected.archive_receipt_sha256, archiveRef?.sha256, kind + ' archive');
+  const archive = json(archiveRef), oldRoot = plain(selected.root);
+  need(archive.schema === selected.archive_schema && typeof archive.commit === 'string'
+    && (kind === 'historical' ? archive.commit.startsWith(selected.commit) : archive.commit === selected.commit)
+    && archive.source.content_sha256 === selected.source_sha256 && archive.source_before_after_equal === true
     && archive.archive_source_equal === true && archive.model_calls === 0 && archive.claims_created === 0, 'Historical archive provenance differs');
   need(equal(prep.identity(plain(archive.archive), archive.source.scope), archive.source)
     && equal(prep.identity(oldRoot, archive.source.scope), archive.source), 'Preserved historical source differs');
@@ -52,8 +73,9 @@ function archivedSource(approved, archiveRef) {
     && equal(inventory.directories.filter(item => item !== '.').map(item => item.slice(2)).sort(), [...directories].sort()), 'Historical archive has unbound entries');
   return { archive, oldRoot };
 }
-function historicalCall(approved, archiveRef, action) {
-  const before = archivedSource(approved, archiveRef), allowed = new Map(before.archive.source.files.map(item => [path.resolve(before.oldRoot, item.path), item]));
+function historicalCall(approved, archiveRef, action, kind = 'historical', historicalArchive = null) {
+  const before = archivedSource(approved, archiveRef, kind), predecessor = kind === 'skill_remediation' ? archivedSource(approved, historicalArchive) : null;
+  const allowed = new Map([before, ...(predecessor ? [predecessor] : [])].flatMap(source => source.archive.source.files.map(item => [path.resolve(source.oldRoot, item.path), item])));
   const loaded = new Map(), loading = new Set(), originalLoad = Module._load;
   // Each non-builtin dependency must belong to the hash-pinned source closure.
   // Previously injected/cached exports cannot stand in for reviewed source.
@@ -72,9 +94,9 @@ function historicalCall(approved, archiveRef, action) {
   };
   try {
     const oldRequire = Module.createRequire(path.join(before.oldRoot, 'scripts/evals/cs3-comparison-review.cjs'));
-    const result = action(oldRequire('./cs3-comparison-review.cjs'), oldRequire('./cs3-comparison.cjs'));
+    const result = action(oldRequire('./cs3-comparison-review.cjs'), oldRequire('./cs3-comparison.cjs'), oldRequire);
     for (const file of loaded.keys()) need(sha(read(file)) === allowed.get(file).sha256, 'Historical dependency changed during review');
-    need(equal(archivedSource(approved, archiveRef), before), 'Historical source changed during review');
+    need(equal(archivedSource(approved, archiveRef, kind), before) && (!predecessor || equal(archivedSource(approved, historicalArchive), predecessor)), 'Historical source changed during review');
     return result;
   } finally {
     Module._load = originalLoad;
@@ -87,14 +109,23 @@ function historicalProjection(input, decisionRef) {
   const approved = decision(decisionRef);
   need(equal(Object.keys(input).sort(), ['archive', 'plans']) && Array.isArray(input.plans)
     && equal(input.plans.map(row => row.skill), skills), 'Exact six historical plans required');
-  return historicalCall(approved, input.archive, (review, campaign) => {
-    const parsed = input.plans.map(row => ({ ...row, value: json(row.plan) })), protectedRoots = new Set();
+  return { schema: 'cs3-controller-recovery-historical-proof/1', input, source_sha256: approved.historical_source_sha256,
+    executable_sha256: approved.executable_sha256, build_receipt_sha256: approved.historical_build_receipt_sha256,
+    ...reviewRows(approved, input.archive, input.plans), model_calls: 0, historical_results_modified: false };
+}
+function reviewRows(approved, archive, rows, kind = 'historical', historicalArchive = null) {
+  const selected = lineage(approved, kind);
+  return historicalCall(approved, archive, (review, campaign) => {
+    const parsed = rows.map(row => ({ ...row, value: json(row.plan) })), protectedRoots = new Set();
     for (const row of parsed) {
-      need(row.value.source.content_sha256 === approved.historical_source_sha256 && row.value.spec.build_receipt.sha256 === approved.historical_build_receipt_sha256
-        && row.value.spec.executable.sha256 === approved.executable_sha256 && row.value.runs.length === 18
+      need(row.value.source.content_sha256 === selected.source_sha256 && row.value.spec.build_receipt.sha256 === selected.build_receipt_sha256
+        && row.value.spec.executable.sha256 === selected.executable_sha256 && row.value.runs.length === 18
         && row.value.runs.every(run => run.skill === row.skill), 'Historical comparison identity differs');
-      pin(approved.historical_ui_matrix_sha256, row.value.spec.gates.ui_qualification.sha256, 'historical UI gate');
-      pin(approved.historical_web_sha256, row.value.spec.gates.web_oracles.sha256, 'historical WEB gate');
+      if (kind === 'skill_remediation') need(row.skill === 'skill-authoring' && !!row.value.skill_remediation
+        && row.value.candidate_assets.entries.length === 1 && row.value.candidate_assets.entries[0].id === 'skill-authoring'
+        && row.value.candidate_assets.entries[0].version === '1.0.3' && sha(JSON.stringify(row.value.candidate_assets)) === selected.candidate_inventory_sha256, 'Exact replacement SKL candidate lineage required');
+      pin(selected.ui_sha256, row.value.spec.gates.ui_qualification.sha256, 'lineage UI gate');
+      pin(selected.web_sha256, row.value.spec.gates.web_oracles.sha256, 'lineage WEB gate');
       protectedRoots.add(plain(campaign.controlDirectory(row.value)));
       for (const run of row.value.runs) { need(/^[A-Za-z0-9_-]+$/.test(run.id), 'Unsafe historical slot'); protectedRoots.add(plain(path.join(row.value.directory, run.id))); }
       const retained = json(reference(path.join(campaign.controlDirectory(row.value), 'disposition-' + row.skill + '.json')));
@@ -124,12 +155,56 @@ function historicalProjection(input, decisionRef) {
       return { skill: row.skill, plan: row.plan, candidate_assets: row.value.candidate_assets,
         disposition: reference(path.join(campaign.controlDirectory(row.value), 'disposition-' + row.skill + '.json')), observed: disposition };
     });
-    need(uiOutputs.length === 6 && new Set(uiOutputs.map(row => row.run_id)).size === 6, 'Six historical UI normal slots required');
+    const expectedUi = rows.some(row => row.skill === 'frontend-design') ? 6 : 0;
+    need(uiOutputs.length === expectedUi && new Set(uiOutputs.map(row => row.run_id)).size === expectedUi, 'Six historical UI normal slots required');
     need(equal(snapshot(), before), 'Historical comparison evidence changed during review');
     for (const row of parsed) need(equal(json(row.plan), row.value), 'Historical plan changed during review');
-    return { schema: 'cs3-controller-recovery-historical-proof/1', input, source_sha256: approved.historical_source_sha256,
-      executable_sha256: approved.executable_sha256, build_receipt_sha256: approved.historical_build_receipt_sha256,
-      dispositions, ui_outputs: uiOutputs, protected_inventories: before, model_calls: 0, historical_results_modified: false };
+    return { dispositions, ui_outputs: uiOutputs, protected_inventories: before };
+  }, kind, historicalArchive);
+}
+function mixedHistoricalProjection(input, decisionRef) {
+  const approved = decision(decisionRef), selected = lineage(approved, 'skill_remediation');
+  need(equal(Object.keys(input).sort(), ['historical_archive', 'plans', 'skill_archive']) && Array.isArray(input.plans)
+    && equal(input.plans.map(row => row.skill), skills), 'Exact fixed mixed-lineage six plans required');
+  const oldSource = archivedSource(approved, input.historical_archive), newSource = archivedSource(approved, input.skill_archive, 'skill_remediation');
+  const old = reviewRows(approved, input.historical_archive, input.plans.slice(1));
+  const fresh = reviewRows(approved, input.skill_archive, input.plans.slice(0, 1), 'skill_remediation', input.historical_archive);
+  const inventories = [...fresh.protected_inventories, ...old.protected_inventories];
+  need(inventories.every(item => equal(prep.identity(item.directory, ['.']), item.inventory))
+    && equal(archivedSource(approved, input.historical_archive), oldSource) && equal(archivedSource(approved, input.skill_archive, 'skill_remediation'), newSource), 'Mixed-lineage evidence changed during review');
+  return { schema: 'cs3-controller-recovery-mixed-historical-proof/1', input,
+    lineages: { historical: { source_sha256: approved.historical_source_sha256, build_receipt_sha256: approved.historical_build_receipt_sha256, executable_sha256: approved.executable_sha256 },
+      skill_remediation: { source_sha256: selected.source_sha256, build_receipt_sha256: selected.build_receipt_sha256, executable_sha256: selected.executable_sha256, candidate_inventory_sha256: selected.candidate_inventory_sha256 } },
+    dispositions: [...fresh.dispositions, ...old.dispositions], ui_outputs: old.ui_outputs, protected_inventories: inventories, model_calls: 0, historical_results_modified: false };
+}
+function recomputeProof(proof, decisionRef) {
+  if (proof.schema === 'cs3-controller-recovery-historical-proof/1') return historicalProjection(proof.input, decisionRef);
+  need(proof.schema === 'cs3-controller-recovery-mixed-historical-proof/1', 'Unknown final historical proof schema');
+  return mixedHistoricalProjection(proof.input, decisionRef);
+}
+// Fixed prospective SKL admission only; this does not qualify the replacement
+// candidate or alter the original all-six historical final-join contract.
+function skillRemediationPrerequisites(input, decisionRef) {
+  const approved = decision(decisionRef);
+  need(equal(Object.keys(input).sort(), ['archive', 'retirement', 'terminal_disposition', 'terminal_plan']), 'Exact SKL historical prerequisites required');
+  pin('729cd66e7d190349960fbe5fc9d7adfac5dd431ca6310a632101691455929fb7', input.retirement.sha256, 'original retirement');
+  return historicalCall(approved, input.archive, (review, campaign, oldRequire) => {
+    const plan = json(input.terminal_plan), retained = json(input.terminal_disposition);
+    need(plan.source.content_sha256 === approved.historical_source_sha256 && plan.spec.executable.sha256 === approved.executable_sha256
+      && plan.spec.build_receipt.sha256 === approved.historical_build_receipt_sha256 && plan.runtime_amendment && plan.runs.length === 18
+      && plan.runs.every(row => row.skill === 'skill-authoring'), 'Exact terminal runtime SKL experiment required');
+    need(plain(input.terminal_disposition.path) === path.join(campaign.controlDirectory(plan), (retained.status === 'terminal_unqualified' ? 'terminal-' : '') + 'disposition-skill-authoring.json'), 'Terminal SKL disposition escaped control directory');
+    const roots = [campaign.controlDirectory(plan), ...plan.runs.map(row => { need(/^[A-Za-z0-9_-]+$/.test(row.id), 'Unsafe historical SKL slot'); return path.join(plan.directory, row.id); }),
+      ...(retained.review_directory ? [retained.review_directory] : [])];
+    const snapshot = () => roots.map(directory => ({ directory: plain(directory), inventory: prep.identity(directory, ['.']) }));
+    const before = snapshot(), doc = oldRequire('./cs3-document-remediation.cjs');
+    const retirement = doc.priorTerminal(input.retirement, oldRequire('../../src/evals/skills/cs3-document-remediation/decision.json'));
+    const terminal = retained.status === 'terminal_unqualified' ? review.validateTerminalDisposition(input.terminal_plan.path, input.terminal_plan.sha256)
+      : review.validateDisposition(input.terminal_plan.path, input.terminal_plan.sha256, 'skill-authoring');
+    need(equal(terminal, retained) && ['unqualified', 'terminal_unqualified'].includes(terminal.status), 'Prior SKL must have an authentic terminal failure');
+    need(equal(snapshot(), before) && equal(json(input.terminal_plan), plan) && equal(json(input.terminal_disposition), retained), 'SKL predecessor evidence changed');
+    return { source_sha256: approved.historical_source_sha256, executable_sha256: approved.executable_sha256, build_receipt_sha256: approved.historical_build_receipt_sha256,
+      retirement, terminal: input.terminal_disposition, status: terminal.status, protected_inventories: before, model_calls: 0 };
   });
 }
 function native(ref) {
@@ -185,6 +260,17 @@ function lifecycle(spec, approved) {
     && lost.events.some(event => event.type === 'owned_process' && event.token_verified === true), 'Exact corrected owner-loss observation required');
   return { pause: spec.pause, cancel: spec.cancel, owner_loss: spec.owner_loss };
 }
+function nativePrerequisites(spec) {
+  need(equal(Object.keys(spec).sort(), ['boundary', 'cancel', 'decision', 'node', 'node_fixture', 'owner_loss', 'pause', 'ui_matrix', 'web', 'web_evidence']), 'Exact recovery native prerequisites required');
+  const before = sourceClosure(), approved = decision(spec.decision); uiDecision(spec.decision);
+  pin(approved.new_web_sha256, spec.web.sha256, 'new WEB'); pin(approved.new_ui_matrix_sha256, spec.ui_matrix.sha256, 'new UI matrix');
+  bound(spec.node, 128 * 1024 * 1024);
+  const result = { browser_boundary: gates.denial(json(spec.boundary), spec.boundary, spec.node), node_fixture: gates.nodeControls(json(spec.node_fixture), spec.node),
+    web_oracles: gates.web(json(spec.web), spec.web, spec.web_evidence), ui_qualification: gates.recoveryUiQualification(json(spec.ui_matrix), spec.ui_matrix, spec.decision),
+    lifecycle: lifecycle(spec, approved) };
+  need(equal(sourceClosure(), before), 'Recovery native source changed during validation');
+  bound(spec.decision); return result;
+}
 function validate(spec) {
   need(equal(Object.keys(spec).sort(), ['boundary', 'cancel', 'decision', 'fresh_ui', 'historical_proof', 'node', 'node_fixture', 'owner_loss', 'pause', 'ui_matrix', 'web', 'web_evidence']), 'Exact final recovery qualification inputs required');
   const verifierScope = ['scripts/evals', 'scripts/skills/builtin-assets.cjs', 'src/evals/skills/cs3-controller-recovery'];
@@ -193,8 +279,8 @@ function validate(spec) {
   pin(approved.historical_comparison_proof_sha256, spec.historical_proof.sha256, 'historical comparison proof');
   pin(approved.new_web_sha256, spec.web.sha256, 'new WEB'); pin(approved.new_ui_matrix_sha256, spec.ui_matrix.sha256, 'new UI matrix');
   const historical = json(spec.historical_proof);
-  need(equal(historicalProjection(historical.input, spec.decision), historical), 'Historical proof does not derive from immutable source and actual reviews');
-  const archived = archivedSource(approved, historical.input.archive), oldFiles = new Map(archived.archive.source.files.map(item => [item.path, item.sha256]));
+  need(equal(recomputeProof(historical, spec.decision), historical), 'Historical proof does not derive from immutable source and actual reviews');
+  const archived = archivedSource(approved, historical.schema === 'cs3-controller-recovery-historical-proof/1' ? historical.input.archive : historical.input.historical_archive), oldFiles = new Map(archived.archive.source.files.map(item => [item.path, item.sha256]));
   const changes = sourceClosure().filter(item => oldFiles.get('src/tests/support/windows/webapp/' + item.path) !== item.sha256).map(item => item.path).sort();
   need(equal(changes, changedSources), 'Recovery qualification changed unrelated native source');
   bound(spec.node, 128 * 1024 * 1024);
@@ -213,7 +299,7 @@ function validate(spec) {
     need(original.arm !== 'candidate' || measured.status === 'passed', 'Corrected browser gate reopened the candidate');
     return { run_id: original.run_id, materialized: original.materialized, receipt: row.receipt, measured };
   });
-  need(equal(historicalProjection(historical.input, spec.decision), historical), 'Historical comparison evidence changed during final qualification');
+  need(equal(recomputeProof(historical, spec.decision), historical), 'Historical comparison evidence changed during final qualification');
   need(equal(sourceClosure(), nativeBefore) && equal(prep.identity(root, verifierScope), verifierBefore), 'Recovery verifier or native source changed during qualification');
   return { schema: 'cs3-controller-recovery-qualification/1', status: 'passed', decision: spec.decision, historical_proof: spec.historical_proof,
     verifier_source: verifierBefore, source_closure_sha256: approved.new_native_source_sha256, six_skills_qualified: true, denial, node: nodeControls, web, matrix, lifecycle: clean, fresh_ui: fresh,
@@ -228,8 +314,17 @@ function project(inputFile, outputFile) {
   need(!proof.protected_inventories.some(item => within(item.directory, output)), 'Proof cannot mutate protected comparison inventory');
   write(output, proof); return reference(output);
 }
-module.exports = { decision, uiDecision, sourceClosure, historicalProjection, validate, project };
+function projectMixed(inputFile, outputFile) {
+  const input = JSON.parse(read(inputFile)), approved = decision(input.decision), selected = lineage(approved, 'skill_remediation'), output = plain(path.resolve(outputFile));
+  need(equal(Object.keys(input).sort(), ['decision', 'historical_archive', 'plans', 'skill_archive']) && !within(root, output)
+    && !within(approved.historical_root, output) && !within(selected.root, output), 'Exact private mixed projection inputs required');
+  privateDirectory(path.dirname(output)); noParentInstructions(path.dirname(output));
+  const { decision: decisionRef, ...raw } = input, proof = mixedHistoricalProjection(raw, decisionRef);
+  need(!proof.protected_inventories.some(item => within(item.directory, output)), 'Mixed proof cannot mutate protected comparison inventory');
+  write(output, proof); return reference(output);
+}
+module.exports = { decision, uiDecision, sourceClosure, historicalProjection, mixedHistoricalProjection, skillRemediationPrerequisites, nativePrerequisites, validate, project, projectMixed };
 if (require.main === module) {
-  try { const [command, first, second] = process.argv.slice(2); const result = command === 'project-history' ? project(first, second) : command === 'validate' ? validate(JSON.parse(read(first))) : (() => { throw Error('Usage: project-history INPUT NEW_PRIVATE_FILE | validate SPEC'); })(); process.stdout.write(JSON.stringify(result, null, 2) + '\n'); }
+  try { const [command, first, second] = process.argv.slice(2); const result = command === 'project-history' ? project(first, second) : command === 'project-mixed-history' ? projectMixed(first, second) : command === 'validate' ? validate(JSON.parse(read(first))) : (() => { throw Error('Usage: project-history INPUT NEW_PRIVATE_FILE | project-mixed-history INPUT NEW_PRIVATE_FILE | validate SPEC'); })(); process.stdout.write(JSON.stringify(result, null, 2) + '\n'); }
   catch (error) { process.stderr.write(error.message + '\n'); process.exitCode = 1; }
 }
