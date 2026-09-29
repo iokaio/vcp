@@ -148,5 +148,8 @@ and all original evidence remain reserved. The
 is implemented within the existing USD 100 authorization; it is not a
 successful preflight or a replay of any comparison observation.
 
-A passed new-binary preflight, fresh comparisons, browser grades and independent
-dispositions remain required. CS-3 remains incomplete until those gates pass.
+The second supplementary new-binary preflight subsequently passed: four settled
+attempts, USD 0.002912, two reads and 64 retained artifacts. The linked runtime
+record binds its result and preserves both earlier failed observations.
+Fresh comparisons, browser grades and independent dispositions remain required.
+CS-3 remains incomplete until those gates pass.

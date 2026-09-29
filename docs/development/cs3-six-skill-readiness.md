@@ -14,8 +14,8 @@ that terminal result, permanently fences old dispatch, and transfers exactly
 72 untouched assignments alongside fresh SKL and DOC tasks. Its genuine new
 build, exact package acceptance and two-response provider qualification pass;
 the new-binary preflight failed on a retained upstream HTTP 429. A separately
-bounded compatibility supplement is implemented under the existing budget;
-passed preflight and live comparison qualification remain open.
+bounded compatibility supplement subsequently passed its second preflight,
+preserving both earlier failures. Live comparison qualification remains open.
 The owner approved at most
 USD 100 of new OpenRouter spending and directed selection of a DeepSeek model.
 That grant does not authorize replay, promotion, weakened gates or spending

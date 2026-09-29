@@ -156,7 +156,30 @@ allocation: combined maximum USD 90.863737 / 2,421 requests, leaving USD 9.13626
 unallocated. Each successor requires authenticated provider-overload evidence
 from its predecessor; a passing predecessor cannot be replayed. The original
 behavioral oracle, native executable identity and comparison slots do not change.
-This is preparation, not a claimed supplemental allocation or successful preflight.
+The supplemental allocation was subsequently claimed with receipt hash
+`752a471b06766a37c177679958514cb4dc3ed1c3aa88b2206569da5c34566158`.
+Its 258-file source archive has identity
+`84d6b90185d7ea16f11eb548f843e78a97daa218bda0d4a55bc759b099727320`.
+The genuine frozen-source build passed with receipt
+`aa1ab692434783358d419069dc88b17e708eed05b7ebaf7b285701a7e09aebb9`,
+reproducing the same `8650c167…bafc` executable used in package acceptance.
+No native or package bytes changed for this verifier-only supplement.
+
+The first replacement preflight also returned a failed result, hash
+`2a8a9116c4ced626704506f665e41aa17a512a039787a9d0b02a6965267f8734`.
+Its retained terminal response is again HTTP 429 / DeepInfra `engine_overloaded`:
+one attempt settled for USD 0.000706, and one has USD 0.129576 unresolved.
+Actual total cost remains null; its full USD 0.60 reservation remains counted.
+The ordered predecessor validator passed, admitting the second independently
+claimed supplementary slot.
+
+The second replacement passed the unchanged native behavioral oracle: four
+settled attempts costing USD 0.002912, two required reads, verification, zero
+selected skills, preserved workspace, all six inspection views and 64 retained
+artifacts. Its result hash is
+`f585989bf493354f4093b582c0e24b0632333d4961dbef4e0c6cf614f62b9cb9`.
+The third supplementary slot cannot run after this success; its reservation is
+not silently released. No earlier failure or liability changed.
 
 The supplement passed independent source review and 18 focused tests. Registered
 regressions passed 39 DOC-remediation tests and 23 runtime-amendment tests, with
@@ -167,5 +190,5 @@ The original failed observation also passed the new read-only source, ownership,
 raw-response and conservative-accounting validator. These are admission proofs,
 not live compatibility success.
 
-A passed new-binary preflight, live comparisons, browser grading and reader
-dispositions are still required. CS-3 remains incomplete.
+Live comparisons, browser grading and reader dispositions are still required.
+CS-3 remains incomplete.
