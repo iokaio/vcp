@@ -108,7 +108,11 @@ function finalFixture(t) {
 }
 test('missing decision pins fail closed and legacy UI gate retains its original decision', t => {
   const helper = actual('./cs3-controller-recovery-qualification.cjs'), file = path.join(__dirname, '../../src/evals/skills/cs3-controller-recovery/qualification-decision.json');
-  assert.equal(helper.decision({ path: file, sha256: sha(fs.readFileSync(file)) }).schema, 'cs3-controller-recovery-qualification-decision/1');
+  const production = () => helper.decision({ path: file, sha256: sha(fs.readFileSync(file)) });
+  // The retained native evidence lives on Windows. Other hosts must reject its
+  // drive path, while the synthetic absolute-root fixture below remains portable.
+  if (process.platform === 'win32') assert.equal(production().schema, 'cs3-controller-recovery-qualification-decision/1');
+  else assert.throws(production, /Separate preserved historical worktree/);
   const f = fixture(t); f.pins.new_native_source_sha256 = null; assert.throws(() => f.helper.uiDecision(f.saveDecision()), /pin/);
   assert.throws(() => actual('./cs3-comparison-gates.cjs').uiQualification({}, { path: file, sha256: sha(fs.readFileSync(file)) }), /matrix identity/);
 });

@@ -20,7 +20,7 @@ gaps and prompt-audit proposals stay outside this sequence.
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
 | CS-1 | CS-0 | Original document-authoring and skill-authoring packages | complete by owner direction — accepted non-default candidates; [remaining qualification work](../../src/skills/candidates/README.md) |
 | CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | complete — three comparisons and non-default dispositions under the owner exit rule; [retained outcomes and qualification gaps](../development/cs2-developer-skills.md); no promotion |
-| CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | in progress — browser/server, WEB/UI controls, exact new-package acceptance and supplementary new-binary preflight pass; original DOC and SKL security halts retained; [runtime amendment](../development/cs3-runtime-amendment.md) and DOC 1.0.5 remediation are implemented; live comparison qualification remains incomplete |
+| CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | in progress — retained browser/server and WEB/UI controls, exact new-package acceptance and supplementary new-binary preflight pass; [controller recovery correction](../development/cs3-controller-recovery-review.md) awaits fresh native qualification; original DOC and SKL security halts retained; live comparison qualification remains incomplete |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |
 | CS-5 | CS-4 | Original pdf-workflows and spreadsheet-workflows packages | planned |
 | CS-6 | CS-5 | Combined eight-addition default catalog and exact-package acceptance | planned |
@@ -373,6 +373,13 @@ the approved USD 100 ceiling. Passing implementation tests and retiring old
 assignments do not satisfy the remaining live comparisons. Exact DOC 1.0.5 package
 acceptance subsequently passed all four installation stages and five installed
 tests; comparison qualification remains open.
+
+Independent review then found an uncertain-controller-identity recovery path
+that could treat a failed identity query as owner absence. The
+[fail-closed correction and evidence join](../development/cs3-controller-recovery-review.md)
+pass 105 pure PowerShell assertions and 133 registered regression tests. Fresh
+native qualification is still required; historical receipts are preserved under
+their original source, not relabelled as evidence for the corrected harness.
 
 ## CS-4 — Document and data adapters
 
