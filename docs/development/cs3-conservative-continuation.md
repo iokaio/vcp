@@ -1,6 +1,6 @@
 # CS-3 conservative-liability continuation
 
-Status: preparing a separate successor under the owner's September 28, 2026
+Status: separate successor frozen and first comparison block running under the owner's September 28, 2026
 direction: “Proceed. The numbers are so low and the billing data is not always
 available. Just keep going.” This supersedes the requirement to obtain an exact
 bill before further evaluation. It does not settle an unknown native charge,
@@ -97,7 +97,26 @@ its observed cost or unresolved reservation, in the outer envelope. This is a
 new prerequisite observation after an infrastructure failure, not a replay of a
 paid comparison or a retry of the paused native task. The unchanged read,
 verification, final-output and settled-accounting oracles must all pass before
-comparison preparation. No comparison claim or paid slot has been consumed.
+comparison preparation.
+
+The replacement passed its complete oracle on September 29, 2026 UTC: four
+settled requests, USD 0.002914, zero active or unresolved liability, two exact
+read operations, canonical verification, correct final JSON and 64 authenticated
+artifacts. Its receipt has SHA-256
+`50a44b3807adda6681d31ebd5fb5f77d99d8bd923291cb5808b579c1c1141810`.
+The refreshed source-bound build receipt is
+`artifacts/cs3-comparison-build/d842e57f-6572-4f9d-abf1-a86090face1e/build-receipt.json`,
+SHA-256 `feb5aca51099d99c2c573ad102d86ff5ee8d899b9bd838531d569f1cb3330cd7`,
+with unchanged CLI hash `d08ff1069d6700a8aebc7ba668b510ce98867dc6ec2f68b7fed079b34bc5312e`.
+
+The 108-slot successor was then frozen at
+`D:/vcp-private/cs3-approved-prospective-20260928/successor-campaign/plan.json`,
+SHA-256 `42d9b02b785408a1e31987b3336f99c17535af0dba1d5939a2f6e785155733e8`,
+on source checkpoint `88c93dab`. Preparation independently revalidated the old
+campaign, both preflights, qualified endpoint, native boundary, WEB/UI and Node
+prerequisites before creating its separate durable claim. The document-authoring
+block is running; subsequent blocks still require both blind reviews and a
+recorded disposition. No qualification result is inferred from dispatch.
 
 The successor DOC cohort uses six genuinely fresh tasks, including an inbox
 decision record and configuration-upgrade notes as its normal tasks. No old
