@@ -79,13 +79,6 @@ function ReadReceipt([string]$File) {
     if ($value.root -cne $expected) { throw 'Receipt root differs from exact owned profile' }
     return $value
 }
-function Test-ExactControllerAlive($Value) {
-    try {
-        $process = [Diagnostics.Process]::GetProcessById([int]$Value.controller_pid)
-        try { return $process.StartTime.ToFileTimeUtc() -eq [long]$Value.controller_creation_filetime }
-        finally { $process.Dispose() }
-    } catch { return $false }
-}
 function Recover-AbandonedProfile([string]$File) {
     $value = ReadReceipt $File
     if (-not $value.profile_created -or $value.status -eq 'cleaned' -or $value.status -eq 'owner_loss_recovered') { return $false }

@@ -28,6 +28,84 @@ Check ($teardown.Contains('DrainCollectorAndJob(()=>{if(collector!=null)collecto
 Check (-not $teardown.Contains('JobPids(') -and $teardown.Contains('Accounts(job).Active!=0'))
 Check ($teardown.IndexOf('TerminateJobObject(job,1)') -lt $teardown.IndexOf('ProbeContract.Coverage(counts.Total,observed.Count)'))
 Check ($teardown.IndexOf('ProbeContract.Coverage(counts.Total,observed.Count)') -lt $teardown.IndexOf('WaitForDrainAcknowledgement(owner)'))
+$recorded=[pscustomobject]@{controller_pid=42;controller_creation_filetime=100L}
+$identityState=@{disposed=0;lookups=0}
+$fakeProcess=[pscustomobject]@{StartTime=[DateTime]::FromFileTimeUtc(100)}
+$fakeProcess|Add-Member ScriptMethod Dispose {$identityState.disposed++}
+Check (Test-ExactControllerAlive $recorded {$identityState.lookups++;$fakeProcess})
+Check ($identityState.disposed -eq 1 -and $identityState.lookups -eq 1)
+$fakeProcess.StartTime=[DateTime]::FromFileTimeUtc(101)
+Check (-not (Test-ExactControllerAlive $recorded {$fakeProcess}))
+Check ($identityState.disposed -eq 2)
+Check (-not (Test-ExactControllerAlive $recorded {throw [ArgumentException]::new('missing PID')}))
+# Exercise the same exception wrapping as a failing PowerShell static method.
+Check (-not (Test-ExactControllerAlive $recorded {throw [Management.Automation.MethodInvocationException]::new('wrapped missing PID',[ArgumentException]::new('missing PID'))}))
+$wrapped=$null
+try {[ArgumentException]::ThrowIfNullOrEmpty('')} catch {$wrapped=$_.Exception}
+Check ($wrapped -is [Management.Automation.MethodInvocationException] -and $wrapped.InnerException.GetType() -eq [ArgumentException])
+Check (-not (Test-ExactControllerAlive $recorded {throw $wrapped}))
+foreach($failure in @([ComponentModel.Win32Exception]::new(5),[IO.IOException]::new('query failed'),[ArgumentOutOfRangeException]::new('ProcessId'))) {
+    Reject {Test-ExactControllerAlive $recorded {throw $failure}}
+}
+Reject {Test-ExactControllerAlive $recorded {throw [Management.Automation.MethodInvocationException]::new('wrapped denial',[ComponentModel.Win32Exception]::new(5))}}
+Reject {Test-ExactControllerAlive $recorded {throw [IO.IOException]::new('not a PowerShell wrapper',[ArgumentException]::new('nested argument failure'))}}
+Reject {Test-ExactControllerAlive $recorded {throw [InvalidOperationException]::new('unknown wrapper',[ArgumentException]::new('nested argument failure'))}}
+Reject {Test-ExactControllerAlive $recorded {throw [Management.Automation.RuntimeException]::new('not method invocation',[ArgumentException]::new('nested argument failure'))}}
+Reject {Test-ExactControllerAlive $recorded {throw [Management.Automation.MethodInvocationException]::new('method wrapper',[IO.IOException]::new('unknown nested wrapper',[ArgumentException]::new('nested argument failure')))}}
+Reject {Test-ExactControllerAlive $recorded {$null}}
+foreach($bad in @($null,0,-1,'42',42.5,2147483648L)) {
+    $identityState.lookups=0
+    Reject {Test-ExactControllerAlive ([pscustomobject]@{controller_pid=$bad;controller_creation_filetime=100L}) {$identityState.lookups++;throw 'Malformed identity reached lookup'}}
+    Check ($identityState.lookups -eq 0)
+}
+foreach($bad in @($null,0L,-1L,'100',100.5,[long]::MaxValue)) {
+    $identityState.lookups=0
+    Reject {Test-ExactControllerAlive ([pscustomobject]@{controller_pid=42;controller_creation_filetime=$bad}) {$identityState.lookups++;throw 'Malformed identity reached lookup'}}
+    Check ($identityState.lookups -eq 0)
+}
+foreach($failure in @([ComponentModel.Win32Exception]::new(5),[InvalidOperationException]::new('process exited during creation query'))) {
+    $broken=[pscustomobject]@{}
+    $broken|Add-Member ScriptProperty StartTime {throw $failure}
+    $broken|Add-Member ScriptMethod Dispose {$identityState.disposed++}
+    $before=$identityState.disposed
+    Reject {Test-ExactControllerAlive $recorded {$broken}}
+    Check ($identityState.disposed -eq $before+1)
+}
+# Execute the real recovery function's unknown-owner branch with only its three
+# OS/file boundaries replaced. No profile, process or receipt operation occurs.
+$recovery=$controller.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Recover-AbandonedProfile'},$true)
+$alive=(Get-Command Test-ExactControllerAlive).ScriptBlock
+& {
+    function ReadReceipt {param($File) $value}
+    function Test-ExactControllerAlive {param($Value) & $alive $Value $lookup}
+    function Test-DeleteProfile {$state.deleted++;$state.rootExists=$false}
+    function Test-RegularTree {$state.treeChecks++}
+    function Test-Path {param($LiteralPath) if($LiteralPath -ceq $value.root){return $state.rootExists}; return $true}
+    function JsonWrite {$state.written++}
+    $source=$recovery.Extent.Text.Replace('[Vcp.Cs3Draft.NativeProbe]::DeleteProfile($value.name, $value.sid)','Test-DeleteProfile')
+    $source=$source.Replace('[Vcp.Cs3Draft.NativeProbe]::RegularTree($parent)','Test-RegularTree')
+    . ([scriptblock]::Create($source))
+    $fakeProcess.StartTime=[DateTime]::FromFileTimeUtc(100)
+    $reusedProcess=[pscustomobject]@{StartTime=[DateTime]::FromFileTimeUtc(101)}
+    $reusedProcess|Add-Member ScriptMethod Dispose {$identityState.disposed++}
+    foreach($case in @(
+        @{allow=$false;lookup={throw [ComponentModel.Win32Exception]::new(5)}},
+        @{allow=$false;lookup={$broken}}, @{allow=$false;lookup={$fakeProcess}},
+        @{allow=$true;lookup={throw [ArgumentException]::new('missing PID')}},
+        @{allow=$true;lookup={$reusedProcess}}
+    )) {
+        $state=@{deleted=0;written=0;treeChecks=0;rootExists=$true};$lookup=$case.lookup
+        $value=[pscustomobject]@{profile_created=$true;status='running';controller_pid=42;controller_creation_filetime=100L;processes_drained=$false;
+            root=[IO.Path]::Combine([IO.Path]::GetTempPath(),'cs3-synthetic-owned','AC');name='iokaio.vcp.cs3.00000000000000000000000000000000';sid='S-1-15-2-1';outcome='not_run'}
+        if($case.allow) {
+            Check (Recover-AbandonedProfile 'synthetic-receipt')
+            Check ($state.deleted -eq 1 -and $state.written -eq 1 -and $state.treeChecks -eq 1 -and $value.processes_drained -and $value.status -ceq 'owner_loss_recovered')
+        } else {
+            Reject {Recover-AbandonedProfile 'synthetic-receipt'}
+            Check ($state.deleted -eq 0 -and $state.written -eq 0 -and $state.treeChecks -eq 0 -and -not $value.processes_drained -and $value.status -ceq 'running')
+        }
+    }
+}
 Assert-NoPolicyValueNames @('another-app.exe'); Check $true
 foreach ($name in @('iokaio.vcp.cs3.webview2.probe','webviewhost.EXE','*')) { Reject { Assert-NoPolicyValueNames @($name) } }
 Assert-NoWritableRuntimeRule 'S-1-15-2-1' ([int][Security.AccessControl.FileSystemRights]::ReadAndExecute) 'Allow'; Check $true

@@ -1,5 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 # Pure controller bookkeeping; loading this file starts no processes or profiles.
+function Test-ExactControllerAlive {
+    param($Value, [scriptblock]$Lookup = { param([int]$ProcessId) [Diagnostics.Process]::GetProcessById($ProcessId) })
+    # JSON numbers must be exact positive integers before an absent-PID error can
+    # mean absence. Never coerce null, strings, fractions or overflowing values.
+    $processIdValue=$Value.controller_pid; $creationValue=$Value.controller_creation_filetime
+    if (($processIdValue -isnot [int] -and $processIdValue -isnot [long]) -or $processIdValue -le 0 -or $processIdValue -gt [int]::MaxValue -or
+        ($creationValue -isnot [int] -and $creationValue -isnot [long]) -or $creationValue -le 0) { throw 'Invalid recorded controller identity' }
+    $null=[DateTime]::FromFileTimeUtc([long]$creationValue)
+    try { $process = & $Lookup ([int]$processIdValue) }
+    catch {
+        $failure=$_.Exception
+        while ($failure.GetType() -eq [Management.Automation.MethodInvocationException] -and $failure.InnerException) { $failure=$failure.InnerException }
+        # GetProcessById reports a missing, already-validated PID using exactly
+        # ArgumentException. Other lookup failures are unknown, not owner loss.
+        if ($failure.GetType() -eq [ArgumentException]) { return $false }
+        throw
+    }
+    if ($null -eq $process) { throw 'Controller lookup returned no identity' }
+    try { return $process.StartTime.ToFileTimeUtc() -eq [long]$creationValue }
+    finally { $process.Dispose() }
+}
 function Register-OwnedProcess {
     param([hashtable]$Identities, $Event, [scriptblock]$OpenIdentity = {
         param([int]$ProcessId)
