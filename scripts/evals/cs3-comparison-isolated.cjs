@@ -115,6 +115,7 @@ function prepare(specFile, destination, dryRun = false) {
   return { manifest: reference, plans: prepared, model_calls: 0 };
 }
 function load(plan) {
+  if (plan.runtime_amendment) return require('./cs3-runtime-amendment.cjs').load(plan);
   const reference = plan.isolated?.manifest, manifest = bound(reference);
   if (manifest.schema !== 'cs3-comparison-isolation/1' || path.dirname(reference.path) !== manifest.directory
     || !equal(json(claimFile()), { directory: manifest.directory, manifest_sha256: reference.sha256 })) throw Error('Exact shared isolation ownership required');
@@ -123,23 +124,38 @@ function load(plan) {
   return manifest;
 }
 function groups(manifest, reference, previous) {
-  return skills.map(skill => { const plan = project(manifest, reference, skill, previous), file = path.join(plan.control_directory, 'plan.json');
+  return inspectGroups(skills.map(skill => project(manifest, reference, skill, previous)));
+}
+function inspectGroups(plans) {
+  return plans.map(plan => { const skill = plan.isolated.skill, file = path.join(plan.control_directory, 'plan.json');
     if (!equal(json(file), plan)) throw Error('Isolated plan changed original assignment');
     const hash = sha(read(file)), names = fs.readdirSync(path.join(plan.control_directory, 'claims')).sort(), claimed = names.filter(n => !n.startsWith('block-'));
     if (!equal(claimed, plan.runs.slice(0, claimed.length).map(r => r.id + '.json').sort()) || names.some(n => n.startsWith('block-') && n !== 'block-' + skill + '.json')
       || claimed.length && !names.includes('block-' + skill + '.json')) throw Error('Isolated claims are not a one-shot frozen prefix');
     for (const name of names) if (!equal(json(path.join(plan.control_directory, 'claims', name)), name.startsWith('block-') ? { plan_sha256: hash, skill } : { plan_sha256: hash, id: name.slice(0, -5) })) throw Error('Isolated claim identity changed');
+    const active = path.join(plan.control_directory, 'active-block.json');
+    if (fs.existsSync(active) && (!names.includes('block-' + skill + '.json') || !equal(json(active), { plan_sha256: hash, skill }))) throw Error('Isolated active block ownership changed');
     for (const row of plan.runs.slice(claimed.length)) require('./cs3-comparison-segment.cjs').pristine(plan, row);
     return { plan, hash, file, claimed: plan.runs.slice(0, claimed.length) };
   });
 }
+function state(plan) {
+  const manifest = load(plan);
+  return { manifest, all: plan.runtime_amendment ? require('./cs3-runtime-amendment.cjs').groups(manifest, plan.isolated.manifest)
+    : groups(manifest, plan.isolated.manifest, bound(manifest.spec.predecessor)) };
+}
 function validate(plan, hash) {
+  if (plan.runtime_amendment) return require('./cs3-runtime-amendment.cjs').validate(plan, hash);
   const manifest = load(plan), historicalState = historical(manifest.spec), { previous, current, prefix } = historicalState;
   const expected = { schema: 'cs3-comparison-isolation/1', directory: manifest.directory, spec: manifest.spec, source: current,
     groups: skills.map(skill => ({ skill, ids: previous.runs.filter(r => r.skill === skill).map(r => r.id) })), prefix, excluded_ids: previous.runs.slice(11, 18).map(r => r.id), model_calls: 0 };
   if (!equal(manifest, expected) || !skills.includes(plan.isolated.skill) || !equal(plan, project(manifest, plan.isolated.manifest, plan.isolated.skill, previous))) throw Error('Frozen isolation/source/assignments changed');
   if (within(previous.directory, manifest.directory) || within(manifest.directory, previous.directory) || within(previous.control_directory, manifest.directory) || within(manifest.directory, previous.control_directory)) throw Error('Isolation overlaps historical data');
-  const all = groups(manifest, plan.isolated.manifest, previous), currentGroup = all.find(g => g.plan.isolated.skill === plan.isolated.skill);
+  const all = groups(manifest, plan.isolated.manifest, previous);
+  return validateOwners(plan, hash, manifest, all);
+}
+function validateOwners(plan, hash, manifest, all) {
+  const currentGroup = all.find(g => g.plan.isolated.skill === plan.isolated.skill);
   if (currentGroup.hash !== hash) throw Error('Exact isolated plan hash required');
   const activeFile = path.join(manifest.directory, 'active-skill.json');
   if (fs.existsSync(activeFile)) { const active = json(activeFile), group = all.find(g => g.plan.isolated.skill === active.skill);
@@ -191,7 +207,7 @@ function admission(plan) {
 }
 function begin(plan, hash) {
   validate(plan, hash);
-  const manifest = load(plan), activeFile = path.join(manifest.directory, 'active-skill.json'), previous = bound(manifest.spec.predecessor), all = groups(manifest, plan.isolated.manifest, previous);
+  const { manifest, all } = state(plan), activeFile = path.join(manifest.directory, 'active-skill.json');
   if (fs.existsSync(path.join(plan.control_directory, 'claims', 'block-' + plan.isolated.skill + '.json'))) throw Error('Isolated skill already consumed');
   const previousOwner = fs.existsSync(activeFile) ? json(activeFile) : null;
   if (previousOwner) {
@@ -205,6 +221,7 @@ function begin(plan, hash) {
   }
   const nextOwner = { skill: plan.isolated.skill, plan_sha256: hash, manifest_sha256: plan.isolated.manifest.sha256 };
   const ordinal = all.filter(g => fs.existsSync(path.join(g.plan.control_directory, 'claims', 'block-' + g.plan.isolated.skill + '.json'))).length;
+  if (plan.runtime_amendment && all[ordinal]?.plan.isolated.skill !== plan.isolated.skill) throw Error('Runtime amendment skill order is frozen');
   // Durable one-shot handoff fences concurrent controllers before either can
   // remove the prior owner. A crash consumes the transition; no silent recovery.
   write(path.join(manifest.directory, 'transitions', ordinal + '.json'), { manifest_sha256: plan.isolated.manifest.sha256, ordinal, from: previousOwner, to: nextOwner });
@@ -221,7 +238,7 @@ function globalHalt(plan, hash, reason) {
   if (!fs.existsSync(file)) write(file, { schema: 'cs3-comparison-isolation-halt/1', manifest_sha256: plan.isolated.manifest.sha256, plan_sha256: hash, skill: plan.isolated.skill, reason, action: 'All isolated dispatch stopped; no replay.' });
 }
 function canary(plan, row) {
-  const task = campaign().cohort(plan.spec.web_evidence, plan.spec.successor).find(t => t.id === row.case_id);
+  const task = (plan.runtime_amendment ? campaign().planTasks(plan) : campaign().cohort(plan.spec.web_evidence, plan.spec.successor)).find(t => t.id === row.case_id);
   const base = path.join(plan.directory, row.id), literals = [...(task.forbidden_literals || []), `CS3_${task.id.split('-')[0]}_PRIVATE_CANARY_82D4`];
   // Only descriptor-bound model bytes establish a local qualification failure.
   // An unbound answer/stdout/file triggering the broad detector remains global.
@@ -263,7 +280,7 @@ function terminalProof(plan, hash, partial) {
   validate(plan, hash);
   const resultFile = path.join(plan.control_directory, 'result-' + plan.isolated.skill + '.json'), result = json(resultFile), count = result.runs.length;
   if (result.plan_sha256 !== hash || result.skill !== plan.isolated.skill || count < 1 || count > 18 || !partial && (count !== 18 || result.stopped)) throw Error('Authenticated isolated terminal inventory required');
-  const manifest = load(plan), previous = bound(manifest.spec.predecessor), group = groups(manifest, plan.isolated.manifest, previous).find(g => g.plan.isolated.skill === plan.isolated.skill);
+  const group = state(plan).all.find(g => g.plan.isolated.skill === plan.isolated.skill);
   if (!equal(group.claimed.map(r => r.id), result.runs.map(r => r.id))) throw Error('Isolated terminal reports differ from exact claimed prefix');
   const sum = totals(), reports = [];
   for (const [i, report] of result.runs.entries()) { const row = plan.runs[i];
@@ -282,7 +299,7 @@ function terminalProof(plan, hash, partial) {
 }
 function validateTerminal(plan, hash) { return terminalProof(plan, hash, true); }
 function validateReaderTerminal(plan, hash) { return terminalProof(plan, hash, false); }
-module.exports = { describe, prepare, validate, admission, begin, assertActive, failure, globalHalt, validateTerminal, validateReaderTerminal, safeReport, historical, claimFile, project, responseCanary };
+module.exports = { describe, prepare, validate, admission, begin, assertActive, failure, globalHalt, validateTerminal, validateReaderTerminal, safeReport, historical, claimFile, project, responseCanary, inspectGroups, validateOwners };
 if (require.main === module) {
   try { const [command, spec, directory] = process.argv.slice(2); if (!['dry-run', 'prepare'].includes(command)) throw Error('Usage: dry-run|prepare SPEC NEW_PRIVATE_ROOT');
     process.stdout.write(JSON.stringify(prepare(spec, directory, command === 'dry-run'), null, 2) + '\n'); }

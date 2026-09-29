@@ -9,6 +9,7 @@
       "cs3-webapp",
       "cs3-comparison-host",
       "cs3-document-remediation",
+      "cs3-runtime-amendment",
       "experiments",
       "upstream-inventory",
       "upstream-source",
@@ -56,6 +57,14 @@
     "cs3-document-remediation": {
       "task_ids": ["CS-3"],
       "args": ["--test", "scripts/evals/cs3-document-remediation-candidate.test.cjs", "scripts/evals/cs3-document-remediation-oracle.test.cjs", "scripts/evals/cs3-document-remediation.test.cjs", "scripts/evals/cs3-document-remediation-build.test.cjs", "scripts/evals/cs3-document-remediation-preflight.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
+    "cs3-runtime-amendment": {
+      "task_ids": ["CS-3"],
+      "args": ["--test", "scripts/evals/cs3-runtime-amendment.test.cjs", "scripts/evals/cs3-runtime-retirement.test.cjs", "scripts/evals/cs3-runtime-skill-oracle.test.cjs", "scripts/evals/cs3-runtime-boundary-oracle.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 60000,

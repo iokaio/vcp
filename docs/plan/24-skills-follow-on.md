@@ -20,7 +20,7 @@ gaps and prompt-audit proposals stay outside this sequence.
 | CS-0 | ADR-068; existing P7-01/02/03 contracts | Eight-candidate scope, 21-family overlap map, fixture/rubric and bounded toolchain plan | complete — scope/design and documentation checks; no runtime qualification |
 | CS-1 | CS-0 | Original document-authoring and skill-authoring packages | complete by owner direction — accepted non-default candidates; [remaining qualification work](../../src/skills/candidates/README.md) |
 | CS-2 | CS-1 | Original frontend-design, mcp-development and llm-integration packages | complete — three comparisons and non-default dispositions under the owner exit rule; [retained outcomes and qualification gaps](../development/cs2-developer-skills.md); no promotion |
-| CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | in progress — browser/server, WEB/UI controls and package acceptance pass; original 11-observation security halt retained; owner-approved [skill-isolated continuation](../development/cs3-conservative-continuation.md#approved-skill-isolated-continuation) for 90 untouched assignments is implemented and verified; comparison qualification remains incomplete |
+| CS-3 | CS-2 | Qualified browser/server execution and webapp-testing package; six-skill wave acceptance | in progress — browser/server and WEB/UI controls pass; original DOC and SKL security halts retained; [runtime amendment](../development/cs3-runtime-amendment.md) and DOC 1.0.5 remediation are implemented and under qualification; live comparisons and exact new-package acceptance remain incomplete |
 | CS-4 | CS-3 | Bounded PDF/XLSX conversion and recalculation adapter selection and qualification | planned |
 | CS-5 | CS-4 | Original pdf-workflows and spreadsheet-workflows packages | planned |
 | CS-6 | CS-5 | Combined eight-addition default catalog and exact-package acceptance | planned |
@@ -359,6 +359,18 @@ an HTTP 400 provider error left an unresolved reservation. Six settled normal
 outputs failed; 101 slots remain untouched. Its [terminal disposition](../development/cs3-prospective-campaign-disposition.md)
 preserves the accounting, source freeze and no-replay halt. No comparison block
 completed, so the six-skill acceptance gate remains unsatisfied.
+
+September 29 continuation: the original isolated SKL block also terminated
+unqualified after twelve observations on an authenticated synthetic-canary
+disclosure. Its six unrun slots remain excluded. The
+[prospective runtime amendment](../development/cs3-runtime-amendment.md) preserves
+those results and permanently fences old dispatch before transferring exactly
+72 untouched reservations. Fresh SKL and DOC tasks, trusted remaining-time
+guidance, all-message nondisclosure guidance, uniform 600/120-second limits and
+a versioned six-case oracle correction are implemented and under qualification.
+The [shared allocation](../development/cs3-document-remediation.md) stays within
+the approved USD 100 ceiling. Passing implementation tests and retiring old
+assignments do not satisfy the remaining live comparisons or package gates.
 
 ## CS-4 — Document and data adapters
 

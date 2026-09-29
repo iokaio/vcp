@@ -20,10 +20,10 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const arms = ['none', 'nearest', 'candidate'];
 const limits = Object.freeze({ runs: 108, slot_micros: 600000, slot_requests: 16, aggregate_micros: 64800000, aggregate_requests: 1728, output_tokens: '2048' });
 // Bind the complete local verifier/helper closure, including transitive imports.
-const sourceScope = ['src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'scripts/evals', 'scripts/skills/builtin-assets.cjs', 'src/tests/support/windows'];
-function conservative(plan) { return plan.successor || plan.remediation?.accounting || null; }
-function planTasks(plan) { return plan.remediation ? require('./cs3-document-remediation.cjs').tasks() : cohort(plan.spec.web_evidence, plan.spec.successor); }
-function candidateRegistry(spec) { return spec.remediation ? require('./cs3-document-remediation.cjs').candidateRegistry : candidates; }
+const sourceScope = ['src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'src/evals/skills/cs3-runtime-remediation', 'scripts/evals', 'scripts/skills/builtin-assets.cjs', 'src/tests/support/windows'];
+function conservative(plan) { return plan.successor || plan.runtime_amendment?.accounting || plan.remediation?.accounting || null; }
+function planTasks(plan) { return plan.runtime_amendment ? require('./cs3-runtime-amendment.cjs').tasks(plan.spec) : plan.remediation ? require('./cs3-document-remediation.cjs').tasks() : cohort(plan.spec.web_evidence, plan.spec.successor); }
+function candidateRegistry(spec) { return spec.runtime_amendment ? candidates : spec.remediation ? require('./cs3-document-remediation.cjs').candidateRegistry : candidates; }
 function bound(ref, maximum = 16 * 1024 * 1024) {
   if (!ref || typeof ref.path !== 'string' || !path.isAbsolute(ref.path) || !/^[a-f0-9]{64}$/.test(ref.sha256)) throw Error('Absolute hash-bound evidence required');
   const bytes = read(plain(ref.path), maximum);
@@ -101,6 +101,7 @@ function buildProvenance(build, executable) {
   return build;
 }
 function describe(spec, directory) {
+  if (spec.runtime_amendment) return require('./cs3-runtime-amendment.cjs').describe(spec, directory);
   if (spec.remediation) return require('./cs3-document-remediation.cjs').describe(spec, directory);
   noSecrets(spec);
   if (typeof require('./webapp-execution.cjs').validateUiArtifact !== 'function') throw Error('Prospective UI native artifact validator is not implemented; full campaign preparation is blocked');
@@ -143,6 +144,7 @@ function claimFile(successor = false) {
   return path.join(path.resolve(root, common), successor ? 'vcp-cs3-deepseek-20260928-successor-v2-claim.json' : 'vcp-cs3-deepseek-20260928-comparison-claim.json');
 }
 function prepare(specFile, destination) {
+  if (JSON.parse(read(specFile)).runtime_amendment) return require('./cs3-runtime-amendment.cjs').prepare(specFile, destination);
   if (JSON.parse(read(specFile)).remediation) return require('./cs3-document-remediation.cjs').prepare(specFile, destination);
   const directory = plain(path.resolve(destination));
   if (within(root, directory) || within(directory, root) || fs.existsSync(directory)) throw Error('New private output directory outside repository required');
@@ -189,6 +191,7 @@ function reportFile(plan, id) { return retainedPrefix(plan, id) ? path.join(cont
 function slotReport(plan, id) { return JSON.parse(read(reportFile(plan, id))); }
 function claimed(plan, id) { return retainedPrefix(plan, id) || fs.existsSync(path.join(controlDirectory(plan), 'claims', id + '.json')); }
 function admission(plan) {
+  if (plan.runtime_amendment) return require('./cs3-runtime-amendment.cjs').admission(plan);
   if (plan.remediation) return require('./cs3-document-remediation.cjs').admission(plan);
   if (plan.isolated) return require('./cs3-comparison-isolated.cjs').admission(plan);
   let actual = 0, requests = 0, known = 0, unresolved = 0;
@@ -286,7 +289,8 @@ async function run(file, authorization, skill, call = invoke) {
       if (capture.canaryDisclosed(base, { forbidden_output_literals: forbidden })) throw Error('Synthetic canary disclosed in canonical output');
       try {
         const answer = capture.responseAnswer(responses, money.attempts); write(path.join(base, 'answer.json'), answer.answer);
-        const files = oracle.artifact(task, answer.answer), text = plan.remediation ? require('./cs3-document-remediation-oracle.cjs').textual(task, answer.answer, files) : plan.successor ? require('./cs3-doc-successor-oracle.cjs').textual(task, answer.answer, files) : oracle.textual(task, answer.answer, files);
+        const selectedOracle = plan.runtime_amendment ? task.skill === 'skill-authoring' ? require('./cs3-runtime-skill-oracle.cjs') : require('./cs3-runtime-boundary-oracle.cjs') : oracle;
+        const files = selectedOracle.artifact(task, answer.answer), text = plan.runtime_amendment ? selectedOracle.textual(task, answer.answer, files) : plan.remediation ? require('./cs3-document-remediation-oracle.cjs').textual(task, answer.answer, files) : plan.successor ? require('./cs3-doc-successor-oracle.cjs').textual(task, answer.answer, files) : oracle.textual(task, answer.answer, files);
         report.textual = text;
         materialize(task, files, base);
         if (!text.passed) report.status = 'failed';

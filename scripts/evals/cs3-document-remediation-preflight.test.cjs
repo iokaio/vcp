@@ -58,11 +58,11 @@ function synthetic(t) {
     return actual(name);
   };
   new Function('require', 'module', 'exports', '__dirname', fs.readFileSync(file, 'utf8'))(local, module, module.exports, __dirname);
-  const catalog = f.put('catalog.json', {}), profile = { max_requests: 16, output_tokens: '2048', deadline_seconds: 180, provider_timeout_seconds: 60,
+  const catalog = f.put('catalog.json', {}), profile = { max_requests: 16, output_tokens: '2048', deadline_seconds: 600, provider_timeout_seconds: 120,
     max_transport_retries: 0, maximum_autonomy: 'plan', automatic_effects: [], provider: { raw_sha256: catalog.sha256, compatibility: { model: 'deepseek/deepseek-v3.2', endpoint: 'deepinfra/fp4' } } };
   const blank = f.put('proof.json', {}), node = fs.realpathSync(process.execPath);
   const spec = { executable: blank, build_receipt: blank, catalog, node: { path: node, sha256: sha(fs.readFileSync(node)) }, profile: f.put('profile-input.json', profile),
-    remediation: { decision: blank, prior_terminal: blank, allocation: blank, qualification: blank } };
+    remediation: { decision: blank, prior_terminal: blank, runtime_decision: blank, allocation: blank, qualification: blank } };
   const specFile = f.put('spec.json', spec).path, destination = path.join(f.directory, 'observation');
   return { ...f, state, spec, specFile, destination, profile, helper: module.exports };
 }
@@ -77,9 +77,17 @@ test('frozen source or workspace drift prevents invocation and durable paid clai
   f = synthetic(t); ref = f.helper.prepare(f.specFile, f.destination); fs.writeFileSync(path.join(f.destination, 'workspace/status.txt'), 'changed');
   assert.throws(() => f.helper.run(ref.path, ref.sha256, () => assert.fail('No invocation')), /workspace changed/); assert(!fs.existsSync(f.helper.claimFile()));
 });
+
+test('new preflight admits exactly the prospective time bound without extending other limits', t => {
+  for (const mutation of [{ deadline_seconds: 180 }, { deadline_seconds: 601 }, { provider_timeout_seconds: 60 }, { provider_timeout_seconds: 121 }, { max_requests: 17 }, { output_tokens: '2049' }, { max_transport_retries: 1 }]) {
+    const f = synthetic(t); f.spec.profile = f.put('profile-input.json', { ...f.profile, ...mutation }); f.put('spec.json', f.spec);
+    assert.throws(() => f.helper.prepare(f.specFile, f.destination), /Fixed read-only remediation profile/);
+    assert(!fs.existsSync(f.destination)); assert(!fs.existsSync(f.helper.claimFile()));
+  }
+});
 test('a failed native preflight remains failed, claimed and unrepeatable with its complete cap reserved', t => {
   const f = synthetic(t), ref = f.helper.prepare(f.specFile, f.destination); let calls = 0;
-  const result = f.helper.run(ref.path, ref.sha256, (_exe, args, timeout) => { calls++; assert.equal(timeout, 360000); assert(args.includes('--non-interactive')); assert(args.includes('0.600000')); throw Error('Synthetic native failure'); });
+  const result = f.helper.run(ref.path, ref.sha256, (_exe, args, timeout) => { calls++; assert.equal(timeout, 780000); assert(args.includes('--non-interactive')); assert(args.includes('0.600000')); assert.equal(JSON.parse(fs.readFileSync(args[args.indexOf('--config') + 1])).deadline_seconds, 600); throw Error('Synthetic native failure'); });
   assert.equal(result.status, 'failed'); assert.equal(result.actual_cost_micros, null); assert.equal(calls, 1);
   const claim = JSON.parse(fs.readFileSync(f.helper.claimFile())); assert.equal(claim.cap_micros, 600000); assert.equal(claim.request_ceiling, 16); assert.deepEqual(claim.allocation, f.spec.remediation.allocation);
   assert.throws(() => f.helper.run(ref.path, ref.sha256, () => calls++), /EEXIST/); assert.equal(calls, 1);
@@ -87,8 +95,8 @@ test('a failed native preflight remains failed, claimed and unrepeatable with it
   assert(f.state.allocationChecks >= 3);
 });
 test('campaign compatibility identity includes binary, build, allocation, controller and qualification references', () => {
-  const spec = { executable: 1, build_receipt: 2, catalog: 3, node: 4, profile: 5, remediation: { decision: 6, prior_terminal: 7, allocation: 8, qualification: 9, runtime_preflight: 10 }, gates: {}, web_evidence: [] };
-  assert.deepEqual(helper.specIdentity(spec), { executable: 1, build_receipt: 2, catalog: 3, node: 4, profile: 5, remediation: { decision: 6, prior_terminal: 7, allocation: 8, qualification: 9 } });
+  const spec = { executable: 1, build_receipt: 2, catalog: 3, node: 4, profile: 5, remediation: { decision: 6, prior_terminal: 7, allocation: 8, qualification: 9, runtime_preflight: 10, runtime_decision: 11, runtime_terminal: 12 }, gates: {}, web_evidence: [] };
+  assert.deepEqual(helper.specIdentity(spec), { executable: 1, build_receipt: 2, catalog: 3, node: 4, profile: 5, remediation: { decision: 6, prior_terminal: 7, allocation: 8, qualification: 9, runtime_decision: 11 } });
 });
 
 // Synthetic native transport only; all captured requests, tool continuations,

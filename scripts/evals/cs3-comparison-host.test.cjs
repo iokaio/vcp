@@ -32,6 +32,10 @@ function syntheticHost(gitDirectory, directory = __dirname) {
         assert.equal(plan.remediation.synthetic_test_only, true);
         assert.equal(sha(fs.readFileSync(path.join(plan.directory, 'plan.json'))), hash);
       } };
+      if (requested === './cs3-runtime-amendment.cjs') return { ...actualRequire(requested), admission(plan) {
+        assert.equal(plan.runtime_amendment.synthetic_test_only, true);
+        return localRequire('./cs3-comparison-isolated.cjs').admission(plan);
+      } };
       // Exact origin/audit validation is exercised separately by segment.test.
       // This isolated adapter exercises the runner/review control-directory join.
       if (requested === './cs3-comparison-segment.cjs') return { validate(plan, hash) {
@@ -107,7 +111,7 @@ function fixture(t, expiryOffset = 86400000, successor = false) {
   // verifier during this test cannot masquerade as campaign source corruption.
   // Production source-identity validation itself remains fully enabled.
   const sourceRoot = path.join(directory, 'source');
-  for (const relative of ['scripts/evals', 'scripts/skills', 'src/tests/support/windows', 'src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'src/skills/builtin']) fs.cpSync(path.join(repository, relative), path.join(sourceRoot, relative), { recursive: true });
+  for (const relative of ['scripts/evals', 'scripts/skills', 'src/tests/support/windows', 'src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'src/evals/skills/cs3-runtime-remediation', 'src/skills/builtin']) fs.cpSync(path.join(repository, relative), path.join(sourceRoot, relative), { recursive: true });
   const host = syntheticHost(gitDirectory, path.join(sourceRoot, 'scripts/evals'));
   const ref = (name, content) => { const file = path.join(directory, name), bytes = typeof content === 'string' || Buffer.isBuffer(content) ? content : JSON.stringify(content); fs.writeFileSync(file, bytes); return { path: file, sha256: sha(bytes) }; };
   fs.cpSync(path.join(repository, 'src/skills/builtin'), path.join(directory, 'skills/builtin'), { recursive: true });
@@ -150,7 +154,7 @@ function fakeCli(plan, options = {}) {
       assert.deepEqual(selected, row.skills);
       const profile = json(args[args.indexOf('--config') + 1]); assert.equal(profile.maximum_autonomy, 'plan'); assert.deepEqual(profile.automatic_effects, []);
       calls.push({ id, skills: selected, cap: args[args.indexOf('--budget-usd') + 1] });
-      const store = new Map(), task = [...require('../../src/evals/skills/cs3-comparison/cohort.cjs').tasks, ...require('../../src/evals/skills/cs3-comparison/cohort-doc-successor.cjs').tasks, ...require('../../src/evals/skills/cs3-document-remediation/cohort.cjs').tasks].find(t => t.id === row.case_id);
+      const store = new Map(), task = [...require('../../src/evals/skills/cs3-comparison/cohort.cjs').tasks, ...require('../../src/evals/skills/cs3-comparison/cohort-doc-successor.cjs').tasks, ...require('../../src/evals/skills/cs3-document-remediation/cohort.cjs').tasks, ...require('../../src/evals/skills/cs3-runtime-remediation/cohort-skill-authoring.cjs').tasks].find(t => t.id === row.case_id);
       const answer = { files: Object.fromEntries(task.outputs.map(name => [name, '# Deliberately incomplete synthetic draft\n'])), report: 'Amber passed; violet was not run. Silver failed its required-field check. The absent runner remains unavailable.', not_run: ['Native runner absent.'] };
       let text = JSON.stringify(answer);
       if (options.malformedAt === calls.length) text = '{not valid JSON';
@@ -159,11 +163,11 @@ function fakeCli(plan, options = {}) {
         const canary = options.canary || 'CS3_DOC_PRIVATE_CANARY_82D4';
         response = ['data: {malformed earlier frame}', ...[canary.slice(0, 12), canary.slice(12)].map(delta => 'data: ' + JSON.stringify({ type: 'response.output_text.delta', response_id: 'request-' + id, item_id: 'answer', output_index: 0, content_index: 0, delta }))].join('\n\n') + '\n\n';
       }
-      const pending = Boolean((plan.successor || plan.remediation) && options.unknownAt === calls.length);
+      const pending = Boolean((plan.successor || plan.remediation || plan.runtime_amendment) && options.unknownAt === calls.length);
       if (pending && options.canaryAt !== calls.length) response = '{"error":{"message":"synthetic provider failure without billing"}}';
       const output = descriptor(store, 'response-' + id, 'response', Buffer.from(response));
       const scope = { task: 'task-' + id, workspace: 'synthetic-workspace', session: 'synthetic-session' };
-      if (plan.successor || plan.remediation) {
+      if (plan.successor || plan.remediation || plan.runtime_amendment) {
         Object.assign(output.record.spec, { scope, source: 'retained-codex-attempt:attempt-' + id, schema: 'responses-sse-observed-through-terminal/1', omissions: ['authentication_headers', 'recovery_material', ...(pending ? ['explicit_abort'] : [])] });
         output.record.retained = [{ start: '0', end: output.record.length }];
         if (pending) output.record.state = 'aborted';
@@ -180,7 +184,7 @@ function fakeCli(plan, options = {}) {
         { collection: 'attempt', visibility: 'available', record: { id: 'attempt-' + id, phase: 'settled', uncertain: false, previous: null, role: 'main', charged: '37', provider_request: 'request-' + id, request_digest: 'digest-' + id } },
         { collection: 'settlement', visibility: 'available', record: { attempt: 'attempt-' + id, applied: true, observation: { final_usage: {} } } }
       ];
-      if (plan.successor || plan.remediation) {
+      if (plan.successor || plan.remediation || plan.runtime_amendment) {
         const phase = pending ? 'reconciliation_pending' : 'settled', charged = pending ? '0' : '37', liability = pending ? '100000' : '0', amount = { currency: 'USD', micros: '100000' };
         money = [
           { collection: 'ledger', id: scope.task, visibility: 'available', record: { scope, currency: 'USD', cap: '600000', settled: charged, active: '0', unresolved: liability, overrun: false, allocations: {}, protected: '0' } },
@@ -191,12 +195,12 @@ function fakeCli(plan, options = {}) {
         ];
         if (options.activeAt === calls.length) money[0].record.active = '1';
       }
-      const zero = (plan.successor || plan.remediation) && options.zeroAt === calls.length;
+      const zero = (plan.successor || plan.remediation || plan.runtime_amendment) && options.zeroAt === calls.length;
       if (zero) { money = money.filter(i => i.collection === 'ledger'); money[0].record.settled = '0'; }
       stores.set(id, { store, output, context, money, zero });
       if (options.haltAt === calls.length) fs.writeFileSync(path.join(plan.directory, 'halt.json'), JSON.stringify({ plan_sha256: options.planHash, reason: 'Synthetic concurrent integrity stop', action: 'Read-only reconciliation' }), { flag: 'wx' });
       if (options.mutateSourceAt === calls.length) fs.appendFileSync(options.sourceTarget, '\nSynthetic source drift\n');
-      if (plan.successor || plan.remediation) {
+      if (plan.successor || plan.remediation || plan.runtime_amendment) {
         if (zero) return { status: 1, error: null, stderr: '', stdout: [{ type: 'accepted', scope }, { type: 'result', scope, exit_code: 1, conditions: { completed: false, unresolved_effect: false, internal_failure: true } }].map(JSON.stringify).join('\n') + '\n' };
         const conditions = pending ? { unresolved_effect: true, cancelled: false, budget_exhausted: false, required_input: false, incomplete: false, invalid_configuration: false, internal_failure: false, durably_paused: true, completed: false } : { completed: true, unresolved_effect: false };
         const paused = pending ? ['task', 'turn'].map(collection => ({ type: 'event', event: { event: { data: { facts: [{ collection, value: { scope, state: 'paused', reason: 'provider outcome requires accounting reconciliation' } }] } } } })) : [];
@@ -309,14 +313,34 @@ test('segmented runner preserves two failed consumed slots and dispatches only t
   await assert.rejects(f.host.campaign.run(planFile, hash, 'document-authoring', next.cli), /EEXIST/); assert.equal(next.calls.length, 16);
 });
 
-test('isolated runner joins eighteen-row reviews, local canary disposition, shared accounting and global integrity stop without DOC replay', async t => {
+for (const amended of [false, true]) test((amended ? 'runtime amendment' : 'isolated runner') + ' joins eighteen-row reviews, local canary disposition, shared accounting and global integrity stop without DOC replay', async t => {
   const f = fixture(t, 86400000, true), controlRoot = path.join(f.directory, 'isolated'); fs.mkdirSync(controlRoot);
+  let sourcePlan = f.plan;
+  if (amended) {
+    const { successor, ...base } = f.plan, { successor: oldSpec, ...specBase } = f.plan.spec;
+    const spec = { ...specBase, profile: f.ref('runtime-profile.json', { ...json(specBase.profile.path), provider_timeout_seconds: 120 }), remediation: { synthetic_test_only: true }, runtime_amendment: { synthetic_test_only: true } };
+    const runtime_amendment = { synthetic_test_only: true, accounting: { fixed_conservative_micros: 35063737, outer_cap_micros: 100000000 } };
+    const tasks = f.host.campaign.planTasks({ spec, runtime_amendment }), directory = path.join(f.directory, 'amended-slots'), runs = [];
+    for (const [index, task] of tasks.entries()) for (let offset = 0; offset < 3; offset++) {
+      const arm = ['none', 'nearest', 'candidate'][(index + offset) % 3], id = task.id + '--' + arm, runBase = path.join(directory, id);
+      fs.mkdirSync(path.join(runBase, 'workspace'), { recursive: true }); fs.mkdirSync(path.join(runBase, 'data'));
+      for (const [name, contents] of Object.entries(task.files)) { const file = path.join(runBase, 'workspace', name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, contents); }
+      const profile = f.host.campaign.profile(spec, task, path.join(runBase, 'workspace'), arm), prompt = f.host.campaign.prompt(task);
+      fs.writeFileSync(path.join(runBase, 'profile.json'), JSON.stringify(profile, null, 2) + '\n'); fs.writeFileSync(path.join(runBase, 'prompt.txt'), prompt);
+      runs.push({ id, case_id: task.id, skill: task.skill, arm, cap_micros: 600000, call_ceiling: 16,
+        skills: arm === 'none' ? [] : arm === 'candidate' ? [candidates.qualified(task.skill)] : task.nearest.map(id => `vcp-builtin::${id}::${id}`),
+        profile_sha256: sha(fs.readFileSync(path.join(runBase, 'profile.json'))), prompt_sha256: sha(prompt), files: Object.entries(task.files).map(([path, content]) => ({ path, bytes: Buffer.byteLength(content), sha256: sha(content) })) });
+    }
+    sourcePlan = { ...base, directory, spec, runtime_amendment, runs, task_sha256: sha(JSON.stringify(tasks)) };
+  }
   const makePlan = skill => {
     const control = path.join(controlRoot, skill); fs.mkdirSync(control); fs.mkdirSync(path.join(control, 'claims'));
-    const plan = { ...f.plan, schema: 'cs3-comparison-isolated-plan/1', control_directory: control,
-      runs: f.plan.runs.filter(row => row.skill === skill), isolated: { skill, synthetic_test_only: true } };
+    const plan = { ...sourcePlan, schema: 'cs3-comparison-isolated-plan/1', control_directory: control,
+      runs: sourcePlan.runs.filter(row => row.skill === skill), isolated: { skill, synthetic_test_only: true } };
     const file = path.join(control, 'plan.json'); fs.writeFileSync(file, JSON.stringify(plan));
-    return { plan, file, hash: sha(fs.readFileSync(file)), fake: fakeCli(plan) };
+    const fake = fakeCli(plan), call = fake.cli;
+    if (amended) fake.cli = (exe, args, timeout) => { if (args.includes('run')) { assert.equal(timeout, 780000); const profile = json(args[args.indexOf('--config') + 1]); assert.equal(profile.deadline_seconds, 600); assert.equal(profile.provider_timeout_seconds, 120); } return call(exe, args, timeout); };
+    return { plan, file, hash: sha(fs.readFileSync(file)), fake };
   };
   const first = makePlan('skill-authoring');
   assert.equal(fs.existsSync(path.join(f.plan.directory, 'disposition-document-authoring.json')), false);
@@ -360,7 +384,7 @@ test('fresh DOC remediation reuses canonical eighteen-slot runner and blind revi
   const f = fixture(t, 86400000, true), helper = require(path.join(f.sourceRoot, 'scripts/evals/cs3-document-remediation.cjs'));
   const directory = path.join(f.directory, 'fresh-doc'); fs.mkdirSync(directory); fs.mkdirSync(path.join(directory, 'claims'));
   const { successor, ...base } = f.plan, { successor: oldSpec, ...specBase } = f.plan.spec;
-  const spec = { ...specBase, remediation: { synthetic_test_only: true } }, tasks = helper.tasks(), runs = [];
+  const spec = { ...specBase, profile: f.ref('doc-profile.json', { ...json(specBase.profile.path), provider_timeout_seconds: 120 }), remediation: { synthetic_test_only: true } }, tasks = helper.tasks(), runs = [];
   for (const [index, task] of tasks.entries()) for (let offset = 0; offset < 3; offset++) {
     const arm = ['none', 'nearest', 'candidate'][(index + offset) % 3], id = task.id + '--' + arm, runBase = path.join(directory, id);
     fs.mkdirSync(path.join(runBase, 'workspace'), { recursive: true }); fs.mkdirSync(path.join(runBase, 'data'));
@@ -372,9 +396,17 @@ test('fresh DOC remediation reuses canonical eighteen-slot runner and blind revi
       profile_sha256: sha(fs.readFileSync(path.join(runBase, 'profile.json'))), prompt_sha256: sha(prompt), files: Object.entries(task.files).map(([path, content]) => ({ path, bytes: Buffer.byteLength(content), sha256: sha(content) })) });
   }
   const plan = { ...base, schema: 'cs3-document-remediation-plan/1', directory, spec, runs, candidate_assets: helper.candidateRegistry.inspect(), task_sha256: sha(JSON.stringify(tasks)),
-    limits: helper.limits, remediation: { synthetic_test_only: true, accounting: { fixed_conservative_micros: 67463737, outer_cap_micros: 100000000 } } };
+    limits: helper.limits, remediation: { synthetic_test_only: true, accounting: { fixed_conservative_micros: 78263737, outer_cap_micros: 100000000 } } };
   const file = path.join(directory, 'plan.json'); fs.writeFileSync(file, JSON.stringify(plan)); const hash = sha(fs.readFileSync(file)), fake = fakeCli(plan, { unknownAt: 2 });
-  const result = await f.host.campaign.run(file, hash, 'document-authoring', fake.cli);
+  const result = await f.host.campaign.run(file, hash, 'document-authoring', (executable, args, timeout) => {
+    if (args.includes('run')) {
+      assert.equal(timeout, 780000);
+      const profile = json(args[args.indexOf('--config') + 1]);
+      assert.equal(profile.deadline_seconds, 600); assert.equal(profile.provider_timeout_seconds, 120);
+      assert.equal(profile.max_requests, 16); assert.equal(profile.output_tokens, '2048'); assert.equal(profile.max_transport_retries, 0);
+    }
+    return fake.cli(executable, args, timeout);
+  });
   assert.equal(result.stopped, false); assert.equal(result.runs.length, 18); assert.equal(fake.calls.length, 18);
   assert.equal(result.actual_cost_micros, null); assert.equal(result.known_settled_micros, 17 * 37); assert.equal(result.conservative_debit_micros, 600000 + 17 * 37);
   assert.equal(result.runs[1].status, 'failed'); assert.equal(result.unresolved_attempts, 1);

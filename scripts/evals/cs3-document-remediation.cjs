@@ -31,12 +31,14 @@ function decision(ref) {
     || value.authority !== 'owner_explicit_cs3_completion_within_existing_100_usd') throw Error('Source-pinned remediation decision required');
   const fixed = { outer_cap_micros: 100000000, preserved_prior_allocation_micros: 66613737, preserved_prior_request_ceiling: 1779,
     campaign_cap_micros: 10800000, campaign_requests: 288, runtime_preflight_cap_micros: 600000, runtime_preflight_requests: 16,
-    qualification_cap_micros: 250000, qualification_requests: 2, new_allocation_micros: 11650000, new_request_ceiling: 306,
-    combined_allocation_micros: 78263737, remaining_unallocated_micros: 21736263, model: 'deepseek/deepseek-v3.2', endpoint: 'deepinfra/fp4',
-    deadline_seconds: 180, provider_timeout_seconds: 60, output_tokens: '2048', slot_cap_micros: 600000, slot_requests: 16,
+    qualification_cap_micros: 250000, qualification_requests: 2, new_allocation_micros: 22450000, new_request_ceiling: 594,
+    combined_allocation_micros: 89063737, combined_request_ceiling: 2373, remaining_unallocated_micros: 10936263,
+    fresh_skill_authoring_cap_micros: 10800000, fresh_skill_authoring_requests: 288, transferred_cap_micros: 43200000, transferred_requests: 1152,
+    model: 'deepseek/deepseek-v3.2', endpoint: 'deepinfra/fp4',
+    deadline_seconds: 600, provider_timeout_seconds: 120, output_tokens: '2048', slot_cap_micros: 600000, slot_requests: 16,
     candidate_version: '1.0.5', cohort_revision: 'cs-3-doc-remediation-fixtures-v3', unknown_actual_cost: 'null_not_settled',
-    unknown_slot_debit_micros: 600000, unknown_quality: 'failed_never_replayed', historical_allocations: 'preserved_in_full_never_released_or_transferred',
-    historical_claims: 'all_immutable_no_replay', prerequisite: 'all_five_isolated_skills_authenticated_terminal_before_any_new_paid_call', qualification_or_promotion_waiver: false };
+    unknown_slot_debit_micros: 600000, unknown_quality: 'failed_never_replayed', historical_allocations: 'preserved_in_full_only_exact_72_retired_untouched_reservations_transferred_once',
+    historical_claims: 'all_immutable_no_replay', prerequisite: 'authenticated_old_skill_terminal_and_72_permanently_retired_before_shared_probe_then_all_five_new_groups_terminal_before_doc', qualification_or_promotion_waiver: false };
   if (Object.entries(fixed).some(([key, expected]) => value[key] !== expected) || !hex(value.prior_terminal_audit_sha256) || !hex(value.executable_sha256)) throw Error('Final terminal audit, new executable and exact separate allocation required');
   return value;
 }
@@ -64,15 +66,15 @@ const candidateRegistry = { inspect: inspectCandidate, qualified, configuration(
 function priorTerminal(ref, approved) {
   if (ref.sha256 !== approved.prior_terminal_audit_sha256) throw Error('Exact owner-bound terminal audit required');
   const audit = JSON.parse(bound(ref)), manifest = JSON.parse(bound(audit.manifest));
-  if (audit.schema !== 'cs3-comparison-isolation-terminal-audit/1' || manifest.schema !== 'cs3-comparison-isolation/1'
+  if (audit.schema !== 'cs3-comparison-isolation-retirement/1' || manifest.schema !== 'cs3-comparison-isolation/1'
     || !equal(JSON.parse(bound(audit.claim)), { directory: manifest.directory, manifest_sha256: audit.manifest.sha256 })
     || !equal(audit.source_archive?.source, manifest.source) || !path.isAbsolute(audit.source_archive?.path || '')
     || !equal(prep.identity(audit.source_archive.path, manifest.source.scope), manifest.source)
     || !equal(prep.identity(manifest.directory, ['.']), audit.controls_inventory)
-    || !equal(audit.prefix, manifest.prefix) || !equal(audit.excluded_ids, manifest.excluded_ids) || audit.excluded_ids.length !== 7
-    || fs.existsSync(path.join(manifest.directory, 'global-halt.json'))) throw Error('Historical isolation source, ownership or terminal inventory differs');
+    || !equal(audit.prefix, manifest.prefix) || !equal(audit.excluded_ids, manifest.excluded_ids) || audit.excluded_ids.length !== 7) throw Error('Historical isolation source, ownership or terminal inventory differs');
+  require('./cs3-runtime-amendment.cjs').retirement(audit, manifest, ref);
   const skills = ['skill-authoring', 'frontend-design', 'mcp-development', 'llm-integration', 'webapp-testing'];
-  if (!equal(audit.groups.map(g => g.skill), skills) || audit.groups.length !== 5) throw Error('All five skill terminal observations required');
+  if (!equal(audit.groups.map(g => g.skill), skills) || audit.groups.length !== 5) throw Error('One terminal skill and four exact retired groups required');
   const previous = JSON.parse(bound(manifest.spec.predecessor)), previousAudit = JSON.parse(bound(manifest.spec.audit));
   if (previousAudit.schema !== 'cs3-comparison-segment-terminal-audit/1' || previousAudit.plan_sha256 !== manifest.spec.predecessor.sha256
     || previousAudit.consumed.length !== 11 || !equal(previousAudit.totals, manifest.prefix)
@@ -94,20 +96,24 @@ function priorTerminal(ref, approved) {
   }
   const totals = { ...manifest.prefix }, all = new Set();
   for (const group of audit.groups) {
-    const plan = JSON.parse(bound(group.plan)), disposition = JSON.parse(bound(group.disposition));
+    const plan = JSON.parse(bound(group.plan)), retired = group.status === 'retired_undispatched', disposition = retired ? null : JSON.parse(bound(group.disposition));
     const expected = manifest.groups.find(g => g.skill === group.skill)?.ids;
     if (!equal(plan.runs.map(r => r.id), expected) || expected.length !== 18 || plan.isolated?.skill !== group.skill
-      || !equal(plan.isolated.manifest, audit.manifest) || disposition.plan_sha256 !== group.plan.sha256 || disposition.skill !== group.skill || group.status !== disposition.status
-      || !['qualified', 'unqualified', 'terminal_unqualified'].includes(group.status) || !Array.isArray(group.claimed_ids)
+      || !equal(plan.isolated.manifest, audit.manifest) || !retired && (disposition.plan_sha256 !== group.plan.sha256 || disposition.skill !== group.skill || group.status !== disposition.status)
+      || !['qualified', 'unqualified', 'terminal_unqualified', 'retired_undispatched'].includes(group.status) || !Array.isArray(group.claimed_ids)
       || !equal(group.claimed_ids, expected.slice(0, group.claimed_ids.length)) || !equal(group.undispatched_ids, expected.slice(group.claimed_ids.length))
       || !equal(group.slots.map(s => s.id), group.claimed_ids)) throw Error('Historical terminal membership differs');
-    if (group.status === 'terminal_unqualified') {
+    if (retired) {
+      if (group.skill === 'skill-authoring' || group.disposition !== null || group.claimed_ids.length || group.slots.length || group.review_evidence.length
+        || !equal(group.untouched.map(row => row.id), expected)) throw Error('Only exact untouched reservations may be retired');
+    } else if (group.skill !== 'skill-authoring') throw Error('Only original skill-authoring may have consumed observations');
+    else if (group.status === 'terminal_unqualified') {
       if (disposition.schema !== 'cs3-comparison-isolated-terminal-disposition/1' || disposition.candidate_qualified !== false
         || !group.claimed_ids.length || !equal(disposition.claimed_ids, group.claimed_ids) || !equal(disposition.undispatched_ids, group.undispatched_ids)
         || disposition.evidence?.reason !== 'supplied_synthetic_canary' || disposition.evidence.no_unresolved_execution_effects !== true) throw Error('Partial historical block lacks authentic terminal disposition');
     } else if (disposition.schema !== 'cs3-comparison-disposition/1' || group.claimed_ids.length !== 18 || disposition.independent_blind_readers !== 2 || disposition.readers?.length !== 2 || !group.review_evidence?.length) throw Error('Complete historical block requires actual independent reader evidence');
     for (const evidence of group.review_evidence || []) bound(evidence);
-    if (group.status !== 'terminal_unqualified') {
+    if (!retired && group.status !== 'terminal_unqualified') {
       const expectedRefs = [path.join(disposition.review_directory, 'private-mappings.json'), ...disposition.readers.flatMap(reader => [reader.file, path.join(disposition.review_directory, 'reader-' + reader.reader + '.json')]), ...(disposition.browser_grades ? [disposition.browser_grades.path] : [])];
       if (!equal(group.review_evidence.map(r => plain(r.path)).sort(), [...new Set(expectedRefs.map(plain))].sort())) throw Error('Historical reader evidence inventory differs');
       for (const reader of disposition.readers) if (!group.review_evidence.some(r => plain(r.path) === plain(reader.file) && r.sha256 === reader.sha256)) throw Error('Historical reader receipt changed');
@@ -119,7 +125,8 @@ function priorTerminal(ref, approved) {
       if (!retained) {
         if (!equal(fs.readdirSync(base).sort(), ['data', 'profile.json', 'prompt.txt', 'workspace']) || fs.readdirSync(path.join(base, 'data')).length
           || sha(read(path.join(base, 'profile.json'))) !== row.profile_sha256 || sha(read(path.join(base, 'prompt.txt'))) !== row.prompt_sha256
-          || !equal(campaign().workspaceFiles(base), [...row.files].sort((a, b) => a.path.localeCompare(b.path)))) throw Error('Historical undispatched slot changed');
+          || !equal(campaign().workspaceFiles(base), [...row.files].sort((a, b) => a.path.localeCompare(b.path)))
+          || retired && !equal(prep.identity(base, ['.']), group.untouched.find(item => item.id === row.id)?.inventory)) throw Error('Historical undispatched slot changed');
         continue;
       }
       const report = json(path.join(base, 'result.json'));
@@ -131,7 +138,7 @@ function priorTerminal(ref, approved) {
     }
   }
   if (all.size !== 90 || !equal(totals, audit.totals)) throw Error('Historical shared accounting total differs');
-  return { audit_sha256: ref.sha256, manifest_sha256: audit.manifest.sha256, groups: 5, totals };
+  return { audit_sha256: ref.sha256, manifest_sha256: audit.manifest.sha256, terminal_groups: 1, retired_slots: 72, totals };
 }
 function build(spec, approved) {
   bound(spec.executable, 1024 * 1024 * 1024); if (spec.executable.sha256 !== approved.executable_sha256) throw Error('Exact approved remediation executable required');
@@ -153,35 +160,42 @@ function allocationClaim() { return path.join(path.dirname(campaign().claimFile(
 function claimFile() { return path.join(path.dirname(campaign().claimFile(true)), 'vcp-cs3-document-remediation-campaign1.json'); }
 function reserve(specFile, destination) {
   const spec = json(specFile), approved = decision(spec.decision); noSecrets(spec);
-  if (!equal(Object.keys(spec).sort(), ['build_receipt', 'decision', 'executable', 'prior_terminal'])) throw Error('Exact remediation reservation inputs required');
+  if (!equal(Object.keys(spec).sort(), ['build_receipt', 'decision', 'executable', 'prior_terminal', 'runtime_decision'])) throw Error('Exact remediation reservation inputs required');
+  require('./cs3-runtime-amendment.cjs').decision(spec.runtime_decision);
   const terminal = priorTerminal(spec.prior_terminal, approved); build(spec, approved);
   const directory = plain(path.resolve(destination)); if (within(root, directory) || within(directory, root) || fs.existsSync(directory)) throw Error('New private reservation directory required');
   noParentInstructions(path.dirname(directory)); privateDirectory(directory);
-  const receipt = { schema: 'cs3-document-remediation-allocation/1', directory, spec, terminal, cap_micros: 11650000, request_ceiling: 306, preserved_prior_allocation_micros: 66613737, combined_cap_micros: 78263737, model_calls: 0 };
+  const receipt = { schema: 'cs3-document-remediation-allocation/2', directory, spec, terminal, cap_micros: 22450000, request_ceiling: 594, preserved_prior_allocation_micros: 66613737, combined_cap_micros: 89063737, transferred_cap_micros: 43200000, transferred_requests: 1152, model_calls: 0 };
   const ref = { path: path.join(directory, 'allocation.json'), sha256: sha(JSON.stringify(receipt, null, 2) + '\n') };
   write(allocationClaim(), { allocation: ref }); fs.mkdirSync(directory, { mode: 0o700 }); write(ref.path, receipt); return ref;
 }
 function validateAllocation(spec) {
   const approved = decision(spec.remediation.decision), allocation = JSON.parse(bound(spec.remediation.allocation));
-  if (allocation.schema !== 'cs3-document-remediation-allocation/1' || allocation.cap_micros !== 11650000 || allocation.request_ceiling !== 306
-    || allocation.preserved_prior_allocation_micros !== 66613737 || allocation.combined_cap_micros !== 78263737
-    || !equal(allocation.spec, { decision: spec.remediation.decision, prior_terminal: spec.remediation.prior_terminal, executable: spec.executable, build_receipt: spec.build_receipt })
+  if (allocation.schema !== 'cs3-document-remediation-allocation/2' || allocation.cap_micros !== 22450000 || allocation.request_ceiling !== 594
+    || allocation.preserved_prior_allocation_micros !== 66613737 || allocation.combined_cap_micros !== 89063737 || allocation.transferred_cap_micros !== 43200000 || allocation.transferred_requests !== 1152
+    || !equal(allocation.spec, { decision: spec.remediation.decision, prior_terminal: spec.remediation.prior_terminal, runtime_decision: spec.remediation.runtime_decision, executable: spec.executable, build_receipt: spec.build_receipt })
     || !equal(json(allocationClaim()), { allocation: spec.remediation.allocation })
     || plain(path.dirname(spec.remediation.allocation.path)) !== allocation.directory) throw Error('Separate one-shot remediation allocation required');
   if (!equal(priorTerminal(spec.remediation.prior_terminal, approved), allocation.terminal)) throw Error('Terminal predecessor proof changed');
+  require('./cs3-runtime-amendment.cjs').decision(spec.remediation.runtime_decision);
   build(spec, approved); return approved;
 }
 function validateSpec(spec) {
   if (!equal(Object.keys(spec).sort(), ['build_receipt', 'catalog', 'executable', 'gates', 'node', 'profile', 'remediation', 'web_evidence'])
-    || !equal(Object.keys(spec.remediation).sort(), ['allocation', 'decision', 'prior_terminal', 'qualification', 'runtime_preflight'])) throw Error('Exact fixed remediation specification required');
+    || !equal(Object.keys(spec.remediation).sort(), ['allocation', 'decision', 'prior_terminal', 'qualification', 'runtime_decision', 'runtime_preflight', 'runtime_terminal'])) throw Error('Exact fixed remediation specification required');
   const approved = validateAllocation(spec), profile = JSON.parse(bound(spec.profile));
-  if (profile.deadline_seconds !== 180 || profile.provider_timeout_seconds !== 60 || profile.max_requests !== 16 || profile.output_tokens !== '2048' || profile.max_transport_retries !== 0) throw Error('Fixed comparable profile bounds required');
+  if (profile.deadline_seconds !== 600 || profile.provider_timeout_seconds !== 120 || profile.max_requests !== 16 || profile.output_tokens !== '2048' || profile.max_transport_retries !== 0) throw Error('Fixed prospective profile bounds required');
   require('./cs3-read-preflight.cjs').validateQualification(spec.remediation.qualification, spec);
   require('./cs3-document-remediation-preflight.cjs').validate(spec.remediation.runtime_preflight, spec);
-  return { decision_sha256: spec.remediation.decision.sha256, allocation_sha256: spec.remediation.allocation.sha256, accounting: { fixed_conservative_micros: 67463737, outer_cap_micros: 100000000 }, approved };
+  const runtime = require('./cs3-runtime-amendment.cjs').terminal(spec.remediation.runtime_terminal, spec);
+  return { decision_sha256: spec.remediation.decision.sha256, allocation_sha256: spec.remediation.allocation.sha256, runtime, accounting: { fixed_conservative_micros: 78263737, outer_cap_micros: 100000000 }, approved };
 }
 function describe(spec, directory, checkExpiry = true) {
-  noSecrets(spec); const approved = validateSpec(spec), all = tasks(), bytes = bound(spec.executable, 1024 * 1024 * 1024);
+  noSecrets(spec); const approved = validateSpec(spec);
+  return { ...executionPlan(spec, directory, tasks(), candidateRegistry, checkExpiry), schema: 'cs3-document-remediation-plan/1', remediation: approved, limits };
+}
+function executionPlan(spec, directory, all, registry, checkExpiry = true) {
+  const bytes = bound(spec.executable, 1024 * 1024 * 1024);
   const assetsRoot = path.join(path.dirname(spec.executable.path), 'skills/builtin'), assets = inspectAssets(assetsRoot).inventory;
   requireEmbeddedCatalog(bytes, read(path.join(assetsRoot, 'catalog.json')));
   const profile = JSON.parse(bound(spec.profile)), catalogBytes = bound(spec.catalog); if (profile.provider.raw_sha256 !== sha(catalogBytes)) throw Error('Catalog/profile differs');
@@ -190,12 +204,12 @@ function describe(spec, directory, checkExpiry = true) {
   for (const [index, task] of all.entries()) for (let offset = 0; offset < 3; offset++) {
     const arm = campaign().arms[(index + offset) % 3], id = task.id + '--' + arm;
     runs.push({ id, case_id: task.id, skill: task.skill, arm, cap_micros: 600000, call_ceiling: 16,
-      skills: arm === 'none' ? [] : arm === 'candidate' ? [qualified(task.skill)] : task.nearest.map(id => `vcp-builtin::${id}::${id}`),
+      skills: arm === 'none' ? [] : arm === 'candidate' ? [registry.qualified(task.skill)] : task.nearest.map(id => `vcp-builtin::${id}::${id}`),
       profile_sha256: sha(JSON.stringify(campaign().profile(spec, task, path.join(directory, id, 'workspace'), arm, checkExpiry), null, 2) + '\n'), prompt_sha256: sha(campaign().prompt(task)),
       files: Object.entries(task.files).map(([path, content]) => ({ path, sha256: sha(content), bytes: Buffer.byteLength(content) })) });
   }
-  return { schema: 'cs3-document-remediation-plan/1', directory, spec, remediation: approved, model_calls: 0, authorization: false,
-    source: campaign().sourceIdentity(), executable: spec.executable.path, assets, candidate_assets: inspectCandidate(), task_sha256: sha(JSON.stringify(all)), gates, limits, runs,
+  return { directory, spec, model_calls: 0, authorization: false,
+    source: campaign().sourceIdentity(), executable: spec.executable.path, assets, candidate_assets: registry.inspect(), task_sha256: sha(JSON.stringify(all)), gates, runs,
     budget_preflight: prep.budgetPreflight(profile, 600000), toolchain: { platform: process.platform, architecture: process.arch, node_version: process.version, node_executable: fs.realpathSync(process.execPath), node_sha256: sha(read(fs.realpathSync(process.execPath), 128 * 1024 * 1024)) },
     phase_rule: 'Exactly eighteen fresh slots; one shot each. Safe provider-only uncertainty debits the full slot, actual remains null and quality fails. Any integrity, authority or secret failure is terminal. No retry or replay.',
     benefit_rule: 'Every candidate hard gate and both independent readers must pass; both readers identify the same normal task with usefulness at least one above both baselines, completeness and clarity no lower.',
@@ -240,10 +254,10 @@ function admission(plan) {
     const report = campaign().slotReport(plan, row.id), money = require('./cs3-comparison-isolated.cjs').safeReport(plan, row, report);
     for (const key of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) sum[key] += money[key]; sum.observed_attempts += money.attempts.length;
   }
-  if (sum.conservative_debit_micros + 600000 > 10800000 || sum.observed_attempts + 16 > 288 || 67463737 + sum.conservative_debit_micros + 600000 > 78263737) throw Error('New DOC allocation cannot reserve another slot');
+  if (sum.conservative_debit_micros + 600000 > 10800000 || sum.observed_attempts + 16 > 288 || 78263737 + sum.conservative_debit_micros + 600000 > 89063737) throw Error('New DOC allocation cannot reserve another slot');
   return { ...sum, actual_cost_micros: sum.unresolved_attempts ? null : sum.known_settled_micros, reserved_micros: 600000, reserved_requests: 16 };
 }
-module.exports = { limits, buildScope, bound, reference, decision, tasks, candidateRegistry, priorTerminal, build, allocationClaim, claimFile, reserve, validateAllocation, validateSpec, describe, prepare, validate, admission };
+module.exports = { limits, buildScope, bound, reference, decision, tasks, candidateRegistry, priorTerminal, build, allocationClaim, claimFile, reserve, validateAllocation, validateSpec, executionPlan, describe, prepare, validate, admission };
 if (require.main === module) {
   try { const [command, ...args] = process.argv.slice(2); const result = command === 'reserve' ? reserve(...args) : command === 'prepare' ? prepare(...args) : command === 'dry-run' ? prepare(...args, true) : (() => { throw Error('Usage: reserve SPEC NEW_PRIVATE_DIRECTORY | prepare SPEC NEW_PRIVATE_DIRECTORY | dry-run SPEC NEW_PRIVATE_DIRECTORY'); })(); process.stdout.write(JSON.stringify(result, null, 2) + '\n'); }
   catch (error) { process.stderr.write(error.message + '\n'); process.exitCode = 1; }

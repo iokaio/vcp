@@ -18,7 +18,7 @@ const reference = file => ({ path: plain(path.resolve(file)), sha256: sha(read(f
 function requireThat(value, reason) { if (!value) throw Error(reason); }
 function specIdentity(spec) {
   return { executable: spec.executable, build_receipt: spec.build_receipt, catalog: spec.catalog, node: spec.node, profile: spec.profile,
-    remediation: Object.fromEntries(['decision', 'prior_terminal', 'allocation', 'qualification'].map(key => [key, spec.remediation?.[key]])) };
+    remediation: Object.fromEntries(['decision', 'prior_terminal', 'runtime_decision', 'allocation', 'qualification'].map(key => [key, spec.remediation?.[key]])) };
 }
 function sourceProfile(spec, current) {
   requireThat(equal(spec, specIdentity(spec)), 'Exact remediation preflight inputs required'); noSecrets(spec);
@@ -28,7 +28,7 @@ function sourceProfile(spec, current) {
   const profile = json(spec.profile); bound(spec.catalog);
   const allowed = ['version', 'workspace', 'trust_workspace', 'sync_roots', 'maximum_autonomy', 'automatic_effects', 'budget_usd', 'provider', 'catalog', 'affected_paths', 'canonical_tools', 'max_requests', 'output_tokens', 'provider_timeout_seconds', 'max_transport_retries', 'deadline_seconds', 'processes', 'checks', 'mcp', 'mcp_http'];
   requireThat(Object.keys(profile).every(key => allowed.includes(key)) && !fixedProfileReasons(profile, current ? Date.now() : 0).length
-    && profile.max_requests === 16 && profile.output_tokens === '2048' && profile.deadline_seconds === 180 && profile.provider_timeout_seconds === 60
+    && profile.max_requests === 16 && profile.output_tokens === '2048' && profile.deadline_seconds === 600 && profile.provider_timeout_seconds === 120
     && profile.max_transport_retries === 0 && profile.maximum_autonomy === 'plan' && equal(profile.automatic_effects, [])
     && ['processes', 'checks', 'mcp', 'mcp_http'].every(key => profile[key] === undefined || equal(profile[key], []))
     && profile.provider?.raw_sha256 === spec.catalog.sha256 && profile.provider?.compatibility?.model === 'deepseek/deepseek-v3.2'
@@ -81,7 +81,7 @@ function run(planFile, authorization, call = invoke) {
   const args = invocation(plan); write(path.join(base, 'attempted.json'), { executable: plan.spec.executable, args });
   const report = { schema: 'cs3-document-remediation-preflight/1', plan: planRef, status: 'failed', actual_cost_micros: null, raw: {}, artifacts: [] };
   try {
-    const execution = call(plan.spec.executable.path, args, 360000);
+    const execution = call(plan.spec.executable.path, args, 780000);
     write(path.join(base, 'stdout.jsonl'), execution.stdout); write(path.join(base, 'stderr.txt'), execution.stderr); write(path.join(base, 'exit.json'), { status: execution.status, error: execution.error });
     for (const name of ['stdout.jsonl', 'stderr.txt', 'exit.json']) report.raw[name] = reference(path.join(base, name));
     const accepted = frames(execution.stdout).find(frame => frame.type === 'accepted'); requireThat(accepted?.scope?.task, 'No durable remediation preflight task');
