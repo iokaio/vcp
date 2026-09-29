@@ -235,3 +235,5 @@ selected by this import. See the [active skills plan](docs/research/skillsplan-n
 - [webapp-testing](src/skills/builtin/webapp-testing/SKILL.md) 2.0.0: Apache-2.0; see its package-local source and dependency notices.
 
 - [pdf-workflows](src/skills/builtin/pdf-workflows/SKILL.md) 1.0.0: Apache-2.0; see its package-local source and dependency notices.
+
+- [spreadsheet-workflows](src/skills/builtin/spreadsheet-workflows/SKILL.md) 1.0.0: Apache-2.0; see its package-local source and dependency notices.

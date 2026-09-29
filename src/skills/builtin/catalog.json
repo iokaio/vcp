@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.9.0",
+  "version": "1.10.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "c6ce453b55c245e31cf598ff4d35b017b6bd5aa8ace9cbb6a0e83f56967c0924"
+    "sha256": "d6c496ca11a7cd1b1ad7fb07f2403c483f00387cee1956d870015192d5b90129"
   },
   "skills": [
     {
@@ -486,6 +486,40 @@
         {
           "path": "scripts/pdf_workflows.py",
           "sha256": "b7b92f30ba685a2416457f1b904d0aafda755460ca1558918c6e269670a7d895"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet-workflows",
+      "version": "1.0.0",
+      "descriptor": "spreadsheet-workflows/skill.json",
+      "descriptor_sha256": "2d2b1b7f52639420541e1783abb1caa74f8e01e8e3cb747225493e51deb78de4",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "f179c593f12cd5ba2a87eb869cdec33ca7a235ea2eeae344d05476397185070c"
+      },
+      "source": "vcp-original",
+      "license": "Apache-2.0",
+      "resources": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "NOTICE.md",
+          "sha256": "39caede9752f3864a83a4b7119ccc371f91018f85306ba2184133effbd02fa69"
+        },
+        {
+          "path": "references/tooling.md",
+          "sha256": "f946f503b02161d4c82ff7a552d7fdf03f168b8d2506acc79c8e086888acb563"
+        },
+        {
+          "path": "requirements.txt",
+          "sha256": "1becb09ba2ac7bc4f13ae3ad418952965a18a6dbe35fc8598235d8c6fef4a22d"
+        },
+        {
+          "path": "scripts/spreadsheet_workflows.py",
+          "sha256": "ea7954e515e2f9f787b94d90e3f2cad5bf6e942441b6609e5a85401bd2279f35"
         }
       ]
     }

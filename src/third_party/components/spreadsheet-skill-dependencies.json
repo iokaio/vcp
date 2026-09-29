@@ -1,0 +1,77 @@
+{
+  "dependencies": [
+    {
+      "name": "openpyxl",
+      "version": "3.1.5",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "openpyxl-3.1.5.dist-info/LICENCE.rst",
+          "sha256": "0c84bb42f5d367e5ebf9fc2dde35b16141df5ee0fdc189250858bc6c5560f69e"
+        }
+      ],
+      "bundled": false
+    },
+    {
+      "name": "defusedxml",
+      "version": "0.7.1",
+      "license": "PSF-2.0",
+      "license_files": [
+        {
+          "path": "defusedxml-0.7.1.dist-info/LICENSE",
+          "sha256": "b80ce9da8c42a1f91079627fbbe2bf27210ae108a0ffe5f077d5b08e076c24c8"
+        }
+      ],
+      "bundled": false
+    },
+    {
+      "name": "formualizer",
+      "version": "0.9.3",
+      "license": "MIT OR Apache-2.0",
+      "license_files": [
+        {
+          "path": "formualizer-0.9.3.dist-info/licenses/LICENSE-APACHE",
+          "sha256": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5"
+        },
+        {
+          "path": "formualizer-0.9.3.dist-info/licenses/LICENSE-MIT",
+          "sha256": "afec2f38d49255f65114812c44cc464ef10448d002e5c95e07349ae40439e85e"
+        }
+      ],
+      "bundled": false
+    },
+    {
+      "name": "et-xmlfile",
+      "version": "2.0.0",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "et_xmlfile-2.0.0.dist-info/LICENCE.python",
+          "sha256": "4ccdaaebc0f44b83720ec0399bb7ab329adce067dd62f73c5535a2dc05628ab2"
+        },
+        {
+          "path": "et_xmlfile-2.0.0.dist-info/LICENCE.rst",
+          "sha256": "0c84bb42f5d367e5ebf9fc2dde35b16141df5ee0fdc189250858bc6c5560f69e"
+        }
+      ],
+      "bundled": false
+    },
+    {
+      "name": "XlsxWriter",
+      "version": "3.2.9",
+      "license": "BSD-2-Clause",
+      "license_files": [
+        {
+          "path": "xlsxwriter-3.2.9.dist-info/LICENSE.txt",
+          "sha256": "cf08b60a4ded986b58a617cb8304373bda5c4eff42fb4e30d7597b616e116e87"
+        }
+      ],
+      "bundled": false
+    }
+  ],
+  "excluded": [
+    "Anthropic pdf and xlsx skill code/prose/assets at 8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4",
+    "ReportLab DarkGarden GPL font assets"
+  ],
+  "test_font": "ReportLab Bitstream Vera, separately permissively licensed, not distributed"
+}
