@@ -137,8 +137,8 @@ two claims, raw evidence, reports and terminal halt remain immutable. All 227
 frozen verifier files were archived and hash-verified before the repair; their
 source identity is `12cd99dbdc24481407cd284bc4e70189515072736155c0df59dcc3ed5815f8d3`.
 
-A separately claimed continuation segment will retain verification addenda for
-the two failed observations and dispatch only the exact 106 untouched slots.
+A separately claimed continuation segment retains verification addenda for
+the two failed observations and dispatches only the exact 106 untouched slots.
 It does not replay either consumed slot or resume the halted runner. Prompts,
 profiles, candidates, arm assignments, limits, native executable and quality
 oracles stay unchanged; only zero-request accounting and explicit segmented
@@ -154,6 +154,13 @@ It pins the original controls and claims, complete inventories of both consumed
 slots (634 and 134 files), and the exact 106 remaining assignments. A read-only
 dry run authenticates those originals, produces failed-only addenda, and
 revalidates the native and provider prerequisites before any segment claim.
+
+The segment was frozen after 116 registered contract tests, all 13 full runner
+regressions and the required Repository and harness CI check passed. Its plan is
+`D:/vcp-private/cs3-approved-prospective-20260928/successor-segment-1/plan.json`,
+SHA-256 `66b546088483e19f5f55e323a547fff90ef8eacc583cb5034209bf8776028177`.
+Preparation made zero model calls. The document-authoring block is now running;
+no comparison outcome or independent-review result is inferred from dispatch.
 
 A separate no-dispatch diagnostic with three tiny source files completed in
 7.251 seconds; its five verification captures spanned 1.066 seconds. A one-micro
