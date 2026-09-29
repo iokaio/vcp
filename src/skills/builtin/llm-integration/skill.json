@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "llm-integration",
+  "version": "2.0.0",
+  "description": "Build or revise applications using the selected LLM provider and SDK, including streaming, tool calls, structured results, retries and context handling.",
+  "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/claude-api",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:llm-integration"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "a278d3bf8730fe2c06bc285af2c87741ed015bc9fa91e1f005e7b502ca88d7e5"
+  },
+  "resources": [
+    {
+      "path": "LICENSE.txt",
+      "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+    },
+    {
+      "path": "UPSTREAM.md",
+      "sha256": "7860f78159ee6a6371cebeedf7ed89a36405a95d91d308f14401bb37f95db6a0"
+    },
+    {
+      "path": "assets/tool-schema.json",
+      "sha256": "0af0456789c640bd88566b4e4368562e99988189c1ac5217387b1a07d09a1f6d"
+    },
+    {
+      "path": "references/anthropic.md",
+      "sha256": "d973d5c8b21c1937e7d3f84caf325ae54c25e36b844fe19a03a4a2c74748f50e"
+    },
+    {
+      "path": "references/integration-patterns.md",
+      "sha256": "db4a2b13de616bccc4baf56e787950b0ad4519863e958dead8c3515b9581efb1"
+    }
+  ]
+}
