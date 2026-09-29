@@ -22,7 +22,7 @@ function fixture(t, consumed = 18) {
   const filename = require.resolve('./cs3-comparison-review.cjs'), actualRequire = require('node:module').createRequire(filename), module = { exports: {} };
   // Test-only dependency substitution; the public production API has no override.
   const campaign = { validate(value, supplied) { assert.equal(supplied, hash); assert(equal(value, plan)); return value; }, controlDirectory: value => value.control_directory,
-    slotReport: (value, id) => JSON.parse(fs.readFileSync(path.join(value.directory, id, 'result.json'))), cohort: () => tasks };
+    slotReport: (value, id) => JSON.parse(fs.readFileSync(path.join(value.directory, id, 'result.json'))), cohort: () => tasks, planTasks: () => tasks, conservative: value => value.successor || value.remediation?.accounting };
   const policy = { fields: value => Object.fromEntries(Object.keys(fields).map(key => [key, value[key]])), reread: () => ({ ...fields, attempts: [{}] }) };
   const isolation = { validateTerminal: () => structuredClone(state.proof), validateReaderTerminal: () => { if (state.unsafe) throw Error('Unresolved execution integrity'); return structuredClone(state.proof); }, globalHalt: () => { state.global++; } };
   const boundaries = { read: file => fs.readFileSync(file), write: (file, value) => fs.writeFileSync(file, JSON.stringify(value), { flag: 'wx' }), plain: file => file,

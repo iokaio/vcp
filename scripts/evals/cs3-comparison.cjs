@@ -20,7 +20,10 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const arms = ['none', 'nearest', 'candidate'];
 const limits = Object.freeze({ runs: 108, slot_micros: 600000, slot_requests: 16, aggregate_micros: 64800000, aggregate_requests: 1728, output_tokens: '2048' });
 // Bind the complete local verifier/helper closure, including transitive imports.
-const sourceScope = ['src/evals/skills/cs3-comparison', 'scripts/evals', 'scripts/skills/builtin-assets.cjs', 'src/tests/support/windows'];
+const sourceScope = ['src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'scripts/evals', 'scripts/skills/builtin-assets.cjs', 'src/tests/support/windows'];
+function conservative(plan) { return plan.successor || plan.remediation?.accounting || null; }
+function planTasks(plan) { return plan.remediation ? require('./cs3-document-remediation.cjs').tasks() : cohort(plan.spec.web_evidence, plan.spec.successor); }
+function candidateRegistry(spec) { return spec.remediation ? require('./cs3-document-remediation.cjs').candidateRegistry : candidates; }
 function bound(ref, maximum = 16 * 1024 * 1024) {
   if (!ref || typeof ref.path !== 'string' || !path.isAbsolute(ref.path) || !/^[a-f0-9]{64}$/.test(ref.sha256)) throw Error('Absolute hash-bound evidence required');
   const bytes = read(plain(ref.path), maximum);
@@ -74,16 +77,16 @@ function materialize(task, files, base) {
   write(path.join(base, 'materialized-files.json'), files);
 }
 function sourceIdentity() { return prep.identity(root, sourceScope); }
-function profile(spec, task, workspace, arm) {
+function profile(spec, task, workspace, arm, checkExpiry = true) {
   const original = JSON.parse(bound(spec.profile));
-  const reasons = fixedProfileReasons(original);
+  const reasons = fixedProfileReasons(original, checkExpiry ? Date.now() : 0);
   const allowed = ['version', 'workspace', 'trust_workspace', 'sync_roots', 'maximum_autonomy', 'automatic_effects', 'budget_usd', 'provider', 'catalog', 'affected_paths', 'canonical_tools', 'max_requests', 'output_tokens', 'provider_timeout_seconds', 'max_transport_retries', 'deadline_seconds', 'processes', 'checks', 'mcp', 'mcp_http'];
   if (Object.keys(original).some(key => !allowed.includes(key))) reasons.push('Source profile contains an unapproved field, hook, observer, skill source or routing setting');
-  if (reasons.length || original.max_requests !== 16 || original.output_tokens !== '2048' || original.provider?.compatibility?.model !== 'deepseek/deepseek-v3.2' || original.provider.compatibility.endpoint !== (spec.successor ? 'deepinfra/fp4' : 'gmicloud/fp8')) throw Error('Exact current qualified DeepSeek profile required: ' + reasons.join('; '));
+  if (reasons.length || original.max_requests !== 16 || original.output_tokens !== '2048' || original.provider?.compatibility?.model !== 'deepseek/deepseek-v3.2' || original.provider.compatibility.endpoint !== (spec.successor || spec.remediation ? 'deepinfra/fp4' : 'gmicloud/fp8')) throw Error('Exact current qualified DeepSeek profile required: ' + reasons.join('; '));
   return { ...original, workspace, catalog: spec.catalog.path, budget_usd: '0.600000', maximum_autonomy: 'plan', automatic_effects: [],
     canonical_tools: task.kind === 'near_miss' && !task.outputs.length ? ['vcp_verify'] : ['vcp_list', 'vcp_read', 'vcp_search', 'vcp_verify'],
     affected_paths: Object.keys(task.files).length ? Object.keys(task.files) : ['status.txt'],
-    ...(arm === 'candidate' ? { skills: candidates.configuration(task.skill) } : {}) };
+    ...(arm === 'candidate' ? { skills: candidateRegistry(spec).configuration(task.skill) } : {}) };
 }
 function buildProvenance(build, executable) {
   if (build.schema !== 'cs3-comparison-build/1' || build.status !== 'passed' || build.exit_code !== 0 || build.source_inputs_unchanged !== true
@@ -98,6 +101,7 @@ function buildProvenance(build, executable) {
   return build;
 }
 function describe(spec, directory) {
+  if (spec.remediation) return require('./cs3-document-remediation.cjs').describe(spec, directory);
   noSecrets(spec);
   if (typeof require('./webapp-execution.cjs').validateUiArtifact !== 'function') throw Error('Prospective UI native artifact validator is not implemented; full campaign preparation is blocked');
   if (!equal(Object.keys(spec).sort(), ['build_receipt', 'catalog', 'executable', 'gates', 'node', 'profile', ...(spec.successor ? ['successor'] : []), 'web_evidence'])) throw Error('Unexpected campaign specification fields');
@@ -139,6 +143,7 @@ function claimFile(successor = false) {
   return path.join(path.resolve(root, common), successor ? 'vcp-cs3-deepseek-20260928-successor-v2-claim.json' : 'vcp-cs3-deepseek-20260928-comparison-claim.json');
 }
 function prepare(specFile, destination) {
+  if (JSON.parse(read(specFile)).remediation) return require('./cs3-document-remediation.cjs').prepare(specFile, destination);
   const directory = plain(path.resolve(destination));
   if (within(root, directory) || within(directory, root) || fs.existsSync(directory)) throw Error('New private output directory outside repository required');
   noParentInstructions(path.dirname(directory)); privateDirectory(directory);
@@ -157,13 +162,14 @@ function prepare(specFile, destination) {
   return { plan: path.join(directory, 'plan.json'), sha256: sha(read(path.join(directory, 'plan.json'))), runs: plan.runs.length, model_calls: 0 };
 }
 function validate(plan, hash, checkExpiry = true) {
-  if (plan.isolated) require('./cs3-comparison-isolated.cjs').validate(plan, hash);
+  if (plan.remediation) require('./cs3-document-remediation.cjs').validate(plan, hash);
+  else if (plan.isolated) require('./cs3-comparison-isolated.cjs').validate(plan, hash);
   else if (plan.segment) require('./cs3-comparison-segment.cjs').validate(plan, hash);
   else if (plan.schema !== (plan.spec.successor ? 'cs3-comparison-plan/2' : 'cs3-comparison-plan/1') || sha(read(path.join(plan.directory, 'plan.json'))) !== hash || !equal(JSON.parse(read(claimFile(plan.spec.successor))), { directory: plan.directory, plan_sha256: hash })) throw Error('Exact envelope ownership required');
   return validateExecution(plan, checkExpiry);
 }
 function validateExecution(plan, checkExpiry = true) {
-  if (!equal(plan.source, sourceIdentity()) || !equal(plan.candidate_assets, candidates.inspect())) throw Error('Frozen execution source or candidate changed');
+  if (!equal(plan.source, sourceIdentity()) || !equal(plan.candidate_assets, candidateRegistry(plan.spec).inspect())) throw Error('Frozen execution source or candidate changed');
   if (plan.toolchain.platform !== process.platform || plan.toolchain.architecture !== process.arch || plan.toolchain.node_version !== process.version || plan.toolchain.node_executable !== fs.realpathSync(process.execPath) || plan.toolchain.node_sha256 !== sha(read(plan.toolchain.node_executable, 128 * 1024 * 1024))) throw Error('Controller toolchain changed');
   const packagedRoot = path.join(path.dirname(plan.executable), 'skills/builtin');
   if (!equal(inspectAssets(packagedRoot).inventory, plan.assets)) throw Error('Frozen external builtin assets changed');
@@ -172,7 +178,7 @@ function validateExecution(plan, checkExpiry = true) {
   if (!equal(prerequisites.validate(plan.spec), plan.gates)) throw Error('Frozen prerequisite validation changed');
   if (plan.spec.successor && !equal(continuation.validateSpec(plan.spec), plan.successor)) throw Error('Successor approval or evidence changed');
   if (checkExpiry && fixedProfileReasons(JSON.parse(bound(plan.spec.profile))).length) throw Error('Provider qualification expired before dispatch');
-  if (sha(JSON.stringify(cohort(plan.spec.web_evidence, plan.spec.successor))) !== plan.task_sha256) throw Error('Frozen tasks changed');
+  if (sha(JSON.stringify(planTasks(plan))) !== plan.task_sha256) throw Error('Frozen tasks changed');
   noParentInstructions(plan.directory); privateDirectory(plan.directory);
   return plan;
 }
@@ -183,6 +189,7 @@ function reportFile(plan, id) { return retainedPrefix(plan, id) ? path.join(cont
 function slotReport(plan, id) { return JSON.parse(read(reportFile(plan, id))); }
 function claimed(plan, id) { return retainedPrefix(plan, id) || fs.existsSync(path.join(controlDirectory(plan), 'claims', id + '.json')); }
 function admission(plan) {
+  if (plan.remediation) return require('./cs3-document-remediation.cjs').admission(plan);
   if (plan.isolated) return require('./cs3-comparison-isolated.cjs').admission(plan);
   let actual = 0, requests = 0, known = 0, unresolved = 0;
   for (const row of plan.runs) if (claimed(plan, row.id)) {
@@ -209,7 +216,7 @@ function skillEvidence(plan, row, base, pages, attempts, call) {
   });
   if (pages.some(p => p.gaps.some(g => !prior.privacyGap(g, g.artifact)))) throw Error('Context evidence gap');
   const manifests = pages.flatMap(p => p.items).filter(i => i.collection === 'artifact' && i.record?.spec?.schema === 'context-manifest/1').map(item => JSON.parse(capture.retained(plan, base, item, 'context', call)));
-  const sent = attempts.filter(a => a.phase === 'settled' || plan.successor && a.send_intent);
+  const sent = attempts.filter(a => a.phase === 'settled' || conservative(plan) && a.send_intent);
   for (const attempt of sent) {
     const found = manifests.filter(m => m.request_sha256 === attempt.request_digest);
     if (!found.length) throw Error('No canonical dispatched context');
@@ -230,7 +237,7 @@ function qualificationWindow(profile, now = Date.now()) {
 async function run(file, authorization, skill, call = invoke) {
   const plan = validate(JSON.parse(read(file)), authorization);
   const control = controlDirectory(plan);
-  if (!candidates.ids.includes(skill) || plan.isolated && skill !== plan.isolated.skill || fs.existsSync(path.join(control, 'halt.json'))) throw Error('Unknown skill or terminal halted envelope');
+  if (!candidates.ids.includes(skill) || plan.remediation && skill !== 'document-authoring' || plan.isolated && skill !== plan.isolated.skill || fs.existsSync(path.join(control, 'halt.json'))) throw Error('Unknown skill or terminal halted envelope');
   for (const priorSkill of plan.isolated ? [] : candidates.ids.slice(0, candidates.ids.indexOf(skill))) {
     require('./cs3-comparison-review.cjs').validateDisposition(file, authorization, priorSkill);
   }
@@ -240,7 +247,7 @@ async function run(file, authorization, skill, call = invoke) {
   if (plan.isolated) require('./cs3-comparison-isolated.cjs').begin(plan, authorization);
   write(path.join(control, 'claims', 'block-' + skill + '.json'), { plan_sha256: authorization, skill });
   write(active, { plan_sha256: authorization, skill });
-  const tasks = cohort(plan.spec.web_evidence, plan.spec.successor), reports = [];
+  const tasks = planTasks(plan), reports = [];
   for (const row of plan.runs.filter(r => r.skill === skill)) {
     if (retainedPrefix(plan, row.id)) { reports.push(slotReport(plan, row.id)); continue; }
     const base = path.join(plan.directory, row.id), task = tasks.find(t => t.id === row.case_id);
@@ -267,19 +274,19 @@ async function run(file, authorization, skill, call = invoke) {
       report.scope = accepted.scope;
       const evidence = {};
       for (const view of ['costs', 'routing', 'outputs', 'context', 'tools', 'verification']) { evidence[view] = inspection(plan, base, accepted.scope.task, view, call); write(path.join(base, view + '.json'), evidence[view]); }
-      const money = plan.successor ? continuation.accounting(evidence.costs, limits.slot_micros) : prior.accounting(evidence.costs, limits.slot_micros);
-      if (plan.successor) { continuation.pendingSafety(execution, output, evidence, profile, money); Object.assign(report, continuation.fields(money)); }
+      const money = conservative(plan) ? continuation.accounting(evidence.costs, limits.slot_micros) : prior.accounting(evidence.costs, limits.slot_micros);
+      if (conservative(plan)) { continuation.pendingSafety(execution, output, evidence, profile, money); Object.assign(report, continuation.fields(money)); }
       report.actual_cost_micros = money.actual_cost_micros; report.observed_attempts = money.attempts.length; accounted = true;
       if (money.attempts.length > 16) throw Error('Request ceiling exceeded');
       if (!equal(workspaceFiles(base), [...row.files].sort((a, b) => a.path.localeCompare(b.path)))) throw Error('Read-only workspace changed');
       report.preserved = true; report.skill_evidence = skillEvidence(plan, row, base, evidence.context, money.attempts, call);
       report.status = execution.status === 0 && final.conditions.completed ? 'completed' : 'failed'; report.conditions = final.conditions;
-      const responses = plan.successor ? continuation.captureResponses(plan, base, evidence.outputs, money.attempts, call) : capture.captureResponses(plan, base, evidence.outputs, call);
+      const responses = conservative(plan) ? continuation.captureResponses(plan, base, evidence.outputs, money.attempts, call) : capture.captureResponses(plan, base, evidence.outputs, call);
       const forbidden = [...(task.forbidden_literals || []), `CS3_${task.id.split('-')[0]}_PRIVATE_CANARY_82D4`];
       if (capture.canaryDisclosed(base, { forbidden_output_literals: forbidden })) throw Error('Synthetic canary disclosed in canonical output');
       try {
         const answer = capture.responseAnswer(responses, money.attempts); write(path.join(base, 'answer.json'), answer.answer);
-        const files = oracle.artifact(task, answer.answer), text = plan.successor ? require('./cs3-doc-successor-oracle.cjs').textual(task, answer.answer, files) : oracle.textual(task, answer.answer, files);
+        const files = oracle.artifact(task, answer.answer), text = plan.remediation ? require('./cs3-document-remediation-oracle.cjs').textual(task, answer.answer, files) : plan.successor ? require('./cs3-doc-successor-oracle.cjs').textual(task, answer.answer, files) : oracle.textual(task, answer.answer, files);
         report.textual = text;
         materialize(task, files, base);
         if (!text.passed) report.status = 'failed';
@@ -294,7 +301,7 @@ async function run(file, authorization, skill, call = invoke) {
         report.status = 'failed'; report.output_error = error.message;
         if (/canary disclosed/.test(error.message)) throw error;
       }
-      if (plan.successor && money.unresolved_attempts) { report.status = 'failed'; report.output_error = 'Provider billing unresolved; conservative full-slot debit, never quality-qualified'; }
+      if (conservative(plan) && money.unresolved_attempts) { report.status = 'failed'; report.output_error = 'Provider billing unresolved; conservative full-slot debit, never quality-qualified'; }
       validate(plan, authorization, false);
       if (plan.isolated) require('./cs3-comparison-isolated.cjs').assertActive(plan, authorization);
       report.evidence_sha256 = capture.runEvidence(base);
@@ -309,12 +316,12 @@ async function run(file, authorization, skill, call = invoke) {
     }
   }
   const result = { schema: 'cs3-comparison-block/1', plan_sha256: authorization, skill, runs: reports, stopped: fs.existsSync(path.join(control, 'halt.json')), actual_cost_micros: reports.every(r => r.actual_cost_micros !== null) ? reports.reduce((sum, r) => sum + r.actual_cost_micros, 0) : null, observed_attempts: reports.reduce((sum, r) => sum + r.observed_attempts, 0) };
-  if (plan.successor && (!result.stopped || plan.isolated && reports.every(r => Number.isSafeInteger(r.conservative_debit_micros)))) for (const field of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) result[field] = reports.reduce((sum, r) => sum + r[field], 0);
+  if (conservative(plan) && (!result.stopped || (plan.isolated || plan.remediation) && reports.every(r => Number.isSafeInteger(r.conservative_debit_micros)))) for (const field of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) result[field] = reports.reduce((sum, r) => sum + r[field], 0);
   write(path.join(control, `result-${skill}.json`), result);
   if (!result.stopped) fs.unlinkSync(active);
   return result;
 }
-module.exports = { limits, arms, cohort, prompt, materialize, profile, buildProvenance, describe, prepare, validate, validateExecution, admission, qualificationWindow, run, sourceIdentity, claimFile, controlDirectory, retainedPrefix, reportFile, slotReport, claimed, workspaceFiles };
+module.exports = { limits, arms, cohort, planTasks, conservative, candidateRegistry, prompt, materialize, profile, buildProvenance, describe, prepare, validate, validateExecution, admission, qualificationWindow, run, sourceIdentity, claimFile, controlDirectory, retainedPrefix, reportFile, slotReport, claimed, workspaceFiles };
 if (require.main === module) {
   const [command, ...args] = process.argv.slice(2);
   Promise.resolve().then(() => command === 'prepare' ? prepare(...args) : command === 'run' ? run(...args) : (() => { throw Error('Usage: prepare SPEC PRIVATE_DIRECTORY | run PLAN SHA256 SKILL'); })()).then(result => process.stdout.write(JSON.stringify(result, null, 2) + '\n')).catch(error => { process.stderr.write(error.message + '\n'); process.exitCode = 1; });

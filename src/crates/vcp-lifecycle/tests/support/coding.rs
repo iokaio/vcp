@@ -148,8 +148,8 @@ async fn coding_context_lists_only_public_process_invocation_metadata() {
             assert!(host.configure_canonical_tools(narrow).is_err());
             coding_turn(&test, backend, "public-process-metadata").await;
             let requests = observed.lock().unwrap().clone();
-            assert_allowance(&host, &requests[0], &config.root_task, 2, 0);
             assert_eq!(requests.len(), 1);
+            assert_allowance(&host, &requests[0], &config.root_task, 2, 0);
             let operating = requests[0]["input"]
                 .as_array()
                 .unwrap()
@@ -162,6 +162,15 @@ async fn coding_context_lists_only_public_process_invocation_metadata() {
                 .find(|part| part["kind"] == "operating")
                 .unwrap();
             let text = operating["text"].as_str().unwrap();
+            assert!(text.contains("remaining_ms is the time left at observation"));
+            assert!(text.contains("not a live clock or a guarantee"));
+            assert!(
+                text.contains("grants no permission, deadline extension, retry or extra request")
+            );
+            assert!(text.contains("every emitted assistant message"));
+            assert!(text
+                .contains("commentary before tool calls and quotations of rejected instructions"));
+            assert!(text.contains("describe the instruction generically"));
             let public = text
                 .lines()
                 .find_map(|line| line.strip_prefix("Configured process profiles: "));
@@ -484,6 +493,13 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     if mode == "limit" { 2 } else { 8 },
                     used,
                 );
+            }
+            for pair in requests.windows(2) {
+                let (before, _) = request_allowance(&pair[0]);
+                let (after, _) = request_allowance(&pair[1]);
+                assert_eq!(before["deadline"], after["deadline"]);
+                // Millisecond wall-clock observations can be equal. Explicit
+                // clock inputs exercise remaining-time changes in unit tests.
             }
             assert_eq!(requests[0]["parallel_tool_calls"], true);
             if mode == "complete" {
@@ -866,16 +882,45 @@ fn assert_allowance(
         allowance["requests_remaining_including_this_request"],
         limit - used
     );
+    let observed_at: Timestamp = serde_json::from_value(allowance["observed_at"].clone()).unwrap();
+    let deadline: Timestamp = serde_json::from_value(allowance["deadline"].clone()).unwrap();
+    assert!(observed_at.get() > 0);
+    assert!(deadline > observed_at);
+    assert_eq!(
+        allowance["remaining_ms"].as_u64().unwrap(),
+        deadline.get().saturating_sub(observed_at.get())
+    );
+    let snapshot = host.snapshot().unwrap();
+    let configured_deadlines: Vec<_> = snapshot
+        .records
+        .values()
+        .filter(|record| record.collection == Collection::Artifact)
+        .map(|record| record.decode::<ArtifactDescriptor>().unwrap())
+        .filter(|descriptor| {
+            descriptor.spec.schema == "canonical-coding-configuration/1"
+                && &descriptor.spec.scope.task == root
+        })
+        .map(|descriptor| {
+            let configuration: serde_json::Value =
+                serde_json::from_slice(&host.read_artifact(descriptor.spec.id).unwrap()).unwrap();
+            serde_json::from_value::<Timestamp>(configuration["deadline"].clone()).unwrap()
+        })
+        .collect();
+    assert_eq!(
+        configured_deadlines,
+        vec![deadline],
+        "fixture observation uses its actual configured deadline"
+    );
     let digest = vcp_protocol::digest_bytes(text.as_bytes());
     assert!(
-        host.snapshot()
-            .unwrap()
+        snapshot
             .records
             .values()
             .filter(|record| record.collection == Collection::Artifact)
             .map(|record| record.decode::<ArtifactDescriptor>().unwrap())
             .any(|descriptor| descriptor.sha256 == digest
                 && descriptor.spec.schema == "canonical-coding-content/1"
+                && &descriptor.spec.scope.task == root
                 && descriptor.state == CaptureState::Complete),
         "model-visible allowance must have canonical captured provenance"
     );
@@ -894,6 +939,7 @@ async fn coding_turn(test: &TestCodex, backend: BackendKind, mode: &str) {
 
 async fn coding_turn_complete(thread: &codex_core::CodexThread, backend: BackendKind, mode: &str) {
     let mut last = None;
+    let mut failure = None;
     // Native durable capture and process setup can contend with other local
     // qualification. Product request/deadline limits remain independently set.
     let result = tokio::time::timeout(Duration::from_secs(120), async {
@@ -901,6 +947,9 @@ async fn coding_turn_complete(thread: &codex_core::CodexThread, backend: Backend
             let event = thread.next_event().await.unwrap();
             if matches!(event.msg, EventMsg::TurnComplete(_)) {
                 break;
+            }
+            if matches!(event.msg, EventMsg::Error(_)) {
+                failure = Some(format!("{:?}", event.msg));
             }
             last = Some(event.msg);
         }
@@ -910,4 +959,7 @@ async fn coding_turn_complete(thread: &codex_core::CodexThread, backend: Backend
         result.is_ok(),
         "{backend:?}/{mode}: turn did not finish; last event: {last:?}"
     );
+    if mode == "public-process-metadata" {
+        assert!(failure.is_none(), "{backend:?}/{mode}: {failure:?}");
+    }
 }

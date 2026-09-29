@@ -8,6 +8,7 @@
       "cs2-developer",
       "cs3-webapp",
       "cs3-comparison-host",
+      "cs3-document-remediation",
       "experiments",
       "upstream-inventory",
       "upstream-source",
@@ -52,12 +53,20 @@
       "timeout_ms": 60000,
       "max_output_bytes": 2097152
     },
+    "cs3-document-remediation": {
+      "task_ids": ["CS-3"],
+      "args": ["--test", "scripts/evals/cs3-document-remediation-candidate.test.cjs", "scripts/evals/cs3-document-remediation-oracle.test.cjs", "scripts/evals/cs3-document-remediation.test.cjs", "scripts/evals/cs3-document-remediation-build.test.cjs", "scripts/evals/cs3-document-remediation-preflight.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
     "cs3-comparison-host": {
       "task_ids": ["CS-3"],
       "args": ["--test", "scripts/evals/cs3-comparison-host.test.cjs"],
       "backends": ["none"],
       "requires": [],
-      "timeout_ms": 600000,
+      "timeout_ms": 720000,
       "max_output_bytes": 2097152
     },
     "cs-authoring": {
