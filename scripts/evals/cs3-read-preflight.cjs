@@ -57,9 +57,17 @@ function validateQualification(ref, spec) {
 function validateSkillQualification(ref, spec) {
   return validateFixedQualification(ref, spec, 'friendli', 'cs3-skill-provider-qualification/1', 'Friendli');
 }
+function validateSupplementedSkillQualification(ref, spec) {
+  // The prospective campaign's full source identity covers this new allocator.
+  // Do not expand sources(), the historical four-helper read-oracle closure,
+  // through an allocator that imports the entire comparison controller.
+  const funded = require(path.join(__dirname, 'cs3-skill-qualification-supplement.cjs')).validate(spec.skill_remediation.qualification_supplement, spec);
+  requireThat(plain(json(ref).probe_claim.path) === plain(funded.qualification_claim_path), 'Exact supplementary funded probe claim required');
+  return validateFixedQualification(ref, spec, 'friendli', 'cs3-skill-provider-qualification/2', 'Friendli', 500000);
+}
 // Deliberately private: callers cannot opt into an arbitrary endpoint or schema.
 // Both public entries retain the same raw conformance, accounting and source joins.
-function validateFixedQualification(ref, spec, ENDPOINT, wrapperSchema, providerName) {
+function validateFixedQualification(ref, spec, ENDPOINT, wrapperSchema, providerName, capMicros = 250000) {
   const wrapper = json(ref), profile = json(spec.profile), catalog = json(spec.catalog);
   requireThat(wrapper.schema === wrapperSchema && wrapper.model === MODEL && wrapper.endpoint === ENDPOINT, 'Fixed qualification identity required');
   requireThat(equal(Object.keys(wrapper).sort(),['binary','catalog','endpoint','model','probe_claim','profile','qualification_claim','schema','snapshot','sources']),'Qualification wrapper fields differ');
@@ -69,7 +77,7 @@ function validateFixedQualification(ref, spec, ENDPOINT, wrapperSchema, provider
   bound(wrapper.binary, 1024 * 1024 * 1024);
   requireThat(claim.binary_sha256 === wrapper.binary.sha256 && equal(claim.spec, probe) && claim.spec_sha256 === input.probe_spec.sha256, 'Conformance executable/spec claim differs');
   requireThat(equal(claim.source_sha256, Object.fromEntries(Object.entries(probeSources).map(([key, file]) => [key, sha(read(path.join(root, file)))]))), 'Conformance embedded source closure changed');
-  requireThat(probe.model === MODEL && probe.endpoint === ENDPOINT && probe.cap_usd === '0.250000' && probe.max_output_tokens === 2048, 'Conformance limits or endpoint differ');
+  requireThat(probe.model === MODEL && probe.endpoint === ENDPOINT && probe.cap_usd === (capMicros === 500000 ? '0.500000' : '0.250000') && probe.max_output_tokens === 2048, 'Conformance limits or endpoint differ');
   requireThat(equal(input.catalog, spec.catalog) && qualified.schema === 'p6-provider-qualification/1' && qualified.authorized_sources_sha256 === wrapper.sources.sha256, 'Qualification source authorization differs');
   requireThat(equal(snapshot, profile.provider) && snapshot.raw_sha256 === spec.catalog.sha256 && snapshot.compatibility?.model === MODEL && snapshot.compatibility?.endpoint === ENDPOINT && snapshot.compatibility?.id === 'p6-generation-qualified/' + wrapper.sources.sha256, 'Exact qualified snapshot required');
   requireThat(snapshot.compatibility.responses_text_tools === true && snapshot.compatibility.provider_preferences_qualified === true && snapshot.compatibility.deny_data_collection === true && snapshot.compatibility.require_zdr === false, 'Qualified compatibility policy differs');
@@ -81,7 +89,7 @@ function validateFixedQualification(ref, spec, ENDPOINT, wrapperSchema, provider
   requireThat(report.schema === 'p6-provider-conformance/1' && report.status === 'observed' && report.responses_text_tools === true && report.candidate?.raw_sha256 === probe.catalog_sha256 && report.candidate.price?.model === MODEL && report.candidate.price?.provider === ENDPOINT, 'Successful exact conformance observation required');
   requireThat(['context','max_input','max_output'].every(key=>snapshot[key]===report.candidate[key]) && count(snapshot.context)===selected.context_length && count(snapshot.max_input)===(selected.max_prompt_tokens??selected.context_length) && count(snapshot.max_output)===Math.min(selected.context_length,selected.max_completion_tokens) && equal(snapshot.price.rates,report.candidate.price.rates) && snapshot.price.currency==='USD' && snapshot.price.model===MODEL && snapshot.price.provider===ENDPOINT && snapshot.price.valid_until===input.valid_until,'Qualified endpoint bounds or tariff differs from actual probe');
   const ledger = report.ledger;
-  requireThat(ledger?.currency === 'USD' && ledger.cap === '250000' && ledger.active === '0' && ledger.unresolved === '0' && ledger.overrun === false, 'Known bounded qualification accounting required');
+  requireThat(ledger?.currency === 'USD' && ledger.cap === String(capMicros) && ledger.active === '0' && ledger.unresolved === '0' && ledger.overrun === false, 'Known bounded qualification accounting required');
   requireThat(report.responses?.length === 2 && input.generations?.length === 2 && qualified.attribution?.length === 2, 'Exactly two conformance responses required');
   const first = report.responses[0], second = report.responses[1];
   requireThat(first.calls?.length === 1 && first.calls[0].name === 'vcp_conformance_echo' && equal(first.calls[0].arguments, { marker: 'VCP_CONFORMANCE_☃' }) && second.calls?.length === 0 && Object.values(second.completed_messages).join('').trim() === 'VCP_CONFORMANCE_OK', 'Exact echo and continuation proof required');
@@ -96,7 +104,7 @@ function validateFixedQualification(ref, spec, ENDPOINT, wrapperSchema, provider
     requireThat(dollarMicros(generation.total_cost)===count(response.usage.cost.micros), 'Generation charge differs from response');
     requireThat(attribution.method === 'generation-single-attempt-exact-catalog-model-provider/2' && attribution.generation_sha256 === input.generations[index].sha256 && attribution.response_id === response.response_id && attribution.requested_model === MODEL && attribution.catalog_endpoint === ENDPOINT && attribution.provider_name === selected.provider_name && attribution.observed_endpoint_id === served.endpoint_id && attribution.observed_model_revision === generation.model, 'Attribution does not join actual generation');
   }
-  requireThat(qualified.attribution[0].observed_endpoint_id === qualified.attribution[1].observed_endpoint_id && qualified.attribution[0].observed_model_revision === qualified.attribution[1].observed_model_revision && cost === count(report.actual_cost_micros) && cost === count(ledger.settled) && cost <= 250000, 'Qualification charges/endpoint do not reconcile');
+  requireThat(qualified.attribution[0].observed_endpoint_id === qualified.attribution[1].observed_endpoint_id && qualified.attribution[0].observed_model_revision === qualified.attribution[1].observed_model_revision && cost === count(report.actual_cost_micros) && cost === count(ledger.settled) && cost <= capMicros, 'Qualification charges/endpoint do not reconcile');
   return { status: 'passed', actual_cost_micros: cost, observed_attempts: 2, model: MODEL, endpoint: ENDPOINT };
 }
 function sourceProfile(spec, current = true) {
@@ -250,5 +258,5 @@ function validate(ref, spec) {
   const observed=oracle(evidence,artifacts,bound(report.raw['stdout.jsonl']).toString(),json(report.raw['exit.json'])); bound(report.raw['stderr.txt']);
   requireThat(Object.entries(observed).every(([key,value])=>equal(report[key],value)),'Preflight claimed outcome differs from raw evidence'); return observed;
 }
-module.exports={prepare,run,validate,validateQualification,validateSkillQualification,validatePriorRuntime,priorFailure,sameExecutableIdentity,oracle,completedResponses,bound,sources,dollarMicros,gapAllowed,CONTENT,ANSWER,WHOLE,RANGE,PROMPT};
+module.exports={prepare,run,validate,validateQualification,validateSkillQualification,validateSupplementedSkillQualification,validatePriorRuntime,priorFailure,sameExecutableIdentity,oracle,completedResponses,bound,sources,dollarMicros,gapAllowed,CONTENT,ANSWER,WHOLE,RANGE,PROMPT};
 if(require.main===module){try{const [command,...args]=process.argv.slice(2);let result;if(command==='prepare')result=prepare(...args);else if(command==='run')result=run(...args);else throw Error('Usage: prepare SPEC NEW_PRIVATE_DIRECTORY | run PLAN SHA256');process.stdout.write(JSON.stringify(result,null,2)+'\n');if(result.status==='failed')process.exitCode=1;}catch(error){process.stderr.write(error.message+'\n');process.exitCode=1;}}

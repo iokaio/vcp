@@ -14,6 +14,9 @@ const skills = ['frontend-design', 'mcp-development', 'llm-integration', 'webapp
 const limits = Object.freeze({ runs: 90, slot_micros: 600000, slot_requests: 16, aggregate_micros: 54000000, aggregate_requests: 1440, output_tokens: '2048' });
 function need(value, message) { if (!value) throw Error(message); }
 function baseSpec(spec) { const { friendli_transfer, ...base } = spec; return base; }
+// Projection only, never authorization: validateSpec authenticates this exact
+// supplemental allocation through the shared SKL specification before dispatch.
+function supplementalMicros(spec) { return spec.skill_remediation?.qualification_supplement ? 500000 : 0; }
 function claimFile() { return path.join(path.dirname(core().claimFile(true)), 'vcp-cs3-friendli-transfer1.json'); }
 function decision(ref) {
   const value = bound(ref), expected = { schema: 'cs3-friendli-transfer-decision/1', authority: 'owner_explicit_cs3_completion_within_existing_100_usd',
@@ -116,7 +119,7 @@ function describeValidated(spec, destination, checkExpiry) {
 function project(manifest, reference, skill) {
   need(skills.includes(skill), 'Unknown transferred skill');
   return { ...manifest.base, schema: 'cs3-friendli-transfer-plan/1', limits, control_directory: path.join(manifest.directory, skill), runs: manifest.base.runs.filter(row => row.skill === skill),
-    friendli_transfer: { manifest: reference, skill, accounting: { fixed_conservative_micros: 44913737, outer_cap_micros: 100000000 } },
+    friendli_transfer: { manifest: reference, skill, accounting: { fixed_conservative_micros: 44913737 + supplementalMicros(manifest.spec), outer_cap_micros: 100000000 } },
     phase_rule: 'Five serial one-shot transferred groups, after actual fresh SKL terminal. Safe provider uncertainty costs the full slot and fails quality. Supplied model canary ends only its skill; execution or evidence integrity halts all groups. DOC follows four actual dispositions. No replay.' };
 }
 function prepare(specFile, destination, dryRun = false) {
@@ -192,10 +195,11 @@ function validate(plan, hash) {
 const totals = () => ({ known_settled_micros: 0, conservative_debit_micros: 0, unresolved_liability_micros: 0, unresolved_attempts: 0, observed_attempts: 0 });
 function add(sum, money) { for (const key of Object.keys(sum)) sum[key] += key === 'observed_attempts' ? money.attempts.length : money[key]; }
 function admission(plan) {
-  const manifest = load(plan), sum = totals();
+  const manifest = load(plan), sum = totals(), supplement = supplementalMicros(manifest.spec);
   for (const group of groups(manifest, plan.friendli_transfer.manifest)) for (const row of group.claimed) add(sum, isolation.safeReport(group.plan, row, core().slotReport(group.plan, row.id)));
   need(Object.values(sum).every(value => Number.isSafeInteger(value) && value >= 0) && sum.conservative_debit_micros + 600000 <= 54000000 && sum.observed_attempts + 16 <= 1440
-    && 44913737 + sum.conservative_debit_micros + 600000 <= 98913737, 'Shared transferred allocation cannot reserve another slot');
+    && 44913737 + supplement + sum.conservative_debit_micros + 600000 <= 98913737 + supplement
+    && 98913737 + supplement <= 100000000, 'Shared transferred allocation cannot reserve another slot');
   return { ...sum, actual_cost_micros: sum.unresolved_attempts ? null : sum.known_settled_micros, reserved_micros: 600000, reserved_requests: 16 };
 }
 function disposition(group) {

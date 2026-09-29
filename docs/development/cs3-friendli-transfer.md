@@ -209,3 +209,104 @@ It retains real controller claims, accounting, reader joins and local/global hal
 behavior while the transport is explicitly fake; it makes no provider calls.
 Repository consistency also passed under run
 `5f38f746-2ac7-4d1f-b2ba-b8ae530be5ae`.
+
+## Final campaign source and build
+
+The clean execution worktree is frozen at
+`2b4f566c5f172ebc7bcece2c629263a008ec610a`. Its 282-file archive has source
+identity `040818d9fbd4753d270c34a82fac95a2a6d945c57a44a2020dfa89b6987fb9c6`;
+receipt `frozen-friendli-source-1-receipt.json` has SHA-256
+`f49c5538063d69c425c11bafe37c3cf5cbfed4eb520ffca6fff490cb5d8d8d68`.
+Archive creation made no model calls or claims.
+
+The genuine locked offline build passed after final source capture
+`e2953bf3-0d5a-470a-bf17-6d10dc369241`, manifest SHA-256
+`c60e24db32aa35d1dd4a174c429425365c2d80c8900368d7cceceee024fae7b8`.
+Build `94d9ab21-aeec-4627-aa2a-7409533f871e` receipt SHA-256 is
+`61ab8f550a1d818adb820e8a6ce2d5b8011e21b25f3d24dc6863a54596f3913d`.
+Source and toolchain remained unchanged. Executable SHA-256
+`80abee25060672b23f8c8251ffc7d38f5d4bd7980b4bf9c3257eced4916fd74f`
+matches the actual mixed non-default package acceptance. This final receipt, not
+the earlier preparatory build, governs campaign provenance. Qualification and
+live comparisons remain separate required observations.
+
+After all six comparisons qualify, phase 5 still requires exact qualified bytes
+in the builtin catalog and a separate genuine build/install/rollback and installed
+builtin acceptance join. The current 21-builtin plus explicit-candidate package
+proof must not be relabelled as promoted distribution evidence.
+
+## Retained qualification admission failure
+
+The actual allocation passed under the frozen source above. Its receipt,
+`friendli-skill-allocation-1/allocation.json`, has SHA-256
+`08d8293823a22dba12b2fec57457bd5853ad9bd502cc46ad575a54996a09b7ff`.
+The first Friendli probe then dispatched exactly one request, settled at 274
+micros (USD 0.000274), before the second request was denied locally with
+`budget exhausted: root cap`. No native preflight or comparison was dispatched.
+
+The retained canonical quote reserves 249,832 micros per request: 245,760 for
+the conservative disjoint input/cache bounds, 3,072 for the bounded 2,048-token
+output, and 1,000 for the request-price ceiling. After settling the first request,
+the second requires 250,106 micros, exceeding the 250,000-micro probe cap by 106.
+This is an underfunded qualification envelope, not an observed provider failure.
+The ledger has zero active or unresolved liability; it does not establish the
+required two-response qualification.
+
+The immutable `friendli-provider-1/probe-output` evidence is:
+
+| File | SHA-256 |
+| --- | --- |
+| `claim.json` | `02ac0cfe1f4bbe5d711352eb4e5e97c1ff612cd9d15c5a31f2721d6141328f79` |
+| `result.json` | `5196127c737bed195bde1b9921c5f699ae394f975c29b5b0f948260581400d2c` |
+| `canonical-records.json` | `ec0dee8f7e58cf14387ffd09e7a597ceeb99521ac2b0d1aeb9abef83fe236094` |
+
+A separate, one-use qualification supplement is being implemented under the
+existing owner approval. It retains the original USD 0.25 reservation and adds
+USD 0.50 / two requests from the previously unallocated balance, bringing the
+combined maximum to USD 99.413737 / 2,633 requests and leaving USD 0.586263.
+The new allowance covers two full 249,832-micro reservations without relying on
+low observed charges. The original claim, source, allocation and failed result
+remain unchanged. A new source freeze and genuine qualification are required;
+the failed claim is never replayed and no qualification requirement is waived.
+
+### Supplement implementation and checks
+
+The fixed supplemental allocator re-executes the original allocation validator
+through its authenticated archive, then checks the exact failed probe's full
+72-file inventory (`f1c3e68670213cf81ff69542d185ac13764fb2b1592e423631c95a171b697e4e`).
+New build, native and package pins remain closed until actual observations are
+available. The old installed acceptance can be reused only for its byte-identical
+executable; a changed executable requires new installed-package acceptance.
+The new provider preparation also compares the authenticated original endpoint
+capabilities and complete tariffs before consuming the new probe claim.
+
+The genuine nested archive check exposed a Stats-proxy descriptor query made by
+JavaScript itself during ordinary nested property reads. The proof observer now
+records bounded primitive data descriptors, including their flags, and rechecks
+them from the same fresh stat snapshot on each validation. Prototype reflection,
+enumeration, mutation, accessors, object descriptors and symbol keys remain
+unsupported. The original frozen validator is unchanged. The focused nested-copy
+and descriptor-drift tests pass; genuine archive validation remains required.
+
+Registered no-provider regression evidence:
+
+| Case | Passed | Run | Manifest SHA-256 |
+| --- | ---: | --- | --- |
+| Proof footprint | 31 | `652b44e2-a307-4d68-aa73-e9519796f317` | `4b1dcc441494db46e4bda8f663bedb4cc42b6b4592b1a2a34f15eaa22c56ae82` |
+| Remediation/preflight | 45 | `c2162fd4-7188-4541-88c8-66526ae34837` | `3d23a7402c0ebe58a99882143b20d80ff18532ba7d660cfa92dff1a85077e072` |
+| Transfer/retirement | 13 | `529b0e7c-45e6-4afa-8532-c1989d3fe270` | `5f0cbf32ac6b8a61d8c1aaf2ba983e62d9ac69e3a456ae8cf29b29691f8d040b` |
+| Qualification supplement | 5 | `57915ee6-9ced-42c7-901b-303e7498a537` | `496cc69393bb57da21d936f9703105e4e38020b41694b4b27a545358b3cba6cd` |
+| Promoted distribution | 7 | `4141b808-b3de-424b-a640-fb9591268454` | `b75133f14f7e8b33b1fa1cb2ef738225964851709899f52292c75f5a99e380d6` |
+
+All five runs have zero failed or skipped tests. The remediation suite's offline
+timeout is now 120 seconds after a retained 60-second timeout under concurrent
+validation; paid and native deadlines are unchanged. A prior concurrent-source
+edit also caused a retained source-integrity rejection, not a waived assertion.
+Repository consistency passes under run `089820ae-475a-4d68-85b5-b8677b687c21`.
+
+Prospective installed-builtin tests compile and are explicitly gated on actual
+promotion. Seven native catalog tests and the three affected executable filters
+(explicit external selection, lazy package integrity, terminal controls) pass.
+Counts now follow the exact embedded inventory; external selection is proved
+through canonical activation state even when an equivalent builtin exists.
+These test changes do not promote candidates or establish their live usefulness.

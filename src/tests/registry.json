@@ -15,6 +15,8 @@
       "cs3-friendli-transfer",
       "cs3-friendli-transfer-host",
       "cs3-proof-footprint",
+      "cs3-promoted-distribution",
+      "cs3-skill-qualification-supplement",
       "experiments",
       "upstream-inventory",
       "upstream-source",
@@ -64,7 +66,7 @@
       "args": ["--test", "scripts/evals/cs3-document-remediation-candidate.test.cjs", "scripts/evals/cs3-document-remediation-oracle.test.cjs", "scripts/evals/cs3-document-remediation.test.cjs", "scripts/evals/cs3-document-remediation-build.test.cjs", "scripts/evals/cs3-document-remediation-preflight.test.cjs", "scripts/evals/cs3-preflight-supplement.test.cjs"],
       "backends": ["none"],
       "requires": [],
-      "timeout_ms": 60000,
+      "timeout_ms": 120000,
       "max_output_bytes": 2097152
     },
     "cs3-runtime-amendment": {
@@ -110,6 +112,22 @@
     "cs3-proof-footprint": {
       "task_ids": ["CS-3"],
       "args": ["--test", "scripts/evals/cs3-proof-footprint.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 180000,
+      "max_output_bytes": 2097152
+    },
+    "cs3-promoted-distribution": {
+      "task_ids": ["CS-3"],
+      "args": ["--test", "scripts/evals/cs3-promoted-distribution.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
+    "cs3-skill-qualification-supplement": {
+      "task_ids": ["CS-3"],
+      "args": ["--test", "scripts/evals/cs3-skill-qualification-supplement.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 180000,

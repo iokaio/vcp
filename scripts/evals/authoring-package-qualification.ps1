@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory)][string]$Executable,
     [Parameter(Mandatory)][string]$PreviousArchive,
     [string]$BuildReceipt,
+    [string]$PromotionSpec,
     [string]$OutputRoot
 )
 $ErrorActionPreference = 'Stop'
@@ -13,6 +14,16 @@ $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 if (-not $OutputRoot) { $OutputRoot = Join-Path $repository 'artifacts/cs-authoring-package' }
 $candidate = [IO.Path]::GetFullPath($Executable)
 $previous = [IO.Path]::GetFullPath($PreviousArchive)
+$promotion = $null
+if ($PromotionSpec) {
+    $PromotionSpec = [IO.Path]::GetFullPath($PromotionSpec)
+    $promotionRaw = & node (Join-Path $PSScriptRoot 'cs3-promoted-distribution.cjs') admit $PromotionSpec
+    if ($LASTEXITCODE -ne 0) { throw 'Promoted distribution admission failed before installation' }
+    $promotion = $promotionRaw | ConvertFrom-Json
+    if ($promotion.schema -cne 'cs3-promoted-distribution-admission/1' -or $promotion.status -cne 'eligible_for_package_checks' -or
+        [IO.Path]::GetFullPath($promotion.executable.path) -cne $candidate -or
+        $promotion.executable.sha256 -cne (Get-FileHash -LiteralPath $candidate).Hash.ToLowerInvariant()) { throw 'Exact admitted promoted executable required' }
+}
 # The installer owns only a new disposable installation outside the checkout.
 # No recursive cleanup is done here; retain evidence and failed installations.
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('vcp-authoring-install-' + [guid]::NewGuid())
@@ -31,6 +42,13 @@ $record = [ordered]@{
     executable_sha256 = (Get-FileHash -LiteralPath $candidate).Hash.ToLowerInvariant()
     previous_archive_sha256 = (Get-FileHash -LiteralPath $previous).Hash.ToLowerInvariant()
     limitations = @('Local candidate build, not release/performance qualification.', 'Synthetic protected-data sentinel; canonical migration and live usefulness are separate gates.')
+}
+if ($promotion) {
+    $record.schema = 'cs3-promoted-package-installation/1'
+    $record.promotion_spec = $promotion.promotion_spec
+    $record.promotion_admission = $promotion
+    $record.previous_archive = $previous
+    $record.runner_sha256 = (Get-FileHash -LiteralPath $PSCommandPath).Hash.ToLowerInvariant()
 }
 $report = Join-Path $resolved 'result.json'
 function Save-Report { $record | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $report -Encoding utf8 }
@@ -68,13 +86,25 @@ function Install-Step([string]$Action, [string]$Archive) {
     if ($LASTEXITCODE -ne 0) { throw 'Installed native executable failed startup' }
     $catalog = Join-Path $release 'skills/builtin/catalog.json'
     $metadata = Get-Content -LiteralPath $catalog -Raw | ConvertFrom-Json
-    if ($Action -eq 'Upgrade') {
+    if ($Action -eq 'Upgrade' -and $promotion) {
+        $observedRaw = & node (Join-Path $repository 'scripts/skills/builtin-assets.cjs') verify (Join-Path $release 'skills/builtin')
+        if ($LASTEXITCODE -ne 0) { throw 'Installed promoted assets failed exact source validation' }
+        $observed = $observedRaw | ConvertFrom-Json
+        if (($observed | ConvertTo-Json -Depth 20 -Compress) -cne ($promotion.assets | ConvertTo-Json -Depth 20 -Compress)) { throw 'Installed promoted inventory differs from qualified admission' }
+        if (Test-Path -LiteralPath (Join-Path $release 'skills/candidates')) { throw 'Promoted package must not install external research sources' }
+    } elseif ($Action -eq 'Upgrade') {
         foreach ($id in @('document-authoring', 'skill-authoring', 'frontend-design', 'mcp-development', 'llm-integration', 'webapp-testing')) {
             if ($metadata.skills.id -contains $id -or (Test-Path -LiteralPath (Join-Path $release ('skills/builtin/' + $id)))) { throw 'Research candidate leaked into installed builtin skills' }
         }
         if (Test-Path -LiteralPath (Join-Path $release 'skills/candidates')) { throw 'Research candidates must not be installed by default' }
     }
-    $record.stages += @{ action = $Action; release = $release; executable_sha256 = (Get-FileHash -LiteralPath $binary).Hash.ToLowerInvariant(); installer_sha256 = (Get-FileHash -LiteralPath $installer).Hash.ToLowerInvariant(); catalog_sha256 = (Get-FileHash -LiteralPath $catalog).Hash.ToLowerInvariant(); skills = $metadata.skills.Count; version = $metadata.version; protected_data_unchanged = $true }
+    $stage = @{ action = $Action; release = $release; executable_sha256 = (Get-FileHash -LiteralPath $binary).Hash.ToLowerInvariant(); installer_sha256 = (Get-FileHash -LiteralPath $installer).Hash.ToLowerInvariant(); catalog_sha256 = (Get-FileHash -LiteralPath $catalog).Hash.ToLowerInvariant(); skills = $metadata.skills.Count; version = $metadata.version; protected_data_unchanged = $true }
+    if ($promotion) {
+        $stage.exit_code = 0; $stage.help_exit_code = 0
+        $stage.log_sha256 = (Get-FileHash -LiteralPath (Join-Path $resolved ($Action + '-' + $record.stages.Count + '.log'))).Hash.ToLowerInvariant()
+        $stage.help_log_sha256 = (Get-FileHash -LiteralPath (Join-Path $resolved ('help-' + $record.stages.Count + '.log'))).Hash.ToLowerInvariant()
+    }
+    $record.stages += $stage
     Save-Report
 }
 Save-Report
@@ -91,12 +121,22 @@ try {
     $previousInstaller = Package-Installer $previous 'previous'
     $candidateInstaller = Package-Installer $archive 'candidate'
     Install-Step 'Install' $previous
+    if ($promotion -and ($record.stages[0].skills -ne 21 -or $record.stages[0].catalog_sha256 -cne $promotion.baseline_catalog.sha256)) { throw 'Rollback baseline differs from the qualified comparison catalog' }
     Install-Step 'Upgrade' $archive
     if ($record.stages[1].executable_sha256 -cne $record.executable_sha256 -or $record.stages[1].catalog_sha256 -cne $package.manifest.skills.catalog_sha256) { throw 'Installed candidate identity differs' }
     Install-Step 'Rollback' ''
     if ($record.stages[2].release -cne $record.stages[0].release -or $record.stages[2].catalog_sha256 -cne $record.stages[0].catalog_sha256 -or $record.stages[2].executable_sha256 -cne $record.stages[0].executable_sha256) { throw 'Rollback did not restore exact prior binary/catalog' }
     Install-Step 'Upgrade' $archive
     if ($record.stages[3].release -cne $record.stages[1].release) { throw 'Re-upgrade changed candidate identity' }
+    if ($promotion) {
+        $afterRaw = & node (Join-Path $PSScriptRoot 'cs3-promoted-distribution.cjs') admit $PromotionSpec
+        if ($LASTEXITCODE -ne 0) { throw 'Promoted distribution admission changed during installation' }
+        $after = $afterRaw | ConvertFrom-Json
+        if (($after | ConvertTo-Json -Depth 40 -Compress) -cne ($promotion | ConvertTo-Json -Depth 40 -Compress) -or
+            (Get-FileHash -LiteralPath $PSCommandPath).Hash.ToLowerInvariant() -cne $record.runner_sha256 -or
+            (Get-FileHash -LiteralPath $previous).Hash.ToLowerInvariant() -cne $record.previous_archive_sha256) { throw 'Promoted source or package admission changed' }
+        $record.inputs_unchanged = $true
+    }
     $record.status = 'pass'
     $record.installed_candidate = Active-Release
 } catch {

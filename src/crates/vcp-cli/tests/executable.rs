@@ -30,6 +30,8 @@ mod packaged_mcp_history;
 mod packaged_mcp_preflight;
 #[path = "support/packaged_sensitive_surfaces.rs"]
 mod packaged_sensitive_surfaces;
+#[path = "support/promoted_skills.rs"]
+mod promoted_skills;
 #[path = "support/public_execution.rs"]
 mod public_execution;
 use serde_json::{json, Value};
@@ -441,7 +443,15 @@ async fn executable_six_candidate_report_only_profiles_complete_without_workspac
             .await;
         let mut fixture = Fixture::new(&server.uri(), "complete");
         let builtin = fixture.package(true);
-        assert!(!builtin.join(skill).exists());
+        assert_eq!(
+            builtin.join(skill).exists(),
+            vcp_extensions::catalog::embedded()
+                .unwrap()
+                .skills
+                .iter()
+                .any(|entry| entry.id == skill),
+            "installed presence must match this build's authored catalog"
+        );
         let collection = tempfile::tempdir().unwrap();
         let package = collection.path().join(skill);
         fs::create_dir(&package).unwrap();
@@ -535,6 +545,40 @@ async fn executable_six_candidate_report_only_profiles_complete_without_workspac
             source
         );
         assert_eq!(fs::read_dir(&fixture.workspace).unwrap().count(), 1);
+        // Context content need not spell its source-qualified ID. Assert the
+        // actual persisted activation identity, including when a builtin uses
+        // the same skill ID and identical instruction bytes.
+        let directory = fs::read_dir(fixture.data.join("workspaces"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.join("workspace.json").is_file())
+            .unwrap();
+        let entry: vcp_cli::settings::WorkspaceEntry =
+            serde_json::from_slice(&fs::read(directory.join("workspace.json")).unwrap()).unwrap();
+        let store = vcp_store::Store::open(
+            &entry.config.canonical_root,
+            entry.config.backend,
+            &[fixture.workspace.canonicalize().unwrap()],
+        )
+        .await
+        .unwrap();
+        let state = store
+            .state()
+            .records
+            .values()
+            .find(|record| {
+                record.collection == vcp_store::contract::Collection::Projection
+                    && record.value["document_type"] == "vcp_task_skills_v1"
+                    && record.value["scope"]["task"] == entry.config.root_task.as_str()
+            })
+            .unwrap();
+        let active = state.value["active"].as_object().unwrap();
+        assert_eq!(active.len(), 1);
+        let selected = active.get(&qualified).unwrap();
+        assert_eq!(selected["qualified_id"], qualified);
+        assert_eq!(selected["source_id"], "vcp-authoring-candidates");
+        assert_eq!(selected["version"], descriptor["version"]);
+        store.close().await.unwrap();
     }
 }
 
@@ -2358,7 +2402,10 @@ async fn executable_packaged_skills_are_relocatable_lazy_and_integrity_checked()
     );
     let values = records(&output);
     let data = &values.last().unwrap()["data"];
-    assert_eq!(data["total_skills"], 21);
+    assert_eq!(
+        data["total_skills"],
+        vcp_extensions::catalog::embedded().unwrap().skills.len()
+    );
     assert_eq!(data["reads"]["bodies"], 0);
     assert_eq!(data["reads"]["resources"], 0);
     assert!(!data["integrity"].is_null());
@@ -2563,7 +2610,11 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
         let values = records(&inspected);
         let data = &values.last().unwrap()["data"];
         assert_eq!(data["reads"]["bodies"], 0);
-        assert_eq!(data["total_skills"], 22);
+        assert_eq!(
+            data["total_skills"],
+            vcp_extensions::catalog::embedded().unwrap().skills.len() + 1,
+            "the complete builtin inventory plus the colliding workspace skill"
+        );
         assert!(!data["integrity"].is_null());
         assert!(data["configuration"]
             .as_str()

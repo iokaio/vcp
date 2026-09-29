@@ -141,7 +141,7 @@ test('caught unsupported filesystem/process operations and stat reflection canno
         if (kind === 'open-options') fs.openSync(f.file, 'r+');
         else if (kind === 'read-options') fs.readFileSync(f.file, { encoding: 'utf8', flag: 'r+' });
         else if (kind === 'git-options') child.execFileSync('git', ['--version'], { encoding: 'utf8' });
-        else if (kind === 'stat-reflection') Object.getOwnPropertyDescriptor(fs.statSync(f.file), 'size').value;
+        else if (kind === 'stat-reflection') Object.getPrototypeOf(fs.statSync(f.file));
         else if (kind === 'nested-reuse') f.reuse.run('inner', () => ({}), f.guard);
         else if (kind === 'missing-open') fs.openSync(path.join(f.root, 'missing'), 'r');
         else if (kind === 'missing-directory') fs.opendirSync(path.join(f.root, 'missing-directory'));
@@ -156,6 +156,38 @@ test('caught unsupported filesystem/process operations and stat reflection canno
     };
     assert.throws(() => f.reuse.run(kind, action, f.guard), /Historical proof footprint/); assert.deepEqual(hooks(), before);
   }
+});
+
+test('read-only stat data descriptors are authenticated and descriptor-only drift rejects reuse', t => {
+  const f = fixture(t), native = fs.statSync; let changed = false;
+  fs.statSync = (...args) => {
+    const value = native(...args);
+    if (changed) Object.defineProperty(value, 'size', { ...Object.getOwnPropertyDescriptor(value, 'size'), enumerable: false });
+    return value;
+  };
+  t.after(() => { fs.statSync = native; });
+  const action = () => ({ size: Object.getOwnPropertyDescriptor(fs.statSync(f.file), 'size'), inherited: Object.getOwnPropertyDescriptor(fs.statSync(f.file), 'isFile') });
+  const first = f.reuse.run('descriptors', action, f.guard);
+  assert.equal(first.size.value, 12); assert.equal(first.inherited, undefined);
+  assert.deepEqual(f.reuse.run('descriptors', action, f.guard), first);
+  changed = true;
+  assert.throws(() => f.reuse.run('descriptors', action, f.guard), /descriptor changed/);
+});
+
+test('a separate preserved proof capture can wrap tracked Stats without losing outer evidence checks', t => {
+  const f = fixture(t), file = path.join(__dirname, 'cs3-proof-footprint.cjs'), module = { exports: {} };
+  new Function('require', 'module', 'exports', '__dirname', fs.readFileSync(file, 'utf8'))(Module.createRequire(file), module, module.exports, __dirname);
+  const inner = module.exports.createProofReuse(); let outerCalls = 0, innerCalls = 0;
+  const action = () => { outerCalls++; return inner('preserved', () => {
+    innerCalls++; const info = fs.lstatSync(f.file);
+    return { text: fs.readFileSync(f.file, 'utf8'), size: info.size, file: info.isFile(), link: info.isSymbolicLink() };
+  }, f.guard); };
+  const first = f.reuse.run.readOnly(() => f.reuse.run('outer', action, f.guard));
+  assert.deepEqual(first, { text: 'retained-one', size: 12, file: true, link: false });
+  assert.deepEqual(f.reuse.run.readOnly(() => f.reuse.run('outer', action, f.guard)), first);
+  assert.equal(outerCalls, 1); assert.equal(innerCalls, 1);
+  fs.writeFileSync(f.file, 'changed-data');
+  assert.throws(() => f.reuse.run('outer', action, f.guard));
 });
 
 test('readdir encodings and Dirent type checks are covered without rewriting original values', t => {

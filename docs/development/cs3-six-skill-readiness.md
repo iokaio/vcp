@@ -23,10 +23,20 @@ outside its conservative envelope. This inventory supports phase 4 of the
 [CS-3 implementation plan](cs3-implementation-phases.md#phase-4--six-skill-comparison-acceptance)
 and preserves every historical result and halt.
 
-## Current immutable candidate identities
+The latest [Friendli continuation](cs3-friendli-transfer.md) has passed actual
+retirement, frozen-source build, allocation, corrected native controls and mixed
+candidate package acceptance. Its first provider probe stopped before its second
+request because the local conservative reservation exceeded the USD 0.25 probe
+cap by USD 0.000106 after the first request settled. A separate USD 0.50 / two-request
+qualification supplement is under implementation within the existing approval;
+the combined maximum is USD 99.413737 / 2,633 requests with the original reservation
+fully retained. No Friendli comparison has yet been dispatched or qualified.
 
-These are the bytes currently present under `src/skills/candidates/`. A future
-source correction needs a new version and hashes. An unchanged candidate may be
+## Retained original candidate identities
+
+These are the original readiness-checkpoint identities, not the current candidate
+inventory. Later versioned amendments and their source-bound receipts are recorded
+in the continuation above. A future source correction needs a new version and hashes. An unchanged candidate may be
 tested only against prospectively frozen inputs; known cases cannot be renamed
 into untouched holdouts.
 

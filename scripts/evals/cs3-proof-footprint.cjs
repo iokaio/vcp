@@ -140,6 +140,7 @@ function capture(action) {
     const record = add(key, { ok: true, value: base }, () => observe(currentStat, value => ({ dev: value.dev, ino: value.ino, mode: value.mode })));
     record.currentStat ||= currentStat;
     record.properties ||= new Map();
+    record.descriptors ||= new Map();
     const property = (name, call, value) => {
       const key = (call ? 'call:' : 'get:') + name;
       if (record.properties.has(key)) need(equal(record.properties.get(key).result, value), 'stat property changed during proof');
@@ -155,7 +156,25 @@ function capture(action) {
       }
       return property(key, false, value);
     }, set() { return deny('stat mutation'); }, defineProperty() { return deny('stat mutation'); }, deleteProperty() { return deny('stat mutation'); },
-    ownKeys() { return deny('stat reflection'); }, getOwnPropertyDescriptor() { return deny('stat reflection'); }, getPrototypeOf() { return deny('stat reflection'); } });
+    ownKeys() { return deny('stat reflection'); },
+    getOwnPropertyDescriptor(target, key) {
+      // A preserved validator may wrap this Stats proxy in its own Stats
+      // proxy. JavaScript then queries target descriptors to check proxy
+      // invariants even for ordinary `stat.size` / `stat.isFile()` reads.
+      // Authenticate those read-only data descriptors rather than bypassing
+      // either validator. Prototype/enumeration/mutation remain unsupported.
+      need(typeof key === 'string' && key.length <= 128, 'unsupported stat descriptor key');
+      const descriptor = Object.getOwnPropertyDescriptor(target, key);
+      need(descriptor === undefined || Object.hasOwn(descriptor, 'value')
+        && (descriptor.value === null || ['undefined', 'number', 'bigint', 'string', 'boolean'].includes(typeof descriptor.value)),
+      'unsupported stat accessor or object descriptor');
+      if (record.descriptors.has(key)) need(equal(record.descriptors.get(key), descriptor), 'stat descriptor changed during proof');
+      else {
+        need(record.descriptors.size < 64, 'stat descriptor bound exceeded');
+        record.descriptors.set(key, clone(descriptor));
+      }
+      return descriptor;
+    }, getPrototypeOf() { return deny('stat reflection'); } });
   }
   function open(args) {
     const [value, flags, mode] = args, file = filename(value);
@@ -302,6 +321,8 @@ function capture(action) {
             const snapshot = current.value.snapshot, value = property.call ? snapshot[property.name]() : snapshot[property.name];
             need(equal(value, property.result), 'observed stat property changed');
           }
+          for (const [name, descriptor] of record.descriptors)
+            need(equal(Object.getOwnPropertyDescriptor(current.value.snapshot, name), descriptor), 'observed stat descriptor changed');
         } else need(equal(record.check(), record.result), 'observed filesystem or Git state changed');
       }
       need(environment(original) === baseline, 'environment changed during verification');

@@ -25,7 +25,12 @@ function fixture(t) {
     // Synthetic native/prerequisite/build substitutes are not qualification.
     // Actual file/hash/package/log/release/ownership/allocation checks run.
     if (name === './cs3-controller-recovery-qualification.cjs') return { skillRemediationPrerequisites() { assert(state.historical, 'Historical validator failed'); return { terminal: 'synthetic-unqualified', model_calls: 0, protected_inventories: [{ directory: reviewed, inventory: {} }] }; }, nativePrerequisites() { assert(state.native, 'Native validator failed'); return { status: 'synthetic' }; } };
-    if (name === './cs3-read-preflight.cjs' || name === './cs3-document-remediation-preflight.cjs') return { validateSkillQualification: () => ({ status: 'passed' }), validate: () => ({ status: 'passed' }) };
+    if (name === './cs3-read-preflight.cjs' || name === './cs3-document-remediation-preflight.cjs') return { validateSkillQualification: () => ({ status: 'passed' }),
+      validateSupplementedSkillQualification: () => { state.supplementedQualifier = true; return { status: 'passed' }; }, validate: () => ({ status: 'passed' }) };
+    if (name === './cs3-skill-qualification-supplement.cjs') return { validate(ref) {
+      assert(state.supplement && ref.sha256 === 'synthetic-approved-supplement', 'Synthetic supplemental allocation missing');
+      state.supplementCalls = (state.supplementCalls || 0) + 1; return state.supplement;
+    } };
     if (name === './cs3-comparison-isolated.cjs') return { safeReport: (plan, row, report) => report };
     if (name === './cs3-document-remediation.cjs') return { ...doc, build: () => ({ status: 'synthetic' }), executionPlan(spec, destination, tasks) {
       return { directory: destination, spec, runs: tasks.flatMap((task, i) => ['none', 'nearest', 'candidate'].map((_, j) => ({ id: task.id + '--' + ['none', 'nearest', 'candidate'][(i + j) % 3], case_id: task.id, skill: task.skill, arm: ['none', 'nearest', 'candidate'][(i + j) % 3] }))) };
@@ -80,6 +85,22 @@ test('exact held-out SKL package and six-task envelope remain separate and close
   const p = path.join(sourceRoot, 'src/evals/skills/cs3-skill-remediation/decision.json'), r = { path: p, sha256: sha(fs.readFileSync(p)) };
   assert.equal(real.decision(r).combined_cap_micros, 98913737);
   assert.throws(() => real.prerequisites({ decision: r, executable: { sha256: 'a'.repeat(64) } }), /pin/);
+});
+
+test('supplemented SKL routes through explicit funding and new qualifier without changing eighteen-slot limits', t => {
+  const f = fixture(t), funded = path.join(f.directory, 'new-probe/claim.json');
+  f.state.supplement = { ...f.approved, allocation: { spec: { qualification_claim_path: 'old-unusable' } }, qualification_claim_path: funded, additional_cap_micros: 500000 };
+  const qualifier = f.put(path.join(f.directory, 'qualification.json'), { probe_claim: { path: funded } });
+  const profile = f.put(path.join(f.directory, 'profile.json'), { deadline_seconds: 600, provider_timeout_seconds: 120, max_requests: 16, output_tokens: '2048', max_transport_retries: 0,
+    provider: { compatibility: { model: f.approved.model, endpoint: f.approved.endpoint } } });
+  const native = JSON.parse(fs.readFileSync(f.selected.recovery_native.path));
+  const spec = { build_receipt: f.selected.build_receipt, executable: f.selected.executable, catalog: qualifier, profile, node: native.node,
+    gates: { browser_boundary: native.boundary, node_fixture: native.node_fixture, web_oracles: native.web, ui_qualification: native.ui_matrix }, web_evidence: native.web_evidence,
+    skill_remediation: { allocation: qualifier, decision: f.selected.decision, history: f.selected.history, recovery_native: f.selected.recovery_native,
+      package_acceptance: f.selected.package_acceptance, qualification: qualifier, runtime_preflight: qualifier, qualification_supplement: { sha256: 'synthetic-approved-supplement' } } };
+  const observed = f.helper.validateSpec(spec); assert.equal(observed.accounting.fixed_conservative_micros, 88613737);
+  assert.equal(f.state.supplementedQualifier, true); assert(f.state.supplementCalls > 0); assert.equal(f.helper.limits.aggregate_micros, 10800000);
+  spec.skill_remediation.qualification_supplement.sha256 = 'unfunded'; assert.throws(() => f.helper.validateSpec(spec), /funding|allocation missing/);
 });
 test('release proof admits exactly six pristine non-transferred slots', t => {
   const f = fixture(t), proof = f.helper.releaseProof(f.pinnedHistory, f.approved); assert.equal(proof.rows.length, 6); assert.equal(proof.released_cap_micros, 3600000);

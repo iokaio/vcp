@@ -110,6 +110,21 @@ test('SKL selects its exact funded lineage and qualification before any observat
   assert.equal(fs.readFileSync(path.join(f.destination, 'workspace/status.txt'), 'utf8'), require('./cs3-read-preflight.cjs').CONTENT);
 });
 
+test('SKL preflight preserves the exact optional qualification supplement for authentication', t => {
+  const f = skillFixture(t), supplement = f.put('qualification-supplement.json', { synthetic: true });
+  f.spec.skill_remediation.qualification_supplement = supplement;
+  assert.deepEqual(f.helper.specIdentity(f.spec), f.spec);
+  const changed = structuredClone(f.spec);
+  changed.skill_remediation.qualification_supplement.sha256 = 'b'.repeat(64);
+  assert.notDeepEqual(f.helper.specIdentity(changed), f.spec);
+  changed.skill_remediation.qualification_supplement = null;
+  assert.equal(f.helper.specIdentity(changed).skill_remediation.qualification_supplement, null);
+  // Null is preserved for the funding validator to reject, never erased into
+  // the old unsupplemented path. A qualification supplement is not a new
+  // preflight allowance and cannot select a replacement ordinal.
+  assert.throws(() => f.helper.claimFile(1, 'skill'), /no replacement/);
+});
+
 test('SKL rejects DOC selectors, unknown namespaces, supplements and replacement ordinals', t => {
   const mutations = [spec => spec.remediation = {}, spec => spec.skill_remediation = null,
     spec => spec.skill_remediation.preflight_supplement = {}, spec => spec.skill_remediation.unfunded = {},

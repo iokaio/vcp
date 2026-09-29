@@ -29,7 +29,8 @@ function mode(spec) {
 function schema(spec, suffix) { return `cs3-${mode(spec)}-remediation-preflight${suffix}`; }
 function specIdentity(spec) {
   if (mode(spec) === 'skill') return { executable: spec.executable, build_receipt: spec.build_receipt, catalog: spec.catalog, node: spec.node, profile: spec.profile,
-    skill_remediation: Object.fromEntries(['decision', 'allocation', 'history', 'recovery_native', 'package_acceptance', 'qualification'].map(key => [key, spec.skill_remediation[key]])) };
+    skill_remediation: { ...Object.fromEntries(['decision', 'allocation', 'history', 'recovery_native', 'package_acceptance', 'qualification'].map(key => [key, spec.skill_remediation[key]])),
+      ...(Object.hasOwn(spec.skill_remediation, 'qualification_supplement') ? { qualification_supplement: spec.skill_remediation.qualification_supplement } : {}) } };
   return { executable: spec.executable, build_receipt: spec.build_receipt, catalog: spec.catalog, node: spec.node, profile: spec.profile,
     remediation: { ...Object.fromEntries(['decision', 'prior_terminal', 'runtime_decision', 'allocation', 'qualification'].map(key => [key, spec.remediation?.[key]])),
       ...(spec.remediation?.preflight_supplement ? { preflight_supplement: spec.remediation.preflight_supplement } : {}) } };

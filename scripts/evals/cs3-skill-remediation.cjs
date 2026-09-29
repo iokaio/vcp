@@ -137,6 +137,8 @@ function reserve(inputFile, destination) {
   write(claimFile('allocation'), { allocation: ref, released_ids: releasedIds }); fs.mkdirSync(directory, { mode: 0o700 }); write(ref.path, record); return ref;
 }
 function validateAllocation(spec) {
+  if (spec.skill_remediation.qualification_supplement)
+    return require('./cs3-skill-qualification-supplement.cjs').validate(spec.skill_remediation.qualification_supplement, spec);
   const selected = reservationSpec(spec), allocation = json(spec.skill_remediation.allocation), proof = prerequisites(selected);
   need(allocation.schema === 'cs3-skill-remediation-allocation/1' && allocation.cap_micros === 11650000 && allocation.request_ceiling === 306
     && allocation.combined_cap_micros === 98913737 && allocation.combined_request_ceiling === 2631 && allocation.released_cap_micros === 3600000 && allocation.released_requests === 96
@@ -149,13 +151,16 @@ function validateAllocation(spec) {
 }
 function validateQualification(spec) {
   const approved = validateAllocation(spec), qualification = json(spec.skill_remediation.qualification);
-  need(plain(qualification.probe_claim.path) === plain(approved.allocation.spec.qualification_claim_path), 'Exact funded SKL qualification claim required');
-  const observed = require('./cs3-read-preflight.cjs').validateSkillQualification(spec.skill_remediation.qualification, spec);
+  need(plain(qualification.probe_claim.path) === plain(approved.qualification_claim_path || approved.allocation.spec.qualification_claim_path), 'Exact funded SKL qualification claim required');
+  const helper = require('./cs3-read-preflight.cjs');
+  const observed = spec.skill_remediation.qualification_supplement ? helper.validateSupplementedSkillQualification(spec.skill_remediation.qualification, spec)
+    : helper.validateSkillQualification(spec.skill_remediation.qualification, spec);
   return { approved, observed };
 }
 function validateSpec(spec) {
   need(equal(Object.keys(spec).sort(), ['build_receipt', 'catalog', 'executable', 'gates', 'node', 'profile', 'skill_remediation', 'web_evidence'])
-    && equal(Object.keys(spec.skill_remediation).sort(), ['allocation', 'decision', 'history', 'package_acceptance', 'qualification', 'recovery_native', 'runtime_preflight']), 'Exact SKL experiment inputs required');
+    && equal(Object.keys(spec.skill_remediation).sort(), ['allocation', 'decision', 'history', 'package_acceptance', 'qualification', 'recovery_native', 'runtime_preflight',
+      ...(spec.skill_remediation.qualification_supplement ? ['qualification_supplement'] : [])].sort()), 'Exact SKL experiment inputs required');
   const { approved } = validateQualification(spec), profile = json(spec.profile);
   need(profile.deadline_seconds === 600 && profile.provider_timeout_seconds === 120 && profile.max_requests === 16 && profile.output_tokens === '2048' && profile.max_transport_retries === 0
     && profile.provider?.compatibility?.model === approved.model && profile.provider?.compatibility?.endpoint === approved.endpoint, 'Exact funded SKL profile required');
@@ -164,7 +169,7 @@ function validateSpec(spec) {
   need(equal(spec.node, native.node) && equal(spec.gates, { browser_boundary: native.boundary, node_fixture: native.node_fixture, web_oracles: native.web, ui_qualification: native.ui_matrix })
     && equal(spec.web_evidence, native.web_evidence), 'New SKL gates must use exact corrected native observations');
   return { decision_sha256: spec.skill_remediation.decision.sha256, allocation_sha256: spec.skill_remediation.allocation.sha256,
-    accounting: { fixed_conservative_micros: 88113737, outer_cap_micros: 100000000 }, prior_terminal: json(spec.skill_remediation.history).terminal_disposition };
+    accounting: { fixed_conservative_micros: 88113737 + (approved.additional_cap_micros || 0), outer_cap_micros: 100000000 }, prior_terminal: json(spec.skill_remediation.history).terminal_disposition };
 }
 function describe(spec, directory, checkExpiry = true) { noSecrets(spec); const approved = validateSpec(spec); return { ...doc.executionPlan(spec, directory, tasks(), candidateRegistry, checkExpiry), schema: 'cs3-skill-remediation-plan/1', skill_remediation: approved, limits }; }
 function prepare(specFile, destination, dryRun = false) {
@@ -194,11 +199,12 @@ function validate(plan, hash) {
   return plan;
 }
 function admission(plan) {
+  const supplemental = plan.spec?.skill_remediation?.qualification_supplement ? 500000 : 0;
   const sum = { known_settled_micros: 0, conservative_debit_micros: 0, unresolved_liability_micros: 0, unresolved_attempts: 0, observed_attempts: 0 };
   for (const row of plan.runs) if (core().claimed(plan, row.id)) { const money = require('./cs3-comparison-isolated.cjs').safeReport(plan, row, core().slotReport(plan, row.id));
     for (const key of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) sum[key] += money[key]; sum.observed_attempts += money.attempts.length; }
   need(Object.values(sum).every(value => Number.isSafeInteger(value) && value >= 0) && sum.conservative_debit_micros + 600000 <= 10800000
-    && sum.observed_attempts + 16 <= 288 && 88113737 + sum.conservative_debit_micros + 600000 <= 98913737, 'Fixed SKL reservation exhausted');
+    && sum.observed_attempts + 16 <= 288 && 88113737 + supplemental + sum.conservative_debit_micros + 600000 <= 98913737 + supplemental, 'Fixed SKL reservation exhausted');
   return { ...sum, actual_cost_micros: sum.unresolved_attempts ? null : sum.known_settled_micros, reserved_micros: 600000, reserved_requests: 16 };
 }
 function suppliedCanary(plan, row) {

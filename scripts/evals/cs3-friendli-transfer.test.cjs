@@ -52,6 +52,19 @@ test('each original UI, MCP and LLM hostile marker remains local only when suppl
   }
 });
 
+test('transfer projection carries the fixed qualification supplement without adding comparison slots', () => {
+  const helper = require('./cs3-friendli-transfer.cjs'), reference = { path: 'unused-manifest', sha256: 'a'.repeat(64) };
+  const manifest = { directory: 'unused-transfer', spec: { skill_remediation: {} }, base: { runs: [{ id: 'one', skill: 'frontend-design' }] } };
+  const ordinary = helper.project(manifest, reference, 'frontend-design');
+  manifest.spec.skill_remediation.qualification_supplement = { path: 'unvalidated-projection-only', sha256: 'b'.repeat(64) };
+  const supplemented = helper.project(manifest, reference, 'frontend-design');
+  assert.equal(ordinary.friendli_transfer.accounting.fixed_conservative_micros, 44913737);
+  assert.equal(supplemented.friendli_transfer.accounting.fixed_conservative_micros, 45413737);
+  assert.equal(supplemented.friendli_transfer.accounting.outer_cap_micros, 100000000);
+  assert.deepEqual(supplemented.runs, ordinary.runs);
+  assert.deepEqual(supplemented.limits, ordinary.limits);
+});
+
 test('ninety exact old assignments preserve global arm order, candidate identities and literal WEB input', t => {
   const f = fixture(t), manifest = json(f.prepared.manifest.path);
   assert.equal(manifest.base.runs.length, 90); assert.equal(manifest.mapping.length, 90);

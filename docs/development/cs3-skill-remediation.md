@@ -1,8 +1,11 @@
 # CS-3 skill-authoring remediation
 
-Status: prospective implementation under review. No allocation, qualification
-probe, preflight or replacement comparison has been dispatched. The ongoing
-runtime-amendment campaign and its frozen source remain unchanged.
+Status: the fixed Friendli allocation passed, but its first qualification pair
+stopped at local budget admission after one settled request. The separately funded
+[qualification supplement](cs3-friendli-transfer.md#retained-qualification-admission-failure)
+is implemented and undergoing genuine archived-evidence validation. No Friendli
+native preflight or replacement comparison has yet been dispatched. Earlier
+campaigns, claims and frozen source remain unchanged.
 
 The first new SKL candidate normal task failed with two independent observations:
 it read another file after successful verification without refreshing that
@@ -91,10 +94,17 @@ The old campaign's permanent halt and terminal evidence remain intact.
 | Fresh native read preflight allowance | 0.600000 | 16 |
 | Combined maximum | 98.913737 | 2,631 |
 
-The remaining unallocated amount is USD 1.086263. These are reservation ceilings,
+At this original allocation, the remaining unallocated amount was USD 1.086263. These are reservation ceilings,
 not measured total charges. No consumed liability or unknown cost is released.
 An append-only exact-source reconciliation and exclusive one-use claim must bind
 the transfer before any new request. Missing evidence pins keep dispatch closed.
+
+The actual allocation subsequently passed; the first Friendli qualification
+probe stopped at local admission after one settled request. The separately funded
+[qualification supplement](cs3-friendli-transfer.md#retained-qualification-admission-failure)
+retains this complete allocation and adds USD 0.50 / two requests, for a combined
+maximum of USD 99.413737 / 2,633 requests. Its implementation and genuine new
+qualification remain separate from the failed original probe.
 
 Fresh qualification, corrected native browser controls, exact package acceptance,
 source-bound build provenance and a successful raw native preflight remain
