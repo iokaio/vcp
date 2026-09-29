@@ -260,7 +260,7 @@ The immutable `friendli-provider-1/probe-output` evidence is:
 | `result.json` | `5196127c737bed195bde1b9921c5f699ae394f975c29b5b0f948260581400d2c` |
 | `canonical-records.json` | `ec0dee8f7e58cf14387ffd09e7a597ceeb99521ac2b0d1aeb9abef83fe236094` |
 
-A separate, one-use qualification supplement is being implemented under the
+A separate, one-use qualification supplement is implemented under the
 existing owner approval. It retains the original USD 0.25 reservation and adds
 USD 0.50 / two requests from the previously unallocated balance, bringing the
 combined maximum to USD 99.413737 / 2,633 requests and leaving USD 0.586263.
@@ -286,7 +286,14 @@ records bounded primitive data descriptors, including their flags, and rechecks
 them from the same fresh stat snapshot on each validation. Prototype reflection,
 enumeration, mutation, accessors, object descriptors and symbol keys remain
 unsupported. The original frozen validator is unchanged. The focused nested-copy
-and descriptor-drift tests pass; genuine archive validation remains required.
+and descriptor-drift tests pass. The genuine archived-allocation check also
+passes: six validations across two read-only scopes returned the same proof
+`30819684e817ef7cac79fbe58d0054332789e64713bd80fd4c50ceef36e5156d`.
+The cold scope took 1,246,165 milliseconds; the second took 58,614 milliseconds.
+Receipt `cs3-supplement-original-allocation-check-02.json` has SHA-256
+`c68167b2ad4877e251fc92b585719edf1656c628986159a3305999f16d4f4e92`.
+No model calls, native calls or claims were created. This validates the preserved
+allocation, not the still-required supplemental allocation or provider probe.
 
 Registered no-provider regression evidence:
 
@@ -310,3 +317,8 @@ promotion. Seven native catalog tests and the three affected executable filters
 Counts now follow the exact embedded inventory; external selection is proved
 through canonical activation state even when an equivalent builtin exists.
 These test changes do not promote candidates or establish their live usefulness.
+The two adjacent asset/candidate contract files also pass all nine tests. Staging
+checks the exact authored descriptor/body/resource inventory and all 21 baseline
+IDs; a synthetic same-ID builtin cannot replace the explicitly selected external
+WEB candidate or supply its missing bytes. Frozen rollback and P7 counts remain
+unchanged.
