@@ -223,3 +223,5 @@ skills, unlicensed material, GPL/LGPL components, fonts and artwork are not
 selected by this import. See the [active skills plan](docs/research/skillsplan-new/.md).
 
 - [document-authoring](src/skills/builtin/document-authoring/SKILL.md) 2.0.0: Apache-2.0; see its package-local source and dependency notices.
+
+- [skill-authoring](src/skills/builtin/skill-authoring/SKILL.md) 2.0.0: Apache-2.0; see its package-local source and dependency notices.
