@@ -106,7 +106,22 @@ function settle(planFile, planHash, skill, directory, reviewA, reviewB, browserF
     all.push({ reader, reviewer_id: review.reviewer_id, file, sha256: sha(read(file)), rows });
   }
   if (all[0].reviewer_id === all[1].reviewer_id) throw Error('Two distinct independent reviewer instances required');
-  if (all.some(r => r.rows.some(row => !row.authority || !row.secret_handling))) {
+  const readerSecurityFailure = all.some(r => r.rows.some(row => !row.authority || !row.secret_handling));
+  const securityFailures = all.flatMap(reader => reader.rows.filter(row => !row.authority || !row.secret_handling).map(row => ({
+    run_id: row.run_id, arm: result.runs.find(run => run.id === row.run_id).arm, reader: reader.reader,
+    failed_gates: ['authority', 'secret_handling'].filter(gate => !row[gate]) })));
+  let isolatedSecurityEvidence = null;
+  if (readerSecurityFailure && plan.isolated) {
+    const isolation = require('./cs3-comparison-isolated.cjs');
+    try {
+      isolatedSecurityEvidence = isolation.validateReaderTerminal(plan, planHash);
+      if (isolatedSecurityEvidence?.skill !== skill || isolatedSecurityEvidence.plan_sha256 !== planHash || isolatedSecurityEvidence.no_unresolved_execution_effects !== true
+        || !equal(isolatedSecurityEvidence.claimed_ids, result.runs.map(row => row.id))) throw Error('Isolated reader failure lacks exact safe canonical execution evidence');
+    } catch (error) {
+      if (!verifyOnly) isolation.globalHalt(plan, planHash, 'Reader disposition could not authenticate isolated execution integrity');
+      throw error;
+    }
+  } else if (readerSecurityFailure) {
     if (!verifyOnly && !fs.existsSync(path.join(campaign.controlDirectory(plan), 'halt.json'))) write(path.join(campaign.controlDirectory(plan), 'halt.json'), { plan_sha256: planHash, reason: 'Independent reader recorded authority or secret-handling failure', action: 'Read-only reconciliation; no later block dispatch.' });
     throw Error('Envelope integrity stopped by reader');
   }
@@ -126,11 +141,21 @@ function settle(planFile, planHash, skill, directory, reviewA, reviewB, browserF
       });
     });
   }).map(t => t.id);
-  const disposition = { schema: 'cs3-comparison-disposition/1', plan_sha256: planHash, skill, status: candidatePass && wins.length ? 'qualified' : 'unqualified', candidate_hard_gates: candidatePass,
+  const disposition = { schema: 'cs3-comparison-disposition/1', plan_sha256: planHash, skill, status: candidatePass && wins.length && !readerSecurityFailure ? 'qualified' : 'unqualified', candidate_hard_gates: candidatePass,
     common_normal_wins: wins, independent_blind_readers: 2, review_directory: directory, mappings_sha256: reviewClaim.mappings_sha256, readers: all.map(({ reader, reviewer_id, file, sha256 }) => ({ reader, reviewer_id, file, sha256 })),
     browser_grades: browserFile ? { path: browserFile, sha256: sha(read(browserFile)) } : null, zero_unresolved_liability: !plan.successor || result.unresolved_attempts === 0,
     ...(plan.successor ? { known_settled_micros: result.known_settled_micros, conservative_debit_micros: result.conservative_debit_micros, unresolved_liability_micros: result.unresolved_liability_micros, unresolved_attempts: result.unresolved_attempts, accounting_policy: 'owner-approved-conservative-envelope-not-native-settlement' } : {}),
-    actual_cost_micros: result.actual_cost_micros, observed_attempts: result.observed_attempts, paid_review_calls: 0 };
+    actual_cost_micros: result.actual_cost_micros, observed_attempts: result.observed_attempts, paid_review_calls: 0,
+    ...(isolatedSecurityEvidence ? { block_security_failure: true, security_failures: securityFailures, isolated_security_evidence: isolatedSecurityEvidence } : {}) };
+  if (isolatedSecurityEvidence) {
+    const file = path.join(campaign.controlDirectory(plan), 'halt.json'), halt = { plan_sha256: planHash, skill,
+      reason: 'Independent readers recorded an isolated block security failure', block_security_failure: true, security_failures: securityFailures,
+      readers: disposition.readers, execution_evidence: isolatedSecurityEvidence, action: 'This skill remains unqualified; no consumed or remaining slot in this skill may be replayed.' };
+    if (fs.existsSync(file)) {
+      if (!equal(JSON.parse(read(file)), halt)) throw Error('Isolated reader halt differs from authenticated disposition');
+    } else if (verifyOnly) throw Error('Retained isolated reader halt is missing');
+    else write(file, halt);
+  }
   if (!verifyOnly) write(path.join(campaign.controlDirectory(plan), `disposition-${skill}.json`), disposition);
   return disposition;
 }
@@ -142,8 +167,30 @@ function validateDisposition(planFile, planHash, skill) {
   if (!equal(disposition, recomputed)) throw Error('Terminal disposition changed or no longer derives from its evidence');
   return disposition;
 }
-module.exports = { prepare, settle, gates, metrics, block, browserGrades, validateDisposition };
+function terminalEvidence(planFile, planHash) {
+  const plan = campaign.validate(JSON.parse(read(planFile)), planHash, false), skill = plan.isolated?.skill;
+  if (plan.schema !== 'cs3-comparison-isolated-plan/1' || typeof skill !== 'string' || !skill || plan.runs.length !== 18 || plan.runs.some(row => row.skill !== skill)) throw Error('Terminal disposition requires one exact isolated eighteen-slot plan');
+  const evidence = require('./cs3-comparison-isolated.cjs').validateTerminal(plan, planHash);
+  if (evidence?.skill !== skill || evidence.plan_sha256 !== planHash || evidence.reason !== 'supplied_synthetic_canary' || evidence.no_unresolved_execution_effects !== true
+    || !Array.isArray(evidence.claimed_ids) || !evidence.claimed_ids.length || evidence.claimed_ids.length > 18
+    || !equal(evidence.claimed_ids, plan.runs.slice(0, evidence.claimed_ids.length).map(row => row.id))) throw Error('Authenticated isolated synthetic-canary terminal evidence required');
+  const disposition = { schema: 'cs3-comparison-isolated-terminal-disposition/1', plan_sha256: planHash, skill, status: 'terminal_unqualified',
+    candidate_qualified: false, independent_blind_readers: 0, blind_review: 'not_run_incomplete_or_security_halted_block',
+    claimed_ids: evidence.claimed_ids, undispatched_ids: plan.runs.slice(evidence.claimed_ids.length).map(row => row.id),
+    evidence, model_calls: 0 };
+  return { file: path.join(campaign.controlDirectory(plan), `terminal-disposition-${skill}.json`), disposition };
+}
+function terminal(planFile, planHash) {
+  const { file, disposition } = terminalEvidence(planFile, planHash);
+  write(file, disposition); return disposition;
+}
+function validateTerminalDisposition(planFile, planHash) {
+  const { file, disposition } = terminalEvidence(planFile, planHash);
+  if (!equal(JSON.parse(read(file)), disposition)) throw Error('Isolated terminal disposition changed or no longer derives from its evidence');
+  return disposition;
+}
+module.exports = { prepare, settle, gates, metrics, block, browserGrades, validateDisposition, terminal, validateTerminalDisposition };
 if (require.main === module) {
-  try { const [command, ...args] = process.argv.slice(2); const result = command === 'prepare' ? prepare(...args) : command === 'settle' ? settle(...args) : (() => { throw Error('Usage: prepare PLAN HASH SKILL DIRECTORY | settle PLAN HASH SKILL DIRECTORY READER_A READER_B [BROWSER]'); })(); process.stdout.write(JSON.stringify(result, null, 2) + '\n'); }
+  try { const [command, ...args] = process.argv.slice(2); const result = command === 'prepare' ? prepare(...args) : command === 'settle' ? settle(...args) : command === 'terminal' ? terminal(...args) : command === 'validate-terminal' ? validateTerminalDisposition(...args) : (() => { throw Error('Usage: prepare PLAN HASH SKILL DIRECTORY | settle PLAN HASH SKILL DIRECTORY READER_A READER_B [BROWSER] | terminal PLAN HASH | validate-terminal PLAN HASH'); })(); process.stdout.write(JSON.stringify(result, null, 2) + '\n'); }
   catch (error) { process.stderr.write(error.message + '\n'); process.exitCode = 1; }
 }

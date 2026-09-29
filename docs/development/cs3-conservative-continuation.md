@@ -1,7 +1,9 @@
 # CS-3 conservative-liability continuation
 
 Status: the verified immutable continuation is terminal after a synthetic-canary
-disclosure in its eleventh observation. Billing-only failures were allowed to
+disclosure in its eleventh observation. The owner has explicitly approved
+separate skill-isolated continuation and completion work without repeated
+approval requests; its bounded implementation is in progress. Billing-only failures were allowed to
 continue under the owner's September 28, 2026 direction:
 “Proceed. The numbers are so low and the billing data is not always
 available. Just keep going.” This supersedes the requirement to obtain an exact
@@ -227,6 +229,57 @@ replayed. The read-only terminal audit is
 SHA-256 `bc410ae92b9415827e8d30a6db4fd0bb1922063ecb3d184ce82e3b2a6572624a`.
 It authenticates all 11 observations and their complete file inventories,
 canonical accounting, control claims and all 97 pristine remaining assignments;
-it made zero model calls. Further paid work requires a separate decision
-addressing this security disposition; approval to continue despite missing billing does not
-waive the secret-handling halt. CS-3 is not complete or merge-ready.
+it made zero model calls. The subsequent owner decision below addresses further
+paid work without clearing this halt. CS-3 is not complete or merge-ready.
+
+## Approved skill-isolated continuation
+
+The owner explicitly approved the proposed isolated continuation and directed
+completion of the entire CS-3 implementation without further routine approval
+requests. The [source-bound isolation decision](../../src/evals/skills/cs3-comparison/isolation-decision.json)
+authorizes independently claimed campaigns for `skill-authoring`,
+`frontend-design`, `mcp-development`, `llm-integration` and `webapp-testing`.
+Their 90 assignments are untouched. The original 11 observations and all prior
+halts remain immutable; the seven untouched DOC assignments remain excluded
+from these campaigns, not relabeled as successful or replayed.
+
+The five campaigns share the existing 108-slot dollar/request allocation and
+run serially. Isolation adds no allocation. Unknown provider charges retain
+the conservative full-slot policy. A model-output security failure remains
+terminal and unqualified for its own skill, with the failing arm recorded; it does not automatically prevent
+an unrelated skill's independently frozen campaign. Shared execution, authority
+enforcement or evidence-integrity failures remain global barriers. Authentic
+terminal dispositions distinguish candidate failures from infrastructure faults
+and never invent missing observations or independent reader judgments.
+
+Completed comparisons still require all 18 rows, actual browser grades where
+applicable, two independent blind readers and the unchanged qualification
+rubric. This decision is permission to finish engineering and evaluation, not
+permission to promote failed bytes or claim CS-3 acceptance without evidence.
+Necessary prospective remediation uses fresh inputs and separately bounded
+claims; it never rewrites or reruns consumed historical observations.
+
+The isolation implementation passes all 126 registered CS-3 contract tests and
+all 14 host integration tests (520.841 seconds on the retained Windows host).
+Coverage includes exact historical ownership, shared accounting, exclusive
+skill handoff, descriptor-bound response evidence, two-reader dispositions,
+local canary failure and global execution-integrity stops. Repository validation
+passes 658 Markdown files and 2,957 relative links with no errors; the harness
+regression also passes. A private-evidence dry run authenticated the 11 retained,
+seven excluded and 90 untouched assignments without claiming or dispatching.
+These tests verify the runner, not the as-yet-unrun skill comparisons.
+
+Preparation subsequently froze the five plans with zero model calls under
+`D:/vcp-private/cs3-approved-prospective-20260928/isolated-skills-1`.
+Manifest SHA-256:
+`c723ad1ffca69651699eb251fa8b342f151f02922b89bb360d2fb1ab58a95449`.
+The separate global isolation claim and immutable transition records prevent
+cross-skill replay or concurrent ownership.
+
+| Skill | Frozen plan SHA-256 |
+| --- | --- |
+| skill-authoring | `25debd07f6d73acab3944e005d672772e64b1fd6c4127a4ff7fe70d070d1710f` |
+| frontend-design | `addc7fe1c8595e9f565373cac07b65fb9744a1fe7772a610e7dc2de75f9102bb` |
+| mcp-development | `a54a5e72f04443c97c17fbe6380f539106dbaf26a1b2fd47d9447843176d17e3` |
+| llm-integration | `8fe9d1800d7c906d93da0b71e759642e0eb3b4ac53d3291520648a6e7408959a` |
+| webapp-testing | `2eec0af19479ff705feb9bda56541a163f5825806b23d2a89b28de155d1d7d1d` |

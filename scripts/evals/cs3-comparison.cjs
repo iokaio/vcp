@@ -157,7 +157,8 @@ function prepare(specFile, destination) {
   return { plan: path.join(directory, 'plan.json'), sha256: sha(read(path.join(directory, 'plan.json'))), runs: plan.runs.length, model_calls: 0 };
 }
 function validate(plan, hash, checkExpiry = true) {
-  if (plan.segment) require('./cs3-comparison-segment.cjs').validate(plan, hash);
+  if (plan.isolated) require('./cs3-comparison-isolated.cjs').validate(plan, hash);
+  else if (plan.segment) require('./cs3-comparison-segment.cjs').validate(plan, hash);
   else if (plan.schema !== (plan.spec.successor ? 'cs3-comparison-plan/2' : 'cs3-comparison-plan/1') || sha(read(path.join(plan.directory, 'plan.json'))) !== hash || !equal(JSON.parse(read(claimFile(plan.spec.successor))), { directory: plan.directory, plan_sha256: hash })) throw Error('Exact envelope ownership required');
   return validateExecution(plan, checkExpiry);
 }
@@ -176,12 +177,13 @@ function validateExecution(plan, checkExpiry = true) {
   return plan;
 }
 function workspaceFiles(base) { return prep.identity(path.join(base, 'workspace'), ['.']).files.map(f => ({ ...f, path: f.path.slice(2) })).sort((a, b) => a.path.localeCompare(b.path)); }
-function controlDirectory(plan) { return plan.segment ? plan.control_directory : plan.directory; }
+function controlDirectory(plan) { return plan.segment || plan.isolated ? plan.control_directory : plan.directory; }
 function retainedPrefix(plan, id) { return plan.segment?.addenda.some(row => row.id === id) === true; }
 function reportFile(plan, id) { return retainedPrefix(plan, id) ? path.join(controlDirectory(plan), 'addenda', id + '.json') : path.join(plan.directory, id, 'result.json'); }
 function slotReport(plan, id) { return JSON.parse(read(reportFile(plan, id))); }
 function claimed(plan, id) { return retainedPrefix(plan, id) || fs.existsSync(path.join(controlDirectory(plan), 'claims', id + '.json')); }
 function admission(plan) {
+  if (plan.isolated) return require('./cs3-comparison-isolated.cjs').admission(plan);
   let actual = 0, requests = 0, known = 0, unresolved = 0;
   for (const row of plan.runs) if (claimed(plan, row.id)) {
     const base = path.join(plan.directory, row.id), report = slotReport(plan, row.id);
@@ -228,13 +230,14 @@ function qualificationWindow(profile, now = Date.now()) {
 async function run(file, authorization, skill, call = invoke) {
   const plan = validate(JSON.parse(read(file)), authorization);
   const control = controlDirectory(plan);
-  if (!candidates.ids.includes(skill) || fs.existsSync(path.join(control, 'halt.json'))) throw Error('Unknown skill or terminal halted envelope');
-  for (const priorSkill of candidates.ids.slice(0, candidates.ids.indexOf(skill))) {
+  if (!candidates.ids.includes(skill) || plan.isolated && skill !== plan.isolated.skill || fs.existsSync(path.join(control, 'halt.json'))) throw Error('Unknown skill or terminal halted envelope');
+  for (const priorSkill of plan.isolated ? [] : candidates.ids.slice(0, candidates.ids.indexOf(skill))) {
     require('./cs3-comparison-review.cjs').validateDisposition(file, authorization, priorSkill);
   }
   const active = path.join(control, 'active-block.json');
   if (fs.existsSync(active)) throw Error('Interrupted active block requires read-only reconciliation');
   qualificationWindow(JSON.parse(bound(plan.spec.profile)));
+  if (plan.isolated) require('./cs3-comparison-isolated.cjs').begin(plan, authorization);
   write(path.join(control, 'claims', 'block-' + skill + '.json'), { plan_sha256: authorization, skill });
   write(active, { plan_sha256: authorization, skill });
   const tasks = cohort(plan.spec.web_evidence, plan.spec.successor), reports = [];
@@ -245,6 +248,7 @@ async function run(file, authorization, skill, call = invoke) {
     let accounted = false, dispatched = false;
     try {
       validate(plan, authorization);
+      if (plan.isolated) require('./cs3-comparison-isolated.cjs').assertActive(plan, authorization);
       if (fs.existsSync(path.join(control, 'halt.json')) || !equal(JSON.parse(read(active)), { plan_sha256: authorization, skill })) throw Error('Active ownership changed or envelope halted');
       if (!equal(workspaceFiles(base), [...row.files].sort((a, b) => a.path.localeCompare(b.path))) || fs.readdirSync(path.join(base, 'data')).length || sha(read(path.join(base, 'profile.json'))) !== row.profile_sha256 || sha(read(path.join(base, 'prompt.txt'))) !== row.prompt_sha256) throw Error('Slot inputs changed or already used');
       write(path.join(base, 'admission.json'), admission(plan));
@@ -292,18 +296,20 @@ async function run(file, authorization, skill, call = invoke) {
       }
       if (plan.successor && money.unresolved_attempts) { report.status = 'failed'; report.output_error = 'Provider billing unresolved; conservative full-slot debit, never quality-qualified'; }
       validate(plan, authorization, false);
+      if (plan.isolated) require('./cs3-comparison-isolated.cjs').assertActive(plan, authorization);
       report.evidence_sha256 = capture.runEvidence(base);
       write(path.join(base, 'result.json'), report); reports.push(report);
     } catch (error) {
       report.status = 'failed'; report.reason = error.message; report.accounted = accounted;
       if (!dispatched) { report.actual_cost_micros = 0; report.accounted = true; }
+      const failure = plan.isolated ? require('./cs3-comparison-isolated.cjs').failure(plan, authorization, row, report, error) : {};
       if (!fs.existsSync(path.join(base, 'result.json'))) write(path.join(base, 'result.json'), report);
-      if (!fs.existsSync(path.join(control, 'halt.json'))) write(path.join(control, 'halt.json'), { plan_sha256: authorization, slot: row.id, reason: error.message, action: 'Read-only reconciliation only; consumed claims never replay.' });
+      if (!fs.existsSync(path.join(control, 'halt.json'))) write(path.join(control, 'halt.json'), { plan_sha256: authorization, slot: row.id, reason: error.message, ...failure, action: 'Read-only reconciliation only; consumed claims never replay.' });
       reports.push(report); break;
     }
   }
   const result = { schema: 'cs3-comparison-block/1', plan_sha256: authorization, skill, runs: reports, stopped: fs.existsSync(path.join(control, 'halt.json')), actual_cost_micros: reports.every(r => r.actual_cost_micros !== null) ? reports.reduce((sum, r) => sum + r.actual_cost_micros, 0) : null, observed_attempts: reports.reduce((sum, r) => sum + r.observed_attempts, 0) };
-  if (plan.successor && !result.stopped) for (const field of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) result[field] = reports.reduce((sum, r) => sum + r[field], 0);
+  if (plan.successor && (!result.stopped || plan.isolated && reports.every(r => Number.isSafeInteger(r.conservative_debit_micros)))) for (const field of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) result[field] = reports.reduce((sum, r) => sum + r[field], 0);
   write(path.join(control, `result-${skill}.json`), result);
   if (!result.stopped) fs.unlinkSync(active);
   return result;

@@ -11,6 +11,7 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const json = file => JSON.parse(fs.readFileSync(file));
 function syntheticHost(gitDirectory, directory = __dirname) {
   const modules = new Map();
+  const isolated = { active: null, global: false, plans: new Map(), starts: [], failures: [] };
   function load(name) {
     if (modules.has(name)) return modules.get(name).exports;
     const filename = path.join(directory, name), module = { exports: {} }, actualRequire = createRequire(filename);
@@ -33,13 +34,66 @@ function syntheticHost(gitDirectory, directory = __dirname) {
         assert.equal(plan.segment.synthetic_test_only, true);
         assert.equal(sha(fs.readFileSync(path.join(plan.control_directory, 'plan.json'))), hash);
       } };
+      // Only historical admission is substituted here. The real helper's tests
+      // exercise its complete claim chain; this host proves runner/review joins
+      // and uses its actual canonical report/response safety validator.
+      if (requested === './cs3-comparison-isolated.cjs') {
+        const real = actualRequire(requested), policy = actualRequire('./cs3-comparison-policy.cjs'), capture = actualRequire('./developer-runner.cjs');
+        const validate = (plan, hash) => {
+          assert.equal(plan.isolated.synthetic_test_only, true);
+          assert.equal(sha(fs.readFileSync(path.join(plan.control_directory, 'plan.json'))), hash);
+          if (isolated.global) throw Error('Shared isolation execution integrity halted');
+        };
+        const proof = (plan, hash) => {
+          validate(plan, hash);
+          const result = json(path.join(plan.control_directory, 'result-' + plan.isolated.skill + '.json'));
+          for (const report of result.runs) real.safeReport(plan, plan.runs.find(row => row.id === report.id), report);
+          return { skill: plan.isolated.skill, plan_sha256: hash, reason: 'supplied_synthetic_canary',
+            claimed_ids: result.runs.map(row => row.id), no_unresolved_execution_effects: true };
+        };
+        return { validate, validateTerminal: proof, validateReaderTerminal: proof,
+          begin(plan, hash) {
+            validate(plan, hash);
+            if (fs.existsSync(path.join(plan.control_directory, 'claims', 'block-' + plan.isolated.skill + '.json'))) throw Error('Isolated skill already consumed');
+            if (isolated.active) {
+              const owner = isolated.plans.get(isolated.active), review = load('cs3-comparison-review.cjs');
+              if (fs.existsSync(path.join(owner.plan.control_directory, 'terminal-disposition-' + isolated.active + '.json'))) review.validateTerminalDisposition(owner.file, owner.hash);
+              else review.validateDisposition(owner.file, owner.hash, isolated.active);
+            }
+            isolated.active = plan.isolated.skill; isolated.starts.push(plan.isolated.skill);
+            isolated.plans.set(plan.isolated.skill, { plan, hash, file: path.join(plan.control_directory, 'plan.json') });
+          },
+          assertActive(plan, hash) { validate(plan, hash); assert.equal(isolated.active, plan.isolated.skill); },
+          admission() {
+            let known = 0, debit = 0, requests = 0, pending = 0;
+            for (const { plan } of isolated.plans.values()) for (const row of plan.runs) {
+              if (!fs.existsSync(path.join(plan.control_directory, 'claims', row.id + '.json'))) continue;
+              const report = json(path.join(plan.directory, row.id, 'result.json')), money = real.safeReport(plan, row, report);
+              known += money.known_settled_micros; debit += money.conservative_debit_micros; requests += money.attempts.length; pending += money.unresolved_attempts;
+              assert.deepEqual(policy.fields(report), policy.fields(money));
+            }
+            return { actual_cost_micros: pending ? null : known, known_settled_micros: known, conservative_debit_micros: debit,
+              unresolved_attempts: pending, observed_attempts: requests, reserved_micros: 600000, reserved_requests: 16 };
+          },
+          globalHalt() { isolated.global = true; },
+          failure(plan, hash, row, report, error) {
+            validate(plan, hash); isolated.failures.push(error.message);
+            if (error.message === 'Synthetic canary disclosed in canonical output') {
+              real.safeReport(plan, row, report, false);
+              report.evidence_sha256 = capture.runEvidence(path.join(plan.directory, row.id)); report.local_failure = 'supplied_synthetic_canary';
+              return { failure_scope: 'skill', failure_kind: 'supplied_synthetic_canary', failing_arm: row.arm };
+            }
+            isolated.global = true; return { failure_scope: 'global', failure_kind: 'execution_integrity' };
+          }
+        };
+      }
       if (['./cs3-comparison.cjs', './cs3-comparison-review.cjs'].includes(requested)) return load(requested.slice(2));
       return actualRequire(requested);
     };
     new Function('exports', 'require', 'module', '__filename', '__dirname', 'process', fs.readFileSync(filename, 'utf8'))(module.exports, localRequire, module, filename, directory, process);
     return module.exports;
   }
-  return { campaign: load('cs3-comparison.cjs'), review: load('cs3-comparison-review.cjs') };
+  return { campaign: load('cs3-comparison.cjs'), review: load('cs3-comparison-review.cjs'), isolated };
 }
 function fixture(t, expiryOffset = 86400000, successor = false) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-cs3-host-test-'));
@@ -249,6 +303,53 @@ test('segmented runner preserves two failed consumed slots and dispatches only t
   assert.equal(fs.existsSync(path.join(control, 'blind-review-document-authoring.json')), true);
   assert.equal(fs.existsSync(path.join(f.plan.directory, 'blind-review-document-authoring.json')), false);
   await assert.rejects(f.host.campaign.run(planFile, hash, 'document-authoring', next.cli), /EEXIST/); assert.equal(next.calls.length, 16);
+});
+
+test('isolated runner joins eighteen-row reviews, local canary disposition, shared accounting and global integrity stop without DOC replay', async t => {
+  const f = fixture(t, 86400000, true), controlRoot = path.join(f.directory, 'isolated'); fs.mkdirSync(controlRoot);
+  const makePlan = skill => {
+    const control = path.join(controlRoot, skill); fs.mkdirSync(control); fs.mkdirSync(path.join(control, 'claims'));
+    const plan = { ...f.plan, schema: 'cs3-comparison-isolated-plan/1', control_directory: control,
+      runs: f.plan.runs.filter(row => row.skill === skill), isolated: { skill, synthetic_test_only: true } };
+    const file = path.join(control, 'plan.json'); fs.writeFileSync(file, JSON.stringify(plan));
+    return { plan, file, hash: sha(fs.readFileSync(file)), fake: fakeCli(plan) };
+  };
+  const first = makePlan('skill-authoring');
+  assert.equal(fs.existsSync(path.join(f.plan.directory, 'disposition-document-authoring.json')), false);
+  const result = await f.host.campaign.run(first.file, first.hash, first.plan.isolated.skill, first.fake.cli);
+  assert.equal(result.stopped, false); assert.equal(result.runs.length, 18); assert.equal(first.fake.calls.length, 18);
+  assert.deepEqual(first.fake.calls.map(row => row.id), first.plan.runs.map(row => row.id));
+  assert.equal(result.known_settled_micros, 666); assert.equal(result.conservative_debit_micros, 666);
+  const second = makePlan('frontend-design'); second.fake = fakeCli(second.plan, { canaryAt: 1, canary: 'CS3_UI_PRIVATE_CANARY_82D4' });
+  await assert.rejects(f.host.campaign.run(second.file, second.hash, 'frontend-design', second.fake.cli), /ENOENT/);
+  assert.equal(second.fake.calls.length, 0, 'Another isolated skill still waits for an authenticated disposition');
+  const readers = f.host.review.prepare(first.file, first.hash, 'skill-authoring', path.join(f.directory, 'isolated-readers'));
+  const grades = readers.packets.map(binding => f.ref('isolated-reader-' + binding.reader + '.json', {
+    reader: binding.reader, reviewer_id: 'isolated-independent-' + binding.reader, packet_sha256: binding.packet_sha256, independent_blind: true,
+    rows: json(binding.path).rows.map(row => ({ id: row.id, ...Object.fromEntries(f.host.review.gates.map(gate => [gate, gate === 'correctness' ? row.execution.status === 'completed' : true])),
+      completeness: 0, clarity: 0, usefulness: 0, reason: 'Synthetic failed or tied output; no qualification.' }))
+  }).path);
+  const disposition = f.host.review.settle(first.file, first.hash, 'skill-authoring', readers.directory, ...grades);
+  assert.equal(disposition.status, 'unqualified'); assert.equal(disposition.independent_blind_readers, 2);
+  const stopped = await f.host.campaign.run(second.file, second.hash, 'frontend-design', second.fake.cli);
+  assert.equal(stopped.stopped, true); assert.equal(second.fake.calls.length, 1); assert.equal(f.host.isolated.global, false);
+  assert.equal(stopped.conservative_debit_micros, 37); assert.equal(stopped.runs[0].local_failure, 'supplied_synthetic_canary');
+  const halt = json(path.join(second.plan.control_directory, 'halt.json'));
+  assert.equal(halt.failure_scope, 'skill'); assert.equal(halt.failing_arm, second.plan.runs[0].arm);
+  const terminal = f.host.review.terminal(second.file, second.hash);
+  assert.equal(terminal.status, 'terminal_unqualified'); assert.equal(terminal.independent_blind_readers, 0); assert.equal(terminal.undispatched_ids.length, 17);
+  const third = makePlan('mcp-development'); third.fake = fakeCli(third.plan, { contextAt: 1 });
+  const global = await f.host.campaign.run(third.file, third.hash, 'mcp-development', third.fake.cli);
+  assert.equal(global.stopped, true); assert.equal(third.fake.calls.length, 1); assert.equal(f.host.isolated.global, true);
+  assert.equal(json(path.join(third.plan.control_directory, 'halt.json')).failure_scope, 'global');
+  const admission = json(path.join(third.plan.directory, third.plan.runs[0].id, 'admission.json'));
+  assert.equal(admission.known_settled_micros, 19 * 37); assert.equal(admission.observed_attempts, 19);
+  await assert.rejects(f.host.campaign.run(first.file, first.hash, 'skill-authoring', first.fake.cli), /halted/);
+  assert.equal(first.fake.calls.length, 18);
+  for (const row of f.plan.runs.filter(row => row.skill === 'document-authoring')) {
+    assert.deepEqual(fs.readdirSync(path.join(f.plan.directory, row.id)).sort(), ['data', 'profile.json', 'prompt.txt', 'workspace']);
+  }
+  assert.deepEqual(f.host.isolated.starts, ['skill-authoring', 'frontend-design', 'mcp-development']);
 });
 
 test('short qualification window denies block before durable claim or dispatch', async t => {
