@@ -6,6 +6,21 @@ Rust, .NET/PowerShell, JVM, Go, C/C++, Ruby, PHP, Swift, Dart, shell, SQL, data,
 infrastructure, project optimization and memory hygiene. Source/license records
 and exact content hashes accompany every package.
 
+Catalog 1.10.0 preserves those 21 families and adds eight workflow packages:
+`document-authoring`, `skill-authoring`, `frontend-design`, `mcp-development`,
+`llm-integration`, `webapp-testing`, `pdf-workflows`, and
+`spreadsheet-workflows`. Six adapt Apache-2.0 Anthropic skills; PDF and spreadsheet
+helpers are independently authored using permitted libraries because the
+corresponding Anthropic packages have restrictive licenses. Package notices pin
+the selected sources and describe adaptations and host dependencies.
+
+The [replacement skills plan](../research/skillsplan-new/.md) and
+[ADR-069](../adr/069-practical-skill-ports.md) govern these additions. Development
+uses scoped functional checks, package verification, and ordinary repository
+checks. Historical comparative campaigns below remain historical evidence, not
+a universal prerequisite for shipping a skill. Runtime authority and durable
+memory admission rules are unchanged.
+
 The native catalog verifier embeds metadata only. At runtime the CLI registers
 `<executable-directory>/skills/builtin` under reserved identity `vcp-builtin`, even
 without a user `skills` configuration. The existing registered workspace and
