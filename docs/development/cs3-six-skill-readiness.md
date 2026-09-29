@@ -2,6 +2,9 @@
 
 Status: the [prospective campaign](cs3-prospective-campaign-disposition.md) halted
 on its seventh slot on September 28, 2026; no comparison block completed.
+The owner subsequently approved a [separate successor](cs3-conservative-continuation.md)
+that carries unresolved reservations conservatively rather than waiting for
+unavailable billing records. The historical campaign remains halted.
 The owner approved at most
 USD 100 of new OpenRouter spending and directed selection of a DeepSeek model.
 That grant does not authorize replay, promotion, weakened gates or an unknown

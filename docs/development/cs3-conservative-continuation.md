@@ -1,0 +1,92 @@
+# CS-3 conservative-liability continuation
+
+Status: preparing a separate successor under the owner's September 28, 2026
+direction: “Proceed. The numbers are so low and the billing data is not always
+available. Just keep going.” This supersedes the requirement to obtain an exact
+bill before further evaluation. It does not settle an unknown native charge,
+erase a failed task, relax security or qualify a skill.
+
+## Bounded accounting decision
+
+The original campaign remains terminal. Its known costs plus the entire pending
+reservation are carried forward as USD 0.113737, not described as an observed
+bill. Its seven consumed claims and failures remain unchanged. Before changing
+the evaluation implementation, all 218 frozen verifier files were copied and
+hash-verified against original source inventory
+`4f96c8ad027c291a803df9aab0d66efe3fa3ee9e9ff1ddd073915b210948d4db`,
+under `D:/vcp-private/cs3-approved-prospective-20260928/frozen-source-fd0c1145`.
+
+The [tracked owner decision](../../src/evals/skills/cs3-comparison/continuation-decision.json)
+reserves the following within the unchanged USD 100 ceiling:
+
+| Allocation | Maximum USD | Maximum requests |
+|---|---:|---:|
+| Original settled cost plus unresolved reservation | 0.113737 | 15 already attempted |
+| New endpoint qualification pair | 0.25 | 2 |
+| Actual VCP read-tool preflight | 0.60 | 16 |
+| Successor six-skill comparison, 108 slots | 64.80 | 1,728 |
+| Explicitly bounded future qualification refresh | 0.25 | 2 |
+| Total conservative allocation | 66.013737 | 1,763 including history |
+
+The remaining USD 33.986263 is unallocated. No automatic retries, slot replays,
+paid readers, graders or adjudication are included. Metadata GETs do not dispatch
+model calls. No claim is released merely because its actual cost is unavailable.
+
+In the successor evaluation only, an otherwise authentic, terminated provider
+attempt with unavailable final cost consumes its entire USD 0.60 slot cap.
+`actual_cost_micros` remains null; known settlements and unresolved liability
+remain visible in the original canonical ledger. The candidate row fails quality
+and is never replayed or promoted. Further fresh slots can proceed only after
+the runner authenticates complete available evidence, zero active reservation,
+provider-accounting-only pause, unchanged workspace, exact selected context,
+and authority/secret boundaries, and reserves the next full slot within both
+the campaign cap and outer budget. Live operations, ambiguous effects, missing
+captures, source drift, secret disclosure or authority violations still halt.
+The production budget implementation and native pause behavior are unchanged.
+
+## Endpoint and prospective assignments
+
+Keep the fixed model `deepseek/deepseek-v3.2` and select OpenRouter's exact
+`deepinfra/fp4` endpoint. The dated public catalog advertises 163,840 context
+tokens, 16,384 maximum output tokens, `tools`, `tool_choice`, `max_tokens` and all
+tool-choice modes. Its observed prices are USD 0.26/0.38 per million input/output
+tokens, with USD 0.13 per million cache-read tokens. These are selection inputs,
+not proof of protocol compatibility or quality. FP4 is a recorded experimental
+condition applied equally to all arms; the prior endpoint used FP8.
+The exact endpoint appears in the [advertised ZDR catalog](https://openrouter.ai/api/v1/endpoints/zdr).
+The existing `deny_data_collection: true`, `require_zdr: false` policy is unchanged;
+advertised eligibility is not a claim of request-enforced ZDR.
+
+Before paid comparisons, the bounded conformance pair must establish exact
+text/tool continuation and attributed served endpoint. A separate actual VCP
+preflight must verify whole-file reads with explicit null line bounds, integer
+range reads and correct final output from their results. This closes the gap
+between the old static echo probe and real `vcp_read` argument schemas. Neither
+probe may coerce malformed JSON or fabricate a tool result.
+
+The new DeepInfra conformance pair passed on September 29, 2026 UTC: two
+completed requests, USD 0.000203 observed cost, zero active or unresolved
+reservation. Generation records identify the same selected provider endpoint
+for both responses. The immutable conformance binary has SHA-256
+`b03f5391e097553e5a83d6749a55b6b137d8dc991a627127493dd945d0183563`;
+the offline qualification sources have SHA-256
+`772025653097a0cd4cda4a295d4cdc4d123c0dfa2c414d31925a14daacaacec9`.
+The complete wrapper, independently revalidated against the raw evidence, is
+`D:/vcp-private/cs3-approved-prospective-20260928/continuation-provider-deepinfra/qualification-wrapper.json`
+with SHA-256 `408a336783dfe9879249f197375b21d1c2c42edf7a0c9b46c6975d71956ee92b`.
+This is provider compatibility evidence, not completion of the native read
+preflight or a skill-quality result. The public cache-read price is USD 0.13 per
+million; the qualified reservation tariff conservatively prices it at the full
+USD 0.26 input rate.
+
+The successor DOC cohort uses six genuinely fresh tasks, including an inbox
+decision record and configuration-upgrade notes as its normal tasks. No old
+consumed task is renamed or replayed. The other five skill cohorts were never
+dispatched and may be carried forward with their exact original bytes after
+verification against predecessor claims and preserved inputs. Candidate package
+versions remain unchanged. A new plan, source inventory, provider qualification,
+private output directory and durable claim must be frozen before dispatch.
+
+All candidate hard gates, actual UI browser grading, two independent blind
+readers and the shared normal-task benefit requirement remain unchanged. This
+accounting decision is not a CS-3 completion or default-promotion decision.

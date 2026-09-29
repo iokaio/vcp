@@ -5,6 +5,7 @@ const fs = require('node:fs'), path = require('node:path'), crypto = require('no
 const { isDeepStrictEqual: equal } = require('node:util');
 const campaign = require('./cs3-comparison.cjs'), capture = require('./developer-runner.cjs');
 const accounting = require('./p6-live-runner.cjs').accounting;
+const continuation = require('./cs3-comparison-policy.cjs');
 const { read, write, plain, within, noParentInstructions, privateDirectory } = require('./p6-live-runner.cjs').boundaries;
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const gates = ['correctness', 'preservation', 'authority', 'secret_handling', 'unsupported_feature', 'evidence_honesty'];
@@ -12,19 +13,25 @@ const metrics = ['completeness', 'clarity', 'usefulness'];
 function block(planFile, planHash, skill) {
   const plan = campaign.validate(JSON.parse(read(planFile)), planHash, false);
   const result = JSON.parse(read(path.join(plan.directory, `result-${skill}.json`)));
-  if (result.plan_sha256 !== planHash || result.skill !== skill || result.stopped || result.runs.length !== 18 || result.actual_cost_micros === null) throw Error('Complete settled eighteen-slot block required');
+  if (result.plan_sha256 !== planHash || result.skill !== skill || result.stopped || result.runs.length !== 18 || !plan.successor && result.actual_cost_micros === null) throw Error('Complete accounted eighteen-slot block required');
   const expected = plan.runs.filter(r => r.skill === skill);
   if (!equal(result.runs.map(r => r.id), expected.map(r => r.id))) throw Error('Block membership or order differs from frozen slots');
   let cost = 0, requests = 0;
+  const totals = { known_settled_micros: 0, conservative_debit_micros: 0, unresolved_liability_micros: 0, unresolved_attempts: 0 };
   for (const [index, row] of result.runs.entries()) {
     const slot = expected[index], base = path.join(plan.directory, row.id);
     if (row.case_id !== slot.case_id || row.arm !== slot.arm || !equal(row, JSON.parse(read(path.join(base, 'result.json')))) || capture.runEvidence(base) !== row.evidence_sha256) throw Error('Retained block report or evidence changed');
-    const money = accounting(JSON.parse(read(path.join(base, 'costs.json'))), slot.cap_micros);
+    const money = plan.successor ? continuation.reread(base, slot.cap_micros) : accounting(JSON.parse(read(path.join(base, 'costs.json'))), slot.cap_micros);
     if (money.actual_cost_micros !== row.actual_cost_micros || money.attempts.length !== row.observed_attempts || money.attempts.length > slot.call_ceiling) throw Error('Block canonical accounting differs');
     if (row.status === 'completed' && (row.textual?.passed !== true || row.functional && row.functional.passed !== true || row.preserved !== true || row.output_error)) throw Error('Completed report contradicts required checks');
+    if (plan.successor) {
+      if (!equal(continuation.fields(money), continuation.fields(row)) || money.unresolved_attempts && (row.status !== 'failed' || !row.output_error)) throw Error('Conservative accounting cannot promote unresolved output');
+      for (const field of Object.keys(totals)) totals[field] += money[field];
+    }
     cost += money.actual_cost_micros; requests += money.attempts.length;
   }
-  if (result.actual_cost_micros !== cost || result.observed_attempts !== requests) throw Error('Block aggregate accounting differs');
+  if (result.actual_cost_micros !== (plan.successor && totals.unresolved_attempts ? null : cost) || result.observed_attempts !== requests
+    || plan.successor && Object.keys(totals).some(field => result[field] !== totals[field])) throw Error('Block aggregate accounting differs');
   return { plan, result };
 }
 function browserGrades(plan, planHash, skill, result, file) {
@@ -51,7 +58,7 @@ function browserGrades(plan, planHash, skill, result, file) {
   return browser;
 }
 function prepare(planFile, planHash, skill, destination, browserFile) {
-  const { plan, result } = block(planFile, planHash, skill), tasks = campaign.cohort(plan.spec.web_evidence);
+  const { plan, result } = block(planFile, planHash, skill), tasks = campaign.cohort(plan.spec.web_evidence, plan.spec.successor);
   const browser = browserGrades(plan, planHash, skill, result, browserFile);
   const directory = plain(path.resolve(destination));
   if (fs.existsSync(directory) || within(plan.directory, directory) || within(directory, plan.directory)) throw Error('New separate private blind-review directory required');
@@ -105,7 +112,7 @@ function settle(planFile, planHash, skill, directory, reviewA, reviewB, browserF
   }
   const browser = browserGrades(plan, planHash, skill, result, browserFile);
   if (!equal(map.browser_grades, browserFile ? { path: browserFile, sha256: sha(read(browserFile)) } : null)) throw Error('Readers and settlement must use the same browser evidence');
-  const tasks = campaign.cohort(plan.spec.web_evidence), candidateRows = result.runs.filter(r => r.arm === 'candidate');
+  const tasks = campaign.cohort(plan.spec.web_evidence, plan.spec.successor), candidateRows = result.runs.filter(r => r.arm === 'candidate');
   const candidatePass = candidateRows.every(row => row.status === 'completed' && all.every(reader => {
     const grade = reader.rows.find(g => g.run_id === row.id); return gates.every(g => grade[g]);
   }) && (!browser || !browser.runs.some(g => g.run_id === row.id) || browser.runs.find(g => g.run_id === row.id).status === 'passed'));
@@ -121,7 +128,8 @@ function settle(planFile, planHash, skill, directory, reviewA, reviewB, browserF
   }).map(t => t.id);
   const disposition = { schema: 'cs3-comparison-disposition/1', plan_sha256: planHash, skill, status: candidatePass && wins.length ? 'qualified' : 'unqualified', candidate_hard_gates: candidatePass,
     common_normal_wins: wins, independent_blind_readers: 2, review_directory: directory, mappings_sha256: reviewClaim.mappings_sha256, readers: all.map(({ reader, reviewer_id, file, sha256 }) => ({ reader, reviewer_id, file, sha256 })),
-    browser_grades: browserFile ? { path: browserFile, sha256: sha(read(browserFile)) } : null, zero_unresolved_liability: true,
+    browser_grades: browserFile ? { path: browserFile, sha256: sha(read(browserFile)) } : null, zero_unresolved_liability: !plan.successor || result.unresolved_attempts === 0,
+    ...(plan.successor ? { known_settled_micros: result.known_settled_micros, conservative_debit_micros: result.conservative_debit_micros, unresolved_liability_micros: result.unresolved_liability_micros, unresolved_attempts: result.unresolved_attempts, accounting_policy: 'owner-approved-conservative-envelope-not-native-settlement' } : {}),
     actual_cost_micros: result.actual_cost_micros, observed_attempts: result.observed_attempts, paid_review_calls: 0 };
   if (!verifyOnly) write(path.join(plan.directory, `disposition-${skill}.json`), disposition);
   return disposition;

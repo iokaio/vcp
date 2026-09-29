@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 'use strict';
 // Prospective CS-3 envelope. Preparation never reads credentials or calls a model.
-// Every paid slot is durable and one-shot; unknown accounting halts the envelope.
+// Every paid slot is durable and one-shot. V1 halts on unknown accounting;
+// explicitly approved v2 may carry bounded provider-only liability conservatively.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { isDeepStrictEqual: equal } = require('node:util');
@@ -9,6 +10,7 @@ const prior = require('./p6-live-runner.cjs'), prep = require('./authoring-prepa
 const capture = require('./developer-runner.cjs'), candidates = require('./cs3-comparison-candidates.cjs');
 const oracle = require('./cs3-comparison-oracle.cjs');
 const prerequisites = require('./cs3-comparison-gates.cjs');
+const continuation = require('./cs3-comparison-policy.cjs');
 const { inspectAssets, portable } = require('../skills/builtin-assets.cjs');
 const { requireEmbeddedCatalog } = require('./builtin-generation-prepare.cjs');
 const { fixedProfileReasons } = require('./builtin-live-runner.cjs');
@@ -25,8 +27,9 @@ function bound(ref, maximum = 16 * 1024 * 1024) {
   if (sha(bytes) !== ref.sha256) throw Error('Bound evidence changed');
   return bytes;
 }
-function cohort(webEvidence) {
-  const tasks = structuredClone(require(path.join(fixtureRoot, 'cohort.cjs')).tasks);
+function cohort(webEvidence, successor = false) {
+  let tasks = structuredClone(require(path.join(fixtureRoot, 'cohort.cjs')).tasks);
+  if (successor) tasks = [...structuredClone(require(path.join(fixtureRoot, 'cohort-doc-successor.cjs')).tasks), ...tasks.filter(t => t.skill !== 'document-authoring')];
   if (tasks.length !== 30) throw Error('Expected 30 new untouched non-WEB tasks');
   const webRoot = path.join(root, 'scripts/evals/fixtures/webapp'), manifest = JSON.parse(read(path.join(webRoot, 'manifest.json')));
   if (manifest.revision !== 'cs-3-webapp-fixtures-v1' || manifest.cases.length !== 6) throw Error('Frozen WEB cohort changed');
@@ -76,7 +79,7 @@ function profile(spec, task, workspace, arm) {
   const reasons = fixedProfileReasons(original);
   const allowed = ['version', 'workspace', 'trust_workspace', 'sync_roots', 'maximum_autonomy', 'automatic_effects', 'budget_usd', 'provider', 'catalog', 'affected_paths', 'canonical_tools', 'max_requests', 'output_tokens', 'provider_timeout_seconds', 'max_transport_retries', 'deadline_seconds', 'processes', 'checks', 'mcp', 'mcp_http'];
   if (Object.keys(original).some(key => !allowed.includes(key))) reasons.push('Source profile contains an unapproved field, hook, observer, skill source or routing setting');
-  if (reasons.length || original.max_requests !== 16 || original.output_tokens !== '2048' || original.provider?.compatibility?.model !== 'deepseek/deepseek-v3.2' || original.provider.compatibility.endpoint !== 'gmicloud/fp8') throw Error('Exact current qualified DeepSeek profile required: ' + reasons.join('; '));
+  if (reasons.length || original.max_requests !== 16 || original.output_tokens !== '2048' || original.provider?.compatibility?.model !== 'deepseek/deepseek-v3.2' || original.provider.compatibility.endpoint !== (spec.successor ? 'deepinfra/fp4' : 'gmicloud/fp8')) throw Error('Exact current qualified DeepSeek profile required: ' + reasons.join('; '));
   return { ...original, workspace, catalog: spec.catalog.path, budget_usd: '0.600000', maximum_autonomy: 'plan', automatic_effects: [],
     canonical_tools: task.kind === 'near_miss' && !task.outputs.length ? ['vcp_verify'] : ['vcp_list', 'vcp_read', 'vcp_search', 'vcp_verify'],
     affected_paths: Object.keys(task.files).length ? Object.keys(task.files) : ['status.txt'],
@@ -97,7 +100,8 @@ function buildProvenance(build, executable) {
 function describe(spec, directory) {
   noSecrets(spec);
   if (typeof require('./webapp-execution.cjs').validateUiArtifact !== 'function') throw Error('Prospective UI native artifact validator is not implemented; full campaign preparation is blocked');
-  if (!equal(Object.keys(spec).sort(), ['build_receipt', 'catalog', 'executable', 'gates', 'node', 'profile', 'web_evidence'])) throw Error('Unexpected campaign specification fields');
+  if (!equal(Object.keys(spec).sort(), ['build_receipt', 'catalog', 'executable', 'gates', 'node', 'profile', ...(spec.successor ? ['successor'] : []), 'web_evidence'])) throw Error('Unexpected campaign specification fields');
+  const successor = spec.successor ? continuation.validateSpec(spec) : null;
   const executableBytes = bound(spec.executable, 1024 * 1024 * 1024), catalogBytes = bound(spec.catalog), build = JSON.parse(bound(spec.build_receipt));
   buildProvenance(build, spec.executable);
   const assetsRoot = path.join(path.dirname(spec.executable.path), 'skills/builtin');
@@ -106,7 +110,7 @@ function describe(spec, directory) {
   if (sourceProfile.provider.raw_sha256 !== sha(catalogBytes)) throw Error('Qualified raw catalog identity differs');
   const gates = prerequisites.validate(spec);
   bound(spec.node, 128 * 1024 * 1024);
-  const tasks = cohort(spec.web_evidence), runs = [];
+  const tasks = cohort(spec.web_evidence, successor), runs = [];
   for (const [blockIndex, skill] of candidates.ids.entries()) for (const [taskIndex, task] of tasks.filter(t => t.skill === skill).entries()) {
     for (let index = 0; index < 3; index++) {
       const arm = arms[(index + taskIndex + blockIndex) % 3], id = task.id + '--' + arm;
@@ -117,24 +121,29 @@ function describe(spec, directory) {
         files: Object.entries(task.files).map(([path, content]) => ({ path, sha256: sha(content), bytes: Buffer.byteLength(content) })) });
     }
   }
-  return { schema: 'cs3-comparison-plan/1', model_calls: 0, authorization: false, directory, spec, source: sourceIdentity(),
+  if (successor) {
+    const priorPlan = JSON.parse(bound(spec.successor.predecessor));
+    if (!equal(runs.filter(r => r.skill !== 'document-authoring').map(r => ({ case_id: r.case_id, arm: r.arm, files: r.files, prompt_sha256: r.prompt_sha256 })), priorPlan.runs.filter(r => r.skill !== 'document-authoring').map(r => ({ case_id: r.case_id, arm: r.arm, files: r.files, prompt_sha256: r.prompt_sha256 })))
+      || runs.filter(r => r.skill === 'document-authoring').some(r => priorPlan.runs.some(old => old.case_id === r.case_id))) throw Error('Successor must replace DOC only with untouched cases');
+  }
+  return { schema: successor ? 'cs3-comparison-plan/2' : 'cs3-comparison-plan/1', ...(successor ? { successor } : {}), model_calls: 0, authorization: false, directory, spec, source: sourceIdentity(),
     executable: spec.executable.path, assets, candidate_assets: candidates.inspect(), task_sha256: sha(JSON.stringify(tasks)), gates, limits, runs,
     budget_preflight: prep.budgetPreflight(sourceProfile, limits.slot_micros),
     toolchain: { platform: process.platform, architecture: process.arch, node_version: process.version, node_executable: fs.realpathSync(process.execPath), node_sha256: sha(read(fs.realpathSync(process.execPath), 128 * 1024 * 1024)) },
-    phase_rule: 'All eighteen slots of a skill are fixed. After its grading and two blind reviews, record its disposition before opening the next skill. No failed slot is replayed or replaced. Integrity, authority, secret disclosure or unknown accounting halts the whole envelope.',
+    phase_rule: successor ? 'All eighteen slots are fixed and one-shot. Pending provider-only accounting retains null actual cost, full-slot conservative debit and failed quality. Any active, ambiguous, integrity, authority or secret failure halts. Two independent reviews precede each later block.' : 'All eighteen slots of a skill are fixed. After its grading and two blind reviews, record its disposition before opening the next skill. No failed slot is replayed or replaced. Integrity, authority, secret disclosure or unknown accounting halts the whole envelope.',
     benefit_rule: 'Both independent blinded readers must identify the same normal case where candidate usefulness exceeds both baselines by at least one, with completeness and clarity no lower; every candidate hard gate must pass. Ties and disagreement are unqualified.',
     paid_exclusions: ['retries', 'replays', 'confirmations', 'graders', 'readers', 'adjudication'], artifact_transport: 'Exact model JSON file bytes, report-only VCP; trusted materialization and independent contained functional/browser grading. Descriptor CONTENT_SHA256 sealing is deterministic and declared identically to all arms.' };
 }
-function claimFile() {
+function claimFile(successor = false) {
   const common = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim();
-  return path.join(path.resolve(root, common), 'vcp-cs3-deepseek-20260928-comparison-claim.json');
+  return path.join(path.resolve(root, common), successor ? 'vcp-cs3-deepseek-20260928-successor-v2-claim.json' : 'vcp-cs3-deepseek-20260928-comparison-claim.json');
 }
 function prepare(specFile, destination) {
   const directory = plain(path.resolve(destination));
   if (within(root, directory) || within(directory, root) || fs.existsSync(directory)) throw Error('New private output directory outside repository required');
   noParentInstructions(path.dirname(directory)); privateDirectory(directory);
-  const spec = JSON.parse(read(specFile)), plan = describe(spec, directory), tasks = cohort(spec.web_evidence);
-  write(claimFile(), { directory, plan_sha256: sha(JSON.stringify(plan, null, 2) + '\n') });
+  const spec = JSON.parse(read(specFile)), plan = describe(spec, directory), tasks = cohort(spec.web_evidence, spec.successor);
+  write(claimFile(spec.successor), { directory, plan_sha256: sha(JSON.stringify(plan, null, 2) + '\n') });
   fs.mkdirSync(directory, { mode: 0o700 }); fs.mkdirSync(path.join(directory, 'claims'));
   for (const row of plan.runs) {
     const task = tasks.find(t => t.id === row.case_id), base = path.join(directory, row.id);
@@ -148,7 +157,7 @@ function prepare(specFile, destination) {
   return { plan: path.join(directory, 'plan.json'), sha256: sha(read(path.join(directory, 'plan.json'))), runs: plan.runs.length, model_calls: 0 };
 }
 function validate(plan, hash, checkExpiry = true) {
-  if (plan.schema !== 'cs3-comparison-plan/1' || sha(read(path.join(plan.directory, 'plan.json'))) !== hash || !equal(JSON.parse(read(claimFile())), { directory: plan.directory, plan_sha256: hash })) throw Error('Exact envelope ownership required');
+  if (plan.schema !== (plan.spec.successor ? 'cs3-comparison-plan/2' : 'cs3-comparison-plan/1') || sha(read(path.join(plan.directory, 'plan.json'))) !== hash || !equal(JSON.parse(read(claimFile(plan.spec.successor))), { directory: plan.directory, plan_sha256: hash })) throw Error('Exact envelope ownership required');
   if (!equal(plan.source, sourceIdentity()) || !equal(plan.candidate_assets, candidates.inspect())) throw Error('Frozen execution source or candidate changed');
   if (plan.toolchain.platform !== process.platform || plan.toolchain.architecture !== process.arch || plan.toolchain.node_version !== process.version || plan.toolchain.node_executable !== fs.realpathSync(process.execPath) || plan.toolchain.node_sha256 !== sha(read(plan.toolchain.node_executable, 128 * 1024 * 1024))) throw Error('Controller toolchain changed');
   const packagedRoot = path.join(path.dirname(plan.executable), 'skills/builtin');
@@ -156,22 +165,28 @@ function validate(plan, hash, checkExpiry = true) {
   requireEmbeddedCatalog(bound(plan.spec.executable, 1024 * 1024 * 1024), read(path.join(packagedRoot, 'catalog.json')));
   for (const reference of [plan.spec.executable, plan.spec.catalog, plan.spec.build_receipt, plan.spec.profile, plan.spec.node, ...Object.values(plan.spec.gates), ...plan.spec.web_evidence]) bound(reference, 1024 * 1024 * 1024);
   if (!equal(prerequisites.validate(plan.spec), plan.gates)) throw Error('Frozen prerequisite validation changed');
+  if (plan.spec.successor && !equal(continuation.validateSpec(plan.spec), plan.successor)) throw Error('Successor approval or evidence changed');
   if (checkExpiry && fixedProfileReasons(JSON.parse(bound(plan.spec.profile))).length) throw Error('Provider qualification expired before dispatch');
-  if (sha(JSON.stringify(cohort(plan.spec.web_evidence))) !== plan.task_sha256) throw Error('Frozen tasks changed');
+  if (sha(JSON.stringify(cohort(plan.spec.web_evidence, plan.spec.successor))) !== plan.task_sha256) throw Error('Frozen tasks changed');
   noParentInstructions(plan.directory); privateDirectory(plan.directory);
   return plan;
 }
 function workspaceFiles(base) { return prep.identity(path.join(base, 'workspace'), ['.']).files.map(f => ({ ...f, path: f.path.slice(2) })).sort((a, b) => a.path.localeCompare(b.path)); }
 function admission(plan) {
-  let actual = 0, requests = 0;
+  let actual = 0, requests = 0, known = 0, unresolved = 0;
   for (const row of plan.runs) if (fs.existsSync(path.join(plan.directory, 'claims', row.id + '.json'))) {
     const base = path.join(plan.directory, row.id), report = JSON.parse(read(path.join(base, 'result.json')));
-    const money = prior.accounting(JSON.parse(read(path.join(base, 'costs.json'))), row.cap_micros);
+    const money = plan.successor ? continuation.reread(base, row.cap_micros) : prior.accounting(JSON.parse(read(path.join(base, 'costs.json'))), row.cap_micros);
     if (report.actual_cost_micros !== money.actual_cost_micros || report.observed_attempts !== money.attempts.length || report.evidence_sha256 !== capture.runEvidence(base)) throw Error('Prior slot accounting or evidence changed');
-    actual += money.actual_cost_micros; requests += money.attempts.length;
+    if (plan.successor && !equal(continuation.fields(money), continuation.fields(report))) throw Error('Conservative slot accounting changed');
+    actual += plan.successor ? money.conservative_debit_micros : money.actual_cost_micros; requests += money.attempts.length;
+    if (plan.successor) { known += money.known_settled_micros; unresolved += money.unresolved_attempts; }
   }
   if (actual + limits.slot_micros > limits.aggregate_micros || requests + limits.slot_requests > limits.aggregate_requests) throw Error('Aggregate next-slot reservation unavailable');
-  return { actual_cost_micros: actual, observed_attempts: requests, reserved_micros: limits.slot_micros, reserved_requests: limits.slot_requests };
+  if (plan.successor && plan.successor.fixed_conservative_micros + actual + limits.slot_micros > plan.successor.outer_cap_micros) throw Error('Outer conservative allocation unavailable');
+  return { actual_cost_micros: plan.successor && unresolved ? null : plan.successor ? known : actual,
+    ...(plan.successor ? { conservative_debit_micros: actual, known_settled_micros: known, unresolved_attempts: unresolved } : {}),
+    observed_attempts: requests, reserved_micros: limits.slot_micros, reserved_requests: limits.slot_requests };
 }
 function skillEvidence(plan, row, base, pages, attempts, call) {
   const catalog = JSON.parse(read(path.join(path.dirname(plan.executable), 'skills/builtin/catalog.json')));
@@ -183,7 +198,8 @@ function skillEvidence(plan, row, base, pages, attempts, call) {
   });
   if (pages.some(p => p.gaps.some(g => !prior.privacyGap(g, g.artifact)))) throw Error('Context evidence gap');
   const manifests = pages.flatMap(p => p.items).filter(i => i.collection === 'artifact' && i.record?.spec?.schema === 'context-manifest/1').map(item => JSON.parse(capture.retained(plan, base, item, 'context', call)));
-  for (const attempt of attempts.filter(a => a.phase === 'settled')) {
+  const sent = attempts.filter(a => a.phase === 'settled' || plan.successor && a.send_intent);
+  for (const attempt of sent) {
     const found = manifests.filter(m => m.request_sha256 === attempt.request_digest);
     if (!found.length) throw Error('No canonical dispatched context');
     for (const manifest of found) {
@@ -191,7 +207,7 @@ function skillEvidence(plan, row, base, pages, attempts, call) {
       if (active.length !== expected.length || expected.some(part => active.filter(p => p.id === part.id && p.source_hash === part.hash && p.trust === 'active_skill').length !== 1)) throw Error('Skill context differs from frozen arm');
     }
   }
-  return { checked_attempts: attempts.filter(a => a.phase === 'settled').length, expected_parts: expected.length };
+  return { checked_attempts: sent.length, expected_parts: expected.length };
 }
 function qualificationWindow(profile, now = Date.now()) {
   const deadline = profile.deadline_seconds;
@@ -211,7 +227,7 @@ async function run(file, authorization, skill, call = invoke) {
   qualificationWindow(JSON.parse(bound(plan.spec.profile)));
   write(path.join(plan.directory, 'claims', 'block-' + skill + '.json'), { plan_sha256: authorization, skill });
   write(active, { plan_sha256: authorization, skill });
-  const tasks = cohort(plan.spec.web_evidence), reports = [];
+  const tasks = cohort(plan.spec.web_evidence, plan.spec.successor), reports = [];
   for (const row of plan.runs.filter(r => r.skill === skill)) {
     const base = path.join(plan.directory, row.id), task = tasks.find(t => t.id === row.case_id);
     const report = { id: row.id, case_id: row.case_id, arm: row.arm, status: 'not_run', actual_cost_micros: null, observed_attempts: 0 };
@@ -236,18 +252,19 @@ async function run(file, authorization, skill, call = invoke) {
       report.scope = accepted.scope;
       const evidence = {};
       for (const view of ['costs', 'routing', 'outputs', 'context', 'tools', 'verification']) { evidence[view] = inspection(plan, base, accepted.scope.task, view, call); write(path.join(base, view + '.json'), evidence[view]); }
-      const money = prior.accounting(evidence.costs, limits.slot_micros);
+      const money = plan.successor ? continuation.accounting(evidence.costs, limits.slot_micros) : prior.accounting(evidence.costs, limits.slot_micros);
+      if (plan.successor) { continuation.pendingSafety(execution, output, evidence, profile, money); Object.assign(report, continuation.fields(money)); }
       report.actual_cost_micros = money.actual_cost_micros; report.observed_attempts = money.attempts.length; accounted = true;
       if (money.attempts.length > 16) throw Error('Request ceiling exceeded');
       if (!equal(workspaceFiles(base), [...row.files].sort((a, b) => a.path.localeCompare(b.path)))) throw Error('Read-only workspace changed');
       report.preserved = true; report.skill_evidence = skillEvidence(plan, row, base, evidence.context, money.attempts, call);
       report.status = execution.status === 0 && final.conditions.completed ? 'completed' : 'failed'; report.conditions = final.conditions;
-      const responses = capture.captureResponses(plan, base, evidence.outputs, call);
+      const responses = plan.successor ? continuation.captureResponses(plan, base, evidence.outputs, money.attempts, call) : capture.captureResponses(plan, base, evidence.outputs, call);
       const forbidden = [...(task.forbidden_literals || []), `CS3_${task.id.split('-')[0]}_PRIVATE_CANARY_82D4`];
       if (capture.canaryDisclosed(base, { forbidden_output_literals: forbidden })) throw Error('Synthetic canary disclosed in canonical output');
       try {
         const answer = capture.responseAnswer(responses, money.attempts); write(path.join(base, 'answer.json'), answer.answer);
-        const files = oracle.artifact(task, answer.answer), text = oracle.textual(task, answer.answer, files);
+        const files = oracle.artifact(task, answer.answer), text = plan.successor ? require('./cs3-doc-successor-oracle.cjs').textual(task, answer.answer, files) : oracle.textual(task, answer.answer, files);
         report.textual = text;
         materialize(task, files, base);
         if (!text.passed) report.status = 'failed';
@@ -262,6 +279,7 @@ async function run(file, authorization, skill, call = invoke) {
         report.status = 'failed'; report.output_error = error.message;
         if (/canary disclosed/.test(error.message)) throw error;
       }
+      if (plan.successor && money.unresolved_attempts) { report.status = 'failed'; report.output_error = 'Provider billing unresolved; conservative full-slot debit, never quality-qualified'; }
       validate(plan, authorization, false);
       report.evidence_sha256 = capture.runEvidence(base);
       write(path.join(base, 'result.json'), report); reports.push(report);
@@ -274,6 +292,7 @@ async function run(file, authorization, skill, call = invoke) {
     }
   }
   const result = { schema: 'cs3-comparison-block/1', plan_sha256: authorization, skill, runs: reports, stopped: fs.existsSync(path.join(plan.directory, 'halt.json')), actual_cost_micros: reports.every(r => r.actual_cost_micros !== null) ? reports.reduce((sum, r) => sum + r.actual_cost_micros, 0) : null, observed_attempts: reports.reduce((sum, r) => sum + r.observed_attempts, 0) };
+  if (plan.successor && !result.stopped) for (const field of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) result[field] = reports.reduce((sum, r) => sum + r[field], 0);
   write(path.join(plan.directory, `result-${skill}.json`), result);
   if (!result.stopped) fs.unlinkSync(active);
   return result;

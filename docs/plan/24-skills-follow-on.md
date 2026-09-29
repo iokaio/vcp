@@ -296,6 +296,14 @@ an explicit evidence gap and are never marked regraded. The USD 100 ceiling,
 one-shot claims, independent readers, candidate correctness/benefit requirements,
 security boundaries and promotion restrictions remain unchanged.
 
+After the first prospective campaign's provider/accounting halt, the owner
+explicitly directed continuing despite unavailable billing data. The
+[successor accounting decision](../development/cs3-conservative-continuation.md)
+carries the full historical reservation and conservatively debits unknown-cost
+successor slots without altering native ledgers or reporting those slots as
+successful. The USD 100 ceiling, no replay, authority/secret boundaries and all
+comparison quality requirements remain in force.
+
 Qualify the owned browser/server lifecycle and deliver `webapp-testing`. Materialize
 WEB fixtures and join them with CS-2 UI tasks. Exit: actual Windows interactions,
 origin scope, DOM/accessibility checks and failure/owner-loss cleanup pass; missing

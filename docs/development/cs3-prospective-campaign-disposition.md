@@ -4,6 +4,12 @@ Status: halted September 28, 2026. CS-3 is not complete or merge-ready. No
 candidate qualified or was promoted. The owner-approved historical-UI replacement
 remains valid, but its prospective frontend block was never opened.
 
+Subsequent owner direction authorizes a separate
+[conservative-liability continuation](cs3-conservative-continuation.md) without
+waiting for an exact bill. This historical campaign remains halted; its ledger,
+failed outcomes and no-replay claims are unchanged. The continuation debits the
+full retained reservation rather than inventing a settlement.
+
 ## Frozen execution and observations
 
 Source commit `fd0c1145` froze the approved replacement decision, all four raw

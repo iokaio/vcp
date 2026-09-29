@@ -5,11 +5,11 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string]$PrivateDirectory
+    [Parameter(Mandatory)][string]$PrivateDirectory,
+    [ValidateSet('gmicloud/fp8','deepinfra/fp4')][string]$Endpoint = 'gmicloud/fp8'
 )
 $ErrorActionPreference = 'Stop'
 $model = 'deepseek/deepseek-v3.2'
-$endpoint = 'gmicloud/fp8'
 $directory = [IO.Path]::GetFullPath($PrivateDirectory)
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $separator = [IO.Path]::DirectorySeparatorChar
@@ -25,7 +25,7 @@ $response = Invoke-WebRequest -Uri "https://openrouter.ai/api/v1/models/$model/e
 if ($response.StatusCode -ne 200) { throw "OpenRouter endpoint catalog returned HTTP $($response.StatusCode)" }
 [IO.File]::WriteAllText($catalog, $response.Content, [Text.UTF8Encoding]::new($false))
 $parsed = $response.Content | ConvertFrom-Json
-$matches = @($parsed.data.endpoints | Where-Object tag -CEQ $endpoint)
+$matches = @($parsed.data.endpoints | Where-Object tag -CEQ $Endpoint)
 if ($parsed.data.id -cne $model -or $matches.Count -ne 1) { throw 'Exact DeepSeek endpoint is absent or ambiguous' }
 $selected = $matches[0]
 foreach ($parameter in @('tools','tool_choice','max_tokens')) {
@@ -41,7 +41,7 @@ $spec = [ordered]@{
     catalog = $catalog
     catalog_sha256 = (Get-FileHash -LiteralPath $catalog -Algorithm SHA256).Hash.ToLowerInvariant()
     model = $model
-    endpoint = $endpoint
+    endpoint = $Endpoint
     request_price_limit = '0.001'
     cap_usd = '0.250000'
     max_output_tokens = 2048
@@ -53,7 +53,7 @@ $specFile = Join-Path $directory 'probe-spec.json'
 [ordered]@{
     schema = 'cs3-deepseek-qualification-preparation/1'
     model = $model
-    endpoint = $endpoint
+    endpoint = $Endpoint
     provider_name = $selected.provider_name
     quantization = $selected.quantization
     context_length = $selected.context_length

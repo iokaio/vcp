@@ -1,6 +1,18 @@
 # CS-3 prospective six-skill comparison
 
-This is a new, unpaid cohort. Historical CS-1/CS-2 candidates, workspaces,
+## Owner-approved successor
+
+The terminal v1 campaign and its frozen source are retained unchanged. The
+[conservative continuation decision](../../../../docs/development/cs3-conservative-continuation.md)
+authorizes a separate v2 plan/claim, new DOC cases, the five never-dispatched
+cohorts, and independently qualified DeepInfra/fp4. Its explicit policy charges
+each safely bounded provider-accounting failure as a full-slot conservative
+debit, keeps actual cost null and quality failed, and never alters native
+settlement. Active or ambiguous effects, evidence gaps, authority/secret failures
+and exhausted conservative headroom still halt. V1 retains its original halt
+rule. The sections below describe that retained initial cohort and common gates.
+
+This was the initial prospective cohort. Historical CS-1/CS-2 candidates, workspaces,
 comparisons and terminal claims remain unchanged. `cohort.cjs` defines thirty
 new non-WEB cases; the runner imports the six never-paid WEB v1 cases by their
 original source and oracle hashes. The WEB near-miss still requires a corrected
@@ -64,7 +76,7 @@ task. The next skill block requires a fully revalidated terminal disposition;
 an integrity, authority, secret-disclosure or unknown-charge failure stops the
 whole envelope.
 
-No campaign has been prepared or dispatched from this tree. The six fresh UI
+The initial campaign stopped terminally during its DOC block. The six fresh UI
 cases and their eighteen arms are the approved replacement evaluation; every
 valid returned normal HTML artifact must receive actual native browser grades
 before the two blind reviews. The qualification controls are prerequisites, not

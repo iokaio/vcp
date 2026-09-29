@@ -7,6 +7,10 @@ No candidate is promoted into the default catalog.
 The [prospective paid campaign](cs3-prospective-campaign-disposition.md) subsequently
 halted on its seventh slot with unresolved provider liability; its six settled
 normal-task outputs failed. Comparison acceptance remains unsatisfied.
+The owner subsequently authorized a separate
+[conservative-liability continuation](cs3-conservative-continuation.md), charging
+unknown amounts against the budget conservatively without inventing native
+settlements. Exact billing evidence is no longer a prerequisite to that successor.
 
 ## Acceptance evidence
 

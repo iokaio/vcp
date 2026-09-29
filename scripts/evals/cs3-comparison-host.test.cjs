@@ -26,6 +26,7 @@ function syntheticHost(gitDirectory, directory = __dirname) {
       // These tests exercise canonical orchestration, not native qualification.
       // Production always imports the real, schema-specific prerequisite module.
       if (requested === './cs3-comparison-gates.cjs') return { validate() { return { synthetic_test_only: true }; } };
+      if (requested === './cs3-comparison-policy.cjs') return { ...actualRequire(requested), validateSpec() { return { synthetic_test_only: true, fixed_conservative_micros: 1213737, outer_cap_micros: 100000000 }; } };
       if (['./cs3-comparison.cjs', './cs3-comparison-review.cjs'].includes(requested)) return load(requested.slice(2));
       return actualRequire(requested);
     };
@@ -34,7 +35,7 @@ function syntheticHost(gitDirectory, directory = __dirname) {
   }
   return { campaign: load('cs3-comparison.cjs'), review: load('cs3-comparison-review.cjs') };
 }
-function fixture(t, expiryOffset = 86400000) {
+function fixture(t, expiryOffset = 86400000, successor = false) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-cs3-host-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const gitDirectory = path.join(directory, 'git-common'); fs.mkdirSync(gitDirectory);
@@ -61,7 +62,13 @@ function fixture(t, expiryOffset = 86400000) {
     target_directory: directory, compiler_artifact: { reason: 'compiler-artifact', target: { name: 'vcp' }, profile: { test: false }, features: ['qualification'], executable: path.join(directory, 'debug/vcp.exe') } });
   const gates = Object.fromEntries(['browser_boundary', 'web_oracles', 'ui_qualification', 'node_fixture'].map(name => [name, ref(name + '.json', { status: 'passed', model_calls: 0 })]));
   const web_evidence = require('./fixtures/webapp/manifest.json').cases.map(task => ({ case_id: task.id, ...ref(task.id + '.json', { case_id: task.id, status: task.kind === 'missing' ? 'expected_not_run' : task.kind === 'near_miss' ? 'bug_detected' : 'passed' }) }));
-  const spec = ref('spec.json', { executable, catalog, node, profile, build_receipt, gates, web_evidence });
+  let specification = { executable, catalog, node, profile, build_receipt, gates, web_evidence };
+  if (successor) {
+    const predecessor = ref('predecessor.json', host.campaign.describe(specification, path.join(directory, 'old-campaign')));
+    const next = json(profile.path); next.provider.compatibility.endpoint = 'deepinfra/fp4';
+    specification = { ...specification, profile: ref('successor-profile.json', next), successor: { predecessor, synthetic_test_only: true } };
+  }
+  const spec = ref('spec.json', specification);
   const prepared = host.campaign.prepare(spec.path, path.join(directory, 'campaign')), plan = json(prepared.plan);
   return { directory, sourceRoot, host, prepared, plan, ref };
 }
@@ -79,7 +86,7 @@ function fakeCli(plan, options = {}) {
       assert.deepEqual(selected, row.skills);
       const profile = json(args[args.indexOf('--config') + 1]); assert.equal(profile.maximum_autonomy, 'plan'); assert.deepEqual(profile.automatic_effects, []);
       calls.push({ id, skills: selected, cap: args[args.indexOf('--budget-usd') + 1] });
-      const store = new Map(), task = require('../../src/evals/skills/cs3-comparison/cohort.cjs').tasks.find(t => t.id === row.case_id);
+      const store = new Map(), task = [...require('../../src/evals/skills/cs3-comparison/cohort.cjs').tasks, ...require('../../src/evals/skills/cs3-comparison/cohort-doc-successor.cjs').tasks].find(t => t.id === row.case_id);
       const answer = { files: Object.fromEntries(task.outputs.map(name => [name, '# Deliberately incomplete synthetic draft\n'])), report: 'Amber passed; violet was not run. Silver failed its required-field check. The absent runner remains unavailable.', not_run: ['Native runner absent.'] };
       let text = JSON.stringify(answer);
       if (options.malformedAt === calls.length) text = '{not valid JSON';
@@ -88,7 +95,15 @@ function fakeCli(plan, options = {}) {
         const canary = options.canary || 'CS3_DOC_PRIVATE_CANARY_82D4';
         response = ['data: {malformed earlier frame}', ...[canary.slice(0, 12), canary.slice(12)].map(delta => 'data: ' + JSON.stringify({ type: 'response.output_text.delta', response_id: 'request-' + id, item_id: 'answer', output_index: 0, content_index: 0, delta }))].join('\n\n') + '\n\n';
       }
+      const pending = Boolean(plan.successor && options.unknownAt === calls.length);
+      if (pending && options.canaryAt !== calls.length) response = '{"error":{"message":"synthetic provider failure without billing"}}';
       const output = descriptor(store, 'response-' + id, 'response', Buffer.from(response));
+      const scope = { task: 'task-' + id, workspace: 'synthetic-workspace', session: 'synthetic-session' };
+      if (plan.successor) {
+        Object.assign(output.record.spec, { scope, source: 'retained-codex-attempt:attempt-' + id, schema: 'responses-sse-observed-through-terminal/1', omissions: ['authentication_headers', 'recovery_material', ...(pending ? ['explicit_abort'] : [])] });
+        output.record.retained = [{ start: '0', end: output.record.length }];
+        if (pending) output.record.state = 'aborted';
+      }
       const builtin = json(path.join(path.dirname(plan.executable), 'skills/builtin/catalog.json'));
       let included = selected.flatMap(qualified => {
         const candidate = plan.candidate_assets.entries.find(entry => entry.qualified_id === qualified), built = builtin.skills.find(skill => qualified === `vcp-builtin::${skill.id}::${skill.id}`);
@@ -96,14 +111,30 @@ function fakeCli(plan, options = {}) {
       });
       if (options.contextAt === calls.length) included = included.length ? [] : [{ kind: 'skill', id: 'unexpected', source_hash: 'a'.repeat(64), trust: 'active_skill' }];
       const context = descriptor(store, 'context-' + id, 'context', Buffer.from(JSON.stringify({ request_sha256: 'digest-' + id, included })), 'context-manifest/1');
-      const money = [
+      let money = [
         { collection: 'ledger', visibility: 'available', record: { currency: 'USD', cap: '600000', settled: '37', active: '0', unresolved: options.unknownAt === calls.length ? '1' : '0', overrun: false } },
         { collection: 'attempt', visibility: 'available', record: { id: 'attempt-' + id, phase: 'settled', uncertain: false, previous: null, role: 'main', charged: '37', provider_request: 'request-' + id, request_digest: 'digest-' + id } },
         { collection: 'settlement', visibility: 'available', record: { attempt: 'attempt-' + id, applied: true, observation: { final_usage: {} } } }
       ];
+      if (plan.successor) {
+        const phase = pending ? 'reconciliation_pending' : 'settled', charged = pending ? '0' : '37', liability = pending ? '100000' : '0', amount = { currency: 'USD', micros: '100000' };
+        money = [
+          { collection: 'ledger', id: scope.task, visibility: 'available', record: { scope, currency: 'USD', cap: '600000', settled: charged, active: '0', unresolved: liability, overrun: false, allocations: {}, protected: '0' } },
+          { collection: 'attempt', id: 'attempt-' + id, visibility: 'available', record: { id: 'attempt-' + id, scope, root: scope.task, phase, uncertain: pending ? 'retained response did not complete' : null, previous: null, role: 'main', charged,
+            send_intent: 'sent-' + id, reservation: 'reservation-' + id, quote: { amount }, provider_request: pending ? null : 'request-' + id, request_digest: 'digest-' + id } },
+          { collection: 'reservation', id: 'reservation-' + id, visibility: 'available', record: { id: 'reservation-' + id, attempt: 'attempt-' + id, scope, root: scope.task, role: 'main', phase, charged, amount, liability, protected_draw: '0', protected_returned: '0' } },
+          ...pending ? [] : [{ collection: 'settlement', id: 'settlement-' + id, visibility: 'available', record: { scope, attempt: 'attempt-' + id, applied: true, total: charged, observation: { scope, attempt: 'attempt-' + id, provider_request: 'request-' + id, final_usage: true, amount: { currency: 'USD', micros: charged } } } }],
+        ];
+        if (options.activeAt === calls.length) money[0].record.active = '1';
+      }
       stores.set(id, { store, output, context, money });
       if (options.haltAt === calls.length) fs.writeFileSync(path.join(plan.directory, 'halt.json'), JSON.stringify({ plan_sha256: options.planHash, reason: 'Synthetic concurrent integrity stop', action: 'Read-only reconciliation' }), { flag: 'wx' });
       if (options.mutateSourceAt === calls.length) fs.appendFileSync(options.sourceTarget, '\nSynthetic source drift\n');
+      if (plan.successor) {
+        const conditions = pending ? { unresolved_effect: true, cancelled: false, budget_exhausted: false, required_input: false, incomplete: false, invalid_configuration: false, internal_failure: false, durably_paused: true, completed: false } : { completed: true, unresolved_effect: false };
+        const paused = pending ? ['task', 'turn'].map(collection => ({ type: 'event', event: { event: { data: { facts: [{ collection, value: { scope, state: 'paused', reason: 'provider outcome requires accounting reconciliation' } }] } } } })) : [];
+        return { status: pending ? 7 : 0, error: null, stderr: '', stdout: [{ type: 'accepted', scope }, ...paused, { type: 'result', scope, exit_code: pending ? 7 : 0, conditions }].map(JSON.stringify).join('\n') + '\n' };
+      }
       return { status: 0, error: null, stderr: '', stdout: JSON.stringify({ type: 'accepted', scope: { task: 'task-' + id } }) + '\n' + JSON.stringify({ type: 'result', conditions: { completed: options.canaryAt !== calls.length } }) + '\n' };
     }
     const records = stores.get(id); assert(records);
@@ -111,7 +142,7 @@ function fakeCli(plan, options = {}) {
     if (args.includes('--offset')) {
       const artifact = args[args.indexOf('inspect') + 1], bytes = records.store.get(artifact); assert(bytes);
       const offset = Number(args[args.indexOf('--offset') + 1]), end = Math.min(offset + 65536, bytes.length);
-      items = [{ artifact, visibility: 'available', range: { start: offset, end }, bytes: [...bytes.subarray(offset, end)] }];
+      items = [{ artifact, visibility: 'available', range: { start: offset, end }, bytes: [...bytes.subarray(offset, end)], ...(records.output.id === artifact ? { descriptor: records.output.record } : {}) }];
     } else {
       const view = args[args.indexOf('--view') + 1];
       items = view === 'costs' ? records.money : view === 'outputs' ? [records.output] : view === 'context' ? [records.context] : [];
@@ -156,6 +187,33 @@ test('unknown canonical charge halts before another paid slot and cannot replay'
   assert(fs.existsSync(path.join(f.plan.directory, 'claims', result.runs[0].id + '.json')));
   await assert.rejects(f.host.campaign.run(f.prepared.plan, f.prepared.sha256, 'document-authoring', fake.cli), /halted/);
   assert.equal(fake.calls.length, 1);
+});
+
+test('v2 pending provider billing consumes a full slot debit, continues fresh slots and remains unqualified', async t => {
+  const f = fixture(t, 86400000, true), fake = fakeCli(f.plan, { unknownAt: 3 });
+  const result = await f.host.campaign.run(f.prepared.plan, f.prepared.sha256, 'document-authoring', fake.cli);
+  assert.equal(result.stopped, false); assert.equal(fake.calls.length, 18); assert.equal(result.actual_cost_micros, null);
+  assert.equal(result.conservative_debit_micros, 600000 + 17 * 37); assert.equal(result.known_settled_micros, 17 * 37); assert.equal(result.unresolved_attempts, 1);
+  assert.equal(result.runs[2].status, 'failed'); assert.equal(result.runs[2].skill_evidence.checked_attempts, 1);
+  const rebound = f.host.review.block(f.prepared.plan, f.prepared.sha256, 'document-authoring'); assert.equal(rebound.result.actual_cost_micros, null);
+  const directory = path.join(f.directory, 'reviews'), packets = f.host.review.prepare(f.prepared.plan, f.prepared.sha256, 'document-authoring', directory);
+  const reviews = packets.packets.map(binding => {
+    const packet = json(binding.path);
+    return f.ref('review-' + binding.reader + '.json', { reader: binding.reader, reviewer_id: 'independent-' + binding.reader, packet_sha256: binding.packet_sha256, independent_blind: true,
+      rows: packet.rows.map(row => ({ id: row.id, ...Object.fromEntries(f.host.review.gates.map(gate => [gate, gate === 'correctness' ? row.execution.status === 'completed' : true])), completeness: 0, clarity: 0, usefulness: 0, reason: 'Retained failed outputs, not qualified.' })) }).path;
+  });
+  const disposition = f.host.review.settle(f.prepared.plan, f.prepared.sha256, 'document-authoring', directory, ...reviews);
+  assert.equal(disposition.zero_unresolved_liability, false); assert.equal(disposition.actual_cost_micros, null); assert.equal(disposition.status, 'unqualified');
+  assert.equal(f.host.review.validateDisposition(f.prepared.plan, f.prepared.sha256, 'document-authoring').conservative_debit_micros, result.conservative_debit_micros);
+  await assert.rejects(f.host.campaign.run(f.prepared.plan, f.prepared.sha256, 'document-authoring', fake.cli), /EEXIST/);
+});
+
+test('v2 active accounting or a canary in aborted response still halts immediately', async t => {
+  for (const options of [{ unknownAt: 1, activeAt: 1 }, { unknownAt: 1, canaryAt: 1 }]) {
+    const f = fixture(t, 86400000, true), fake = fakeCli(f.plan, options);
+    const result = await f.host.campaign.run(f.prepared.plan, f.prepared.sha256, 'document-authoring', fake.cli);
+    assert.equal(result.stopped, true); assert.equal(fake.calls.length, 1); assert.match(result.runs[0].reason, /Active|canary disclosed/);
+  }
 });
 
 test('short qualification window denies block before durable claim or dispatch', async t => {
