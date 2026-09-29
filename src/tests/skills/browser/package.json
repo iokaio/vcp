@@ -1,0 +1,10 @@
+{
+  "name": "vcp-skill-browser-tests",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Development-only Playwright pin for webapp-testing helper checks; skills never install it",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}
