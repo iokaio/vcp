@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.7.0",
+  "version": "1.8.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "68a4aa2fd30589767a995aa2ee4b9924a4b39a6ea5515ce88d8204fb3606edf9"
+    "sha256": "160f79d5efe1310c3ca9b3d8c1db3a100b5e96ab309bff5dbcdf7ef028173e3d"
   },
   "skills": [
     {
@@ -422,6 +422,36 @@
         {
           "path": "references/integration-patterns.md",
           "sha256": "db4a2b13de616bccc4baf56e787950b0ad4519863e958dead8c3515b9581efb1"
+        }
+      ]
+    },
+    {
+      "id": "webapp-testing",
+      "version": "2.0.0",
+      "descriptor": "webapp-testing/skill.json",
+      "descriptor_sha256": "6f4656eff694de916deb881f0a1ad93202081dbac4d90f478149c5de0196b563",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "f36ec33725aa25566488cedd9726f08bcdb73fc34de9709ebc1f78e87df4b5d0"
+      },
+      "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/webapp-testing",
+      "license": "Apache-2.0",
+      "resources": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+        },
+        {
+          "path": "UPSTREAM.md",
+          "sha256": "6173faf59b703fd7f63d792444ae24da5e07de4ceb148fbe6f7008657766a84c"
+        },
+        {
+          "path": "references/browser-patterns.md",
+          "sha256": "cab7a118a567e3db3b2f5ad0a44b453a78be818beaa0e2ba9d347331a1e7f79f"
+        },
+        {
+          "path": "scripts/check-page.cjs",
+          "sha256": "b3e686e11910ec3f7e83aa35669c0ac40f388e764de35db63d3a669b4cfd80bd"
         }
       ]
     }

@@ -17,19 +17,46 @@ function fixture(t) {
   return { packageRoot, api: module.exports };
 }
 
-test('webapp-testing is an exact resource-free explicit candidate outside the builtin catalog', () => {
+test('webapp-testing is an exact resource-free explicit external candidate', () => {
   const inventory = candidate.inspect(), descriptorBytes = fs.readFileSync(path.join(inventory.path, 'skill.json'));
-  const descriptor = JSON.parse(descriptorBytes), catalog = JSON.parse(fs.readFileSync(path.join(repository, 'src/skills/builtin/catalog.json')));
+  const descriptor = JSON.parse(descriptorBytes);
   assert.equal(inventory.source_id, 'vcp-webapp-candidate');
   assert.equal(inventory.entry.descriptor_sha256, sha(descriptorBytes));
   assert.deepEqual(inventory.entry.parts, [descriptor.body]);
   assert.deepEqual(descriptor.cues, ['explicit:webapp-testing']);
   assert.deepEqual(descriptor.resources, []);
-  assert.equal(catalog.skills.some(skill => skill.id === 'webapp-testing'), false);
+  assert.notEqual(inventory.path, path.join(repository, 'src/skills/builtin/webapp-testing'));
   const configured = candidate.configuration();
   assert.deepEqual(configured.sources.map(source => source.kind), ['user']);
   assert.equal(configured.sources[0].path, inventory.path);
   assert.equal(candidate.qualified(), 'vcp-webapp-candidate::.::webapp-testing');
+});
+
+test('a same-ID builtin cannot replace the explicitly qualified historical candidate', t => {
+  const { packageRoot, api } = fixture(t), original = api.inspect();
+  // Synthetic collision only: no repository catalog or promoted asset is changed.
+  const builtin = path.resolve(packageRoot, '../../builtin/webapp-testing');
+  fs.mkdirSync(builtin, { recursive: true });
+  const body = Buffer.from('Synthetic builtin collision, not the selected candidate.\n');
+  const descriptor = JSON.parse(fs.readFileSync(path.join(packageRoot, 'skill.json')));
+  descriptor.version = '9.9.9'; descriptor.body.sha256 = sha(body);
+  const descriptorBytes = Buffer.from(JSON.stringify(descriptor));
+  fs.writeFileSync(path.join(builtin, 'SKILL.md'), body);
+  fs.writeFileSync(path.join(builtin, 'skill.json'), descriptorBytes);
+  fs.writeFileSync(path.join(builtin, '../coverage.json'), '{}');
+  fs.writeFileSync(path.join(builtin, '../catalog.json'), JSON.stringify({ schema_version: 1, version: '9.9.9',
+    coverage: { path: 'coverage.json', sha256: sha(Buffer.from('{}')) }, skills: [{ id: descriptor.id, version: descriptor.version,
+      descriptor: 'webapp-testing/skill.json', descriptor_sha256: sha(descriptorBytes), body: descriptor.body,
+      resources: [], source: descriptor.source, license: descriptor.license }] }));
+  assert.deepEqual(api.inspect(), original);
+  const configured = api.configuration();
+  assert.equal(configured.sources[0].kind, 'user'); assert.equal(configured.sources[0].path, packageRoot);
+  const selected = api.selection('candidate', { skill: 'webapp-testing', arm_skills: { candidate: ['webapp-testing'] } });
+  assert.deepEqual(selected, ['vcp-webapp-candidate::.::webapp-testing']);
+  assert.notEqual(selected[0], 'vcp-builtin::webapp-testing::webapp-testing');
+  fs.unlinkSync(path.join(packageRoot, descriptor.body.path));
+  assert.throws(() => api.inspect(), /ENOENT/);
+  assert.throws(() => api.configuration(), /ENOENT/);
 });
 
 test('webapp-testing comparison selection is explicit and keeps testing as its sole nearest baseline', () => {
