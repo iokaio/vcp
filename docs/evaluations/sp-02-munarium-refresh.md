@@ -60,6 +60,7 @@ and VCP consumer checks used the ordinary Rust 1.95.0 compiler.
 | Staged Git-object verification | Both selected source inventories passed |
 | Fresh dependency graphs and lock fingerprints | 147 Munarium, 214 corpus, 141 embedding packages matched their references |
 | Fresh Munarium dependency license record | Exact match with the committed reference |
+| Native protocol schema regeneration and generated-output contracts | Nine passed; only the shared-lockfile provenance hash changed, with public API types unchanged |
 | Static boundary inventory | 175 workspace packages; no boundary errors |
 | Repository documentation checks and diff whitespace checks | Passed |
 
