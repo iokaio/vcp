@@ -1,6 +1,6 @@
 # CS-3 conservative-liability continuation
 
-Status: separate successor frozen and first comparison block running under the owner's September 28, 2026
+Status: successor stopped on a zero-dispatch verifier defect; a separate immutable continuation is being prepared under the owner's September 28, 2026
 direction: “Proceed. The numbers are so low and the billing data is not always
 available. Just keep going.” This supersedes the requirement to obtain an exact
 bill before further evaluation. It does not settle an unknown native charge,
@@ -114,9 +114,57 @@ The 108-slot successor was then frozen at
 SHA-256 `42d9b02b785408a1e31987b3336f99c17535af0dba1d5939a2f6e785155733e8`,
 on source checkpoint `88c93dab`. Preparation independently revalidated the old
 campaign, both preflights, qualified endpoint, native boundary, WEB/UI and Node
-prerequisites before creating its separate durable claim. The document-authoring
-block is running; subsequent blocks still require both blind reviews and a
-recorded disposition. No qualification result is inferred from dispatch.
+prerequisites before creating its separate durable claim. Subsequent blocks
+still require both blind reviews and a recorded disposition. No qualification
+result is inferred from dispatch.
+
+The document-authoring block then stopped after two consumed slots. The first
+settled four requests for USD 0.003346; all four tool operations succeeded, but
+the task exceeded its 180-second deadline before producing a canonical final
+JSON answer. The second made zero provider requests: its complete canonical
+ledger contains zero settled, active and unresolved balances and no attempts,
+reservations or settlements. Native execution failed during verification setup,
+before skill activation or model dispatch. Six setup artifact captures alone
+span 33.099 seconds, exceeding the synchronous worker's 30-second wait; timeout
+is supported by source and timestamps, although the CLI does not retain the
+underlying error string. The cause of the host slowdown is not established.
+
+The comparison verifier incorrectly required a nonempty attempt inventory and
+therefore recorded the second slot as unaccounted. Correcting this does not make
+either slot pass quality: the first remains incomplete, and the second remains
+a native internal failure with known zero provider cost. The original plan,
+two claims, raw evidence, reports and terminal halt remain immutable. All 227
+frozen verifier files were archived and hash-verified before the repair; their
+source identity is `12cd99dbdc24481407cd284bc4e70189515072736155c0df59dcc3ed5815f8d3`.
+
+A separately claimed continuation segment will retain verification addenda for
+the two failed observations and dispatch only the exact 106 untouched slots.
+It does not replay either consumed slot or resume the halted runner. Prompts,
+profiles, candidates, arm assignments, limits, native executable and quality
+oracles stay unchanged; only zero-request accounting and explicit segmented
+evidence handling change. The existing campaign allocation covers those same
+108 assignments; there is no extra paid allocation. Zero-request acceptance
+requires an exact scoped zero ledger and proof that no dispatch, response or
+unexplained effect is hidden. Independent reviews remain mandatory.
+
+The origin audit is
+`D:/vcp-private/cs3-approved-prospective-20260928/successor-segment-origin-audit.json`,
+SHA-256 `af41954ec07086f6197076e45d320521d4f9241f58146ba0e61fea3f2978681c`.
+It pins the original controls and claims, complete inventories of both consumed
+slots (634 and 134 files), and the exact 106 remaining assignments. A read-only
+dry run authenticates those originals, produces failed-only addenda, and
+revalidates the native and provider prerequisites before any segment claim.
+
+A separate no-dispatch diagnostic with three tiny source files completed in
+7.251 seconds; its five verification captures spanned 1.066 seconds. A one-micro
+budget, below the mandatory 1,000-micro request component, denied admission
+before dispatch; the child also used a synthetic credential. Retained canonical
+evidence shows zero attempts, reservations, send intents, responses, effects and
+charges. Receipt SHA-256:
+`fe732c27b7202aed0e9bf97ca209bcf2742a5c008aedcbf797bf8d44352043f9`.
+This did not reproduce the earlier slowdown, but is not an exact six-capture
+reproduction or reliability qualification. Native timeouts and safeguards are
+unchanged.
 
 The successor DOC cohort uses six genuinely fresh tasks, including an inbox
 decision record and configuration-upgrade notes as its normal tasks. No old

@@ -27,6 +27,12 @@ function syntheticHost(gitDirectory, directory = __dirname) {
       // Production always imports the real, schema-specific prerequisite module.
       if (requested === './cs3-comparison-gates.cjs') return { validate() { return { synthetic_test_only: true }; } };
       if (requested === './cs3-comparison-policy.cjs') return { ...actualRequire(requested), validateSpec() { return { synthetic_test_only: true, fixed_conservative_micros: 1813737, outer_cap_micros: 100000000 }; } };
+      // Exact origin/audit validation is exercised separately by segment.test.
+      // This isolated adapter exercises the runner/review control-directory join.
+      if (requested === './cs3-comparison-segment.cjs') return { validate(plan, hash) {
+        assert.equal(plan.segment.synthetic_test_only, true);
+        assert.equal(sha(fs.readFileSync(path.join(plan.control_directory, 'plan.json'))), hash);
+      } };
       if (['./cs3-comparison.cjs', './cs3-comparison-review.cjs'].includes(requested)) return load(requested.slice(2));
       return actualRequire(requested);
     };
@@ -127,10 +133,13 @@ function fakeCli(plan, options = {}) {
         ];
         if (options.activeAt === calls.length) money[0].record.active = '1';
       }
-      stores.set(id, { store, output, context, money });
+      const zero = plan.successor && options.zeroAt === calls.length;
+      if (zero) { money = money.filter(i => i.collection === 'ledger'); money[0].record.settled = '0'; }
+      stores.set(id, { store, output, context, money, zero });
       if (options.haltAt === calls.length) fs.writeFileSync(path.join(plan.directory, 'halt.json'), JSON.stringify({ plan_sha256: options.planHash, reason: 'Synthetic concurrent integrity stop', action: 'Read-only reconciliation' }), { flag: 'wx' });
       if (options.mutateSourceAt === calls.length) fs.appendFileSync(options.sourceTarget, '\nSynthetic source drift\n');
       if (plan.successor) {
+        if (zero) return { status: 1, error: null, stderr: '', stdout: [{ type: 'accepted', scope }, { type: 'result', scope, exit_code: 1, conditions: { completed: false, unresolved_effect: false, internal_failure: true } }].map(JSON.stringify).join('\n') + '\n' };
         const conditions = pending ? { unresolved_effect: true, cancelled: false, budget_exhausted: false, required_input: false, incomplete: false, invalid_configuration: false, internal_failure: false, durably_paused: true, completed: false } : { completed: true, unresolved_effect: false };
         const paused = pending ? ['task', 'turn'].map(collection => ({ type: 'event', event: { event: { data: { facts: [{ collection, value: { scope, state: 'paused', reason: 'provider outcome requires accounting reconciliation' } }] } } } })) : [];
         return { status: pending ? 7 : 0, error: null, stderr: '', stdout: [{ type: 'accepted', scope }, ...paused, { type: 'result', scope, exit_code: pending ? 7 : 0, conditions }].map(JSON.stringify).join('\n') + '\n' };
@@ -145,7 +154,7 @@ function fakeCli(plan, options = {}) {
       items = [{ artifact, visibility: 'available', range: { start: offset, end }, bytes: [...bytes.subarray(offset, end)], ...(records.output.id === artifact ? { descriptor: records.output.record } : {}) }];
     } else {
       const view = args[args.indexOf('--view') + 1];
-      items = view === 'costs' ? records.money : view === 'outputs' ? [records.output] : view === 'context' ? [records.context] : [];
+      items = view === 'costs' ? records.money : records.zero ? [] : view === 'outputs' ? [records.output] : view === 'context' ? [records.context] : [];
     }
     return { status: 0, error: null, stderr: '', stdout: JSON.stringify({ type: 'result', data: { items, gaps: [], next_cursor: null } }) + '\n' };
   };
@@ -214,6 +223,32 @@ test('v2 active accounting or a canary in aborted response still halts immediate
     const result = await f.host.campaign.run(f.prepared.plan, f.prepared.sha256, 'document-authoring', fake.cli);
     assert.equal(result.stopped, true); assert.equal(fake.calls.length, 1); assert.match(result.runs[0].reason, /Active|canary disclosed/);
   }
+});
+
+test('segmented runner preserves two failed consumed slots and dispatches only the remaining sixteen DOC arms', async t => {
+  const f = fixture(t, 86400000, true), initial = fakeCli(f.plan, { zeroAt: 2, haltAt: 2, planHash: f.prepared.sha256 });
+  const stopped = await f.host.campaign.run(f.prepared.plan, f.prepared.sha256, 'document-authoring', initial.cli);
+  assert.equal(stopped.stopped, true); assert.equal(initial.calls.length, 2); assert.equal(stopped.runs[1].actual_cost_micros, 0); assert.equal(stopped.runs[1].status, 'failed');
+  // The ordinary concurrent-halt control leaves an unclaimed not-run report.
+  // Remove that synthetic-only third report before constructing the test segment.
+  fs.unlinkSync(path.join(f.plan.directory, f.plan.runs[2].id, 'result.json'));
+  const protectedPaths = ['plan.json', 'halt.json', 'result-document-authoring.json', 'active-block.json', ...f.plan.runs.slice(0, 2).map(r => r.id + '/result.json')];
+  const retained = protectedPaths.map(name => [name, sha(fs.readFileSync(path.join(f.plan.directory, name)))]);
+  const control = path.join(f.directory, 'segment'); fs.mkdirSync(control); fs.mkdirSync(path.join(control, 'claims')); fs.mkdirSync(path.join(control, 'addenda'));
+  const addenda = stopped.runs.slice(0, 2).map(row => ({ ...row, status: 'failed' }));
+  for (const row of addenda) fs.writeFileSync(path.join(control, 'addenda', row.id + '.json'), JSON.stringify(row));
+  const plan = { ...f.plan, schema: 'cs3-comparison-segment-plan/1', control_directory: control, segment: { synthetic_test_only: true, addenda } };
+  const planFile = path.join(control, 'plan.json'); fs.writeFileSync(planFile, JSON.stringify(plan)); const hash = sha(fs.readFileSync(planFile));
+  const next = fakeCli(plan), result = await f.host.campaign.run(planFile, hash, 'document-authoring', next.cli);
+  assert.equal(result.stopped, false); assert.equal(next.calls.length, 16); assert.deepEqual(next.calls.map(r => r.id), plan.runs.slice(2, 18).map(r => r.id));
+  assert.equal(result.runs.length, 18); assert.equal(result.actual_cost_micros, 17 * 37); assert.equal(result.observed_attempts, 17);
+  assert.deepEqual(protectedPaths.map(name => [name, sha(fs.readFileSync(path.join(f.plan.directory, name)))]), retained);
+  assert.deepEqual(f.host.review.block(planFile, hash, 'document-authoring').result, result);
+  const reviewed = f.host.review.prepare(planFile, hash, 'document-authoring', path.join(f.directory, 'segment-readers'));
+  assert.equal(json(reviewed.packets[0].path).rows.length, 18);
+  assert.equal(fs.existsSync(path.join(control, 'blind-review-document-authoring.json')), true);
+  assert.equal(fs.existsSync(path.join(f.plan.directory, 'blind-review-document-authoring.json')), false);
+  await assert.rejects(f.host.campaign.run(planFile, hash, 'document-authoring', next.cli), /EEXIST/); assert.equal(next.calls.length, 16);
 });
 
 test('short qualification window denies block before durable claim or dispatch', async t => {

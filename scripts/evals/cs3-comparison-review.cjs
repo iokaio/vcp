@@ -12,7 +12,7 @@ const gates = ['correctness', 'preservation', 'authority', 'secret_handling', 'u
 const metrics = ['completeness', 'clarity', 'usefulness'];
 function block(planFile, planHash, skill) {
   const plan = campaign.validate(JSON.parse(read(planFile)), planHash, false);
-  const result = JSON.parse(read(path.join(plan.directory, `result-${skill}.json`)));
+  const result = JSON.parse(read(path.join(campaign.controlDirectory(plan), `result-${skill}.json`)));
   if (result.plan_sha256 !== planHash || result.skill !== skill || result.stopped || result.runs.length !== 18 || !plan.successor && result.actual_cost_micros === null) throw Error('Complete accounted eighteen-slot block required');
   const expected = plan.runs.filter(r => r.skill === skill);
   if (!equal(result.runs.map(r => r.id), expected.map(r => r.id))) throw Error('Block membership or order differs from frozen slots');
@@ -20,7 +20,7 @@ function block(planFile, planHash, skill) {
   const totals = { known_settled_micros: 0, conservative_debit_micros: 0, unresolved_liability_micros: 0, unresolved_attempts: 0 };
   for (const [index, row] of result.runs.entries()) {
     const slot = expected[index], base = path.join(plan.directory, row.id);
-    if (row.case_id !== slot.case_id || row.arm !== slot.arm || !equal(row, JSON.parse(read(path.join(base, 'result.json')))) || capture.runEvidence(base) !== row.evidence_sha256) throw Error('Retained block report or evidence changed');
+    if (row.case_id !== slot.case_id || row.arm !== slot.arm || !equal(row, campaign.slotReport(plan, row.id)) || capture.runEvidence(base) !== row.evidence_sha256) throw Error('Retained block report or evidence changed');
     const money = plan.successor ? continuation.reread(base, slot.cap_micros) : accounting(JSON.parse(read(path.join(base, 'costs.json'))), slot.cap_micros);
     if (money.actual_cost_micros !== row.actual_cost_micros || money.attempts.length !== row.observed_attempts || money.attempts.length > slot.call_ceiling) throw Error('Block canonical accounting differs');
     if (row.status === 'completed' && (row.textual?.passed !== true || row.functional && row.functional.passed !== true || row.preserved !== true || row.output_error)) throw Error('Completed report contradicts required checks');
@@ -84,13 +84,13 @@ function prepare(planFile, planHash, skill, destination, browserFile) {
     bindings.push({ reader, packet_sha256: sha(read(path.join(directory, `reader-${reader}.json`))), mapping });
   }
   write(path.join(directory, 'private-mappings.json'), { plan_sha256: planHash, skill, bindings, browser_grades: browserFile ? { path: browserFile, sha256: sha(read(browserFile)) } : null });
-  write(path.join(plan.directory, `blind-review-${skill}.json`), { directory, mappings_sha256: sha(read(path.join(directory, 'private-mappings.json'))), packets: bindings.map(({ reader, packet_sha256 }) => ({ reader, packet_sha256 })) });
+  write(path.join(campaign.controlDirectory(plan), `blind-review-${skill}.json`), { directory, mappings_sha256: sha(read(path.join(directory, 'private-mappings.json'))), packets: bindings.map(({ reader, packet_sha256 }) => ({ reader, packet_sha256 })) });
   return { directory, packets: bindings.map(({ reader, packet_sha256 }) => ({ reader, packet_sha256, path: path.join(directory, `reader-${reader}.json`) })), model_calls: 0 };
 }
 function settle(planFile, planHash, skill, directory, reviewA, reviewB, browserFile, verifyOnly = false) {
   const { plan, result } = block(planFile, planHash, skill), map = JSON.parse(read(path.join(directory, 'private-mappings.json')));
   if (map.plan_sha256 !== planHash || map.skill !== skill) throw Error('Blind mapping differs');
-  const reviewClaim = JSON.parse(read(path.join(plan.directory, `blind-review-${skill}.json`)));
+  const reviewClaim = JSON.parse(read(path.join(campaign.controlDirectory(plan), `blind-review-${skill}.json`)));
   if (reviewClaim.directory !== directory || reviewClaim.mappings_sha256 !== sha(read(path.join(directory, 'private-mappings.json'))) || !equal(reviewClaim.packets, map.bindings.map(({ reader, packet_sha256 }) => ({ reader, packet_sha256 })))) throw Error('Original blind-review mapping identity changed');
   const all = [];
   for (const [index, file] of [reviewA, reviewB].entries()) {
@@ -107,7 +107,7 @@ function settle(planFile, planHash, skill, directory, reviewA, reviewB, browserF
   }
   if (all[0].reviewer_id === all[1].reviewer_id) throw Error('Two distinct independent reviewer instances required');
   if (all.some(r => r.rows.some(row => !row.authority || !row.secret_handling))) {
-    if (!verifyOnly && !fs.existsSync(path.join(plan.directory, 'halt.json'))) write(path.join(plan.directory, 'halt.json'), { plan_sha256: planHash, reason: 'Independent reader recorded authority or secret-handling failure', action: 'Read-only reconciliation; no later block dispatch.' });
+    if (!verifyOnly && !fs.existsSync(path.join(campaign.controlDirectory(plan), 'halt.json'))) write(path.join(campaign.controlDirectory(plan), 'halt.json'), { plan_sha256: planHash, reason: 'Independent reader recorded authority or secret-handling failure', action: 'Read-only reconciliation; no later block dispatch.' });
     throw Error('Envelope integrity stopped by reader');
   }
   const browser = browserGrades(plan, planHash, skill, result, browserFile);
@@ -131,11 +131,11 @@ function settle(planFile, planHash, skill, directory, reviewA, reviewB, browserF
     browser_grades: browserFile ? { path: browserFile, sha256: sha(read(browserFile)) } : null, zero_unresolved_liability: !plan.successor || result.unresolved_attempts === 0,
     ...(plan.successor ? { known_settled_micros: result.known_settled_micros, conservative_debit_micros: result.conservative_debit_micros, unresolved_liability_micros: result.unresolved_liability_micros, unresolved_attempts: result.unresolved_attempts, accounting_policy: 'owner-approved-conservative-envelope-not-native-settlement' } : {}),
     actual_cost_micros: result.actual_cost_micros, observed_attempts: result.observed_attempts, paid_review_calls: 0 };
-  if (!verifyOnly) write(path.join(plan.directory, `disposition-${skill}.json`), disposition);
+  if (!verifyOnly) write(path.join(campaign.controlDirectory(plan), `disposition-${skill}.json`), disposition);
   return disposition;
 }
 function validateDisposition(planFile, planHash, skill) {
-  const plan = JSON.parse(read(planFile)), disposition = JSON.parse(read(path.join(plan.directory, `disposition-${skill}.json`)));
+  const plan = JSON.parse(read(planFile)), disposition = JSON.parse(read(path.join(campaign.controlDirectory(plan), `disposition-${skill}.json`)));
   if (!Array.isArray(disposition.readers) || disposition.readers.length !== 2) throw Error('Two retained reader receipts required');
   for (const reader of disposition.readers) if (sha(read(reader.file)) !== reader.sha256) throw Error('Retained reader receipt changed');
   const recomputed = settle(planFile, planHash, skill, disposition.review_directory, disposition.readers[0].file, disposition.readers[1].file, disposition.browser_grades?.path, true);

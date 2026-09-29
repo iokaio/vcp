@@ -46,7 +46,7 @@
   "cases": {
     "cs3-webapp": {
       "task_ids": ["CS-3"],
-      "args": ["--test", "src/tests/contracts/webapp-candidate.test.cjs", "src/tests/contracts/webapp-server.test.cjs", "src/tests/contracts/webapp-fixtures.test.cjs", "src/tests/contracts/webapp-execution.test.cjs", "scripts/evals/cs3-comparison.test.cjs", "scripts/evals/cs3-comparison-gates.test.cjs", "scripts/evals/cs3-ui-artifact.test.cjs", "scripts/evals/cs3-retained-ui-import.test.cjs", "scripts/evals/cs3-comparison-policy.test.cjs", "scripts/evals/cs3-doc-successor-oracle.test.cjs", "scripts/evals/cs3-doc-successor.test.cjs", "scripts/evals/cs3-read-preflight.test.cjs"],
+      "args": ["--test", "src/tests/contracts/webapp-candidate.test.cjs", "src/tests/contracts/webapp-server.test.cjs", "src/tests/contracts/webapp-fixtures.test.cjs", "src/tests/contracts/webapp-execution.test.cjs", "scripts/evals/cs3-comparison.test.cjs", "scripts/evals/cs3-comparison-gates.test.cjs", "scripts/evals/cs3-ui-artifact.test.cjs", "scripts/evals/cs3-retained-ui-import.test.cjs", "scripts/evals/cs3-comparison-policy.test.cjs", "scripts/evals/cs3-comparison-segment.test.cjs", "scripts/evals/cs3-doc-successor-oracle.test.cjs", "scripts/evals/cs3-doc-successor.test.cjs", "scripts/evals/cs3-read-preflight.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 60000,

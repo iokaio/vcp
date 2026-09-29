@@ -90,7 +90,7 @@ function accounting(pages, cap) {
   if (items.some(i => i.visibility !== 'available') || new Set(items.map(i => i.collection + ':' + i.id)).size !== items.length) throw Error('Unavailable or duplicate canonical accounting');
   const rows = kind => items.filter(i => i.collection === kind).map(i => i.record);
   const ledgers = rows('ledger'), attempts = rows('attempt'), reservations = rows('reservation'), settlements = rows('settlement');
-  if (ledgers.length !== 1 || !attempts.length || attempts.length > 16 || reservations.length !== attempts.length
+  if (ledgers.length !== 1 || attempts.length > 16 || reservations.length !== attempts.length
     || new Set(attempts.map(a => a.id)).size !== attempts.length || new Set(reservations.map(r => r.id)).size !== reservations.length) throw Error('Exact bounded attempt/reservation inventory required');
   const ledger = ledgers[0], scope = ledger.scope;
   if (!scope?.task || ledger.currency !== 'USD' || count(ledger.cap) !== cap || ledger.overrun !== false || count(ledger.active) !== 0 || count(ledger.protected) !== 0 || !equal(ledger.allocations, {})) throw Error('Active, overrun or incompatible native ledger');
@@ -119,11 +119,35 @@ function accounting(pages, cap) {
   }
   if (settlements.some(s => !attempts.some(a => a.id === s.attempt)) || !Number.isSafeInteger(charged + unresolved) || charged !== count(ledger.settled) || unresolved !== count(ledger.unresolved) || charged + unresolved > cap) throw Error('Canonical liability totals do not reconcile');
   return { actual_cost_micros: pending ? null : charged, known_settled_micros: charged, conservative_debit_micros: pending ? cap : charged,
-    unresolved_liability_micros: unresolved, unresolved_attempts: pending, attempts };
+    unresolved_liability_micros: unresolved, unresolved_attempts: pending, attempts, ledger_scope: scope };
 }
 function pendingSafety(execution, output, evidence, profile, money) {
   const final = output.findLast(x => x.type === 'result'), accepted = output.find(x => x.type === 'accepted');
-  if (!accepted?.scope?.task || !equal(final?.scope, accepted.scope) || money.attempts.some(a => !equal(a.scope, accepted.scope) || a.root !== accepted.scope.task)) throw Error('Canonical accounting/final scope differs from executed task');
+  if (!accepted?.scope?.task || !equal(money.ledger_scope, accepted.scope) || !equal(final?.scope, accepted.scope) || money.attempts.some(a => !equal(a.scope, accepted.scope) || a.root !== accepted.scope.task)) throw Error('Canonical accounting/final scope differs from executed task');
+  if (!money.attempts.length) {
+    // worker::admit_inner captures context-manifest and request-body artifacts
+    // before reserve_captured. Prepared configuration/context is not dispatch.
+    const data = output.map(x => x.event?.event?.data).filter(Boolean);
+    if (data.some(d => d.attempt || d.reservation || d.settlement || (d.facts || []).some(f => ['attempt', 'reservation', 'settlement', 'effect'].includes(f.collection)))) throw Error('Zero-dispatch ledger contradicts canonical activity');
+    const preparatory = ['canonical-skill-discovery/1', 'canonical-skill-discovery-context/1', 'canonical-active-skill-body/1', 'canonical-active-skill-resource/1', 'canonical-skill-activation/1',
+      'verification-source/1', 'verification-baseline/1', 'verification-configuration/1', 'openrouter-endpoints/1', 'openrouter-provider-configuration/1', 'canonical-tool-ceiling/1',
+      'canonical-coding-capabilities/1', 'canonical-coding-configuration/1', 'canonical-coding-content/1', 'context-manifest/1', 'canonical-context-handoff/1'];
+    const preparedArtifact = descriptor => {
+      const spec = descriptor?.spec;
+      if (!equal(spec?.scope, accepted.scope) || spec.source !== 'retained-codex'
+        || !(spec.channel === 'evidence' && preparatory.includes(spec.schema) || spec.channel === 'request_body' && ['responses-request/1', 'decisions-request/1'].includes(spec.schema))) throw Error('Zero-dispatch ledger contradicts response, context or effect evidence');
+    };
+    for (const fact of data.flatMap(d => d.facts || []).filter(f => f.collection === 'artifact')) preparedArtifact(fact.value);
+    for (const view of ['tools', 'outputs', 'context']) {
+      const pages = evidence[view];
+      if (!Array.isArray(pages) || !pages.length || pages.some(p => !Array.isArray(p.items) || !Array.isArray(p.gaps) || p.gaps.length)) throw Error('Zero-dispatch evidence incomplete');
+      for (const item of pages.flatMap(p => p.items)) {
+        if (item.collection !== 'artifact' || item.visibility !== 'available') throw Error('Zero-dispatch ledger contradicts response, context or effect evidence');
+        preparedArtifact(item.record);
+      }
+    }
+    if (final.conditions?.completed !== false) throw Error('Zero-dispatch observation cannot qualify completed output');
+  }
   if (!money.unresolved_attempts) {
     if (execution.error || final?.conditions?.unresolved_effect !== false) throw Error('Settled billing does not waive unresolved execution effects');
     return;
@@ -181,7 +205,8 @@ function fields(money) { return Object.fromEntries(['actual_cost_micros', 'known
 function reread(base, cap) {
   const money = accounting(JSON.parse(read(path.join(base, 'costs.json'))), cap);
   const output = frames(read(path.join(base, 'stdout.jsonl')).toString());
-  pendingSafety({ status: output.findLast(x => x.type === 'result')?.exit_code }, output, { tools: JSON.parse(read(path.join(base, 'tools.json'))) }, JSON.parse(read(path.join(base, 'profile.json'))), money);
+  const evidence = Object.fromEntries(['tools', 'outputs', 'context'].map(view => [view, JSON.parse(read(path.join(base, view + '.json')))]));
+  pendingSafety({ status: output.findLast(x => x.type === 'result')?.exit_code }, output, evidence, JSON.parse(read(path.join(base, 'profile.json'))), money);
   return money;
 }
 module.exports = { count, accounting, pendingSafety, captureResponses, fields, reread, validateSpec, allocations, priorRuntime };

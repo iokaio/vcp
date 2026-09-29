@@ -33,6 +33,35 @@ test('successor accounting rejects active, duplicate, misbound, over-cap and fal
     assert.throws(() => policy.accounting(pages, 600000));
   }
 });
+test('zero-dispatch costs require a complete zero ledger bound to failed task and no hidden activity', () => {
+  const pages = fixture(); pages[0].items = pages[0].items.filter(i => i.collection === 'ledger'); pages[0].items[0].record.settled = '0';
+  const money = policy.accounting(pages, 600000);
+  assert.deepEqual(policy.fields(money), { actual_cost_micros: 0, known_settled_micros: 0, conservative_debit_micros: 0, unresolved_liability_micros: 0, unresolved_attempts: 0 });
+  const f = pause(); f.execution.status = 1; f.output.at(-1).exit_code = 1; f.output.at(-1).conditions.unresolved_effect = false; f.output.at(-1).conditions.internal_failure = true;
+  f.evidence = Object.fromEntries(['tools', 'outputs', 'context'].map(k => [k, [{ gaps: [], items: [] }]]));
+  const verify = (evidence = f.evidence, cost = money) => policy.pendingSafety(f.execution, f.output, evidence, f.profile, cost);
+  assert.doesNotThrow(() => verify());
+  const prepared = structuredClone(f.evidence);
+  for (const [channel, schema] of [['evidence', 'context-manifest/1'], ['evidence', 'canonical-coding-capabilities/1'], ['evidence', 'openrouter-endpoints/1'], ['request_body', 'responses-request/1']]) {
+    prepared.context[0].items.push({ collection: 'artifact', visibility: 'available', record: { spec: { scope, source: 'retained-codex', channel, schema } } });
+  }
+  assert.doesNotThrow(() => verify(prepared));
+  assert.throws(() => verify(f.evidence, { ...money, ledger_scope: { ...scope, task: 'foreign' } }), /scope differs/);
+  for (const field of ['active', 'settled', 'unresolved', 'protected']) { const changed = structuredClone(pages); changed[0].items[0].record[field] = '1'; assert.throws(() => policy.accounting(changed, 600000)); }
+  for (const view of ['tools', 'outputs', 'context']) {
+    const gap = structuredClone(f.evidence); gap[view][0].gaps.push({}); assert.throws(() => verify(gap), /incomplete/);
+    const hidden = structuredClone(f.evidence); hidden[view][0].items.push({ collection: 'effect', visibility: 'available', record: {} }); assert.throws(() => verify(hidden), /contradicts/);
+    const manifest = structuredClone(f.evidence); manifest[view][0].items.push({ collection: 'artifact', visibility: 'available', record: { spec: { scope, channel: 'context', schema: 'context-manifest/1' } } }); assert.throws(() => verify(manifest), /contradicts/);
+  }
+  const dispatched = structuredClone(f.output); dispatched.splice(1, 0, { type: 'event', event: { event: { data: { attempt: { id: 'hidden' } } } } });
+  assert.throws(() => policy.pendingSafety(f.execution, dispatched, f.evidence, f.profile, money), /canonical activity/);
+  for (const [channel, schema] of [['response', 'responses-sse-observed-through-terminal/1'], ['stdout', 'retained-full-output/1'], ['evidence', 'canonical-coding-pair/1']]) {
+    const hidden = structuredClone(f.output); hidden.splice(1, 0, { type: 'event', event: { event: { data: { facts: [{ collection: 'artifact', value: { spec: { scope, source: 'retained-codex', channel, schema } } }] } } } });
+    assert.throws(() => policy.pendingSafety(f.execution, hidden, f.evidence, f.profile, money), /contradicts/);
+  }
+  f.output.at(-1).conditions.completed = true; assert.throws(() => verify(), /cannot qualify/);
+  assert.deepEqual(policy.captureResponses({}, 'unused', [{ gaps: [], items: [] }], [], () => { assert.fail('No inspection/provider call permitted'); }), []);
+});
 test('successor outer envelope cannot borrow from reserved fixed allocations', () => {
   const campaign = require('./cs3-comparison.cjs');
   assert.throws(() => campaign.admission({ runs: [], successor: { fixed_conservative_micros: 99400001, outer_cap_micros: 100000000 } }), /Outer conservative/);
