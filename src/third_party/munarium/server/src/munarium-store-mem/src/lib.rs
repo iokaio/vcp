@@ -5,7 +5,23 @@
 //! `ledger::resolve_slice`, and every store stamps seq from the single
 //! lineage counting domain so one pin bounds everything.
 
+// Production code returns typed errors instead of panicking; tests are exempt.
+// The policy, its two exemptions and the per-site record are in
+// server/docs/panic-boundaries.md (P15/R32).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 pub mod budget;
+pub mod determinism;
 pub mod evidence;
 pub mod sources;
 pub use budget::MemBudgetStore;
@@ -46,14 +62,106 @@ struct CounterRow {
     seq: Seq,
 }
 
-#[derive(Default)]
 pub struct MemStore {
     state: RwLock<State>,
+    ids: determinism::IdGenerator,
+}
+
+impl Default for MemStore {
+    fn default() -> Self {
+        Self::with_id_generator(determinism::random_ids())
+    }
 }
 
 impl MemStore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    async fn append_batch(
+        &self,
+        version_id: &str,
+        claims: Vec<NewClaim>,
+        expected_head: Option<Seq>,
+        findings: &[GateFinding],
+    ) -> Result<Vec<Claim>> {
+        if claims.is_empty() {
+            return Ok(Vec::new());
+        }
+        // One write lock spans the whole batch: all claims land or none does.
+        let mut s = self.state.write().await;
+        let head = s.head_of(version_id)?;
+        if let Some(expected) = expected_head {
+            if expected != head {
+                return Err(KernelError::HeadConflict {
+                    expected,
+                    actual: head,
+                });
+            }
+        }
+        // Validate every supersedes_id BEFORE the first mutation.
+        let existing: std::collections::HashSet<String> = s
+            .lineage_claims(version_id)?
+            .iter()
+            .map(|c| c.id.clone())
+            .collect();
+        for claim in &claims {
+            if let Some(sup) = &claim.supersedes_id {
+                if !existing.contains(sup) {
+                    return Err(KernelError::NotFound {
+                        kind: "claim",
+                        id: sup.clone(),
+                    });
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for (i, claim) in claims.into_iter().enumerate() {
+            let stored = Claim {
+                id: format!("claim-{}", (self.ids)()),
+                version_id: version_id.to_string(),
+                seq: head + 1 + i as Seq,
+                claim_type: claim.claim_type,
+                subject: claim.subject,
+                key: claim.key,
+                value: claim.value,
+                scope_path: claim.scope_path,
+                status: claim.status,
+                provenance: claim.provenance,
+                supersedes_id: claim.supersedes_id,
+                entity_id: claim.entity_id,
+                evidence: claim.evidence,
+                confidence: claim.confidence,
+                shape_ref: claim.shape_ref,
+                origin: claim.origin,
+            };
+            s.claims
+                .entry(version_id.to_string())
+                .or_default()
+                .push(stored.clone());
+            out.push(stored);
+        }
+        if let Some(last) = out.last() {
+            s.findings
+                .entry(version_id.into())
+                .or_default()
+                .extend(findings.iter().cloned().map(|finding| {
+                    munarium_core::storage::StoredFinding {
+                        seq: last.seq,
+                        finding,
+                    }
+                }));
+        }
+        Ok(out)
+    }
+
+    /// Inject identity generation; callers must supply unique IDs per store.
+    /// Timestamps already supplied by callers retain their existing semantics.
+    pub fn with_id_generator(ids: determinism::IdGenerator) -> Self {
+        Self {
+            state: RwLock::new(State::default()),
+            ids,
+        }
     }
 }
 
@@ -68,6 +176,9 @@ impl State {
                     id: v,
                 });
             }
+            munarium_core::governance::GovernancePolicy::from_stored_metadata(
+                self.version_meta.get(&v),
+            )?;
             chain.push(v.clone());
             cursor = self.versions.get(&v).cloned().flatten();
         }
@@ -123,7 +234,48 @@ impl StorageBackend for MemStore {
                 });
             }
         }
-        let id = format!("memv-{}", uuid::Uuid::new_v4().simple());
+        let assess = metadata
+            .as_ref()
+            .is_some_and(|m| m.get("governance_transition").is_some());
+        let parent_snapshot = parent_id
+            .map(|p| -> Result<MeshSnapshot> {
+                let mut anchors = BTreeMap::new();
+                for v in if assess { s.lineage_of(p)? } else { Vec::new() } {
+                    for a in s.anchors.get(&v).into_iter().flatten() {
+                        anchors.insert(a.detail_key.clone(), a.clone());
+                    }
+                }
+                Ok(MeshSnapshot {
+                    version_id: p.into(),
+                    as_of_seq: Some(s.head_of(p)?),
+                    facts: if assess {
+                        resolve_slice(s.lineage_claims(p)?, &FactQuery::default())
+                    } else {
+                        Vec::new()
+                    },
+                    anchors,
+                    ..Default::default()
+                })
+            })
+            .transpose()?;
+        let metadata = munarium_core::governance::prepare_version_metadata(
+            metadata,
+            parent_id.and_then(|p| s.version_meta.get(p)),
+            parent_snapshot.as_ref(),
+        )?;
+        let id = format!("memv-{}", (self.ids)());
+        if let Some(finding) = munarium_core::governance::policy_finding(&id, metadata.as_ref()) {
+            s.findings
+                .entry(id.clone())
+                .or_default()
+                .push(munarium_core::storage::StoredFinding {
+                    seq: parent_snapshot
+                        .as_ref()
+                        .and_then(|s| s.as_of_seq)
+                        .unwrap_or(0),
+                    finding,
+                });
+        }
         s.versions.insert(id.clone(), parent_id.map(String::from));
         if let Some(m) = metadata {
             s.version_meta.insert(id.clone(), m);
@@ -166,7 +318,7 @@ impl StorageBackend for MemStore {
             }
         }
         let stored = Claim {
-            id: format!("claim-{}", uuid::Uuid::new_v4().simple()),
+            id: format!("claim-{}", (self.ids)()),
             version_id: version_id.to_string(),
             seq: head + 1,
             claim_type: claim.claim_type,
@@ -196,63 +348,18 @@ impl StorageBackend for MemStore {
         claims: Vec<NewClaim>,
         expected_head: Option<Seq>,
     ) -> Result<Vec<Claim>> {
-        if claims.is_empty() {
-            return Ok(Vec::new());
-        }
-        // One write lock spans the whole batch: all claims land or none does.
-        let mut s = self.state.write().await;
-        let head = s.head_of(version_id)?;
-        if let Some(expected) = expected_head {
-            if expected != head {
-                return Err(KernelError::HeadConflict {
-                    expected,
-                    actual: head,
-                });
-            }
-        }
-        // Validate every supersedes_id BEFORE the first mutation.
-        let existing: std::collections::HashSet<String> = s
-            .lineage_claims(version_id)?
-            .iter()
-            .map(|c| c.id.clone())
-            .collect();
-        for claim in &claims {
-            if let Some(sup) = &claim.supersedes_id {
-                if !existing.contains(sup) {
-                    return Err(KernelError::NotFound {
-                        kind: "claim",
-                        id: sup.clone(),
-                    });
-                }
-            }
-        }
-        let mut out = Vec::new();
-        for (i, claim) in claims.into_iter().enumerate() {
-            let stored = Claim {
-                id: format!("claim-{}", uuid::Uuid::new_v4().simple()),
-                version_id: version_id.to_string(),
-                seq: head + 1 + i as Seq,
-                claim_type: claim.claim_type,
-                subject: claim.subject,
-                key: claim.key,
-                value: claim.value,
-                scope_path: claim.scope_path,
-                status: claim.status,
-                provenance: claim.provenance,
-                supersedes_id: claim.supersedes_id,
-                entity_id: claim.entity_id,
-                evidence: claim.evidence,
-                confidence: claim.confidence,
-                shape_ref: claim.shape_ref,
-                origin: claim.origin,
-            };
-            s.claims
-                .entry(version_id.to_string())
-                .or_default()
-                .push(stored.clone());
-            out.push(stored);
-        }
-        Ok(out)
+        self.append_batch(version_id, claims, expected_head, &[])
+            .await
+    }
+    async fn append_evaluated_claims(
+        &self,
+        version_id: &str,
+        claims: Vec<NewClaim>,
+        expected_head: Seq,
+        findings: &[GateFinding],
+    ) -> Result<Vec<Claim>> {
+        self.append_batch(version_id, claims, Some(expected_head), findings)
+            .await
     }
 
     async fn slice_facts(&self, version_id: &str, q: &FactQuery) -> Result<Vec<Claim>> {
@@ -262,11 +369,16 @@ impl StorageBackend for MemStore {
 
     async fn get_claim(&self, claim_id: &str) -> Result<Option<Claim>> {
         let s = self.state.read().await;
-        Ok(s.claims
+        let claim = s
+            .claims
             .values()
             .flatten()
             .find(|c| c.id == claim_id)
-            .cloned())
+            .cloned();
+        if let Some(c) = &claim {
+            s.lineage_of(&c.version_id)?;
+        }
+        Ok(claim)
     }
 
     async fn superseded_by(&self, claim_id: &str) -> Result<Option<String>> {
@@ -292,7 +404,7 @@ impl StorageBackend for MemStore {
         let mut s = self.state.write().await;
         let seq = s.head_of(version_id)? + 1;
         let anchor = Anchor {
-            id: format!("anchor-{}", uuid::Uuid::new_v4().simple()),
+            id: format!("anchor-{}", (self.ids)()),
             version_id: version_id.to_string(),
             detail_key: format!("{subject}.{key}"),
             locked_value: value.to_string(),
@@ -346,7 +458,7 @@ impl StorageBackend for MemStore {
         // other seq-stamped store, so registrations stay orderable under a pin.
         let seq = s.head_of(version_id)? + 1;
         let p = Promise {
-            id: format!("prom-{}", uuid::Uuid::new_v4().simple()),
+            id: format!("prom-{}", (self.ids)()),
             version_id: version_id.to_string(),
             key: key.to_string(),
             kind: kind.to_string(),
@@ -456,7 +568,10 @@ impl StorageBackend for MemStore {
                     }
                 }
                 let entry = agg.entry(r.key.clone()).or_insert((0, None));
-                entry.0 += r.count;
+                entry.0 = entry
+                    .0
+                    .checked_add(r.count)
+                    .ok_or_else(|| KernelError::Storage("counter total exceeds u64".into()))?;
                 entry.1 = match (entry.1, r.budget) {
                     (Some(a), Some(b)) => Some(a.max(b)),
                     (a, b) => a.or(b),
@@ -558,6 +673,58 @@ mod tests {
         let store = MemStore::new();
         let v = store.create_version(None, None).await.unwrap();
         (store, v)
+    }
+
+    #[tokio::test]
+    async fn counter_totals_preserve_exact_boundaries_and_pins() {
+        for total in [
+            (1u64 << 53) - 1,
+            1u64 << 53,
+            (1u64 << 53) + 1,
+            i64::MAX as u64,
+            u64::MAX,
+        ] {
+            let (store, version) = store_with_version().await;
+            store
+                .record_counts(&version, "fixture", "first", total - 1, None)
+                .await
+                .unwrap();
+            store
+                .record_counts(&version, "fixture", "second", 1, None)
+                .await
+                .unwrap();
+            assert_eq!(
+                store.counter_totals(&version, Some(1)).await.unwrap()[0].total,
+                total - 1
+            );
+            assert_eq!(
+                store.counter_totals(&version, None).await.unwrap()[0].total,
+                total
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn counter_totals_reject_overflow_across_scopes() {
+        let (store, version) = store_with_version().await;
+        store
+            .record_counts(&version, "fixture", "first", u64::MAX, None)
+            .await
+            .unwrap();
+        store
+            .record_counts(&version, "fixture", "second", 1, None)
+            .await
+            .unwrap();
+        assert!(matches!(
+            store.counter_totals(&version, None).await,
+            Err(KernelError::Storage(_))
+        ));
+        // The failure is a read failure, not permission to corrupt the ledger.
+        assert_eq!(
+            store.counter_totals(&version, Some(1)).await.unwrap()[0].total,
+            u64::MAX
+        );
+        assert_eq!(store.head(&version).await.unwrap(), 2);
     }
 
     #[tokio::test]

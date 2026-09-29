@@ -165,24 +165,10 @@ impl ShardWriter {
         // The lexical index. Written here rather than left implied: a manifest
         // that names a lexical engine while carrying no lexical files describes
         // an artifact that cannot answer a lexical query, and every checksum
-        // would still pass.
-        //
-        // A binary without the engine compiled in REFUSES to seal rather than
-        // producing that artifact. Silently omitting the component would let a
-        // reduced build publish something a full build would later open and
-        // find hollow.
-        #[cfg(feature = "lexical-tantivy")]
-        {
-            let bytes = crate::lexical::build(&self.records)?;
-            put(LEXICAL_INDEX, ComponentPurpose::Lexical, &bytes, true)?;
-        }
-        #[cfg(not(feature = "lexical-tantivy"))]
-        {
-            return Err(Error::Unsupported(format!(
-                "this build has no lexical engine compiled in, but the plan names {:?}; sealing would produce an artifact that claims an engine it does not carry",
-                plan.lexical.engine_id
-            )));
-        }
+        // would still pass. A build without the engine refuses here; see
+        // `lexical_component`.
+        let lexical = lexical_component(&self.records, plan)?;
+        put(LEXICAL_INDEX, ComponentPurpose::Lexical, &lexical, true)?;
 
         let mut engines = vec![EngineRef {
             role: EngineRole::Records,
@@ -578,6 +564,16 @@ impl OpenShard {
         plan: &crate::lexical::LexicalPlan,
         limit: usize,
     ) -> Result<Vec<Candidate>, Error> {
+        Ok(self.lexical_candidates_diagnosed(plan, limit)?.candidates)
+    }
+
+    /// Same selection and demotion policy, with observable candidate counts.
+    #[cfg(feature = "lexical-tantivy")]
+    pub fn lexical_candidates_diagnosed(
+        &self,
+        plan: &crate::lexical::LexicalPlan,
+        limit: usize,
+    ) -> Result<crate::diagnostics::CandidateBatch, Error> {
         use crate::lexical::LexicalIndex as _;
         let Some(ix) = self.lexical.as_ref() else {
             return Err(Error::Unsupported(
@@ -612,8 +608,15 @@ impl OpenShard {
                     .then_with(|| a.chunk_id.cmp(&b.chunk_id))
             });
         }
+        let fetched = candidates.len();
         candidates.truncate(limit);
-        Ok(candidates)
+        let mut diagnostics =
+            crate::diagnostics::CandidateDiagnostics::returned(limit, fetched, candidates.len());
+        diagnostics.candidate_limit = fetch;
+        Ok(crate::diagnostics::CandidateBatch {
+            candidates,
+            diagnostics,
+        })
     }
 
     /// Analyze text through this artifact's OWN lexical analyzer.
@@ -653,8 +656,21 @@ impl OpenShard {
         embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<Candidate>, Error> {
+        Ok(self
+            .vector_candidates_diagnosed(embedding, limit)?
+            .candidates)
+    }
+
+    pub fn vector_candidates_diagnosed(
+        &self,
+        embedding: &[f32],
+        limit: usize,
+    ) -> Result<crate::diagnostics::CandidateBatch, Error> {
         match &self.vectors {
-            None => Ok(Vec::new()),
+            None => Ok(crate::diagnostics::CandidateBatch {
+                candidates: Vec::new(),
+                diagnostics: crate::diagnostics::CandidateDiagnostics::returned(limit, 0, 0),
+            }),
             Some(ix) => {
                 // Stored vectors are refused non-finite at `push`; the query
                 // gets the same rule here, once, whatever engine answers it.
@@ -667,7 +683,7 @@ impl OpenShard {
                         "query embedding holds a non-finite value".into(),
                     ));
                 }
-                ix.vector_candidates(embedding, limit)
+                ix.vector_candidates_diagnosed(embedding, limit)
             }
         }
     }
@@ -692,4 +708,24 @@ impl OpenShard {
         hits.truncate(top_k);
         Ok(hits)
     }
+}
+
+/// The lexical component for a seal.
+///
+/// A binary without the engine compiled in REFUSES to seal rather than
+/// producing an artifact whose manifest names an engine it does not carry.
+/// Silently omitting the component would let a reduced build publish something
+/// a full build would later open and find hollow. The refusal is a function so
+/// that, in such a build, the rest of `seal` is not unreachable code.
+#[cfg(feature = "lexical-tantivy")]
+fn lexical_component(records: &[ChunkRecord], _plan: &ArtifactBuildPlan) -> Result<Vec<u8>, Error> {
+    crate::lexical::build(records)
+}
+
+#[cfg(not(feature = "lexical-tantivy"))]
+fn lexical_component(_records: &[ChunkRecord], plan: &ArtifactBuildPlan) -> Result<Vec<u8>, Error> {
+    Err(Error::Unsupported(format!(
+        "this build has no lexical engine compiled in, but the plan names {:?}; sealing would produce an artifact that claims an engine it does not carry",
+        plan.lexical.engine_id
+    )))
 }

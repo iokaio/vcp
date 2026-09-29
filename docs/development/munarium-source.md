@@ -1,7 +1,8 @@
 # Committed Munarium libraries in the shared workspace
 
-P0-07 imports 70 files from `iokaio/munarium` revision
-`8da666067000ca1ee9c131bc67e70b978862faa3` under `src/third_party/munarium/`.
+SP-02 refreshes the P0-07 selection to 80 files from `iokaio/munarium` revision
+`2c40480fdc2378e66dc23acdfaf82b529b9d22ee` (Server 1.3.0) under
+`src/third_party/munarium/`.
 The selection contains `munarium-core`, `munarium-store-mem`,
 `munarium-datastore`, their retained tests/fixtures, datastore contract inputs,
 the matrix contract VERSION, baseline Cargo/toolchain files and original
@@ -10,20 +11,35 @@ LICENSE/NOTICE. Server, PostgreSQL, provider and client packages are excluded.
 [The selection](../../src/third_party/components/munarium-selection.json),
 [file inventory](../../src/third_party/components/munarium-files.json) and
 [ordered patch](../../src/third_party/patches/munarium/README.md) bind original
-and resulting bytes. All Rust implementation and test bodies remain unchanged.
+and resulting bytes. Rust implementation and test bodies match the selected
+upstream revision.
 The patch changes the three library manifests to point at the existing
 `src/third_party/codex/codex-rs/Cargo.toml` workspace, with explicit original
 Munarium version/edition/license and dependency requirements/features. This
 prevents accidental inheritance of Codex's package identity or feature choices.
 
+The [SP-02 refresh report](../evaluations/sp-02-munarium-refresh.md) records
+the current checks. The refresh brings bounds-checked artifact parsers,
+poison-safe cache/source handling, deterministic reference-store dependencies,
+and retrieval diagnostics into the existing library boundary. It preserves
+VCP's gate calls, permissions, canonical storage and accounting ownership.
+The new governance profiles are available upstream APIs; VCP does not opt into
+them or turn ordinary skill authoring into a governed-memory claim.
+
+Upstream now [supports the datastore as an embedded library](https://github.com/iokaio/munarium/blob/2c40480fdc2378e66dc23acdfaf82b529b9d22ee/server/docs/embedded-support.md)
+with a declared Rust 1.92 minimum. Core and store-mem remain internal upstream
+APIs consumed at this immutable pin. VCP retains its existing component compiler
+and locked dependency versions; this refresh is not a toolchain migration.
+
 ## One workspace and component qualification commands
 
 The Codex workspace and lockfile are authoritative for both selections. The
 retained Munarium `server/Cargo.toml` and `Cargo.lock` are upstream provenance
-inputs; do not run them as VCP build entry points. Cargo and the static boundary
-checker now discover 159 workspace packages: the original 154, three Munarium
-libraries, the separately owned [CPU embedding helper](local-embeddings.md) and
-[local corpus qualification executable](local-memory-spike.md).
+inputs; do not run them as VCP build entry points. The three libraries share that
+workspace with Codex, VCP's production crates, the separately owned
+[CPU embedding helper](local-embeddings.md) and
+[local corpus qualification executable](local-memory-spike.md). The static
+boundary check in the refresh report records the current package inventory.
 The checker accepts outside-workspace paths only beneath explicitly selected
 component roots and rejects lexical and link escapes.
 

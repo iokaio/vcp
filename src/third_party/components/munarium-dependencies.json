@@ -5,7 +5,7 @@
   "features": [
     "munarium-datastore/vector-diskann"
   ],
-  "workspace_lock_sha256": "0311a5464f4611d0b0f4cace839674560f5d113789fb205b43a90d7d20ad02fd",
+  "workspace_lock_sha256": "23e4d46fa15efaf2921b3aa425950003f617ac38000fc9a1c881884978ab14e3",
   "scope": "Selected normal/build graph; license declarations read from provisioned package manifests, not a release notice bundle.",
   "packages": [
     {
@@ -472,19 +472,19 @@
     },
     {
       "name": "munarium-core",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "source": "src/third_party/munarium/server/src/munarium-core",
       "license": "Apache-2.0"
     },
     {
       "name": "munarium-datastore",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "source": "src/third_party/munarium/server/src/munarium-datastore",
       "license": "Apache-2.0"
     },
     {
       "name": "munarium-store-mem",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "source": "src/third_party/munarium/server/src/munarium-store-mem",
       "license": "Apache-2.0"
     },
