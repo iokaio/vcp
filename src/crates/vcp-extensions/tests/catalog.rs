@@ -4,8 +4,20 @@ use vcp_extensions::catalog;
 #[test]
 fn embedded_inventory_is_closed_versioned_metadata_for_all_families() {
     let manifest = catalog::embedded().unwrap();
-    assert_eq!(manifest.skills.len(), 21);
-    assert_eq!(manifest.version, "1.2.0");
+    let source =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../skills/builtin/catalog.json");
+    let authored: catalog::Manifest =
+        serde_json::from_slice(&std::fs::read(source).unwrap()).unwrap();
+    assert_eq!(
+        manifest, authored,
+        "embedded inventory/version must match the complete authored catalog"
+    );
+    let mut invalid = manifest.clone();
+    invalid.skills.clear();
+    assert!(invalid.validate().is_err());
+    let mut invalid = manifest.clone();
+    invalid.version.clear();
+    assert!(invalid.validate().is_err());
     let mut invalid = manifest.clone();
     invalid.skills[1] = invalid.skills[0].clone();
     assert!(invalid.validate().is_err());
@@ -67,7 +79,8 @@ mod native {
         };
         (root, registry)
     }
-    // Candidate packages require an explicit source; they are not distributed builtins.
+    // These historical candidate bytes require an explicit external source,
+    // independently of any later promoted builtin with the same skill ID.
     fn staged_authoring_candidates(path: &Path) -> SourceRegistry {
         for id in ["document-authoring", "skill-authoring"] {
             let source = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -116,7 +129,10 @@ mod native {
         let (root, registry) = staged(temp.path(), false);
         let verified = catalog::verify(&root).unwrap();
         assert_eq!(verified.reads.metadata_files, 2);
-        assert_eq!(verified.reads.descriptors, 21);
+        assert_eq!(
+            verified.reads.descriptors,
+            verified.manifest.skills.len() as u64
+        );
         assert!(verified.reads.metadata_bytes > 0 && verified.reads.descriptor_bytes > 0);
         let discovered = discovery::discover(&registry, &Default::default()).unwrap();
         catalog::verify_discovery(&verified, &discovered).unwrap();
@@ -124,7 +140,7 @@ mod native {
         assert_eq!(discovered.reads.resources, 0);
         assert_eq!(
             catalog::revalidate(&root, &verified).unwrap().revalidations,
-            23
+            verified.manifest.skills.len() as u64 + 2
         );
         assert!(activation::activate(
             &registry,
@@ -162,6 +178,36 @@ mod native {
         let discovered = discovery::discover(&registry, &Default::default()).unwrap();
         assert!(catalog::verify_discovery(&verified, &discovered).is_err());
     }
+    #[test]
+    fn every_shipped_package_activates_with_its_declared_resources_and_can_be_revoked() {
+        let temp = tempfile::tempdir().unwrap();
+        let (_, registry) = staged(temp.path(), true);
+        let discovered = discovery::discover(&registry, &Default::default()).unwrap();
+        let manifest = catalog::embedded().unwrap();
+        for entry in &manifest.skills {
+            let qualified = format!("vcp-builtin::{}::{}", entry.id, entry.id);
+            let active = activation::activate(
+                &registry,
+                &discovered,
+                &qualified,
+                &context(),
+                "explicit package smoke request",
+                &Default::default(),
+            )
+            .unwrap_or_else(|error| panic!("{}: {error}", entry.id));
+            assert_eq!(active.qualified_id, qualified);
+            assert_eq!(active.source_id, "vcp-builtin");
+            assert_eq!(active.body.version.sha256, entry.body.sha256);
+            assert_eq!(active.resources.len(), entry.resources.len());
+            for (resource, expected) in active.resources.iter().zip(&entry.resources) {
+                assert_eq!(resource.version.sha256, expected.sha256);
+            }
+            let mut revoked = registry.clone();
+            revoked.disabled.insert(qualified);
+            assert!(activation::revalidate(&revoked, &active).is_err());
+        }
+    }
+
     #[test]
     fn shipped_activation_preserves_body_hashes_and_disabled_semantics() {
         let temp = tempfile::tempdir().unwrap();
@@ -218,7 +264,15 @@ mod native {
         let (_, defaults) = staged(builtin.path(), true);
         let defaults = discovery::discover(&defaults, &Default::default()).unwrap();
         for id in ["document-authoring", "skill-authoring"] {
-            assert!(defaults.resolve(id, &context()).is_err());
+            let embedded = catalog::embedded().unwrap();
+            if embedded.skills.iter().any(|entry| entry.id == id) {
+                assert_eq!(
+                    defaults.resolve(id, &context()).unwrap().qualified_id,
+                    format!("vcp-builtin::{id}::{id}")
+                );
+            } else {
+                assert!(defaults.resolve(id, &context()).is_err());
+            }
         }
         let registry = staged_authoring_candidates(temp.path());
         let discovered = discovery::discover(&registry, &Default::default()).unwrap();
@@ -230,17 +284,20 @@ mod native {
             "package.json".into(),
         ]);
         for id in ["document-authoring", "skill-authoring"] {
-            let selected = discovered.resolve(id, &ctx).unwrap();
+            let qualified = format!("authoring-candidates::{id}::{id}");
+            let selected = discovered.resolve(&qualified, &ctx).unwrap();
             assert!(!selected.matches(&ctx), "incidental suggestion: {id}");
             let active = activation::activate(
                 &registry,
                 &discovered,
-                id,
+                &qualified,
                 &ctx,
                 "explicit authoring request",
                 &Default::default(),
             )
             .unwrap();
+            assert_eq!(active.qualified_id, qualified);
+            assert_eq!(active.source_id, "authoring-candidates");
             assert_eq!(active.body.version.sha256, selected.descriptor.body.sha256);
             assert_eq!(active.reads.bodies, 1);
             assert_eq!(active.resources.len(), usize::from(id == "skill-authoring"));

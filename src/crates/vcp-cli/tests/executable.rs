@@ -6,10 +6,10 @@ mod authoring_directories;
 mod authoring_followup;
 #[path = "support/canonical_tool_ceiling.rs"]
 mod canonical_tool_ceiling;
-#[path = "support/developer_feasibility.rs"]
-mod developer_feasibility;
 #[path = "support/child_output_owner.rs"]
 mod child_output_owner;
+#[path = "support/developer_feasibility.rs"]
+mod developer_feasibility;
 #[path = "support/history_notice.rs"]
 mod history_notice;
 #[path = "support/hooks.rs"]
@@ -423,7 +423,14 @@ async fn executable_authoring_report_only_profiles_complete_without_workspace_ed
             .await;
         let mut fixture = Fixture::new(&server.uri(), "complete");
         let builtin = fixture.package(true);
-        assert!(!builtin.join(skill).exists());
+        assert_eq!(
+            builtin.join(skill).exists(),
+            vcp_extensions::catalog::embedded()
+                .unwrap()
+                .skills
+                .iter()
+                .any(|entry| entry.id == skill)
+        );
         let collection = tempfile::tempdir().unwrap();
         let package = collection.path().join(skill);
         fs::create_dir(&package).unwrap();
@@ -2208,7 +2215,10 @@ async fn executable_packaged_skills_are_relocatable_lazy_and_integrity_checked()
     );
     let values = records(&output);
     let data = &values.last().unwrap()["data"];
-    assert_eq!(data["total_skills"], 21);
+    assert_eq!(
+        data["total_skills"],
+        vcp_extensions::catalog::embedded().unwrap().skills.len()
+    );
     assert_eq!(data["reads"]["bodies"], 0);
     assert_eq!(data["reads"]["resources"], 0);
     assert!(!data["integrity"].is_null());
@@ -2413,7 +2423,10 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
         let values = records(&inspected);
         let data = &values.last().unwrap()["data"];
         assert_eq!(data["reads"]["bodies"], 0);
-        assert_eq!(data["total_skills"], 22);
+        assert_eq!(
+            data["total_skills"],
+            vcp_extensions::catalog::embedded().unwrap().skills.len() + 1
+        );
         assert!(!data["integrity"].is_null());
         assert!(data["configuration"]
             .as_str()
