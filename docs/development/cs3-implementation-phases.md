@@ -135,8 +135,11 @@ Independent review must check correctness, preservation, authority, secrets and
 evidence honesty as well as benefit over both baselines on a normal task.
 
 Use the exact source/fixture/model/provider/toolchain proposal and dollar/call
-ceilings recorded in the readiness ledger before paid dispatch. Prior allocations
-cannot be replayed, reassigned or transferred. The USD 100 outer authorization is
+ceilings recorded in the readiness ledger before paid dispatch. Consumed claims
+cannot be replayed or reassigned. Subsequent owner-authorized continuation
+decisions allow only proven-unused reservations to transfer after permanent
+old-dispatch retirement and exact before/after evidence; see the
+[fixed Friendli transfer](cs3-friendli-transfer.md). The USD 100 outer authorization is
 not an unbounded paid evaluation allowance. A failed or tied comparison stays
 failed or unqualified; do not promise that implementation guarantees a positive
 result.

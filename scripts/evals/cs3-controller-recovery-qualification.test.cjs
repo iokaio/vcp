@@ -21,17 +21,21 @@ function fixture(t) {
     put(path.join(root, 'src/tests/support/windows/webapp', name), (pins.allowed_native_source_changes.includes(name) ? 'corrected:' : 'historical:') + name);
   }
   put(path.join(root, 'scripts/skills/builtin-assets.cjs'), '// synthetic dependency');
+  for (const target of [root, old]) put(path.join(target, 'scripts/evals/fixtures/webapp/manifest.json'), { synthetic_frozen_web: true });
   put(path.join(root, 'scripts/evals/cs3-controller-recovery-qualification.cjs'), fs.readFileSync(helperFile));
   // These synthetic historical modules are not qualification evidence. The VM
   // substitutes only the archive digest/identity pins and strict native graders;
   // real module dependency authentication and read-only review invocation run.
-  put(path.join(old, 'scripts/evals/cs3-comparison.cjs'), "module.exports={controlDirectory:p=>p.control_directory};");
+  put(path.join(old, 'scripts/evals/cs3-comparison.cjs'), "module.exports={controlDirectory:p=>p.control_directory,arms:['none','nearest','candidate'],prompt:t=>t.request+'\\nexact synthetic suffix\\n'};");
   put(path.join(old, 'scripts/evals/historical-dependency.cjs'), 'module.exports={authenticated:true};');
   put(path.join(old, 'scripts/evals/cs3-comparison-review.cjs'), `const fs=require('node:fs'),path=require('node:path');require('./historical-dependency.cjs');
 module.exports={validateDisposition:(file,hash,skill)=>JSON.parse(fs.readFileSync(path.join(JSON.parse(fs.readFileSync(file)).control_directory,'disposition-'+skill+'.json'))),
 validateTerminalDisposition:file=>JSON.parse(fs.readFileSync(path.join(JSON.parse(fs.readFileSync(file)).control_directory,'terminal-disposition-skill-authoring.json'))),
 block:file=>({result:JSON.parse(fs.readFileSync(file)).test_result})};`);
-  put(path.join(old, 'scripts/evals/cs3-document-remediation.cjs'), 'module.exports={priorTerminal:(ref,decision)=>({audit_sha256:ref.sha256,synthetic:true})};');
+  put(path.join(old, 'scripts/evals/cs3-document-remediation.cjs'), `module.exports={priorTerminal:(ref,decision)=>({audit_sha256:ref.sha256,synthetic:true}),
+tasks:()=>Array.from({length:6},(_,i)=>({id:'DOC-test-'+i,skill:'document-authoring',request:'Exact task '+i,nearest:['writing'],files:{'source.txt':'preserved '+i}})),
+candidateRegistry:{inspect:()=>({entries:[{id:'document-authoring',version:'1.0.5'}]}),qualified:id=>'synthetic-doc::'+id},claimFile:()=>require('node:path').join(__dirname,'synthetic-doc-claim.json')};`);
+  put(path.join(old, 'scripts/evals/cs3-runtime-amendment.cjs'), `const fs=require('node:fs'),path=require('node:path');module.exports={load:p=>JSON.parse(fs.readFileSync(p.isolated.manifest.path)),tasks:s=>s.test_tasks,project:(m,r,s)=>{if(m.test_add_transition)fs.writeFileSync(path.join(m.directory,'transitions','1.json'),JSON.stringify(m.test_add_transition));return m.test_groups[s];}};`);
   put(path.join(old, 'src/evals/skills/cs3-document-remediation/decision.json'), { synthetic: true });
   fs.cpSync(old, archive, { recursive: true });
   const scope = ['scripts', 'src/tests/support/windows/webapp', 'src/evals/skills/cs3-document-remediation'];
@@ -133,6 +137,31 @@ module.exports={...old,validateDisposition:(file,hash,skill)=>{const plan=JSON.p
   const input = { historical_archive: f.input.archive, skill_archive: archiveRef, plans: [{ skill: 'skill-authoring', plan: skillPlan }, ...f.input.plans.slice(1)] };
   return { ...f, future, futureArchive: archive, mixedInput: input, newPlan: plan, skillPlan, frozenDecision };
 }
+function freshFixture(t) {
+  const f = mixedFixture(t), oldRow = f.input.plans[0], oldPlan = JSON.parse(f.bound(oldRow.plan));
+  oldPlan.runtime_amendment = { synthetic: true }; oldRow.plan = f.put(oldRow.plan.path, oldPlan);
+  const oldDisposition = f.put(path.join(oldPlan.control_directory, 'disposition-skill-authoring.json'), { status: 'unqualified' });
+  const history = f.put(path.join(f.directory, 'old-skl-history.json'), { archive: f.input.archive,
+    retirement: { path: path.join(f.directory, 'retirement.json'), sha256: '729cd66e7d190349960fbe5fc9d7adfac5dd431ca6310a632101691455929fb7' }, terminal_plan: oldRow.plan, terminal_disposition: oldDisposition });
+  const shared = { history, allocation: { sha256: '4'.repeat(64) }, qualification: { sha256: '5'.repeat(64) }, runtime_preflight: { sha256: '6'.repeat(64) } };
+  const plans = f.mixedInput.plans.map((row, index) => {
+    const plan = JSON.parse(f.bound(row.plan));
+    if (index === 0) {
+      const base = path.join(f.directory, 'new-skl-evidence'); fs.cpSync(plan.directory, base, { recursive: true });
+      plan.directory = base; plan.control_directory = path.join(base, 'control');
+      f.put(path.join(plan.control_directory, 'disposition-skill-authoring.json'), { status: 'qualified', candidate_hard_gates: true, independent_blind_readers: 2, common_normal_wins: ['normal'], review_directory: path.join(base, 'review') });
+    } else {
+      plan.schema = 'cs3-friendli-transfer-plan/1'; plan.friendli_transfer = { skill: row.skill, manifest: { sha256: '7'.repeat(64) } };
+      plan.candidate_assets = { entries: [{ id: row.skill, version: row.skill === 'document-authoring' ? '1.0.5' : '1.0.1' }] };
+      f.pins.friendli_transfer_candidate_inventory_sha256[row.skill] = sha(JSON.stringify(plan.candidate_assets));
+    }
+    plan.source = f.newPlan.source; plan.spec.build_receipt.sha256 = f.pins.skill_remediation_lineage.build_receipt_sha256;
+    plan.spec.gates.ui_qualification.sha256 = f.pins.new_ui_matrix_sha256; plan.spec.gates.web_oracles.sha256 = f.pins.new_web_sha256;
+    plan.spec.skill_remediation = shared;
+    return { skill: row.skill, plan: f.put(path.join(f.directory, 'fresh-' + row.skill + '-plan.json'), plan) };
+  });
+  return { ...f, freshInput: { ...f.mixedInput, plans }, shared };
+}
 test('missing decision pins fail closed and legacy UI gate retains its original decision', t => {
   const helper = actual('./cs3-controller-recovery-qualification.cjs'), file = path.join(__dirname, '../../src/evals/skills/cs3-controller-recovery/qualification-decision.json');
   const production = () => helper.decision({ path: file, sha256: sha(fs.readFileSync(file)) });
@@ -222,6 +251,45 @@ test('native-only prerequisite projection retains exact lifecycle gates without 
   f.pins.new_cancel_sha256 = spec.cancel.receipt.sha256; spec.decision = f.saveDecision(); assert.throws(() => f.helper.nativePrerequisites(spec), /Cut token/);
 });
 
+test('Friendli retirement projection retains literal old tasks and DOC arm order without replay or summary trust', t => {
+  const f = fixture(t), selected = f.input.plans[0], terminal = JSON.parse(f.bound(selected.plan)), groups = f.input.plans.slice(1, 5);
+  const tasks = groups.flatMap(group => Array.from({ length: 6 }, (_, i) => ({ id: group.skill + '-task-' + i, skill: group.skill, request: 'Literal old ' + i, files: { 'input.txt': 'literal\r\nbytes\n' } })));
+  const plans = Object.fromEntries(groups.map(group => {
+    const plan = JSON.parse(f.bound(group.plan)); plan.runs.forEach((run, i) => { run.case_id = group.skill + '-task-' + Math.floor(i / 3); });
+    group.plan = f.put(path.join(plan.control_directory, 'plan.json'), plan); return [group.skill, plan];
+  }));
+  const sharedRoot = path.join(f.directory, 'runtime'); fs.mkdirSync(path.join(sharedRoot, 'transitions'), { recursive: true });
+  const owner = { skill: 'skill-authoring', plan_sha256: selected.plan.sha256, manifest_sha256: 'b'.repeat(64) };
+  f.put(path.join(sharedRoot, 'transitions/0.json'), { manifest_sha256: owner.manifest_sha256, ordinal: 0, from: null, to: owner });
+  f.put(path.join(sharedRoot, 'active-skill.json'), owner);
+  const manifest = { directory: sharedRoot, base: { source: terminal.source }, spec: { ...terminal.spec, remediation: { allocation: { path: 'synthetic', sha256: 'a'.repeat(64) } }, test_tasks: tasks }, test_groups: plans };
+  const manifestRef = f.put(path.join(sharedRoot, 'manifest.json'), manifest);
+  terminal.runtime_amendment = { synthetic: true }; terminal.isolated = { manifest: manifestRef }; selected.plan = f.put(selected.plan.path, terminal);
+  const history = { archive: f.input.archive, retirement: { path: path.join(f.directory, 'retirement.json'), sha256: '729cd66e7d190349960fbe5fc9d7adfac5dd431ca6310a632101691455929fb7' }, terminal_plan: selected.plan,
+    terminal_disposition: f.put(path.join(terminal.control_directory, 'disposition-skill-authoring.json'), { status: 'unqualified' }) };
+  const decision = f.saveDecision(), input = { history, manifest: manifestRef };
+  const result = f.helper.friendliRetirementPrerequisites(input, decision);
+  assert.deepEqual(result.shared_controls.inventory.files.map(row => row.path).sort(), ['active-skill.json', 'manifest.json', 'transitions/0.json']);
+  assert.deepEqual(result.groups.map(group => group.skill), groups.map(group => group.skill));
+  assert.equal(result.groups[3].tasks[0].files['input.txt'], 'literal\r\nbytes\n');
+  assert.equal(result.document.runs.length, 18); assert.deepEqual(result.document.runs.slice(3, 6).map(run => run.arm), ['nearest', 'candidate', 'none']);
+  assert.equal(result.document.runs[0].prompt, 'Exact task 0\nexact synthetic suffix\n');
+  assert.equal(result.document.tasks[0].files['source.txt'], 'preserved 0'); assert.equal(fs.existsSync(result.document.claim_path), false);
+  const localHalt = path.join(plans['frontend-design'].control_directory, 'halt.json'); f.put(localHalt, { terminal: 'retired_undispatched' });
+  assert.deepEqual(f.helper.friendliRetirementPrerequisites(input, decision), result, 'Group-local barriers do not invent a global halt or change inputs');
+  const foreign = f.put(path.join(f.directory, 'foreign-manifest.json'), manifest);
+  assert.throws(() => f.helper.friendliRetirementPrerequisites({ ...input, manifest: foreign }, decision), /shared runtime manifest location/);
+  f.put(groups[0].plan.path, { ...plans['frontend-design'], runs: [] });
+  assert.throws(() => f.helper.friendliRetirementPrerequisites(input, decision), /Retained transfer plan/);
+  f.put(groups[0].plan.path, plans['frontend-design']);
+  // Even a structurally valid transition cannot be silently appended while
+  // projecting a previously authenticated terminal owner's evidence.
+  manifest.test_add_transition = { manifest_sha256: owner.manifest_sha256, ordinal: 1, from: owner, to: { ...owner, skill: 'frontend-design' } };
+  input.manifest = f.put(manifestRef.path, manifest); terminal.isolated.manifest = input.manifest;
+  history.terminal_plan = f.put(selected.plan.path, terminal);
+  assert.throws(() => f.helper.friendliRetirementPrerequisites(input, decision), /Shared runtime control evidence changed/);
+});
+
 test('mixed final proof authenticates five old reviews and one new SKL without a pin cycle', t => {
   const f = mixedFixture(t), before = fs.readFileSync(path.join(f.future, 'src/evals/skills/cs3-controller-recovery/qualification-decision.json'));
   const proof = f.helper.mixedHistoricalProjection(f.mixedInput, f.saveDecision());
@@ -251,4 +319,37 @@ test('a new-lineage reviewer cannot mutate earlier old evidence during the mixed
   f.newPlan.test_mutate = path.join(oldUi.directory, oldUi.runs[0].id, 'result.json');
   f.mixedInput.plans[0].plan = f.put(f.skillPlan.path, f.newPlan);
   assert.throws(() => f.helper.mixedHistoricalProjection(f.mixedInput, f.saveDecision()), /Mixed-lineage evidence changed/);
+});
+
+test('all-fresh final join authenticates six new reviews, original failure and unchanged frozen WEB bytes', t => {
+  const f = freshFixture(t), proof = f.helper.freshHistoricalProjection(f.freshInput, f.saveDecision());
+  assert.equal(proof.dispositions.length, 6); assert.equal(proof.historical.status, 'unqualified'); assert.equal(proof.ui_outputs.length, 6);
+  assert.equal(proof.shared_prerequisites.qualification.sha256, f.shared.qualification.sha256);
+  const ref = f.put(path.join(f.directory, 'fresh-proof.json'), proof); f.pins.historical_comparison_proof_sha256 = ref.sha256;
+  f.spec.historical_proof = ref; f.spec.decision = f.saveDecision(); assert.equal(f.helper.validate(f.spec).six_skills_qualified, true);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.future, 'src/evals/skills/cs3-controller-recovery/qualification-decision.json'))).skill_remediation_lineage.source_sha256, null);
+});
+
+test('all-fresh consumers cannot substitute qualification, old plans, roles, candidate pins or WEB inputs', t => {
+  const f = freshFixture(t), decision = f.saveDecision(), row = f.freshInput.plans[1], original = JSON.parse(f.bound(row.plan));
+  for (const field of ['qualification', 'runtime_preflight', 'allocation', 'history']) {
+    const changed = structuredClone(original); changed.spec.skill_remediation[field] = { sha256: 'f'.repeat(64) };
+    row.plan = f.put(row.plan.path, changed); assert.throws(() => f.helper.freshHistoricalProjection(f.freshInput, decision), /share exact funded/);
+  }
+  row.plan = f.put(row.plan.path, original); const changed = structuredClone(original); changed.friendli_transfer.skill = 'mcp-development';
+  row.plan = f.put(row.plan.path, changed); assert.throws(() => f.helper.freshHistoricalProjection(f.freshInput, decision), /fixed Friendli transfer/);
+  row.plan = f.put(row.plan.path, original); f.pins.friendli_transfer_candidate_inventory_sha256['frontend-design'] = null;
+  assert.throws(() => f.helper.freshHistoricalProjection(f.freshInput, f.saveDecision()), /candidate inventory pin/);
+  f.pins.friendli_transfer_candidate_inventory_sha256['frontend-design'] = sha(JSON.stringify(original.candidate_assets));
+  const currentWeb = path.join(f.root, 'scripts/evals/fixtures/webapp/manifest.json'); f.put(currentWeb, { substituted: true });
+  assert.throws(() => f.helper.freshHistoricalProjection(f.freshInput, f.saveDecision()), /WEB inputs changed/);
+});
+
+test('all-fresh qualification fails for a failed new disposition or predecessor mutation', t => {
+  const f = freshFixture(t), row = f.freshInput.plans[5], plan = JSON.parse(f.bound(row.plan)), file = path.join(plan.control_directory, 'disposition-document-authoring.json');
+  const original = fs.readFileSync(file); f.put(file, { ...JSON.parse(original), status: 'unqualified' });
+  assert.throws(() => f.helper.freshHistoricalProjection(f.freshInput, f.saveDecision()), /genuinely qualify/); f.put(file, original);
+  const history = JSON.parse(f.bound(f.shared.history)), terminal = JSON.parse(f.bound(history.terminal_plan));
+  plan.test_mutate = path.join(terminal.directory, terminal.runs[0].id, 'result.json'); row.plan = f.put(row.plan.path, plan);
+  assert.throws(() => f.helper.freshHistoricalProjection(f.freshInput, f.saveDecision()), /predecessor evidence changed/);
 });

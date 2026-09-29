@@ -12,6 +12,8 @@
       "cs3-runtime-amendment",
       "cs3-skill-remediation",
       "cs3-skill-remediation-host",
+      "cs3-friendli-transfer",
+      "cs3-friendli-transfer-host",
       "experiments",
       "upstream-inventory",
       "upstream-source",
@@ -53,7 +55,7 @@
       "args": ["--test", "src/tests/contracts/webapp-candidate.test.cjs", "src/tests/contracts/webapp-server.test.cjs", "src/tests/contracts/webapp-fixtures.test.cjs", "src/tests/contracts/webapp-execution.test.cjs", "scripts/evals/cs3-comparison.test.cjs", "scripts/evals/cs3-comparison-gates.test.cjs", "scripts/evals/cs3-controller-recovery-qualification.test.cjs", "scripts/evals/cs3-ui-artifact.test.cjs", "scripts/evals/cs3-retained-ui-import.test.cjs", "scripts/evals/cs3-comparison-policy.test.cjs", "scripts/evals/cs3-comparison-segment.test.cjs", "scripts/evals/cs3-comparison-isolated.test.cjs", "scripts/evals/cs3-comparison-review-terminal.test.cjs", "scripts/evals/cs3-doc-successor-oracle.test.cjs", "scripts/evals/cs3-doc-successor.test.cjs", "scripts/evals/cs3-read-preflight.test.cjs"],
       "backends": ["none"],
       "requires": [],
-      "timeout_ms": 180000,
+      "timeout_ms": 240000,
       "max_output_bytes": 2097152
     },
     "cs3-document-remediation": {
@@ -86,6 +88,22 @@
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 720000,
+      "max_output_bytes": 2097152
+    },
+    "cs3-friendli-transfer": {
+      "task_ids": ["CS-3"],
+      "args": ["--test", "scripts/evals/cs3-friendli-retirement.test.cjs", "scripts/evals/cs3-friendli-transfer.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 180000,
+      "max_output_bytes": 2097152
+    },
+    "cs3-friendli-transfer-host": {
+      "task_ids": ["CS-3"],
+      "args": ["--test", "scripts/evals/cs3-friendli-transfer.integration.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 900000,
       "max_output_bytes": 2097152
     },
     "cs3-comparison-host": {

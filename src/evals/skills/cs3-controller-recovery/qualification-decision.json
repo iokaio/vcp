@@ -10,12 +10,12 @@
   "historical_ui_matrix_sha256": "818074b97799d7d1bf52852dc16ba704de49f6f7f763924b3b6d909d7fc25163",
   "historical_web_sha256": "a5bb97a72a07650d2682808de02d5f9fd71d445758167685652ab2ad6956dab5",
   "allowed_native_source_changes": ["Controller-helpers.ps1", "Invoke-NativeProbe.ps1", "Test-Contracts.ps1"],
-  "new_native_source_sha256": null,
-  "new_ui_matrix_sha256": null,
-  "new_web_sha256": null,
-  "new_pause_sha256": null,
-  "new_cancel_sha256": null,
-  "new_owner_loss_sha256": null,
+  "new_native_source_sha256": "bb10c3f2350fbadd144077a48fa6bc69e79d38af0d40f5edabfed7c158da6153",
+  "new_ui_matrix_sha256": "3776dbcb36e117cd5aefba8b2135c2d5954dd713491c86da04d06cff43455af7",
+  "new_web_sha256": "a95bbd97dde8ab0610c66b454d091e9461fa4180bcae14b2cb38e6aa5599cb84",
+  "new_pause_sha256": "90fab0d356c8e06793b3aa44145a6a502820f1c16de95e37c394f62db3a7a7c3",
+  "new_cancel_sha256": "a785d57d2ca588d6a9d660a47b6dd68548b9463ec7c38b4bf007903b5407e02f",
+  "new_owner_loss_sha256": "92a73e5108603e0c8ef1d6f204735ef06b4e990a0740f85fa61d339c44777beb",
   "historical_comparison_proof_sha256": null,
   "skill_remediation_lineage": {
     "archive_schema": "cs3-frozen-skill-remediation-source-archive/1",
@@ -27,6 +27,13 @@
     "build_receipt_sha256": null,
     "executable_sha256": null,
     "candidate_inventory_sha256": null
+  },
+  "friendli_transfer_candidate_inventory_sha256": {
+    "frontend-design": null,
+    "mcp-development": null,
+    "llm-integration": null,
+    "webapp-testing": null,
+    "document-authoring": null
   },
   "model_calls": 0,
   "historical_results_modified": false,

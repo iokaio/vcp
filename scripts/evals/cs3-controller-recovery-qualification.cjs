@@ -113,7 +113,7 @@ function historicalProjection(input, decisionRef) {
     executable_sha256: approved.executable_sha256, build_receipt_sha256: approved.historical_build_receipt_sha256,
     ...reviewRows(approved, input.archive, input.plans), model_calls: 0, historical_results_modified: false };
 }
-function reviewRows(approved, archive, rows, kind = 'historical', historicalArchive = null) {
+function reviewRows(approved, archive, rows, kind = 'historical', historicalArchive = null, allFresh = false) {
   const selected = lineage(approved, kind);
   return historicalCall(approved, archive, (review, campaign) => {
     const parsed = rows.map(row => ({ ...row, value: json(row.plan) })), protectedRoots = new Set();
@@ -121,9 +121,18 @@ function reviewRows(approved, archive, rows, kind = 'historical', historicalArch
       need(row.value.source.content_sha256 === selected.source_sha256 && row.value.spec.build_receipt.sha256 === selected.build_receipt_sha256
         && row.value.spec.executable.sha256 === selected.executable_sha256 && row.value.runs.length === 18
         && row.value.runs.every(run => run.skill === row.skill), 'Historical comparison identity differs');
-      if (kind === 'skill_remediation') need(row.skill === 'skill-authoring' && !!row.value.skill_remediation
-        && row.value.candidate_assets.entries.length === 1 && row.value.candidate_assets.entries[0].id === 'skill-authoring'
-        && row.value.candidate_assets.entries[0].version === '1.0.3' && sha(JSON.stringify(row.value.candidate_assets)) === selected.candidate_inventory_sha256, 'Exact replacement SKL candidate lineage required');
+      if (kind === 'skill_remediation') {
+        if (!allFresh || row.skill === 'skill-authoring') need(row.skill === 'skill-authoring' && !!row.value.skill_remediation && !row.value.friendli_transfer
+          && row.value.candidate_assets.entries.length === 1 && row.value.candidate_assets.entries[0].id === 'skill-authoring'
+          && row.value.candidate_assets.entries[0].version === '1.0.3' && sha(JSON.stringify(row.value.candidate_assets)) === selected.candidate_inventory_sha256, 'Exact replacement SKL candidate lineage required');
+        else {
+          need(row.value.schema === 'cs3-friendli-transfer-plan/1' && row.value.friendli_transfer?.skill === row.skill && !row.value.skill_remediation
+            && !row.value.isolated && !row.value.runtime_amendment && !row.value.remediation, 'Exact fixed Friendli transfer plan required');
+          pin(approved.friendli_transfer_candidate_inventory_sha256?.[row.skill], sha(JSON.stringify(row.value.candidate_assets)), 'transferred ' + row.skill + ' candidate inventory');
+          need(row.value.candidate_assets.entries.filter(entry => entry.id === row.skill).length === 1
+            && (row.skill !== 'document-authoring' || row.value.candidate_assets.entries.find(entry => entry.id === row.skill).version === '1.0.5'), 'Exact transferred candidate identity required');
+        }
+      }
       pin(selected.ui_sha256, row.value.spec.gates.ui_qualification.sha256, 'lineage UI gate');
       pin(selected.web_sha256, row.value.spec.gates.web_oracles.sha256, 'lineage WEB gate');
       protectedRoots.add(plain(campaign.controlDirectory(row.value)));
@@ -177,8 +186,33 @@ function mixedHistoricalProjection(input, decisionRef) {
       skill_remediation: { source_sha256: selected.source_sha256, build_receipt_sha256: selected.build_receipt_sha256, executable_sha256: selected.executable_sha256, candidate_inventory_sha256: selected.candidate_inventory_sha256 } },
     dispositions: [...fresh.dispositions, ...old.dispositions], ui_outputs: old.ui_outputs, protected_inventories: inventories, model_calls: 0, historical_results_modified: false };
 }
+function freshHistoricalProjection(input, decisionRef) {
+  const approved = decision(decisionRef), selected = lineage(approved, 'skill_remediation');
+  need(equal(Object.keys(input).sort(), ['historical_archive', 'plans', 'skill_archive']) && Array.isArray(input.plans)
+    && equal(input.plans.map(row => row.skill), skills)
+    && equal(Object.keys(approved.friendli_transfer_candidate_inventory_sha256 || {}).sort(), skills.slice(1).sort()), 'Exact fixed all-fresh six plans and inventory pins required');
+  const oldSource = archivedSource(approved, input.historical_archive), newSource = archivedSource(approved, input.skill_archive, 'skill_remediation');
+  const plans = input.plans.map(row => json(row.plan)), shared = plans[0].spec.skill_remediation;
+  need(shared && plans.every(plan => equal(plan.spec.skill_remediation, shared)) && equal(json(shared.history).archive, input.historical_archive), 'All six consumers must share exact funded qualification, preflight and predecessor history');
+  const historical = skillRemediationPrerequisites(json(shared.history), decisionRef);
+  // Frozen WEB remains a separate unchanged input gate, not a model-generated
+  // replacement or an inference from passing native receipt summaries.
+  const webScope = ['scripts/evals/fixtures/webapp'], webInputs = prep.identity(oldSource.oldRoot, webScope);
+  need(equal(prep.identity(newSource.oldRoot, webScope), webInputs) && equal(prep.identity(root, webScope), webInputs), 'All-fresh WEB inputs changed from the authenticated original fixture');
+  const fresh = reviewRows(approved, input.skill_archive, input.plans, 'skill_remediation', input.historical_archive, true);
+  const inventories = [...historical.protected_inventories, ...fresh.protected_inventories];
+  need(inventories.every(item => equal(prep.identity(item.directory, ['.']), item.inventory))
+    && plans.every((plan, index) => equal(json(input.plans[index].plan), plan))
+    && equal(prep.identity(root, webScope), webInputs)
+    && equal(archivedSource(approved, input.historical_archive), oldSource) && equal(archivedSource(approved, input.skill_archive, 'skill_remediation'), newSource), 'All-fresh source or predecessor evidence changed during review');
+  return { schema: 'cs3-controller-recovery-fresh-historical-proof/1', input,
+    source_sha256: selected.source_sha256, executable_sha256: selected.executable_sha256, build_receipt_sha256: selected.build_receipt_sha256,
+    historical, shared_prerequisites: shared, frozen_web_inputs: webInputs,
+    ...fresh, protected_inventories: inventories, model_calls: 0, historical_results_modified: false };
+}
 function recomputeProof(proof, decisionRef) {
   if (proof.schema === 'cs3-controller-recovery-historical-proof/1') return historicalProjection(proof.input, decisionRef);
+  if (proof.schema === 'cs3-controller-recovery-fresh-historical-proof/1') return freshHistoricalProjection(proof.input, decisionRef);
   need(proof.schema === 'cs3-controller-recovery-mixed-historical-proof/1', 'Unknown final historical proof schema');
   return mixedHistoricalProjection(proof.input, decisionRef);
 }
@@ -205,6 +239,48 @@ function skillRemediationPrerequisites(input, decisionRef) {
     need(equal(snapshot(), before) && equal(json(input.terminal_plan), plan) && equal(json(input.terminal_disposition), retained), 'SKL predecessor evidence changed');
     return { source_sha256: approved.historical_source_sha256, executable_sha256: approved.executable_sha256, build_receipt_sha256: approved.historical_build_receipt_sha256,
       retirement, terminal: input.terminal_disposition, status: terminal.status, protected_inventories: before, model_calls: 0 };
+  });
+}
+// Read-only projection for the fixed Friendli transfer. The old source owns
+// task/arm/prompt interpretation; callers cannot reconstruct inputs from prose.
+// Pristine slots and prospective local retirement barriers are checked by the
+// transfer producer/consumer, not inferred from this projection.
+function friendliRetirementPrerequisites(input, decisionRef) {
+  need(equal(Object.keys(input).sort(), ['history', 'manifest']), 'Exact Friendli retirement projection inputs required');
+  const approved = decision(decisionRef), initialManifest = json(input.manifest), directory = plain(initialManifest.directory);
+  need(plain(input.manifest.path) === path.join(directory, 'manifest.json'), 'Exact shared runtime manifest location required');
+  const snapshotControls = () => ({ directory, inventory: prep.identity(directory, ['manifest.json', 'transitions',
+    ...(fs.existsSync(path.join(directory, 'active-skill.json')) ? ['active-skill.json'] : [])]) });
+  const sharedControls = snapshotControls(), historical = skillRemediationPrerequisites(input.history, decisionRef);
+  return historicalCall(approved, input.history.archive, (review, campaign, oldRequire) => {
+    const runtime = oldRequire('./cs3-runtime-amendment.cjs'), doc = oldRequire('./cs3-document-remediation.cjs');
+    const terminalPlan = json(input.history.terminal_plan), manifest = json(input.manifest);
+    need(equal(terminalPlan.isolated?.manifest, input.manifest) && equal(runtime.load(terminalPlan), manifest)
+      && manifest.base.source.content_sha256 === approved.historical_source_sha256
+      && manifest.spec.build_receipt.sha256 === approved.historical_build_receipt_sha256
+      && manifest.spec.executable.sha256 === approved.executable_sha256, 'Exact original ninety-slot ownership and source required');
+    const all = runtime.tasks(manifest.spec), groups = skills.slice(1, 5).map(skill => {
+      const plan = runtime.project(manifest, input.manifest, skill), planRef = reference(path.join(campaign.controlDirectory(plan), 'plan.json'));
+      need(equal(json(planRef), plan) && plan.runs.length === 18 && plan.runs.every(row => row.skill === skill), 'Retained transfer plan differs from original projection');
+      const tasks = all.filter(task => task.skill === skill);
+      need(tasks.length === 6 && equal(new Set(plan.runs.map(row => row.case_id)), new Set(tasks.map(task => task.id))), 'Six exact original transfer tasks required');
+      return { skill, plan, plan_ref: planRef, tasks };
+    });
+    const tasks = doc.tasks(), candidateAssets = doc.candidateRegistry.inspect();
+    need(tasks.length === 6 && tasks.every(task => task.skill === 'document-authoring')
+      && candidateAssets.entries.length === 1 && candidateAssets.entries[0].id === 'document-authoring'
+      && candidateAssets.entries[0].version === '1.0.5' && equal(campaign.arms, ['none', 'nearest', 'candidate']), 'Exact untouched DOC cohort and candidate required');
+    const runs = tasks.flatMap((task, index) => campaign.arms.map((_, offset) => {
+      const arm = campaign.arms[(index + offset) % 3], prompt = campaign.prompt(task);
+      return { id: task.id + '--' + arm, case_id: task.id, skill: task.skill, arm, cap_micros: 600000, call_ceiling: 16,
+        skills: arm === 'none' ? [] : arm === 'candidate' ? [doc.candidateRegistry.qualified(task.skill)] : task.nearest.map(id => `vcp-builtin::${id}::${id}`),
+        prompt, prompt_sha256: sha(prompt), files: Object.entries(task.files).map(([path, content]) => ({ path, sha256: sha(content), bytes: Buffer.byteLength(content) })) };
+    }));
+    need(equal(manifest, initialManifest) && equal(snapshotControls(), sharedControls), 'Shared runtime control evidence changed during retirement projection');
+    need(equal(json(input.manifest), manifest) && groups.every(group => equal(json(group.plan_ref), group.plan))
+      && historical.protected_inventories.every(item => equal(prep.identity(item.directory, ['.']), item.inventory)), 'Original transfer evidence changed during projection');
+    return { oldRoot: plain(approved.historical_root), manifest, manifest_ref: input.manifest, shared_controls: sharedControls, groups,
+      document: { tasks, runs, candidate_assets: candidateAssets, claim_path: doc.claimFile(), allocation: manifest.spec.remediation.allocation }, historical };
   });
 }
 function native(ref) {
@@ -314,17 +390,18 @@ function project(inputFile, outputFile) {
   need(!proof.protected_inventories.some(item => within(item.directory, output)), 'Proof cannot mutate protected comparison inventory');
   write(output, proof); return reference(output);
 }
-function projectMixed(inputFile, outputFile) {
+function projectMixed(inputFile, outputFile, allFresh = false) {
   const input = JSON.parse(read(inputFile)), approved = decision(input.decision), selected = lineage(approved, 'skill_remediation'), output = plain(path.resolve(outputFile));
   need(equal(Object.keys(input).sort(), ['decision', 'historical_archive', 'plans', 'skill_archive']) && !within(root, output)
     && !within(approved.historical_root, output) && !within(selected.root, output), 'Exact private mixed projection inputs required');
   privateDirectory(path.dirname(output)); noParentInstructions(path.dirname(output));
-  const { decision: decisionRef, ...raw } = input, proof = mixedHistoricalProjection(raw, decisionRef);
+  const { decision: decisionRef, ...raw } = input, proof = allFresh ? freshHistoricalProjection(raw, decisionRef) : mixedHistoricalProjection(raw, decisionRef);
   need(!proof.protected_inventories.some(item => within(item.directory, output)), 'Mixed proof cannot mutate protected comparison inventory');
   write(output, proof); return reference(output);
 }
-module.exports = { decision, uiDecision, sourceClosure, historicalProjection, mixedHistoricalProjection, skillRemediationPrerequisites, nativePrerequisites, validate, project, projectMixed };
+const projectFresh = (inputFile, outputFile) => projectMixed(inputFile, outputFile, true);
+module.exports = { decision, uiDecision, sourceClosure, historicalProjection, mixedHistoricalProjection, freshHistoricalProjection, skillRemediationPrerequisites, friendliRetirementPrerequisites, nativePrerequisites, validate, project, projectMixed, projectFresh };
 if (require.main === module) {
-  try { const [command, first, second] = process.argv.slice(2); const result = command === 'project-history' ? project(first, second) : command === 'project-mixed-history' ? projectMixed(first, second) : command === 'validate' ? validate(JSON.parse(read(first))) : (() => { throw Error('Usage: project-history INPUT NEW_PRIVATE_FILE | project-mixed-history INPUT NEW_PRIVATE_FILE | validate SPEC'); })(); process.stdout.write(JSON.stringify(result, null, 2) + '\n'); }
+  try { const [command, first, second] = process.argv.slice(2); const result = command === 'project-history' ? project(first, second) : command === 'project-mixed-history' ? projectMixed(first, second) : command === 'project-fresh-history' ? projectFresh(first, second) : command === 'validate' ? validate(JSON.parse(read(first))) : (() => { throw Error('Usage: project-history INPUT NEW_PRIVATE_FILE | project-mixed-history INPUT NEW_PRIVATE_FILE | project-fresh-history INPUT NEW_PRIVATE_FILE | validate SPEC'); })(); process.stdout.write(JSON.stringify(result, null, 2) + '\n'); }
   catch (error) { process.stderr.write(error.message + '\n'); process.exitCode = 1; }
 }

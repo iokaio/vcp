@@ -1,0 +1,16 @@
+{
+  "schema": "cs3-friendli-retirement-decision/1",
+  "authority": "owner_explicit_cs3_completion_within_existing_100_usd",
+  "manifest_sha256": "ca332d5833682bb6ca467632dab259a48a28679c7d5500fff695555ade5206a4",
+  "historical_source_sha256": "84d6b90185d7ea16f11eb548f843e78a97daa218bda0d4a55bc759b099727320",
+  "runtime_skills": ["frontend-design", "mcp-development", "llm-integration", "webapp-testing"],
+  "runtime_slots": 72,
+  "unprepared_document_slots": 18,
+  "transferred_cap_micros": 54000000,
+  "transferred_request_ceiling": 1440,
+  "combined_cap_micros": 98913737,
+  "combined_request_ceiling": 2631,
+  "consumed_liabilities_released": false,
+  "model_calls": 0,
+  "qualification_waiver": false
+}

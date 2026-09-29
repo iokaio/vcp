@@ -1,0 +1,21 @@
+{
+  "schema": "cs3-friendli-transfer-decision/1",
+  "authority": "owner_explicit_cs3_completion_within_existing_100_usd",
+  "model": "deepseek/deepseek-v3.2",
+  "endpoint": "friendli",
+  "skills": ["frontend-design", "mcp-development", "llm-integration", "webapp-testing", "document-authoring"],
+  "runs": 90,
+  "slot_cap_micros": 600000,
+  "slot_requests": 16,
+  "aggregate_micros": 54000000,
+  "aggregate_requests": 1440,
+  "fixed_conservative_micros": 44913737,
+  "fixed_reserved_requests": 1191,
+  "combined_cap_micros": 98913737,
+  "combined_request_ceiling": 2631,
+  "outer_cap_micros": 100000000,
+  "retirement_audit_sha256": null,
+  "qualification": "shared_exact_funded_skl_pair_and_preflight_no_new_allowance",
+  "consumed_liabilities_released": false,
+  "qualification_waiver": false
+}

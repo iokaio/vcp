@@ -111,7 +111,7 @@ function fixture(t, expiryOffset = 86400000, successor = false) {
   // verifier during this test cannot masquerade as campaign source corruption.
   // Production source-identity validation itself remains fully enabled.
   const sourceRoot = path.join(directory, 'source');
-  for (const relative of ['scripts/evals', 'scripts/skills', 'src/tests/support/windows', 'src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'src/evals/skills/cs3-runtime-remediation', 'src/evals/skills/cs3-skill-remediation', 'src/evals/skills/cs3-controller-recovery', 'src/skills/builtin']) fs.cpSync(path.join(repository, relative), path.join(sourceRoot, relative), { recursive: true });
+  for (const relative of ['scripts/evals', 'scripts/skills', 'src/tests/support/windows', 'src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'src/evals/skills/cs3-runtime-remediation', 'src/evals/skills/cs3-skill-remediation', 'src/evals/skills/cs3-friendli-transfer', 'src/evals/skills/cs3-controller-recovery', 'src/skills/builtin']) fs.cpSync(path.join(repository, relative), path.join(sourceRoot, relative), { recursive: true });
   const host = syntheticHost(gitDirectory, path.join(sourceRoot, 'scripts/evals'));
   const ref = (name, content) => { const file = path.join(directory, name), bytes = typeof content === 'string' || Buffer.isBuffer(content) ? content : JSON.stringify(content); fs.writeFileSync(file, bytes); return { path: file, sha256: sha(bytes) }; };
   fs.cpSync(path.join(repository, 'src/skills/builtin'), path.join(directory, 'skills/builtin'), { recursive: true });

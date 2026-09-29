@@ -9,7 +9,8 @@ it read another file after successful verification without refreshing that
 verification, and its final message was commentary rather than the requested JSON
 artifact. All eight requests settled at 13,645 micros. The native freshness gate
 correctly rejected completion; neither budget exhaustion nor an unresolved charge
-explains this result. The full block still must reach its actual disposition.
+explains this result. The block subsequently reached its actual terminal
+disposition, recorded in the [fixed Friendli transfer](cs3-friendli-transfer.md).
 
 ## Candidate and independent cases
 
@@ -53,8 +54,8 @@ The failed setup run remains retained alongside it.
 ## Prospective endpoint choice
 
 The replacement experiment selects `deepseek/deepseek-v3.2` through OpenRouter's
-fixed `friendli` endpoint, not automatic fallback. The active campaign remains
-on `deepinfra/fp4`. Two further completed normal-task slots retained the same
+fixed `friendli` endpoint, not automatic fallback. The now-terminal campaign used
+`deepinfra/fp4`. Two further completed normal-task slots retained the same
 644-byte HTTP 429 `engine_overloaded` / shared-pool response as the earlier
 preflight failures (SHA-256
 `06758118fdc6c889b1b05b04d7d5bbedfb4bef206c4cd7cf1e10595b7364c340`).
@@ -101,8 +102,9 @@ required. The final acceptance join must distinguish the preserved comparison
 source from the replacement SKL source; a new result cannot inherit an old source
 identity. Failed historical experiments remain visible and unqualified.
 
-The final acceptance verifier now supports exactly these two source lineages:
-five preserved experiments plus the fresh SKL experiment. It authenticates each
+The final acceptance verifier retains support for five preserved experiments
+plus a fresh SKL experiment, and now also supports the selected
+[all-fresh Friendli campaign](cs3-friendli-transfer.md). It authenticates each
 archive, executes its retained reviewer under a hash-checked module loader, checks
 both evidence inventories before and after review, and requires all six actual
 two-reader qualification outcomes. Final lineage pins remain null until real

@@ -20,10 +20,11 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const arms = ['none', 'nearest', 'candidate'];
 const limits = Object.freeze({ runs: 108, slot_micros: 600000, slot_requests: 16, aggregate_micros: 64800000, aggregate_requests: 1728, output_tokens: '2048' });
 // Bind the complete local verifier/helper closure, including transitive imports.
-const sourceScope = ['src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'src/evals/skills/cs3-runtime-remediation', 'src/evals/skills/cs3-skill-remediation', 'src/evals/skills/cs3-controller-recovery', 'scripts/evals', 'scripts/skills/builtin-assets.cjs', 'src/tests/support/windows'];
-function conservative(plan) { return plan.successor || plan.skill_remediation?.accounting || plan.runtime_amendment?.accounting || plan.remediation?.accounting || null; }
-function planTasks(plan) { return plan.skill_remediation ? require('./cs3-skill-remediation.cjs').tasks() : plan.runtime_amendment ? require('./cs3-runtime-amendment.cjs').tasks(plan.spec) : plan.remediation ? require('./cs3-document-remediation.cjs').tasks() : cohort(plan.spec.web_evidence, plan.spec.successor); }
-function candidateRegistry(spec) { return spec.skill_remediation ? require('./cs3-skill-remediation.cjs').candidateRegistry : spec.runtime_amendment ? candidates : spec.remediation ? require('./cs3-document-remediation.cjs').candidateRegistry : candidates; }
+const sourceScope = ['src/evals/skills/cs3-comparison', 'src/evals/skills/cs3-document-remediation', 'src/evals/skills/cs3-runtime-remediation', 'src/evals/skills/cs3-skill-remediation', 'src/evals/skills/cs3-friendli-transfer', 'src/evals/skills/cs3-controller-recovery', 'scripts/evals', 'scripts/skills/builtin-assets.cjs', 'src/tests/support/windows'];
+function conservative(plan) { return plan.friendli_transfer?.accounting || plan.successor || plan.skill_remediation?.accounting || plan.runtime_amendment?.accounting || plan.remediation?.accounting || null; }
+function planTasks(plan) { return plan.friendli_transfer ? require('./cs3-friendli-transfer.cjs').tasks(plan.spec) : plan.skill_remediation ? require('./cs3-skill-remediation.cjs').tasks() : plan.runtime_amendment ? require('./cs3-runtime-amendment.cjs').tasks(plan.spec) : plan.remediation ? require('./cs3-document-remediation.cjs').tasks() : cohort(plan.spec.web_evidence, plan.spec.successor); }
+function candidateRegistry(spec) { return spec.friendli_transfer ? require('./cs3-friendli-transfer.cjs').candidateRegistry : spec.skill_remediation ? require('./cs3-skill-remediation.cjs').candidateRegistry : spec.runtime_amendment ? candidates : spec.remediation ? require('./cs3-document-remediation.cjs').candidateRegistry : candidates; }
+function isolatedController(plan) { return plan.friendli_transfer ? require('./cs3-friendli-transfer.cjs') : require('./cs3-comparison-isolated.cjs'); }
 function bound(ref, maximum = 16 * 1024 * 1024) {
   if (!ref || typeof ref.path !== 'string' || !path.isAbsolute(ref.path) || !/^[a-f0-9]{64}$/.test(ref.sha256)) throw Error('Absolute hash-bound evidence required');
   const bytes = read(plain(ref.path), maximum);
@@ -101,6 +102,7 @@ function buildProvenance(build, executable) {
   return build;
 }
 function describe(spec, directory) {
+  if (spec.friendli_transfer) return require('./cs3-friendli-transfer.cjs').describe(spec, directory);
   if (spec.skill_remediation) return require('./cs3-skill-remediation.cjs').describe(spec, directory);
   if (spec.runtime_amendment) return require('./cs3-runtime-amendment.cjs').describe(spec, directory);
   if (spec.remediation) return require('./cs3-document-remediation.cjs').describe(spec, directory);
@@ -145,6 +147,7 @@ function claimFile(successor = false) {
   return path.join(path.resolve(root, common), successor ? 'vcp-cs3-deepseek-20260928-successor-v2-claim.json' : 'vcp-cs3-deepseek-20260928-comparison-claim.json');
 }
 function prepare(specFile, destination) {
+  if (JSON.parse(read(specFile)).friendli_transfer) return require('./cs3-friendli-transfer.cjs').prepare(specFile, destination);
   if (JSON.parse(read(specFile)).skill_remediation) return require('./cs3-skill-remediation.cjs').prepare(specFile, destination);
   if (JSON.parse(read(specFile)).runtime_amendment) return require('./cs3-runtime-amendment.cjs').prepare(specFile, destination);
   if (JSON.parse(read(specFile)).remediation) return require('./cs3-document-remediation.cjs').prepare(specFile, destination);
@@ -166,7 +169,8 @@ function prepare(specFile, destination) {
   return { plan: path.join(directory, 'plan.json'), sha256: sha(read(path.join(directory, 'plan.json'))), runs: plan.runs.length, model_calls: 0 };
 }
 function validate(plan, hash, checkExpiry = true) {
-  if (plan.skill_remediation) require('./cs3-skill-remediation.cjs').validate(plan, hash);
+  if (plan.friendli_transfer) require('./cs3-friendli-transfer.cjs').validate(plan, hash);
+  else if (plan.skill_remediation) require('./cs3-skill-remediation.cjs').validate(plan, hash);
   else if (plan.remediation) require('./cs3-document-remediation.cjs').validate(plan, hash);
   else if (plan.isolated) require('./cs3-comparison-isolated.cjs').validate(plan, hash);
   else if (plan.segment) require('./cs3-comparison-segment.cjs').validate(plan, hash);
@@ -188,12 +192,13 @@ function validateExecution(plan, checkExpiry = true) {
   return plan;
 }
 function workspaceFiles(base) { return prep.identity(path.join(base, 'workspace'), ['.']).files.map(f => ({ ...f, path: f.path.slice(2) })).sort((a, b) => a.path.localeCompare(b.path)); }
-function controlDirectory(plan) { return plan.segment || plan.isolated ? plan.control_directory : plan.directory; }
+function controlDirectory(plan) { return plan.segment || plan.isolated || plan.friendli_transfer ? plan.control_directory : plan.directory; }
 function retainedPrefix(plan, id) { return plan.segment?.addenda.some(row => row.id === id) === true; }
 function reportFile(plan, id) { return retainedPrefix(plan, id) ? path.join(controlDirectory(plan), 'addenda', id + '.json') : path.join(plan.directory, id, 'result.json'); }
 function slotReport(plan, id) { return JSON.parse(read(reportFile(plan, id))); }
 function claimed(plan, id) { return retainedPrefix(plan, id) || fs.existsSync(path.join(controlDirectory(plan), 'claims', id + '.json')); }
 function admission(plan) {
+  if (plan.friendli_transfer) return require('./cs3-friendli-transfer.cjs').admission(plan);
   if (plan.skill_remediation) return require('./cs3-skill-remediation.cjs').admission(plan);
   if (plan.runtime_amendment) return require('./cs3-runtime-amendment.cjs').admission(plan);
   if (plan.remediation) return require('./cs3-document-remediation.cjs').admission(plan);
@@ -244,14 +249,14 @@ function qualificationWindow(profile, now = Date.now()) {
 async function run(file, authorization, skill, call = invoke) {
   const plan = validate(JSON.parse(read(file)), authorization);
   const control = controlDirectory(plan);
-  if (!candidates.ids.includes(skill) || plan.skill_remediation && skill !== 'skill-authoring' || plan.remediation && skill !== 'document-authoring' || plan.isolated && skill !== plan.isolated.skill || fs.existsSync(path.join(control, 'halt.json'))) throw Error('Unknown skill or terminal halted envelope');
-  for (const priorSkill of plan.isolated || plan.skill_remediation ? [] : candidates.ids.slice(0, candidates.ids.indexOf(skill))) {
+  if (!candidates.ids.includes(skill) || plan.friendli_transfer && skill !== plan.friendli_transfer.skill || plan.skill_remediation && skill !== 'skill-authoring' || plan.remediation && skill !== 'document-authoring' || plan.isolated && skill !== plan.isolated.skill || fs.existsSync(path.join(control, 'halt.json'))) throw Error('Unknown skill or terminal halted envelope');
+  for (const priorSkill of plan.isolated || plan.skill_remediation || plan.friendli_transfer ? [] : candidates.ids.slice(0, candidates.ids.indexOf(skill))) {
     require('./cs3-comparison-review.cjs').validateDisposition(file, authorization, priorSkill);
   }
   const active = path.join(control, 'active-block.json');
   if (fs.existsSync(active)) throw Error('Interrupted active block requires read-only reconciliation');
   qualificationWindow(JSON.parse(bound(plan.spec.profile)));
-  if (plan.isolated) require('./cs3-comparison-isolated.cjs').begin(plan, authorization);
+  if (plan.isolated || plan.friendli_transfer) isolatedController(plan).begin(plan, authorization);
   write(path.join(control, 'claims', 'block-' + skill + '.json'), { plan_sha256: authorization, skill });
   write(active, { plan_sha256: authorization, skill });
   const tasks = planTasks(plan), reports = [];
@@ -262,7 +267,7 @@ async function run(file, authorization, skill, call = invoke) {
     let accounted = false, dispatched = false;
     try {
       validate(plan, authorization);
-      if (plan.isolated) require('./cs3-comparison-isolated.cjs').assertActive(plan, authorization);
+      if (plan.isolated || plan.friendli_transfer) isolatedController(plan).assertActive(plan, authorization);
       if (fs.existsSync(path.join(control, 'halt.json')) || !equal(JSON.parse(read(active)), { plan_sha256: authorization, skill })) throw Error('Active ownership changed or envelope halted');
       if (!equal(workspaceFiles(base), [...row.files].sort((a, b) => a.path.localeCompare(b.path))) || fs.readdirSync(path.join(base, 'data')).length || sha(read(path.join(base, 'profile.json'))) !== row.profile_sha256 || sha(read(path.join(base, 'prompt.txt'))) !== row.prompt_sha256) throw Error('Slot inputs changed or already used');
       write(path.join(base, 'admission.json'), admission(plan));
@@ -293,8 +298,8 @@ async function run(file, authorization, skill, call = invoke) {
       if (capture.canaryDisclosed(base, { forbidden_output_literals: forbidden })) throw Error('Synthetic canary disclosed in canonical output');
       try {
         const answer = capture.responseAnswer(responses, money.attempts); write(path.join(base, 'answer.json'), answer.answer);
-        const selectedOracle = plan.skill_remediation ? require('./cs3-skill-remediation-oracle.cjs') : plan.runtime_amendment ? task.skill === 'skill-authoring' ? require('./cs3-runtime-skill-oracle.cjs') : require('./cs3-runtime-boundary-oracle.cjs') : oracle;
-        const files = selectedOracle.artifact(task, answer.answer), text = plan.skill_remediation || plan.runtime_amendment ? selectedOracle.textual(task, answer.answer, files) : plan.remediation ? require('./cs3-document-remediation-oracle.cjs').textual(task, answer.answer, files) : plan.successor ? require('./cs3-doc-successor-oracle.cjs').textual(task, answer.answer, files) : oracle.textual(task, answer.answer, files);
+        const selectedOracle = plan.friendli_transfer ? task.skill === 'document-authoring' ? { ...oracle, ...require('./cs3-document-remediation-oracle.cjs') } : require('./cs3-runtime-boundary-oracle.cjs') : plan.skill_remediation ? require('./cs3-skill-remediation-oracle.cjs') : plan.runtime_amendment ? task.skill === 'skill-authoring' ? require('./cs3-runtime-skill-oracle.cjs') : require('./cs3-runtime-boundary-oracle.cjs') : oracle;
+        const files = selectedOracle.artifact(task, answer.answer), text = plan.friendli_transfer || plan.skill_remediation || plan.runtime_amendment ? selectedOracle.textual(task, answer.answer, files) : plan.remediation ? require('./cs3-document-remediation-oracle.cjs').textual(task, answer.answer, files) : plan.successor ? require('./cs3-doc-successor-oracle.cjs').textual(task, answer.answer, files) : oracle.textual(task, answer.answer, files);
         report.textual = text;
         materialize(task, files, base);
         if (!text.passed) report.status = 'failed';
@@ -311,13 +316,13 @@ async function run(file, authorization, skill, call = invoke) {
       }
       if (conservative(plan) && money.unresolved_attempts) { report.status = 'failed'; report.output_error = 'Provider billing unresolved; conservative full-slot debit, never quality-qualified'; }
       validate(plan, authorization, false);
-      if (plan.isolated) require('./cs3-comparison-isolated.cjs').assertActive(plan, authorization);
+      if (plan.isolated || plan.friendli_transfer) isolatedController(plan).assertActive(plan, authorization);
       report.evidence_sha256 = capture.runEvidence(base);
       write(path.join(base, 'result.json'), report); reports.push(report);
     } catch (error) {
       report.status = 'failed'; report.reason = error.message; report.accounted = accounted;
       if (!dispatched) { report.actual_cost_micros = 0; report.accounted = true; }
-      const failure = plan.skill_remediation ? require('./cs3-skill-remediation.cjs').failure(plan, authorization, row, report, error)
+      const failure = plan.friendli_transfer ? require('./cs3-friendli-transfer.cjs').failure(plan, authorization, row, report, error) : plan.skill_remediation ? require('./cs3-skill-remediation.cjs').failure(plan, authorization, row, report, error)
         : plan.isolated ? require('./cs3-comparison-isolated.cjs').failure(plan, authorization, row, report, error) : {};
       if (!fs.existsSync(path.join(base, 'result.json'))) write(path.join(base, 'result.json'), report);
       if (!fs.existsSync(path.join(control, 'halt.json'))) write(path.join(control, 'halt.json'), { plan_sha256: authorization, slot: row.id, reason: error.message, ...failure, action: 'Read-only reconciliation only; consumed claims never replay.' });
@@ -325,7 +330,7 @@ async function run(file, authorization, skill, call = invoke) {
     }
   }
   const result = { schema: 'cs3-comparison-block/1', plan_sha256: authorization, skill, runs: reports, stopped: fs.existsSync(path.join(control, 'halt.json')), actual_cost_micros: reports.every(r => r.actual_cost_micros !== null) ? reports.reduce((sum, r) => sum + r.actual_cost_micros, 0) : null, observed_attempts: reports.reduce((sum, r) => sum + r.observed_attempts, 0) };
-  if (conservative(plan) && (!result.stopped || (plan.isolated || plan.remediation || plan.skill_remediation) && reports.every(r => Number.isSafeInteger(r.conservative_debit_micros)))) for (const field of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) result[field] = reports.reduce((sum, r) => sum + r[field], 0);
+  if (conservative(plan) && (!result.stopped || (plan.isolated || plan.remediation || plan.skill_remediation || plan.friendli_transfer) && reports.every(r => Number.isSafeInteger(r.conservative_debit_micros)))) for (const field of ['known_settled_micros', 'conservative_debit_micros', 'unresolved_liability_micros', 'unresolved_attempts']) result[field] = reports.reduce((sum, r) => sum + r[field], 0);
   write(path.join(control, `result-${skill}.json`), result);
   if (!result.stopped) fs.unlinkSync(active);
   return result;

@@ -83,3 +83,24 @@ Its offline harness timeout is now 180 seconds, based on the measured runtime;
 no assertion, native deadline or paid-run limit changed. An earlier 130/133 run
 retains three missing-source errors from the isolated sparse checkout. Restoring
 those tracked conformance-source prerequisites resolved the setup failures.
+
+## Actual corrected native qualification
+
+On September 29, the corrected source at commit
+`87809b55343f26b655e77b15edafa7a4720181b0` built 24 fresh harnesses and executed
+the WEB pause, explicit cancellation, owner-loss recovery and all 23 UI controls
+serially, with no concurrent compiler, test or paid workload. All six WEB cases
+matched their oracles. The UI matrix matched all six positive and seventeen
+negative expected vectors, including assertion/artifact tamper rejections.
+All native receipts reported drained processes, no cleanup errors and removal
+of their exact owned profiles. Model calls: zero. Visual review: not run.
+
+Evidence is retained under
+`artifacts/cs3-recovery-review/artifacts/cs3-recovery-native-01`; the aggregate
+`native-references.json` SHA-256 is
+`a134afab66e4928f871d0aaf318674585724c5384d0c611742ed6e68d14fc705`.
+The 23-file native source closure is
+`bb10c3f2350fbadd144077a48fa6bc69e79d38af0d40f5edabfed7c158da6153`.
+The source-bound decision now pins these actual observations separately from
+the historical receipts. Six-skill and final source-lineage pins remain pending;
+successful browser qualification alone does not complete CS-3.
