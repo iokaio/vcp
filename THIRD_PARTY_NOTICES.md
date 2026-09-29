@@ -231,3 +231,5 @@ selected by this import. See the [active skills plan](docs/research/skillsplan-n
 - [mcp-development](src/skills/builtin/mcp-development/SKILL.md) 2.0.0: Apache-2.0; see its package-local source and dependency notices.
 
 - [llm-integration](src/skills/builtin/llm-integration/SKILL.md) 2.0.0: Apache-2.0; see its package-local source and dependency notices.
+
+- [webapp-testing](src/skills/builtin/webapp-testing/SKILL.md) 2.0.0: Apache-2.0; see its package-local source and dependency notices.
