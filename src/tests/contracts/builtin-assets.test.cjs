@@ -5,20 +5,45 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { ownedRoot } = require('../support/experiments.cjs');
 const { inspectAssets, stageAssets, portable } = require('../../../scripts/skills/builtin-assets.cjs');
 const assets = path.resolve(__dirname, '../../skills/builtin');
+const baselineIds = ['architecture', 'review-debug', 'testing', 'git-workflow', 'javascript-typescript',
+  'python', 'rust', 'dotnet-powershell', 'jvm', 'go', 'cpp', 'ruby', 'php', 'swift', 'dart', 'shell',
+  'sql', 'data', 'infrastructure', 'project-optimize', 'memory-hygiene'];
+const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 test('builtin staging copies exactly the selected hashed inventory and preserves an existing destination', () => {
   const temp = ownedRoot(os.tmpdir());
   try {
     const target = path.join(temp.root, 'assets');
+    const catalogBytes = fs.readFileSync(path.join(assets, 'catalog.json')), catalog = JSON.parse(catalogBytes);
+    const ids = catalog.skills.map(skill => skill.id);
+    assert.equal(new Set(ids).size, ids.length);
+    assert.deepEqual(ids.filter(id => baselineIds.includes(id)).sort(), [...baselineIds].sort());
+    const expected = [{ path: 'catalog.json', sha256: sha(catalogBytes) }, catalog.coverage];
+    for (const skill of catalog.skills) {
+      const descriptorBytes = fs.readFileSync(path.join(assets, skill.descriptor)), descriptor = JSON.parse(descriptorBytes);
+      assert.equal(sha(descriptorBytes), skill.descriptor_sha256);
+      assert.equal(descriptor.id, skill.id); assert.equal(descriptor.version, skill.version);
+      assert.deepEqual(descriptor.body, skill.body); assert.deepEqual(descriptor.resources, skill.resources);
+      expected.push({ path: skill.descriptor, sha256: skill.descriptor_sha256 },
+        ...[descriptor.body, ...descriptor.resources].map(item => ({ path: `${skill.id}/${item.path}`, sha256: item.sha256 })));
+    }
+    assert.equal(new Set(expected.map(item => item.path)).size, expected.length);
     const inventory = stageAssets(assets, target);
-    assert.equal(inventory.skills, 21);
-    assert.equal(inventory.files.length, 44);
+    assert.equal(inventory.skills, catalog.skills.length);
+    assert.equal(inventory.files.length, expected.length);
+    assert.deepEqual(inventory.files.map(item => item.path), expected.map(item => item.path).sort());
+    for (const item of inventory.files) {
+      const selected = expected.find(row => row.path === item.path), bytes = fs.readFileSync(path.join(assets, item.path));
+      assert.equal(item.sha256, selected.sha256); assert.equal(sha(bytes), selected.sha256);
+      assert.equal(item.bytes, bytes.length); assert.deepEqual(fs.readFileSync(path.join(target, item.path)), bytes);
+    }
     assert.deepEqual(inspectAssets(target).inventory, inventory);
     for (const id of ['document-authoring', 'skill-authoring']) {
-      assert.equal(fs.existsSync(path.join(target, id)), false);
-      assert.equal(inventory.files.some(file => JSON.stringify(file).includes(id)), false);
+      assert.equal(fs.existsSync(path.join(target, id)), ids.includes(id));
+      assert.equal(inventory.files.some(file => file.path.startsWith(id + '/')), ids.includes(id));
     }
     fs.writeFileSync(path.join(target, 'user-sentinel'), 'preserve');
     assert.throws(() => stageAssets(assets, target), /exist/i);

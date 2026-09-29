@@ -1,6 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
+# Skills source selection follows ADR-069 and the per-skill license audit.
 # Immutable candidates and explicit source selections; qualification is separate.
 schema_version = 1
+
+[[upstream]]
+id = "anthropic-skills"
+origin = "https://github.com/anthropics/skills"
+commit = "8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4"
+state = "candidate"
+root_license = "NOASSERTION"
+license_scope = "Per-skill licenses only; six selected Apache-2.0 sources. Exclude GPL/LGPL, restrictive document skills, and unlicensed doc-coauthoring."
+owner_task = "SP-01"
+component_notes = "components/anthropic-skills.md"
+license_audit = "components/anthropic-skills.json"
+reuse_form = "Selected adaptations into native VCP skill packages with package-local source records"
 
 [[upstream]]
 id = "codex"

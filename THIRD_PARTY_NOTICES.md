@@ -214,3 +214,12 @@ The [original license](src/third_party/licenses/gemini-cli-6a466a7e-LICENSE) is
 retained. Provider SDK and Node runtime source are not included in the Rust port.
 
 The root project license does not replace another component's terms. Names belonging to other projects remain their owners' names; see [TRADEMARK.md](TRADEMARK.md).
+
+## Anthropic skills
+
+The [Anthropic skills source record](src/third_party/components/anthropic-skills.md)
+and [per-skill audit](src/third_party/components/anthropic-skills.json) identify
+the pinned Apache-2.0 sources selected for native VCP ports. Each distributed
+port retains its license and source/modification record. Restrictive document
+skills, unlicensed material, GPL/LGPL components, fonts and artwork are not
+selected by this import. See the [active skills plan](docs/research/skillsplan-new/.md).

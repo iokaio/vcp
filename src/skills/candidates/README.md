@@ -1,5 +1,11 @@
 # Non-default skill candidates
 
+These packages preserve the historical CS experiments and their recorded outcomes.
+Current delivery follows [the replacement plan](../../../docs/research/skillsplan-new/.md)
+and ADR-069; new versions are ported into the builtin catalog one skill per PR.
+Original-only authorship and universal comparative-promotion requirements below
+are historical and do not govern the new ports.
+
 This directory has no automatic loader. Each package here is selected only
 through an explicit source registration and qualified selection.
 

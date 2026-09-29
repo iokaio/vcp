@@ -109,3 +109,5 @@ Keep the confirmed requirement, proposed mechanism and measured evidence distinc
 The [subsystem designs](../architecture/README.md) define implementation contracts and failure ordering; the [plan](../plan/README.md) assigns work and acceptance. A supporting design reference is not an additional dependency or proof of completion.
 
 Return to the [documentation index](../README.md).
+
+[ADR-069](069-practical-skill-ports.md) replaces original-only skill development and blanket comparative release gates with licensed ports and scoped verification.
