@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "component": "munarium",
-  "commit": "8da666067000ca1ee9c131bc67e70b978862faa3",
+  "commit": "2c40480fdc2378e66dc23acdfaf82b529b9d22ee",
   "owner_task": "P0-07",
   "destination": "src/third_party/munarium",
   "result_inventory": "src/third_party/components/munarium-files.json",
@@ -21,7 +21,7 @@
   "patches": [
     {
       "path": "src/third_party/patches/munarium/0001-shared-workspace.patch",
-      "sha256": "7bb804847d33bc6778550264b39a5d130339836bd3cad342202e4f90685a144c"
+      "sha256": "6e0cb4bb9e94c4b6f462d13fd9cd422dbb82deba4e1d6c8058c08c18b76b8270"
     }
   ],
   "licenses": [

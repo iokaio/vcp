@@ -192,6 +192,10 @@ already include these changes; normal builds never apply patches.
     parser for CS-1 local Markdown link validation. Only that local dependency
     edge changes; no external package version or upstream implementation changes.
 
+42. `0042-sp02-munarium-refresh.patch` advances the three selected Munarium
+    libraries from 1.2.1 to 1.3.0 in the shared lockfile. External dependency
+    versions, checksums and Codex implementation remain unchanged.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

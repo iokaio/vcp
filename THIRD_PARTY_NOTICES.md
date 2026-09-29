@@ -18,8 +18,10 @@ This community-document adaptation is separate from the runtime selection below.
 
 ## Munarium local-library source
 
-The 70 files at `src/third_party/munarium/` come from the same immutable
-Munarium revision above. The original [LICENSE](src/third_party/munarium/LICENSE)
+The 80 files at `src/third_party/munarium/` come from
+[Munarium revision `2c40480fdc2378e66dc23acdfaf82b529b9d22ee`](https://github.com/iokaio/munarium/tree/2c40480fdc2378e66dc23acdfaf82b529b9d22ee)
+(Server 1.3.0), refreshed by SP-02. The earlier community-document adaptation
+retains the provenance above. The original [LICENSE](src/third_party/munarium/LICENSE)
 and [NOTICE](src/third_party/munarium/NOTICE) are retained, including Ioka LLC
 copyright and trademark attribution. [Selection records](src/third_party/components/munarium-selection.json)
 and [component notes](src/third_party/components/munarium.md) identify the three

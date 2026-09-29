@@ -50,12 +50,16 @@ tests and five CLI traces. It also exposed and verified a fix for short-path
 output containment. Other component selections and effect qualification remain
 open; this result does not complete P0-07 or the later VCP lifecycle work.
 
-The [committed Munarium selection](../development/munarium-source.md) adds 70
+The initial [committed Munarium selection](../development/munarium-source.md) added 70
 files and three libraries to the same Cargo workspace. [Import evidence](../evaluations/p0-07-munarium-import.md)
 records 200 native tests, unchanged Codex package pins and exact reconstruction.
 At that import, the static inventory covered 157 packages, 22 groups and 30 anchors.
 Gemini selection, remaining effect qualification and later runtime/asset gates
 remain open; P0-07 stays `in_progress`.
+
+SP-02 subsequently refreshes the same three-library boundary to Server 1.3.0
+(80 selected files). Its [refresh report](../evaluations/sp-02-munarium-refresh.md)
+records the new checks separately from the original P0-07 results.
 
 The [Gemini comparison runner](../development/gemini-baseline.md) adds explicit
 preparation, isolated profiles and complete-result checks for 402 selected native

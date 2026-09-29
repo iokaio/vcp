@@ -43,7 +43,7 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::num::NonZeroUsize;
-use std::sync::RwLock;
+use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use diskann::error::{ANNError, ANNResult};
 use diskann::graph::config::MaxDegree;
@@ -228,6 +228,18 @@ struct Store {
     adjacency: Vec<RwLock<AdjacencyList<u32>>>,
 }
 
+/// A node's adjacency list for reading. The per-node locks are poisoned only
+/// if a thread panicked while holding one; every write is a single
+/// clear/extend of a plain list that cannot unwind part-way, so the guard is
+/// recovered rather than failing every later search (P15/R32).
+fn read_list(node: &RwLock<AdjacencyList<u32>>) -> RwLockReadGuard<'_, AdjacencyList<u32>> {
+    node.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn write_list(node: &RwLock<AdjacencyList<u32>>) -> RwLockWriteGuard<'_, AdjacencyList<u32>> {
+    node.write().unwrap_or_else(PoisonError::into_inner)
+}
+
 impl Store {
     fn start_id(&self) -> u32 {
         self.count as u32
@@ -250,7 +262,7 @@ impl Store {
             .get(id as usize)
             .ok_or(ProviderError::OutOfRange(id))?;
         out.clear();
-        out.extend_from_slice(node.read().expect("adjacency lock poisoned").as_ref());
+        out.extend_from_slice(read_list(node).as_ref());
         Ok(())
     }
 }
@@ -323,7 +335,7 @@ impl provider::NeighborAccessorMut for Neighbors<'_> {
             .adjacency
             .get(id as usize)
             .ok_or(ProviderError::OutOfRange(id))?;
-        let mut list = node.write().expect("adjacency lock poisoned");
+        let mut list = write_list(node);
         list.clear();
         list.extend_from_slice(neighbors);
         Ok(())
@@ -335,7 +347,7 @@ impl provider::NeighborAccessorMut for Neighbors<'_> {
             .adjacency
             .get(id as usize)
             .ok_or(ProviderError::OutOfRange(id))?;
-        let mut list = node.write().expect("adjacency lock poisoned");
+        let mut list = write_list(node);
         list.extend_from_slice(neighbors);
         Ok(())
     }
@@ -585,9 +597,9 @@ impl DiskAnnVectorIndex {
             )));
         }
         let count = entries.len();
-        let mut data = Vec::with_capacity(count * dims);
-        let mut chunk_ids = Vec::with_capacity(count);
-        let mut start = vec![0.0f64; dims];
+        // Validate caller-supplied dimensions against actual vectors before
+        // using them as allocation sizes. Even a tiny invalid input must
+        // return an error rather than panic on capacity or product overflow.
         for (chunk_id, embedding) in entries {
             if embedding.len() != dims {
                 return Err(Error::Invalid(format!(
@@ -600,6 +612,23 @@ impl DiskAnnVectorIndex {
                     "embedding for {chunk_id:?} holds a non-finite value"
                 )));
             }
+        }
+        let values = count.checked_mul(dims).ok_or_else(|| {
+            Error::Limit("diskann vector count times dimensions overflows".into())
+        })?;
+        let mut data = Vec::new();
+        data.try_reserve_exact(values)
+            .map_err(|e| Error::Limit(format!("diskann vector allocation: {e}")))?;
+        let mut chunk_ids = Vec::new();
+        chunk_ids
+            .try_reserve_exact(count)
+            .map_err(|e| Error::Limit(format!("diskann id allocation: {e}")))?;
+        let mut start = Vec::new();
+        start
+            .try_reserve_exact(dims)
+            .map_err(|e| Error::Limit(format!("diskann centroid allocation: {e}")))?;
+        start.resize(dims, 0.0f64);
+        for (chunk_id, embedding) in entries {
             for (acc, v) in start.iter_mut().zip(embedding) {
                 *acc += *v as f64;
             }
@@ -666,7 +695,7 @@ impl DiskAnnVectorIndex {
             out.extend_from_slice(&v.to_le_bytes());
         }
         for node in &store.adjacency {
-            let list = node.read().expect("adjacency lock poisoned");
+            let list = read_list(node);
             out.extend_from_slice(&(list.len() as u32).to_le_bytes());
             for n in list.iter() {
                 out.extend_from_slice(&n.to_le_bytes());
@@ -683,19 +712,26 @@ impl DiskAnnVectorIndex {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         let bad = |what: &str| Error::Integrity(format!("diskann index: {what}"));
         let mut pos = 0usize;
+        // Every read goes through the bounds-checked readers in `bytes`, so a
+        // declared length that does not fit — including one whose end would
+        // overflow — is "truncated", never a wrapped range or a panic.
         let take = |pos: &mut usize, n: usize, what: &str| -> Result<&[u8], Error> {
-            if *pos + n > bytes.len() {
-                return Err(bad(&format!("truncated in {what}")));
-            }
-            let s = &bytes[*pos..*pos + n];
+            let s = crate::bytes::slice_at(bytes, *pos, n)
+                .ok_or_else(|| bad(&format!("truncated in {what}")))?;
             *pos += n;
             Ok(s)
         };
         let u32_at = |pos: &mut usize, what: &str| -> Result<u32, Error> {
-            Ok(u32::from_le_bytes(take(pos, 4, what)?.try_into().unwrap()))
+            let v = crate::bytes::le_u32_at(bytes, *pos)
+                .ok_or_else(|| bad(&format!("truncated in {what}")))?;
+            *pos += 4;
+            Ok(v)
         };
-        let u64_at = |pos: &mut usize, what: &str| -> Result<u64, Error> {
-            Ok(u64::from_le_bytes(take(pos, 8, what)?.try_into().unwrap()))
+        let u64_at = |pos: &mut usize, what: &str| -> Result<usize, Error> {
+            let v = crate::bytes::le_u64_at(bytes, *pos)
+                .ok_or_else(|| bad(&format!("truncated in {what}")))?;
+            *pos += 8;
+            usize::try_from(v).map_err(|_| bad("declared size overflows"))
         };
 
         let format = u32_at(&mut pos, "header")?;
@@ -704,15 +740,15 @@ impl DiskAnnVectorIndex {
                 "diskann index format {format}, this reader supports 1"
             )));
         }
-        let dims = u64_at(&mut pos, "header")? as usize;
-        let count = u64_at(&mut pos, "header")? as usize;
+        let dims = u64_at(&mut pos, "header")?;
+        let count = u64_at(&mut pos, "header")?;
         if dims == 0 || count == 0 {
             return Err(bad("declares an empty index"));
         }
         let params = GraphParams {
             max_degree: u32_at(&mut pos, "params")?,
             l_build: u32_at(&mut pos, "params")?,
-            alpha: f32::from_le_bytes(take(&mut pos, 4, "params")?.try_into().unwrap()),
+            alpha: f32::from_bits(u32_at(&mut pos, "params")?),
             l_search: u32_at(&mut pos, "params")?,
         };
         if !params.alpha.is_finite() || params.alpha < 1.0 {
@@ -735,18 +771,16 @@ impl DiskAnnVectorIndex {
             .checked_mul(dims)
             .and_then(|n| n.checked_mul(4))
             .ok_or_else(|| bad("declared size overflows"))?;
-        let mut data = Vec::with_capacity(count * dims);
+        // Take the bytes FIRST and size the vectors from what is actually
+        // there: reserving `count * dims` floats before the bounds check let a
+        // lying header request an impossible allocation.
         let (quads, rest) = take(&mut pos, vec_bytes, "vectors")?.as_chunks::<4>();
         debug_assert!(rest.is_empty());
-        for c in quads {
-            data.push(f32::from_le_bytes(*c));
-        }
-        let mut start = Vec::with_capacity(dims);
+        let data: Vec<f32> = quads.iter().map(|c| f32::from_le_bytes(*c)).collect();
+        // `dims * 4 <= vec_bytes` (count >= 1), which the checked product fit.
         let (quads, rest) = take(&mut pos, dims * 4, "start point")?.as_chunks::<4>();
         debug_assert!(rest.is_empty());
-        for c in quads {
-            start.push(f32::from_le_bytes(*c));
-        }
+        let start: Vec<f32> = quads.iter().map(|c| f32::from_le_bytes(*c)).collect();
 
         let id_ceiling = count as u32; // valid ids: 0..=count (count == start)
         let mut adjacency = Vec::with_capacity(count + 1);
@@ -793,6 +827,17 @@ impl DiskAnnVectorIndex {
 
 impl VectorIndex for DiskAnnVectorIndex {
     fn vector_candidates(&self, embedding: &[f32], limit: usize) -> Result<Vec<Candidate>, Error> {
+        Ok(self
+            .vector_candidates_diagnosed(embedding, limit)?
+            .candidates)
+    }
+
+    fn vector_candidates_diagnosed(
+        &self,
+        embedding: &[f32],
+        limit: usize,
+    ) -> Result<crate::diagnostics::CandidateBatch, Error> {
+        use crate::diagnostics::{CandidateBatch, CandidateDiagnostics};
         if embedding.len() != self.dims {
             return Err(Error::Invalid(format!(
                 "query has {} dimensions, index holds {}",
@@ -801,7 +846,14 @@ impl VectorIndex for DiskAnnVectorIndex {
             )));
         }
         if limit == 0 {
-            return Ok(Vec::new());
+            let mut diagnostics = CandidateDiagnostics::returned(limit, 0, 0);
+            diagnostics.visited = Some(0);
+            diagnostics.distance_computations = Some(0);
+            diagnostics.work_limit = Some(0);
+            return Ok(CandidateBatch {
+                candidates: Vec::new(),
+                diagnostics,
+            });
         }
         // A zero-norm query has no direction; every cosine distance is the
         // oracle's 1.0 and any traversal is arbitrary. Answer exactly what the
@@ -809,14 +861,24 @@ impl VectorIndex for DiskAnnVectorIndex {
         if embedding.iter().all(|v| *v == 0.0) {
             let mut ids: Vec<&String> = self.chunk_ids.iter().collect();
             ids.sort();
-            return Ok(ids
+            let candidates: Vec<_> = ids
                 .into_iter()
                 .take(limit)
                 .map(|id| Candidate {
                     chunk_id: id.clone(),
                     score: 1.0,
                 })
-                .collect());
+                .collect();
+            let mut diagnostics =
+                CandidateDiagnostics::returned(limit, candidates.len(), candidates.len());
+            diagnostics.visited = Some(self.chunk_ids.len());
+            diagnostics.distance_computations = Some(0);
+            diagnostics.work_limit = Some(self.chunk_ids.len());
+            diagnostics.exhausted = Some(true);
+            return Ok(CandidateBatch {
+                candidates,
+                diagnostics,
+            });
         }
 
         let k = limit.min(self.chunk_ids.len());
@@ -826,11 +888,12 @@ impl VectorIndex for DiskAnnVectorIndex {
         let mut ids = vec![0u32; k];
         let mut distances = vec![0f32; k];
         let mut output = IdDistance::new(&mut ids, &mut distances);
-        block_on(
-            self.index
-                .search(knn, &self.strategy, &self.context, embedding, &mut output),
-        )
-        .map_err(ann)?;
+        let stats =
+            block_on(
+                self.index
+                    .search(knn, &self.strategy, &self.context, embedding, &mut output),
+            )
+            .map_err(ann)?;
         use diskann::graph::search_output_buffer::SearchOutputBuffer as _;
         let filled = output.current_len();
 
@@ -851,7 +914,13 @@ impl VectorIndex for DiskAnnVectorIndex {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.chunk_id.cmp(&b.chunk_id))
         });
-        Ok(scored)
+        let mut diagnostics = CandidateDiagnostics::returned(limit, scored.len(), scored.len());
+        diagnostics.distance_computations = Some(stats.cmps as usize);
+        diagnostics.search_list = Some(l);
+        Ok(CandidateBatch {
+            candidates: scored,
+            diagnostics,
+        })
     }
 
     fn dimensions(&self) -> usize {
@@ -867,6 +936,35 @@ impl VectorIndex for DiskAnnVectorIndex {
 mod tests {
     use super::*;
     use crate::vector::FlatVectorIndex;
+
+    #[test]
+    fn poisoned_adjacency_retains_neighbors_and_accepts_a_complete_replacement() {
+        let mut neighbors = AdjacencyList::new();
+        neighbors.extend_from_slice(&[1]);
+        let store = Store {
+            dims: 1,
+            count: 1,
+            data: vec![0.0],
+            start: vec![0.0],
+            adjacency: vec![RwLock::new(neighbors), RwLock::new(AdjacencyList::new())],
+        };
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = store.adjacency[0].write().unwrap();
+            panic!("fixture adjacency poison");
+        }))
+        .is_err());
+        let mut actual = AdjacencyList::new();
+        store.read_neighbors(0, &mut actual).unwrap();
+        assert_eq!(actual.as_ref(), &[1u32]);
+        {
+            let mut next = write_list(&store.adjacency[0]);
+            next.clear();
+            next.extend_from_slice(&[0]);
+        }
+        store.read_neighbors(0, &mut actual).unwrap();
+        assert_eq!(actual.as_ref(), &[0u32]);
+        assert!(store.read_neighbors(2, &mut actual).is_err());
+    }
 
     /// Deterministic pseudo-vectors: splitmix64 over (i, d), so every run and
     /// machine builds the identical corpus AND every vector is distinct. (The
@@ -1069,5 +1167,42 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].chunk_id, "chunk-0000");
         assert!(got[0].score < 1e-6);
+    }
+
+    /// A format-1 header declaring one chunk (`id`) of `dims` dimensions,
+    /// with valid graph parameters and nothing after the id table.
+    fn lying_header(dims: u64) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&dims.to_le_bytes());
+        bytes.extend_from_slice(&1u64.to_le_bytes());
+        for p in [1u32, 1] {
+            bytes.extend_from_slice(&p.to_le_bytes());
+        }
+        bytes.extend_from_slice(&1.0f32.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        bytes.extend_from_slice(b"id");
+        bytes
+    }
+
+    #[test]
+    fn a_header_that_declares_an_impossible_size_is_an_integrity_error() {
+        // P15/R32: the parser reserved `count * dims` floats BEFORE checking
+        // that the bytes held them (a capacity-overflow panic, or an abort on
+        // a merely enormous reservation), and `take` added `pos + n` unchecked.
+        // Both sizes pass the existing `checked_mul` guard.
+        for dims in [1u64 << 61, (u64::MAX - 3) / 4] {
+            match DiskAnnVectorIndex::from_bytes(&lying_header(dims)) {
+                Err(Error::Integrity(msg)) => assert!(msg.contains("vectors"), "{msg}"),
+                other => panic!("dims {dims} gave {other:?}"),
+            }
+        }
+        // Control: the same header with an honest, small size fails only at
+        // the (absent) vector bytes, in the same way.
+        match DiskAnnVectorIndex::from_bytes(&lying_header(4)) {
+            Err(Error::Integrity(msg)) => assert!(msg.contains("vectors"), "{msg}"),
+            other => panic!("honest header gave {other:?}"),
+        }
     }
 }

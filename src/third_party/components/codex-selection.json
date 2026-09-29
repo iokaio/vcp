@@ -195,6 +195,10 @@
     {
       "path": "src/third_party/patches/codex/0041-cs1-authoring-markdown-checker.patch",
       "sha256": "21aaf5cfb44684faea1fea2559c2ab1b32a0934284bbc04ca9b66db61e0799a5"
+    },
+    {
+      "path": "src/third_party/patches/codex/0042-sp02-munarium-refresh.patch",
+      "sha256": "f35fce4af2c891320c4f9edb9cbed0d985031c274e424ad3213a9aa1b453593f"
     }
   ],
   "licenses": [
