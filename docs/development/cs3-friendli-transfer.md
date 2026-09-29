@@ -127,3 +127,25 @@ adding the invalidation boundary; neither suite dispatches a provider request.
 The registered shared suite passed 145/145 with no skips in 190.2 seconds:
 run `65f4b820-d37f-4af2-88a6-4240439bc325`, manifest SHA-256
 `b288eace1926837c8a0703085171d29764851e93d45b225506e7d4c797dcd415`.
+
+The next timing audit found repeated synchronous validations would still exceed
+the fixed provider window: a complete SKL block invokes the historical check 74
+times and each transferred block at least 304 times. Stat replay now obtains one
+fresh metadata snapshot per recorded stat operation and compares all originally
+observed properties against it, instead of repeating the same native stat call
+for every property. No snapshot survives a validation pass; both complete passes,
+file bytes, identities, negative paths, directory reads and runtime checks remain.
+The registered regression passed 22/22 tests with no skips in 84.3 seconds:
+run `9437a12f-b4ab-4c30-8e13-b35be4e28b7b`, manifest SHA-256
+`bec07a2717bd3aa581a7d1ad6306bb10f0017be2fbad1d5f5c309541d8f2fefd`.
+New tests count separate before/after snapshots for stat, lstat and descriptor
+stat and reject each observed metadata/type mutant. Real-history equivalence also
+passed all three invocations after the retirement barriers were added, again
+matching proof `738783a64f5c3faf3ec65888ebaeaa41ade83c70107b53d79ece7c1b43d6b9c4`:
+641,168, 51,196 and 50,815 milliseconds. Receipt
+`artifacts/cs3-history-reuse-check-02.json`, SHA-256
+`69e0e982a45f0f6c924dea8ca7488f777f06819eab52bd3b779071e35637ba66`,
+records unchanged inputs and sources with no model/native calls or claims. The
+concurrent unpaid retirement check was still running. These timings remain too
+slow for the nested all-six validation count; paid execution stays unopened while
+that synchronous read-only repetition is addressed.

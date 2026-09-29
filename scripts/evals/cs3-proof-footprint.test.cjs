@@ -306,3 +306,60 @@ test('actual frozen WEB inventory inspection supports capture and reuse without 
   assert.deepEqual(run('frozen-web', action, () => {}), expected); assert.equal(calls, 1);
   assert.equal(expected.cases.length, 6); assert.equal(expected.manifest_sha256, fixtures.manifestSha256);
 });
+
+test('stat replay uses one fresh snapshot per record in each before and after validation', t => {
+  for (const method of ['statSync', 'lstatSync', 'fstatSync']) {
+    const f = fixture(t), original = fs[method], identity = fs.statSync(f.file); let reads = 0, actions = 0;
+    // Explicit synthetic counting around the genuine native Stats result. The
+    // action and helper still receive the original values and ordinary real IO.
+    fs[method] = function (...args) {
+      const value = original.apply(this, args);
+      if (value.dev === identity.dev && value.ino === identity.ino) reads++;
+      return value;
+    };
+    try {
+      const checkpoints = [], guard = () => checkpoints.push(reads);
+      const action = () => {
+        actions++; const fd = method === 'fstatSync' ? fs.openSync(f.file, 'r') : null;
+        try {
+          const stat = fs[method](fd === null ? f.file : fd);
+          return { dev: stat.dev, ino: stat.ino, mode: stat.mode, size: stat.size, nlink: stat.nlink,
+            uid: stat.uid, gid: stat.gid, mtimeMs: stat.mtimeMs, file: stat.isFile(), directory: stat.isDirectory(), link: stat.isSymbolicLink() };
+        } finally { if (fd !== null) fs.closeSync(fd); }
+      };
+      const first = f.reuse.run(method, action, guard); reads = 0; checkpoints.length = 0;
+      assert.deepEqual(f.reuse.run(method, action, guard), first);
+      assert.equal(actions, 1); assert.equal(reads, 2, 'one snapshot before and one snapshot after reuse');
+      assert.deepEqual(checkpoints, [0, 1, 2], 'both validation passes and every guard remain present');
+    } finally { fs[method] = original; }
+  }
+});
+
+test('single-snapshot stat replay still rejects every observed base, property and method mutant', t => {
+  const f = fixture(t), original = fs.statSync, identity = original(f.file); let mutation = null, calls = 0;
+  const fields = ['dev', 'ino', 'mode', 'size', 'nlink', 'uid', 'gid', 'mtimeMs'];
+  const methods = ['isFile', 'isDirectory', 'isSymbolicLink', 'isBlockDevice', 'isCharacterDevice', 'isFIFO', 'isSocket'];
+  fs.statSync = function (...args) {
+    const value = original.apply(this, args);
+    if (value.dev === identity.dev && value.ino === identity.ino && mutation) {
+      // Windows file IDs can exceed the exact-integer range: adding one might
+      // round to the same Number, so use an unequivocally different value.
+      const changed = methods.includes(mutation) ? !value[mutation]() : value[mutation] === 0 ? 1 : 0;
+      Object.defineProperty(value, mutation, { value: methods.includes(mutation) ? () => changed : changed, configurable: true });
+    }
+    return value;
+  };
+  try {
+    const action = () => {
+      calls++; const stat = fs.statSync(f.file);
+      return { fields: fields.map(key => stat[key]), methods: methods.map(key => stat[key]()) };
+    };
+    const first = f.reuse.run('all-stat-observations', action, f.guard);
+    for (const name of [...fields, ...methods]) {
+      mutation = name;
+      assert.throws(() => f.reuse.run('all-stat-observations', action, f.guard), /Historical proof footprint/, name);
+    }
+    mutation = null;
+    assert.deepEqual(f.reuse.run('all-stat-observations', action, f.guard), first); assert.equal(calls, 1);
+  } finally { fs.statSync = original; }
+});

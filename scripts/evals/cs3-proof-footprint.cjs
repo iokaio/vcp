@@ -138,12 +138,12 @@ function capture(action) {
   function trackedStat(key, output, currentStat) {
     const base = { dev: output.dev, ino: output.ino, mode: output.mode };
     const record = add(key, { ok: true, value: base }, () => observe(currentStat, value => ({ dev: value.dev, ino: value.ino, mode: value.mode })));
+    record.currentStat ||= currentStat;
     record.properties ||= new Map();
     const property = (name, call, value) => {
       const key = (call ? 'call:' : 'get:') + name;
-      const check = () => { const current = currentStat(); return call ? current[name]() : current[name]; };
       if (record.properties.has(key)) need(equal(record.properties.get(key).result, value), 'stat property changed during proof');
-      else record.properties.set(key, { result: clone(value), check });
+      else record.properties.set(key, { name, call, result: clone(value) });
       return value;
     };
     return new Proxy(output, { get(target, key) {
@@ -289,8 +289,20 @@ function capture(action) {
       for (const record of ancestors.values()) need(equal(record.check(), record.result), 'ancestor identity changed');
       for (const record of files.values()) need(equal(record.check(), record.result), 'file bytes or identity changed');
       for (const record of records.values()) {
-        need(equal(record.check(), record.result), 'observed filesystem or Git state changed');
-        for (const property of record.properties?.values() || []) need(equal(property.check(), property.result), 'observed stat property changed');
+        if (record.currentStat) {
+          // One fresh snapshot per stat record and replay. All properties the
+          // original proof observed are compared against this same snapshot;
+          // no snapshot survives this validation pass or replaces byte checks.
+          const current = observe(() => {
+            const snapshot = record.currentStat();
+            return { snapshot, base: { dev: snapshot.dev, ino: snapshot.ino, mode: snapshot.mode } };
+          });
+          need(current.ok && equal({ ok: true, value: current.value.base }, record.result), 'observed filesystem or Git state changed');
+          for (const property of record.properties.values()) {
+            const snapshot = current.value.snapshot, value = property.call ? snapshot[property.name]() : snapshot[property.name];
+            need(equal(value, property.result), 'observed stat property changed');
+          }
+        } else need(equal(record.check(), record.result), 'observed filesystem or Git state changed');
       }
       need(environment(original) === baseline, 'environment changed during verification');
     }
