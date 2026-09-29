@@ -14,7 +14,7 @@
   "combined_cap_micros": 98913737,
   "combined_request_ceiling": 2631,
   "outer_cap_micros": 100000000,
-  "retirement_audit_sha256": null,
+  "retirement_audit_sha256": "077b559128145666372534fa4db23b32f1bb05b6f67b537528cc1b4aff7e60a8",
   "qualification": "shared_exact_funded_skl_pair_and_preflight_no_new_allowance",
   "consumed_liabilities_released": false,
   "qualification_waiver": false

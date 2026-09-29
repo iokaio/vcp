@@ -37,6 +37,20 @@ It does not add a global runtime halt that would invalidate historical review.
 Outputs cannot overlap preserved source or evidence. Failed partial retirement
 retains its claim and barriers; it cannot silently retry.
 
+The actual September 29 retirement passed. Audit
+`friendli-retirement-1/audit.json`, SHA-256
+`077b559128145666372534fa4db23b32f1bb05b6f67b537528cc1b4aff7e60a8`,
+binds preparation
+`b2ff1994efed5634b22644be592d66f908847f55e85aab2d3bf2be07d65c6c40`
+and the exclusive common-Git claim
+`cf21c7abf2e902295f2e709250577e797e85137917de2361d10ddde649684cbc`.
+All four old runtime entrypoints and old DOC preparation denied dispatch, with
+zero transport/model calls. Exact pre/post evidence remained equal; the five
+permanent barriers are hash-bound. The transfer decision now pins this audit.
+The operation retired exactly 90 unused reservations for transfer, preserved the combined
+USD 98.913737 / 2,631-request maximum, and released no consumed liabilities.
+It is retirement evidence, not provider or comparison qualification.
+
 ## Execution and acceptance
 
 The fresh SKL block must first have an actual validated disposition. UI, MCP,
@@ -149,3 +163,49 @@ records unchanged inputs and sources with no model/native calls or claims. The
 concurrent unpaid retirement check was still running. These timings remain too
 slow for the nested all-six validation count; paid execution stays unopened while
 that synchronous read-only repetition is addressed.
+
+The continuation scopes only fresh SKL/transfer `core.validate` and transfer
+`describe` calls, both audited synchronous read-only bodies. The first historical
+proof use is fully checked and every touched proof is fully checked again before
+the scope returns; nested uses retain source/module guards and independent result
+copies. All per-slot validation entrypoints, accounting and expiry checks still
+execute. No scope includes preparation writes, ownership handoffs, provider calls,
+browser execution or asynchronous work. Write-capable filesystem operations,
+asynchronous APIs, unexpected process calls and caught violations reject the
+scope; hooks are restored on success and failure. This is not an arbitrary
+JavaScript sandbox or authority for a prebound native capability.
+
+The registered footprint suite passed 29/29 tests without skips in 117.6 seconds:
+run `ce655d94-91b5-49d6-b91d-42570396f03a`, manifest SHA-256
+`ba50b72d52c9a015170af0d4b1750b3cac227ccb7f797644cf2eff9c4f2f5e12`.
+The offline suite ceiling is 180 seconds after its expanded measured runtime
+approached the previous 120-second bound; provider and native limits are unchanged.
+The actual scoped-history regression passed three scopes of eight historical
+checks, all 24 equal to the original proof, in 651,638, 48,337 and 48,558
+milliseconds. Receipt `artifacts/cs3-history-reuse-check-03.json`, SHA-256
+`7d1af9c2f7fb05cbb012c116dcd408b363d638320978fd8b0ace7b358a6ec86c`,
+binds the four implementation sources and unchanged inputs, with no model/native
+calls or claims. The first scope includes genuine original-proof capture; each
+warm scope still makes a complete entry/exit footprint check. This reduces nested
+validation cost without skipping any per-dispatch frontier. Live expiry and
+per-block qualification-window checks remain authoritative, not timing estimates.
+
+The scoped SKL host regression passed all three tests in 277.6 seconds, run
+`6ede13a8-5654-401b-b345-011ce25a4bb4`, manifest SHA-256
+`f979bee7d5e82a5b62eecaeb9981f1c9d9bd244066580db69fcf6f21268c71cd`.
+The retirement/transfer suite passed 12/12 in 130.6 seconds, run
+`5c610e17-4f6a-474b-9931-1170cbf460ac`, manifest SHA-256
+`b6fed1b23befd38dda54ac47f024e907c7fdd4d2c003889ffd794cf823c588dc`.
+The shared suite passed 145/145 in 195.9 seconds, run
+`c0cffab4-0dfb-4185-8b6c-6d4edc41906a`, manifest SHA-256
+`1f030285931ac33451141e1e5d8396f7811f160666955d8b5fe2cf838e27685b`.
+All had zero skips and made no provider calls. The host tests use explicit fake
+transports and do not establish live comparison benefit.
+
+The full scoped transfer host test also passed with no skips in 601.6 seconds:
+run `4afb26ae-44c5-4ccf-8981-189ded7e66da`, manifest SHA-256
+`8c1bc4a1cf7728861fd5a48098d6dfe83cb78cfe6ac45b73bfe3cf445fd527eb`.
+It retains real controller claims, accounting, reader joins and local/global halt
+behavior while the transport is explicitly fake; it makes no provider calls.
+Repository consistency also passed under run
+`5f38f746-2ac7-4d1f-b2ba-b8ae530be5ae`.

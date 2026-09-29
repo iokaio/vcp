@@ -232,6 +232,7 @@ function skillRemediationPrerequisites(input, decisionRef) {
   return reuseHistoryProof(key, () => originalSkillRemediationPrerequisites(input, decisionRef), guard);
 }
 function invalidateHistoryProofReuse() { reuseHistoryProof.clear(); }
+function withReadOnlyHistoryProofs(action) { return reuseHistoryProof.readOnly(action); }
 function originalSkillRemediationPrerequisites(input, decisionRef) {
   const approved = decision(decisionRef);
   need(equal(Object.keys(input).sort(), ['archive', 'retirement', 'terminal_disposition', 'terminal_plan']), 'Exact SKL historical prerequisites required');
@@ -414,7 +415,7 @@ function projectMixed(inputFile, outputFile, allFresh = false) {
   write(output, proof); return reference(output);
 }
 const projectFresh = (inputFile, outputFile) => projectMixed(inputFile, outputFile, true);
-module.exports = { decision, uiDecision, sourceClosure, historicalProjection, mixedHistoricalProjection, freshHistoricalProjection, skillRemediationPrerequisites, invalidateHistoryProofReuse, friendliRetirementPrerequisites, nativePrerequisites, validate, project, projectMixed, projectFresh };
+module.exports = { decision, uiDecision, sourceClosure, historicalProjection, mixedHistoricalProjection, freshHistoricalProjection, skillRemediationPrerequisites, invalidateHistoryProofReuse, withReadOnlyHistoryProofs, friendliRetirementPrerequisites, nativePrerequisites, validate, project, projectMixed, projectFresh };
 if (require.main === module) {
   try { const [command, first, second] = process.argv.slice(2); const result = command === 'project-history' ? project(first, second) : command === 'project-mixed-history' ? projectMixed(first, second) : command === 'project-fresh-history' ? projectFresh(first, second) : command === 'validate' ? validate(JSON.parse(read(first))) : (() => { throw Error('Usage: project-history INPUT NEW_PRIVATE_FILE | project-mixed-history INPUT NEW_PRIVATE_FILE | project-fresh-history INPUT NEW_PRIVATE_FILE | validate SPEC'); })(); process.stdout.write(JSON.stringify(result, null, 2) + '\n'); }
   catch (error) { process.stderr.write(error.message + '\n'); process.exitCode = 1; }

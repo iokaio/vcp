@@ -85,6 +85,12 @@ function compareAssets(actual, expected, skill) {
     && equal(actual.files.filter(file => file.path.startsWith(skill + '/')), expected.files.filter(file => file.path.startsWith(skill + '/'))), 'Transferred candidate bytes or identity changed');
 }
 function describe(spec, destination, checkExpiry = true) {
+  // Description is pure validation. The scope ends before prepare/begin can
+  // create ownership records and joins an enclosing core validation if present.
+  return require('./cs3-controller-recovery-qualification.cjs').withReadOnlyHistoryProofs(
+    () => describeValidated(spec, destination, checkExpiry));
+}
+function describeValidated(spec, destination, checkExpiry) {
   noSecrets(spec); const approval = validateSpec(spec), proof = retired(spec), directory = plain(path.resolve(destination)), all = tasks(spec);
   protectedDestination(spec, directory, proof);
   const base = doc.executionPlan(spec, path.join(directory, 'slots'), all, candidateRegistry, checkExpiry), mapping = [], ordered = [];

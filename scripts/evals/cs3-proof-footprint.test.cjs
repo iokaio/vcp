@@ -363,3 +363,126 @@ test('single-snapshot stat replay still rejects every observed base, property an
     assert.deepEqual(f.reuse.run('all-stat-observations', action, f.guard), first); assert.equal(calls, 1);
   } finally { fs.statSync = original; }
 });
+
+test('read-only scopes validate each touched proof once before and after, with nested scopes joining', t => {
+  const f = fixture(t), second = path.join(f.root, 'second.txt'), original = fs.statSync;
+  fs.writeFileSync(second, 'second retained');
+  const counts = new Map([[f.file, 0], [second, 0]]); let actions = 0, guards = 0;
+  fs.statSync = function (file, ...args) {
+    if (counts.has(file)) counts.set(file, counts.get(file) + 1);
+    return original.call(this, file, ...args);
+  };
+  try {
+    const action = file => () => { actions++; const stat = fs.statSync(file); return { size: stat.size, file: stat.isFile() }; };
+    const first = action(f.file), other = action(second), guard = () => { guards++; };
+    f.reuse.run('first', first, guard); f.reuse.run('second', other, guard);
+    counts.set(f.file, 0); counts.set(second, 0); guards = 0;
+    const result = f.reuse.run.readOnly(() => {
+      const one = f.reuse.run('first', first, guard);
+      f.reuse.run.readOnly(() => { f.reuse.run('first', first, guard); f.reuse.run('second', other, guard); });
+      f.reuse.run('second', other, guard); f.reuse.run('first', first, guard);
+      return { one, during: [...counts.values()] };
+    });
+    assert.deepEqual(result.during, [1, 1]); assert.deepEqual([...counts.values()], [2, 2]);
+    assert.equal(actions, 2); assert(guards >= 5, 'every repeated access must invoke its guard');
+    counts.set(f.file, 0); counts.set(second, 0);
+    f.reuse.run.readOnly(() => f.reuse.run('first', first, guard));
+    assert.deepEqual([...counts.values()], [2, 0], 'new top-level scope must start fresh validation');
+    counts.set(f.file, 0); f.reuse.run('first', first, guard);
+    assert.equal(counts.get(f.file), 2, 'default non-scoped validation remains before and after');
+  } finally { fs.statSync = original; }
+});
+
+test('scope detects file drift before admission and between or after repeated proof reads before returning', t => {
+  for (const when of ['before', 'between', 'end']) {
+    const f = fixture(t), externalWrite = fs.writeFileSync, before = hooks(); let actions = 0;
+    const action = () => { actions++; return { text: fs.readFileSync(f.file, 'utf8') }; };
+    f.reuse.run('file', action, f.guard);
+    // A retained original write function simulates an external actor changing
+    // the file; ordinary writes through the scope's API are tested separately.
+    if (when === 'before') externalWrite(f.file, 'outside mutation');
+    assert.throws(() => f.reuse.run.readOnly(() => {
+      f.reuse.run('file', action, f.guard);
+      if (when === 'between') { externalWrite(f.file, 'between mutation'); f.reuse.run('file', action, f.guard); }
+      if (when === 'end') externalWrite(f.file, 'exit mutation');
+      return { must_not_escape_scope: true };
+    }), /Historical proof footprint/);
+    assert.equal(actions, 1); assert.deepEqual(hooks(), before);
+  }
+});
+
+test('scope preserves directory and negative-existence observations through exit revalidation', t => {
+  for (const observation of ['directory', 'missing']) {
+    const f = fixture(t), absent = path.join(f.root, 'new-entry'), externalWrite = fs.writeFileSync;
+    const action = () => observation === 'directory' ? { names: fs.readdirSync(f.root) } : { absent: fs.existsSync(absent) };
+    f.reuse.run('observed', action, f.guard);
+    assert.throws(() => f.reuse.run.readOnly(() => {
+      f.reuse.run('observed', action, f.guard); externalWrite(absent, 'external change'); return {};
+    }), /Historical proof footprint/);
+  }
+});
+
+test('read-only scope denies caught writes, async IO, processes, clear and invalid proof calls', t => {
+  for (const kind of ['write', 'async-io', 'process', 'clear', 'guard']) {
+    const f = fixture(t), marker = path.join(f.root, 'never-created'), before = hooks();
+    const action = () => ({ text: fs.readFileSync(f.file, 'utf8') });
+    f.reuse.run('baseline', action, f.guard);
+    assert.deepEqual(f.reuse.run.readOnly(() => f.reuse.run('baseline', action, f.guard)), { text: 'retained-one' });
+    assert.throws(() => f.reuse.run.readOnly(() => {
+      try {
+        if (kind === 'write') fs.writeFileSync(marker, 'forbidden');
+        else if (kind === 'async-io') fs.readFile(f.file, () => {});
+        else if (kind === 'process') child.spawnSync(process.execPath, ['--version']);
+        else if (kind === 'clear') f.reuse.run.clear();
+        else f.reuse.run('baseline', action, () => { throw Error('synthetic module guard rejection'); });
+      } catch {}
+      return { must_not_escape_scope: true };
+    }), /Historical proof footprint/);
+    assert(!fs.existsSync(marker)); assert.deepEqual(hooks(), before);
+  }
+});
+
+test('scope rejects async/thenable callbacks and restores hooks after original exceptions', t => {
+  const f = fixture(t), before = hooks(), originalError = Error('synthetic scoped exception');
+  assert.deepEqual(f.reuse.run.readOnly(() => ({ synchronous: true })), { synchronous: true });
+  for (const action of [async () => ({}), () => Promise.resolve({}), () => ({ then() {} })]) {
+    assert.throws(() => f.reuse.run.readOnly(action), /Historical proof footprint/); assert.deepEqual(hooks(), before);
+  }
+  assert.throws(() => f.reuse.run.readOnly(() => { throw originalError; }), error => error === originalError);
+  assert.deepEqual(hooks(), before);
+  const action = () => ({ text: fs.readFileSync(f.file, 'utf8') });
+  assert.deepEqual(f.reuse.run.readOnly(() => f.reuse.run('after-throw', action, f.guard)), { text: 'retained-one' });
+});
+
+test('scope rejects caught write-capable read flags before touching original file bytes', t => {
+  const f = fixture(t), before = hooks(), bytes = fs.readFileSync(f.file);
+  for (const flag of ['w', 'a+']) {
+    assert.throws(() => f.reuse.run.readOnly(() => {
+      try { fs.readFileSync(f.file, { encoding: 'utf8', flag }); } catch {}
+      return { must_not_escape_scope: true };
+    }), /Historical proof footprint/);
+    assert.deepEqual(fs.readFileSync(f.file), bytes); assert.deepEqual(hooks(), before);
+  }
+  assert.equal(f.reuse.run.readOnly(() => fs.readFileSync(f.file, { encoding: 'utf8', flag: 'r' })), 'retained-one');
+});
+
+test('scope rejects filesystem/module/environment substitution and restores its hooks', t => {
+  for (const kind of ['filesystem', 'module', 'environment']) {
+    const f = fixture(t), before = hooks(), key = 'VCP_CS3_SCOPE_TEST_CONTEXT', prior = process.env[key];
+    const action = () => ({ text: fs.readFileSync(f.file, 'utf8') });
+    f.reuse.run('proof', action, f.guard);
+    try {
+      assert.throws(() => f.reuse.run.readOnly(() => {
+        f.reuse.run('proof', action, f.guard);
+        if (kind === 'filesystem') fs.readFileSync = before.read;
+        else if (kind === 'module') Module._load = function (...args) { return before.load.apply(this, args); };
+        else process.env[key] = 'changed-inside-scope';
+        return {};
+      }), /Historical proof footprint/);
+    } finally {
+      Module._load = before.load;
+      if (prior === undefined) delete process.env[key]; else process.env[key] = prior;
+    }
+    assert.deepEqual(hooks(), before);
+  }
+});

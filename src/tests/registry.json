@@ -112,7 +112,7 @@
       "args": ["--test", "scripts/evals/cs3-proof-footprint.test.cjs"],
       "backends": ["none"],
       "requires": [],
-      "timeout_ms": 120000,
+      "timeout_ms": 180000,
       "max_output_bytes": 2097152
     },
     "cs3-comparison-host": {

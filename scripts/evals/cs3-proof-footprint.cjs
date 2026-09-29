@@ -316,30 +316,147 @@ function capture(action) {
     poison = null;
   }
 }
+// This is a guard for audited synchronous validator bodies, not a sandbox for
+// arbitrary JavaScript (a caller may already hold a prebound native function).
+// No scope may encompass claims, dispatch, or an asynchronous continuation.
+let activeReadOnly = null;
+function readOnlyScope() {
+  const hooks = [], touched = new Map();
+  const loader = Module._load, createHash = crypto.createHash, clock = Date.now;
+  let violated = null, depth = 0;
+  const fail = label => { violated ||= label; throw Error('Historical proof footprint: ' + violated); };
+  const mark = label => { violated ||= label; };
+  const readonly = new Set(['existsSync', 'readFileSync', 'readdirSync', 'realpathSync', 'lstatSync', 'statSync',
+    'openSync', 'readSync', 'fstatSync', 'closeSync', 'opendirSync']);
+  function hook(object, key, replacement) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    need(descriptor && (descriptor.writable || descriptor.configurable), 'unhookable scope API');
+    hooks.push({ object, key, descriptor, replacement });
+  }
+  const nativeRealpath = fs.realpathSync.native;
+  for (const key of Object.keys(fs)) if (typeof fs[key] === 'function') {
+    const original = fs[key];
+    const wrapped = function (...args) {
+      if (depth) return original.apply(this, args);
+      if (!readonly.has(key)) return fail('unsupported read-only scope operation fs.' + key);
+      if (key === 'readFileSync') {
+        let options;
+        try { options = clone(args[1]); } catch { return fail('unsupported scope file read options'); }
+        if (!(args.length >= 1 && args.length <= 2 && (options === undefined || typeof options === 'string'
+          || options && typeof options === 'object' && Object.keys(options).every(name => ['encoding', 'flag'].includes(name))
+          && (options.flag === undefined || options.flag === 'r')))) return fail('write-capable or unsupported scope file read');
+        args = [args[0], options];
+      }
+      if (key === 'openSync' && !(args.length === 2 && (args[1] === 'r' || args[1] === fs.constants.O_RDONLY
+        || args[1] === (fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0))))) return fail('write-capable scope open');
+      depth++;
+      try {
+        const result = original.apply(this, args);
+        if (key !== 'opendirSync') return result;
+        return { path: result.path, readSync: () => result.readSync(), closeSync: () => result.closeSync(),
+          read: () => fail('asynchronous scope directory read'), close: () => fail('asynchronous scope directory close'),
+          [Symbol.asyncIterator]: () => fail('asynchronous scope directory iteration') };
+      } finally { depth--; }
+    };
+    if (key === 'realpathSync') wrapped.native = (...args) => nativeRealpath(...args);
+    hook(fs, key, wrapped);
+  }
+  for (const key of Object.keys(fs.promises)) if (typeof fs.promises[key] === 'function')
+    hook(fs.promises, key, () => fail('unsupported read-only scope operation fs.promises.' + key));
+  for (const key of Object.keys(cp)) if (typeof cp[key] === 'function') {
+    const original = cp[key];
+    hook(cp, key, function (...args) {
+      if (depth) return original.apply(this, args);
+      if (key !== 'execFileSync') return fail('unsupported read-only scope process');
+      try { gitArguments(...args); } catch (error) { mark(error.message); throw error; }
+      depth++; try { return original.apply(this, args); } finally { depth--; }
+    });
+  }
+  const realpathHook = hooks.find(item => item.object === fs && item.key === 'realpathSync');
+  const wrappedNative = realpathHook.replacement.native;
+  const install = () => { for (const item of hooks) Object.defineProperty(item.object, item.key,
+    { configurable: item.descriptor.configurable, enumerable: item.descriptor.enumerable, writable: true, value: item.replacement }); };
+  const restore = () => { for (const item of [...hooks].reverse()) Object.defineProperty(item.object, item.key, item.descriptor); };
+  const check = () => {
+    if (violated) return fail(violated);
+    if (!hooks.every(item => item.object[item.key] === item.replacement) || fs.realpathSync.native !== wrappedNative)
+      return fail('read-only scope API changed');
+    if (Module._load !== loader || crypto.createHash !== createHash || Date.now !== clock)
+      return fail('read-only scope module, hashing or clock API changed');
+  };
+  const canonical = () => hooks.every(item => {
+    const descriptor = Object.getOwnPropertyDescriptor(item.object, item.key);
+    return equal(descriptor, item.descriptor);
+  }) && fs.realpathSync.native === nativeRealpath;
+  install();
+  return { touched, mark, check, restore,
+    suspend(action) {
+      check(); restore(); const priorPoison = poison; poison = null;
+      try { return action(); }
+      catch (error) { mark(error.message); throw error; }
+      finally {
+        const unchanged = canonical(); install(); poison = priorPoison;
+        if (!unchanged) fail('canonical API changed during historical proof');
+      }
+    } };
+}
 function createProofReuse() {
   const proofs = new Map();
-  const run = function (key, action, guard) {
+  const invoke = function (key, action, guard) {
     need(typeof key === 'string' && key.length <= 65536 && typeof action === 'function' && typeof guard === 'function', 'invalid private proof call');
     need(!capturing, 'nested reuse is unsupported');
+    const scope = activeReadOnly;
+    const execute = action => scope ? scope.suspend(action) : action();
     guard();
     let entry = proofs.get(key);
     if (!entry) {
       need(proofs.size < limits.proofs, 'proof bound exceeded');
       const loader = Module._load;
-      entry = { ...capture(action), loader }; guard();
+      entry = { ...execute(() => capture(action)), loader }; guard();
       need(Module._load === loader, 'module loader changed'); proofs.set(key, entry);
     } else {
       need(Module._load === entry.loader, 'module loader changed');
-      entry.validate(); guard();
+      if (!scope || !scope.touched.has(entry)) execute(() => entry.validate());
+      guard();
     }
     const result = clone(entry.proof);
-    entry.validate(); guard();
+    if (scope) scope.touched.set(entry, guard);
+    else entry.validate();
+    guard();
     need(Module._load === entry.loader, 'module loader changed');
     return result;
   };
+  const run = (...args) => {
+    try { return invoke(...args); }
+    catch (error) { if (activeReadOnly) activeReadOnly.mark(error.message); throw error; }
+  };
   // Discard only. Authorized additive retirement barriers use this before a
   // completely new genuine proof; unexpected drift never clears itself.
-  run.clear = () => { need(!capturing, 'cannot invalidate an active proof'); proofs.clear(); };
+  run.clear = () => { need(!capturing && !activeReadOnly, 'cannot invalidate an active proof or read-only scope'); proofs.clear(); };
+  run.readOnly = action => {
+    need(typeof action === 'function' && action.constructor?.name !== 'AsyncFunction' && !capturing,
+      'read-only scope must be synchronous and outside capture');
+    if (activeReadOnly) {
+      try {
+        const result = action();
+        need(!result || typeof result.then !== 'function', 'asynchronous read-only scope is unsupported');
+        activeReadOnly.check(); return result;
+      } catch (error) { activeReadOnly.mark(error.message); throw error; }
+    }
+    const scope = readOnlyScope(), priorPoison = poison;
+    activeReadOnly = scope; poison = scope.mark;
+    try {
+      const result = action();
+      need(!result || typeof result.then !== 'function', 'asynchronous read-only scope is unsupported');
+      scope.check();
+      for (const [entry, guard] of scope.touched) {
+        need(Module._load === entry.loader, 'module loader changed');
+        scope.suspend(() => entry.validate()); guard();
+        need(Module._load === entry.loader, 'module loader changed');
+      }
+      scope.check(); return result;
+    } finally { scope.restore(); activeReadOnly = null; poison = priorPoison; }
+  };
   return run;
 }
 module.exports = { createProofReuse, limits };

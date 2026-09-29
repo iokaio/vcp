@@ -169,6 +169,16 @@ function prepare(specFile, destination) {
   return { plan: path.join(directory, 'plan.json'), sha256: sha(read(path.join(directory, 'plan.json'))), runs: plan.runs.length, model_calls: 0 };
 }
 function validate(plan, hash, checkExpiry = true) {
+  if (plan.skill_remediation || plan.friendli_transfer) {
+    // This synchronous frontier is read-only and ends before any claim or
+    // dispatch. Repeated historical prerequisites share full before/after
+    // checks here; every slot still enters this frontier independently.
+    return require('./cs3-controller-recovery-qualification.cjs').withReadOnlyHistoryProofs(
+      () => validatePlan(plan, hash, checkExpiry));
+  }
+  return validatePlan(plan, hash, checkExpiry);
+}
+function validatePlan(plan, hash, checkExpiry) {
   if (plan.friendli_transfer) require('./cs3-friendli-transfer.cjs').validate(plan, hash);
   else if (plan.skill_remediation) require('./cs3-skill-remediation.cjs').validate(plan, hash);
   else if (plan.remediation) require('./cs3-document-remediation.cjs').validate(plan, hash);
