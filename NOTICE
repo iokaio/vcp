@@ -96,3 +96,5 @@ the same upstream revision and license.
 VCP's response-boundary adaptation defers retained tool construction until a
 trusted host admits a completed response. Failed streams discard pending calls.
 The selected OpenAI Codex Apache-2.0 source and attribution remain unchanged.
+
+The document-authoring package (2.0.0) is adapted from Anthropic skills at 8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4, Apache-2.0. Source and modification records and the license travel in the package.

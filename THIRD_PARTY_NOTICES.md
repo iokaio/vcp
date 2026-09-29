@@ -221,3 +221,5 @@ the pinned Apache-2.0 sources selected for native VCP ports. Each distributed
 port retains its license and source/modification record. Restrictive document
 skills, unlicensed material, GPL/LGPL components, fonts and artwork are not
 selected by this import. See the [active skills plan](docs/research/skillsplan-new/.md).
+
+- [document-authoring](src/skills/builtin/document-authoring/SKILL.md) 2.0.0: Apache-2.0; see its package-local source and dependency notices.
