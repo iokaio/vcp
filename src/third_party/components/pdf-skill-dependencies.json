@@ -1,0 +1,57 @@
+{
+  "dependencies": [
+    {
+      "name": "pypdf",
+      "version": "6.14.2",
+      "license": "BSD-3-Clause",
+      "license_files": [
+        {
+          "path": "pypdf-6.14.2.dist-info/licenses/LICENSE",
+          "sha256": "a97ac230e5f33ef10a5367a850eb01f91f1a0b064e34742c7794d2294557f524"
+        }
+      ],
+      "bundled": false
+    },
+    {
+      "name": "reportlab",
+      "version": "5.0.1",
+      "license": "BSD-3-Clause",
+      "license_files": [
+        {
+          "path": "reportlab-5.0.1.dist-info/licenses/LICENSE",
+          "sha256": "ef831761646313921375fc2cb888e8eeaf7da213d0b92852c10c42f3a0b4d138"
+        }
+      ],
+      "bundled": false
+    },
+    {
+      "name": "Pillow",
+      "version": "12.3.0",
+      "license": "MIT-CMU",
+      "license_files": [
+        {
+          "path": "pillow-12.3.0.dist-info/licenses/LICENSE",
+          "sha256": "4f7866a74802c6326f81faff59a56546b6aec2b10b91973e0e9308de95e79857"
+        }
+      ],
+      "bundled": false
+    },
+    {
+      "name": "charset-normalizer",
+      "version": "3.5.1",
+      "license": "MIT",
+      "license_files": [
+        {
+          "path": "charset_normalizer-3.5.1.dist-info/licenses/LICENSE",
+          "sha256": "18577485d3704f1a479ded8e573c0976cfed315fd2fd17983fa988da4c2f70d1"
+        }
+      ],
+      "bundled": false
+    }
+  ],
+  "excluded": [
+    "Anthropic pdf and xlsx skill code/prose/assets at 8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4",
+    "ReportLab DarkGarden GPL font assets"
+  ],
+  "test_font": "ReportLab Bitstream Vera, separately permissively licensed, not distributed"
+}

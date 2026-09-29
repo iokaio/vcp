@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "pdf-workflows",
+  "version": "1.0.0",
+  "description": "Extract page-referenced text from local PDFs and create bounded text PDFs with an authorized Unicode font when needed.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:pdf-workflows"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "82afce15b60fdec7467060477eaf4032434eec767e0c2e0efad75d32bad4405e"
+  },
+  "resources": [
+    {
+      "path": "LICENSE.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "NOTICE.md",
+      "sha256": "c8f64964b38849e84cfe0640c168847cc03de6a1bb9f1124c80136446cb9f514"
+    },
+    {
+      "path": "references/tooling.md",
+      "sha256": "f8cf52236ef94e30916a7fb583c09d5e85cf75ca5d3c21cd3f4d49805dbbb526"
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "ccf8572900eb575343c623479bccc6a7ff6ba350b35396cf1ba99e3f95dcc9c5"
+    },
+    {
+      "path": "scripts/pdf_workflows.py",
+      "sha256": "b7b92f30ba685a2416457f1b904d0aafda755460ca1558918c6e269670a7d895"
+    }
+  ]
+}

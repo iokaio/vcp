@@ -950,6 +950,23 @@
       "fixtures": [],
       "acceptance_policy": "ADR-069; scoped functional and package verification",
       "owner_task": "SP-11"
+    },
+    {
+      "id": "pdf-workflows",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided",
+        "review": "provided",
+        "generate": "provided"
+      },
+      "test_execution": "see_scoped_tests_and_pr",
+      "live_quality": "not_measured",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [],
+      "selection": "explicit_request",
+      "fixtures": [],
+      "acceptance_policy": "ADR-069; scoped functional and package verification",
+      "owner_task": "SP-09"
     }
   ],
   "limitations": [
