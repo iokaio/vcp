@@ -7,13 +7,14 @@ schema_version = 1
 id = "anthropic-skills"
 origin = "https://github.com/anthropics/skills"
 commit = "8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4"
-state = "candidate"
+state = "imported_unqualified"
 root_license = "NOASSERTION"
 license_scope = "Per-skill licenses only; six selected Apache-2.0 sources. Exclude GPL/LGPL, restrictive document skills, and unlicensed doc-coauthoring."
 owner_task = "SP-01"
 component_notes = "components/anthropic-skills.md"
 license_audit = "components/anthropic-skills.json"
 reuse_form = "Selected adaptations into native VCP skill packages with package-local source records"
+selection_state = "Six Apache-2.0 ports shipped in catalog 1.10.0; native package records govern adapted bytes, with scoped functional verification under ADR-069 and no blanket live-quality claim"
 
 [[upstream]]
 id = "codex"
