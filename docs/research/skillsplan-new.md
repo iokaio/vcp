@@ -5,6 +5,7 @@ Status: complete, September 29, 2026; delivery recorded in
 the original-only implementation rule and the universal comparative-evaluation
 gate in [the previous plan](../plan/24-skills-follow-on.md).
 Decision: [ADR-069](../adr/069-practical-skill-ports.md).
+Follow-on: [skills upgrade plan](skills-upgrade-plan.md) (SU series).
 
 ## Goal and scope
 

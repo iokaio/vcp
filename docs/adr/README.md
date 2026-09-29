@@ -111,3 +111,5 @@ The [subsystem designs](../architecture/README.md) define implementation contrac
 Return to the [documentation index](../README.md).
 
 [ADR-069](069-practical-skill-ports.md) replaces original-only skill development and blanket comparative release gates with licensed ports and scoped verification.
+
+[ADR-070](070-skill-resource-roles-and-discovery.md) adds context/file skill resource roles, verified helper materialization and description discovery for cue-less skills.

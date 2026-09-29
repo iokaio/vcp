@@ -155,7 +155,7 @@ Reuse behavior intentionally.
 
 ## 7a. Skills: Reuse and Proportionate Verification
 
-For skills work, follow [the active replacement plan](docs/research/skillsplan-new.md). The owner's September 29, 2026 direction supersedes earlier original-only and blanket comparative-qualification requirements.
+For skills work, follow [the active replacement plan](docs/research/skillsplan-new.md) and its follow-on [skills upgrade plan](docs/research/skills-upgrade-plan.md). The owner's September 29, 2026 direction supersedes earlier original-only and blanket comparative-qualification requirements.
 
 Prefer porting useful implementations from [anthropics/skills](https://github.com/anthropics/skills), alongside existing approved upstreams. Check each skill's license and every included resource/dependency at a pinned revision. Apache-2.0 and other compatible open-source licenses are permitted; GPL, LGPL, restrictive source-available terms and missing copying permission are excluded. Preserve licenses, attribution and meaningful modification notes. Public source visibility is not a license.
 
