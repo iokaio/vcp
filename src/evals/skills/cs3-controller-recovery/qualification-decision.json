@@ -1,0 +1,23 @@
+{
+  "schema": "cs3-controller-recovery-qualification-decision/1",
+  "decision_id": "CS3-controller-recovery-failclosed-2026-09-29",
+  "historical_root": "D:/code/Github/vcp/artifacts/cs3-prospective-remediation",
+  "historical_commit": "6de62de0",
+  "historical_source_sha256": "84d6b90185d7ea16f11eb548f843e78a97daa218bda0d4a55bc759b099727320",
+  "historical_archive_receipt_sha256": "d69dcff6805cdd8accc31d0ade8aa4bd0417112c8a13f035851453f28c50095d",
+  "historical_build_receipt_sha256": "aa1ab692434783358d419069dc88b17e708eed05b7ebaf7b285701a7e09aebb9",
+  "executable_sha256": "8650c1670b1c5079a3777f11321cd92b76aeaec4130616ee4df960bfae6bdafc",
+  "historical_ui_matrix_sha256": "818074b97799d7d1bf52852dc16ba704de49f6f7f763924b3b6d909d7fc25163",
+  "historical_web_sha256": "a5bb97a72a07650d2682808de02d5f9fd71d445758167685652ab2ad6956dab5",
+  "allowed_native_source_changes": ["Controller-helpers.ps1", "Invoke-NativeProbe.ps1", "Test-Contracts.ps1"],
+  "new_native_source_sha256": null,
+  "new_ui_matrix_sha256": null,
+  "new_web_sha256": null,
+  "new_pause_sha256": null,
+  "new_cancel_sha256": null,
+  "new_owner_loss_sha256": null,
+  "historical_comparison_proof_sha256": null,
+  "model_calls": 0,
+  "historical_results_modified": false,
+  "qualification_waiver": false
+}

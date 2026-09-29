@@ -41,3 +41,45 @@ rewrite was performed. The wrapper and helpers belong to the 23-file browser
 qualification closure, not the shipped Rust runtime. New source-bound native
 qualification must be recorded separately before final acceptance; existing
 comparison evidence remains verifiable under its preserved source snapshot.
+
+## Superseding qualification join
+
+`scripts/evals/cs3-controller-recovery-qualification.cjs` implements the unpaid
+final join, registered in `cs3-webapp`. The source-bound decision starts with
+null new-evidence pins; it cannot qualify until genuine observations are bound.
+The original comparison gate retains its historical UI decision unchanged.
+
+The historical projection authenticates the preserved source/archive, executable
+and build identities, then invokes that source's actual review validator for all
+six complete 18-slot comparisons. Every skill must genuinely qualify with two
+independent readers and the required normal-case benefit. Dependency loads are
+hash-checked and restricted to the authenticated closure; preloaded exports are
+rejected and invocation-owned modules are evicted afterward. Source, plans and
+protected evidence inventories are checked before/after review. This is not a
+passed-summary import, and it writes no historical results.
+
+The final join requires new source-bound WEB observations, all 23 UI controls,
+pause/cancellation/owner-loss evidence, and unchanged adversarial/Node controls.
+Cancellation and owner loss must carry exact process/token/job/profile evidence,
+not just a successful status. Six normal UI slots retain their original returned
+bytes and canonical invalid-output failures. Fresh browser status/assertion
+vectors must equal the measurements shown to the old readers; any changed
+semantics reopen acceptance rather than silently reusing stale reader judgments.
+
+Seven synthetic model-free tests passed (58.6 seconds), including authenticated
+module loading, cache substitution, source/root tampering, a complete synthetic
+join, missing pins, lifecycle identity mutants and changed UI assertions. The
+pending-pin test was subsequently made independent of production pin state and
+passed its focused rerun. Synthetic archive pins and native graders are explicitly
+substituted in these tests; they are not native qualification evidence. Genuine
+native requalification and the final six-qualified-skill projection remain pending.
+
+Independent review cleared the repaired cache, lifecycle-identity and retained-UI
+boundaries, with seven focused tests passing in 61.6 seconds. The registered
+`cs3-webapp` regression then passed all 133 tests, zero skips, in 65.3 seconds:
+run `eee99917-da88-45cf-b8ef-9fdefdb3f390`, manifest SHA-256
+`0adbf919a33c66839306573663848d75a3f18d227748c9281342107eb81ce219`.
+Its offline harness timeout is now 180 seconds, based on the measured runtime;
+no assertion, native deadline or paid-run limit changed. An earlier 130/133 run
+retains three missing-source errors from the isolated sparse checkout. Restoring
+those tracked conformance-source prerequisites resolved the setup failures.

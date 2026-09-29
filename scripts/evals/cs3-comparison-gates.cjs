@@ -107,6 +107,13 @@ function uiFailures(caseId, variant) {
 }
 function uiQualification(receipt, reference) {
   const decision = require('../../src/evals/skills/cs3-comparison/acceptance-decision.json');
+  return uiQualificationForDecision(receipt, reference, decision);
+}
+function recoveryUiQualification(receipt, reference, decisionReference) {
+  const decision = require('./cs3-controller-recovery-qualification.cjs').uiDecision(decisionReference);
+  return uiQualificationForDecision(receipt, reference, decision);
+}
+function uiQualificationForDecision(receipt, reference, decision) {
   const ui = require('./cs3-ui-artifact.cjs'), controls = require('./cs3-ui-controls.cjs'), adapter = require('./webapp-execution.cjs');
   if (decision.schema !== 'cs3-prospective-ui-acceptance-decision/1' || decision.authority !== 'owner_explicit_approval_of_prospective_replacement'
     || decision.historical_ui_regrade !== 'not_run_originals_unavailable' || decision.replacement_admission_gate !== 'ui_qualification') throw Error('Explicit prospective replacement decision required');
@@ -166,7 +173,7 @@ function projectWeb(reference, destination) {
   write(path.join(directory, 'projection.json'), result);
   return result;
 }
-module.exports = { bound, denial, nodeControls, web, retainedUi, uiQualification, uiFailures, validate, projectWeb, nodeChecks };
+module.exports = { bound, denial, nodeControls, web, retainedUi, uiQualification, recoveryUiQualification, uiFailures, validate, projectWeb, nodeChecks };
 if (require.main === module) {
   try {
     const [command, referenceFile, destination, ...extra] = process.argv.slice(2);
