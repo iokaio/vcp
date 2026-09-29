@@ -164,3 +164,37 @@ its body SHA-256 is
 
 The separate [retained frontend recovery record](cs3-retained-ui-recovery.md)
 describes the still-missing historical UI output evidence.
+
+## September 29 runtime and DOC 1.0.5 acceptance
+
+The [new source-bound qualification build](cs3-document-remediation.md) passed
+the same four-stage chain: install the retained baseline, upgrade, exact rollback,
+and re-upgrade. The protected sentinel and 21-entry builtin catalog remained
+unchanged. All five installed-skill tests passed without failures or skips,
+including offline discovery, explicit activation, lazy resources, persistent
+revocation and terminal behavior. No provider request was dispatched.
+
+| Evidence | SHA-256 |
+|---|---|
+| New qualification executable | `8650c1670b1c5079a3777f11321cd92b76aeaec4130616ee4df960bfae6bdafc` |
+| New unsigned archive | `3059be60b2827acdabfb1e6afe0a2df3aff459d830f6b0a5e9d10b9dc6c7496a` |
+| Four-stage installation report | `8bbbd69e59d0016ef778452d500dd676f3b71938a8c2b274600f0da6e1dc9094` |
+| Exact installed-candidate tests | `4ddfa5f777fc00b6f17105983f60a85970dc804b21ab23f9af8f94245cab08a7` |
+
+The six-candidate, thirteen-file staged inventory is
+`fb3d450ee827536ac752022dd3f13e97e5096609d84433ef3b3512fb69351300`.
+Only DOC is version 1.0.5; the other five prospective packages are unchanged.
+Every candidate file, executable, catalog, runner and test-source identity remained
+unchanged before and after the installed checks.
+
+Evidence is retained in the prospective worktree under
+`artifacts/cs3-doc105-package/562915e0-ac54-4e37-968c-16dbb1276ed6/` and
+`artifacts/cs3-doc105-installed/41eff6e5-b17d-4e9b-a4c2-e4ede5d6870f/`.
+The installation report is in
+`vcp-authoring-install-ac9f17e6-b3b1-4da2-bdc9-d75c625884d3/result.json`
+under the user's temporary directory. The package helper truthfully retains
+`caller-supplied-unverified` provenance: its older build-receipt schema was not
+substituted. The separate genuine new-build receipt
+`f147f9a461b299a56572919ce3666ede4f9a3d1ac9ffad92de06db48efa151de`
+joins by the exact executable digest above. This proves package acceptance, not
+comparison benefit, default promotion or completion of CS-3.

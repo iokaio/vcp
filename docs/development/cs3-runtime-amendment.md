@@ -134,7 +134,7 @@ and every historical observation remain unchanged. This is not qualification.
 
 The genuine new binary and final pinned build passed, as recorded in the
 [build checkpoint](cs3-document-remediation.md#shared-prospective-allocation-and-admission).
-The new-binary preflight, live
-comparisons, browser grading, reader dispositions and exact DOC 1.0.5 installation
-acceptance are still required. No amendment provider calls have been made.
-CS-3 remains incomplete.
+The new provider qualification passed with two settled responses costing
+USD 0.000197. Exact DOC 1.0.5 package acceptance passed four installation stages
+and all five installed tests. The new-binary preflight, live comparisons, browser
+grading and reader dispositions are still required. CS-3 remains incomplete.

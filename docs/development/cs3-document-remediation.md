@@ -135,9 +135,11 @@ consumer's complete source, evidence, ownership and accounting checks. Final
 registered regressions passed without skips: 126 webapp, 29 DOC-remediation and
 22 runtime-amendment tests.
 
-No remediation provider calls have been made. The runtime amendment introduces
-additional controller and retirement-proof tests. The historical block is now
-terminal; genuine new-binary
-preflight, fresh comparisons, independent dispositions and exact-package acceptance for the
-new candidate bytes remain required. Prior DOC 1.0.4 installation evidence cannot
-qualify DOC 1.0.5. CS-3 remains incomplete until all required acceptance gates pass.
+The actual shared allocation is now claimed, and the newly authenticated provider
+qualification pair passed with two settled responses costing USD 0.000197.
+[Exact new-package acceptance](cs3-package-acceptance.md#september-29-runtime-and-doc-105-acceptance)
+also passed all four installation stages and five installed tests. This is new
+evidence for DOC 1.0.5, not reuse of DOC 1.0.4 acceptance.
+
+New-binary preflight, fresh comparisons, browser grades and independent
+dispositions remain required. CS-3 remains incomplete until those gates pass.

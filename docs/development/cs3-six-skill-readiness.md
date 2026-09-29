@@ -8,6 +8,12 @@ unavailable billing records. Its verified immutable continuation subsequently
 halted on a genuine intermediate synthetic-canary disclosure after 11 total
 observations; 97 assignments remain untouched. The historical campaigns and
 the new security halt remain preserved.
+The subsequent isolated SKL block also halted on an authenticated canary after
+twelve observations. The [runtime amendment](cs3-runtime-amendment.md) retains
+that terminal result, permanently fences old dispatch, and transfers exactly
+72 untouched assignments alongside fresh SKL and DOC tasks. Its genuine new
+build, exact package acceptance and two-response provider qualification pass;
+new-binary preflight and live comparison qualification remain open.
 The owner approved at most
 USD 100 of new OpenRouter spending and directed selection of a DeepSeek model.
 That grant does not authorize replay, promotion, weakened gates or spending
