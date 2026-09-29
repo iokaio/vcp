@@ -152,6 +152,19 @@ Do not copy large upstream subsystems merely because they already exist.
 
 Reuse behavior intentionally.
 
+
+## 7a. Skills: Reuse and Proportionate Verification
+
+For skills work, follow [the active replacement plan](docs/research/skillsplan-new/.md). The owner's September 29, 2026 direction supersedes earlier original-only and blanket comparative-qualification requirements.
+
+Prefer porting useful implementations from [anthropics/skills](https://github.com/anthropics/skills), alongside existing approved upstreams. Check each skill's license and every included resource/dependency at a pinned revision. Apache-2.0 and other compatible open-source licenses are permitted; GPL, LGPL, restrictive source-available terms and missing copying permission are excluded. Preserve licenses, attribution and meaningful modification notes. Public source visibility is not a license.
+
+Use the original eight workflow goals to select ports. Keep VCP's existing descriptors, loader, provider boundaries and tools. Deliver one PR per skill, with separate PRs for shared prerequisites and the selected Munarium refresh. Refresh useful Munarium libraries without importing unrelated services.
+
+Use focused functional tests, real helper smoke checks, package/hash validation and relevant security regressions. Skill changes do not require a universal comparative model campaign, fixed run count, frozen cohort, superiority proof, or Munarium memory-admission evidence. Run such experiments only for a concrete question and within an authorized budget. Preserve prior evidence as historical records; record actual limitations and unrun checks honestly.
+
+This is a skills development policy, not a relaxation of runtime authorization, sandboxing, secret handling, path/process restrictions, source precedence, package integrity, user-data preservation, or Munarium's durable-memory governance. A skill cannot grant itself tools or claim unsupported execution, visual inspection or recalculation.
+
 ## 8. Keep Provider Boundaries Clean
 
 Provider-specific behavior must remain behind the appropriate provider boundary.

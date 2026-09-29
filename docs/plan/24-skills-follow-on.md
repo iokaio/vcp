@@ -1,5 +1,7 @@
 # 24 — Original workflow skills follow-on
 
+> Current skills delivery follows [the replacement plan](../research/skillsplan-new/.md) and ADR-069. The original-only rule and universal comparative-promotion gates below are historical, superseded by owner direction on September 29, 2026. Original workflow goals and recorded outcomes remain useful.
+
 Status: CS-0 scope and qualification design established September 24, 2026;
 CS-1 is accepted and closed by owner direction as non-default candidates, with
 remaining qualification work retained in the candidates README. CS-2's three
