@@ -1,0 +1,8 @@
+# Development-only pins for src/tests/skills; skills never install dependencies.
+# Keep in step with src/skills/builtin/spreadsheet-workflows/requirements.txt.
+# XlsxWriter is test-only: it independently produces cached-value fixtures.
+openpyxl==3.1.5
+defusedxml==0.7.1
+formualizer==0.9.3
+et-xmlfile==2.0.0
+XlsxWriter==3.2.9

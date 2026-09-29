@@ -1,0 +1,6 @@
+# Development-only pins for src/tests/skills; skills never install dependencies.
+# Keep in step with src/skills/builtin/pdf-workflows/requirements.txt.
+pypdf==6.14.2
+reportlab==5.0.1
+pillow==12.3.0
+charset-normalizer==3.5.1

@@ -101,8 +101,8 @@ Record actual checks and any unrun checks in the ledger.
 
 | Item | Dependency | Deliverable | State |
 |---|---|---|---|
-| SU-00 | Owner direction | This plan, ADR-070 and guidance pointers | in review |
-| SU-01 | None | Run skill helper tests in CI | planned |
+| SU-00 | Owner direction | This plan, ADR-070 and guidance pointers | complete; [PR #212](https://github.com/iokaio/vcp/pull/212) merged |
+| SU-01 | None | Run skill helper tests in CI | in review |
 | SU-02 | SU-00 | Resource roles in the loader | planned |
 | SU-03 | SU-02 | Helper materialization | planned |
 | SU-04 | SU-00 | Discovery cues, root markers and descriptions | planned |
@@ -134,6 +134,14 @@ them after SU-05.
 
 **Acceptance:** CI output shows the helper tests and browser checks executed,
 not skipped.
+
+Delivered as the separate `Skill helpers` CI job so the ten-minute delivery job
+is unchanged. Test pins live in `src/tests/skills/requirements-*.txt`; a unit
+test requires them to include every shipped package pin. Playwright is pinned
+by `src/tests/skills/browser/package-lock.json`. The job relaxes the Ubuntu
+AppArmor user-namespace restriction so Chromium keeps its sandbox. Locally, run
+`npm ci --prefix src/tests/skills/browser`, install Chromium with that
+Playwright, and set `VCP_SKILL_PLAYWRIGHT` to its `node_modules/playwright`.
 
 ### SU-02: Resource roles
 

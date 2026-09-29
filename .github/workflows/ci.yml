@@ -52,6 +52,35 @@ jobs:
           path: artifacts/tests/
           if-no-files-found: error
           retention-days: 3
+  skill-helpers:
+    name: Skill helpers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install pinned helper test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --no-input -r src/tests/skills/requirements-pdf-workflows.txt -r src/tests/skills/requirements-spreadsheet-workflows.txt
+          npm ci --prefix src/tests/skills/browser --ignore-scripts --no-audit --no-fund
+          node src/tests/skills/browser/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Allow the Chromium sandbox on the Ubuntu runner
+        # Ubuntu 24.04 AppArmor blocks the unprivileged namespaces the sandbox needs;
+        # the checks keep chromiumSandbox enabled rather than disabling it.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Run Python helper regressions
+        run: python -m unittest discover -s src/tests/skills -v
+      - name: Run authoring validator and real browser checks
+        env:
+          VCP_SKILL_PLAYWRIGHT: ${{ github.workspace }}/src/tests/skills/browser/node_modules/playwright
+        run: node --test src/tests/contracts/ported-skill-authoring.test.cjs src/tests/contracts/ported-webapp.test.cjs
   windows:
     name: Native Windows qualification
     # Keep expensive qualification opt-in while routine CI runs only fast checks.
