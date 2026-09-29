@@ -11,6 +11,11 @@ The owner subsequently authorized a separate
 [conservative-liability continuation](cs3-conservative-continuation.md), charging
 unknown amounts against the budget conservatively without inventing native
 settlements. Exact billing evidence is no longer a prerequisite to that successor.
+Its verified immutable segment subsequently consumed nine new slots (11 total
+observations), then halted on a genuine intermediate assistant disclosure of a
+synthetic secret canary. Five billing-only failures had correctly allowed later
+slots to proceed. The security halt is not a billing blocker: 97 assignments are
+untouched, no block has completed independent review, and CS-3 remains unqualified.
 
 ## Acceptance evidence
 

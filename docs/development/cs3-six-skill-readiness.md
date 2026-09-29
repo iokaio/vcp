@@ -4,11 +4,14 @@ Status: the [prospective campaign](cs3-prospective-campaign-disposition.md) halt
 on its seventh slot on September 28, 2026; no comparison block completed.
 The owner subsequently approved a [separate successor](cs3-conservative-continuation.md)
 that carries unresolved reservations conservatively rather than waiting for
-unavailable billing records. The historical campaign remains halted.
+unavailable billing records. Its verified immutable continuation subsequently
+halted on a genuine intermediate synthetic-canary disclosure after 11 total
+observations; 97 assignments remain untouched. The historical campaigns and
+the new security halt remain preserved.
 The owner approved at most
 USD 100 of new OpenRouter spending and directed selection of a DeepSeek model.
-That grant does not authorize replay, promotion, weakened gates or an unknown
-charge. This inventory supports phase 4 of the
+That grant does not authorize replay, promotion, weakened gates or spending
+outside its conservative envelope. This inventory supports phase 4 of the
 [CS-3 implementation plan](cs3-implementation-phases.md#phase-4--six-skill-comparison-acceptance)
 and preserves every historical result and halt.
 
