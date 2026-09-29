@@ -24,11 +24,12 @@ reserves the following within the unchanged USD 100 ceiling:
 | Original settled cost plus unresolved reservation | 0.113737 | 15 already attempted |
 | New endpoint qualification pair | 0.25 | 2 |
 | Actual VCP read-tool preflight | 0.60 | 16 |
+| One replacement preflight after upstream overload | 0.60 | 16 |
 | Successor six-skill comparison, 108 slots | 64.80 | 1,728 |
 | Explicitly bounded future qualification refresh | 0.25 | 2 |
-| Total conservative allocation | 66.013737 | 1,763 including history |
+| Total conservative allocation | 66.613737 | 1,779 including history |
 
-The remaining USD 33.986263 is unallocated. No automatic retries, slot replays,
+The remaining USD 33.386263 is unallocated. No automatic retries, slot replays,
 paid readers, graders or adjudication are included. Metadata GETs do not dispatch
 model calls. No claim is released merely because its actual cost is unavailable.
 
@@ -78,6 +79,25 @@ This is provider compatibility evidence, not completion of the native read
 preflight or a skill-quality result. The public cache-read price is USD 0.13 per
 million; the qualified reservation tariff conservatively prices it at the full
 USD 0.26 input rate.
+
+The first actual VCP preflight completed both required reads with exact null and
+integer bounds and independently retained results. The third provider request
+then returned HTTP 429, `engine_overloaded` from the upstream shared pool; no
+verification or final answer completed. Two settled requests cost USD 0.001248;
+the third retains USD 0.129576 unresolved liability. This is a failed preflight,
+not a passed compatibility result. Its immutable receipt has SHA-256
+`6225eee921f374b021ea69d830ee82858ec94dcac4c29c896301ea36611a83ca`.
+The original claim, receipt and native ledger are preserved. All 14 original
+helper-source files were archived and hash-verified before further changes.
+
+Within the owner's standing USD 100 authority and explicit direction to keep
+working, allocate one separately claimed replacement preflight at USD 0.60 and
+16 requests. Carry the first preflight's entire USD 0.60 allocation, not merely
+its observed cost or unresolved reservation, in the outer envelope. This is a
+new prerequisite observation after an infrastructure failure, not a replay of a
+paid comparison or a retry of the paused native task. The unchanged read,
+verification, final-output and settled-accounting oracles must all pass before
+comparison preparation. No comparison claim or paid slot has been consumed.
 
 The successor DOC cohort uses six genuinely fresh tasks, including an inbox
 decision record and configuration-upgrade notes as its normal tasks. No old

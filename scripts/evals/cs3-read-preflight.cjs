@@ -17,6 +17,7 @@ const RANGE = { path: 'status.txt', max_bytes: 4096, start_line: 2, end_line: 2 
 const PROMPT = 'Read status.txt with vcp_read using exactly path="status.txt", max_bytes=4096, start_line=null, end_line=null (JSON integers and null, not strings). Wait for that tool result, then read only its second line with vcp_read using path="status.txt", max_bytes=4096, start_line=2, end_line=2. Do not batch the two reads together. Both calls are required even though the whole-file read already contains line two. After receiving the second result, run vcp_verify citing the actual returned evidence artifact IDs. Do not select skills or change files. After verification returns, return only a JSON object with whole (array of the three line strings, without newlines) and range (the second line string, without newline). No Markdown fences.\n';
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const sourcePaths = ['scripts/evals/cs3-read-preflight.cjs', 'scripts/evals/p6-live-runner.cjs', 'scripts/evals/developer-runner.cjs', 'scripts/evals/builtin-live-runner.cjs'];
+const PRIOR_FAILURE = '6225eee921f374b021ea69d830ee82858ec94dcac4c29c896301ea36611a83ca';
 const probeSources = { binary: 'src/crates/vcp-cli/src/bin/vcp-provider-conformance.rs', lease: 'src/crates/vcp-lifecycle/src/foundation/conformance.rs', settlement: 'src/crates/vcp-lifecycle/src/foundation/worker/conformance.rs', catalog: 'src/crates/vcp-models/src/catalog.rs' };
 function requireThat(value, reason) { if (!value) throw Error(reason); }
 function bound(ref, maximum = 16 * 1024 * 1024) {
@@ -97,10 +98,49 @@ function sourceProfile(spec, current = true) {
   requireThat(Object.keys(profile).every(key => allowed.includes(key)), 'Unexpected source profile extension'); return profile;
 }
 function derived(spec, directory, current) { return { ...sourceProfile(spec, current), workspace: path.join(directory, 'workspace'), catalog: spec.catalog.path, budget_usd: '0.600000', affected_paths: ['status.txt'], canonical_tools: ['vcp_read', 'vcp_verify'] }; }
-function claimFile() { const common = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim(); return path.join(path.resolve(root, common), 'vcp-cs3-deepinfra-read-preflight-20260928.json'); }
+function claimFile(replacement=false) { const common = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim(); return path.join(path.resolve(root, common), replacement?'vcp-cs3-deepinfra-read-preflight-20260928-replacement1.json':'vcp-cs3-deepinfra-read-preflight-20260928.json'); }
+function sameExecutableIdentity(priorRef,currentRef){return priorRef?.sha256===EXECUTABLE&&currentRef?.sha256===EXECUTABLE;}
+function priorFailure(stdout,costs,exit,terminal) {
+  const output=frames(stdout),accepted=output.filter(f=>f.type==='accepted'),final=output.filter(f=>f.type==='result');
+  requireThat(accepted.length===1&&final.length===1&&equal(accepted[0].scope,final[0].scope)&&final[0].conditions?.completed===false&&final[0].conditions?.durably_paused===true&&exit.status===7&&!exit.error,'Original preflight must remain durably failed');
+  const scope=accepted[0].scope,items=costs.flatMap(p=>p.items),rows=type=>items.filter(i=>i.collection===type).map(i=>i.record);
+  requireThat(!costs.some(p=>p.gaps.length)&&items.every(i=>i.visibility==='available'),'Original cost evidence incomplete');
+  const ledgers=rows('ledger'),attempts=rows('attempt'),reservations=rows('reservation'),settlements=rows('settlement'),pending=attempts.filter(a=>a.phase==='reconciliation_pending'),settled=attempts.filter(a=>a.phase==='settled');
+  requireThat(ledgers.length===1&&ledgers[0].currency==='USD'&&ledgers[0].cap==='600000'&&ledgers[0].active==='0'&&ledgers[0].unresolved==='129576'&&ledgers[0].settled==='1248'&&ledgers[0].overrun===false&&equal(ledgers[0].scope,scope),'Original bounded unresolved ledger differs');
+  requireThat(attempts.length===3&&pending.length===1&&settled.length===2&&attempts.every(a=>equal(a.scope,scope)&&a.root===scope.task&&a.role==='main'&&a.previous===null)&&settled.reduce((n,a)=>n+count(a.charged),0)===1248&&settled.every(a=>!a.uncertain)&&pending[0].charged==='0'&&pending[0].uncertain==='retained response did not complete','Original attempt accounting differs');
+  requireThat(reservations.length===3&&reservations.every(r=>equal(r.scope,scope)&&r.root===scope.task&&attempts.some(a=>a.id===r.attempt&&a.reservation===r.id&&a.phase===r.phase&&a.charged===r.charged))&&reservations.filter(r=>r.phase==='reconciliation_pending').length===1&&reservations.filter(r=>r.phase==='settled').every(r=>r.liability==='0')&&reservations.find(r=>r.phase==='reconciliation_pending').liability==='129576','Original reservation liability differs');
+  requireThat(settlements.length===2&&settled.every(a=>settlements.filter(s=>s.attempt===a.id&&s.applied===true&&s.total===a.charged&&equal(s.scope,scope)&&s.observation?.final_usage===true&&s.observation.provider_request===a.provider_request&&equal(s.observation.scope,scope)).length===1),'Original settled observations differ');
+  const descriptors=output.filter(f=>f.type==='event').flatMap(f=>f.event?.event?.data?.facts||[]).filter(f=>f.collection==='artifact').map(f=>f.value).filter(a=>a.spec?.source==='retained-codex-attempt:'+pending[0].id&&a.spec.channel==='response');
+  requireThat(descriptors.length===1&&descriptors[0].state==='aborted'&&equal(descriptors[0].spec.scope,scope),'Original pending response descriptor required');
+  const descriptor=descriptors[0];requireThat(terminal.length===1&&terminal[0].items?.length===1,'Exact retained terminal range required');const item=terminal[0].items[0];
+  requireThat(item.artifact===descriptor.spec.id&&item.visibility==='available'&&equal(item.range,{start:0,end:count(descriptor.length)})&&Array.isArray(item.bytes)&&item.bytes.length===count(descriptor.length)&&item.bytes.every(b=>Number.isInteger(b)&&b>=0&&b<=255),'Original terminal range differs');
+  const bytes=Buffer.from(item.bytes);requireThat(sha(bytes)===descriptor.sha256,'Original terminal bytes changed');
+  const omitted={artifact:descriptor.spec.id,capture_state:'aborted',omissions:['authentication_headers','recovery_material','explicit_abort'],reason:'only retained observed bytes are available; not reconstructed',visibility:'omitted'};
+  requireThat(terminal[0].gaps.every(g=>equal(g,omitted)||prior.privacyGap(g,descriptor.spec.id)),'Unexpected terminal capture gap');
+  const error=JSON.parse(bytes).error;requireThat(error?.code===429&&error.metadata?.provider_name==='DeepInfra'&&error.metadata.is_byok===false&&error.metadata.provider_error_code==='engine_overloaded'&&error.metadata.limit_source==='upstream_provider_shared_pool','Only observed exact upstream overload supports this replacement');
+  return {status:'conservative_failed_preflight_preserved',conservative_debit_micros:600000,reserved_requests:16,actual_cost_micros:null,known_settled_micros:1248,unresolved_micros:129576,observed_attempts:3,quality:'failed_never_upgraded',scope};
+}
+function validatePriorRuntime(ref,spec) {
+  requireThat(ref&&equal(Object.keys(ref).sort(),['path','sha256','source_archive','terminal_response'])&&ref.sha256===PRIOR_FAILURE&&path.isAbsolute(ref.source_archive||''),'Exact archived failed preflight reference required');
+  const decision=JSON.parse(read(path.join(root,'src/evals/skills/cs3-comparison/continuation-decision.json')));
+  requireThat(decision.prior_runtime_preflight_sha256===PRIOR_FAILURE&&decision.runtime_preflight_replacement_cap_micros===600000&&decision.runtime_preflight_replacement_requests===16,'Source-pinned one-replacement allocation required');
+  const report=json(ref),plan=json(report.plan),base=plain(path.dirname(ref.path));
+  requireThat(report.schema==='cs3-read-preflight/1'&&report.status==='failed'&&report.actual_cost_micros===null&&plan.schema==='cs3-read-preflight-plan/1'&&plan.directory===base&&!plan.spec.prior_runtime_preflight&&plain(path.dirname(report.plan.path))===base&&plan.cap_micros===600000&&plan.request_ceiling===16,'Original failed plan/result differs');
+  requireThat(equal(plan.spec.profile,spec.profile)&&equal(plan.spec.catalog,spec.catalog)&&sameExecutableIdentity(plan.spec.executable,spec.executable)&&equal(plan.spec.qualification,spec.successor?.qualification||spec.qualification),'Original and replacement identities differ');
+  bound(plan.spec.executable,1024*1024*1024);bound(spec.executable,1024*1024*1024);bound(plan.spec.profile);bound(plan.spec.catalog);validateQualification(plan.spec.qualification,plan.spec);
+  const archive=plain(ref.source_archive);requireThat(!within(base,archive)&&Object.keys(plan.source).length===14,'Separate complete historical source archive required');
+  for(const [relative,hash]of Object.entries(plan.source)){const file=prior.boundaries.safeChild(archive,relative);requireThat(sha(read(file))===hash,'Historical source archive changed');}
+  requireThat(equal(filesUnder(archive),Object.keys(plan.source).sort()),'Historical source archive inventory differs');
+  const claim={schema:'cs3-read-preflight-claim/1',plan:report.plan,cap_micros:600000,request_ceiling:16};requireThat(equal(JSON.parse(read(claimFile())),claim)&&equal(JSON.parse(read(path.join(base,'claim.json'))),claim),'Original preflight claim changed');
+  requireThat(equal(JSON.parse(read(path.join(base,'attempted.json'))),{executable:plan.spec.executable,args:invocation(plan)})&&sha(read(path.join(base,'profile.json')))===plan.profile_sha256&&read(path.join(base,'prompt.txt')).toString()===PROMPT&&plan.prompt_sha256===sha(PROMPT)&&equal(filesUnder(path.join(base,'workspace')),['status.txt'])&&read(path.join(base,'workspace/status.txt')).toString()===CONTENT,'Original invocation or workspace changed');
+  requireThat(!within(base,plain(ref.terminal_response.path)),'Terminal diagnostic must be separate from original trial');
+  for(const name of ['stdout.jsonl','stderr.txt','exit.json','costs'])requireThat(plain(report.raw[name].path)===path.join(base,name==='costs'?'costs.json':name),'Original raw path differs');
+  bound(report.raw['stderr.txt']);return priorFailure(bound(report.raw['stdout.jsonl']).toString(),json(report.raw.costs),json(report.raw['exit.json']),json(ref.terminal_response));
+}
 function prepare(specFile, destination) {
   const spec = JSON.parse(read(specFile)), directory = plain(path.resolve(destination));
-  requireThat(equal(Object.keys(spec).sort(), ['catalog','executable','profile','qualification']), 'Preflight spec fields differ');
+  requireThat(equal(Object.keys(spec).sort(), spec.prior_runtime_preflight?['catalog','executable','prior_runtime_preflight','profile','qualification']:['catalog','executable','profile','qualification']), 'Preflight spec fields differ');
+  if(spec.prior_runtime_preflight)validatePriorRuntime(spec.prior_runtime_preflight,spec);
   validateQualification(spec.qualification, spec); const profile = derived(spec, directory, true);
   requireThat(!within(root, directory) && !within(directory, root) && !fs.existsSync(directory), 'New private directory outside repository required'); noParentInstructions(path.dirname(directory)); privateDirectory(directory);
   fs.mkdirSync(directory, { mode: 0o700 }); fs.mkdirSync(path.join(directory, 'workspace')); fs.mkdirSync(path.join(directory, 'data'));
@@ -111,6 +151,7 @@ function prepare(specFile, destination) {
 function checkPlan(ref, current) {
   const plan = json(ref); requireThat(plan.schema === 'cs3-read-preflight-plan/1' && plain(path.dirname(ref.path)) === plan.directory && equal(plan.source, sources()) && equal(plan.node, reference(fs.realpathSync(process.execPath))), 'Preflight plan/source/runtime identity changed');
   privateDirectory(plan.directory); noParentInstructions(plan.directory); validateQualification(plan.spec.qualification, plan.spec);
+  if(plan.spec.prior_runtime_preflight)validatePriorRuntime(plan.spec.prior_runtime_preflight,plan.spec);
   requireThat(equal(JSON.parse(read(path.join(plan.directory, 'profile.json'))), derived(plan.spec, plan.directory, current)) && sha(read(path.join(plan.directory, 'profile.json'))) === plan.profile_sha256 && read(path.join(plan.directory, 'prompt.txt')).toString() === PROMPT && plan.prompt_sha256 === sha(PROMPT) && plan.cap_micros === 600000 && plan.request_ceiling === 16, 'Preflight inputs changed');
   requireThat(equal(filesUnder(path.join(plan.directory, 'workspace')), ['status.txt']) && read(path.join(plan.directory, 'workspace/status.txt')).toString() === CONTENT, 'Read-only workspace changed'); return plan;
 }
@@ -161,7 +202,7 @@ function run(planFile, authorization, call = invoke) {
   const planRef = { path: plain(path.resolve(planFile)), sha256: authorization }, plan = checkPlan(planRef, true), base = plan.directory;
   requireThat(fs.readdirSync(path.join(base, 'data')).length === 0, 'Preflight data directory already used');
   const claim = { schema: 'cs3-read-preflight-claim/1', plan: planRef, cap_micros: 600000, request_ceiling: 16 };
-  write(claimFile(), claim); write(path.join(base, 'claim.json'), claim);
+  write(claimFile(Boolean(plan.spec.prior_runtime_preflight)), claim); write(path.join(base, 'claim.json'), claim);
   const args = invocation(plan);
   write(path.join(base, 'attempted.json'), { executable: plan.spec.executable, args });
   const report = { schema: 'cs3-read-preflight/1', plan: planRef, status: 'failed', actual_cost_micros: null, raw: {}, artifacts: [] };
@@ -189,7 +230,8 @@ function validate(ref, spec) {
   const report = json(ref), plan = checkPlan(report.plan,false), base = plan.directory;
   requireThat(report.schema === 'cs3-read-preflight/1' && plain(path.dirname(ref.path)) === base && equal(plan.spec.profile,spec.profile) && equal(plan.spec.catalog,spec.catalog) && equal(plan.spec.executable,spec.executable), 'Preflight does not bind campaign inputs');
   if(spec.successor)requireThat(equal(plan.spec.qualification,spec.successor.qualification),'Preflight qualification wrapper differs');
-  requireThat(equal(json(reference(claimFile())),json(reference(path.join(base,'claim.json')))) && equal(json(reference(path.join(base,'claim.json'))).plan,report.plan), 'One-shot preflight ownership differs');
+  if(spec.successor?.prior_runtime_preflight)requireThat(equal(plan.spec.prior_runtime_preflight,spec.successor.prior_runtime_preflight),'Replacement must bind exact prior failed preflight');
+  requireThat(equal(json(reference(claimFile(Boolean(plan.spec.prior_runtime_preflight)))),json(reference(path.join(base,'claim.json')))) && equal(json(reference(path.join(base,'claim.json'))).plan,report.plan), 'One-shot preflight ownership differs');
   requireThat(equal(JSON.parse(read(path.join(base,'attempted.json'))),{executable:plan.spec.executable,args:invocation(plan)}),'Exact native invocation differs');
   for(const [name,raw]of Object.entries(report.raw)){const filename=['stdout.jsonl','stderr.txt','exit.json'].includes(name)?name:name+'.json';requireThat(plain(raw.path)===path.join(base,filename),'Raw evidence must belong to the exact preflight directory');}
   const evidence = Object.fromEntries(['costs','routing','outputs','context','tools','verification'].map(view => [view,json(report.raw[view])]));
@@ -199,5 +241,5 @@ function validate(ref, spec) {
   const observed=oracle(evidence,artifacts,bound(report.raw['stdout.jsonl']).toString(),json(report.raw['exit.json'])); bound(report.raw['stderr.txt']);
   requireThat(Object.entries(observed).every(([key,value])=>equal(report[key],value)),'Preflight claimed outcome differs from raw evidence'); return observed;
 }
-module.exports={prepare,run,validate,validateQualification,oracle,completedResponses,bound,sources,dollarMicros,gapAllowed,CONTENT,ANSWER,WHOLE,RANGE,PROMPT};
+module.exports={prepare,run,validate,validateQualification,validatePriorRuntime,priorFailure,sameExecutableIdentity,oracle,completedResponses,bound,sources,dollarMicros,gapAllowed,CONTENT,ANSWER,WHOLE,RANGE,PROMPT};
 if(require.main===module){try{const [command,...args]=process.argv.slice(2);let result;if(command==='prepare')result=prepare(...args);else if(command==='run')result=run(...args);else throw Error('Usage: prepare SPEC NEW_PRIVATE_DIRECTORY | run PLAN SHA256');process.stdout.write(JSON.stringify(result,null,2)+'\n');if(result.status==='failed')process.exitCode=1;}catch(error){process.stderr.write(error.message+'\n');process.exitCode=1;}}

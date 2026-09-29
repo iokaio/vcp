@@ -26,7 +26,7 @@ function syntheticHost(gitDirectory, directory = __dirname) {
       // These tests exercise canonical orchestration, not native qualification.
       // Production always imports the real, schema-specific prerequisite module.
       if (requested === './cs3-comparison-gates.cjs') return { validate() { return { synthetic_test_only: true }; } };
-      if (requested === './cs3-comparison-policy.cjs') return { ...actualRequire(requested), validateSpec() { return { synthetic_test_only: true, fixed_conservative_micros: 1213737, outer_cap_micros: 100000000 }; } };
+      if (requested === './cs3-comparison-policy.cjs') return { ...actualRequire(requested), validateSpec() { return { synthetic_test_only: true, fixed_conservative_micros: 1813737, outer_cap_micros: 100000000 }; } };
       if (['./cs3-comparison.cjs', './cs3-comparison-review.cjs'].includes(requested)) return load(requested.slice(2));
       return actualRequire(requested);
     };

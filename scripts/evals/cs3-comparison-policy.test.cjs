@@ -36,8 +36,43 @@ test('successor accounting rejects active, duplicate, misbound, over-cap and fal
 test('successor outer envelope cannot borrow from reserved fixed allocations', () => {
   const campaign = require('./cs3-comparison.cjs');
   assert.throws(() => campaign.admission({ runs: [], successor: { fixed_conservative_micros: 99400001, outer_cap_micros: 100000000 } }), /Outer conservative/);
-  const admitted = campaign.admission({ runs: [], successor: { fixed_conservative_micros: 1213737, outer_cap_micros: 100000000 } });
+  const admitted = campaign.admission({ runs: [], successor: { fixed_conservative_micros: 1813737, outer_cap_micros: 100000000 } });
   assert.equal(admitted.conservative_debit_micros, 0); assert.equal(admitted.reserved_micros, 600000);
+});
+test('single replacement preserves both preflight ceilings inside the fixed outer envelope', () => {
+  const decision = require('../../src/evals/skills/cs3-comparison/continuation-decision.json');
+  assert.equal(policy.allocations(decision), 1813737);
+  assert.equal(policy.allocations(decision) + decision.campaign_cap_micros, 66613737);
+  // Preserved first campaign: thirteen dispatched attempts plus two qualification requests.
+  assert.equal(decision.campaign_requests + decision.qualification_requests + decision.runtime_preflight_requests
+    + decision.runtime_preflight_replacement_requests + decision.refresh_requests + 15, 1779);
+  for (const key of ['runtime_preflight_cap_micros', 'runtime_preflight_requests', 'runtime_preflight_replacement_cap_micros', 'runtime_preflight_replacement_requests']) {
+    assert.throws(() => policy.allocations({ ...decision, [key]: 0 }), /allocation differs/);
+    assert.throws(() => policy.allocations({ ...decision, [key]: decision[key] * 2 }), /allocation differs/);
+  }
+});
+test('replacement requires pinned failed receipt and authenticated full-debit unresolved evidence', () => {
+  const decision = require('../../src/evals/skills/cs3-comparison/continuation-decision.json');
+  const filename = require.resolve('./cs3-comparison-policy.cjs'), actualRequire = require('node:module').createRequire(filename);
+  let answer = { status: 'conservative_failed_preflight_preserved', conservative_debit_micros: 600000, actual_cost_micros: null }, calls = 0;
+  const module = { exports: {} }, reference = { path: path.resolve('synthetic-failed-result.json'), sha256: decision.prior_runtime_preflight_sha256,
+    source_archive: path.resolve('synthetic-archived-source'), terminal_response: { path: path.resolve('synthetic-terminal-pages.json'), sha256: 'a'.repeat(64) } };
+  const spec = { successor: { prior_runtime_preflight: reference } };
+  require('node:vm').runInThisContext(require('node:module').wrap(fs.readFileSync(filename, 'utf8')), { filename })(module.exports, name => {
+    if (name !== './cs3-read-preflight.cjs') return actualRequire(name);
+    return { validatePriorRuntime(ref, passedSpec) { calls++; assert.equal(ref, reference); assert.equal(passedSpec, spec); if (answer instanceof Error) throw answer; return answer; } };
+  }, module, filename, path.dirname(filename));
+  assert.doesNotThrow(() => module.exports.priorRuntime(spec, decision)); assert.equal(calls, 1);
+  for (const changed of [undefined, { ...reference, sha256: 'b'.repeat(64) }, { ...reference, source_archive: 'relative' }]) {
+    assert.throws(() => module.exports.priorRuntime({ successor: { prior_runtime_preflight: changed } }, decision), /Exact failed/);
+  }
+  assert.throws(() => module.exports.priorRuntime(spec, { ...decision, prior_runtime_preflight_sha256: 'b'.repeat(64) }), /Exact failed/);
+  for (const invalid of [undefined, { ...answer, status: 'passed' }, { ...answer, conservative_debit_micros: 129576 }, { ...answer, actual_cost_micros: 1248 }, { ...answer, actual_cost_micros: 0 }]) {
+    const previous = answer; answer = invalid;
+    assert.throws(() => module.exports.priorRuntime(spec, decision), /preserve unresolved/); answer = previous;
+  }
+  answer = Error('Authentic archived raw evidence changed');
+  assert.throws(() => module.exports.priorRuntime(spec, decision), /archived raw evidence changed/);
 });
 function pause() {
   const conditions = { unresolved_effect: true, cancelled: false, budget_exhausted: false, required_input: false, incomplete: false, invalid_configuration: false, internal_failure: false, durably_paused: true, completed: false };

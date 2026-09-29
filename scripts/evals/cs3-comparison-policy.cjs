@@ -12,16 +12,33 @@ function bound(reference) {
   if (sha(bytes) !== reference.sha256) throw Error('Successor evidence changed');
   return JSON.parse(bytes);
 }
+function allocations(decision) {
+  const expected = { prior_conservative_micros: 113737, outer_cap_micros: 100000000, campaign_cap_micros: 64800000, campaign_requests: 1728,
+    qualification_cap_micros: 250000, qualification_requests: 2, runtime_preflight_cap_micros: 600000, runtime_preflight_requests: 16,
+    runtime_preflight_replacement_cap_micros: 600000, runtime_preflight_replacement_requests: 16, refresh_cap_micros: 250000, refresh_requests: 2 };
+  if (Object.entries(expected).some(([k, v]) => decision[k] !== v)) throw Error('Successor conservative allocation differs');
+  // Both native preflights retain their full individual ceilings, even when actual billing is unknown.
+  const fixed = decision.prior_conservative_micros + decision.qualification_cap_micros + decision.runtime_preflight_cap_micros
+    + decision.runtime_preflight_replacement_cap_micros + decision.refresh_cap_micros;
+  if (fixed + decision.campaign_cap_micros > decision.outer_cap_micros) throw Error('Outer authorization cannot cover successor allocations');
+  return fixed;
+}
+function priorRuntime(spec, decision) {
+  const reference = spec.successor.prior_runtime_preflight;
+  if (!reference || reference.sha256 !== decision.prior_runtime_preflight_sha256
+    || decision.prior_runtime_preflight_sha256 !== '6225eee921f374b021ea69d830ee82858ec94dcac4c29c896301ea36611a83ca'
+    || !path.isAbsolute(reference.source_archive || '')) throw Error('Exact failed prior native preflight required');
+  const evidence = require('./cs3-read-preflight.cjs').validatePriorRuntime(reference, spec);
+  if (evidence?.status !== 'conservative_failed_preflight_preserved' || evidence.conservative_debit_micros !== 600000 || evidence.actual_cost_micros !== null) throw Error('Prior native preflight must preserve unresolved billing and full conservative debit');
+}
 function validateSpec(spec) {
   const successor = spec.successor;
-  if (!successor || !equal(Object.keys(successor).sort(), ['decision', 'predecessor', 'qualification', 'runtime_preflight'])) throw Error('Exact successor approval and prerequisites required');
+  if (!successor || !equal(Object.keys(successor).sort(), ['decision', 'predecessor', 'prior_runtime_preflight', 'qualification', 'runtime_preflight'])) throw Error('Exact successor approval and prerequisites required');
   const decision = bound(successor.decision), tracked = require('../../src/evals/skills/cs3-comparison/continuation-decision.json');
   if (!equal(decision, tracked) || decision.schema !== 'cs3-comparison-continuation-decision/1' || decision.authority !== 'owner_explicit_conservative_liability_continuation'
     || decision.model !== 'deepseek/deepseek-v3.2' || decision.endpoint !== 'deepinfra/fp4' || decision.unknown_slot_debit_micros !== 600000
     || decision.unknown_actual_cost !== 'null_not_settled' || decision.unknown_quality !== 'failed_never_replayed' || decision.historical_campaign !== 'terminal_halt_preserved') throw Error('Source-pinned successor decision differs');
-  const expected = { prior_conservative_micros: 113737, outer_cap_micros: 100000000, campaign_cap_micros: 64800000, campaign_requests: 1728,
-    qualification_cap_micros: 250000, qualification_requests: 2, runtime_preflight_cap_micros: 600000, runtime_preflight_requests: 16, refresh_cap_micros: 250000, refresh_requests: 2 };
-  if (Object.entries(expected).some(([k, v]) => decision[k] !== v)) throw Error('Successor conservative allocation differs');
+  const fixed = allocations(decision);
   const predecessor = bound(successor.predecessor), directory = path.dirname(successor.predecessor.path);
   if (successor.predecessor.sha256 !== decision.predecessor_plan_sha256 || predecessor.schema !== 'cs3-comparison-plan/1' || predecessor.directory !== directory) throw Error('Exact terminal predecessor plan required');
   const prep = require('./authoring-prepare.cjs');
@@ -57,10 +74,9 @@ function validateSpec(spec) {
     carry += money.known_settled_micros + money.unresolved_liability_micros;
   }
   if (carry !== decision.prior_conservative_micros) throw Error('Predecessor conservative carry differs');
+  priorRuntime(spec, decision);
   const helper = require('./cs3-read-preflight.cjs');
   if (helper.validateQualification(successor.qualification, spec)?.status !== 'passed' || helper.validate(successor.runtime_preflight, spec)?.status !== 'passed') throw Error('Successor native/provider prerequisite validation failed');
-  const fixed = decision.prior_conservative_micros + decision.qualification_cap_micros + decision.runtime_preflight_cap_micros + decision.refresh_cap_micros;
-  if (fixed + decision.campaign_cap_micros > decision.outer_cap_micros) throw Error('Outer authorization cannot cover successor allocations');
   const predecessor_evidence = inventory.sort().map(relative => ({ path: relative, sha256: sha(read(path.join(directory, relative))) }));
   return { decision_id: decision.decision_id, fixed_conservative_micros: fixed, outer_cap_micros: decision.outer_cap_micros, predecessor_plan_sha256: successor.predecessor.sha256, predecessor_evidence };
 }
@@ -168,4 +184,4 @@ function reread(base, cap) {
   pendingSafety({ status: output.findLast(x => x.type === 'result')?.exit_code }, output, { tools: JSON.parse(read(path.join(base, 'tools.json'))) }, JSON.parse(read(path.join(base, 'profile.json'))), money);
   return money;
 }
-module.exports = { count, accounting, pendingSafety, captureResponses, fields, reread, validateSpec };
+module.exports = { count, accounting, pendingSafety, captureResponses, fields, reread, validateSpec, allocations, priorRuntime };
