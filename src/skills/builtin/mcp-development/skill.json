@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "id": "mcp-development",
+  "version": "2.0.0",
+  "description": "Build MCP servers for a requested service using clear tools, bounded schemas, pagination and actionable errors in the project's chosen SDK and transport.",
+  "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/mcp-builder",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [
+    "explicit:mcp-development"
+  ],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "0a650339ce993af833f47a8bbb10c0b6c44ee5e465235360c2ea10be74efcc3c"
+  },
+  "resources": [
+    {
+      "path": "LICENSE.txt",
+      "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+    },
+    {
+      "path": "UPSTREAM.md",
+      "sha256": "012bab91e50913f5d7cc131a59e300cea77072a8c77c0e196097c0f36f8dc269"
+    },
+    {
+      "path": "assets/paginated_result.py",
+      "sha256": "190f0fd9459e687da9b48526f5f8ad76208300ffdb1a5e58e36e3b7c0853f06a"
+    },
+    {
+      "path": "references/server-patterns.md",
+      "sha256": "c4e1b11335bb93c78d6b7649f870964bca8c6cdfa18a96d6bf4c632fe5afcdcf"
+    }
+  ]
+}

@@ -229,3 +229,5 @@ selected by this import. See the [active skills plan](docs/research/skillsplan-n
 - [skill-authoring](src/skills/builtin/skill-authoring/SKILL.md) 2.0.0: Apache-2.0; see its package-local source and dependency notices.
 
 - [frontend-design](src/skills/builtin/frontend-design/SKILL.md) 2.0.0: Apache-2.0; see its package-local source and dependency notices.
+
+- [mcp-development](src/skills/builtin/mcp-development/SKILL.md) 2.0.0: Apache-2.0; see its package-local source and dependency notices.
