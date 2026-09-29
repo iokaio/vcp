@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "27c458dff013d655d33d73a2dd32c432959b0b31f1dfa660e17fe76fd2eb891b"
+    "sha256": "cbc0cb0bc4d5d9414bcac775cc13f5e1c1a5cee3dd984a4fe04b4221b714291e"
   },
   "skills": [
     {
@@ -358,6 +358,36 @@
         {
           "path": "references/design-and-copy.md",
           "sha256": "a834d1c34bc7af39694176aff2be80277a706a3963fd52b4de8cd9b0b13a38ca"
+        }
+      ]
+    },
+    {
+      "id": "mcp-development",
+      "version": "2.0.0",
+      "descriptor": "mcp-development/skill.json",
+      "descriptor_sha256": "e33ab7927b12857c61b4a9b72fb323ce31025efa104894da334838fef9eacf54",
+      "body": {
+        "path": "SKILL.md",
+        "sha256": "0a650339ce993af833f47a8bbb10c0b6c44ee5e465235360c2ea10be74efcc3c"
+      },
+      "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/mcp-builder",
+      "license": "Apache-2.0",
+      "resources": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+        },
+        {
+          "path": "UPSTREAM.md",
+          "sha256": "012bab91e50913f5d7cc131a59e300cea77072a8c77c0e196097c0f36f8dc269"
+        },
+        {
+          "path": "assets/paginated_result.py",
+          "sha256": "190f0fd9459e687da9b48526f5f8ad76208300ffdb1a5e58e36e3b7c0853f06a"
+        },
+        {
+          "path": "references/server-patterns.md",
+          "sha256": "c4e1b11335bb93c78d6b7649f870964bca8c6cdfa18a96d6bf4c632fe5afcdcf"
         }
       ]
     }
