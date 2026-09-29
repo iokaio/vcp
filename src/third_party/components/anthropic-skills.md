@@ -3,7 +3,7 @@
 SP-01 adds [anthropics/skills](https://github.com/anthropics/skills) at revision
 `8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4` as a selectively ported upstream.
 See the [per-skill license audit](anthropic-skills.json) and
-[delivery plan](../../../docs/research/skillsplan-new/.md).
+[delivery plan](../../../docs/research/skillsplan-new.md).
 
 Six Apache-2.0 sources match the selected VCP workflow goals. Each port retains
 its license and a package-local source/modification record. The repository has

@@ -12,7 +12,7 @@ components. The eight workflow goals remain applicable.
 
 ## Decision
 
-Use [the replacement plan](../research/skillsplan-new/.md) for current skills
+Use [the replacement plan](../research/skillsplan-new.md) for current skills
 delivery. It supersedes ADR-068 and CS-0 through CS-7 only where they prescribe
 original-only development, blanket comparative qualification, or sequential
 all-skill promotion. Preserve historical records and outcomes.

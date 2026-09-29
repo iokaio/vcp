@@ -14,7 +14,7 @@ helpers are independently authored using permitted libraries because the
 corresponding Anthropic packages have restrictive licenses. Package notices pin
 the selected sources and describe adaptations and host dependencies.
 
-The [replacement skills plan](../research/skillsplan-new/.md) and
+The [replacement skills plan](../research/skillsplan-new.md) and
 [ADR-069](../adr/069-practical-skill-ports.md) govern these additions. Development
 uses scoped functional checks, package verification, and ordinary repository
 checks. Historical comparative campaigns below remain historical evidence, not

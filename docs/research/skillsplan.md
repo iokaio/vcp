@@ -1,4 +1,4 @@
-> Superseded for current delivery by [the replacement plan](skillsplan-new/.md), September 29, 2026. Historical proposal follows.
+> Superseded for current delivery by [the replacement plan](skillsplan-new.md), September 29, 2026. Historical proposal follows.
 
 I propose keeping the [five-phase plan](../development/cs3-implementation-phases.md), with explicit exit gates. The next milestone should be **reliable browser execution**, not another isolated successful diagnostic.
 
