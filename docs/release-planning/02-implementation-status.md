@@ -19,6 +19,27 @@ manual-test preparation. Publication and paid execution remain separate gates.
 | BETA-09 | Runner prerequisites verified; final matrix not run | [PR #299](https://github.com/iokaio/vcp/pull/299) merged with routine checks passing. Strict package/installed-payload validation, distinct-version guards, final-byte 130-version startup/cancellation runner and private recovery-fixture preparation. Five package/startup/root-boundary tests passed; startup and editor targets compiled. Existing synthetic recovery generator passed both stores with independent keys, tasks/claims and retained accounting. Historical P8 private inputs and an eligible distinct prior production candidate were unavailable; their evidence is not claimed. Final candidate execution, clean host, real upgrade, independent-machine/full-volume and live/owner rows remain open. |
 | BETA-11 | Not ready | Owner acceptance and distribution authorization depend on a qualified candidate. |
 
+## Final installed lifecycle runner increment
+
+BETA-06/08/09 now include final-artifact console cancellation and installed editor
+lifecycle runners. Console coverage is eight paused-task chooser cases across
+both stores, both console signals and direct/launcher execution. Editor coverage
+adds actual reload, restart, incompatible/missing engine refusal and rejection
+of a truncated final VSIX, with all canonical state and installed files checked.
+Independent review corrected initial VSIX inventory binding and bounded
+descendant supervision before acceptance. Twelve focused editor/evidence tests
+passed; isolated native console signal mechanics and bounded editor process
+supervision each passed. Rust 1.95 compiled both targets. The supervision test
+observed natural child completion and rejected lingering children and excessive
+output; its log is `artifacts/beta-delivery/editor-lifecycle-supervision-final.log`.
+The startup benchmark uses the same hidden process helper and compiled after
+the correction; four package/startup contract tests passed. Two disk-cleanup
+tests passed, including nine refusal cases. The builder records actual volume
+capacity and removes only its verified production Cargo target after pairing,
+preserving copied artifacts and build evidence before the qualification build.
+Final installed bytes have not yet been exercised, and none of these source
+checks fills a matrix row.
+
 ## Current environment limitations
 
 The development workstation is Windows `10.0.26300.0` with development tools and

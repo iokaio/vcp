@@ -22,9 +22,94 @@ $run = [ordered]@{
     environment=@{os=[Runtime.InteropServices.RuntimeInformation]::OSDescription; architecture=[Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); node=(& node --version); powershell=$PSVersionTable.PSVersion.ToString(); runner_image=$env:ImageOS; runner_image_version=$env:ImageVersion; editor_archive_sha256=$EditorArchiveSha256; editor_version='1.138.0'; host='Windows build image with development tools; not clean standard-user qualification'}
 }
 function Save-Run { $run | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $runPath -Encoding utf8NoBOM }
+function Get-CandidateDiskEvidence {
+    $volumes=@(); $errors=@()
+    foreach ($drive in [IO.DriveInfo]::GetDrives()) {
+        if ($drive.DriveType -ne [IO.DriveType]::Fixed) { continue }
+        try {
+            if (-not $drive.IsReady) { throw 'Volume is not ready' }
+            $volumes+=@{root=$drive.Name;capacity_bytes=$drive.TotalSize;available_free_bytes=$drive.AvailableFreeSpace;total_free_bytes=$drive.TotalFreeSpace}
+        } catch { $errors+=@{root=$drive.Name;reason=$_.Exception.Message} }
+    }
+    return @{captured_at=[DateTime]::UtcNow.ToString('o');volumes=$volumes;errors=$errors}
+}
+function Assert-CandidateOrdinaryPath([string]$Path,[bool]$Directory) {
+    if (-not [IO.Path]::IsPathFullyQualified($Path)) { throw 'Cleanup requires an absolute ordinary path' }
+    $full=[IO.Path]::GetFullPath($Path)
+    if ($full.TrimEnd('\') -ine $Path.TrimEnd('\')) { throw 'Cleanup refuses noncanonical path components' }
+    $item=Get-Item -LiteralPath $full -Force -ErrorAction Stop
+    if ([bool]$item.PSIsContainer -ne $Directory) { throw 'Cleanup path has the wrong file type' }
+    for ($current=$item; $current; $current=if ($current -is [IO.DirectoryInfo]) {$current.Parent} else {$current.Directory}) {
+        if ($current.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Cleanup refuses redirected paths or ancestors' }
+    }
+    return $item.FullName
+}
+function Remove-CandidateProductionTarget([string]$CandidateRoot,$Run) {
+    # Only this invocation's fresh, successfully paired production build is
+    # disposable. Copied programs, symbols, receipts, logs and caches are not.
+    foreach ($id in @('production-build','native-package','setup-package','vsix-package')) {
+        $stage=@($Run.stages | Where-Object id -CEQ $id)
+        if ($stage.Count -ne 1 -or $stage[0].status -cne 'pass') { throw 'Cleanup requires successful production packaging' }
+    }
+    $root=Assert-CandidateOrdinaryPath $CandidateRoot $true
+    $pairFile=Assert-CandidateOrdinaryPath (Join-Path $root 'pair.json') $false
+    $pairStage=@($Run.stages | Where-Object id -CEQ 'pair')
+    if ($pairStage.Count -ne 1 -or $pairStage[0].status -cnotin @('running','pass') -or
+        $pairStage[0].verified_pair_sha256 -cne (Get-FileHash -LiteralPath $pairFile).Hash.ToLowerInvariant()) { throw 'Cleanup requires the successful exact pair validation' }
+    $receiptFile=Assert-CandidateOrdinaryPath $Run.receipts.build $false
+    $buildRoot=Split-Path -Parent $receiptFile
+    $id=Split-Path -Leaf $buildRoot
+    if ($id -cnotmatch '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$' -or
+        $receiptFile -ine (Join-Path $root "build/$id/build-receipt.json")) { throw 'Cleanup receipt is outside the exact owned build directory' }
+    $receipt=Get-Content -LiteralPath $receiptFile -Raw | ConvertFrom-Json
+    $pair=Get-Content -LiteralPath $pairFile -Raw | ConvertFrom-Json
+    if ($receipt.schema -cne 'vcp-local-build/1' -or $receipt.exit_code -ne 0 -or $receipt.cargo_exit_code -ne 0 -or
+        $receipt.qualification_build -ne $false -or $receipt.profile -cne 'release' -or
+        $pair.schema -cne 'vcp-release-pair/1' -or $pair.release.candidate_id -cnotmatch '^[a-f0-9]{64}$' -or
+        $pair.release.candidate_id -cne $receipt.release.candidate_id) { throw 'Cleanup requires the paired production build receipt' }
+    $target=Join-Path $buildRoot 'cargo-target'
+    if (@($receipt.command).Count -ne 20 -or $receipt.command[15] -cne '--target-dir' -or
+        -not [IO.Path]::IsPathFullyQualified($receipt.command[16]) -or $receipt.command[16] -ine $target) { throw 'Cleanup refuses an unexpected Cargo target' }
+    foreach ($row in @(
+        @{name='vcp.exe';path=$receipt.executable;sha256=$receipt.executable_sha256;artifact=$receipt.compiler_artifact},
+        @{name='vcp-launch.exe';path=$receipt.launcher;sha256=$receipt.launcher_sha256;artifact=$receipt.launcher_compiler_artifact}
+    )) {
+        $copied=Assert-CandidateOrdinaryPath $row.path $false
+        if ($copied -ine (Join-Path $buildRoot $row.name) -or
+            (Get-FileHash -LiteralPath $copied).Hash.ToLowerInvariant() -cne $row.sha256 -or
+            $row.artifact.executable -ine (Join-Path $target "x86_64-pc-windows-msvc/release/$($row.name)")) { throw 'Cleanup requires preserved copied production executables' }
+    }
+    if ($receipt.symbols_sha256) {
+        $symbols=Assert-CandidateOrdinaryPath (Join-Path $buildRoot 'vcp.pdb') $false
+        if ((Get-FileHash -LiteralPath $symbols).Hash.ToLowerInvariant() -cne $receipt.symbols_sha256) { throw 'Cleanup requires preserved production symbols' }
+    }
+    $target=Assert-CandidateOrdinaryPath $target $true
+    $pending=[Collections.Generic.Stack[IO.DirectoryInfo]]::new()
+    $pending.Push([IO.DirectoryInfo]::new($target))
+    [long]$bytes=0; [long]$files=0
+    while ($pending.Count) {
+        foreach ($item in $pending.Pop().GetFileSystemInfos()) {
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Cleanup refuses a redirected entry in the Cargo target' }
+            if ($item -is [IO.DirectoryInfo]) { $pending.Push($item) } else { $bytes+=$item.Length; $files++ }
+        }
+    }
+    $drive=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($target))
+    $before=$drive.TotalFreeSpace
+    # Repeat the resolved target/ancestor check immediately before the only
+    # recursive removal. The producer is finished; no compiler shares this tree.
+    $checked=Assert-CandidateOrdinaryPath $target $true
+    if ($checked -ine (Join-Path $root "build/$id/cargo-target")) { throw 'Cleanup target escaped its owned build directory' }
+    Remove-Item -LiteralPath $checked -Recurse -Force -ErrorAction Stop
+    if (Test-Path -LiteralPath $checked) { throw 'Production Cargo target removal incomplete' }
+    $drive=[IO.DriveInfo]::new($drive.Name)
+    $after=$drive.TotalFreeSpace
+    return @{status='removed';path=$checked;removed_files=$files;removed_file_bytes=$bytes;
+        volume=$drive.Name;volume_free_bytes_before=$before;volume_free_bytes_after=$after;
+        observed_recovered_bytes=($after-$before);ended_at=[DateTime]::UtcNow.ToString('o')}
+}
 function Stage([string]$Id,[string[]]$Command,[string]$Expected,[scriptblock]$Body) {
     $log = Join-Path $out "logs/$Id.log"
-    $row = @{id=$Id;status='running';command=$Command;expected=$Expected;started_at=[DateTime]::UtcNow.ToString('o');log=$log;exit_code=$null}
+    $row = @{id=$Id;status='running';command=$Command;expected=$Expected;started_at=[DateTime]::UtcNow.ToString('o');log=$log;exit_code=$null;disk_before=(Get-CandidateDiskEvidence)}
     $run.stages += $row; Save-Run
     try {
         & $Body *> $log
@@ -32,7 +117,7 @@ function Stage([string]$Id,[string[]]$Command,[string]$Expected,[scriptblock]$Bo
             $text=Get-Content -LiteralPath $log -Raw
             $passed=0
             foreach ($match in [regex]::Matches($text,'test result: ok\. (\d+) passed')) { $passed += [int]$match.Groups[1].Value }
-            $minimum=if ($Id -eq 'installed-editor') { 1 } else { 2 }
+            $minimum=2
             if ($passed -lt $minimum) { throw 'Native command did not execute the required test cases' }
             $row.observed_passed=$passed
         }
@@ -41,7 +126,7 @@ function Stage([string]$Id,[string[]]$Command,[string]$Expected,[scriptblock]$Bo
         $row.status='fail'; $row.exit_code=1; $row.reason=$_.Exception.Message
         $_.Exception.Message | Add-Content -LiteralPath $log
         throw
-    } finally { $row.ended_at=[DateTime]::UtcNow.ToString('o'); Save-Run }
+    } finally { $row.ended_at=[DateTime]::UtcNow.ToString('o'); $row.disk_after=Get-CandidateDiskEvidence; Save-Run }
 }
 function Checked([string]$File,[string[]]$Arguments) {
     @{command=@($File)+$Arguments} | ConvertTo-Json -Compress -Depth 5 | Write-Output
@@ -61,6 +146,11 @@ Save-Run
 if (Test-Path -LiteralPath (Join-Path $repository 'artifacts/beta-gate/delivery.json')) { $run.receipts.delivery=Join-Path $repository 'artifacts/beta-gate/delivery.json' }
 $pwsh = (Get-Command pwsh -CommandType Application).Source
 $node = (Get-Command node -CommandType Application).Source
+# Qualification refuses redirected executable ancestors. Resolve version-manager
+# junctions once, then use the same ordinary Node path for all child commands.
+$node = (& $node '-p' "require('fs').realpathSync(process.execPath)").Trim()
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $node -PathType Leaf)) { throw 'Selected Node executable could not be resolved' }
+$env:PATH=(Split-Path -Parent $node)+';'+$env:PATH
 $workspace = Join-Path $repository 'src/third_party/codex/codex-rs'
 $channel = Get-Content -LiteralPath (Join-Path $repository 'release/internal-beta.json') -Raw | ConvertFrom-Json
 $private = Join-Path ([IO.Path]::GetTempPath()) ('vcp-beta-private-' + [guid]::NewGuid())
@@ -111,21 +201,26 @@ try {
     }
     Stage 'pair' @('node','scripts/release/pair.cjs',$run.receipts.native,$run.receipts.vsix,(Join-Path $out 'pair.json'),$run.receipts.setup) 'Independently hash all three final artifacts and require exact candidate identity.' {
         Checked $node @((Join-Path $PSScriptRoot 'pair.cjs'),$run.receipts.native,$run.receipts.vsix,(Join-Path $out 'pair.json'),$run.receipts.setup)
+        $pairRow=@($run.stages | Where-Object id -CEQ 'pair')[0]
+        $pairRow.verified_pair_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'pair.json')).Hash.ToLowerInvariant()
+        $run.production_target_cleanup=Remove-CandidateProductionTarget $out $run
+        $run.production_target_cleanup | ConvertTo-Json -Depth 5
     }
-    Stage 'native-boundaries' @('cargo','+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','local_execution_parity','--test','installed_launcher','--','--test-threads=1') 'Separate qualification target: real CLI/client import parity and native launcher contract regressions.' {
+    Stage 'native-boundaries' @('cargo','+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1') 'Separate qualification target: real CLI/client import parity and native launcher contract regressions.' {
         $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
         $vsRoot = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
         & (Join-Path $vsRoot 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
         foreach ($relative in @('Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin','Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja')) { $env:PATH=(Join-Path $vsRoot $relative)+';'+$env:PATH }
         $env:VCP_TEST_NODE=$node; $env:VCP_TEST_GIT=(Get-Command git -CommandType Application).Source; $env:CODEX_TEST_ENVIRONMENT='local'; $env:RUST_MIN_STACK='16777216'
         Push-Location $workspace
-        try { Checked 'cargo' @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','local_execution_parity','--test','installed_launcher','--','--test-threads=1') } finally { Pop-Location }
+        try { Checked 'cargo' @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1') } finally { Pop-Location }
         Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/package-install.test.ps1'))
     }
-    Stage 'installed-native' @('pwsh','-File','scripts/release/candidate-smoke.ps1','-NativeResult',$run.receipts.native,'-SetupResult',$run.receipts.setup,'-OutputRoot',(Join-Path $private 'native')) 'Install exact setup outside checkout, launch exact engine, preserve data and uninstall; hosted-image observation only.' {
-        Checked $pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'candidate-smoke.ps1'),'-NativeResult',$run.receipts.native,'-SetupResult',$run.receipts.setup,'-OutputRoot',(Join-Path $private 'native'))
+    $consoleTest=One-Result (Join-Path $out 'qualification-target') 'beta_launcher_console-*.exe'
+    Stage 'installed-native' @('pwsh','-File','scripts/release/candidate-smoke.ps1','-NativeResult',$run.receipts.native,'-SetupResult',$run.receipts.setup,'-OutputRoot',(Join-Path $private 'native'),'-ConsoleTestExecutable',$consoleTest) 'Install exact setup outside checkout, launch exact engine, verify both-store console cancellation, preserve data and uninstall; hosted-image observation only.' {
+        Checked $pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'candidate-smoke.ps1'),'-NativeResult',$run.receipts.native,'-SetupResult',$run.receipts.setup,'-OutputRoot',(Join-Path $private 'native'),'-ConsoleTestExecutable',$consoleTest)
     }
-    Stage 'installed-editor' @('cargo','+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','beta_editor_candidate','--','--ignored','--nocapture','--test-threads=1') 'Synthetic both-store history observed through actual installed VSIX and exact installed production engine; no live calls.' {
+    Stage 'installed-editor' @('cargo','+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','beta_editor_candidate','--','--ignored','--nocapture','--test-threads=1') 'Synthetic both-store history, reload/restart, incompatible or missing engine and rejected update through actual installed VSIX and production engine; no live calls.' {
         $env:VCP_BETA_NATIVE_RESULT=$run.receipts.native; $env:VCP_BETA_SETUP_RESULT=$run.receipts.setup; $env:VCP_BETA_VSIX_MANIFEST=$run.receipts.vsix; $env:VCP_TEST_CODE=Join-Path $editor 'Code.exe'
         Push-Location $workspace
         try { Checked 'cargo' @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','beta_editor_candidate','--','--ignored','--nocapture','--test-threads=1') } finally { Pop-Location }
