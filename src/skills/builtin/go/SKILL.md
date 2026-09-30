@@ -1,6 +1,6 @@
 # Go modules and workspaces
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Read the project
 
@@ -12,14 +12,14 @@ Original VCP guidance. This package supplies instructions, not a tool executor o
 - `vendor/` with `modules.txt`: vendored builds.
 - Lint configuration such as `.golangci.yml` or `staticcheck.conf`, and nearby tests and `testdata/`.
 
-Identify the affected module and package. A nested-only module may need explicit skill selection.
+Identify the affected module and package. Root `go.mod` and `go.work` files are detected; nested-only modules are not, so the user can activate it with `/skills activate <id>` (the ID `/skills list` shows) or `vcp run --skill <id>`.
 
 ## Discover commands in this order
 
 1. Project-declared tasks: `Makefile`, `magefile.go`, `justfile`, `Taskfile.yml`, scripts, CI workflow files, CONTRIBUTING and AGENTS.md. These record required build tags, environment variables and lint settings.
 2. Ecosystem defaults, only when the module supports them. Candidates to confirm: `go test ./<pkg>/...` or `go test ./<pkg> -run <TestName>` from the module root, widened to `go test ./...` when shared code changed; `go vet ./<pkg>/...`; `gofmt -l <paths>` to list unformatted files; `go build ./...`; `golangci-lint run` or `staticcheck` when configured; `go test -race` where the host supports it.
 
-Pass the same `-tags` the project uses so tagged files are compiled.
+Pass the same `-tags` the project uses so tagged files are compiled. Set `GOTOOLCHAIN=local` so a newer `go` or `toolchain` directive fails instead of downloading a toolchain, and `GOFLAGS=-mod=readonly` (or `-mod=vendor` for vendored builds) so a build fails rather than rewriting `go.mod` or `go.sum`; never switch to `-mod=mod` implicitly. When the module cache is already provisioned, `GOPROXY=off` turns a missing module into an error instead of a download.
 
 ## Toolchain variants
 
