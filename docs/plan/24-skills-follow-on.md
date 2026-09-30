@@ -45,7 +45,8 @@ This task does not claim a fresh upstream audit. Copy no upstream code, skill
 prose, templates, assets or tests. Implementation-specific API/format references
 must be rechecked against primary specifications and pinned by their owning item.
 
-The current baseline is `src/skills/builtin/catalog.json` version 1.2.0, with 21
+(Later state: see [the built-in catalog](../development/p7-builtin-skills.md) for
+catalog 1.10.0 and later, with 29 skills.) The current baseline is `src/skills/builtin/catalog.json` version 1.2.0, with 21
 families. Reuse `skill.json`, bounded `SKILL.md` bodies, hashed resources,
 `coverage.json`, `scripts/skills/builtin-assets.cjs`, and existing package sidecars.
 Reuse the existing discovery/activation controls and canonical tools. Do not add
@@ -264,7 +265,8 @@ On September 25, 2026 the owner resolved three CS-2 questions, recorded in the
 
 - **References.** "Provider/project-specific references" are project-local.
   Activation loads every declared resource with the body, so the packages ship
-  none. Skills direct the model to the user's installed SDK sources and project
+  none. (Later state: ADR-070 and ADR-071 add `file` and on-demand
+  `reference` roles.) Skills direct the model to the user's installed SDK sources and project
   documents, and fixtures carry the project-specific references.
 - **Exit.** Exit is per skill. A qualified skill is promoted in its own PR. An
   unqualified one follows CS-1's non-default candidate disposition.

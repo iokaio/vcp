@@ -168,9 +168,10 @@ digests and leaves versions to the author.
 
 ### SU-03: Helper materialization
 
-Add a skill control operation, wired through the `vcp_skill` tool and the CLI
-skills surface, that copies a verified `file` resource of an active skill to a
-relative workspace destination. The copy must:
+Add a skill control operation, wired through the `vcp_skill` model tool, that
+copies a verified `file` resource of an active skill to a relative workspace
+destination. (Corrected in SH-16: there is no CLI materialization surface; see
+"Not added" below.) The copy must:
 
 * pass the canonical write policy and denials;
 * use exclusive create and never overwrite;
@@ -362,7 +363,9 @@ Delivered design:
 
 * Keep each family version-agnostic and under about 6 KB.
 * Reduce the shared authority paragraph to one line.
-* Update the matching predeclared rubrics in `src/evals/skills/builtin/projects`.
+* Update the matching predeclared rubrics. (Corrected in SH-16: rubrics are the
+  `behavior_rubric` entries in `src/skills/builtin/coverage.json` and
+  `src/evals/skills/builtin/author-fixtures.cjs`; the fixture projects hold none.)
 
 **Delivery order:**
 
@@ -748,22 +751,22 @@ Docs drift:
 | Item | Dependency | Deliverable | State |
 |---|---|---|---|
 | SH-00 | Owner direction | This review, ADR-071 and the SH ledger | complete; [PR #248](https://github.com/iokaio/vcp/pull/248) merged |
-| SH-01 | SH-02 | Ubuntu Rust CI job | planned |
-| SH-02 | None | Fixture v2 revision and shared marker source | in review |
-| SH-03 | None | Discovery robustness and resolution fixes | planned |
-| SH-04 | SH-00 | `reference` role, `vcp_skill read`, scoped tool, resource manifest | planned |
-| SH-05 | None | Runtime performance caching | planned |
-| SH-06 | None | Tooling: safe rehash, package contract checks | planned |
-| SH-07 | SH-04 | skill-authoring validator parity | planned |
-| SH-08 | None | pdf-workflows hardening | planned |
-| SH-09 | None | spreadsheet-workflows fixes | planned |
-| SH-10 | None | webapp-testing hardening | planned |
-| SH-11 | SH-04 | llm-integration on-demand references | planned |
-| SH-12 | SH-04 | mcp-development split references and tests | planned |
-| SH-13 | SH-04 | frontend-design and document-authoring | planned |
-| SH-14 | SH-06 | Baseline family safety and accuracy, one PR per family | planned |
-| SH-15 | SH-02 | Detection gaps | planned |
-| SH-16 | All | Docs drift close-out | planned |
+| SH-01 | SH-02 | Ubuntu Rust CI job | complete; [#251](https://github.com/iokaio/vcp/pull/251) merged (`vcp-extensions` only on Ubuntu; see close-out) |
+| SH-02 | None | Fixture v2 revision and shared marker source | complete; [#249](https://github.com/iokaio/vcp/pull/249) merged |
+| SH-03 | None | Discovery robustness and resolution fixes | complete; [#258](https://github.com/iokaio/vcp/pull/258) merged (incompatibility item dropped; see close-out) |
+| SH-04 | SH-00 | `reference` role, `vcp_skill read`, scoped tool, resource manifest | complete; [#272](https://github.com/iokaio/vcp/pull/272) and [#277](https://github.com/iokaio/vcp/pull/277) merged |
+| SH-05 | None | Runtime performance caching | complete; [#280](https://github.com/iokaio/vcp/pull/280) merged |
+| SH-06 | None | Tooling: safe rehash, package contract checks | complete; [#259](https://github.com/iokaio/vcp/pull/259) merged |
+| SH-07 | SH-04 | skill-authoring validator parity | complete; [#275](https://github.com/iokaio/vcp/pull/275) merged |
+| SH-08 | None | pdf-workflows hardening | complete; [#283](https://github.com/iokaio/vcp/pull/283) merged |
+| SH-09 | None | spreadsheet-workflows fixes | complete; [#284](https://github.com/iokaio/vcp/pull/284) merged |
+| SH-10 | None | webapp-testing hardening | complete; [#285](https://github.com/iokaio/vcp/pull/285) merged |
+| SH-11 | SH-04 | llm-integration on-demand references | complete; [#276](https://github.com/iokaio/vcp/pull/276) merged |
+| SH-12 | SH-04 | mcp-development split references and tests | complete; [#278](https://github.com/iokaio/vcp/pull/278) merged |
+| SH-13 | SH-04 | frontend-design and document-authoring | complete; [#279](https://github.com/iokaio/vcp/pull/279) (frontend-design) and [#281](https://github.com/iokaio/vcp/pull/281) (document-authoring) merged |
+| SH-14 | SH-06 | Baseline family safety and accuracy, one PR per family | complete; one PR per family, [#250](https://github.com/iokaio/vcp/pull/250), [#252](https://github.com/iokaio/vcp/pull/252) to [#257](https://github.com/iokaio/vcp/pull/257), [#260](https://github.com/iokaio/vcp/pull/260) to [#271](https://github.com/iokaio/vcp/pull/271), [#273](https://github.com/iokaio/vcp/pull/273) and [#274](https://github.com/iokaio/vcp/pull/274), merged |
+| SH-15 | SH-02 | Detection gaps | complete; [#282](https://github.com/iokaio/vcp/pull/282) (markers), [#286](https://github.com/iokaio/vcp/pull/286) (cpp) and [#287](https://github.com/iokaio/vcp/pull/287) (dotnet-powershell) merged |
+| SH-16 | All | Docs drift close-out | complete; this close-out PR |
 
 ### SH-01: Ubuntu Rust CI job
 
@@ -946,3 +949,43 @@ One PR per family:
 6. SH-08 to SH-14, as parallel content work; SH-11 to SH-13 need SH-04.
 7. SH-15.
 8. SH-16.
+
+### SH close-out (2026-09-30)
+
+The SH series ended at catalog 1.74.0. Every PR merged with its CI checks
+green: `Repository and harness` and `Skill helpers`, plus `Skill runtime (Rust)`
+from SH-01 (#251) on. Each PR records its own local checks. No live model runs were made and no OpenRouter budget was
+spent.
+
+Deviations and limits recorded during delivery:
+
+* **Linux Rust coverage (SH-01).** `vcp-lifecycle` does not compile on Linux:
+  the ungated `public_memory_query` imports the Windows-only
+  `memory_inspection`, and Linux is out of scope under ADR-068. The Ubuntu job
+  therefore runs `cargo test --locked -p vcp-extensions`. The
+  `builtin_skill_qualification` fixture test (42 of 42 on v2) and the lifecycle
+  skill tests run in the Windows native job and locally.
+* **Dropped item (SH-03).** An active skill that becomes incompatible still fails
+  closed instead of being reported as unavailable. Fail-closed is deliberate and
+  covered by the `reopen-prerequisite` test.
+* **Command check (SH-06).** Quoted VCP commands are checked by a Node contract
+  test against the `vcp-cli` source (slash literals and clap variants), not by
+  a Rust parser test.
+* **Not cached (SH-05).** The canonical tool-ceiling lookup is two in-memory
+  state-record reads; caching a security ceiling would add an invalidation path
+  for no measurable gain. Validation still runs on every request.
+* **Hook origin (SH-04).** No harness drives hook payloads through the model-tool
+  wrapper, so `materialized_from` in before- and after-hook payloads is covered by
+  review, not by a test.
+* **Unrun helper checks.** The pdf-workflows AES `DependencyError` test skips
+  because `cryptography` is not in the helper requirements (SH-08). No
+  Excel-saved workbook fixture exists; Excel 365 part handling is tested with
+  synthetic packages (SH-09).
+* **Pre-existing failure.** The CLI test
+  `hooks::executable_terminal_status_and_pause_remain_responsive_during_lifecycle_hooks`
+  fails locally on Windows with and without the SH changes; it is outside this
+  series.
+* **Detection (SH-15).** Infrastructure, sql, data and shell keep empty cues on
+  purpose: a cue would hide these always-listed skills from projects without the
+  marker. Nested-only projects and PowerShell-only repositories remain
+  undetected.

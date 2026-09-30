@@ -23,7 +23,10 @@ historical evidence; the three linked dispositions give the final results. Contr
 - **Entry.** CS-2 implementation waited for CS-1 to exit. CS-1 closed by owner
   direction with non-default candidates (#172, #173, #175).
 - **References are project-local.** Candidate packages keep `resources: []`,
-  because activation loads every declared resource with the body. Skills direct
+  because activation loads every declared resource with the body. (Later state:
+  [ADR-070](../adr/070-skill-resource-roles-and-discovery.md) and
+  [ADR-071](../adr/071-on-demand-skill-references.md) add `file` and on-demand
+  `reference` roles, so declared resources no longer all load with the body.) Skills direct
   the model to the user's installed SDK sources and project documents, and to
   record the exact versions and dates they used. Fixtures carry the
   project-specific references. The loader is unchanged.

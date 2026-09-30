@@ -16,7 +16,8 @@ The exact original document-authoring 1.0.1 body and descriptor live at
 [the candidate source](../../src/skills/candidates/README.md).
 There is no automatic candidate loader. The distributed builtin catalog remains
 version 1.2.0 with 21 skills and 44 files; document-authoring is absent from its
-inventory and coverage. An experiment must explicitly register a candidate source
+inventory and coverage. (Later state: catalog 1.10.0 ships document-authoring as
+a builtin; see [the built-in catalog](p7-builtin-skills.md).) An experiment must explicitly register a candidate source
 through the existing source registry and select the skill. Ordinary Markdown
 presence does not trigger activation, and a skill grants no tool authority.
 
