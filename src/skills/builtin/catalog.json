@@ -323,7 +323,7 @@
       "id": "skill-authoring",
       "version": "2.4.0",
       "descriptor": "skill-authoring/skill.json",
-      "descriptor_sha256": "a73bf16928a37a646d2ec2cf412e5a55421ff5bb735051c46b19d6bf1b92ab56",
+      "descriptor_sha256": "2e8ca2299699832123352aff5e90eb4709020bf9d7d856c04ecc83a4a980e080",
       "body": {
         "path": "SKILL.md",
         "sha256": "db11affc3f349bcf5330f68d144b8a4a50c6dc3d5092fa5fa56fa67816aa7214"
@@ -333,7 +333,7 @@
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+          "sha256": "14099b9c79d031b9d4b32c736a4e20f2b941f52dd79500532d62d26dd716110c",
           "use": "file"
         },
         {
