@@ -52,7 +52,7 @@ ADR-013 records the committed-source repository convention and maintenance evide
 
 - [ADR-042 â€” Owner-directed P8 closure and P9 continuation](042-owner-directed-p8-closure.md): closes the milestone with explicit qualification gaps; preserves release-evidence and runtime trust requirements.
 
-- [ADR-043 — Public protocol schemas and reconnect identity](043-public-protocol-schema-and-identity.md): canonical public DTOs, generated schema/types and stable authenticated mutation receipts.
+- [ADR-043 ï¿½ Public protocol schemas and reconnect identity](043-public-protocol-schema-and-identity.md): canonical public DTOs, generated schema/types and stable authenticated mutation receipts.
 
 - [ADR-044 - Controlled local process bootstrap](044-controlled-local-process-bootstrap.md): authenticated Windows launch and attachment.
 
@@ -113,3 +113,5 @@ Return to the [documentation index](../README.md).
 [ADR-069](069-practical-skill-ports.md) replaces original-only skill development and blanket comparative release gates with licensed ports and scoped verification.
 
 [ADR-070](070-skill-resource-roles-and-discovery.md) adds context/file skill resource roles, verified helper materialization and description discovery for cue-less skills.
+
+[ADR-071](071-on-demand-skill-references.md) adds on-demand `reference` resources read through `vcp_skill`, scopes that tool to root tasks under the read ceiling, and records how ADR-070 materialization was implemented.
