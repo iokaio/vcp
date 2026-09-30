@@ -10,6 +10,8 @@ use vcp_repository::RootIdentity;
 
 pub const SCHEMA_VERSION: u32 = 1;
 pub const DESCRIPTOR_NAME: &str = "skill.json";
+/// Shared by descriptors and the builtin catalog so the two cannot drift.
+pub const LICENSE_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -177,7 +179,7 @@ impl SkillDescriptor {
         text(&self.version, 128)?;
         text(&self.description, 1024)?;
         text(&self.source, 2048)?;
-        text(&self.license, 256)?;
+        text(&self.license, LICENSE_BYTES)?;
         for set in [&self.cues, &self.environments, &self.required_tools] {
             if set.len() > 32 {
                 return Err(Error::Limit("matching requirements"));

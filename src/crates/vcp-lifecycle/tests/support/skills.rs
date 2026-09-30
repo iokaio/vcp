@@ -471,6 +471,8 @@ async fn retained_skills_are_lazy_attributed_and_cannot_override_denials_or_stal
                     );
                 } else {
                     assert!(!first.to_string().contains("SKILL_BODY_UNIQUE_MARKER"));
+                    // Description-only discovery lists compatible skills (SH-03).
+                    assert!(first.to_string().contains("total_compatible"));
                 }
                 assert!(quoted.iter().any(|(role, part)| *role == "system"
                     && part["text"]
@@ -877,7 +879,9 @@ async fn skill_materialization_copies_verified_file_resources_through_patch_auth
             }
             "revoked" => {
                 assert!(helper.is_none());
-                assert!(result.unwrap().contains("exactly one matching active skill"));
+                assert!(result
+                    .unwrap()
+                    .contains("exactly one matching active skill"));
             }
             _ => {
                 assert!(helper.is_none(), "tampered source is never copied");

@@ -135,11 +135,25 @@ impl Catalog {
     /// Explicit selection bypasses cue suggestions, never environment/tool requirements.
     pub fn resolve(&self, id: &str, context: &MatchContext) -> Result<&DiscoveredSkill> {
         context.validate()?;
-        let mut selected: Vec<_> = self
+        let candidates: Vec<_> = self
             .skills
             .iter()
             .filter(|skill| skill.qualified_id == id || skill.descriptor.id == id)
             .collect();
+        // A disabled override must not hide a lower-precedence enabled copy.
+        let mut selected: Vec<_> = candidates
+            .iter()
+            .copied()
+            .filter(|skill| !self.disabled.contains(&skill.qualified_id))
+            .collect();
+        if selected.is_empty() {
+            if let Some(skill) = candidates.first() {
+                return Err(Error::Unavailable(format!(
+                    "disabled skill {}",
+                    skill.qualified_id
+                )));
+            }
+        }
         let precedence = selected.iter().map(|skill| skill.source_kind).max();
         selected.retain(|skill| Some(skill.source_kind) == precedence);
         let skill = match selected.as_slice() {
@@ -151,12 +165,6 @@ impl Catalog {
                 )))
             }
         };
-        if self.disabled.contains(&skill.qualified_id) {
-            return Err(Error::Unavailable(format!(
-                "disabled skill {}",
-                skill.qualified_id
-            )));
-        }
         if !skill.compatible(context) {
             return Err(Error::Unavailable(format!(
                 "{} requires environment {:?} and tools {:?}",
@@ -185,13 +193,15 @@ struct Walker<'a> {
     limits: &'a Limits,
     catalog: &'a mut Catalog,
     attempted: usize,
+    entries: u64,
+    descriptor_bytes: u64,
 }
 impl Walker<'_> {
     fn diagnostic(&mut self, path: &Path, code: &str, error: impl std::fmt::Display) {
         // Input lengths are bounded before diagnostic construction.
         self.catalog.diagnostics.push(Diagnostic {
             source_id: self.source.id.clone(),
-            path: path.to_string_lossy().into_owned(),
+            path: path.to_string_lossy().replace('\\', "/"),
             code: code.into(),
             message: error.to_string().chars().take(2048).collect(),
         });
@@ -203,7 +213,8 @@ impl Walker<'_> {
         let mut entries = Vec::new();
         for entry in std::fs::read_dir(self.root.path().join(relative))? {
             self.catalog.reads.directory_entries += 1;
-            if self.catalog.reads.directory_entries > self.limits.max_entries as u64 {
+            self.entries += 1;
+            if self.entries > self.limits.max_entries as u64 {
                 return Err(Error::Limit("directory entries"));
             }
             entries.push(entry?);
@@ -256,7 +267,8 @@ impl Walker<'_> {
         };
         self.catalog.reads.descriptors += 1;
         self.catalog.reads.descriptor_bytes += source.bytes.len() as u64;
-        if self.catalog.reads.descriptor_bytes > self.limits.total_descriptor_bytes {
+        self.descriptor_bytes += source.bytes.len() as u64;
+        if self.descriptor_bytes > self.limits.total_descriptor_bytes {
             return Err(Error::Limit("total descriptor bytes"));
         }
         let descriptor: SkillDescriptor =
@@ -310,18 +322,39 @@ pub fn discover(registry: &SourceRegistry, limits: &Limits) -> Result<Catalog> {
         .filter(|source| source.enabled)
         .collect();
     sources.sort_by(|a, b| a.id.cmp(&b.id));
-    let mut attempted = 0;
+    // Each source has its own budget. A source that cannot be opened or that
+    // exceeds its limits contributes no skills and one diagnostic, so it cannot
+    // take down discovery for the others. The builtin source stays fail-closed
+    // because catalog verification rejects any diagnostic from it.
     for source in sources {
-        let root = Root::open(source.root.clone(), &source.path)?;
-        let mut walker = Walker {
-            source,
-            root,
-            limits,
-            catalog: &mut catalog,
-            attempted,
+        let before = catalog.skills.len();
+        let outcome = match Root::open(source.root.clone(), &source.path) {
+            Ok(root) => Walker {
+                source,
+                root,
+                limits,
+                catalog: &mut catalog,
+                attempted: 0,
+                entries: 0,
+                descriptor_bytes: 0,
+            }
+            .walk(&PathBuf::new(), 0),
+            Err(error) => Err(error.into()),
         };
-        walker.walk(&PathBuf::new(), 0)?;
-        attempted = walker.attempted;
+        if let Err(error) = outcome {
+            catalog.skills.truncate(before);
+            catalog.diagnostics.push(Diagnostic {
+                source_id: source.id.clone(),
+                path: String::new(),
+                code: if matches!(error, Error::Limit(_)) {
+                    "source_limit"
+                } else {
+                    "source_unavailable"
+                }
+                .into(),
+                message: error.to_string().chars().take(2048).collect(),
+            });
+        }
     }
     catalog
         .skills
@@ -332,6 +365,28 @@ pub fn discover(registry: &SourceRegistry, limits: &Limits) -> Result<Catalog> {
             .entry((&skill.descriptor.id, skill.source_kind))
             .or_default()
             .push(&skill.qualified_id);
+    }
+    // Cross-precedence overrides are legitimate but should never be silent.
+    let mut kinds: BTreeMap<&str, Vec<&DiscoveredSkill>> = BTreeMap::new();
+    for skill in &catalog.skills {
+        kinds.entry(&skill.descriptor.id).or_default().push(skill);
+    }
+    let mut shadowed = Vec::new();
+    for (id, skills) in kinds {
+        let Some(top) = skills.iter().map(|skill| skill.source_kind).max() else {
+            continue;
+        };
+        for skill in skills.iter().filter(|skill| skill.source_kind < top) {
+            shadowed.push(Diagnostic {
+                source_id: String::new(),
+                path: String::new(),
+                code: "shadowed".into(),
+                message: format!(
+                    "{id}: {} is shadowed by a higher-precedence source; select it by qualified identity",
+                    skill.qualified_id
+                ),
+            });
+        }
     }
     for ((id, _), qualified) in duplicates {
         if qualified.len() > 1 {
@@ -346,5 +401,6 @@ pub fn discover(registry: &SourceRegistry, limits: &Limits) -> Result<Catalog> {
             });
         }
     }
+    catalog.diagnostics.extend(shadowed);
     Ok(catalog)
 }

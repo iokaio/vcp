@@ -56,7 +56,7 @@ function inspectAssets(root, expectedCatalog = bounded(path.join(source, 'catalo
   if (!catalogBytes.equals(expectedCatalog)) throw Error('Catalog does not match selected source inventory');
   const catalog = JSON.parse(catalogBytes);
   if (catalog.schema_version !== 1 || typeof catalog.version !== 'string' ||
-      !Array.isArray(catalog.skills) || !catalog.skills.length || catalog.skills.length > 64) {
+      !Array.isArray(catalog.skills) || !catalog.skills.length || catalog.skills.length > 128) {
     throw Error('Unsupported builtin catalog');
   }
   const expected = new Map([['catalog.json', digest(catalogBytes)]]), identities = new Set();

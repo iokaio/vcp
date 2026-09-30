@@ -129,7 +129,9 @@ pub fn actual_match_context(
 ) -> Result<MatchContext, String> {
     let mut cues = std::collections::BTreeSet::new();
     for marker in ROOT_MARKERS {
-        if root.read(std::path::Path::new(marker), 64 * 1024).is_ok() {
+        // Existence, not contents: a large manifest is still a marker, and no
+        // marker bytes are read on every turn.
+        if root.hold(Some(std::path::Path::new(marker)), false).is_ok() {
             cues.insert(marker.into());
         }
     }
@@ -294,6 +296,14 @@ mod tests {
         }
         // worker/skills.rs lists description metadata within 60 KiB.
         assert!(metadata < 60 * 1024, "{metadata}");
+    }
+
+    #[test]
+    fn a_marker_larger_than_a_read_bound_is_still_detected() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("package.json"), vec![b' '; 256 * 1024]).unwrap();
+        let context = actual_match_context(&root(temp.path()), Default::default()).unwrap();
+        assert!(context.cues.contains("package.json"));
     }
 
     #[test]
