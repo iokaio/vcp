@@ -1,6 +1,6 @@
 # Rust workspaces and native boundaries
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Read the project
 
@@ -8,7 +8,7 @@ Inspect these before choosing a command or editing code:
 
 - `Cargo.toml` at the root and in the owning crate: `[workspace]` members and exclusions, `default-members`, `[features]`, `[workspace.dependencies]`, `[lints]`, `rust-version`, `edition`, and `[profile.*]`. The owning package name, not its directory name, is what `-p` selects.
 - `Cargo.lock`: whether it is committed and must stay unchanged for source-only work.
-- `rust-toolchain` or `rust-toolchain.toml`: the pinned channel, components and targets. Do not invoke a different toolchain just because it is on PATH.
+- `rust-toolchain` or `rust-toolchain.toml`: the pinned channel, components and targets. Do not invoke a different toolchain just because it is on PATH. rustup auto-installs a pinned toolchain that is missing, with its listed components and targets, on the first `cargo` or `rustc` call; check `rustup toolchain list` first or set `RUSTUP_AUTO_INSTALL=0`, and report a missing toolchain as not run.
 - `.cargo/config.toml` (or `.cargo/config`): aliases, default target, rustflags, linker, `[env]`, and offline or vendored sources.
 - `build.rs`, proc-macro crates, and `-sys` crates: native libraries, generated code and environment variables the build reads.
 - `rustfmt.toml`, `clippy.toml`, `deny.toml` and neighboring modules and tests for existing conventions.
@@ -20,7 +20,7 @@ Determine the actual package, target (lib, bin, test, bench, example), feature s
 1. Project-declared tasks: `Makefile`, `justfile`, `Taskfile.yml`, `xtask` crates, cargo aliases in `.cargo/config.toml`, CI workflow files, CONTRIBUTING and AGENTS.md. These encode the features, flags and toolchain the project actually gates on.
 2. Ecosystem defaults, only when the manifest supports them. Candidates to confirm: `cargo test -p <package>`, narrowed with `--test <target>`, `--lib` or a test-name filter; `cargo check -p <package>`; `cargo fmt --check`; `cargo clippy -p <package> --all-targets`, with the feature options CI uses.
 
-Use `--locked` or `--offline` where the project requires them and the cache is provisioned. A missing cache is not permission to fetch or to rewrite the lockfile.
+Cargo fetches missing crates and may update `Cargo.lock` by default. Pass `--locked` when `Cargo.lock` is committed, and `--offline` (or `--frozen`, which implies both) when the registry cache is provisioned. A missing cache is not permission to fetch or to rewrite the lockfile.
 
 ## Toolchain variants
 
