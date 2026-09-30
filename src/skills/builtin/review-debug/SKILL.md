@@ -1,6 +1,6 @@
 # Evidence-driven review and debugging
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Inspect first
 
@@ -22,7 +22,7 @@ Review benign neighboring behavior as a control. A suspicious name or unusual st
 ## Proceed and verify
 
 1. State a concrete hypothesis and use existing tests or logs to check it. Perform an available reproduction within current grants. Ask for missing input only when it cannot be obtained through those grants.
-2. Shrink the case until one change flips it. When a known good revision exists and bisecting is authorized, test midpoints with the same reproducer on a clean checkout; never discard local work to do so.
+2. Shrink the case until one change flips it. When a known good revision exists and bisecting is authorized, remember that `git bisect` checks out revisions in the worktree it runs in. Run it only in a separate task-owned worktree at a clean revision (for example from an authorized `git worktree add`), never in the user's worktree, especially one with uncommitted work. Test midpoints with the same reproducer, end with `git bisect reset` there, and never discard local work to bisect.
 3. Add temporary instrumentation only to resolve a specific uncertainty; record its exact paths, edits and intended removal in the task evidence.
 4. Prefer a root-cause correction with a targeted regression over retries, broad catches, or weakened assertions. Confirm the regression fails before the fix and passes after it.
 5. Rerun checks affected by the final edits and keep missing or unavailable checks explicitly not run.
