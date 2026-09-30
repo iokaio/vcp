@@ -1,6 +1,6 @@
 # Project conventions, theming, internationalization and performance
 
-VCP-authored reference; not part of the upstream Anthropic skill. Apply the sections that the task touches. Accessibility thresholds are in [accessibility.md](accessibility.md).
+VCP-authored reference; not part of the upstream Anthropic skill. Apply the sections that the task touches. The accessibility baseline, including contrast and reduced motion, is in the skill body; success-criterion detail is in [accessibility.md](accessibility.md).
 
 ## Work inside the project's system
 
@@ -13,7 +13,7 @@ Do not introduce a new CSS framework, component library, icon set, font service 
 - Define color as semantic tokens (`--color-surface`, `--color-text-muted`, `--color-border`, `--color-accent`, `--color-danger`) and map raw palette values to them per theme. Components use the semantic tokens, never raw palette steps.
 - Follow the project's theme mechanism. Without one, default to the system preference with `@media (prefers-color-scheme: dark)` and set `color-scheme: light dark` so form controls and scrollbars match. When the user can choose a theme, store the choice and apply it before first paint to avoid a flash of the wrong theme.
 - A dark theme is a separate palette, not an inversion: use dark grey surfaces, express elevation with lighter surfaces rather than shadows alone, reduce saturation of large accent areas, and recheck images, logos, charts and illustrations against the dark surface.
-- Check contrast (text 4.5:1, large text and UI boundaries 3:1) for every theme, including hover, focus, selected, disabled and error states, as well as any high-contrast mode the project supports. A pair that passes in light often fails in dark. Respect `forced-colors: active` by avoiding information carried only by background images or box shadows.
+- Recheck contrast in every theme and state, including any high-contrast mode the project supports. A pair that passes in light often fails in dark. Respect `forced-colors: active` by avoiding information carried only by background images or box shadows.
 
 ## Right-to-left and internationalization
 
@@ -28,6 +28,6 @@ Do not introduce a new CSS framework, component library, icon set, font service 
 - **Fonts:** use the fonts the project already ships or has approved. Limit families and weights, prefer variable fonts or subsets for the scripts in use, self-host or preload the critical face, and set `font-display: swap` (or `optional` for non-critical faces). Pick a fallback with similar metrics, or use `size-adjust`, so swapping does not shift layout.
 - **Layout shift:** reserve space for images, video, embeds, ads and asynchronously loaded content with `width`/`height` attributes or `aspect-ratio`. Use skeletons that match the final dimensions. Do not insert banners above existing content after load.
 - **Images:** serve responsive sizes with `srcset` and `sizes` (or the framework's image component), modern formats such as AVIF or WebP where supported, `loading="lazy"` for below-the-fold images and eager loading for the main above-the-fold image.
-- **Animation:** animate `transform` and `opacity` rather than layout properties; keep durations short; avoid large blurs, many simultaneous animations and scroll-linked effects on long pages. Honor `prefers-reduced-motion`.
+- **Animation:** animate `transform` and `opacity` rather than layout properties; keep durations short; avoid large blurs, many simultaneous animations and scroll-linked effects on long pages.
 - **Code and assets:** do not add a heavy dependency for a small visual effect. Load large, rarely used components on demand when the framework supports it.
 - Measure with the tools available (Lighthouse, the browser performance panel, project budgets) and report what was measured and what was not; a local development build is not a production measurement.

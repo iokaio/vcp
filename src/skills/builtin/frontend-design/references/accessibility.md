@@ -1,6 +1,6 @@
 # Accessibility checks for interface work
 
-VCP-authored reference; not part of the upstream Anthropic skill. Thresholds are from the W3C Recommendation [Web Content Accessibility Guidelines (WCAG) 2.2](https://www.w3.org/TR/WCAG22/) (12 December 2024), cited by success-criterion (SC) number and level. The SC text is authoritative; this page summarizes it for implementation. Follow a stricter project or legal standard when one applies.
+VCP-authored reference; not part of the upstream Anthropic skill. Thresholds are from the W3C Recommendation [Web Content Accessibility Guidelines (WCAG) 2.2](https://www.w3.org/TR/WCAG22/) (12 December 2024), cited by success-criterion (SC) number and level. The SC text is authoritative. The skill body states the baseline that always applies; this page gives the success criteria, definitions and exceptions behind it. Follow a stricter project or legal standard when one applies.
 
 ## Contrast and color
 
@@ -35,7 +35,7 @@ VCP-authored reference; not part of the upstream Anthropic skill. Thresholds are
 
 - **Pause, stop, hide, SC 2.2.2 (A):** motion that starts automatically, lasts more than five seconds and runs alongside other content needs a way to pause, stop or hide it.
 - **Three flashes or below threshold, SC 2.3.1 (A):** nothing flashes more than three times in any one-second period unless the flash is below the general and red flash thresholds. Avoid flashing content entirely.
-- Honor `@media (prefers-reduced-motion: reduce)`: replace movement, parallax, zoom and large transitions with an instant change or a short opacity fade. Keep the information that the motion conveyed. WCAG treats disabling interaction-triggered motion as AAA (SC 2.3.3), but the media query is inexpensive and expected in VCP work.
+- **Animation from interactions, SC 2.3.3 (AAA):** WCAG treats disabling interaction-triggered motion as AAA, but the reduced-motion rule in the skill body is inexpensive and expected in VCP work.
 
 ## Report what was checked
 

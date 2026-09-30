@@ -20,7 +20,7 @@ Check real rendered text for clipping, awkward wraps and overflow. Long labels, 
 
 Rules, borders, labels and dividers should clarify relationships. Number items when their order matters. Use white space to separate groups before adding more containers. Keep interactive and static surfaces visually distinguishable.
 
-A single coordinated entrance can be more effective than fade-and-slide effects on every section or hover transitions on every card. Interaction-driven motion is useful when it shows what opened, expanded or changed. Remove decorative motion that distracts from the task, and provide a stable reduced-motion experience.
+A single coordinated entrance can be more effective than fade-and-slide effects on every section or hover transitions on every card. Interaction-driven motion is useful when it shows what opened, expanded or changed. Remove decorative motion that distracts from the task.
 
 ## Write for someone using the product
 
