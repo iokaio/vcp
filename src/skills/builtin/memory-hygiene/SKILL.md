@@ -1,10 +1,10 @@
 # Governed memory and retention hygiene
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Inspect first
 
-- The project's existing governed memory, history and retention inspection surfaces (for example /memory and /history views or their CLI equivalents), confirmed against the current installation.
+- VCP's governed surfaces, confirmed with `--help` on the current installation: `vcp memory search <text>` and `vcp memory inspect <claim>` for claims and their evidence, `vcp history list` and `vcp history search <text>` for raw history, and `vcp retention show` for the saved policy. In the terminal, `/history`, `/memory inspect`, `/prune` and `/retention` reach the same controls.
 - Candidate stale entries: claims whose applicability no longer matches current source, superseded preferences, and recall that points at removed files.
 - Candidate duplicates, checked by lineage and source evidence rather than similar wording.
 - The exact scope requested: workspace, path, claim, date range or filter.
@@ -21,9 +21,9 @@ Prefer correcting or superseding governed claims when history remains useful. Ex
 
 1. Establish the explicit scope from the user. Never delete, purge or exclude anything without an explicit scope; a general request to tidy up is a request for a proposal.
 2. List stale or duplicate candidates with their source evidence and why each qualifies. Prefer correction or supersession over removal.
-3. Prepare the least destructive operation that meets the request, and show its preview: selected items, counts, protected references, dependents, recall impact and backup copies that will remain.
-4. Apply only the developer-selected current preview through the existing controller; do not delete index files or mutate a store directly. Recheck stale preview failures rather than broadening the selection.
-5. After applying, inspect again and confirm what is excluded now and what cleanup remains pending.
+3. Prepare the least destructive operation that meets the request with `vcp memory prune --preview` (claims) or `vcp history prune --preview` (history), explicit filters such as `--since`, `--before`, `--task` or `--path`, and an explicit `--action exclude|restore-recall|compact|purge`; the default action is purge. Review it with `vcp prune show <preview-id>`: selected items, counts, protected references, dependents, recall impact and backup copies that will remain.
+4. Apply only the developer-selected current preview with `vcp prune apply <preview-id>`; do not delete index files or mutate a store directly. Recheck stale preview failures rather than broadening the selection.
+5. After applying, inspect again and confirm what is excluded now and what cleanup remains pending; `vcp prune cleanup <receipt-id>` completes pending cleanup for an applied receipt when that is in scope.
 
 Evidence is the preview identity, the applied selection and counts, the reported cleanup state, and a post-change inspection. A proposal or preview is not a completed cleanup.
 
