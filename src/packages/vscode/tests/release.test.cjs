@@ -74,7 +74,9 @@ test('beta VSIX binds the native release, reviewed source, production receipt an
 });
 
 test('strict output never replaces a prior recognized candidate', t => {
-  const directory = fs.mkdtempSync(path.resolve(__dirname, '../../../../artifacts/beta-vsix-output-'));
+  const artifacts = path.resolve(__dirname, '../../../../artifacts');
+  fs.mkdirSync(artifacts, { recursive: true });
+  const directory = fs.mkdtempSync(path.join(artifacts, 'beta-vsix-output-'));
   t.after(() => fs.rmSync(directory, { recursive: true }));
   const output = path.join(directory, 'candidate');
   prepareOutput(output, 'vcp-beta-vsix-output/1', true);
@@ -91,6 +93,7 @@ test('strict builds reject Node preloads and module-path overrides', () => {
 
 test('strict Windows compilation installs dev tools under production NODE_ENV and never uses a poisoned ancestor compiler', { skip: process.platform !== 'win32' }, t => {
   const repository = path.resolve(__dirname, '../../../..');
+  fs.mkdirSync(path.join(repository, 'artifacts'), { recursive: true });
   const root = fs.mkdtempSync(path.join(repository, 'artifacts/beta-vsix-build-'));
   t.after(() => fs.rmSync(root, { recursive: true }));
   const copy = relative => {

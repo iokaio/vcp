@@ -1,0 +1,14 @@
+{
+  "schema": "vcp-candidate-tools/1",
+  "runner": "windows-2025",
+  "node": "24.10.0",
+  "production_rust": "1.95.0",
+  "qualification_rust": "1.98.0",
+  "editor": {
+    "version": "1.138.0",
+    "commit": "7debcd0e2acdea1c52de81bf9ee1620444407dda",
+    "metadata_url": "https://update.code.visualstudio.com/api/versions/1.138.0/win32-x64-archive/stable",
+    "url": "https://vscode.download.prss.microsoft.com/dbazure/download/stable/7debcd0e2acdea1c52de81bf9ee1620444407dda/VSCode-win32-x64-1.138.0.zip",
+    "sha256": "c0a9f12a0d8962fa4cda1959eecd5fdd3f82de9715ad4dadd5601856bb60fd21"
+  }
+}
