@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #requires -Version 7.0
 [CmdletBinding()]
-param([string]$OutputRoot, [ValidateRange(1,16)][int]$Jobs = 2)
+param([string]$OutputRoot, [ValidateRange(1,16)][int]$Jobs = 2, [switch]$Release, [string]$ReviewedCommit)
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $IsWindows) { throw 'Native Windows build required' }
+if ($Release -and $ReviewedCommit -notmatch '^[a-f0-9]{40}$') { throw 'Release requires -ReviewedCommit with the exact reviewed source commit' }
+if (-not $Release -and $ReviewedCommit) { throw '-ReviewedCommit requires -Release' }
+$releaseTool = Join-Path $PSScriptRoot 'release/provenance.cjs'
 $nativeOverrideNames = @('CC','CXX','CL','_CL_','CFLAGS','CXXFLAGS','CPPFLAGS','LDFLAGS','AR','ARFLAGS','CMAKE_GENERATOR','CMAKE_TOOLCHAIN_FILE','CMAKE_ARGS','CARGO_MAKEFLAGS')
 $nativeOverrides = @(Get-ChildItem Env: | Where-Object {
     $_.Value -and ($_.Name -in $nativeOverrideNames -or $_.Name -match '^(CC|CXX|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|AR|ARFLAGS)_' -or $_.Name -match '^(HOST|TARGET)_(CC|CXX|CFLAGS|CXXFLAGS|AR|ARFLAGS)$')
@@ -15,6 +18,9 @@ $out = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ([guid]::NewGuid().ToStri
 New-Item -ItemType Directory -Path $out | Out-Null
 $workspace = Join-Path $repository 'src/third_party/codex/codex-rs'
 $target = Join-Path $repository 'artifacts/codex-target'
+# A release starts with an empty target directory: no stale developer artifacts,
+# feature unification or unrecorded build-script output can be reused.
+if ($Release) { $target = Join-Path $out 'cargo-target' }
 # This recipe uses the committed workspace configuration only. An additional
 # ancestor/user Cargo configuration needs its own reviewed build recipe.
 $configCandidates = @()
@@ -31,7 +37,11 @@ $cargoConfigs = @($configCandidates | Select-Object -Unique | Where-Object { Tes
 })
 $identity = Join-Path $repository 'scripts/evals/memory-source-identity.cjs'
 function Capture-Source([string]$Destination) {
-    & node -e "const m=require(process.argv[1]); console.log(JSON.stringify(m.sourceIdentity(process.argv[2],['scripts/build-production.ps1','scripts/package.ps1','scripts/package-install.ps1','scripts/package-inventory.cjs','scripts/package-models.ps1','scripts/skills','src/third_party/upstreams.toml','src/third_party/components','src/skills/builtin','LICENSE','NOTICE','THIRD_PARTY_NOTICES.md'])));" $identity $repository > $Destination
+    if ($Release) {
+        & node $releaseTool source $repository $ReviewedCommit > $Destination
+    } else {
+        & node -e "const m=require(process.argv[1]); console.log(JSON.stringify(m.sourceIdentity(process.argv[2],['scripts/build-production.ps1','scripts/package.ps1','scripts/package-install.ps1','scripts/package-inventory.cjs','scripts/package-models.ps1','scripts/skills','src/third_party/upstreams.toml','src/third_party/components','src/skills/builtin','LICENSE','NOTICE','THIRD_PARTY_NOTICES.md'])));" $identity $repository > $Destination
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Source inventory failed' }
 }
 $before = Join-Path $out 'source-before.json'
@@ -48,10 +58,17 @@ $nativeTools = @('cl','link','lib','cmake','ninja') | ForEach-Object {
     $tool = (Get-Command $_ -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     @{name=$_;path=$tool;sha256=(Get-FileHash -LiteralPath $tool).Hash.ToLowerInvariant()}
 }
+$nativeTools += @('rustc','cargo') | ForEach-Object {
+    $tool = [string](& rustup which --toolchain 1.95.0 $_)
+    if ($LASTEXITCODE -ne 0 -or -not $tool) { throw "Cannot locate pinned toolchain: $_" }
+    @{name=$_;path=$tool;sha256=(Get-FileHash -LiteralPath $tool).Hash.ToLowerInvariant()}
+}
+$nodeTool = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+$nativeTools += @{name='node';path=$nodeTool;sha256=(Get-FileHash -LiteralPath $nodeTool).Hash.ToLowerInvariant()}
 $env:RUST_MIN_STACK = '16777216'
 # The committed target configuration selects static CRT. Do not inherit feature,
 # rustflag or release-profile overrides from a developer's environment.
-foreach ($name in @('RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC','RUSTC_WRAPPER','RUSTC_WORKSPACE_WRAPPER','CARGO_BUILD_RUSTFLAGS','CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS','CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER','CARGO_BUILD_RUSTC','CARGO_BUILD_RUSTC_WRAPPER','CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER')) {
+foreach ($name in @('RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_ENCODED_RUSTFLAGS','RUSTC','RUSTC_WRAPPER','RUSTC_WORKSPACE_WRAPPER','CARGO_BUILD_RUSTFLAGS','CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS','CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER','CARGO_BUILD_RUSTC','CARGO_BUILD_RUSTC_WRAPPER','CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER')) {
     if ([Environment]::GetEnvironmentVariable($name)) { throw "Unexpected build override: $name" }
 }
 if (@(Get-ChildItem Env: | Where-Object Name -like 'CARGO_PROFILE_RELEASE_*').Count) { throw 'Release profile overrides are not allowed' }
@@ -71,8 +88,13 @@ $source = Get-Content -LiteralPath $before -Raw | ConvertFrom-Json
 $finalSource = Get-Content -LiteralPath $after -Raw | ConvertFrom-Json
 $receipt = [ordered]@{schema='vcp-local-build/1'; exit_code=$code; cargo_exit_code=$code; source_commit=$source.commit; source_dirty=$source.dirty; source_content_sha256=$source.content_sha256; source_stable=($source.content_sha256 -ceq $finalSource.content_sha256 -and $upstreamCode -eq 0); upstream_before_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'upstream-verification.log')).Hash.ToLowerInvariant(); upstream_after_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'upstream-verification-after.log')).Hash.ToLowerInvariant(); cargo_configs=$cargoConfigs; rustflags=$rustflags; command=@('cargo')+$arguments; working_directory=$workspace; rustc=(& rustc +1.95.0 --version --verbose); msvc=$env:VCToolsVersion; started_at=$started.ToString('o'); ended_at=[DateTime]::UtcNow.ToString('o'); qualification_build=$false; profile='release'; target='x86_64-pc-windows-msvc'; inputs=$source.files; log_sha256=(Get-FileHash -LiteralPath $log).Hash.ToLowerInvariant()}
 $receipt.native_tools = @($nativeTools)
+$receipt.toolchain_stable = $true
+foreach ($tool in $nativeTools) {
+    if (-not (Test-Path -LiteralPath $tool.path) -or (Get-FileHash -LiteralPath $tool.path).Hash.ToLowerInvariant() -cne $tool.sha256) { $receipt.toolchain_stable = $false }
+}
+if (-not $receipt.toolchain_stable) { $receipt.exit_code = 1; $receipt.failure = 'Build toolchain changed during compilation' }
 if (-not $receipt.source_stable) { $receipt.exit_code = 1; $receipt.failure = 'Source or upstream inventory changed during compilation' }
-if ($code -eq 0 -and $receipt.source_stable) {
+if ($receipt.exit_code -eq 0) {
     try {
     $artifacts = @(Get-Content -LiteralPath $log | Where-Object { $_.StartsWith('{') } | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object reason -eq 'compiler-artifact')
     $vcpArtifacts = @($artifacts | Where-Object { $_.target.name -eq 'vcp' -or $_.target.name.StartsWith('vcp_') })
@@ -85,6 +107,14 @@ if ($code -eq 0 -and $receipt.source_stable) {
     $receipt.executable = $executable
     $receipt.executable_sha256 = (Get-FileHash -LiteralPath $executable).Hash.ToLowerInvariant()
     $receipt.compiler_artifact = $compiled[0]
+    if ($Release) {
+        $releaseJson = & node -e "const p=require(process.argv[1]),s=p.json(process.argv[3]),c=p.channel(process.argv[2]),b=p.verifyExecutable(process.argv[4],c.native_version);console.log(JSON.stringify({release:p.releaseIdentity(c,s,b.sha256),version:b.version,target:b.target}));" $releaseTool $repository $before $executable
+        if ($LASTEXITCODE -ne 0) { throw 'Release executable identity failed' }
+        $releaseIdentity = $releaseJson | ConvertFrom-Json
+        $receipt.release = $releaseIdentity.release
+        $receipt.executable_version = $releaseIdentity.version
+        $receipt.executable_target = $releaseIdentity.target
+    }
     $symbols = [IO.Path]::ChangeExtension($compiled[0].executable, '.pdb')
     if (Test-Path -LiteralPath $symbols) { Copy-Item -LiteralPath $symbols -Destination (Join-Path $out 'vcp.pdb'); $receipt.symbols_sha256 = (Get-FileHash -LiteralPath (Join-Path $out 'vcp.pdb')).Hash.ToLowerInvariant() }
     } catch { $receipt.exit_code = 1; $receipt.failure = $_.Exception.Message }
@@ -92,4 +122,8 @@ if ($code -eq 0 -and $receipt.source_stable) {
 $receiptPath = Join-Path $out 'build-receipt.json'
 $receipt | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $receiptPath -Encoding utf8NoBOM
 if ($receipt.exit_code -ne 0) { throw "Production build failed or inputs changed; retained $receiptPath" }
+if ($Release) {
+    & node $releaseTool verify-build $repository $receiptPath $receipt.executable $ReviewedCommit | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Strict release provenance failed; retained $receiptPath" }
+}
 Write-Output $receiptPath

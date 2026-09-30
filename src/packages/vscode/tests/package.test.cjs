@@ -17,7 +17,11 @@ test('staged extension contains a standalone SDK and schema without runtime file
     const manifest = JSON.parse(fs.readFileSync(path.join(output, 'package.json')));
     assert.equal(manifest.main, './dist/extension.js');
     assert.equal(manifest.capabilities.untrustedWorkspaces.supported, 'limited');
-    assert.equal(manifest.dependencies['@vcp/sdk'], '0.1.0');
+    const sdk = JSON.parse(fs.readFileSync(path.resolve(packageRoot, '../sdk-ts/package.json')));
+    const protocol = JSON.parse(fs.readFileSync(path.resolve(packageRoot, '../protocol-ts/package.json')));
+    assert.equal(manifest.dependencies['@vcp/sdk'], sdk.version);
+    assert.equal(manifest.dependencies['@vcp/protocol'], protocol.version);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(output, 'node_modules/@vcp/sdk/package.json'))).dependencies['@vcp/protocol'], protocol.version);
     assert.equal(manifest.devDependencies, undefined);
     assert.ok(!fs.existsSync(path.join(output, 'src')));
     assert.ok(fs.existsSync(path.join(output, 'node_modules/@vcp/protocol/schema.json')));

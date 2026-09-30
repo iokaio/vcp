@@ -199,6 +199,10 @@
     {
       "path": "src/third_party/patches/codex/0042-sp02-munarium-refresh.patch",
       "sha256": "f35fce4af2c891320c4f9edb9cbed0d985031c274e424ad3213a9aa1b453593f"
+    },
+    {
+      "path": "src/third_party/patches/codex/0043-beta-native-version.patch",
+      "sha256": "000401657b217474222fbc1d8858b0ded92b871db0702cf783cd43166c5e384e"
     }
   ],
   "licenses": [

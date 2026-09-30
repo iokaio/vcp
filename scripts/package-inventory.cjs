@@ -74,6 +74,18 @@ function validateMetadata(metadata = {}) {
   if (!Array.isArray(result.runtime) || !result.model_provisioning || !Array.isArray(result.model_provisioning.records)) {
     throw Error('Invalid runtime or model provisioning metadata');
   }
+  if (metadata.release) {
+    if (metadata.release.schema !== 'vcp-release-identity/1' || result.build.status !== 'verified-release-build' ||
+        result.source.dirty !== false || metadata.release.reviewed_commit !== result.source.git_commit) {
+      throw Error('Invalid strict release metadata');
+    }
+    result.release = metadata.release;
+    result.artifact = 'unsigned-internal-beta-candidate';
+    result.limitations = [
+      'Unsigned internal beta candidate; installed-product qualification and owner publication acceptance remain required.',
+      'No cross-format migration is attempted; incompatible versions require a validated restore.'
+    ];
+  }
   return result;
 }
 
