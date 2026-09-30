@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.57.0",
+  "version": "1.58.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "864042c8184b24066e2e5686ef1301050fae986409551f9ec4f38643e238928f"
+    "sha256": "02a516d5653f5f2787c132d89f1dfedaf8cb5db8884de36197d435c127f6f2ee"
   },
   "skills": [
     {
@@ -255,12 +255,12 @@
     },
     {
       "id": "project-optimize",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "descriptor": "project-optimize/skill.json",
-      "descriptor_sha256": "d038a8f717f104ca32a8b80225869a4fbaa15552c331e4e3d4f33d9eeccc8b84",
+      "descriptor_sha256": "7e520ed414cb43a92967d2e53ddf3a5698d06e3767baa6c1dafa4e115535b076",
       "body": {
         "path": "SKILL.md",
-        "sha256": "74810cadbbecad4d6278b84c05527942629841cd59eaeca9b9c6bd7a0132ac29"
+        "sha256": "b802d276c67acc52f00474018e37a8fc86d416449da250aeef77b90aa063a252"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
