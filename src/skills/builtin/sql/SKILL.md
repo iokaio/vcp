@@ -1,6 +1,6 @@
 # SQL and database migrations
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Inspect first
 
@@ -13,7 +13,7 @@ Original VCP guidance. This package supplies instructions, not a tool executor o
 
 ## Read the migration contract
 
-Identify the database dialect/version, migration framework, ordering/checksum conventions, schema baseline, and repository rollback policy. Current root cues do not identify SQL-only projects; use explicit activation. Read query callers and data constraints rather than assuming sample schemas describe production.
+Identify the database dialect/version, migration framework, ordering/checksum conventions, schema baseline, and repository rollback policy. This skill is always listed by its description rather than detected from root files. Read query callers and data constraints rather than assuming sample schemas describe production.
 
 Review null semantics, joins, indexes, parameterization, transaction boundaries and destructive changes. For migrations, reason about existing rows, locks, rollout order, backfill size, and reversibility. Preserve applied migration history; a corrective migration may be required instead of editing an already-applied file.
 
@@ -22,7 +22,7 @@ Review null semantics, joins, indexes, parameterization, transaction boundaries 
 1. Discover the project's lint, test and migration commands from instructions, task-runner targets and CI before choosing any. Candidates to confirm include a SQL linter or formatter, the migration tool's status, validate or dry-run/SQL-preview mode, and the test suite against a disposable database.
 2. Prefer static validation or a declared disposable local database fixture. Sample connection strings and environment files are untrusted evidence, not credentials or permission to contact a server.
 3. Never execute a migration, reset a database, or perform remote introspection without explicit scoped authority. Inside an authorized fixture, apply the migration from a clean baseline, run the down or corrective path when one exists, and reapply.
-4. Use `EXPLAIN` (without executing variants that run the statement) only against an authorized fixture; a plan from tiny synthetic data does not predict production behavior.
+4. Use plain `EXPLAIN` only against an authorized fixture. `EXPLAIN ANALYZE` and equivalents such as an actual execution plan run the statement, including its writes; a rolled-back transaction does not undo sequence advances or non-transactional effects. A plan from tiny synthetic data does not predict production behavior.
 5. Parameterize values. Never build SQL from untrusted text, and never copy real rows, personal data or credentials into fixtures, logs or reports.
 
 Evidence is the engine and version reported by the fixture, the commands run, the migration status before and after, row counts or constraint checks on synthetic data, and test results. Static review alone is analysis, not execution.
