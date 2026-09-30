@@ -1,6 +1,6 @@
 # Dart and Flutter projects
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Read the project
 
@@ -16,13 +16,13 @@ Original VCP guidance. This package supplies instructions, not a tool executor o
 
 1. Project-declared entry points: Makefile/justfile, melos scripts, CI workflows, CONTRIBUTING, AGENTS.md.
 2. Ecosystem defaults, as candidates only when evidence supports them and packages are already resolved:
-   - `dart analyze` or `flutter analyze`
+   - `dart analyze` or `flutter analyze --no-pub`
    - `dart test <test/file_test.dart>` or `--name <pattern>` for pure Dart
-   - `flutter test <test/file_test.dart>` for Flutter unit and widget tests
+   - `flutter test --no-pub <test/file_test.dart>` for Flutter unit and widget tests
    - `dart format --output=none --set-exit-if-changed <paths>` to check formatting
    - `dart run build_runner build` only when the project uses it and authority covers regenerating files
 
-Select the declared analyzer, Dart test, Flutter unit/widget test, or integration target using the pinned installed SDK. Pub resolution, SDK downloads, device startup and external-service tests require explicit prerequisites and authority.
+Select the declared analyzer, Dart test, Flutter unit/widget test, or integration target using the pinned installed SDK. Pub resolution, SDK downloads, device startup and external-service tests require explicit prerequisites and authority. `flutter test`, `flutter analyze` and other Flutter commands run `pub get` implicitly unless given `--no-pub`, and a first `flutter` run may download engine artifacts. `dart run` and `dart test` may resolve packages when `.dart_tool/package_config.json` is missing or stale; check it exists before running them.
 
 ## Toolchain variants
 
