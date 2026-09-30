@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(all(windows, feature = "qualification"))]
 //! Actual SDK history, memory, policy and routing reads; no provider or editor is launched.
+#[path = "support/hidden_process.rs"]
+mod hidden_process;
 #[path = "support/local_fixture.rs"]
 mod local_fixture;
 use local_fixture::*;
@@ -695,7 +697,7 @@ async fn final_production_startup_130_versions_both_stores() {
             .stderr(fs::File::create(output.join(format!("{name}-runner.stderr"))).unwrap())
             .creation_flags(0x0800_0000);
         let job = codex_utils_pty::JobObject::create_without_breakaway().unwrap();
-        let mut child = job.spawn_contained(&mut command).unwrap();
+        let mut child = hidden_process::spawn(&job, &mut command).await.unwrap();
         let began = Instant::now();
         let status = loop {
             if let Some(status) = child.try_wait().unwrap() {

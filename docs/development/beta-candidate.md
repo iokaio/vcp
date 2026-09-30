@@ -51,6 +51,18 @@ artifacts and their actual SHA-256 values. Then separate native tests exercise
 import parity and launcher boundaries. The setup smoke installs final bytes with
 Unicode/spaced program and data roots, checks registered removal, exact launcher
 resolution and preserved synthetic data, and exercises both storage preferences.
+Before removal, the workflow also runs the separately compiled
+`beta_launcher_console` qualification target against the installed launcher and
+native executable. Its eight cases cover Files/SQLite, Ctrl+C/Ctrl+Break and
+direct/launcher execution at the read-only paused-task chooser. Each case uses a
+new hidden console, sends no task selection, compares exit codes and canonical
+state, and requires kernel-confirmed descendant termination without forced
+cleanup. Explicit private fixture paths override the separately verified installed
+default data path. This covers chooser cancellation, not interruption of active
+provider work. The outer runner allows 1,200 seconds for the complete matrix and
+payload checks; individual readiness, event-exit and cleanup bounds are recorded
+in the result. Failed observations retain the registered installation and private
+repair evidence instead of removing them during exception handling.
 
 The ignored `beta_editor_candidate` integration test seeds the existing offline
 paused-history fixture for Files and SQLite, then installs the final setup and
@@ -63,6 +75,48 @@ uninstalling; the native test then verifies the real retained state remains
 paused. These are synthetic retained-state observations. They do not establish a
 new user's first useful task, reviewed editing, full editor lifecycle or a
 distinct-build upgrade/rollback.
+
+The separate ignored test
+`final_installed_candidate_editor_lifecycle_preserves_both_stores` adds five
+ordered observations through the same final setup/VSIX pair: real window reload
+with observer-only restoration and native protocol `99.0` refusal; a new editor
+process with explicit observer reconnect; rejection of a truncated copy of the
+same final VSIX; missing-engine refusal; and final observer reconnect followed
+by extension/native uninstall. It does not fabricate a successor version.
+The Rust test reopens each canonical store between observations and compares all
+records, accounting, events, commands and transactions with the initial state.
+It also checks workspace/data/key sentinels and byte-identical installed
+extension inventory. The synthetic fixture contains no real accounting work.
+The initial installed payload must match every shipped VSIX file hash. Only the
+root `package.json` installation `__metadata` object and JSON formatting are
+normalized back to the package builder's emitted format; runtime fields and
+dependency manifests remain bound. Later checks also require the original
+installed bytes, including that metadata, to remain unchanged.
+
+The existing candidate command runs both ignored tests serially. To select only
+the lifecycle test from an already compiled qualification test executable, set
+`VCP_BETA_NATIVE_RESULT`, `VCP_BETA_SETUP_RESULT`, `VCP_BETA_VSIX_MANIFEST` and
+`VCP_TEST_CODE` to the final receipt paths and the pinned portable editor, then
+run:
+
+```powershell
+& $TestExecutable --ignored --exact final_installed_candidate_editor_lifecycle_preserves_both_stores --nocapture --test-threads=1
+```
+
+This requires the same fresh registration-free user, normal Windows token,
+PowerShell 7 and private fixture environment as the observer smoke. Node/VSCE
+prepare a separate test driver; they are not editor runtime prerequisites.
+`editor-lifecycle.ps1` verifies the complete installed production payload before
+each case and binds the editor version, commit and executable hash. Failed runs
+retain their private registered installation and repair logs. Successful output
+contains the exact artifact hashes and observations; private profiles/stores
+must not be uploaded. These are actual extension-host observations, not human
+UI acceptance, reviewed-buffer qualification or a distinct-build upgrade.
+Both editor tests supervise each runner in a job that disallows process
+breakaway, cap its output at 4 MiB and its runtime at 600 seconds, and allow
+45 seconds for the native owner's normal 30-second idle shutdown. A passing
+observation requires zero remaining descendants without forced cleanup; a
+failure retains the private supervision report and installation for repair.
 
 `run.json` records exact stage commands, expected observations, timestamps,
 outcomes and log locations. Evidence collection retains final artifacts, build
@@ -92,3 +146,25 @@ A changed artifact creates a new pair and requires affected requalification.
 Clean standard-user Windows, live provider admission, independent-machine/full
 volume recovery, performance envelope and owner evaluation remain BETA-09 work.
 Owner acceptance and any distribution/publication authorization remain BETA-11.
+
+The builder records capacity, available free bytes and total free bytes for each
+fixed drive before and after every stage, including provisioning, production
+compilation and qualification. GitHub documents 14 GB SSD storage for its
+[standard Windows runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+The development workstation's existing qualification artifacts measured about
+8.2 GiB, with about 1.2 GiB of source; this is an overlap warning, not a measured
+fresh-candidate peak or a promised runner capacity margin.
+
+After all three packages pass exact pair validation, the same `pair` stage
+removes only the receipt's `<candidate>/build/<GUID>/cargo-target` tree before
+qualification starts. It first checks successful packaging, the pair hash,
+ordinary paths and every target entry, and the preserved copied executables and
+PDB. Failed builds/pairing and redirected or unexpected paths are never cleaned.
+Copied programs, symbols, receipts, compiler logs, source/cache inventories,
+archives and dependency caches remain available to strict validation and evidence
+collection. `run.json.production_target_cleanup` records the deleted path, file
+count/logical bytes and observed change in volume free bytes; concurrent disk
+activity can make that measured change differ from logical file sizes. No free
+space threshold, automatic paid-runner change or hosted capacity guarantee is
+introduced. Small Windows regression fixtures verify deletion scope and retained
+sentinels, including failed-pair, mismatched-target and junction refusal.
