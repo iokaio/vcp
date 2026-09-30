@@ -1,6 +1,6 @@
 # Python projects and environments
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Read the project
 
@@ -18,7 +18,7 @@ A `.venv` directory is evidence to inspect, not proof that its interpreter is va
 ## Discover commands in this order
 
 1. Project-declared tasks: `Makefile`, `justfile`, `Taskfile.yml`, tox or nox sessions, hatch or pdm scripts, pre-commit hooks, CI workflow files, CONTRIBUTING and AGENTS.md.
-2. Ecosystem defaults, only when the configuration supports them. Candidates to confirm: `python -m pytest <path>::<test>` or `-k <expr>` with the project interpreter; the manager's run form such as `uv run pytest` or `poetry run pytest` when that manager owns the environment; `ruff check`, `ruff format --check` or `black --check`; `mypy` or `pyright` when configured.
+2. Ecosystem defaults, only when the configuration supports them. Candidates to confirm: `python -m pytest <path>::<test>` or `-k <expr>` with the project interpreter; the existing environment's interpreter directly (`.venv/bin/python -m pytest`, or `.venv\Scripts\python.exe -m pytest` on Windows); the manager's non-syncing run form when that manager owns the environment, such as `uv run --frozen --no-sync pytest` or `uv run --offline pytest`; `ruff check`, `ruff format --check` or `black --check`; `mypy` or `pyright` when configured.
 
 Use the existing configured interpreter and environment. Prefer module invocation (`python -m ...`) when that is the repository convention; do not assume bare `pip` or `pytest` resolves to the intended environment.
 
@@ -30,7 +30,7 @@ Use the existing configured interpreter and environment. Prefer module invocatio
 - Compiled extensions (Cython, maturin, C extensions) need a rebuild before tests reflect source changes.
 - The Windows `py` launcher selects interpreters differently from `python` on PATH.
 
-A sync or install step changes the environment and may download packages, so do not run it as an automatic prerequisite.
+A sync or install step changes the environment and may download packages, so do not run it as an automatic prerequisite. Run forms hide such steps: plain `uv run` may lock, sync and download before running the command, and `hatch run`, `pdm run` and `poetry run` may create or sync an environment on first use. Default to the frozen, non-syncing or offline form, or to the existing interpreter, and treat any lock, sync or environment creation as a separate effect needing authority.
 
 ## Engineering rules
 
