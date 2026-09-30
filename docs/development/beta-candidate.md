@@ -203,3 +203,62 @@ activity can make that measured change differ from logical file sizes. No free
 space threshold, automatic paid-runner change or hosted capacity guarantee is
 introduced. Small Windows regression fixtures verify deletion scope and retained
 sentinels, including failed-pair, mismatched-target and junction refusal.
+
+The separate `beta_helper_candidate` qualification target observes installed
+helper bytes after setup has been independently installed. It does not install
+or uninstall VCP. Set these absolute paths before explicitly running the ignored
+`final_installed_helpers_preserve_payload_and_drain_process_tree` test:
+
+| Variable | Required input |
+| --- | --- |
+| `VCP_BETA_NATIVE_RESULT` | Final strict native `result.json`, beside its ZIP. |
+| `VCP_BETA_INSTALLED_EXECUTABLE` | That registered installation's `engine/releases/<archive-sha256>/vcp.exe`. |
+| `VCP_TEST_PYTHON` | Existing isolated Python 3.11.9 virtual environment executable with the shipped PDF/spreadsheet requirements and test-only `xlsxwriter` already installed. |
+| `VCP_TEST_NODE` / `VCP_TEST_PWSH` | Ordinary absolute Node and PowerShell 7 executables. Resolve version-manager links first. |
+| `VCP_TEST_BROWSER_PROJECT` | Existing project with its lock, local Playwright 1.63.0 packages, and already cached matching Chromium headless shell. |
+| `VCP_BETA_HELPER_OUTPUT` | Fresh private output directory outside any checkout and synchronization tree, with an existing parent. |
+| `VCP_TEST_SYNC_ROOT` | Optional additional synchronization root to exclude. Known OneDrive roots are also excluded. |
+
+Compile with the existing Windows qualification toolchain and
+`--test beta_helper_candidate --features qualification --no-run`. Invoke that
+exact test executable with `--ignored --exact
+final_installed_helpers_preserve_payload_and_drain_process_tree --nocapture`.
+The ordinary `helper_supervision_refuses_retained_descendants_and_output_overflow`
+test needs only `VCP_TEST_NODE` and exercises owned synthetic child processes;
+it does not provide final helper qualification evidence.
+
+The installed test requires the matching HKCU setup registration, verifies the
+complete native archive and installed payload before and after observations,
+and binds launcher bytes, active selection and ownership metadata. It runs four
+PDF cases, five spreadsheet cases and seven MCP pagination cases using the
+existing source test harnesses with `VCP_SKILLS_ROOT` selecting installed helpers.
+It runs the installed authoring validator for every catalog entry, retaining all
+warnings, and the installed browser helper against two owned loopback origins:
+Save changes the expected text to Saved, while a request to the other origin
+must be refused before that server receives it. It records the actual browser
+launch options, including the requested Chromium sandbox. This is a renderer
+origin-boundary check, not an OS network-denial observation. Axe accessibility
+scanning remains `not-run`; an absent `axe-core` is recorded as a missing optional
+prerequisite. There is no dependency acquisition or provider/model call.
+
+The wrapper clears inherited credentials, uses private temporary files and
+disables Python bytecode writes. Receipts hash the independent qualification
+executable, source harnesses, actual installed helper inventory, Python runtime
+and virtual environment, Node, Playwright and browser files before and after.
+For Windows Store Python, the launch alias is recorded separately from the
+ordinary loaded process image, base DLLs and standard library; alias bytes are
+not represented as executable provenance. These are exact observed dependency
+bytes, not an independent audit of their upstream supply chain.
+
+The runner has a 900-second outer deadline and 4 MiB combined outer stdout/stderr
+limit, with bounded individual case commands. All descendants enter a Windows
+job before execution. Pass requires natural completion, zero remaining job
+processes and no forced cleanup after a five-second grace; failures use bounded
+cleanup and remain failures. Private `result.json` uses
+`vcp-installed-helper-qualification/1`; its nested raw observation receipt alone
+does not establish process-tree completion. Retain private outputs and the
+installation on failure. Do not upload raw paths, fixtures or logs: produce a
+sanitized, hash-bound evidence summary after review. This target does not claim
+first-run onboarding, clean-host acceptance, skill materialization through a
+provider, a broader skill campaign, or BETA-09 completion, and is not included
+automatically in the candidate workflow.
