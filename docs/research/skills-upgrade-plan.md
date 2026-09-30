@@ -102,8 +102,8 @@ Record actual checks and any unrun checks in the ledger.
 | Item | Dependency | Deliverable | State |
 |---|---|---|---|
 | SU-00 | Owner direction | This plan, ADR-070 and guidance pointers | complete; [PR #212](https://github.com/iokaio/vcp/pull/212) merged |
-| SU-01 | None | Run skill helper tests in CI | in review |
-| SU-02 | SU-00 | Resource roles in the loader | planned |
+| SU-01 | None | Run skill helper tests in CI | complete; [PR #213](https://github.com/iokaio/vcp/pull/213) merged |
+| SU-02 | SU-00 | Resource roles in the loader | in review |
 | SU-03 | SU-02 | Helper materialization | planned |
 | SU-04 | SU-00 | Discovery cues, root markers and descriptions | planned |
 | SU-05 | SU-02, SU-03 | Package migration to resource roles, and hygiene | planned |
@@ -151,6 +151,12 @@ Playwright, and set `VCP_SKILL_PLAYWRIGHT` to its `node_modules/playwright`.
   skips `file` resources.
 * Mirror the field in the catalog manifest, `scripts/skills/builtin-assets.cjs`
   and the skill-authoring validator.
+
+Delivered with two adjustments. The skill-authoring validator's `use` support
+moved to SU-06, because editing that script is a package change. The
+`builtin-assets.cjs rehash` command moved here from SU-05, because SU-04 edits
+every descriptor. It recomputes content, descriptor, coverage and catalog
+digests and leaves versions to the author.
 
 **Tests:**
 

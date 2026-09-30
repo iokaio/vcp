@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { ownedRoot } = require('../support/experiments.cjs');
-const { inspectAssets, stageAssets, portable } = require('../../../scripts/skills/builtin-assets.cjs');
+const { inspectAssets, stageAssets, rehashAssets, portable } = require('../../../scripts/skills/builtin-assets.cjs');
 const assets = path.resolve(__dirname, '../../skills/builtin');
 const baselineIds = ['architecture', 'review-debug', 'testing', 'git-workflow', 'javascript-typescript',
   'python', 'rust', 'dotnet-powershell', 'jvm', 'go', 'cpp', 'ruby', 'php', 'swift', 'dart', 'shell',
@@ -62,6 +62,38 @@ test('packaging rejects missing, changed and additional content instead of creat
       if (mode === 'catalog') fs.appendFileSync(path.join(target, 'catalog.json'), '\n');
       assert.throws(() => inspectAssets(target), /Missing|unexpected|hash mismatch|Catalog does not match/);
     }
+  } finally { temp.cleanup(); }
+});
+test('resource roles must match between catalog and descriptor, and bodies stay context', () => {
+  const temp = ownedRoot(os.tmpdir());
+  try {
+    for (const mode of ['resource', 'body', 'unknown']) {
+      const target = path.join(temp.root, mode);
+      stageAssets(assets, target);
+      const catalog = JSON.parse(fs.readFileSync(path.join(target, 'catalog.json')));
+      const entry = catalog.skills.find(skill => skill.resources.length);
+      if (mode === 'resource') entry.resources[0].use = entry.resources[0].use === 'file' ? 'context' : 'file';
+      if (mode === 'body') entry.body.use = 'file';
+      if (mode === 'unknown') entry.resources[0].use = 'execute';
+      const bytes = Buffer.from(JSON.stringify(catalog));
+      fs.writeFileSync(path.join(target, 'catalog.json'), bytes);
+      assert.throws(() => inspectAssets(target, bytes), /Descriptor differs|body must be context|Invalid builtin resource role/);
+    }
+  } finally { temp.cleanup(); }
+});
+test('rehash is idempotent and refreshes only edited content, descriptor and catalog digests', () => {
+  const temp = ownedRoot(os.tmpdir());
+  try {
+    const target = path.join(temp.root, 'assets');
+    stageAssets(assets, target);
+    assert.deepEqual(rehashAssets(target).changed, []);
+    fs.appendFileSync(path.join(target, 'rust/SKILL.md'), 'Edited guidance.\n');
+    assert.throws(() => inspectAssets(target, fs.readFileSync(path.join(target, 'catalog.json'))), /hash mismatch/);
+    const result = rehashAssets(target);
+    assert.deepEqual(result.changed.sort(), ['catalog.json', 'rust/skill.json']);
+    const descriptor = JSON.parse(fs.readFileSync(path.join(target, 'rust/skill.json')));
+    assert.equal(descriptor.body.sha256, sha(fs.readFileSync(path.join(target, 'rust/SKILL.md'))));
+    assert.equal(result.inventory.skills, JSON.parse(fs.readFileSync(path.join(assets, 'catalog.json'))).skills.length);
   } finally { temp.cleanup(); }
 });
 test('linked asset directories are rejected without traversing or deleting their target', () => {

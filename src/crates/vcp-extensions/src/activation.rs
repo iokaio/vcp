@@ -20,6 +20,8 @@ pub struct ActivatedSkill {
     pub descriptor_version: FileVersion,
     pub body: Source,
     pub resources: Vec<Source>,
+    /// Descriptor references for `resources`, in the same order.
+    pub resource_refs: Vec<ContentRef>,
     pub reads: ReadCounts,
 }
 pub fn activate(
@@ -116,6 +118,7 @@ pub fn activate(
         descriptor_version: descriptor.version,
         body,
         resources,
+        resource_refs: parsed.resources.clone(),
         reads,
     };
     revalidate(registry, &activated)?;

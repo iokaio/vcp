@@ -45,10 +45,12 @@ fn run_case(manifest: &Manifest, count: usize) -> Result<Value> {
             body: ContentRef {
                 path: "SKILL.md".into(),
                 sha256: vcp_protocol::digest_bytes(body.as_bytes()),
+                use_: Default::default(),
             },
             resources: vec![ContentRef {
                 path: "reference.bin".into(),
                 sha256: vcp_protocol::digest_bytes(&resource),
+                use_: Default::default(),
             }],
         };
         fs::write(

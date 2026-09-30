@@ -74,11 +74,34 @@ impl SourceRegistry {
         crate::digest(&ordered)
     }
 }
+/// How an activated resource is delivered. Every resource is read and hash
+/// checked on activation; only `Context` resources become model context.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceUse {
+    #[default]
+    Context,
+    /// Verified package file (license, provenance, helper source) that is not
+    /// injected; it may be copied into a workspace through canonical authority.
+    File,
+}
+impl ResourceUse {
+    pub fn is_context(&self) -> bool {
+        *self == Self::Context
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContentRef {
     pub path: String,
     pub sha256: String,
+    /// Omitted means context, so existing descriptors keep their bytes and digests.
+    #[serde(
+        rename = "use",
+        default,
+        skip_serializing_if = "ResourceUse::is_context"
+    )]
+    pub use_: ResourceUse,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -165,6 +188,9 @@ impl SkillDescriptor {
         }
         if self.resources.len() > 32 {
             return Err(Error::Limit("resources"));
+        }
+        if !self.body.use_.is_context() {
+            return Err(Error::Metadata("skill body must be context".into()));
         }
         let mut paths = BTreeSet::new();
         for content in std::iter::once(&self.body).chain(&self.resources) {
