@@ -1,6 +1,6 @@
 # Skills upgrade: runtime, helpers and content
 
-Status: planned, September 29, 2026. Follows the completed
+Status: complete, September 30, 2026 (catalog `1.41.0`). Follows the completed
 [skills development plan](skillsplan-new.md) (SP-01 through SP-12, catalog
 `1.10.0`). Decision: [ADR-070](../adr/070-skill-resource-roles-and-discovery.md).
 [ADR-069](../adr/069-practical-skill-ports.md) policy is unchanged: pinned and
@@ -108,7 +108,7 @@ Record actual checks and any unrun checks in the ledger.
 | SU-04 | SU-00 | Discovery cues, root markers and descriptions | complete; [PR #215](https://github.com/iokaio/vcp/pull/215) merged |
 | SU-05 | SU-02, SU-03 | Package migration to resource roles, and hygiene | complete; [PR #217](https://github.com/iokaio/vcp/pull/217) merged |
 | SU-06 | SU-02 | skill-authoring validator and guidance | complete; [PR #219](https://github.com/iokaio/vcp/pull/219) merged |
-| SU-07 | SU-01, SU-05 | spreadsheet-workflows compatibility and operations | in review |
+| SU-07 | SU-01, SU-05 | spreadsheet-workflows compatibility and operations | complete; [PR #246](https://github.com/iokaio/vcp/pull/246) merged |
 | SU-08 | SU-01, SU-05 | pdf-workflows robustness and operations | complete; [PR #245](https://github.com/iokaio/vcp/pull/245) merged |
 | SU-09 | SU-01 | webapp-testing fixes and accessibility checks | complete; [PR #221](https://github.com/iokaio/vcp/pull/221) merged |
 | SU-10 | None | mcp-development SDK and protocol refresh | complete; [PR #222](https://github.com/iokaio/vcp/pull/222) merged |
@@ -116,7 +116,7 @@ Record actual checks and any unrun checks in the ledger.
 | SU-12 | None | document-authoring structures | complete; [PR #218](https://github.com/iokaio/vcp/pull/218) merged |
 | SU-13 | None | frontend-design accessibility and theming | complete; [PR #220](https://github.com/iokaio/vcp/pull/220) merged |
 | SU-14 | SU-04, SU-05 | Deepen the 21 baseline families | complete; one PR per family, [#224](https://github.com/iokaio/vcp/pull/224) through [#244](https://github.com/iokaio/vcp/pull/244), merged |
-| SU-15 | None | Stale inventory pointers and Windows `fast` timeouts | planned |
+| SU-15 | None | Stale inventory pointers and Windows `fast` timeouts | complete; this close-out PR |
 
 SU-00, SU-01 and SU-04 can proceed in parallel. SU-09 through SU-13 can start
 before SU-05 if they do not change resource declarations. If they do, rebase
@@ -403,3 +403,77 @@ synthetic PDF through the authorized execution tool.
 
 **Every PR:** run `scripts/test.ps1 -Suite fast` locally where practical; the
 CI `Repository and harness` check must pass.
+
+## Verification record
+
+Observed during delivery (Windows 11, Rust 1.95.0, Node 24, Python 3.11).
+Every PR passed the required `Repository and harness` and `Skill helpers` CI
+checks before merge. `Skill helpers` runs the Python helper suite and the real
+Playwright browser checks with no skips.
+
+**Runtime (SU-02 to SU-05):**
+
+* `vcp-extensions` skills and catalog tests pass.
+* `canonical_host skills::` passes 4 of 4. This includes the materialization
+  cases: exact bytes, context-role refusal, an existing destination, a write
+  denial, traversal, a revoked skill and a tampered source.
+* The CLI `ported_skills` test passes 2 of 2. The installed pdf-workflows
+  package withholds its helper from context, materializes it byte-exactly
+  through `vcp_skill`, and extracts text through a Python `vcp_exec` profile.
+  It was rerun after the SU-08 helper upgrade.
+
+**Context cost.** File-role resources cut the eight workflows' activation
+context from 202,543 to 60,891 bytes. Later content additions grew some
+packages again. llm-integration is the largest, at about 35 KB of context.
+
+**Helpers.** A final count of 65 Python helper tests pass. Independent reviews of
+the SU-07 and SU-08 rewrites found injection, resource-exhaustion,
+permission-stripping and echoed-text issues. All were fixed with regression
+tests before merge.
+
+**Windows `fast` groups (SU-15).** The local failures had two causes:
+
+* **Symlinked Node.** Node reached through a symlinked version-manager path is
+  rejected by the scripts' link guard. That is a host setup issue; tests must use
+  the real executable path.
+* **`plain()` syscalls.** `plain()` performed two syscalls per ancestor
+  directory on every file access, and this was 300 of 342 seconds in the
+  slowest test.
+
+Two fixes, with the real Node executable:
+
+* one `lstat` per ancestor, which also rejects dangling links;
+* a per-run digest cache for source-identity scans, keyed by path and
+  nanosecond stat stamp.
+
+| Group | Before | After | Limit |
+|---|---|---|---|
+| builtin-skills | timed out at 30 s | 28 s | 30 s |
+| cs2-developer | 597 s, failed | 233 s, passed | 600 s |
+| cs-authoring | timed out at 600 s | 411 s, passed | 600 s |
+
+No timeouts or historical outcomes were changed. `builtin-skills` passes with
+little headroom on this host.
+
+## Not run
+
+* **Real third-party tools.** No real Excel-saved workbook was tested, only a
+  synthetic Excel-shaped fixture. The axe-core rule engine was not run because
+  it is not installed; the tests used a stand-in. The OAuth flow and MCP
+  Inspector were not exercised.
+* **No live model campaign.** No paid or live model calls were made, and no
+  OpenRouter budget was used.
+* **Manual Windows jobs.** The native Windows qualification job is manual and was
+  not dispatched. The equivalent native tests were run locally, as listed above.
+* **Lifecycle unit test.** `backup_run` needs `VCP_TEST_GIT`, which is not set
+  on this host.
+
+## Follow-up candidates
+
+* **Lazy per-topic references.** A resource role for references loaded only on
+  request would let llm-integration keep per-provider references out of
+  context.
+* **Performance headroom.** The `builtin-skills` group needs more headroom on
+  slower Windows hosts.
+* **Real-tool evidence.** A real Excel-saved workbook fixture and an installed
+  axe-core run would give stronger evidence.

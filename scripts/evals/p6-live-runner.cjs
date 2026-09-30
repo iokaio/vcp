@@ -12,7 +12,9 @@ const json = value => JSON.stringify(value, null, 2) + '\n';
 function plain(file) {
   file = path.resolve(file);
   for (let p = file; ; p = path.dirname(p)) {
-    if (fs.existsSync(p) && fs.lstatSync(p).isSymbolicLink()) throw Error('Symlink or junction rejected');
+    // One lstat per component (existsSync plus lstat doubled Windows syscalls);
+    // a dangling link is now rejected too rather than skipped as missing.
+    if (fs.lstatSync(p, { throwIfNoEntry: false })?.isSymbolicLink()) throw Error('Symlink or junction rejected');
     if (path.dirname(p) === p) break;
   }
   return file;

@@ -24,6 +24,10 @@ retained CS-2 UI regrading and six-skill distribution acceptance remain open.
 The candidate grants no browser, process, network, installation or publishing
 authority, and it is absent from the builtin catalog.
 
+Later state (not a revision of this record): the builtin catalog now ships the
+eight workflow skills as licensed ports alongside the 21 families; see
+[the builtin catalog notes](../../../docs/development/p7-builtin-skills.md).
+
 ## CS-2 developer candidates — comparisons closed, non-default
 
 `llm-integration`, `mcp-development` and `frontend-design` 1.0.0 are original VCP
@@ -67,6 +71,10 @@ Both original VCP packages remain **non-default**. The builtin catalog retains
 21 skills and 44 packaged files; this directory has no automatic loader. Each
 package requires existing explicit source registration and qualified selection
 for an authorized experiment; selection grants no tools, effects or budget.
+
+Later state (not a revision of this record): the builtin catalog now ships the
+eight workflow skills as licensed ports alongside the 21 families; see
+[the builtin catalog notes](../../../docs/development/p7-builtin-skills.md).
 
 The historical [document-authoring 1.0.2 correction](../../../docs/development/cs1-document-correction.md)
 addresses claim attribution, the scope of missing evidence, factual content beside

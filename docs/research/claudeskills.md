@@ -123,6 +123,10 @@ closes CS-1 by owner direction. The builtin catalog remains at 21 skills. Failed
 and unrun evaluations remain recorded; the [candidates README](../../src/skills/candidates/README.md)
 lists additional qualification work required before default promotion.
 
+Later state (not a revision of this record): the builtin catalog now ships the
+eight workflow skills as licensed ports alongside the 21 families; see
+[the builtin catalog notes](../development/p7-builtin-skills.md).
+
 | Research milestone | Dependency and concrete deliverable | Exit evidence |
 |---|---|---|
 | **CS-0: scope and qualification design** | After ADR-068, confirm the eight default candidates and original feature boundaries. Use the formal CS owners; pin upstream research, choose synthetic tasks and independent rubrics. | Accepted capability/format matrix, overlap map for 21 existing skills, bounded effort/toolchain plan, no changes to current task acceptance |
