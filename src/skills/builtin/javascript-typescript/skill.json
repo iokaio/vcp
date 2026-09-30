@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "javascript-typescript",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Use declared package-manager, workspace, framework, and script conventions for JS/TS changes. Use when the project has package.json or deno.json, or when editing JavaScript or TypeScript code, builds or tests.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -18,7 +18,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "1d7b0a8397afb7f53908fe962f68e18e31b521f65d47327e47491539ad4da4c4"
+    "sha256": "25561aae479517eab987691e02d64191a6948784a04c12b4a0a8baa35693ce52"
   },
   "resources": []
 }
