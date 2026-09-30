@@ -12,6 +12,10 @@ name = "vcp"
 path = "src/main.rs"
 
 [[bin]]
+name = "vcp-launch"
+path = "src/bin/vcp-launch.rs"
+
+[[bin]]
 name = "vcp-terminal-fixture"
 path = "src/bin/vcp-terminal-fixture.rs"
 required-features = ["qualification"]
@@ -57,6 +61,7 @@ codex-exec-server = { workspace = true }
 codex-extension-api = { workspace = true }
 codex-login = { workspace = true }
 codex-protocol = { workspace = true }
+codex-utils-pty = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util", "signal"] }
 
 [target.'cfg(windows)'.dependencies]
@@ -64,6 +69,5 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Stora
 
 [dev-dependencies]
 base64 = { workspace = true }
-codex-utils-pty = { workspace = true }
 tempfile = { workspace = true }
 wiremock = { workspace = true }

@@ -75,12 +75,102 @@ function Assert-Compatible($Candidate, $State) {
         if (-not $left -or -not $right -or $left -ne $right) { throw "Incompatible or unspecified $field format" }
     }
 }
+function Hold-StateFormats($Candidate) {
+    # Read the actual retained format markers. A caller-supplied compatibility
+    # declaration supplements these checks; it cannot replace them.
+    $workspaceRoot = Join-Path $data 'workspaces'
+    if (-not (Test-Path -LiteralPath $workspaceRoot)) { return }
+    Assert-OrdinaryTree $workspaceRoot
+    if ($Candidate.compatibility.canonical -cne 'vcp-store/1+replay-base/2' -or $Candidate.compatibility.config -cne 'vcp-cli-profile/1') { throw 'Unqualified candidate state formats' }
+    $rows = @(Get-ChildItem -LiteralPath $workspaceRoot -Directory -Force)
+    if ($rows.Count -gt 4096) { throw 'Workspace registry exceeds the supported discovery limit' }
+    foreach ($row in $rows) {
+        $selection = Join-Path $row.FullName 'selection.lock'
+        if (Test-Path -LiteralPath $selection) {
+            $stateHandles.Add([IO.File]::Open($selection, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None))
+        }
+        $descriptor = Join-Path $row.FullName 'workspace.json'
+        if (Test-Path -LiteralPath $descriptor) {
+            if ((Get-Item -LiteralPath $descriptor).Length -gt 262144) { throw 'Workspace descriptor exceeds the supported limit' }
+            $entry = Get-Content -LiteralPath $descriptor -Raw | ConvertFrom-Json
+            if ($entry.version -notin @(1, 2) -or $entry.config.backend -notin @('files', 'sqlite')) { throw 'Unsupported actual workspace state version' }
+            $canonicalPath = [string]$entry.config.canonical_root
+            # Rust persists canonical Windows paths with the verbatim drive
+            # prefix. Normalize that spelling before comparing ordinary paths.
+            if ($canonicalPath.StartsWith('\\?\', [StringComparison]::Ordinal)) { $canonicalPath = $canonicalPath.Substring(4) }
+            if ($canonicalPath -notmatch '^[a-zA-Z]:[\\/]') { throw 'Registered canonical state must use an absolute local drive path' }
+            $canonical = [IO.Path]::GetFullPath($canonicalPath)
+            if (-not $canonical.StartsWith($row.FullName.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Workspace canonical state is outside its registered directory' }
+            Assert-NoReparseAncestors $canonical
+            if (-not (Test-Path -LiteralPath (Join-Path $canonical 'format.json') -PathType Leaf)) {
+                throw 'Registered canonical state is missing its format marker; recover with the existing engine before changing versions'
+            }
+        }
+        foreach ($owner in Get-ChildItem -LiteralPath $row.FullName -Filter owner.lock -File -Force -Recurse) {
+            # Deny-write sharing holds inactive stores against a new owner until
+            # activation finishes. Existing owners make this fail before mutation.
+            $stateHandles.Add([IO.File]::Open($owner.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None))
+        }
+        foreach ($formatPath in Get-ChildItem -LiteralPath $row.FullName -Filter format.json -File -Force -Recurse) {
+            if ($formatPath.Length -gt 1024) { throw 'Actual canonical format marker exceeds limit' }
+            $format = Get-Content -LiteralPath $formatPath.FullName -Raw | ConvertFrom-Json
+            $store = $formatPath.DirectoryName
+            $basePath = Join-Path $store 'replay-base.json'
+            $expected = if (Test-Path -LiteralPath $basePath) { 2 } else { 1 }
+            if ($format.version -ne $expected -or $format.backend -notin @('files', 'sqlite')) { throw 'Unsupported actual canonical state version' }
+            if ($expected -eq 2) {
+                $seal = Join-Path $store 'replay-base.seal'
+                if ((Get-Item -LiteralPath $basePath).Length -gt 68157440 -or -not (Test-Path -LiteralPath $seal) -or (Get-Item -LiteralPath $seal).Length -ne 64 -or
+                    (Get-FileHash -LiteralPath $basePath).Hash.ToLowerInvariant() -cne [IO.File]::ReadAllText($seal)) { throw 'Actual replay state seal is invalid' }
+                $base = Get-Content -LiteralPath $basePath -Raw | ConvertFrom-Json -Depth 100
+                if ($base.version -ne 1) { throw 'Unsupported actual replay state version' }
+            }
+            $canonicalFile = Join-Path $store $(if ($format.backend -eq 'sqlite') { 'canonical.sqlite' } else { 'canonical.frames' })
+            if (-not (Test-Path -LiteralPath $canonicalFile -PathType Leaf)) { throw 'Actual canonical payload is missing' }
+            if ($format.backend -eq 'sqlite') {
+                # Page 1 and its user_version may exist only in a retained WAL.
+                # Never infer effective compatibility from the main-file header
+                # while uncheckpointed state remains. Leave all recovery to the
+                # owning engine, rather than touching SQLite files in setup.
+                $wal = $canonicalFile + '-wal'
+                if ((Test-Path -LiteralPath $wal) -and (Get-Item -LiteralPath $wal).Length -ne 0) {
+                    throw 'SQLite has a retained WAL; recover and close this workspace with its existing engine before upgrade or rollback'
+                }
+            }
+            $stream = [IO.File]::OpenRead($canonicalFile)
+            try {
+                $header = [byte[]]::new(100)
+                $length = $stream.Read($header, 0, $header.Length)
+                if ($format.backend -eq 'sqlite') {
+                    $version = ([uint32]$header[60] -shl 24) -bor ([uint32]$header[61] -shl 16) -bor ([uint32]$header[62] -shl 8) -bor [uint32]$header[63]
+                    if ($length -lt 100 -or [Text.Encoding]::ASCII.GetString($header, 0, 16) -cne "SQLite format 3`0" -or $version -ne $expected) { throw 'Unsupported actual SQLite state header; recover the existing store before changing versions' }
+                } elseif ($length -ne 0 -and ($length -lt 8 -or [Text.Encoding]::ASCII.GetString($header, 0, 8) -cne 'VCPJ0001')) { throw 'Unsupported actual Files state header' }
+            } finally { $stream.Dispose() }
+        }
+    }
+}
 $install = [IO.Path]::GetFullPath($InstallRoot)
 $data = [IO.Path]::GetFullPath($DataRoot)
 if ($install.TrimEnd('\') -ieq $data.TrimEnd('\') -or $data.StartsWith($install.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or $install.StartsWith($data.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw 'Install root and protected data root must be disjoint'
 }
 Assert-NoReparseAncestors $install; Assert-NoReparseAncestors $data
+# Serialize the entire lifecycle, including first install and recovery, without
+# putting a removable lock file inside the installation being uninstalled.
+# The Global namespace covers two logon sessions for the same user. Serialize
+# all of that user's installations so path aliases and shared data roots cannot
+# bypass the operation lock.
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$operationLock = [Threading.Mutex]::new($false, "Global\VCP.Install.$identity")
+$operationOwned = $false
+$stateHandles = [Collections.Generic.List[IO.FileStream]]::new()
+try {
+    try { $operationOwned = $operationLock.WaitOne(0) }
+    catch [Threading.AbandonedMutexException] { $operationOwned = $true }
+    if (-not $operationOwned) { throw 'Another VCP installation operation is in progress for this user; wait for it to finish and retry' }
+    # Repeat path validation under the lock; an abandoned owner is never evidence
+    # of a completed operation. The ordinary recovery checks below still apply.
+    Assert-NoReparseAncestors $install; Assert-NoReparseAncestors $data
 $releases = Join-Path $install 'releases'; $pointer = Join-Path $install 'active.json'; $marker = Join-Path $install '.vcp-install-owned.json'
 function Assert-OwnedInstallation {
     Assert-OrdinaryTree $install
@@ -153,6 +243,7 @@ if ($Action -eq 'Rollback') {
     $targetManifest = Get-ValidatedRelease $current.previous_release
     $currentManifest = Get-ValidatedRelease $current.release
     Assert-Compatible $targetManifest $currentManifest
+    Hold-StateFormats $targetManifest
     $target = Join-Path $releases $current.previous_release
     if ($StateManifest) { Assert-Compatible $targetManifest (Get-Content -LiteralPath ([IO.Path]::GetFullPath($StateManifest)) -Raw | ConvertFrom-Json) }
     Write-AtomicJson $pointer ([ordered]@{ schema='vcp-install-pointer/1'; release=$current.previous_release; package_sha256=$current.previous_package_sha256; activated_utc=[DateTime]::UtcNow.ToString('o'); data_root=$data; rollback_from=$current.release })
@@ -191,6 +282,7 @@ try {
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'Package manifest missing' }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     Assert-Manifest $stage $manifest
+    Hold-StateFormats $manifest
     if ($StateManifest) { Assert-Compatible $manifest (Get-Content -LiteralPath ([IO.Path]::GetFullPath($StateManifest)) -Raw | ConvertFrom-Json) }
     $release = Join-Path $releases $archiveHash
     if (Test-Path -LiteralPath $release) { $null = Get-ValidatedRelease $archiveHash; Remove-Item -LiteralPath $stage -Recurse -Force }
@@ -226,4 +318,9 @@ try {
         }
     }
     throw
+}
+} finally {
+    foreach ($stateHandle in $stateHandles) { $stateHandle.Dispose() }
+    if ($operationOwned) { $operationLock.ReleaseMutex() }
+    $operationLock.Dispose()
 }

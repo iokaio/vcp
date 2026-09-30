@@ -74,7 +74,7 @@ foreach ($name in @('RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_ENCODED_RUSTFLAGS','RUS
 if (@(Get-ChildItem Env: | Where-Object Name -like 'CARGO_PROFILE_RELEASE_*').Count) { throw 'Release profile overrides are not allowed' }
 $rustflags = @('-C','link-arg=/STACK:8388608','-C','target-feature=+crt-static')
 $env:CARGO_ENCODED_RUSTFLAGS = $rustflags -join [char]31
-$arguments = @('+1.95.0','build','--locked','--offline','--release','--no-default-features','-p','vcp-cli','--bin','vcp','--target','x86_64-pc-windows-msvc','--target-dir',$target,'-j',"$Jobs",'--message-format=json-render-diagnostics')
+$arguments = @('+1.95.0','build','--locked','--offline','--release','--no-default-features','-p','vcp-cli','--bin','vcp','--bin','vcp-launch','--target','x86_64-pc-windows-msvc','--target-dir',$target,'-j',"$Jobs",'--message-format=json-render-diagnostics')
 $log = Join-Path $out 'build.log'
 $dependenciesBefore = Join-Path $out 'dependencies-before.json'
 $dependenciesAfter = Join-Path $out 'dependencies-after.json'
@@ -113,7 +113,7 @@ if (-not $receipt.source_stable) { $receipt.exit_code = 1; $receipt.failure = 'S
 if ($receipt.exit_code -eq 0) {
     try {
     $artifacts = @(Get-Content -LiteralPath $log | Where-Object { $_.StartsWith('{') } | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object reason -eq 'compiler-artifact')
-    $vcpArtifacts = @($artifacts | Where-Object { $_.target.name -eq 'vcp' -or $_.target.name.StartsWith('vcp_') })
+    $vcpArtifacts = @($artifacts | Where-Object { $_.target.name -in @('vcp','vcp-launch') -or $_.target.name.StartsWith('vcp_') })
     $receipt.vcp_features = @($vcpArtifacts | ForEach-Object { @{target=$_.target.name;features=@($_.features)} })
     if (@($vcpArtifacts | Where-Object { 'qualification' -in $_.features }).Count) { throw 'Qualification feature present in a VCP dependency' }
     $compiled = @($artifacts | Where-Object { $_.target.name -eq 'vcp' -and $_.executable -and -not $_.profile.test })
@@ -123,6 +123,12 @@ if ($receipt.exit_code -eq 0) {
     $receipt.executable = $executable
     $receipt.executable_sha256 = (Get-FileHash -LiteralPath $executable).Hash.ToLowerInvariant()
     $receipt.compiler_artifact = $compiled[0]
+    $launchers = @($artifacts | Where-Object { $_.target.name -eq 'vcp-launch' -and $_.executable -and -not $_.profile.test })
+    if ($launchers.Count -ne 1 -or @($launchers[0].features).Count -ne 0 -or $launchers[0].profile.opt_level -ne '3') { throw 'Expected one optimized launcher with no qualification features' }
+    $receipt.launcher = Join-Path $out 'vcp-launch.exe'
+    Copy-Item -LiteralPath $launchers[0].executable -Destination $receipt.launcher
+    $receipt.launcher_sha256 = (Get-FileHash -LiteralPath $receipt.launcher).Hash.ToLowerInvariant()
+    $receipt.launcher_compiler_artifact = $launchers[0]
     if ($Release) {
         $releaseJson = & node -e "const p=require(process.argv[1]),s=p.json(process.argv[3]),c=p.channel(process.argv[2]),b=p.verifyExecutable(process.argv[4],c.native_version);console.log(JSON.stringify({release:p.releaseIdentity(c,s,b.sha256),version:b.version,target:b.target}));" $releaseTool $repository $before $executable
         if ($LASTEXITCODE -ne 0) { throw 'Release executable identity failed' }
@@ -130,6 +136,10 @@ if ($receipt.exit_code -eq 0) {
         $receipt.release = $releaseIdentity.release
         $receipt.executable_version = $releaseIdentity.version
         $receipt.executable_target = $releaseIdentity.target
+        & node -e 'const p=require(process.argv[1]);p.verifyExecutable(process.argv[2],p.channel(process.argv[3]).native_version,"vcp-launch");' $releaseTool $receipt.launcher $repository
+        if ($LASTEXITCODE -ne 0) { throw 'Release launcher identity failed' }
+        $receipt.launcher_version = $receipt.executable_version
+        $receipt.launcher_target = $receipt.executable_target
     }
     $symbols = [IO.Path]::ChangeExtension($compiled[0].executable, '.pdb')
     if (Test-Path -LiteralPath $symbols) { Copy-Item -LiteralPath $symbols -Destination (Join-Path $out 'vcp.pdb'); $receipt.symbols_sha256 = (Get-FileHash -LiteralPath (Join-Path $out 'vcp.pdb')).Hash.ToLowerInvariant() }

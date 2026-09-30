@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: Apache-2.0
+#requires -Version 7.0
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][string]$NativeResult,
+    [Parameter(Mandatory)][string]$BuildReceipt,
+    [Parameter(Mandatory)][string]$Launcher,
+    [Parameter(Mandatory)][string]$CompilerInstaller,
+    [Parameter(Mandatory)][string]$ReviewedCommit,
+    [string]$OutputRoot
+)
+$ErrorActionPreference = 'Stop'
+if (-not $IsWindows) { throw 'Native Windows setup construction required' }
+$repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$provenance = Join-Path $PSScriptRoot 'release/provenance.cjs'
+$node = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+function Ordinary-File([string]$Path) {
+    $full = [IO.Path]::GetFullPath($Path)
+    $item = Get-Item -LiteralPath $full -Force
+    if ($item.PSIsContainer -or $item.Length -eq 0) { throw 'Nonempty ordinary input file required' }
+    for ($cursor = $full; $cursor; $cursor = [IO.Path]::GetDirectoryName($cursor)) {
+        if ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked setup input rejected' }
+    }
+    return $full
+}
+function Hash([string]$Path) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+$NativeResult = Ordinary-File $NativeResult
+$BuildReceipt = Ordinary-File $BuildReceipt
+$Launcher = Ordinary-File $Launcher
+$CompilerInstaller = Ordinary-File $CompilerInstaller
+$native = Get-Content -LiteralPath $NativeResult -Raw | ConvertFrom-Json -Depth 100
+$receipt = Get-Content -LiteralPath $BuildReceipt -Raw | ConvertFrom-Json -Depth 100
+$channel = Get-Content -LiteralPath (Join-Path $repository 'release/internal-beta.json') -Raw | ConvertFrom-Json
+if ($native.schema -cne 'vcp-distribution-result/1' -or $native.status -cne 'release-candidate' -or
+    $native.manifest.release.reviewed_commit -cne $ReviewedCommit -or
+    $native.manifest.source.dirty -ne $false -or $native.manifest.build.status -cne 'verified-release-build') { throw 'Strict native release candidate required' }
+if ($native.package -cnotmatch '^[a-zA-Z0-9._-]+\.zip$') { throw 'Native result must name an adjacent ZIP' }
+$archive = Ordinary-File (Join-Path (Split-Path -Parent $NativeResult) $native.package)
+if ((Hash $archive) -cne $native.archive_sha256 -or (Hash $BuildReceipt) -cne $native.manifest.build.receipt_sha256) { throw 'Native archive or receipt identity changed' }
+if ($channel.installer.version -cne '6.7.3' -or (Hash $CompilerInstaller) -cne $channel.installer.sha256) { throw 'Release-pinned Inno Setup installer required' }
+if ($receipt.launcher_sha256 -cne (Hash $Launcher) -or $receipt.launcher_compiler_artifact.target.name -cne 'vcp-launch' -or
+    $receipt.launcher_compiler_artifact.profile.test -ne $false -or $receipt.launcher_compiler_artifact.profile.opt_level -cne '3' -or
+    @($receipt.launcher_compiler_artifact.features).Count -ne 0) { throw 'Launcher must be the optimized production build-receipt artifact' }
+# Validates exact source, version, flags, toolchain, feature inventory and retained
+# compiler logs. The native result is not accepted as a substitute for its build.
+$releaseJson = & $node $provenance verify-build $repository $BuildReceipt (Ordinary-File $receipt.executable) $ReviewedCommit
+if ($LASTEXITCODE -ne 0) { throw 'Strict build provenance rejected setup input' }
+$release = $releaseJson | ConvertFrom-Json
+if ($release.candidate_id -cne $native.manifest.release.candidate_id) { throw 'Native release candidate differs from build' }
+$launcherValidation = & $node -e 'const p=require(process.argv[1]);p.peArchitecture(process.argv[2]);const r=p.json(process.argv[3]);const fs=require("node:fs"),path=require("node:path");const rows=fs.readFileSync(path.join(path.dirname(process.argv[3]),"build.log"),"utf8").split(/\r?\n/).filter(x=>x.startsWith("{")).map(x=>JSON.parse(x));if(!rows.some(x=>JSON.stringify(x)===JSON.stringify(r.launcher_compiler_artifact)))throw Error("Launcher compiler artifact absent from build log");' $provenance $Launcher $BuildReceipt
+if ($LASTEXITCODE -ne 0) { throw 'Launcher architecture or compiler evidence rejected' }
+foreach ($relative in @('scripts/build-setup.ps1','scripts/installer/vcp.iss','scripts/installer/shell.ps1','scripts/installer/notices.cjs','scripts/package-install.ps1','release/internal-beta.json')) {
+    $row = @($receipt.inputs | Where-Object path -CEQ $relative)
+    if ($row.Count -ne 1 -or $row[0].sha256 -cne (Hash (Join-Path $repository $relative))) { throw "Setup source differs from reviewed inputs: $relative" }
+}
+if (-not $OutputRoot) { $OutputRoot = Join-Path $repository 'artifacts/beta-setup' }
+$out = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ([guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $out | Out-Null
+$staged = Join-Path $out 'native-verification'
+New-Item -ItemType Directory -Path $staged | Out-Null
+$zip = [IO.Compression.ZipFile]::OpenRead($archive)
+try {
+    if ($zip.Entries.Count -gt 4097) { throw 'Native ZIP entry count exceeds bound' }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    [int64]$expanded = 0
+    foreach ($entry in $zip.Entries) {
+        $name = $entry.FullName
+        if (-not $name -or $name.Contains('\') -or $name.Length -gt 512 -or
+            @($name.Split('/') | Where-Object { -not $_ -or $_ -in @('.','..') -or $_ -match '[<>:"|?*\x00-\x1f]' -or $_ -match '[. ]$' -or $_ -match '^(?i:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)' }).Count -or
+            -not $seen.Add($name)) { throw 'Unsafe or duplicate native ZIP path' }
+        $expanded += $entry.Length
+        if ($entry.Length -gt 1073741824 -or $expanded -gt 2147483648) { throw 'Native ZIP expanded size exceeds bound' }
+    }
+} finally { $zip.Dispose() }
+[IO.Compression.ZipFile]::ExtractToDirectory($archive,$staged)
+& $node -e 'const p=require(process.argv[1]),path=require("node:path"),i=require(path.join(path.dirname(process.argv[1]),"../package-inventory.cjs"));const root=process.argv[2],n=p.json(process.argv[3]),r=p.json(process.argv[4]),m=p.json(path.join(root,"manifest.json"));if(JSON.stringify(m)!==JSON.stringify(n.manifest))throw Error("Archived manifest differs from native result");i.verifyManifest(root,m);if(p.fileHash(path.join(root,"build-receipt.json"))!==p.fileHash(process.argv[4]))throw Error("Archived build receipt differs");p.verifyPayloadSources(root,r,m.notices.inventory_sha256);' $provenance $staged $NativeResult $BuildReceipt
+if ($LASTEXITCODE -ne 0) { throw 'Native archive contents failed independent build-input validation' }
+$compiler = Join-Path $out 'compiler'
+$compilerLog = Join-Path $out 'compiler-provision.log'
+# Portable extraction is explicit, local and pinned. No network operation or
+# product prerequisite installation is part of this builder or the setup EXE.
+$process = Start-Process -FilePath $CompilerInstaller -ArgumentList @('/PORTABLE=1','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/NOICONS',('/DIR="' + $compiler + '"'),('/LOG="' + $compilerLog + '"')) -WindowStyle Hidden -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Pinned compiler extraction failed; retained $compilerLog" }
+$iscc = Ordinary-File (Join-Path $compiler 'ISCC.exe')
+$noticesRoot = Join-Path $repository 'release/installer-notices'
+$noticeJson = & $node (Join-Path $PSScriptRoot 'installer/notices.cjs') $noticesRoot (Join-Path $repository 'release/internal-beta.json') $compiler
+if ($LASTEXITCODE -ne 0) { throw 'Setup runtime notice inventory failed' }
+$notices = $noticeJson | ConvertFrom-Json -Depth 20
+Copy-Item -LiteralPath $noticesRoot -Destination (Join-Path $out 'setup-notices') -Recurse
+# The script checks the compiler's own encoded Ver. These upstream binaries do
+# not expose a useful Windows ProductVersion resource (reported as 0.0.0.0).
+$compilerFiles = @(Get-ChildItem -LiteralPath $compiler -File -Recurse | Sort-Object FullName | ForEach-Object {
+    @{path=$_.FullName.Substring($compiler.Length+1).Replace('\','/');sha256=(Hash (Ordinary-File $_.FullName))}
+})
+$log = Join-Path $out 'setup-build.log'
+$arguments = @('/Q',('/O' + $out),('/DNativeArchive=' + $archive),('/DLauncher=' + $Launcher),('/DProductVersion=' + $channel.native_version),('/DNativeSha256=' + $native.archive_sha256),('/DCandidateId=' + $release.candidate_id),('/DShellSha256=' + (Hash (Join-Path $PSScriptRoot 'installer/shell.ps1'))),('/DEngineScriptSha256=' + (Hash (Join-Path $PSScriptRoot 'package-install.ps1'))),('/DNoticesSha256=' + $notices.inventory_sha256),(Join-Path $PSScriptRoot 'installer/vcp.iss'))
+& $iscc @arguments *> $log
+if ($LASTEXITCODE -ne 0) { throw "Setup compilation failed; retained $log" }
+$setup = Ordinary-File (Join-Path $out ('vcp-' + $channel.native_version + '-windows-x64-unsigned-setup.exe'))
+# Revalidate after compilation; an input change invalidates the assembled bytes.
+& $node $provenance verify-build $repository $BuildReceipt (Ordinary-File $receipt.executable) $ReviewedCommit | Out-Null
+if ($LASTEXITCODE -ne 0 -or (Hash $archive) -cne $native.archive_sha256 -or (Hash $Launcher) -cne $receipt.launcher_sha256 -or (Hash $CompilerInstaller) -cne $channel.installer.sha256) { throw 'Setup inputs changed during compilation' }
+foreach ($file in $compilerFiles) { if ((Hash (Join-Path $compiler $file.path)) -cne $file.sha256) { throw 'Compiler changed during setup construction' } }
+& $node (Join-Path $PSScriptRoot 'installer/notices.cjs') (Join-Path $out 'setup-notices') (Join-Path $repository 'release/internal-beta.json') $compiler | Out-Null
+if ($LASTEXITCODE -ne 0 -or (Hash (Join-Path $noticesRoot 'inventory.json')) -cne $notices.inventory_sha256) { throw 'Runtime notice copies changed during setup construction' }
+$result = [ordered]@{
+    schema='vcp-setup-result/1'; status='qualification-required'; candidate_id=$release.candidate_id
+    native_archive_sha256=$native.archive_sha256; build_receipt_sha256=(Hash $BuildReceipt); launcher_sha256=$receipt.launcher_sha256
+    archive=@{file=[IO.Path]::GetFileName($setup);sha256=(Hash $setup)}
+    compiler=@{name='Inno Setup';version=$channel.installer.version;source_commit=$channel.installer.source_commit;installer_sha256=$channel.installer.sha256;files=$compilerFiles}
+    source=@{reviewed_commit=$ReviewedCommit;content_sha256=$release.source_content_sha256}
+    log_sha256=(Hash $log); signing=@{status='unsigned'}
+    notices=$notices
+    limitations=@('Setup compilation is not installed-product qualification.','PowerShell 7 is an explicit prerequisite; no tools or models are downloaded.','Uninstall preserves the separately chosen data directory.','Outer setup lock covers registered integration; inner package lock covers engine lifecycle. Direct expert engine operations do not alter registered integration.')
+}
+$resultPath = Join-Path $out 'setup-result.json'
+$result | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $resultPath -Encoding utf8NoBOM
+Write-Output $resultPath
