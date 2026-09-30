@@ -116,7 +116,7 @@ for(const row of coverage.families.filter(family=>family.fixtures.length)){
   // v2: families without cues are always listed by description (ADR-070);
   // language families are listed when the fixture root has one of their markers.
   const alwaysListed=new Set(['architecture','review-debug','testing','git-workflow','project-optimize','memory-hygiene','shell','sql','data','infrastructure']);
-  const familyMarkers={'javascript-typescript':['package.json','deno.json','deno.jsonc'],python:['pyproject.toml','requirements.txt','setup.py','Pipfile'],rust:['Cargo.toml'],'dotnet-powershell':['global.json','*.sln','*.slnx','*.csproj','*.fsproj'],jvm:['pom.xml','build.gradle','build.gradle.kts','settings.gradle','settings.gradle.kts'],go:['go.mod','go.work'],cpp:['CMakeLists.txt'],ruby:['Gemfile'],php:['composer.json'],swift:['Package.swift'],dart:['pubspec.yaml']};
+  const familyMarkers={'javascript-typescript':['package.json','deno.json','deno.jsonc'],python:['pyproject.toml','requirements.txt','setup.py','Pipfile'],rust:['Cargo.toml'],'dotnet-powershell':['global.json','*.sln','*.slnx','*.csproj','*.fsproj'],jvm:['pom.xml','build.gradle','build.gradle.kts','settings.gradle','settings.gradle.kts'],go:['go.mod','go.work'],cpp:['CMakeLists.txt','meson.build','*.vcxproj'],ruby:['Gemfile'],php:['composer.json'],swift:['Package.swift'],dart:['pubspec.yaml']};
   const matches=alwaysListed.has(row.id)||(familyMarkers[row.id]||[]).some(cue=>cues.includes(cue));
   cases.push({id:fixture.id,skill:row.id,kind:index===0?'normal':'negative_or_missing_tool',project:'projects/'+fixture.id,
    prompt:fixture.setup+'. '+fixture.expected.join('. ')+'. Analyze the fixture; do not install dependencies or contact external services.',
