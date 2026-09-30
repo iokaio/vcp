@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.68.0",
+  "version": "1.69.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "b0db3d82fed4038b844caa5cd87acda91b5b795989997fe71881941054290124"
+    "sha256": "2cefc42ac50903343fddbab20d29815fd987b17540ae9bbb0cb6a1be6030b3b2"
   },
   "skills": [
     {
@@ -325,9 +325,9 @@
     },
     {
       "id": "skill-authoring",
-      "version": "2.4.0",
+      "version": "2.5.0",
       "descriptor": "skill-authoring/skill.json",
-      "descriptor_sha256": "2e8ca2299699832123352aff5e90eb4709020bf9d7d856c04ecc83a4a980e080",
+      "descriptor_sha256": "b2d359a4120976537855d7ab2937cf77e033ba13ae06d6735144179cc2a6174a",
       "body": {
         "path": "SKILL.md",
         "sha256": "db11affc3f349bcf5330f68d144b8a4a50c6dc3d5092fa5fa56fa67816aa7214"
@@ -347,11 +347,11 @@
         },
         {
           "path": "references/package-format.md",
-          "sha256": "f7d686bae30e3f0909a378dd2591b90a7743a87e82355c8b7ab19e22df3ae81a"
+          "sha256": "b1cb34d0f36d93e5d9f6672594e82cc83187dc9ece30c05f33f4e23792efebdb"
         },
         {
           "path": "scripts/validate.cjs",
-          "sha256": "29bea9b1a8a6045848ebf2070771b49143fbade94d1edbcc4801e475f4fb24f6",
+          "sha256": "556ed9fbd7e903978cfaa8ec86cb87bdc9047b2ffef65d56efa49e776c85f58d",
           "use": "file"
         }
       ]

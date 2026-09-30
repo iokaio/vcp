@@ -16,8 +16,8 @@ const REFERENCE_BYTES = 64 * 1024;
 const ROOT_MARKERS = ['Cargo.toml', 'package.json', 'pyproject.toml', 'go.mod', 'pom.xml', 'build.gradle',
   'CMakeLists.txt', 'Gemfile', 'composer.json', 'pubspec.yaml', 'Package.swift', 'global.json',
   'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts', 'requirements.txt', 'setup.py', 'Pipfile',
-  'deno.json', 'deno.jsonc', 'go.work'];
-const ROOT_PATTERN_EXTENSIONS = ['sln', 'slnx', 'csproj', 'fsproj'];
+  'deno.json', 'deno.jsonc', 'go.work', 'meson.build'];
+const ROOT_PATTERN_EXTENSIONS = ['sln', 'slnx', 'csproj', 'fsproj', 'vcxproj', 'vbproj'];
 const CANONICAL_TOOLS = ['vcp_read', 'vcp_list', 'vcp_search', 'vcp_patch', 'vcp_exec', 'vcp_verify', 'vcp_mcp', 'vcp_skill'];
 
 function validateSkill(directory) {

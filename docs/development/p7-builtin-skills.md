@@ -18,8 +18,8 @@ Catalog 1.11.0 (SU-04, [ADR-070](../adr/070-skill-resource-roles-and-discovery.m
 removes the never-emitted `explicit:*` cues. Workflow and general packages are
 cue-less, so their descriptions appear in the bounded description-only discovery
 context. Language families match root markers, including `build.gradle.kts`,
-`requirements.txt`, `setup.py`, `Pipfile`, `deno.json(c)`, `go.work`, and root
-`*.sln`/`*.slnx`/`*.csproj`/`*.fsproj` files. Each description states when to use
+`requirements.txt`, `setup.py`, `Pipfile`, `deno.json(c)`, `go.work`, `meson.build`,
+and root `*.sln`/`*.slnx`/`*.csproj`/`*.fsproj`/`*.vcxproj`/`*.vbproj` files. Each description states when to use
 the skill. Listing a skill never activates it or grants tools.
 
 Catalog 1.12.0 (SU-05) declares licenses, notices, provenance records, requirement

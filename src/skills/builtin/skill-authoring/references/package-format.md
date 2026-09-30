@@ -62,9 +62,10 @@ Cues and discovery. The host emits a cue for each of these root files when it
 exists: `Cargo.toml`, `package.json`, `pyproject.toml`, `requirements.txt`,
 `setup.py`, `Pipfile`, `go.mod`, `go.work`, `pom.xml`, `build.gradle`,
 `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts`, `CMakeLists.txt`,
-`Gemfile`, `composer.json`, `pubspec.yaml`, `Package.swift`, `global.json`,
-`deno.json` and `deno.jsonc`. It also emits `*.sln`, `*.slnx`, `*.csproj` or
-`*.fsproj` for ordinary root files with those extensions. A skill with cues is
+`meson.build`, `Gemfile`, `composer.json`, `pubspec.yaml`, `Package.swift`,
+`global.json`, `deno.json` and `deno.jsonc`. It also emits `*.sln`, `*.slnx`,
+`*.csproj`, `*.fsproj`, `*.vcxproj` or `*.vbproj` for ordinary root files with
+those extensions. A skill with cues is
 listed only when one matches. A skill with empty cues is always listed by its
 description, within a bounded budget. Listing never activates a skill or grants
 tools. Explicit selection may resolve a compatible skill without a cue match. Do
