@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { inventory, sha256 } = require('../scripts/inventory.cjs');
+const { verifyNativeArchive } = require('../scripts/release.cjs');
 
 test('staged extension contains a standalone SDK and schema without runtime file links', () => {
   const packageRoot = path.resolve(__dirname, '..');
@@ -25,6 +26,8 @@ test('staged extension contains a standalone SDK and schema without runtime file
     assert.equal(manifest.devDependencies, undefined);
     assert.ok(!fs.existsSync(path.join(output, 'src')));
     assert.ok(fs.existsSync(path.join(output, 'node_modules/@vcp/protocol/schema.json')));
+    assert.ok(fs.existsSync(path.join(output, 'SETUP.md')));
+    assert.ok(manifest.contributes.commands.some(row => row.command === 'vcp.openSetupGuide'));
     for (const root of [output, path.join(output, 'node_modules/@vcp/sdk'), path.join(output, 'node_modules/@vcp/protocol')]) {
       for (const notice of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) assert.ok(fs.existsSync(path.join(root, notice)));
     }
@@ -46,9 +49,11 @@ test('official VSIX preserves exact standalone inventory and requires matching e
   const engine = path.join(fixture, 'vcp.exe');
   const native = path.join(fixture, 'native.json');
   const stale = path.join(packageRoot, 'dist', 'stale-package-fixture.js');
+  const staleSdk = path.resolve(packageRoot, '../sdk-ts/dist/stale-package-sdk-fixture.js');
   const engineBytes = Buffer.from('test provenance input, not a native engine');
   fs.writeFileSync(engine, engineBytes);
   fs.writeFileSync(stale, 'SECRET_FIXTURE_MUST_NOT_SHIP');
+  fs.writeFileSync(staleSdk, 'STALE_SDK_MODULE_MUST_NOT_SHIP');
   const metadata = { schema: 'vcp-distribution-result/1', archive_sha256: 'b'.repeat(64), manifest: { source: { git_commit: 'a'.repeat(40), dirty: true }, build: { status: 'caller-supplied-unverified', executable_sha256: sha256(engineBytes) }, files: [{ path: 'vcp.exe', sha256: sha256(engineBytes) }] } };
   fs.writeFileSync(native, JSON.stringify(metadata));
   const run = () => spawnSync(process.execPath, [path.join(packageRoot, 'scripts/package.cjs'), '--engine', engine, '--engine-manifest', native, '--output', output], { encoding: 'utf8', timeout: 60000, windowsHide: true });
@@ -59,6 +64,8 @@ test('official VSIX preserves exact standalone inventory and requires matching e
     const archive = path.join(output, manifest.archive.file);
     assert.equal(manifest.engine.executable_sha256, sha256(engineBytes));
     assert.equal(manifest.engine.build_status, 'caller-supplied-unverified');
+    assert.equal(manifest.release, undefined);
+    assert.equal(manifest.extension.pre_release, false);
     assert.equal(manifest.archive.sha256, sha256(fs.readFileSync(archive)));
     assert.deepEqual(manifest.files, await inventory(archive));
     const names = manifest.files.map(row => row.path);
@@ -66,6 +73,12 @@ test('official VSIX preserves exact standalone inventory and requires matching e
     assert.ok(names.includes('extension/node_modules/@vcp/sdk/dist/index.js'));
     assert.ok(names.includes('extension/node_modules/@vcp/protocol/schema.json'));
     assert.ok(names.includes('extension/COMPATIBILITY.md'));
+    assert.ok(names.includes('extension/SETUP.md'));
+    await verifyNativeArchive(archive, manifest.files);
+    await assert.rejects(verifyNativeArchive(archive, manifest.files.slice(1)), /Invalid native archive entry/);
+    await assert.rejects(verifyNativeArchive(archive, [...manifest.files, { path: 'missing', bytes: 1, sha256: '0'.repeat(64) }]), /omits/);
+    const changed = structuredClone(manifest.files); changed[0].sha256 = '0'.repeat(64);
+    await assert.rejects(verifyNativeArchive(archive, changed), /payload mismatch/);
     for (const prefix of ['extension', 'extension/node_modules/@vcp/sdk', 'extension/node_modules/@vcp/protocol']) {
       for (const notice of ['NOTICE', 'THIRD_PARTY_NOTICES.md']) assert.ok(names.includes(`${prefix}/${notice}`));
       assert.ok(names.includes(`${prefix}/${prefix === 'extension' ? 'LICENSE.txt' : 'LICENSE'}`));
@@ -86,6 +99,7 @@ test('official VSIX preserves exact standalone inventory and requires matching e
     assert.equal(JSON.parse(fs.readFileSync(path.join(output, 'manifest.json'))).engine.build_receipt_sha256, sha256(receipt));
   } finally {
     fs.unlinkSync(stale);
+    fs.unlinkSync(staleSdk);
     fs.rmSync(fixture, { recursive: true });
   }
 });

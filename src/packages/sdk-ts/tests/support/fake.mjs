@@ -15,8 +15,9 @@ export async function connect(methods=['session/read','session/create','command/
     if(request.method==='initialize') transport.reply(request,{protocol_version:'1.0',event_schema_version:'1.0',schema_version:'1.0',engine_build:'test',capabilities:request.params.capabilities,methods,limits:{maximum_frame_bytes:1048576,maximum_pending_requests:1,maximum_subscriptions:8,maximum_subscriber_queue_bytes:1048576},execution_host:{id:'host',platform:'test'},sandbox_capabilities:[]});
   };
   const client=await Client.connect(transport,scope,'controller');
+  const initialize=transport.writes[0].params;
   transport.onSend=undefined;transport.writes=[];
-  return {client,transport};
+  return {client,transport,initialize};
 }
 export const session={kind:'session',value:{scope,revision:'0',configuration_revision:'0'}};
 export const create={scope,mutation:{command_id:'original',expected_revision:'0',steering_revision:'0'},new_session:'new-session',configuration:'config'};

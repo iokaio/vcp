@@ -112,7 +112,10 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     },
   });
   active = connection;
-  const commands = { connect: 'vcp.connect', control: 'vcp.connectController', attach: 'vcp.attachObserver', reconcile: 'vcp.reconcileRoot', grant: 'vcp.grantTrust', revoke: 'vcp.revokeTrust', disconnect: 'vcp.disconnect', refresh: 'vcp.refreshConnection' } as const;
+  const commands = { setup: 'vcp.openSetupGuide', connect: 'vcp.connect', control: 'vcp.connectController', attach: 'vcp.attachObserver', reconcile: 'vcp.reconcileRoot', grant: 'vcp.grantTrust', revoke: 'vcp.revokeTrust', disconnect: 'vcp.disconnect', refresh: 'vcp.refreshConnection' } as const;
+  // A fixed packaged document is safe to open before workspace trust or setup.
+  context.subscriptions.push(vscode.commands.registerCommand('vcp.openSetupGuide', () =>
+    vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.joinPath(context.extensionUri, 'SETUP.md'))));
   view = new ConnectionView(context.extensionUri, connection.state(), action => Promise.resolve(vscode.commands.executeCommand(commands[action])));
   taskPanel = new TaskPanel(context.extensionUri, async message => { await tasks?.dispatch(message); });
   inspectorPanel = new InspectorPanel(context.extensionUri, message => inspectors.dispatch(message), visible => inspectors.visible(visible));

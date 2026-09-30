@@ -19,9 +19,12 @@ test('A-B-A profile navigation reuses the journal writer and late receipts prese
   }
   class View { publish() {} dispose() {} }
   const disposable = { dispose() {} };
+  const commands = new Map(); const opened = [];
   const vscode = { StatusBarAlignment: { Left: 1 },
     window: { createOutputChannel: () => disposable, createStatusBarItem: () => ({ ...disposable, show() {} }), registerWebviewViewProvider: () => disposable },
-    workspace: { isTrusted: true, workspaceFolders: [] }, commands: { async executeCommand() {} },
+    workspace: { isTrusted: true, workspaceFolders: [] },
+    Uri: { joinPath: (root, filename) => ({ root, filename }) },
+    commands: { registerCommand: (name, callback) => { commands.set(name, callback); return disposable; }, async executeCommand(...args) { opened.push(args); } },
   };
   const load = Module._load;
   Module._load = function (request, parent, isMain) {
@@ -42,6 +45,10 @@ test('A-B-A profile navigation reuses the journal writer and late receipts prese
   const saved = new Map();
   const context = { extensionUri: {}, subscriptions: [], workspaceState: { get: key => structuredClone(saved.get(key)), async update(key, records) { saved.set(key, structuredClone(records)); } } };
   extension.activate(context);
+  await commands.get('vcp.openSetupGuide')('untrusted-argument');
+  assert.deepEqual(opened, [['markdown.showPreview', { root: context.extensionUri, filename: 'SETUP.md' }]]);
+  assert.equal(connection.state().phase, 'disconnected');
+  assert.equal(saved.size, 0, 'opening setup does not grant authority or alter saved state');
   const scope = { workspace: 'workspace', session: 'session' };
   const task = id => ({ scope, task: id, root: id, state: 'running', revision: '1', steering_revision: '0', effects: 'pending', reason: 'canonical task', pending_inputs: [] });
   const first = deferred(); const second = deferred(); const receipts = new Map(); const sent = [];

@@ -3,7 +3,7 @@
   'use strict';
   const vscode = acquireVsCodeApi();
   const element = id => document.getElementById(id);
-  for (const action of ['connect', 'control', 'attach', 'reconcile', 'grant', 'revoke', 'disconnect', 'refresh']) element(action).addEventListener('click', () => vscode.postMessage({ action }));
+  for (const action of ['setup', 'connect', 'control', 'attach', 'reconcile', 'grant', 'revoke', 'disconnect', 'refresh']) element(action).addEventListener('click', () => vscode.postMessage({ action }));
   const text = value => typeof value === 'string' ? value.slice(0, 32768) : typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : 'unavailable';
   window.addEventListener('message', event => {
     const message = event.data;

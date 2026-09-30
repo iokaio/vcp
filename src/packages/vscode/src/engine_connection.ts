@@ -42,12 +42,12 @@ export interface ConnectionDependencies {
 }
 const LIMITATIONS = Object.freeze([
   'Task views require a matching engine; task control requires explicit controller ownership.',
-  'Connect to an existing initialized workspace.',
+  'Connect to an existing initialized workspace. VCP: Open Setup Guide explains first use.',
   'Moved roots require explicit reconciliation after the active owner closes.',
   'Reload restores observation only; control and task resume remain explicit.',
 ]);
 const INITIALIZE: InitializeParams = {
-  protocol_version: '1.0', client: { name: 'vcp-vscode', version: '0.1.0' },
+  protocol_version: '1.0', client: { name: 'vcp-vscode', version: (require('../package.json') as { version: string }).version },
   capabilities: ['approval/source-revisions/1', 'controller/read', 'controller/acquire', 'workspace/setTrust', 'task/presentation', 'task/read', 'usage/read', 'events/next', 'command/read', 'approval/respond', 'turn/start', 'turn/steer', 'turn/pause', 'task/cancel', 'session/resume', 'artifact/read', 'editor/prepared-edits/1', 'editor/context', 'editor/prepare', 'editor/changeRead', 'editor/dispatch', 'editor/changeResult',
     'history/query/1', 'history/query', 'memory/query-sources/1', 'memory/query', 'memory/history/1', 'memory/history', 'context/inspect', 'routing/explain',
     'policy/inspection/1', 'policy/read', 'routing/status/1', 'routing/status', 'routing/optimizer/1', 'routing/reportCapture', 'routing/reportRead', 'routing/preview', 'routing/apply', 'routing/rollback',
@@ -59,7 +59,7 @@ function failureMessage(error: unknown): string {
   if (code === 'UNSUPPORTED_VERSION') return 'The selected engine protocol version is incompatible.';
   if (code === 'CAPABILITY_UNAVAILABLE') return 'The selected engine does not expose the required observer capabilities.';
   if (code === 'TIMEOUT') return 'The engine did not respond before the connection deadline.';
-  return 'Connection unavailable. Check the trusted executable, existing workspace initialization and data directory; reconnect explicitly.';
+  return 'Connection unavailable. Open VCP: Open Setup Guide to check the installed engine, workspace initialization and User data-directory setting; reconnect explicitly.';
 }
 export class EngineConnection {
   #deps: ConnectionDependencies;

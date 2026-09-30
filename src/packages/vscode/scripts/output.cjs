@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const repository = path.resolve(__dirname, '../../../..');
 const artifacts = path.join(repository, 'artifacts');
-exports.prepareOutput = function(requested, format = 'vcp-extension-stage/1') {
+exports.prepareOutput = function(requested, format = 'vcp-extension-stage/1', createOnly = false) {
   const output = path.resolve(requested);
   const relative = path.relative(artifacts, output);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Stage output must be a named directory within repository artifacts');
@@ -35,6 +35,7 @@ exports.prepareOutput = function(requested, format = 'vcp-extension-stage/1') {
   }
   const marker = path.join(output, '.vcp-stage.json');
   if (fs.existsSync(output)) {
+    if (createOnly) throw new Error('Release output must be a new directory');
     if (!fs.existsSync(marker) || JSON.parse(fs.readFileSync(marker, 'utf8')).format !== format) throw new Error('Refusing to replace an unrecognized directory');
     fs.rmSync(output, { recursive: true });
   }

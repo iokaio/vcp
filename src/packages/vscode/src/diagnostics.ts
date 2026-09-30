@@ -11,6 +11,6 @@ export function safeFailure(error: unknown): string {
     case 'TIMEOUT': return 'The connection deadline expired. Inspect the engine state before reconnecting.';
     case 'INVALID_ARGUMENT': return 'Check the selected folder and absolute paths in User settings.';
     case 'DISPOSED': return 'The local connection is closed.';
-    default: return 'The local connection is unavailable. Check the trusted engine path and initialized workspace.';
+    default: return 'The local connection is unavailable. Open VCP: Open Setup Guide to check the installed engine and initialized workspace.';
   }
 }

@@ -2,10 +2,10 @@
 'use strict';
 const fs = require('node:fs');
 const crypto = require('node:crypto');
-const yauzl = require('yauzl');
 const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 exports.sha256 = sha256;
 exports.inventory = filename => new Promise((resolve, reject) => {
+  const yauzl = require('yauzl');
   yauzl.open(filename, { lazyEntries: true, strictFileNames: true }, (error, zip) => {
     if (error) return reject(error);
     const rows = [], seen = new Set();

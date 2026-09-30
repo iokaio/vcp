@@ -8,7 +8,7 @@ const { parseViewMessage, connectionHtml } = require('../dist/view_model.js');
 const { safeFailure } = require('../dist/diagnostics.js');
 
 test('webview accepts only closed actions without executable or workspace arguments', () => {
-  for (const action of ['connect', 'control', 'attach', 'reconcile', 'grant', 'revoke', 'disconnect', 'refresh', 'ready']) assert.equal(parseViewMessage({ action }), action);
+  for (const action of ['setup', 'connect', 'control', 'attach', 'reconcile', 'grant', 'revoke', 'disconnect', 'refresh', 'ready']) assert.equal(parseViewMessage({ action }), action);
   for (const value of [null, [], { action: 'run' }, { action: 'connect', executable: 'evil.exe' }, { command: 'vcp.connect' }, Object.create({ action: 'connect' }), Object.defineProperty({}, 'action', { enumerable: true, get() { throw Error('getter invoked'); } }), { action: 'connect', [Symbol('extra')]: 1 }]) assert.equal(parseViewMessage(value), undefined);
 });
 
@@ -31,7 +31,7 @@ test('engine markup remains bounded text and ready handshake never executes an e
       set innerHTML(_) { throw Error('HTML sink forbidden'); },
     };
   }
-  for (const id of ['connect', 'control', 'attach', 'reconcile', 'grant', 'revoke', 'disconnect', 'refresh', 'phase', 'message', 'details', 'limitations']) nodes.set(id, node(id));
+  for (const id of ['setup', 'connect', 'control', 'attach', 'reconcile', 'grant', 'revoke', 'disconnect', 'refresh', 'phase', 'message', 'details', 'limitations']) nodes.set(id, node(id));
   const posted = [];
   let received;
   const context = {
@@ -49,6 +49,9 @@ test('engine markup remains bounded text and ready handshake never executes an e
   assert.ok(nodes.get('details').children.some(child => child.textContent === 'trusted'));
   assert.equal(nodes.get('limitations').children.length, 16);
   assert.equal(nodes.get('refresh').disabled, false);
+  assert.equal(nodes.get('setup').disabled, false);
+  nodes.get('setup').listeners.click();
+  assert.deepEqual(posted.at(-1), { action: 'setup' });
   nodes.get('connect').listeners.click();
   assert.deepEqual(posted.at(-1), { action: 'connect' });
   received({ data: { type: 'connection', status: { phase: 'unavailable', message: 'x'.repeat(40000), limitations: [] } } });
