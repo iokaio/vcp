@@ -609,6 +609,14 @@ impl Context {
         Ok(serde_json::to_value(self.skill_state(&binding.scope)?)?)
     }
     pub(super) fn validate_skills(&self, binding: &ThreadBinding) -> Result<()> {
+        self.verified_skills(binding).map(|_| ())
+    }
+    /// Validates active skills and returns the match context and the verified
+    /// bytes of every captured artifact, so one request reads each once (SH-05).
+    fn verified_skills(
+        &self,
+        binding: &ThreadBinding,
+    ) -> Result<(Option<MatchContext>, HashMap<ArtifactId, Vec<u8>>)> {
         self.skill_access(binding)?;
         self.validate_builtin_skills()?;
         // Cached descriptors remain source content and observe current read denials.
@@ -624,8 +632,9 @@ impl Context {
             }
         }
         let state = self.skill_state(&binding.scope)?;
+        let mut verified = HashMap::new();
         if state.active.is_empty() {
-            return Ok(());
+            return Ok((None, verified));
         }
         let runtime = self
             .skills
@@ -670,9 +679,40 @@ impl Context {
                 if digest_bytes(&bytes) != captured.file.sha256 {
                     return Err("active skill captured source changed".into());
                 }
+                verified.insert(captured.artifact.clone(), bytes);
             }
         }
-        Ok(())
+        Ok((Some(matches), verified))
+    }
+    /// Reuses the last capture of a derived skill part while its bytes are
+    /// unchanged and the artifact remains readable (not removed or masked);
+    /// otherwise captures the new bytes.
+    fn capture_skill_part(
+        &mut self,
+        binding: &ThreadBinding,
+        part: &str,
+        bytes: &[u8],
+        schema: &str,
+    ) -> Result<ArtifactDescriptor> {
+        let key = (binding.scope.task.clone(), part.to_owned());
+        if let Some(previous) = self.skill_part_captures.get(&key) {
+            if previous.spec.schema == schema
+                && previous.spec.scope == binding.scope
+                && previous.sha256 == digest_bytes(bytes)
+                && vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    &previous.spec.id,
+                    std::io::sink(),
+                )
+                .is_ok()
+            {
+                return Ok(previous.clone());
+            }
+        }
+        let descriptor = self.capture(&binding.scope, Channel::Evidence, bytes, schema)?;
+        self.skill_part_captures.insert(key, descriptor.clone());
+        Ok(descriptor)
     }
     /// ADR-070 helper materialization: one verified `file` resource of an
     /// active skill becomes an exact `vcp_patch` Add File request. The patch
@@ -796,7 +836,7 @@ impl Context {
         Ok(())
     }
     pub(super) fn skill_parts(&mut self, binding: &ThreadBinding) -> Result<Vec<Part>> {
-        self.validate_skills(binding)?;
+        let (matches, verified) = self.verified_skills(binding)?;
         let state = self.skill_state(&binding.scope)?;
         let mut parts = Vec::new();
         for active in state.active.values() {
@@ -815,14 +855,10 @@ impl Context {
                         &binding.scope.workspace,
                     )?
                     .decode()?;
-                let mut bytes = Vec::new();
-                vcp_audit::history::History::read_artifact(
-                    self.engine.store(),
-                    &self.history_access(),
-                    &captured.artifact,
-                    &mut bytes,
-                )?;
-                if index > 0 && std::str::from_utf8(&bytes).is_err() {
+                let bytes = verified
+                    .get(&captured.artifact)
+                    .ok_or("active skill captured source changed")?;
+                if index > 0 && std::str::from_utf8(bytes).is_err() {
                     continue;
                 }
                 let mut part = Part::captured_text(
@@ -833,7 +869,7 @@ impl Context {
                     Kind::Skill,
                     ContextTrust::ActiveSkill,
                     &descriptor,
-                    &bytes,
+                    bytes,
                     true,
                     0,
                     active.reason.clone(),
@@ -858,9 +894,9 @@ impl Context {
                 let bytes = canonical_bytes(&serde_json::json!({"schema":"skill-resources/1",
                     "skill":active.qualified_id,"resources":listed,
                     "access":"vcp_skill read returns a reference; vcp_skill materialize copies a file resource; neither grants authority"}))?;
-                let descriptor = self.capture(
-                    &binding.scope,
-                    Channel::Evidence,
+                let descriptor = self.capture_skill_part(
+                    binding,
+                    &format!("resources-{}", active.qualified_id),
                     &bytes,
                     "canonical-skill-resources/1",
                 )?;
@@ -880,7 +916,10 @@ impl Context {
             }
         }
         if let Some(runtime) = &self.skills {
-            let matches = self.skill_match_context(binding)?;
+            let matches = match matches {
+                Some(matches) => matches,
+                None => self.skill_match_context(binding)?,
+            };
             let mut matching = runtime.catalog.matching(&matches)?;
             // Cue-matched skills first, then cue-less ones, higher precedence
             // first, so unrelated sources cannot push relevant skills past the bound.
@@ -919,9 +958,9 @@ impl Context {
             if bytes.len() > 64 * 1024 {
                 return Err("skill discovery context byte bound".into());
             }
-            let descriptor = self.capture(
-                &binding.scope,
-                Channel::Evidence,
+            let descriptor = self.capture_skill_part(
+                binding,
+                "discovery",
                 &bytes,
                 "canonical-skill-discovery-context/1",
             )?;
