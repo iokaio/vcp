@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.66.0",
+  "version": "1.67.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "c2ff6de249db2566ee636168b4301edf4c9591e03de39c6d73049c5de0fc0630"
+    "sha256": "10a6c094686036cbc6c3012415cf9d8a514c02ba73bd20a2cd16bb242b1abe6f"
   },
   "skills": [
     {
@@ -354,12 +354,12 @@
     },
     {
       "id": "frontend-design",
-      "version": "2.3.0",
+      "version": "2.4.0",
       "descriptor": "frontend-design/skill.json",
-      "descriptor_sha256": "9027e19c8f78ed8ed1c0e5339416c2132f8682eba4fe8622defbd4e848815102",
+      "descriptor_sha256": "22ecc210b674aa7408d14e58b63e635b2ccd0347de18522667b9f81f7fcfb7f5",
       "body": {
         "path": "SKILL.md",
-        "sha256": "4cc721253b774f49c6b09065dd4b6992c9dd76a089db9b518cf4d9b5a9bb74aa"
+        "sha256": "4a29a9db1acb7c58cdc6af12bc7c21e216a063a959be68aa2a95ffad824fc532"
       },
       "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/frontend-design",
       "license": "Apache-2.0",
@@ -371,20 +371,23 @@
         },
         {
           "path": "UPSTREAM.md",
-          "sha256": "3fceec27a65909eb33a0f8748825b5c9d6540bc11eda97f55195db219e8fd445",
+          "sha256": "7d6f903b749e20652b27030014a99360ac59b5ca1c8b080cdfb39ea0653a24fc",
           "use": "file"
         },
         {
           "path": "references/design-and-copy.md",
-          "sha256": "eb6068dfbc5bbd8c29d8f9736376bc0fc95acd21ce59ee992d2ab49f0dfeaaf6"
+          "sha256": "dd8a1c9df7b85b8c18286584a9ab206b29b88e48a49ca7ffc85c715c0ea93d0a",
+          "use": "reference"
         },
         {
           "path": "references/accessibility.md",
-          "sha256": "0cc3faf60a3d06f019deda06dc7d95eb333eaac219f6e9d65d13fa87693e6ed3"
+          "sha256": "91b6a337e6547aa3574ae8c04bd2d43a91c85f8d49d7aa1a5e38e9ffc2f0bf28",
+          "use": "reference"
         },
         {
           "path": "references/theming-and-performance.md",
-          "sha256": "e6b7b60fed1338ef543184b4fdcfb0237b776020b8cbb0634e5e4c7a91de2844"
+          "sha256": "b3f6a92571261b97b1056b0d7cd07413367fb29300cdd4851e3fd8a8535f693a",
+          "use": "reference"
         }
       ]
     },

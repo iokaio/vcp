@@ -1,6 +1,6 @@
 # Upstream attribution and modifications
 
-This VCP 2.0.0 skill package contains material adapted from Anthropic, PBC's [anthropics/skills](https://github.com/anthropics/skills) repository. Upstream attribution and license notices are retained.
+This VCP skill package contains material adapted from Anthropic, PBC's [anthropics/skills](https://github.com/anthropics/skills) repository. Upstream attribution and license notices are retained.
 
 - Upstream revision: `8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4`.
 - Source directory: [skills/frontend-design](https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/frontend-design).
@@ -25,5 +25,6 @@ SHA-256 values below identify the original Git commit bytes, before adaptation o
 - No upstream fonts, branding, images or external tool installers are included.
 - SU-13 (2026-09-29) re-compared the pinned upstream SKILL.md, which already includes the 2026-09-03 upstream change on avoiding generic design defaults (upstream commit `41bbe19d1a`). references/design-and-copy.md now also adapts the template-chrome calibration list (eyebrow labels, middle-dot meta strings, em-dash labels, tinted near-black, monospace data labels, appended arrows), deliberate typeface choice, a four-to-six color palette, stating what changed after plan review, avoiding hover transitions on every card, non-apologetic error text and removing one more element before finishing. The upstream brief-wins rule is retained. Upstream's reference to Anthropic's own interaction accent color is not carried over.
 - SU-13 added two VCP-authored references that are not derived from the upstream skill: references/accessibility.md (WCAG 2.2 AA thresholds cited by success-criterion number from the W3C Recommendation of 12 December 2024, and truthful reporting of automated and manual checks) and references/theming-and-performance.md (project framework and component-library conventions, design-token theming and dark mode, right-to-left and internationalization, and loading and layout-shift performance). SKILL.md points to both.
+- SH-13 moved all three references to the on-demand `reference` role (ADR-071), so only SKILL.md is sent on activation. SKILL.md now holds the always-applicable WCAG 2.2 AA baseline (contrast, target size, keyboard and focus, semantics, reflow and reduced motion) and says when to read each reference with `vcp_skill` action `read`. Contrast and reduced-motion guidance repeated in the references was removed; references/accessibility.md keeps the success-criterion detail and exceptions.
 
 Only the listed permissively licensed skill material is used. No material from the restricted document skills or unlicensed doc-coauthoring skill is included. Runtime permissions, explicit activation and VCP package integrity remain unchanged.
