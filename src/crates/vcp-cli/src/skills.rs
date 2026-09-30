@@ -344,10 +344,11 @@ pub fn available_tools(profile: &crate::settings::Profile) -> std::collections::
         "vcp_list",
         "vcp_search",
         "vcp_patch",
+        "vcp_skill",
         "vcp_verify",
     ]
     .into_iter()
-    .filter(|name| profile.canonical_tools.contains(name))
+    .filter(|name| profile.canonical_tools.permits(name))
     .map(str::to_owned)
     .chain(
         profile

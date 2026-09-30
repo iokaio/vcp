@@ -104,8 +104,8 @@ Record actual checks and any unrun checks in the ledger.
 | SU-00 | Owner direction | This plan, ADR-070 and guidance pointers | complete; [PR #212](https://github.com/iokaio/vcp/pull/212) merged |
 | SU-01 | None | Run skill helper tests in CI | complete; [PR #213](https://github.com/iokaio/vcp/pull/213) merged |
 | SU-02 | SU-00 | Resource roles in the loader | complete; [PR #214](https://github.com/iokaio/vcp/pull/214) merged |
-| SU-03 | SU-02 | Helper materialization | planned |
-| SU-04 | SU-00 | Discovery cues, root markers and descriptions | in review |
+| SU-03 | SU-02 | Helper materialization | in review |
+| SU-04 | SU-00 | Discovery cues, root markers and descriptions | complete; [PR #215](https://github.com/iokaio/vcp/pull/215) merged |
 | SU-05 | SU-02, SU-03 | Package migration to resource roles, and hygiene | planned |
 | SU-06 | SU-02 | skill-authoring validator and guidance | planned |
 | SU-07 | SU-01, SU-05 | spreadsheet-workflows compatibility and operations | planned |
@@ -187,6 +187,25 @@ It grants no execution.
 * A tampered source.
 * A CLI test that materializes a helper and runs it through the authorized
   execution tool.
+
+Delivered design:
+
+* **The tool.** No skill tool existed, so SU-03 adds the model tool
+  `vcp_skill` with a single `materialize` action. It is permitted exactly
+  when the owner's ceiling contains `vcp_patch`. It is not a recorded ceiling
+  name, so existing recorded ceilings and legacy defaults stay unchanged.
+* **What it does.** The host resolves the active skill's `file` resource and
+  re-verifies the captured bytes. It then submits the exact `vcp_patch` Add
+  File through the ordinary gated path, which covers hooks, child scope,
+  policy, approval, exclusive create, and intent and outcome receipts. Before
+  dispatch it checks that the prepared change reproduces the verified bytes
+  exactly.
+* **Limits.** It accepts non-empty LF text up to 96 KiB that ends with a
+  newline, and the destination must be a normalized workspace-relative path.
+* **Not added.** There is no CLI subcommand, because broker writes need a
+  running task.
+* **Moved to SU-05.** The CLI end-to-end run of a real helper moves there,
+  because it needs a package that declares `file` helpers.
 
 ### SU-04: Discovery, cues and descriptions
 

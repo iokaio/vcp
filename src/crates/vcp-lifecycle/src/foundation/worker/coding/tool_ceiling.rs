@@ -130,7 +130,7 @@ impl Context {
             .coding
             .get(&binding.scope.task)
             .ok_or("coding setup missing")?;
-        if !state.config.canonical_tools.contains(name) {
+        if !state.config.canonical_tools.permits(name) {
             return Err("tool is outside the owner's canonical model tool ceiling".into());
         }
         Ok(())

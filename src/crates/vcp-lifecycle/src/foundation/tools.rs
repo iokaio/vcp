@@ -37,6 +37,10 @@ impl ToolProposal {
     pub fn digest(&self) -> &str {
         self.prepared.authority().digest()
     }
+    /// Prepared file changes, for owner-side exactness checks before dispatch.
+    pub(in crate::foundation) fn prepared(&self) -> &vcp_tools::Prepared {
+        &self.prepared
+    }
 }
 pub struct ToolOutcome {
     pub effect: ToolRunId,

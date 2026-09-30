@@ -68,7 +68,7 @@ pub(super) mod recovery;
 mod retention_policy;
 mod routing;
 #[cfg(windows)]
-mod skills;
+pub(super) mod skills;
 #[cfg(windows)]
 mod tools;
 #[cfg(windows)]

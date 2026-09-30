@@ -599,6 +599,7 @@ impl Context {
             "vcp_exec",
             "vcp_verify",
             "vcp_mcp",
+            "vcp_skill",
         ] {
             self.tool_identity(binding, name)?;
         }
@@ -983,6 +984,7 @@ impl Context {
             "vcp_exec",
             "vcp_verify",
             "vcp_mcp",
+            "vcp_skill",
         ] {
             self.tool_identity(binding, name)?;
         }
@@ -1045,6 +1047,16 @@ impl Context {
             )?,
             "vcp_list" | "vcp_search" | "vcp_verify" => self.child_context_scope(binding)?,
             "vcp_exec" => self.child_process_scope(binding)?,
+            // A materialization is an Add File at its destination.
+            "vcp_skill" => self.child_tool_request(
+                binding,
+                &vcp_tools::Request::Patch {
+                    patch: format!(
+                        "*** Begin Patch\n*** Add File: {}\n*** End Patch\n",
+                        skill_destination(&call.arguments)?
+                    ),
+                },
+            )?,
             _ => {}
         }
         let paths = match call.name.as_str() {
@@ -1070,6 +1082,9 @@ impl Context {
                 }
                 paths
             }
+            "vcp_skill" => vec![std::path::PathBuf::from(skill_destination(
+                &call.arguments,
+            )?)],
             "vcp_exec" => vec![std::path::PathBuf::from(
                 call.arguments["directory"]
                     .as_str()
@@ -1163,4 +1178,19 @@ impl Context {
         state.history_sources.extend(sources);
         Ok(())
     }
+}
+/// Validated before it can reach a patch header or instruction selection.
+fn skill_destination(arguments: &serde_json::Value) -> Result<&str> {
+    let destination = arguments["destination"]
+        .as_str()
+        .ok_or("materialize destination missing")?;
+    if destination.is_empty()
+        || destination.len() > 1024
+        || destination.chars().any(char::is_control)
+        || destination.contains('\\')
+        || vcp_repository::path::relative(std::path::Path::new(destination))? != destination
+    {
+        return Err("materialize destination must be a normalized workspace-relative path".into());
+    }
+    Ok(destination)
 }

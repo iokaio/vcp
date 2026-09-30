@@ -192,6 +192,17 @@ impl CanonicalHost {
         self.worker
             .run(move |context| context.skill_control(&binding, request))
     }
+    /// Resolves an active skill's verified file resource into the exact patch
+    /// that creates it; the caller submits that patch through normal authority.
+    pub(in crate::foundation) fn skill_materialization(
+        &self,
+        thread: ThreadId,
+        request: super::worker::skills::MaterializeRequest,
+    ) -> Result<super::worker::skills::Materialization, String> {
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.skill_materialization(&binding, &request))
+    }
 }
 #[cfg(test)]
 mod tests {
