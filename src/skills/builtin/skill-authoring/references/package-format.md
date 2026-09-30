@@ -19,7 +19,7 @@ and only resources that the workflow needs. `skill.json` has these fields:
 | environments | Compatible environment names; empty means no metadata restriction, not qualified execution on every OS |
 | required_tools | Compatibility requirements, never grants; ordinary builtin analysis uses `vcp_list` and `vcp_read` |
 | body | Object with package-relative `path` and lowercase SHA-256 `sha256` |
-| resources | Array of the same content-reference objects, plus optional `use`: `context` (default) or `file`; empty when unnecessary |
+| resources | Array of the same content-reference objects, plus optional `use`: `context` (default), `file` or `reference`; empty when unnecessary |
 
 Unknown descriptor fields are rejected. Content paths use forward slashes and
 normalized relative components, with no rooted path, traversal, Windows device
@@ -49,6 +49,14 @@ model. A body that needs a helper tells the model to copy it with `vcp_skill`
 (action `materialize`) into an existing workspace directory and to run it only
 through an authorized `vcp_exec` process profile. Materialization accepts
 non-empty LF text up to 96 KiB that ends with a newline. The body is always context.
+
+A `reference` resource (ADR-071) is verified but not sent on activation either.
+The model reads it on request with `vcp_skill` action `read` (UTF-8, at most
+64 KiB), which writes nothing. Use it for guidance only some tasks need, such as
+per-provider or per-language notes, and keep the rules every task needs in the
+body. Each active skill lists its `file` and `reference` resources to the model
+by path and size. `vcp_skill` follows the read ceiling; `materialize` also needs
+`vcp_patch`. Descriptors are limited to 16 KiB, as discovery reads them.
 
 Cues and discovery. The host emits a cue for each of these root files when it
 exists: `Cargo.toml`, `package.json`, `pyproject.toml`, `requirements.txt`,
