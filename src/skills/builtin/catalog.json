@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.61.0",
+  "version": "1.62.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "841ac38b800dc46153f6efd231013ebc8a493f983f3aa5fab630ab9861a9766c"
+    "sha256": "82d06deb08e6658b07224d7538ba5696777f4880bf5a0112b7d9dd4c3aa88ddf"
   },
   "skills": [
     {
@@ -164,12 +164,12 @@
     },
     {
       "id": "php",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "descriptor": "php/skill.json",
-      "descriptor_sha256": "fdca16acaaaf1478c08a3f81176eaf942094cd96bdc5e5a8ff0bd932c5e69836",
+      "descriptor_sha256": "4120234aa7e8635f0a933701d760359a9886dfd099dceb90f7b4e23d66109345",
       "body": {
         "path": "SKILL.md",
-        "sha256": "ba4f5dbb1930837767809f15584bb6ec49bb38de2e6be4e51a6781aed6aaaec5"
+        "sha256": "9209ff9d69f38fbd5abaee2206da695ea356e7df1693c35c61b070f2f4339f9d"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
