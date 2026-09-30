@@ -186,6 +186,8 @@ function verifyPayloadSources(packageRoot, receipt, expectedNoticeHash) {
     ['tools/package-inventory.cjs', 'scripts/package-inventory.cjs'],
     ['tools/package-models.ps1', 'scripts/package-models.ps1'],
     ['models/minilm-assets.json', 'src/third_party/components/minilm-assets.json'],
+    ...['beta-installation.md', 'beta-onboarding.md', 'beta-recovery.md', 'beta-known-issues.md']
+      .map(name => ['docs/usage/' + name, 'docs/usage/' + name]),
   ]);
   for (const row of enumerate(packageRoot)) {
     if (row.path === 'manifest.json') continue; // independently verified above

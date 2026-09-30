@@ -15,6 +15,10 @@ account-wide spending limit. Offline profile creation and checking spend nothing
 
 ## Select local roots and enter the credential
 
+Setup does not add VCP to PATH. Select the stable launcher below; for a custom
+program directory, replace `$vcp` with its absolute path. For portable use, select
+the `vcp.exe` in the extracted payload instead.
+
 Create or select a workspace containing the files you want VCP to inspect.
 Use a separate private, nonsynchronized directory for metadata and profiles.
 The default durable history root is `%LOCALAPPDATA%\VCP`; installed packages may
@@ -24,6 +28,9 @@ drives, and redirected setup paths. Declare additional sync roots in your truste
 profile before task execution.
 
 ```powershell
+$vcp = Join-Path $env:LOCALAPPDATA 'Programs\VCP\vcp.exe'
+& $vcp --version
+if ($LASTEXITCODE -ne 0) { throw 'Select the installed VCP executable before continuing.' }
 $workspace = 'C:\work\beta-sample'
 $private = Join-Path $env:LOCALAPPDATA 'VCP\profiles'
 New-Item -ItemType Directory -Force -Path $workspace, $private | Out-Null
@@ -62,7 +69,7 @@ $endpoint = Read-Host 'Exact endpoint tag'
 $requestPrice = Read-Host 'Maximum USD per request fee (for example 0.001)'
 $probeBudget = Read-Host 'Authorized total probe budget in USD'
 $generation = Join-Path $private ('provider-' + [guid]::NewGuid().ToString('N'))
-vcp --workspace $workspace setup provider --model $model --endpoint $endpoint `
+& $vcp --workspace $workspace setup provider --model $model --endpoint $endpoint `
   --request-price-limit $requestPrice --budget-usd $probeBudget --output $generation
 if ($LASTEXITCODE -ne 0) { throw 'Provider setup did not qualify; inspect the recovery table below.' }
 ```
@@ -85,14 +92,14 @@ budget; setup never retries with a larger cap or cheaper provider automatically.
 ```powershell
 $profile = Join-Path $private ('beta-sample-' + [guid]::NewGuid().ToString('N') + '.json')
 $taskBudget = Read-Host 'Authorized per-task budget in USD'
-vcp --workspace $workspace setup profile `
+& $vcp --workspace $workspace setup profile `
   --snapshot (Join-Path $generation 'qualified\snapshot.json') `
   --catalog (Join-Path $generation 'endpoints.json') --output $profile `
   --trust-workspace --budget-usd $taskBudget --autonomy ask --affected-path README.md
 if ($LASTEXITCODE -ne 0) { throw 'Profile creation failed.' }
-vcp --workspace $workspace --config $profile setup check
+& $vcp --workspace $workspace --config $profile setup check
 if ($LASTEXITCODE -ne 0) { throw 'Profile preflight failed.' }
-vcp --workspace $workspace --config $profile run `
+& $vcp --workspace $workspace --config $profile run `
   'Read README.md and summarize its purpose with citations. Do not change files.' --autonomy ask
 ```
 
@@ -105,15 +112,15 @@ and a five-minute task deadline. A denied effect needs explicit applicable user
 approval; changing the requested autonomy cannot exceed the profile ceiling.
 
 The first accepted task registers the workspace and durable history. Starting
-`vcp --workspace $workspace` without `run` only discovers unfinished tasks.
+`& $vcp --workspace $workspace` without `run` only discovers unfinished tasks.
 Reopening does not resume a task. Use the displayed task ID and revision for an
 explicit resume; the original task's budget and spent amount remain in force.
 
 Each workspace gets its own profile filename. Always pass its matching
 `--workspace` and `--config`; the legacy global `profile.json` default cannot
 represent several workspace bindings. For VS Code, select the installed CLI and
-data directory in **User** settings, select this execution profile through the
-extension's connection command/dialog, use its credential input, and review
+data directory in **User** settings, select this execution profile through
+**VCP: Start Execution-backed Task**, use its credential input, and review
 workspace trust there. Never copy the key to settings. See the packaged VSIX
 walkthrough for its exact supported settings and connection flow.
 
@@ -147,7 +154,7 @@ Workspace history stays in its existing data root.
 | --- | --- |
 | Missing credential | Enter it with the masked prompt or the extension credential input in the process that launches VCP. No call is made without it. |
 | Credential rejected or metadata HTTP failure | Check the account and key privately. No automatic retry occurs. A provider call that already started may retain liability. |
-| `result.json` is observed but generation receipt is temporarily unavailable | Run `vcp --workspace $workspace setup provider-complete --directory $generation` while metadata is current. It fetches only missing receipts, verifies the original evidence, and never repeats inference. |
+| `result.json` is observed but generation receipt is temporarily unavailable | Run `& $vcp --workspace $workspace setup provider-complete --directory $generation` while metadata is current. It fetches only missing receipts, verifies the original evidence, and never repeats inference. |
 | Provider probe failed, interrupted, or has unresolved liability | Preserve the directory and canonical ledger. Reconcile the original request with provider billing/support before authorizing a fresh probe budget. Never regard missing observed cost as zero. `provider-complete` cannot replay failed calls. |
 | Stale snapshot, changed catalog, unsupported pricing or ambiguous served identity | Obtain a newly qualified generation; review endpoint eligibility and caps. No snapshot is published from incomplete or mismatched evidence. |
 | Profile belongs to another workspace | Select that workspace's profile or create a separately trusted profile. Do not rewrite another workspace's profile. |

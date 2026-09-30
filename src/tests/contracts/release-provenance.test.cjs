@@ -99,6 +99,21 @@ test('staged helpers and assets must match the exact build source bytes', t => {
   fs.writeFileSync(file, 'notice'); fs.writeFileSync(path.join(root, 'secret.env'), 'fixture');
   assert.throws(() => p.verifyPayloadSources(root, receipt), /differs/);
 });
+test('packaged user guides bind reviewed source and reject extra documents', t => {
+  const root = temporary(t), guides = path.join(root, 'docs/usage');
+  fs.mkdirSync(guides, { recursive: true });
+  const receipt = { inputs: [] };
+  for (const name of ['beta-installation.md', 'beta-onboarding.md', 'beta-recovery.md', 'beta-known-issues.md']) {
+    fs.writeFileSync(path.join(guides, name), name);
+    receipt.inputs.push({ path: 'docs/usage/' + name, sha256: digest(name) });
+  }
+  p.verifyPayloadSources(root, receipt);
+  fs.writeFileSync(path.join(guides, 'beta-onboarding.md'), 'stale onboarding');
+  assert.throws(() => p.verifyPayloadSources(root, receipt), /differs/);
+  fs.writeFileSync(path.join(guides, 'beta-onboarding.md'), 'beta-onboarding.md');
+  fs.writeFileSync(path.join(guides, 'private-profile.md'), 'private fixture');
+  assert.throws(() => p.verifyPayloadSources(root, receipt), /differs/);
+});
 function pairFixture() {
   const { release } = fixture();
   const native = { schema: 'vcp-distribution-result/1', status: 'release-candidate', archive_sha256: hash, package: 'native.zip',

@@ -34,6 +34,10 @@ Copy-Item -LiteralPath $binary.FullName -Destination (Join-Path $package 'vcp.ex
 foreach ($notice in @('LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md')) {
     Copy-Item -LiteralPath (Join-Path $repository $notice) -Destination (Join-Path $package $notice)
 }
+New-Item -ItemType Directory -Path (Join-Path $package 'docs/usage') -Force | Out-Null
+foreach ($guide in @('beta-installation.md','beta-onboarding.md','beta-recovery.md','beta-known-issues.md')) {
+    Copy-Item -LiteralPath (Join-Path $repository "docs/usage/$guide") -Destination (Join-Path $package "docs/usage/$guide")
+}
 New-Item -ItemType Directory -Path (Join-Path $package 'tools') | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'package-install.ps1') -Destination (Join-Path $package 'tools/package-install.ps1')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'package-inventory.cjs') -Destination (Join-Path $package 'tools/package-inventory.cjs')
@@ -96,6 +100,7 @@ $metadata = [ordered]@{
     runtime = @($RuntimePath | ForEach-Object { [IO.Path]::GetFileName($_) })
     skills = [ordered]@{ catalog_sha256 = $assetInventory.catalog_sha256; catalog_version = $assetInventory.version; skills = $assetInventory.skills }
     model_provisioning = $model
+    documentation = 'docs/usage/beta-installation.md'
 }
 if ($Release) {
     $metadata.release = $releaseIdentity
