@@ -1,6 +1,6 @@
 # JavaScript, TypeScript, and web projects
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Read the project
 
@@ -20,6 +20,8 @@ Determine the package working directory and module format before editing imports
 2. Ecosystem defaults, only when the scripts support them. Candidates to confirm: the selected manager's run form (`npm test`, `npm run <script>`, `pnpm --filter <pkg> test`, `yarn workspace <pkg> test`, `bun run <script>`, `deno task <name>`), narrowed with the runner's file or name filter; a type check through the project's own compiler such as a `tsc --noEmit` script.
 
 Do not assume `npm test`, a global TypeScript compiler, `npx` downloads, or a framework CLI is appropriate. Avoid opportunistic lockfile churn.
+
+`npm install` or `ci`, `pnpm install`, `yarn install` and `bun install` are network effects that also run lifecycle scripts; do not run them as a prerequisite. With a `packageManager` pin, Corepack may download the pinned pnpm or Yarn on first use. Yarn Plug'n'Play projects (`.pnp.cjs`, no `node_modules`) resolve dependencies only through `yarn node` or `yarn run`; plain `node` or a global tool will not find them.
 
 ## Toolchain variants
 
