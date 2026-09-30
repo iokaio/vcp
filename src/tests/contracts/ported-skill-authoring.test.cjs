@@ -67,3 +67,69 @@ test('rejects linked resources without reading the outside target',()=>fixture((
     assert.equal(fs.readFileSync(path.join(outside,'SKILL.md'),'utf8'),'outside');
   } finally { fs.rmSync(outside,{recursive:true,force:true}); }
 }));
+const sha = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const add = (root, d, relative, content, use) => {
+  fs.mkdirSync(path.dirname(path.join(root, relative)), {recursive: true});
+  fs.writeFileSync(path.join(root, relative), content);
+  d.resources.push({path: relative, sha256: sha(path.join(root, relative)), ...(use ? {use} : {})});
+};
+const warned = (root, pattern) => validateSkill(root).warnings.some(w => pattern.test(w));
+test('runtime parity: descriptor bound, UTF-8 body, reference role and missing resources', () => fixture((root, d, save) => {
+  add(root, d, 'references/deep.md', 'On-demand guidance\n', 'reference');
+  d.description = 'Synthetic fixture. Use when testing.';
+  save(); assert.deepEqual(validateSkill(root).warnings.filter(w => !/directory name/.test(w)), []);
+  d.description = 'Synthetic fixture. Use when testing. ' + 'x'.repeat(900);
+  d.license = 'Apache-2.0'; d.source = 'vcp-original ' + 'y'.repeat(2000);
+  save(); assert.ok(fs.statSync(path.join(root, 'skill.json')).size <= 16 * 1024);
+  d.source = 'vcp-original'; d.description = 'Synthetic fixture. Use when testing.';
+  const big = JSON.parse(JSON.stringify(d)); big.environments = Array.from({length: 32}, (_, i) => 'e'.repeat(120) + i);
+  fs.writeFileSync(path.join(root, 'skill.json'), JSON.stringify(big) + ' '.repeat(16 * 1024));
+  assert.throws(() => validateSkill(root), /16 KiB/);
+  save();
+  fs.writeFileSync(path.join(root, 'SKILL.md'), Buffer.from([0xff, 0xfe, 0x00]));
+  d.body.sha256 = sha(path.join(root, 'SKILL.md')); save();
+  assert.throws(() => validateSkill(root), /body must be UTF-8/);
+  fs.writeFileSync(path.join(root, 'SKILL.md'), 'Synthetic task instructions\n');
+  d.body.sha256 = sha(path.join(root, 'SKILL.md'));
+  d.resources.push({path: 'references/missing.md', sha256: 'a'.repeat(64)}); save();
+  assert.throws(() => validateSkill(root), /Missing resource: references\/missing.md/);
+}));
+test('warnings: unemittable cues, unknown vcp tools, unmaterializable helpers, broken links, non-UTF-8 context', () => fixture((root, d, save) => {
+  d.cues = ['Makefile']; d.required_tools = ['vcp_read', 'vcp_teleport', 'python']; save();
+  assert.ok(warned(root, /never emitted by the host.*Makefile/));
+  assert.ok(warned(root, /Unknown VCP tool.*vcp_teleport/));
+  assert.ok(!warned(root, /python/), 'profile names are not VCP tool names');
+  d.cues = ['Cargo.toml', '*.csproj']; d.required_tools = ['vcp_read']; save();
+  assert.ok(!warned(root, /never emitted/));
+  add(root, d, 'scripts/crlf.py', 'print(1)\r\n', 'file');
+  add(root, d, 'scripts/no-newline.py', 'print(1)', 'file');
+  add(root, d, 'LICENSE.txt', 'license text without newline', 'file');
+  add(root, d, 'references/binary.dat', Buffer.from([0xff, 0xfe]));
+  fs.writeFileSync(path.join(root, 'SKILL.md'), 'See [guide](references/guide.md) and [site](https://example.invalid/x).\n');
+  d.body.sha256 = sha(path.join(root, 'SKILL.md')); save();
+  assert.ok(warned(root, /cannot be materialized.*scripts\/crlf.py/));
+  assert.ok(warned(root, /cannot be materialized.*scripts\/no-newline.py/));
+  assert.ok(!warned(root, /LICENSE.txt/), 'licenses are not helpers');
+  assert.ok(warned(root, /not UTF-8.*references\/binary.dat/));
+  assert.ok(warned(root, /undeclared file: references\/guide.md/));
+  assert.ok(!warned(root, /example.invalid/));
+  const result = validateSkill(root);
+  assert.equal(result.context_bytes, fs.statSync(path.join(root, 'SKILL.md')).size + 2);
+}));
+test('CLI exits 0 when clean, 2 with warnings and 1 on errors', () => fixture((root, d, save) => {
+  const {spawnSync} = require('node:child_process');
+  const run = directory => spawnSync(process.execPath, [path.join(source, 'scripts/validate.cjs'), directory], {encoding: 'utf8'}).status;
+  const clean = path.join(path.dirname(root), 'fixture');
+  d.description = 'Synthetic fixture. Use when testing.'; save();
+  fs.rmSync(clean, {recursive: true, force: true}); fs.cpSync(root, clean, {recursive: true});
+  try { assert.equal(run(clean), 0); } finally { fs.rmSync(clean, {recursive: true, force: true}); }
+  assert.equal(run(root), 2, 'directory name differs from id');
+  fs.writeFileSync(path.join(root, 'SKILL.md'), 'tampered\n');
+  assert.equal(run(root), 1);
+}));
+test('validator marker list matches the host marker contract', () => {
+  const {ROOT_MARKERS, ROOT_PATTERN_EXTENSIONS} = require(path.join(source, 'scripts/validate.cjs'));
+  const shared = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../skills/markers.json'), 'utf8'));
+  assert.deepEqual(ROOT_MARKERS, shared.root_markers);
+  assert.deepEqual(ROOT_PATTERN_EXTENSIONS, shared.root_pattern_extensions);
+});
