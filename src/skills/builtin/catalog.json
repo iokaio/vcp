@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.69.0",
+  "version": "1.70.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "2cefc42ac50903343fddbab20d29815fd987b17540ae9bbb0cb6a1be6030b3b2"
+    "sha256": "7840f294e30bfb64541271a874c5f67ed23684cee93bbb135b419e2e8412bd86"
   },
   "skills": [
     {
@@ -535,12 +535,12 @@
     },
     {
       "id": "pdf-workflows",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "descriptor": "pdf-workflows/skill.json",
-      "descriptor_sha256": "fbf9d7f6a1cb395a1848048366770b4bfe3895246f99682d81307c8592c396a7",
+      "descriptor_sha256": "f0195097dd7b0c49672c752b5ecde1976dc206e444b1ff082e866b7afc0f4a9a",
       "body": {
         "path": "SKILL.md",
-        "sha256": "6fda51530954e6a62d27ad12fe23ad29a23e7a8cd0b36f15a1ce174e4c031ada"
+        "sha256": "2251755a1a35a5744f52eddf080613c45e1c2b0435988396268971459101a836"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
@@ -557,7 +557,7 @@
         },
         {
           "path": "references/tooling.md",
-          "sha256": "2627c27ead2d1e1c8f1f99aee997c18685f0b5d0ac241ee8ff91499526ef4709"
+          "sha256": "c200c9187479baca46bf834ebbb38ae173d7c019335bdefb85fd3a17b67575f1"
         },
         {
           "path": "requirements.txt",
@@ -566,7 +566,7 @@
         },
         {
           "path": "scripts/pdf_workflows.py",
-          "sha256": "ebc25673a83a620844f640dae88b8d21cd6501dc1c8526539ee95355eaf857f8",
+          "sha256": "4f57a7bc20f5caede65c3df0746c431eb0dd25220de9827bc8bda9940c3bfeb2",
           "use": "file"
         }
       ]
