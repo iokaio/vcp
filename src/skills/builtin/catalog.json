@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.41.0",
+  "version": "1.42.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "57699174ad123594031583afdeea443b27c3990221d3b2738108549b295062c7"
+    "sha256": "2e2002d8e40da7cb2e333ac8e27c8de03719b6eace281f7f67207d68c2b3edbe"
   },
   "skills": [
     {

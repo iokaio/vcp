@@ -1,8 +1,10 @@
 # Builtin skill contract fixtures
 
-`manifest.json` freezes 42 cases across the 21 original packages in
+`manifest.json` (v1) and `manifest-v2.json` (v2) each freeze 42 cases across the 21 original packages in
 `src/skills/builtin`: one normal project and one negative or missing-prerequisite
-project per family. The initial revision is `p7-02-builtin-fixtures-v1`.
+project per family. `manifest.json` keeps revision `p7-02-builtin-fixtures-v1`
+unchanged for historical runners; the current contract uses
+`p7-02-builtin-fixtures-v2` (see below).
 Fixtures and expectations are original VCP content under Apache-2.0.
 
 Each `projects/<case-id>` directory contains actual, small project files. The
@@ -29,10 +31,19 @@ they do not discover or change the real host. Environment guidance in a skill
 does not override actual host capability or broker policy.
 
 Automatic-suggestion labels are authored independently of production matching
-output and descriptor contents. Current root markers do not cover requirements-
-only Python, solution/PowerShell-only .NET, or Kotlin-DSL-only JVM roots. The four
-`explicit:*` cue families (shell, SQL, data and infrastructure) require explicit
-activation with the current host. Generic skills deliberately have empty cues.
+output and descriptor contents: `author-fixtures.cjs` declares which families are
+always listed and which root markers belong to each language family. Observed
+root cues follow the host observation contract in `src/skills/markers.json`,
+which a Rust test keeps equal to the host constants.
+
+Revision v2 (SH-02) changed expectations, not project bytes. The only new project
+is `jvm-negative-v2`, whose AGENTS.md no longer claims Kotlin DSL roots need
+explicit selection; v1 files are untouched. The SU-04 host markers made v1 stale:
+requirements-only Python, solution-only .NET, Kotlin-DSL-only JVM and `go.work`
+roots now emit cues, and the cue-less shell, SQL, data and infrastructure
+families are always listed by description (ADR-070). The v1 qualification
+example failed those 12 cases. The contract now runs as the
+`builtin_skill_qualification` test and passes all 42 cases on v2.
 Marker presence is a suggestion, not proof of manifest validity or permission
 to execute its scripts.
 

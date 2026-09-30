@@ -255,6 +255,17 @@ mod tests {
     }
 
     #[test]
+    fn marker_constants_match_the_shared_marker_file() {
+        // src/skills/markers.json also drives the builtin fixture author.
+        let shared: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../skills/markers.json")).unwrap();
+        let list =
+            |key: &str| -> Vec<String> { serde_json::from_value(shared[key].clone()).unwrap() };
+        assert_eq!(list("root_markers"), ROOT_MARKERS);
+        assert_eq!(list("root_pattern_extensions"), ROOT_PATTERN_EXTENSIONS);
+    }
+
+    #[test]
     fn shipped_cues_are_host_emittable_and_descriptions_fit_discovery() {
         let builtin = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../skills/builtin");
         let emittable: std::collections::BTreeSet<String> = ROOT_MARKERS
