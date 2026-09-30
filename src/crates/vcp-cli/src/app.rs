@@ -285,6 +285,12 @@ async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, Strin
 }
 
 pub async fn run(cli: Cli) -> Result<u8, String> {
+    if let Some(crate::args::Command::Setup { command }) = &cli.command {
+        return command_result(
+            cli.format,
+            crate::onboarding::execute(command, &cli.workspace, cli.config.as_deref()).await?,
+        );
+    }
     if let Some(crate::args::Command::Config {
         command: crate::config_import::ConfigCommand::Import { command },
     }) = &cli.command
@@ -376,7 +382,7 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
                 .clone()
                 .unwrap_or_else(|| data.join("profile.json")),
             &workspace,
-        )?)
+        ).map_err(|error| format!("{error}; choose the matching --config for this workspace, or run vcp setup profile --help for first-run setup"))?)
     } else {
         None
     };
@@ -728,7 +734,7 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             if matches!(query_request, Query::Continuation) {
                 return command_result(
                     cli.format,
-                    json!({"candidates":[],"truncated":false,"message":"No unfinished tasks. Use vcp run to start a task."}),
+                    json!({"candidates":[],"truncated":false,"message":"No unfinished tasks. For first-run setup use vcp setup provider --help, then vcp setup profile --help. Validate your selected --config with vcp setup check before vcp run."}),
                 );
             }
             return Err("workspace has no durable session".into());

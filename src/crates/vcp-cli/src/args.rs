@@ -39,6 +39,11 @@ pub struct Cli {
 }
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Explicit first-run profile creation and accounted provider metadata renewal.
+    Setup {
+        #[command(subcommand)]
+        command: crate::onboarding::Command,
+    },
     /// Preview and apply explicit foreign configuration subsets without inference.
     #[cfg(windows)]
     Config {
@@ -293,6 +298,7 @@ impl ValidatedCli {
 }
 
 pub enum ValidatedCommand {
+    Setup(crate::onboarding::Command),
     #[cfg(windows)]
     ConfigImport(crate::config_import::Command),
     WorkspaceTrust {
@@ -337,6 +343,7 @@ impl Cli {
         let command = match self.command {
             None => ValidatedCommand::Discover,
             Some(command) => match command {
+                Command::Setup { command } => ValidatedCommand::Setup(command),
                 #[cfg(windows)]
                 Command::Config {
                     command: crate::config_import::ConfigCommand::Import { command },

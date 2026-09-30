@@ -32,11 +32,11 @@ path = "src/bin/vcp-developer-check.rs"
 required-features = ["qualification"]
 
 [features]
-qualification = ["vcp-models/qualification", "vcp-lifecycle/qualification", "dep:reqwest", "dep:pulldown-cmark"]
+qualification = ["vcp-models/qualification", "vcp-lifecycle/qualification", "dep:pulldown-cmark"]
 
 [dependencies]
 pulldown-cmark = { workspace = true, optional = true }
-reqwest = { workspace = true, optional = true }
+reqwest = { workspace = true }
 vcp-extensions = { path = "../vcp-extensions" }
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }

@@ -19,7 +19,6 @@ mod backup_checkpoint;
 mod capture_recovery;
 #[cfg(windows)]
 mod coding;
-#[cfg(feature = "qualification")]
 mod conformance;
 #[cfg(windows)]
 mod console;

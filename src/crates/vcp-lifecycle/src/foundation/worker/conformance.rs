@@ -3,6 +3,7 @@ use super::*;
 use crate::foundation::conformance::{self, Probe};
 use vcp_models::{catalog::CandidateMetadata, stream::ResultBody};
 impl Context {
+    #[cfg(feature = "qualification")]
     pub(crate) fn admit_decision_cohort(
         &mut self,
         binding: &ThreadBinding,
@@ -45,6 +46,7 @@ impl Context {
         let (attempt, body, _, _) = self.admit_inner(binding, body, true)?;
         Ok((attempt, body))
     }
+    #[cfg(feature = "qualification")]
     pub(crate) fn admit_native_conformance(
         &mut self,
         binding: &ThreadBinding,
@@ -84,6 +86,7 @@ impl Context {
         let (attempt, body, _, _) = self.admit_inner(binding, body, true)?;
         Ok((attempt, body))
     }
+    #[cfg(feature = "qualification")]
     pub(crate) fn complete_native_conformance(
         &mut self,
         binding: &ThreadBinding,

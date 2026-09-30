@@ -35,6 +35,8 @@ pub mod optimize;
 pub mod outcome;
 pub mod output;
 pub mod questions;
+pub mod onboarding;
+pub mod provider_setup;
 #[cfg(windows)]
 pub mod rebind;
 #[cfg(windows)]

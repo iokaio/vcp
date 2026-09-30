@@ -29,6 +29,9 @@ subprocess tests. The default executable rejects its endpoint override field.
 
 ## Explicit startup configuration
 
+For the production first-run and renewal commands, follow the
+[internal beta onboarding walkthrough](../usage/beta-onboarding.md).
+
 Default data is `%LOCALAPPDATA%/VCP`; override with `--data-dir`. Data and the
 user profile must be outside the workspace, repositories, and known OneDrive
 roots. Existing junctions are resolved before admission. Add other synchronized
@@ -57,8 +60,10 @@ Its fields are:
 | `checks` | Explicit acceptance requirements, or `[]` for cited analysis |
 
 The provider snapshot must still be current and match the captured catalog.
-This CLI consumes P2-qualified provider metadata; it does not invent pricing or
-qualify an arbitrary endpoint. Provider credentials come only from
+`vcp setup provider` obtains fresh metadata through explicitly budgeted fixed
+conformance probes and generation-receipt attribution. Ordinary execution
+consumes that qualified metadata without inventing pricing or compatibility.
+Provider credentials come only from
 `OPENROUTER_API_KEY`, are passed to transport, and are not stored in the workspace
 descriptor or JSONL stream. Do not put credential values in arguments or profiles.
 
