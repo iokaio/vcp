@@ -124,6 +124,35 @@ breakaway, cap its output at 4 MiB and its runtime at 600 seconds, and allow
 observation requires zero remaining descendants without forced cleanup; a
 failure retains the private supervision report and installation for repair.
 
+The separate `beta_editor_refusals` qualification target can observe additional
+refusals against the same final native/setup/VSIX bytes, without rebuilding or
+changing the candidate. It records its own executable, source-helper and driver
+hashes separately from the artifact commit. With the same artifact/editor inputs
+above, absolute `VCP_TEST_NODE`, PowerShell 7, and optional fresh empty private
+`VCP_BETA_EDITOR_REFUSALS_OUTPUT`, run its compiled test executable:
+
+```powershell
+& $RefusalTestExecutable --ignored --exact final_installed_candidate_editor_refusals_preserve_both_stores --nocapture --test-threads=1
+```
+
+For each store, separate profiles verify actual restricted mode, denied trust
+and editor commands, uninitialized/wrong-data/unselected-folder refusals, and
+trusted dirty drafts invalidated by real typing, undo and close/reopen. The
+trusted profile seeds only disposable editor trust preferences; native trust is
+granted through the actual explicit command, which must return to observer mode
+before control is explicitly reacquired. No execution profile, live task binding
+or provider is supplied. The test requires zero prepare/dispatch/result/start RPCs, no
+source disk changes, unchanged task/accounting and unrelated records, preserved
+acknowledged history, and only the exact trust/controller authority changes.
+Normal background context refreshes are counted separately and must all refuse
+because the fixture has no tool policy; timers and RPC results are not replaced.
+It checks canonical state before uninstalling; failures retain private state and
+the registered installation. `result.json` records the observations and hashes;
+private stores, profiles and raw logs must not be uploaded. This is stale-draft
+refusal and buffer preservation evidence, not successful review/apply, partial
+application, undo-before-receipt, paid-task or human UI acceptance. This separate
+target is not automatically included in the candidate workflow.
+
 `run.json` records exact stage commands, expected observations, timestamps,
 outcomes and log locations. Evidence collection retains final artifacts, build
 and source/cache receipts, the exact pair, sanitized command logs and a checksum
