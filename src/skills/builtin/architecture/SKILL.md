@@ -1,6 +1,6 @@
 # Architecture and module organization
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Inspect first
 
