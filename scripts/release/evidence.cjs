@@ -203,6 +203,49 @@ function packet(runFile, output) {
     const file = path.join(path.dirname(path.resolve(runFile)), 'vsix', name);
     if (fs.existsSync(file)) log(file, `logs/vsix-${name}`);
   }
+  // The delivery harness writes child diagnostics separately from its summary.
+  // Retain only the manifest and exact attempt stdout/stderr names; never walk
+  // test fixtures, private stores, browser profiles or arbitrary artifact paths.
+  const contracts = path.join(path.dirname(path.resolve(runFile)), 'contracts');
+  if (fs.existsSync(contracts)) {
+    try {
+      const plain = file => {
+        for (let current = file;; current = path.dirname(current)) {
+          if (fs.lstatSync(current).isSymbolicLink()) throw Error('Redirected contract evidence');
+          if (current === path.dirname(current)) break;
+        }
+        return file;
+      };
+      const guid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+      for (const entry of fs.readdirSync(plain(contracts), { withFileTypes: true })) {
+        if (!entry.isDirectory() || !guid.test(entry.name)) continue;
+        const directory = plain(path.join(contracts, entry.name));
+        const manifestFile = plain(path.join(directory, 'manifest.json'));
+        const manifest = JSON.parse(ordinary(manifestFile));
+        if (manifest.schema_version !== 1 || manifest.run_id !== entry.name || manifest.suite !== 'fast' ||
+            !Array.isArray(manifest.attempts)) throw Error('Invalid contract manifest');
+        log(manifestFile, `contracts/${entry.name}/manifest.json`);
+        const seen = new Set();
+        for (const attempt of manifest.attempts) {
+          if (!guid.test(attempt.attempt_id) || seen.has(attempt.attempt_id)) throw Error('Invalid contract attempt identity');
+          seen.add(attempt.attempt_id);
+          for (const stream of ['stdout', 'stderr']) {
+            const name = `${attempt.attempt_id}-${stream}.log`;
+            const file = path.join(directory, name);
+            const artifact = (attempt.artifacts || []).find(row => row.path === name);
+            if (!fs.existsSync(file)) {
+              if (artifact) validationFailures.push(`Missing contract log: ${name}`);
+              continue;
+            }
+            if (artifact && !/^[a-f0-9]{64}$/.test(artifact.sha256 || '')) throw Error('Invalid contract log digest');
+            // Interrupted attempts may have logs before their artifact hashes
+            // are finalized. Keep those diagnostics without claiming success.
+            log(plain(file), `contracts/${entry.name}/${name}`, artifact?.sha256);
+          }
+        }
+      }
+    } catch (error) { validationFailures.push(`contract evidence: ${sanitize(error.message)}`); }
+  }
   const allPass = stages.every(id => observations.find(row => row.id === id)?.status === 'pass');
   const rows = matrix.map(([id, area, store, expected]) => ({ id, area, store, expected,
     status: 'not run', reason: 'Requires final-artifact qualification; pipeline or source-contract success alone does not satisfy this area.',
