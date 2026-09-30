@@ -7,13 +7,24 @@ param(
     [string]$Assets,
     [string]$ModelManifest,
     [string]$BuildReceipt,
-    [string]$OutputRoot
+    [string]$OutputRoot,
+    [switch]$Release,
+    [string]$ReviewedCommit
 )
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $Assets) { $Assets = Join-Path $repository 'src/skills/builtin' }
 if (-not $OutputRoot) { $OutputRoot = Join-Path $repository 'artifacts/p8-distribution' }
 $node = Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1
+$releaseTool = Join-Path $PSScriptRoot 'release/provenance.cjs'
+$releaseIdentity = $null
+if ($Release) {
+    if (-not $BuildReceipt -or $ReviewedCommit -notmatch '^[a-f0-9]{40}$') { throw 'Release packaging requires -BuildReceipt and the exact -ReviewedCommit' }
+    if ($RuntimePath.Count -or $ModelManifest -or [IO.Path]::GetFullPath($Assets) -cne [IO.Path]::GetFullPath((Join-Path $repository 'src/skills/builtin'))) { throw 'Release packaging accepts only the reviewed builtin assets and no external runtime/model records' }
+    $releaseJson = & $node.Source $releaseTool verify-build $repository ([IO.Path]::GetFullPath($BuildReceipt)) ([IO.Path]::GetFullPath($Executable)) $ReviewedCommit
+    if ($LASTEXITCODE -ne 0) { throw 'Strict release build validation failed' }
+    $releaseIdentity = $releaseJson | ConvertFrom-Json
+} elseif ($ReviewedCommit) { throw '-ReviewedCommit requires -Release' }
 $binary = Get-Item -LiteralPath ([IO.Path]::GetFullPath($Executable))
 if ($binary.PSIsContainer -or ($binary.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $binary.Length -eq 0) { throw 'Explicit ordinary executable required' }
 $out = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ([guid]::NewGuid().ToString())
@@ -64,6 +75,7 @@ if ($BuildReceipt) {
     if ($receipt.schema -ne 'vcp-local-build/1' -or $receipt.exit_code -ne 0 -or $receipt.executable_sha256 -cne $build.executable_sha256) { throw 'Build receipt does not bind this executable' }
     Copy-Item -LiteralPath $receiptPath -Destination (Join-Path $package 'build-receipt.json')
     $build = [ordered]@{ status = 'recorded-local-build'; receipt = 'build-receipt.json'; receipt_sha256 = (Get-FileHash -LiteralPath $receiptPath).Hash.ToLowerInvariant() }
+    if ($Release) { $build.status = 'verified-release-build' }
 }
 $metadata = [ordered]@{
     source = [ordered]@{ repository = 'vcp'; git_commit = if ($gitCommit -match '^[a-f0-9]{40}$') { $gitCommit } else { $null }; dirty = $dirty }
@@ -74,6 +86,15 @@ $metadata = [ordered]@{
     skills = [ordered]@{ catalog_sha256 = $assetInventory.catalog_sha256; catalog_version = $assetInventory.version; skills = $assetInventory.skills }
     model_provisioning = $model
 }
+if ($Release) {
+    $metadata.release = $releaseIdentity
+    $metadata.target = [ordered]@{ os = 'Windows'; architecture = 'AMD64'; triple = $releaseIdentity.target }
+    $metadata.compatibility.cli = 'vcp-cli/' + $releaseIdentity.native_version
+    # Every copied resource must be one of the exact build inputs. This includes
+    # catalog bodies/resources and installer helpers, not only the catalog hash.
+    & $node.Source -e "const p=require(process.argv[1]);p.verifyPayloadSources(process.argv[2],p.json(process.argv[3]));" $releaseTool $package $BuildReceipt
+    if ($LASTEXITCODE -ne 0) { throw 'Staged release assets differ from reviewed build inputs' }
+}
 $inventoryTool = Join-Path $PSScriptRoot 'package-inventory.cjs'
 $metadataPath = Join-Path $out 'metadata.json'; $metadata | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $metadataPath -Encoding utf8
 Push-Location $repository
@@ -82,12 +103,27 @@ try {
 } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { throw 'Distribution manifest validation failed' }
 $archive = Join-Path $out 'vcp-windows-unsigned.zip'
+if ($Release) { $archive = Join-Path $out ('vcp-' + $releaseIdentity.native_version + '-windows-x64-unsigned.zip') }
 [IO.Compression.ZipFile]::CreateFromDirectory($package, $archive, [IO.Compression.CompressionLevel]::Optimal, $false)
 $manifest = Get-Content -LiteralPath (Join-Path $package 'manifest.json') -Raw | ConvertFrom-Json
 $zip = [IO.Compression.ZipFile]::OpenRead($archive)
-try { $entries = @($zip.Entries | ForEach-Object FullName) } finally { $zip.Dispose() }
+try {
+    $entries = @($zip.Entries | ForEach-Object FullName)
+    foreach ($entry in $zip.Entries) {
+        $stream = $entry.Open()
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try { $archivedHash = [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() } finally { $stream.Dispose(); $hasher.Dispose() }
+        $staged = Join-Path $package $entry.FullName
+        if ($archivedHash -cne (Get-FileHash -LiteralPath $staged).Hash.ToLowerInvariant() -or $entry.Length -ne (Get-Item -LiteralPath $staged).Length) { throw "ZIP payload hash differs from staged input: $($entry.FullName)" }
+    }
+} finally { $zip.Dispose() }
 $expectedEntries = @($manifest.files.path + 'manifest.json') | Sort-Object
 if ((ConvertTo-Json @($entries | Sort-Object) -Compress) -cne (ConvertTo-Json @($expectedEntries) -Compress)) { throw 'ZIP entries differ from the manifest inventory' }
-$result = [ordered]@{ schema = 'vcp-distribution-result/1'; status = 'candidate'; package = 'vcp-windows-unsigned.zip'; archive_sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant(); manifest = $manifest; entries = $entries; limitations = $manifest.limitations }
+$result = [ordered]@{ schema = 'vcp-distribution-result/1'; status = 'candidate'; package = [IO.Path]::GetFileName($archive); archive_sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant(); manifest = $manifest; entries = $entries; limitations = $manifest.limitations }
+if ($Release) {
+    & $node.Source $releaseTool verify-build $repository ([IO.Path]::GetFullPath($BuildReceipt)) (Join-Path $package 'vcp.exe') $ReviewedCommit | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Release source or build inputs changed during packaging' }
+    $result.status = 'release-candidate'
+}
 $result | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $out 'result.json') -Encoding utf8
 Write-Output (Join-Path $out 'result.json')

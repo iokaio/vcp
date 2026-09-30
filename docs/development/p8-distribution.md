@@ -35,6 +35,51 @@ pwsh -File scripts/build-production.ps1 -OutputRoot artifacts/p8-production-buil
 
 Use the copied executable and matching `build-receipt.json` from the same generated build directory when packaging. Keep its source inputs stable through compilation. Packaging and subsequent qualification refer to exact hashes; changing executable bytes requires a new candidate.
 
+### BETA-04 strict internal beta provenance
+
+The [internal channel](../../release/internal-beta.json) selects native
+`0.2.0-beta.1` and SDK/VSIX `0.2.1`; canonical/configuration/wire formats remain
+unchanged. The default commands remain exploratory candidates. For the release
+path, supply `-Release -ReviewedCommit <exact-40-character-commit>` to **both**
+build and package. The reviewed commit must be the clean checkout's HEAD. This
+selection is a gate input; it is not evidence of human approval by itself.
+
+```powershell
+pwsh -File scripts/build-production.ps1 -Release -ReviewedCommit <reviewed-commit> `
+  -OutputRoot artifacts/beta-build -Jobs 2
+pwsh -File scripts/package.ps1 -Release -ReviewedCommit <same-reviewed-commit> `
+  -Executable <same-build-directory>/vcp.exe `
+  -BuildReceipt <same-build-directory>/build-receipt.json -OutputRoot artifacts/beta-package
+```
+
+Release builds use a fresh Cargo target directory and inventory all tracked
+source bytes before and after compilation, including dependency locks and
+packaged assets. Dirty/untracked source, Git assume-unchanged/skip-worktree
+entries, unselected source, version/lock mismatches, unsupported targets,
+qualification features and modified toolchains are refused. The executable must
+be PE32+ x64 and report the selected product version. Packaging rechecks the
+compiler record, retained source/build/upstream logs and every staged resource's
+source hash; external runtime files, model records and custom skill roots require
+a separately reviewed recipe. Every ZIP entry is independently hashed after
+compression. Keep the entire build evidence directory with the candidate.
+
+The native result records `verified-release-build`, `release-candidate` and a
+`vcp-release-identity/1` shared by its matching VSIX. Once strict VSIX packaging
+has produced a matching receipt, freeze final hashes with:
+
+```powershell
+node scripts/release/pair.cjs <native-result.json> <vsix-manifest.json> <new-pair.json> [setup-result.json]
+```
+
+The pair recorder verifies final ZIP/VSIX/setup bytes, source/version agreement,
+native executable/build identity and the exact native result consumed by the
+VSIX. Changed bytes require a new pair. Setup is optional for this identity
+helper, but remains required for beta acceptance. The unsigned channel has no
+signing transformation; a signed-channel input is refused until a separately
+qualified transformation receipt is implemented. Pairing records
+`qualification-required`; it does not pass installed-product tests, owner
+acceptance or publication gates.
+
 ```powershell
 pwsh -File scripts/package.ps1 -Executable artifacts/vcp.exe `
   -BuildReceipt artifacts/build-receipt.json -OutputRoot artifacts/p8-distribution
