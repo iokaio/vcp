@@ -167,6 +167,10 @@ test('failed real harness retains sanitized child diagnostics without copying pr
   const result=evidence.packet(f.write(),path.join(f.root,'packet'));
   assert.equal(result.pipeline_status,'fail');assert.deepEqual(result.validation_failures,[]);
   assert.equal(result.files.length,3);assert(result.files.every(row=>row.path.startsWith('contracts/'+actual.manifest.run_id+'/')));
+  const retainedManifest=JSON.parse(fs.readFileSync(path.join(f.root,'packet/contracts',actual.manifest.run_id,'manifest.json'),'utf8'));
+  assert.equal(retainedManifest.run_id,actual.manifest.run_id);
+  assert.match(retainedManifest.attempts[0].command.at(-1),/Authorization: Bearer \[REDACTED\]/);
+  assert(!JSON.stringify(retainedManifest).includes('synthetic-sensitive-value'));
   const retained=fs.readFileSync(path.join(f.root,'packet/contracts',actual.manifest.run_id,attempt.attempt_id+'-stderr.log'),'utf8');
   assert.match(retained,/Authorization: Bearer \[REDACTED\]/);assert(!retained.includes('synthetic-sensitive-value'));
   assert(result.log_transformations.some(row=>row.sanitized));
