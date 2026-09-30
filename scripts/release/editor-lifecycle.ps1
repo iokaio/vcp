@@ -13,8 +13,8 @@ $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $root=[IO.Path]::GetFullPath($OutputRoot)
 if ($root.Equals($repo,[StringComparison]::OrdinalIgnoreCase) -or $root.StartsWith($repo+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw 'Private lifecycle root must be outside checkout' }
-$node=(Get-Command node -CommandType Application).Source
-$pwsh=(Get-Command pwsh -CommandType Application).Source
+$node=(Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+$pwsh=(Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 $native=Get-Content -LiteralPath $NativeResult -Raw | ConvertFrom-Json
 $setup=Get-Content -LiteralPath $SetupResult -Raw | ConvertFrom-Json
 $vsix=Get-Content -LiteralPath $VsixManifest -Raw | ConvertFrom-Json
@@ -24,10 +24,10 @@ $archive=Join-Path (Split-Path -Parent $VsixManifest) $vsix.archive.file
 $zip=Join-Path (Split-Path -Parent $NativeResult) $native.package
 $installer=Join-Path (Split-Path -Parent $SetupResult) $setup.archive.file
 if ((Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant() -cne $vsix.archive.sha256 -or (Get-FileHash -LiteralPath $zip).Hash.ToLowerInvariant() -cne $native.archive_sha256 -or (Get-FileHash -LiteralPath $installer).Hash.ToLowerInvariant() -cne $setup.archive.sha256) { throw 'Final artifact bytes changed' }
-$editorRoot=Split-Path -Parent $Code
+$editorLayout=Resolve-BetaEditor -Code $Code
+$Code=$editorLayout.code; $editorRoot=$editorLayout.root
 $tools=Get-Content -LiteralPath (Join-Path $repo 'release/candidate-tools.json') -Raw | ConvertFrom-Json
-$editorCommit=(Get-Content -LiteralPath (Join-Path $editorRoot 'resources/app/product.json') -Raw | ConvertFrom-Json).commit
-if ((Get-Content -LiteralPath (Join-Path $editorRoot 'resources/app/package.json') -Raw | ConvertFrom-Json).version -cne $tools.editor.version -or $editorCommit -cne $tools.editor.commit) { throw 'Exact supported editor version and commit required' }
+$editorCommit=$editorLayout.commit
 $scopeValue=$Scope | ConvertFrom-Json
 $binding=[ordered]@{native=$nativeHash;setup=(Get-FileHash -LiteralPath $SetupResult).Hash.ToLowerInvariant();vsix=(Get-FileHash -LiteralPath $VsixManifest).Hash.ToLowerInvariant();editor=(Get-FileHash -LiteralPath $Code).Hash.ToLowerInvariant();editor_commit=$editorCommit;workspace=[IO.Path]::GetFullPath($Workspace);data=[IO.Path]::GetFullPath($DataRoot);scope=$scopeValue;task=$Task} | ConvertTo-Json -Depth 12 -Compress
 $progressPath=Join-Path $root 'lifecycle.json'
@@ -37,8 +37,8 @@ $user=Join-Path $root 'user'; $extensions=Join-Path $root 'extensions'; $driver=
 $workspaceFile=Join-Path $root 'candidate.code-workspace'
 $launch=Join-Path $root 'run-extension-host.ps1'
 $contract=Join-Path $PSScriptRoot 'editor-lifecycle.cjs'
-$editorCli=Join-Path $editorRoot 'resources/app/out/cli.js'
-$editorEnvironment=@{ELECTRON_RUN_AS_NODE='1';PATH="$editorRoot;$env:SystemRoot\System32;$env:SystemRoot"}
+$editorCli=$editorLayout.cli
+$editorEnvironment=@{ELECTRON_RUN_AS_NODE='1';PATH="$($editorLayout.runtime);$env:SystemRoot\System32;$env:SystemRoot"}
 $base=@($editorCli,'--user-data-dir',$user,'--extensions-dir',$extensions)
 function Installed-Extension {
     $installedCandidates=@(Get-ChildItem -LiteralPath $extensions -Directory | Where-Object {

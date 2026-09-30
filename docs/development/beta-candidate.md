@@ -15,6 +15,12 @@ check lookup and is not passed to builders or installed processes.
 Rust 1.95.0 for production, Rust 1.98.0 for qualification and the official VS Code
 1.138.0 Windows x64 archive URL/checksum. The editor pin is from the recorded
 Microsoft version metadata endpoint. Inno Setup is pinned in the channel record.
+The pinned editor archive keeps `Code.exe` at its root and runtime DLLs plus
+`resources/app` below `7debcd0e2a`. The shared qualification resolver requires one
+ordinary runtime directory with the pinned version and full commit, and selects
+its CLI script and DLL search path. Portable contracts compare the extracted
+executable, metadata and CLI against the exact downloaded archive without
+launching Code or installing an extension.
 `windows-2025` is a standard hosted image label, not an immutable Windows image;
 the packet records the actual image and OS version and native compiler hashes.
 It does not expand the supported Windows envelope.

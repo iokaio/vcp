@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native Windows candidate builder required' }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+. (Join-Path $PSScriptRoot 'editor-layout.ps1')
 $tools=Get-Content -LiteralPath (Join-Path $repository 'release/candidate-tools.json') -Raw | ConvertFrom-Json
 $EditorArchiveSha256=$tools.editor.sha256
 if ($tools.schema -cne 'vcp-candidate-tools/1' -or $EditorArchiveSha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'Pinned candidate tools required' }
@@ -19,7 +20,7 @@ $runPath = Join-Path $out 'run.json'
 $run = [ordered]@{
     schema='vcp-candidate-run/1'; status='running'; reviewed_commit=$ReviewedCommit
     started_at=[DateTime]::UtcNow.ToString('o'); stages=@(); receipts=@{}
-    environment=@{os=[Runtime.InteropServices.RuntimeInformation]::OSDescription; architecture=[Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); node=(& node --version); powershell=$PSVersionTable.PSVersion.ToString(); runner_image=$env:ImageOS; runner_image_version=$env:ImageVersion; editor_archive_sha256=$EditorArchiveSha256; editor_version='1.138.0'; host='Windows build image with development tools; not clean standard-user qualification'}
+    environment=@{os=[Runtime.InteropServices.RuntimeInformation]::OSDescription; architecture=[Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); node='not observed'; powershell=$PSVersionTable.PSVersion.ToString(); runner_image=$env:ImageOS; runner_image_version=$env:ImageVersion; editor_archive_sha256=$EditorArchiveSha256; editor_version='1.138.0'; host='Windows build image with development tools; not clean standard-user qualification'}
 }
 function Save-Run { $run | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $runPath -Encoding utf8NoBOM }
 function Get-CandidateDiskEvidence {
@@ -144,19 +145,22 @@ function Download([string]$Uri,[string]$File,[string]$Digest) {
 }
 Save-Run
 if (Test-Path -LiteralPath (Join-Path $repository 'artifacts/beta-gate/delivery.json')) { $run.receipts.delivery=Join-Path $repository 'artifacts/beta-gate/delivery.json' }
-$pwsh = (Get-Command pwsh -CommandType Application).Source
-$node = (Get-Command node -CommandType Application).Source
-# Qualification refuses redirected executable ancestors. Resolve version-manager
-# junctions once, then use the same ordinary Node path for all child commands.
-$node = (& $node '-p' "require('fs').realpathSync(process.execPath)").Trim()
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $node -PathType Leaf)) { throw 'Selected Node executable could not be resolved' }
-$env:PATH=(Split-Path -Parent $node)+';'+$env:PATH
 $workspace = Join-Path $repository 'src/third_party/codex/codex-rs'
 $channel = Get-Content -LiteralPath (Join-Path $repository 'release/internal-beta.json') -Raw | ConvertFrom-Json
 $private = Join-Path ([IO.Path]::GetTempPath()) ('vcp-beta-private-' + [guid]::NewGuid())
 try {
     Stage 'source-gate' @('node','scripts/release/provenance.cjs','source',$repository,$ReviewedCommit) 'Clean exact reviewed source and channel versions.' {
-        if ((& node --version) -cne ('v'+$tools.node)) { throw 'Candidate Node version differs from the reviewed tools pin' }
+        $script:pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+        $script:node = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+        # Keep tool discovery inside the recorded stage. Hosted images can have
+        # several installations; select the PATH winner, then resolve junctions.
+        $script:node = (& $node '-p' "require('fs').realpathSync(process.execPath)").Trim()
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $node -PathType Leaf)) { throw 'Selected Node executable could not be resolved' }
+        $env:PATH=(Split-Path -Parent $node)+';'+$env:PATH
+        $nodeVersion=& $node --version
+        if ($LASTEXITCODE -ne 0 -or $nodeVersion -isnot [string] -or $nodeVersion -cnotmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Selected Node version probe failed' }
+        $run.environment.node=$nodeVersion
+        if ($nodeVersion -cne ('v'+$tools.node)) { throw 'Candidate Node version differs from the reviewed tools pin' }
         Checked $node @((Join-Path $PSScriptRoot 'provenance.cjs'),'source',$repository,$ReviewedCommit)
     }
     Stage 'provision' @('rustup','toolchain','install','1.95.0','1.98.0','--profile','minimal',';','cargo','+1.95.0','fetch','--locked','--target','x86_64-pc-windows-msvc') 'Explicit locked cache and pinned compiler/editor inputs; no provider or model acquisition.' {
@@ -170,11 +174,12 @@ try {
         Download $tools.editor.url $editorZip $EditorArchiveSha256
         $script:editor = Join-Path $out 'editor'
         Expand-Archive -LiteralPath $editorZip -DestinationPath $editor
-        $editorPackage = Get-Content -LiteralPath (Join-Path $editor 'resources/app/package.json') -Raw | ConvertFrom-Json
-        if ($editorPackage.version -cne $channel.vscode_version) { throw 'Pinned editor version mismatch' }
-        $editorProduct=Get-Content -LiteralPath (Join-Path $editor 'resources/app/product.json') -Raw | ConvertFrom-Json
-        if ($editorProduct.commit -cne $tools.editor.commit) { throw 'Pinned editor commit mismatch' }
-        $run.environment.editor_executable_sha256=(Get-FileHash -LiteralPath (Join-Path $editor 'Code.exe')).Hash.ToLowerInvariant()
+        $editorLayout=Resolve-BetaEditor -Code (Join-Path $editor 'Code.exe')
+        if ($editorLayout.version -cne $channel.vscode_version) { throw 'Pinned editor version mismatch' }
+        $run.environment.editor_layout=$editorLayout
+        $run.environment.editor_executable_sha256=$editorLayout.code_sha256
+        $env:VCP_TEST_BETA_EDITOR_ARCHIVE=$editorZip
+        $env:VCP_TEST_BETA_EDITOR_CODE=$editorLayout.code
     }
     Stage 'portable-contracts' @('npm.cmd','test','--prefix','src/packages/sdk-ts',';','npm.cmd','test','--prefix','src/packages/vscode',';','pwsh','-File','scripts/test.ps1','-Suite','fast') 'SDK/editor and fast contracts pass on the current Windows source.' {
         Checked 'npm.cmd' @('test','--prefix',(Join-Path $repository 'src/packages/sdk-ts'))
@@ -211,7 +216,7 @@ try {
         $vsRoot = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
         & (Join-Path $vsRoot 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
         foreach ($relative in @('Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin','Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja')) { $env:PATH=(Join-Path $vsRoot $relative)+';'+$env:PATH }
-        $env:VCP_TEST_NODE=$node; $env:VCP_TEST_GIT=(Get-Command git -CommandType Application).Source; $env:CODEX_TEST_ENVIRONMENT='local'; $env:RUST_MIN_STACK='16777216'
+        $env:VCP_TEST_NODE=$node; $env:VCP_TEST_GIT=(Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source; $env:CODEX_TEST_ENVIRONMENT='local'; $env:RUST_MIN_STACK='16777216'
         Push-Location $workspace
         try { Checked 'cargo' @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1') } finally { Pop-Location }
         Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/package-install.test.ps1'))

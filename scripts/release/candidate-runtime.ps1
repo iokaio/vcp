@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Shared only by explicit release smoke runners. Never uploaded with private state.
+. (Join-Path $PSScriptRoot 'editor-layout.ps1')
 function Invoke-BetaProcess([string]$Executable,[string[]]$Arguments,[string]$Directory,[hashtable]$Environment=@{},[int]$Seconds=180,[int]$Expected=0) {
     $info=[Diagnostics.ProcessStartInfo]::new($Executable)
     $info.UseShellExecute=$false; $info.CreateNoWindow=$true; $info.RedirectStandardOutput=$true; $info.RedirectStandardError=$true; $info.WorkingDirectory=$Directory

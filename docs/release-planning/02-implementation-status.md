@@ -40,6 +40,26 @@ preserving copied artifacts and build evidence before the qualification build.
 Final installed bytes have not yet been exercised, and none of these source
 checks fills a matrix row.
 
+## Candidate attempt and tool discovery
+
+[PR #301](https://github.com/iokaio/vcp/pull/301) merged with all delivery checks
+passing. The first [candidate attempt](https://github.com/iokaio/vcp/actions/runs/36784737646)
+selected reviewed main `8f220fb10ba01cc57fab601153a80433bf2f6248` and failed before
+compilation: PowerShell discovered both hosted Node installations and passed
+their combined paths as one executable. Candidate runners now select the first
+application on PATH, and initial discovery occurs inside the recorded source
+stage. A Windows regression exercises all affected lookups with two applications
+of each name. The downloaded failure packet and its checksums are retained under
+`artifacts/beta-delivery/candidate-failure-36784737646`.
+
+Independent preparation of the hash-pinned VS Code archive also found its actual
+commit-prefixed runtime directory. Editor tool resolution must bind that layout
+to the supported version and full commit before constructing CLI paths. Neither
+discovery correction changes the selected tool versions or waives a gate.
+Both discovery tests, all three layout tests (including the actual pinned
+archive and nine refusal cases), and eight evidence regressions passed.
+PowerShell parsing, JavaScript syntax and independent re-review passed.
+
 ## Current environment limitations
 
 The development workstation is Windows `10.0.26300.0` with development tools and

@@ -9,7 +9,8 @@ exports.activate=()=>setImmediate(async()=>{
   const wait=async fn=>{for(let attempt=0;attempt<600;attempt++){const value=fn();if(value)return value;await delay(50)}throw Error('Candidate observer deadline');};
   try {
     const normalize=value=>path.resolve(value).toLowerCase();
-    const allowed=new Set([input.editorRoot,process.env.SystemRoot,path.join(process.env.SystemRoot,'System32')].map(normalize));
+    assert.equal(typeof input.editorRuntime,'string');
+    const allowed=new Set([input.editorRuntime,process.env.SystemRoot,path.join(process.env.SystemRoot,'System32')].map(normalize));
     assert(process.env.PATH.split(path.delimiter).every(entry=>entry && allowed.has(normalize(entry))));
     const extension=vscode.extensions.getExtension('vcp.vcp-local');assert(extension);
     assert.equal(extension.packageJSON.version,input.version);
