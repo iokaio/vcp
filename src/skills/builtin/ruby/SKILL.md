@@ -1,6 +1,6 @@
 # Ruby and Bundler projects
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Read the project
 
