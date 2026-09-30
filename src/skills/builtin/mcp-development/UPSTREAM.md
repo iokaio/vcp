@@ -28,4 +28,15 @@ SHA-256 values below identify the original Git commit bytes, before adaptation o
 - VCP changes preserve the project SDK/transport, limit exposed operations to the task, retain authorization and cancellation behavior, and replace mandatory broad API coverage, universal dual output formats and LLM evaluation campaigns with focused project checks.
 - No SDK, inspector, evaluator runner, credential, installer or registration command is bundled.
 
+### SU-10 refresh (2026-09-29)
+
+The following material is VCP-authored and is not derived from the upstream revision above. SDK facts were checked against the published packages rather than upstream prose.
+
+- Python guidance moved from v1 `FastMCP`/`@mcp.tool` to the `mcp` 2.x `MCPServer` API. This was verified against the PyPI wheels `mcp` 2.2.0 and `mcp-types` 2.2.0 (MIT) and exercised with an in-process client: typed tools, strict integer bounds, Pydantic `outputSchema`/`structuredContent`, `ToolError` versus unexpected exceptions, and `Resolve`/`Elicit` elicitation on both the `2026-07-28` and legacy handshake flows.
+- TypeScript guidance keeps `McpServer.registerTool`. It was verified against `@modelcontextprotocol/sdk` 1.31.0 (npm) with a `tsc` type-check and in-memory run using Zod 4.6.5. It adds the package's documented `zod` `^3.25 || ^4.0` peer range and its `zod/v3`/`zod/v4` import note.
+- Names the current dated protocol revision `2026-07-28`. Sources: `mcp_types.version.LATEST_PROTOCOL_VERSION` in `mcp-types` 2.2.0 and the published specification. It also records that TypeScript SDK 1.31.0's `LATEST_PROTOCOL_VERSION` is `2025-11-25`.
+- Adds concise coverage of tools versus resources and prompts, output schemas and structured content, elicitation (form and URL), HTTP authorization at pointer level, DNS-rebinding defaults and the MCP Inspector (`@modelcontextprotocol/inspector`). Host approval and VCP permission rules are unchanged.
+- assets/paginated_result.py: the fixed 1..100 limit is now a validated `max_limit` parameter (default 100). Other behavior is unchanged.
+- No SDK source or example code is copied; the short snippets are VCP-written usage examples.
+
 Only the listed permissively licensed skill material is used. No material from the restricted document skills or unlicensed doc-coauthoring skill is included. Runtime permissions, explicit activation and VCP package integrity remain unchanged.
