@@ -21,10 +21,13 @@ function fixture() {
     source_dirty: false, source_stable: true, toolchain_stable: true, qualification_build: false, profile: 'release', target: selected.target,
     source_content_sha256: hash, inputs: source.files, executable_sha256: hash, release,
     executable_version: selected.native_version, executable_target: selected.target,
+    launcher_version: selected.native_version, launcher_target: selected.target, launcher_sha256: hash,
+    launcher_compiler_artifact: { target: { name: 'vcp-launch' }, features: [],
+      profile: { test: false, opt_level: '3' }, package_id: 'path+file:///source#vcp-cli@' + selected.native_version },
     vcp_features: [{ target: 'vcp', features: [] }], compiler_artifact: { target: { name: 'vcp' }, features: [],
       profile: { test: false, opt_level: '3' }, package_id: 'path+file:///source#vcp-cli@' + selected.native_version },
     command: ['cargo', '+1.95.0', 'build', '--locked', '--offline', '--release', '--no-default-features', '-p', 'vcp-cli',
-      '--bin', 'vcp', '--target', selected.target, '--target-dir', '/output/cargo-target', '-j', '2', '--message-format=json-render-diagnostics'],
+      '--bin', 'vcp', '--bin', 'vcp-launch', '--target', selected.target, '--target-dir', '/output/cargo-target', '-j', '2', '--message-format=json-render-diagnostics'],
     rustflags: ['-C', 'link-arg=/STACK:8388608', '-C', 'target-feature=+crt-static'], rustc: ['rustc 1.95.0', 'release: 1.95.0'],
     native_tools: ['cl', 'link', 'lib', 'cmake', 'ninja', 'rustc', 'cargo', 'node'].map(name => ({ name, sha256: hash })),
     upstream_before_sha256: hash, upstream_after_sha256: hash, log_sha256: hash, cargo_configs: [{ sha256: hash }],
@@ -43,6 +46,9 @@ test('strict receipt refuses dirty, stale, unverified, wrong-version and qualifi
     r => { r.source_content_sha256 = 'b'.repeat(64); }, r => { r.inputs[0].sha256 = 'b'.repeat(64); },
     r => { delete r.release; }, r => { r.release.config_sha256 = 'b'.repeat(64); },
     r => { r.executable_version = '0.1.0'; }, r => { r.executable_sha256 = 'b'.repeat(64); },
+    r => { delete r.launcher_sha256; }, r => { r.launcher_version = '0.1.0'; },
+    r => { r.launcher_compiler_artifact.features.push('qualification'); },
+    r => { r.launcher_compiler_artifact.profile.opt_level = '0'; },
     r => { r.vcp_features[0].features.push('qualification'); }, r => { r.compiler_artifact.features.push('qualification'); },
     r => { r.compiler_artifact.profile.opt_level = '0'; }, r => { r.command.push('--features', 'qualification'); },
     r => { r.command.push('--config', 'unreviewed.toml'); }, r => { r.cargo_configs[0].sha256 = 'b'.repeat(64); },
@@ -83,6 +89,12 @@ test('staged helpers and assets must match the exact build source bytes', t => {
   const root = temporary(t), file = path.join(root, 'NOTICE'); fs.writeFileSync(file, 'notice');
   const receipt = { inputs: [{ path: 'NOTICE', sha256: digest('notice') }] };
   p.verifyPayloadSources(root, receipt);
+  const manifest = require('../../../scripts/package-inventory.cjs').buildManifest(root, {});
+  fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest));
+  p.verifyPayloadSources(root, receipt);
+  fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({ ...manifest, files: [] }));
+  assert.throws(() => p.verifyPayloadSources(root, receipt), /differs/);
+  fs.unlinkSync(path.join(root, 'manifest.json'));
   fs.writeFileSync(file, 'stale notice'); assert.throws(() => p.verifyPayloadSources(root, receipt), /differs/);
   fs.writeFileSync(file, 'notice'); fs.writeFileSync(path.join(root, 'secret.env'), 'fixture');
   assert.throws(() => p.verifyPayloadSources(root, receipt), /differs/);

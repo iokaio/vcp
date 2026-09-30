@@ -113,6 +113,13 @@ pub fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
 }
 
 pub fn default_data() -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    {
+        let executable = std::env::current_exe().map_err(|_| "CLI location unavailable")?;
+        if let Some(data) = crate::installation::installed_data(&executable)? {
+            return Ok(data);
+        }
+    }
     std::env::var_os("LOCALAPPDATA")
         .map(|path| PathBuf::from(path).join("VCP"))
         .ok_or("LOCALAPPDATA or --data-dir is required".into())

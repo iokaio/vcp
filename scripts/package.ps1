@@ -82,6 +82,11 @@ if ($BuildReceipt) {
     Copy-Item -LiteralPath $receiptPath -Destination (Join-Path $package 'build-receipt.json')
     $build = [ordered]@{ status = 'recorded-local-build'; receipt = 'build-receipt.json'; receipt_sha256 = (Get-FileHash -LiteralPath $receiptPath).Hash.ToLowerInvariant() }
     if ($Release) { $build.status = 'verified-release-build' }
+    if ($receipt.launcher_sha256) {
+        $launcher = Join-Path (Split-Path -Parent $receiptPath) 'vcp-launch.exe'
+        if ((Get-FileHash -LiteralPath $launcher).Hash.ToLowerInvariant() -cne $receipt.launcher_sha256) { throw 'Build receipt does not bind the launcher' }
+        Copy-Item -LiteralPath $launcher -Destination (Join-Path $package 'vcp-launch.exe')
+    } elseif ($Release) { throw 'Release package requires the production launcher' }
 }
 $metadata = [ordered]@{
     source = [ordered]@{ repository = 'vcp'; git_commit = if ($gitCommit -match '^[a-f0-9]{40}$') { $gitCommit } else { $null }; dirty = $dirty }

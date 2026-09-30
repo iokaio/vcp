@@ -71,12 +71,13 @@ function peArchitecture(file) {
   'Executable must be PE32+ x86_64');
   return 'x86_64-pc-windows-msvc';
 }
-function verifyExecutable(file, version) {
+function verifyExecutable(file, version, name = 'vcp') {
+  check(['vcp', 'vcp-launch'].includes(name), 'Unknown release executable');
   peArchitecture(file);
   // The CLI prints Clap's DisplayVersion through its existing diagnostic stream.
-  const run = spawnSync(file, ['--version'], { windowsHide: true, timeout: 30000,
+  const run = spawnSync(file, [name === 'vcp-launch' ? '--launcher-version' : '--version'], { windowsHide: true, timeout: 30000,
     maxBuffer: 64 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  check(!run.error && run.status === 0 && (run.stdout + run.stderr).trim() === 'vcp ' + version,
+  check(!run.error && run.status === 0 && (run.stdout + run.stderr).trim() === name + ' ' + version,
     'Executable product version mismatch');
   return { sha256: fileHash(file), version, target: 'x86_64-pc-windows-msvc' };
 }
@@ -100,6 +101,8 @@ function validateReceipt(receipt, selected, source, executableHash) {
     JSON.stringify(receipt.release) === JSON.stringify(releaseIdentity(selected, source, executableHash)), 'Release identity mismatch');
   check(receipt.executable_version === selected.native_version && receipt.executable_target === selected.target,
     'Build executable version/target mismatch');
+  check(receipt.launcher_version === selected.native_version && receipt.launcher_target === selected.target &&
+    sha(receipt.launcher_sha256), 'Build launcher version/target/hash mismatch');
   check(Array.isArray(receipt.vcp_features) && receipt.vcp_features.length > 0 &&
     receipt.vcp_features.every(row => Array.isArray(row.features) && !row.features.includes('qualification')),
   'Missing or qualification-enabled feature inventory');
@@ -108,12 +111,16 @@ function validateReceipt(receipt, selected, source, executableHash) {
     artifact.profile?.test === false && artifact.profile.opt_level === '3' &&
     typeof artifact.package_id === 'string' &&
     (artifact.package_id.endsWith('#' + selected.native_version) || artifact.package_id.endsWith('#vcp-cli@' + selected.native_version)), 'Invalid native compiler artifact');
+  const launcher = receipt.launcher_compiler_artifact;
+  check(launcher?.target?.name === 'vcp-launch' && launcher.package_id === artifact.package_id &&
+    Array.isArray(launcher.features) && launcher.features.length === 0 &&
+    launcher.profile?.test === false && launcher.profile.opt_level === '3', 'Invalid launcher compiler artifact');
   const args = receipt.command;
-  check(Array.isArray(args) && /^[1-9]\d?$/.test(args[16]) && Number(args[16]) <= 16 &&
-    typeof args[14] === 'string' && /[\\/]cargo-target$/.test(args[14]) &&
+  check(Array.isArray(args) && /^[1-9]\d?$/.test(args[18]) && Number(args[18]) <= 16 &&
+    typeof args[16] === 'string' && /[\\/]cargo-target$/.test(args[16]) &&
     JSON.stringify(args) === JSON.stringify(['cargo', '+1.95.0', 'build', '--locked', '--offline', '--release',
-      '--no-default-features', '-p', 'vcp-cli', '--bin', 'vcp', '--target', selected.target,
-      '--target-dir', args[14], '-j', args[16], '--message-format=json-render-diagnostics']), 'Unqualified build command');
+      '--no-default-features', '-p', 'vcp-cli', '--bin', 'vcp', '--bin', 'vcp-launch', '--target', selected.target,
+      '--target-dir', args[16], '-j', args[18], '--message-format=json-render-diagnostics']), 'Unqualified build command');
   check(JSON.stringify(receipt.rustflags) === JSON.stringify(['-C', 'link-arg=/STACK:8388608', '-C', 'target-feature=+crt-static']), 'Unqualified Rust flags');
   check(Array.isArray(receipt.rustc) && receipt.rustc.some(line => /^release: 1\.95\.0$/.test(line)), 'Unqualified Rust toolchain');
   for (const name of ['cl', 'link', 'lib', 'cmake', 'ninja', 'rustc', 'cargo', 'node']) {
@@ -135,9 +142,10 @@ function validateReceipt(receipt, selected, source, executableHash) {
 function verifyBuild(root, receiptFile, executable, reviewedCommit) {
   const selected = channel(root); verifyVersions(root, selected);
   const source = captureSource(root, reviewedCommit), receipt = json(receiptFile);
-  const binary = verifyExecutable(executable, selected.native_version);
-  const release = validateReceipt(receipt, selected, source, binary.sha256);
+  const release = validateReceipt(receipt, selected, source, fileHash(executable));
   const directory = path.dirname(receiptFile);
+  const launcherFile = path.join(directory, 'vcp-launch.exe');
+  check(fileHash(launcherFile) === receipt.launcher_sha256, 'Launcher differs from reviewed build');
   for (const [file, key] of [['build.log', 'log_sha256'], ['upstream-verification.log', 'upstream_before_sha256'],
     ['upstream-verification-after.log', 'upstream_after_sha256']]) {
     check(fileHash(path.join(directory, file)) === receipt[key], 'Stale or missing build evidence: ' + file);
@@ -158,10 +166,17 @@ function verifyBuild(root, receiptFile, executable, reviewedCommit) {
   const artifacts = fs.readFileSync(path.join(directory, 'build.log'), 'utf8').split(/\r?\n/)
     .filter(line => line.startsWith('{')).map(line => JSON.parse(line)).filter(row => row.reason === 'compiler-artifact');
   check(artifacts.some(row => JSON.stringify(row) === JSON.stringify(receipt.compiler_artifact)), 'Compiler artifact absent from build log');
+  check(artifacts.some(row => JSON.stringify(row) === JSON.stringify(receipt.launcher_compiler_artifact)), 'Launcher artifact absent from build log');
+  // Check selected source, byte hashes and retained compiler evidence before
+  // executing either version probe. Receipts remain local evidence, not signatures.
+  verifyExecutable(executable, selected.native_version);
+  verifyExecutable(launcherFile, selected.native_version, 'vcp-launch');
   return release;
 }
 function verifyPayloadSources(packageRoot, receipt, expectedNoticeHash) {
-  const { enumerate } = require('../package-inventory.cjs');
+  const { enumerate, verifyManifest } = require('../package-inventory.cjs');
+  const manifestFile = path.join(packageRoot, 'manifest.json');
+  if (fs.existsSync(manifestFile)) verifyManifest(packageRoot, json(manifestFile));
   const inputs = new Map(receipt.inputs.map(row => [row.path, row.sha256]));
   if (expectedNoticeHash) require('./notices.cjs').verifyStaged(packageRoot, expectedNoticeHash,
     inputs.get('src/third_party/codex/codex-rs/Cargo.lock'), receipt.executable_sha256);
@@ -173,7 +188,9 @@ function verifyPayloadSources(packageRoot, receipt, expectedNoticeHash) {
     ['models/minilm-assets.json', 'src/third_party/components/minilm-assets.json'],
   ]);
   for (const row of enumerate(packageRoot)) {
+    if (row.path === 'manifest.json') continue; // independently verified above
     if (row.path === 'vcp.exe') { check(row.sha256 === receipt.executable_sha256, 'Staged executable mismatch'); continue; }
+    if (row.path === 'vcp-launch.exe') { check(row.sha256 === receipt.launcher_sha256, 'Staged launcher mismatch'); continue; }
     if (row.path === 'build-receipt.json') continue;
     if (expectedNoticeHash && (row.path === 'component-inventory.json' || row.path === 'PREREQUISITES.md' || row.path.startsWith('licenses/'))) continue;
     const source = row.path.startsWith('skills/builtin/') ? 'src/' + row.path : direct.get(row.path);

@@ -8,9 +8,9 @@ pub mod backup;
 #[cfg(windows)]
 pub mod backup_triggers;
 pub mod binding;
-pub mod continuation;
 #[cfg(windows)]
 pub mod config_import;
+pub mod continuation;
 #[cfg(windows)]
 pub mod control;
 #[cfg(windows)]
@@ -26,17 +26,19 @@ pub(crate) mod execution_profile;
 pub mod exit_status;
 pub mod history;
 pub mod input;
+#[cfg(windows)]
+pub mod installation;
 pub mod jsonl;
 #[cfg(windows)]
 pub mod local;
 pub mod mcp;
 pub mod memory;
+pub mod onboarding;
 pub mod optimize;
 pub mod outcome;
 pub mod output;
-pub mod questions;
-pub mod onboarding;
 pub mod provider_setup;
+pub mod questions;
 #[cfg(windows)]
 pub mod rebind;
 #[cfg(windows)]

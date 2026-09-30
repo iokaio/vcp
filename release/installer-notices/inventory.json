@@ -1,0 +1,108 @@
+{
+  "schema": "vcp-setup-notices/1",
+  "version": "6.7.3",
+  "source_commit": "4adf37ed7f3fd2bd11c6836ba056e3de170fbabf",
+  "source_archive_sha256": "76a45c106a59b9133ac0891341d88742b0f1446e223688c0ae4f69db95673d44",
+  "license_choices": [
+    {
+      "component": "Inno Setup",
+      "license": "LicenseRef-Inno-Setup"
+    },
+    {
+      "component": "RemObjects Pascal Script",
+      "license": "LicenseRef-RemObjects-Pascal-Script"
+    },
+    {
+      "component": "NewUxTheme",
+      "license": "MPL-1.1"
+    },
+    {
+      "component": "SetupLdr LZMA SDK 4.40",
+      "license": "CPL-1.0 with upstream linking exception"
+    },
+    {
+      "component": "LZMA SDK 25.01 basic decoder",
+      "license": "public-domain"
+    }
+  ],
+  "files": [
+    {
+      "path": "CPL-1.0.html",
+      "bytes": 15329,
+      "sha256": "04351743dd357c0ca82d5e19bf0f9952f203d4a4cd557103fc56db21e89fc8ec",
+      "source": "https://www.eclipse.org/legal/cpl/cpl-v10.html"
+    },
+    {
+      "path": "Inno-Setup.txt",
+      "bytes": 1521,
+      "sha256": "2e5346868c2a18434489824e11d65c3031620f792fefc415d05f19cd441abf5c",
+      "source": "license.txt"
+    },
+    {
+      "path": "LZMA-SDK.txt",
+      "bytes": 5522,
+      "sha256": "e5cc6089348474fc82631365932b1aa09df26a8cfc9f320bbb2509a7b3fc7a0c",
+      "source": "Components/Lzma2/7zC.txt"
+    },
+    {
+      "path": "MPL-1.1.txt",
+      "bytes": 25755,
+      "sha256": "f849fc26a7a99981611a3a370e83078deb617d12a45776d6c4cada4d338be469",
+      "source": "https://www.mozilla.org/media/MPL/1.1/index.txt"
+    },
+    {
+      "path": "README.txt",
+      "bytes": 2866,
+      "sha256": "394eb9d80b4204c0cad2123daf3d9432fb9d9f3cf9dca6dd56c4790b374e7ed6",
+      "source": "VCP setup notice documentation"
+    },
+    {
+      "path": "RemObjects-Pascal-Script.txt",
+      "bytes": 1098,
+      "sha256": "a08799bb2385a3af99a9bbb7c746d0ad9ac7dd07be0fb1473f2f4d1dc3e11bd1",
+      "source": "Components/UniPs/LICENSE.md"
+    },
+    {
+      "path": "sources/lzma-loader/compile.bat",
+      "bytes": 1365,
+      "sha256": "1082c32b3cfbb05f594a5899cbf4a0bc028ddad74141ba47058f696d01a81481",
+      "source": "Projects/Src/Compression.LZMA1SmallDecompressor/LzmaDecode/compile.bat"
+    },
+    {
+      "path": "sources/lzma-loader/LzmaDecode.h",
+      "bytes": 2807,
+      "sha256": "920b2462201edbe05c0c79db6729f6965e4f135455771488d29942aff27d73eb",
+      "source": "Projects/Src/Compression.LZMA1SmallDecompressor/LzmaDecode/LzmaDecode.h"
+    },
+    {
+      "path": "sources/lzma-loader/LzmaDecodeInno.c",
+      "bytes": 1044,
+      "sha256": "56e680b6569ee429134db34709b0f8e32ad06dc84d281807284df7f149578733",
+      "source": "Projects/Src/Compression.LZMA1SmallDecompressor/LzmaDecode/LzmaDecodeInno.c"
+    },
+    {
+      "path": "sources/lzma-loader/LzmaDecodeSize.c",
+      "bytes": 18997,
+      "sha256": "54d7395db7e426b2d2a313806cadd3601060ac593b60c46045992ef540898277",
+      "source": "Projects/Src/Compression.LZMA1SmallDecompressor/LzmaDecode/LzmaDecodeSize.c"
+    },
+    {
+      "path": "sources/lzma-loader/LzmaTypes.h",
+      "bytes": 894,
+      "sha256": "786bc430e564edce5667f47db3ea16d7457fa06affaacd866e831925697cd48c",
+      "source": "Projects/Src/Compression.LZMA1SmallDecompressor/LzmaDecode/LzmaTypes.h"
+    },
+    {
+      "path": "sources/theme/NewUxTheme.pas",
+      "bytes": 66913,
+      "sha256": "53a326b5408522fbbb27882bbbbe32126907af7c489dd906a5d2c448ced14081",
+      "source": "Components/NewUxTheme.pas"
+    },
+    {
+      "path": "sources/theme/NewUxTheme.TmSchema.pas",
+      "bytes": 43544,
+      "sha256": "84d1de8482467a694c137b8aba28235f8a984b0e511a65f95141b9b2689b6909",
+      "source": "Components/NewUxTheme.TmSchema.pas"
+    }
+  ]
+}
