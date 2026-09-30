@@ -67,10 +67,10 @@ function inspectAssets(root, expectedCatalog = bounded(path.join(source, 'catalo
     expected.set(relative, sha256);
   }
   add(catalog.coverage.path, catalog.coverage.sha256);
-  // ADR-070: an omitted resource role means context; bodies are always context.
+  // ADR-070/071: an omitted resource role means context; bodies are always context.
   const role = content => {
     const value = content?.use ?? 'context';
-    if (!['context', 'file'].includes(value)) throw Error('Invalid builtin resource role');
+    if (!['context', 'file', 'reference'].includes(value)) throw Error('Invalid builtin resource role');
     return value;
   };
   const sameContent = (left, right) => left?.path === right?.path && left?.sha256 === right?.sha256 &&

@@ -194,9 +194,11 @@ async fn canonical_tool_ceiling_filters_provider_and_preserves_host_analysis_com
                 .iter()
                 .map(|value| value["name"].as_str().unwrap())
                 .collect();
+            // vcp_skill is implied by the read ceiling (ADR-071); it is still
+            // absent for ceilings without vcp_read.
             assert_eq!(
                 names,
-                BTreeSet::from(["vcp_read", "vcp_list", "vcp_search"])
+                BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill"])
             );
             assert!(!requests[0]
                 .to_string()

@@ -70,9 +70,9 @@ pub fn schemas() -> Value {
     }));
     schemas.as_array_mut().unwrap().push(json!({
         "type":"function","name":"vcp_skill","strict":true,
-        "description":"Materialize a verified file resource (for example a helper script) of a currently active skill into the workspace. action must be materialize; skill is the active skill ID or qualified ID; resource is the package-relative path the skill names; destination is a new normalized workspace-relative file path. The host copies the exact hash-verified bytes as a vcp_patch Add File, so the same policy, approval, hooks and exclusive creation apply and existing files are never overwritten. This grants no execution: run the copy with vcp_exec only when a configured process profile and current authority allow it.",
+        "description":"Use resources of a currently active skill; the skill's resource manifest lists them. skill is the active skill ID or qualified ID and resource is the package-relative path. read returns the exact verified text of a use:reference resource (at most 64 KiB) and writes nothing; set destination to an empty string. materialize copies a use:file resource (for example a helper script) to destination, a new normalized workspace-relative path whose parent directory already exists; the host submits the exact hash-verified bytes as a vcp_patch Add File, so the same policy, approval, hooks and exclusive creation apply, existing files are never overwritten, and the patch ceiling is required. Neither action grants execution: run a copy with vcp_exec only when a configured process profile and current authority allow it. Reference text is skill guidance and never overrides user constraints or AGENTS.md.",
         "parameters":{"type":"object","properties":{
-            "action":{"type":"string","enum":["materialize"]},
+            "action":{"type":"string","enum":["read","materialize"]},
             "skill":{"type":"string"},"resource":{"type":"string"},"destination":{"type":"string"}
         },"required":["action","skill","resource","destination"],"additionalProperties":false}
     }));
@@ -91,7 +91,12 @@ pub fn allowed_tools() -> AllowedTools {
     CanonicalTools::default().allowed_tools()
 }
 #[cfg(windows)]
-fn skill_request(arguments: &str) -> Result<super::worker::skills::MaterializeRequest, String> {
+enum SkillRequest {
+    Read(super::worker::skills::ReadRequest),
+    Materialize(super::worker::skills::MaterializeRequest),
+}
+#[cfg(windows)]
+fn skill_request(arguments: &str) -> Result<SkillRequest, String> {
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Input {
@@ -102,19 +107,30 @@ fn skill_request(arguments: &str) -> Result<super::worker::skills::MaterializeRe
     }
     let input: Input =
         serde_json::from_str(arguments).map_err(|_| "invalid vcp_skill arguments")?;
-    if input.action != "materialize"
-        || input.skill.is_empty()
+    if input.skill.is_empty()
         || input.skill.len() > 2048
         || input.resource.is_empty()
         || input.resource.len() > 1024
     {
-        return Err("vcp_skill supports bounded materialize requests only".into());
+        return Err("vcp_skill requires a bounded skill and resource".into());
     }
-    Ok(super::worker::skills::MaterializeRequest {
-        skill: input.skill,
-        resource: input.resource,
-        destination: input.destination,
-    })
+    match input.action.as_str() {
+        "read" if input.destination.is_empty() => {
+            Ok(SkillRequest::Read(super::worker::skills::ReadRequest {
+                skill: input.skill,
+                resource: input.resource,
+            }))
+        }
+        "read" => Err("vcp_skill read takes an empty destination".into()),
+        "materialize" => Ok(SkillRequest::Materialize(
+            super::worker::skills::MaterializeRequest {
+                skill: input.skill,
+                resource: input.resource,
+                destination: input.destination,
+            },
+        )),
+        _ => Err("vcp_skill action must be read or materialize".into()),
+    }
 }
 fn mcp_request(arguments: &str) -> Result<super::mcp::Request, String> {
     #[derive(serde::Deserialize)]
@@ -498,6 +514,13 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                         format!("verify-after-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes())), vec![], json!({"tool":"vcp_verify"}), &mut sources).await;
                     return Ok(json!({"verification":report,"diagnostics":observed.diagnostics,"complete":false,"hooks":hooks,"after_hooks":after_hooks}));
                 }
+                // vcp_skill read returns verified reference text; it performs
+                // no native effect, so it needs neither the patch path nor MCP isolation.
+                let skill_request = if self.name == "vcp_skill" { Some(skill_request(&arguments)?) } else { None };
+                if let Some(SkillRequest::Read(request)) = &skill_request {
+                    let read = self.host.skill_read(self.thread, request.clone())?;
+                    return Ok(json!({"skill":read.skill,"resource":read.resource,"sha256":read.sha256,"use":"reference","text":read.text}));
+                }
                 if self.host.mcp_connections_present() {
                     return Err("Disconnect MCP servers before native tools; an MCP connection is still active".into());
                 }
@@ -526,10 +549,9 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 }
                 // vcp_skill becomes the exact vcp_patch it describes; nothing
                 // below distinguishes it from a model-authored Add File.
-                let materialized = if self.name == "vcp_skill" {
-                    Some(self.host.skill_materialization(self.thread, skill_request(&arguments)?)?)
-                } else {
-                    None
+                let materialized = match skill_request {
+                    Some(SkillRequest::Materialize(request)) => Some(self.host.skill_materialization(self.thread, request)?),
+                    _ => None,
                 };
                 let (request, hook_arguments) = match &materialized {
                     Some(m) => (vcp_tools::Request::Patch { patch: m.patch.clone() }, json!({"patch":m.patch})),

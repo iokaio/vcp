@@ -125,13 +125,20 @@ impl Context {
         }
         Ok(tools)
     }
-    pub(super) fn require_coding_tool(&self, binding: &ThreadBinding, name: &str) -> Result<()> {
+    pub(in crate::foundation::worker) fn require_coding_tool(
+        &self,
+        binding: &ThreadBinding,
+        name: &str,
+    ) -> Result<()> {
         let state = self
             .coding
             .get(&binding.scope.task)
             .ok_or("coding setup missing")?;
         if !state.config.canonical_tools.permits(name) {
             return Err("tool is outside the owner's canonical model tool ceiling".into());
+        }
+        if name == "vcp_skill" && self.child_assignment(&binding.scope.task)?.is_some() {
+            return Err("vcp_skill is not available in child tasks".into());
         }
         Ok(())
     }

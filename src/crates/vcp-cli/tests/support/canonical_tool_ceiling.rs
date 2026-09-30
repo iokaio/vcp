@@ -56,13 +56,14 @@ async fn executable_read_only_tool_ceiling_completes_report_with_host_verificati
     );
     let outbound: Value = serde_json::from_slice(&requests[0].body).unwrap();
     let tools = outbound["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 3);
+    // vcp_skill is implied by the read ceiling (ADR-071).
+    assert_eq!(tools.len(), 4);
     assert_eq!(
         tools
             .iter()
             .map(|tool| tool["name"].as_str().unwrap())
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["vcp_read", "vcp_list", "vcp_search"])
+        BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill"])
     );
     let serialized = outbound.to_string();
     assert!(!serialized.contains("Run vcp_verify"));

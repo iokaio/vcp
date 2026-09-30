@@ -38,10 +38,11 @@ impl<'de> serde::Deserialize<'de> for CanonicalTools {
     }
 }
 /// Model tools implied by a recorded ceiling name rather than recorded
-/// themselves. `vcp_skill` only produces an ordinary `vcp_patch` file
-/// creation (ADR-070), so it follows the patch ceiling and leaves recorded
-/// ceilings and legacy defaults unchanged.
-const IMPLIED: [(&str, &str); 1] = [("vcp_skill", "vcp_patch")];
+/// themselves. `vcp_skill` reads verified skill references and, with the
+/// patch ceiling, materializes helpers as ordinary `vcp_patch` creations
+/// (ADR-070/071), so it follows the read ceiling and leaves recorded ceilings
+/// and legacy defaults unchanged.
+const IMPLIED: [(&str, &str); 1] = [("vcp_skill", "vcp_read")];
 
 impl CanonicalTools {
     pub fn contains(&self, name: &str) -> bool {
@@ -104,17 +105,17 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search"])
+            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill"])
         );
         assert!(!tools
             .allowed_tools()
             .contains(&ToolName::plain("vcp_verify")));
-        assert!(!tools.permits("vcp_skill"));
-        let patch: CanonicalTools = serde_json::from_value(json!(["vcp_patch"])).unwrap();
-        assert!(patch.permits("vcp_skill"));
-        assert!(patch
+        assert!(tools.permits("vcp_skill"));
+        assert!(tools
             .allowed_tools()
             .contains(&ToolName::plain("vcp_skill")));
+        let patch: CanonicalTools = serde_json::from_value(json!(["vcp_patch"])).unwrap();
+        assert!(!patch.permits("vcp_skill"));
         assert!(serde_json::from_value::<CanonicalTools>(json!(["vcp_skill"])).is_err());
         assert_eq!(
             CanonicalTools::default().schemas(),

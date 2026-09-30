@@ -122,13 +122,15 @@ async fn installed_ported_skills_reach_the_provider_with_complete_resources_with
         assert_eq!(requests.len(), 1, "one synthetic request for {qualified}");
         let request: Value = serde_json::from_slice(&requests[0].body).unwrap();
         let tools = request["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 3, "skill must not expand tool authority");
+        // Skills never add tools; vcp_skill is implied by the owner's read
+        // ceiling (ADR-071) and only reads or, with vcp_patch, copies resources.
+        assert_eq!(tools.len(), 4, "skill must not expand tool authority");
         assert_eq!(
             tools
                 .iter()
                 .map(|tool| tool["name"].as_str().unwrap())
                 .collect::<BTreeSet<_>>(),
-            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search"])
+            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill"])
         );
         let parts: Vec<Value> = request["input"]
             .as_array()
@@ -274,7 +276,9 @@ async fn installed_pdf_helper_materializes_and_runs_through_authorized_process()
         serde_json::from_slice(&fs::read(fixture.workspace.join("extracted.json")).unwrap())
             .unwrap();
     assert!(
-        extracted.to_string().contains("Materialized helper extraction check"),
+        extracted
+            .to_string()
+            .contains("Materialized helper extraction check"),
         "{extracted}"
     );
     let materialized = String::from_utf8_lossy(&requests[1].body).into_owned();

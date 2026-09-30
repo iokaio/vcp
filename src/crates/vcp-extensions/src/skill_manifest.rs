@@ -86,6 +86,9 @@ pub enum ResourceUse {
     /// Verified package file (license, provenance, helper source) that is not
     /// injected; it may be copied into a workspace through canonical authority.
     File,
+    /// Verified guidance that is not injected on activation; the model reads it
+    /// on request through `vcp_skill` (ADR-071).
+    Reference,
 }
 impl ResourceUse {
     pub fn is_context(&self) -> bool {
