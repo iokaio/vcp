@@ -1,0 +1,22 @@
+{
+  "name": "get_weather",
+  "description": "Get current weather for a location when the user asks about current conditions.",
+  "parameters": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "location": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "City and state or country, for example Paris, France"
+      },
+      "unit": {
+        "type": "string",
+        "enum": ["celsius", "fahrenheit"],
+        "description": "Temperature unit; the application defines any default"
+      }
+    },
+    "required": ["location"]
+  }
+}

@@ -12,6 +12,8 @@ If the selected SDK exposes an automatic tool runner, validate inputs and enforc
 
 Use the SDK's typed exceptions and final-message stream helpers instead of broad error-string matching or duplicate event assembly. Check structured-output parameter names, feature availability, token limits and caching syntax against the actual endpoint and model. An Anthropic-compatible gateway may support a different subset than the direct API.
 
+VCP addition (checked 2026-09-29): with thinking enabled, pass every `thinking` and `redacted_thinking` block back complete and unmodified alongside its `tool_use` block when returning tool results. `/v1/messages/count_tokens` accepts the same inputs as a Messages request and returns an estimate. Message Batches results can arrive in any order and are matched by `custom_id`. Hosted platforms support a subset of these features; see [hosting.md](hosting.md).
+
 Official starting points when network access is available:
 
 - Messages and tool use: <https://platform.claude.com/docs/en/build-with-claude/tool-use/overview>
