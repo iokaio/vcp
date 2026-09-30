@@ -15,7 +15,7 @@ import sys
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile, ZipInfo
 import zlib
 
-MAX_BYTES = 20 * 1024 * 1024
+MAX_INPUT = 20 * 1024 * 1024
 MAX_CELLS = 100_000
 MAX_PART = 8 * 1024 * 1024
 MAX_EXPANDED = 32 * 1024 * 1024
@@ -29,12 +29,15 @@ FUTURE_FUNCTIONS = {"XLOOKUP"}  # OOXML stores these with Excel's "_xlfn." prefi
 FORMULA_LEADING = ("=", "+", "-", "@", "\t", "\r")
 CELL = re.compile(r"[A-Z]{1,3}[1-9][0-9]{0,6}\Z")
 RANGE = re.compile(r"(?:(?:'[^']+'|[A-Za-z_][A-Za-z0-9_ ]*)!)?\$?[A-Z]{1,3}\$?[1-9][0-9]{0,6}(?::\$?[A-Z]{1,3}\$?[1-9][0-9]{0,6})?\Z")
-PART = re.compile(r"(?:\[Content_Types\]\.xml|_rels/\.rels|docProps/(?:app|core|custom)\.xml"
+PART = re.compile(r"(?:\[Content_Types\]\.xml|_rels/\.rels|docProps/(?:app|core|custom)\.xml|docProps/thumbnail\.(?:jpeg|png|emf|wmf)"
                   r"|xl/(?:workbook|styles|sharedStrings|calcChain)\.xml|xl/_rels/workbook\.xml\.rels"
                   r"|xl/theme/theme[0-9]+\.xml|xl/worksheets/sheet[0-9]+\.xml|xl/worksheets/_rels/sheet[0-9]+\.xml\.rels"
                   r"|xl/tables/table[0-9]+\.xml|xl/printerSettings/printerSettings[0-9]+\.bin"
+                  r"|xl/comments[0-9]+\.xml|xl/drawings/vmlDrawing[0-9]+\.vml|xl/threadedComments/threadedComment[0-9]+\.xml|xl/persons/person\.xml"
                   r"|customXml/(?:item|itemProps)[0-9]+\.xml|customXml/_rels/item[0-9]+\.xml\.rels)\Z")
-BINARY_PART = re.compile(r"xl/printerSettings/printerSettings[0-9]+\.bin\Z")
+# Opaque parts are never parsed or changed. Legacy VML is often not well-formed XML;
+# it is admitted only when every shape is a comment note (see vml_notes_only).
+BINARY_PART = re.compile(r"(?:xl/printerSettings/printerSettings[0-9]+\.bin|docProps/thumbnail\.(?:jpeg|png|emf|wmf)|xl/drawings/vmlDrawing[0-9]+\.vml)\Z")
 EXTENSION_PARTS = {"xl/styles.xml", "xl/workbook.xml"}
 RESERVED_NAMES = {"_xlnm.Print_Area", "_xlnm.Print_Titles", "_xlnm._FilterDatabase"}
 MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -65,8 +68,12 @@ def local_path(root, name, existing=True):
         if any(ord(char) < 32 or char in '<>:"|?*' for char in part) or part.endswith((".", " ")) or re.match(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", part, re.I):
             raise WorkflowError("Use portable ordinary file names")
         current = current / part
+        # Path.is_junction exists from Python 3.12; before that, the resolved-path check below
+        # still refuses a junction that leads outside the root.
         if current.is_symlink() or (hasattr(current, "is_junction") and current.is_junction()):
             raise WorkflowError("Linked paths are outside the supported file boundary")
+    if not existing and not current.parent.is_dir():
+        raise WorkflowError("Output parent directory does not exist; create it first")
     resolved = current.resolve(strict=existing)
     if not resolved.is_relative_to(root) or not resolved.parent.is_dir():
         raise WorkflowError("Path must stay inside the existing workspace")
@@ -75,12 +82,27 @@ def local_path(root, name, existing=True):
     return resolved
 
 
-def read_input(root, name):
+def read_input(root, name, maximum=MAX_INPUT):
     with local_path(root, name).open("rb") as stream:
-        data = stream.read(MAX_BYTES + 1)
-    if len(data) > MAX_BYTES:
-        raise WorkflowError("Input exceeds 20 MiB")
+        data = stream.read(maximum + 1)
+    if len(data) > maximum:
+        raise WorkflowError(f"Input exceeds the {maximum}-byte limit")
     return data
+
+
+def check_output(root, name):
+    # Validate the destination before any input is parsed; write_new still creates it exclusively.
+    if local_path(root, name, existing=False).exists():
+        raise WorkflowError("Output already exists; choose a new file")
+
+
+def write_new(root, name, data):
+    path = local_path(root, name, existing=False)
+    if len(data) > MAX_INPUT:
+        raise WorkflowError(f"Output exceeds the {MAX_INPUT}-byte limit")
+    # Exclusive creation preserves originals, including an output created meanwhile.
+    with path.open("xb") as stream:
+        stream.write(data)
 
 
 def read_json(root, name):
@@ -91,13 +113,6 @@ def read_json(root, name):
         raise WorkflowError(f"{name}: invalid UTF-8 at byte {error.start}") from None
     except json.JSONDecodeError as error:
         raise WorkflowError(f"{name}: invalid JSON at line {error.lineno} column {error.colno}: {error.msg}") from None
-
-
-def write_new(root, name, data):
-    if len(data) > MAX_BYTES:
-        raise WorkflowError("Output exceeds 20 MiB")
-    with local_path(root, name, existing=False).open("xb") as stream:
-        stream.write(data)
 
 
 def local_name(tag):
@@ -115,6 +130,8 @@ def read_package(data):
             if sum(entry.file_size for entry in entries) > MAX_EXPANDED:
                 raise WorkflowError("Expanded workbook exceeds 32 MiB")
             for entry in entries:
+                if entry.filename == "xl/metadata.xml":
+                    raise WorkflowError("Workbook contains dynamic-array or data-type cell metadata (xl/metadata.xml), which is unsupported; use another tool")
                 if not PART.fullmatch(entry.filename):
                     raise WorkflowError("Workbook contains an unsupported part; preserve it with another tool")
                 if entry.file_size > MAX_PART or entry.flag_bits & 1:
@@ -146,13 +163,22 @@ def part_contents(data):
     return {name: content for name, (_, content) in read_package(data).items()}
 
 
+def vml_notes_only(content):
+    # Excel stores comment boxes as VML shapes with ObjectType "Note"; the same format
+    # also carries legacy form controls and header images, which remain unsupported.
+    kinds = re.findall(rb"\bObjectType\s*=\s*[\"']([^\"']*)[\"']", content)
+    return bool(kinds) and all(kind == b"Note" for kind in kinds) and not re.search(rb"<(?:\w+:)?(?:Fmla\w*|imagedata|OLEObject)\b", content, re.I)
+
+
 def validate_archive(data):
     from defusedxml.ElementTree import fromstring
 
     parts = read_package(data)
     for name, (_, content) in parts.items():
         if BINARY_PART.fullmatch(name):
-            continue  # Printer settings are opaque device data, preserved unchanged.
+            if name.endswith(".vml") and not vml_notes_only(content):
+                raise WorkflowError(f"{name} holds legacy drawing shapes other than comment notes; preserve it with another tool")
+            continue  # Printer settings, thumbnails and comment VML are opaque, preserved unchanged.
         element = fromstring(content)
         for node in element.iter():
             tag = local_name(node.tag)
@@ -270,6 +296,10 @@ def assign(cell, specification):
     elif kind == "string":
         if not isinstance(value, str) or len(value) > 32767 or any(ord(char) < 32 and char not in "\t\n\r" for char in value):
             raise WorkflowError("String cells must contain valid text within 32767 characters")
+        if EXCEL_ESCAPE.search(value):
+            # Excel decodes _xHHHH_ in stored text and openpyxl neither escapes nor decodes it,
+            # so the text Excel shows would differ from the input.
+            raise WorkflowError("Text containing Excel escape sequences such as _x0041_ is unsupported")
         cell.value = value
         cell.data_type = "s"  # '=...' input stays text unless explicitly typed formula.
     elif kind == "number":
@@ -310,8 +340,12 @@ def parse_specification(specification):
         if not isinstance(item, dict) or set(item) != {"name", "cells"}:
             raise WorkflowError("Each sheet requires name and cells")
         name = item["name"]
-        if not isinstance(name, str) or not name or len(name) > 31 or re.search(r"[\\/*?:\[\]]", name) or name.casefold() in seen:
-            raise WorkflowError("Sheet names must be valid and unique")
+        if (not isinstance(name, str) or not name or len(name) > 31 or re.search(r"[\\/*?:\[\]\x00-\x1f\x7f-\x9f]", name)
+                or name.startswith("'") or name.endswith("'") or name.casefold() == "history"):
+            raise WorkflowError("Sheet names need 1..31 characters without \\ / * ? : [ ] or control characters, "
+                                "must not start or end with an apostrophe and must not be History")
+        if name.casefold() in seen:
+            raise WorkflowError("Sheet names must be unique, ignoring case")
         seen.add(name.casefold())
         if not isinstance(item["cells"], dict) or len(item["cells"]) > MAX_CELLS:
             raise WorkflowError("Cells must be a bounded address-to-value object")
@@ -471,7 +505,7 @@ def csv_import(root, args):
                 address = f"{get_column_letter(column)}{index}"
                 where = f"{args.sheet}!{address} (CSV line {reader.line_num})"
                 kind = "string" if args.header and index == 1 else (types[column - 1] if column <= len(types) else "")
-                explicit = bool(kind) and not (args.header and index == 1)
+                explicit = bool(kind)  # header cells are explicitly typed text
                 if field == "":
                     continue  # CSV cannot distinguish empty text from absence.
                 if len(cells) >= MAX_CELLS:
@@ -890,8 +924,6 @@ def replace_part(data, name, replacement):
 def engine_failure(error):
     # Engine text is not echoed; only a fixed classification reaches the agent.
     text = str(error).lower()
-    if "table" in text:
-        return "Formula engine does not support tables in cache-only recalculation; no output was written"
     if "spill" in text:
         return "Formula engine refused a formula that spills into several cells; no output was written"
     return "Formula engine could not recalculate this workbook; no output was written"
@@ -903,6 +935,8 @@ def recalculate(root, args):
     source = read_input(root, args.input)
     workbook = load(source)
     source_parts = part_contents(source)
+    if any(re.fullmatch(r"xl/tables/table[0-9]+\.xml", name) for name in source_parts):
+        raise WorkflowError("Formula engine does not support tables in cache-only recalculation; no output was written")
     # Formualizer 0.9.3 and 0.10.0 read literal empty text as blank (e.g. COUNTA
     # then undercounts). Do not write fresh-looking caches with changed semantics.
     if any(cell.data_type == "s" and plain(cell.value) == "" for sheet in workbook
@@ -971,6 +1005,7 @@ def main():
         root = Path(args.root).resolve(strict=True)
         if not root.is_dir():
             raise WorkflowError("Workspace root must be a directory")
+        check_output(root, args.output)
         operation = {"inspect": inspect, "sheets": sheets, "create": create, "edit": edit, "recalculate": recalculate,
                      "csv-import": csv_import, "csv-export": csv_export}[args.command]
         result = operation(root, args)

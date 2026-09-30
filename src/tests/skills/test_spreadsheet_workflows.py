@@ -110,6 +110,39 @@ def excel_shaped_workbook(path, table=True):
     return parts
 
 
+def excel365_workbook(path):
+    """An XlsxWriter workbook with a legacy comment, plus threaded comments and a thumbnail as Excel 365 writes them."""
+    buffer = io.BytesIO()
+    with xlsxwriter.Workbook(buffer) as book:
+        sheet = book.add_worksheet("Data")
+        sheet.write_column("A1", [2, 3])
+        sheet.write_formula("B1", "=SUM(A1:A2)", None, 999)
+        sheet.write_comment("A1", "[Threaded comment] Check this value")
+    parts = {}
+    with ZipFile(buffer) as archive:
+        for name in archive.namelist():
+            parts[name] = archive.read(name)
+    person = "{6B1C3D2E-4F50-4A61-8B72-9C83D4E5F607}"
+    parts["xl/persons/person.xml"] = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><personList xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments" '
+                                      f'xmlns:x="{MAIN}"><person displayName="Fixture Author" id="{person}" userId="fixture" providerId="None"/></personList>').encode()
+    parts["xl/threadedComments/threadedComment1.xml"] = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><ThreadedComments xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments" '
+                                                         f'xmlns:x="{MAIN}"><threadedComment ref="A1" dT="2026-09-29T10:00:00.00" personId="{person}" id="{{0A1B2C3D-4E5F-4061-8273-94A5B6C7D8E9}}">'
+                                                         '<text>Check this value</text></threadedComment></ThreadedComments>').encode()
+    parts["docProps/thumbnail.jpeg"] = b"\xff\xd8\xff\xe0" + bytes(range(256)) + b"\xff\xd9"
+    inject(parts, "[Content_Types].xml", '<Default Extension="xml"', '<Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="xml"')
+    inject(parts, "[Content_Types].xml", "</Types>",
+           '<Override PartName="/xl/persons/person.xml" ContentType="application/vnd.ms-excel.person+xml"/>'
+           '<Override PartName="/xl/threadedComments/threadedComment1.xml" ContentType="application/vnd.ms-excel.threadedcomments+xml"/></Types>')
+    inject(parts, "_rels/.rels", "</Relationships>",
+           '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail" Target="docProps/thumbnail.jpeg"/></Relationships>')
+    inject(parts, "xl/_rels/workbook.xml.rels", "</Relationships>",
+           '<Relationship Id="rId90" Type="http://schemas.microsoft.com/office/2017/10/relationships/person" Target="persons/person.xml"/></Relationships>')
+    inject(parts, "xl/worksheets/_rels/sheet1.xml.rels", "</Relationships>",
+           '<Relationship Id="rId90" Type="http://schemas.microsoft.com/office/2017/10/relationships/threadedComment" Target="../threadedComments/threadedComment1.xml"/></Relationships>')
+    write_parts(path, parts)
+    return parts
+
+
 class SpreadsheetWorkflows(unittest.TestCase):
     def setUp(self):
         self.owner = tempfile.TemporaryDirectory(prefix="vcp xlsx ")
@@ -741,6 +774,111 @@ class SpreadsheetWorkflows(unittest.TestCase):
         self.assertNotIn("IGNORE", failure["message"])
         failure = self.run_helper("csv-import", "--input", "bad.csv", "--output", "bad.xlsx", "--header", "--types", "number", success=False)
         self.assertNotIn("IGNORE", failure["message"])
+
+    def test_excel_escape_text_is_refused_by_every_writer(self):
+        for value in ("bad _x0041_ escape", "_x00e9_", "a_x000D_b"):
+            with self.subTest(value=value):
+                self.write_spec({"A1": {"type": "string", "value": value}})
+                failure = self.run_helper("create", "--input", "spec.json", "--output", "denied.xlsx", success=False)
+                self.assertIn("Data!A1: Text containing Excel escape sequences", failure["message"])
+                (self.root / "escape.csv").write_text(f"{value}\r\n", encoding="utf-8", newline="")
+                failure = self.run_helper("csv-import", "--input", "escape.csv", "--output", "denied.xlsx", "--header", success=False)
+                self.assertIn("Data!A1: Text containing Excel escape sequences", failure["message"])
+                self.assertFalse((self.root / "denied.xlsx").exists())
+        # Near misses are not Excel escapes and are stored exactly.
+        near = {"A1": "_x41_", "A2": "_x0041", "A3": "x0041_", "A4": "_x00G1_"}
+        self.write_spec({address: {"type": "string", "value": value} for address, value in near.items()})
+        self.run_helper("create", "--input", "spec.json", "--output", "near.xlsx")
+        (self.root / "near.csv").write_text("\r\n".join(near.values()) + "\r\n", encoding="utf-8", newline="")
+        self.run_helper("csv-import", "--input", "near.csv", "--output", "near-csv.xlsx")
+        for workbook in ("near.xlsx", "near-csv.xlsx"):
+            sheet = openpyxl.load_workbook(self.root / workbook)["Data"]
+            self.assertEqual({address: sheet[address].value for address in near}, near)
+            stored = zip_parts(self.root / workbook)["xl/worksheets/sheet1.xml"].decode("utf-8")
+            self.assertEqual(re.findall(r"<is><t>([^<]*)</t></is>", stored), list(near.values()))
+
+    def test_csv_header_cells_are_explicit_text(self):
+        (self.root / "headers.csv").write_text("+/-,-delta,=total,@who\r\n1,2,3,4\r\n", encoding="utf-8", newline="")
+        result = self.run_helper("csv-import", "--input", "headers.csv", "--output", "headers.xlsx", "--header", "--types", "number,number,number,number")
+        self.assertEqual(result["cells"], 8)
+        sheet = openpyxl.load_workbook(self.root / "headers.xlsx")["Data"]
+        self.assertEqual([(sheet[a].value, sheet[a].data_type) for a in ("A1", "B1", "C1", "D1")],
+                         [("+/-", "s"), ("-delta", "s"), ("=total", "s"), ("@who", "s")])
+        self.assertEqual([sheet[a].value for a in ("A2", "B2", "C2", "D2")], [1, 2, 3, 4])
+        failure = self.run_helper("csv-import", "--input", "headers.csv", "--output", "denied.xlsx", "--types", "number", success=False)
+        self.assertIn("Data!A1 (CSV line 1): field is not a plain decimal number", failure["message"])
+
+    def test_tables_are_refused_before_the_engine_runs(self):
+        engine = self.root / "engine"
+        engine.mkdir()
+        # A stand-in engine whose error text never mentions tables.
+        (engine / "formualizer.py").write_text("def recalculate_xlsx_bytes(*args, **kwargs):\n    raise RuntimeError('stand-in engine was called')\n", encoding="utf-8")
+        excel_shaped_workbook(self.root / "table.xlsx", table=True)
+        excel_shaped_workbook(self.root / "plain.xlsx", table=False)
+        environment = dict(os.environ, PYTHONPATH=str(engine))
+        messages = {}
+        for name in ("table.xlsx", "plain.xlsx"):
+            result = subprocess.run([sys.executable, str(HELPER), "--root", str(self.root), "recalculate", "--input", name, "--output", f"fresh-{name}"],
+                                    capture_output=True, text=True, encoding="utf-8", timeout=30, env=environment)
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            messages[name] = json.loads(result.stderr)["message"]
+            self.assertFalse((self.root / f"fresh-{name}").exists())
+        self.assertEqual(messages["table.xlsx"], "Formula engine does not support tables in cache-only recalculation; no output was written")
+        self.assertEqual(messages["plain.xlsx"], "Formula engine could not recalculate this workbook; no output was written")
+
+    def test_sheet_names_follow_excel_rules(self):
+        for name in ("'Quoted", "Trailing'", "History", "hIsToRy", "Tab\tName", "Bell\x07", "Next\x85Line", "a" * 32, "Q?", ""):
+            with self.subTest(name=name):
+                self.write_spec({"A1": {"type": "number", "value": 1}}, sheet=name)
+                failure = self.run_helper("create", "--input", "spec.json", "--output", "denied.xlsx", success=False)
+                self.assertIn("Sheet names need 1..31 characters", failure["message"])
+        (self.root / "data.csv").write_text("1\r\n", encoding="utf-8", newline="")
+        self.run_helper("csv-import", "--input", "data.csv", "--output", "denied.xlsx", "--types", "number", "--sheet", "HISTORY", success=False)
+        self.assertFalse((self.root / "denied.xlsx").exists())
+        (self.root / "dupes.json").write_text(json.dumps({"sheets": [{"name": "Data", "cells": {}}, {"name": "DATA", "cells": {}}]}), encoding="utf-8")
+        self.assertIn("unique", self.run_helper("create", "--input", "dupes.json", "--output", "denied.xlsx", success=False)["message"])
+        self.write_spec({"A1": {"type": "number", "value": 1}}, sheet="It's History 2026")
+        self.assertEqual(self.run_helper("create", "--input", "spec.json", "--output", "valid.xlsx")["sheets"], ["It's History 2026"])
+
+    def test_missing_output_parent_is_reported_before_reading_input(self):
+        (self.root / "broken.json").write_text("{", encoding="utf-8")
+        failure = self.run_helper("create", "--input", "broken.json", "--output", "missing/out.xlsx", success=False)
+        self.assertEqual(failure["message"], "Output parent directory does not exist; create it first")
+        self.assertFalse((self.root / "missing").exists())
+
+    def test_excel365_comments_and_thumbnail_are_preserved(self):
+        # Synthetic Excel 365-shaped parts; no workbook saved by Microsoft Excel was available.
+        source = excel365_workbook(self.root / "notes.xlsx")
+        kept = ("xl/comments1.xml", "xl/drawings/vmlDrawing1.vml", "xl/threadedComments/threadedComment1.xml",
+                "xl/persons/person.xml", "docProps/thumbnail.jpeg", "xl/worksheets/_rels/sheet1.xml.rels", "_rels/.rels")
+        self.assertTrue(set(kept) <= set(source))
+        self.assertEqual(self.run_helper("sheets", "--input", "notes.xlsx", "--output", "sheets.json")["sheets"], ["Data"])
+        self.write_spec({"A2": {"type": "number", "value": 5}})
+        result = self.run_helper("edit", "--input", "notes.xlsx", "--changes", "spec.json", "--output", "edited.xlsx")
+        self.assertEqual(result["parts_changed"], ["xl/worksheets/sheet1.xml"])
+        edited = zip_parts(self.root / "edited.xlsx")
+        self.assertEqual(set(edited), set(source))
+        self.assert_parts_identical(source, edited, [part for part in source if part != "xl/worksheets/sheet1.xml"])
+        self.assertIn(b"<legacyDrawing", edited["xl/worksheets/sheet1.xml"])
+        self.run_helper("recalculate", "--input", "edited.xlsx", "--output", "fresh.xlsx")
+        fresh = zip_parts(self.root / "fresh.xlsx")
+        self.assert_parts_identical(edited, fresh, [part for part in edited if part != "xl/worksheets/sheet1.xml"])
+        self.assertEqual(openpyxl.load_workbook(self.root / "fresh.xlsx", data_only=True)["Data"]["B1"].value, 7)
+        cases = {
+            "control": ("xl/drawings/vmlDrawing1.vml", 'ObjectType="Note"', 'ObjectType="Button"', "comment notes"),
+            "metadata": ("xl/metadata.xml", None, b'<metadata xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>', "xl/metadata.xml"),
+        }
+        for label, (part, old, new, message) in cases.items():
+            with self.subTest(case=label):
+                parts = dict(source)
+                if old is None:
+                    parts[part] = new
+                else:
+                    inject(parts, part, old, new)
+                write_parts(self.root / f"{label}.xlsx", parts)
+                failure = self.run_helper("edit", "--input", f"{label}.xlsx", "--changes", "spec.json", "--output", "denied.xlsx", success=False)
+                self.assertIn(message, failure["message"])
+                self.assertFalse((self.root / "denied.xlsx").exists())
 
     def test_missing_dependencies_are_unavailable(self):
         result = self.run_helper("create", "--input", "spec.json", "--output", "new.xlsx", success=False, isolated=True)
