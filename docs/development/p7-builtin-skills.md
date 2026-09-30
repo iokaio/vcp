@@ -31,6 +31,21 @@ profile. The CLI test `installed_pdf_helper_materializes_and_runs_through_author
 exercises that path end to end when `VCP_TEST_PYTHON` names a Python with the
 pdf-workflows requirements; otherwise it reports not run.
 
+Catalogs 1.13.0 through 1.41.0 (SU-06 to SU-15, the
+[skills upgrade plan](../research/skills-upgrade-plan.md)) deepen the eight
+workflows and the 21 baseline families. Baseline bodies are version-agnostic,
+about 6 KB or less, and end with a one-line authority statement.
+
+Catalog 1.42.0 onward (the SH hardening series,
+[ADR-071](../adr/071-on-demand-skill-references.md)) adds the on-demand
+`reference` resource role. `vcp_skill` `read` returns a reference's verified
+text on request, so llm-integration, mcp-development, frontend-design and
+document-authoring send only their bodies on activation. `vcp_skill` is implied
+by the `vcp_read` ceiling, `materialize` also needs `vcp_patch`, and child
+tasks are not offered the tool. Baseline families name commands that avoid
+hidden downloads or installs and state when a check has effects. Root markers
+also cover `meson.build`, `*.vcxproj` and `*.vbproj`.
+
 The [replacement skills plan](../research/skillsplan-new.md) and
 [ADR-069](../adr/069-practical-skill-ports.md) govern these additions. Development
 uses scoped functional checks, package verification, and ordinary repository
@@ -134,13 +149,17 @@ The [frozen projects](../../src/evals/skills/builtin/README.md) provide one norm
 and one negative/missing-prerequisite case per family. Run
 `scripts/evals/builtin-skill-qualification.ps1` in the provisioned native Rust
 environment. It records exact sources, all attempted outcomes and separate catalog
-integrity, discovery and activation reads. No model call occurs.
+integrity, discovery and activation reads. No model call occurs. The
+`builtin_skill_qualification` lifecycle test runs the same contract on fixture
+revision v2 (`manifest-v2.json`) in the Windows native job.
 
 All packages require only the ordinary read/list adapters for analysis. Execution
 requires actual configured tools and current authority; a descriptor match cannot
 claim a successful compile, test, migration or remote action. Shell, SQL, data and
-infrastructure currently require explicit selection. Root marker detection also
-does not cover every Python, .NET or JVM project layout. The skill procedures read
+infrastructure have no cues, so they are always listed by description
+(ADR-070). Root marker detection sees root files only; nested-only projects and
+PowerShell-only repositories are not detected, and a user can still activate a
+family explicitly. The skill procedures read
 actual manifests and repository guidance before suggesting commands.
 
 Shipped coverage declares guidance present without general toolchain qualification.

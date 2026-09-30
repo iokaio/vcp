@@ -17,11 +17,11 @@ Declared scope: the following runtime model-facing surfaces and contributor guid
 - The seven tool definitions:
   - `vcp_read`, `vcp_list`, `vcp_search` and `vcp_patch` in [`vcp-tools/src/schema.rs`](../src/crates/vcp-tools/src/schema.rs);
   - `vcp_exec` in [`vcp-tools/src/process.rs:202-204`](../src/crates/vcp-tools/src/process.rs#L202-L204);
-  - `vcp_verify` and `vcp_mcp` in [`foundation/coding.rs:56-77`](../src/crates/vcp-lifecycle/src/foundation/coding.rs#L56-L77).
+  - `vcp_verify`, `vcp_skill` and `vcp_mcp` in [`foundation/coding.rs:60-89`](../src/crates/vcp-lifecycle/src/foundation/coding.rs#L60-L89).
 - The text for compaction, continuity and forked history.
 - The decision and advisory evaluator prompts ([`vcp-models/src/decision.rs`](../src/crates/vcp-models/src/decision.rs), [`vcp-models/src/escalation.rs`](../src/crates/vcp-models/src/escalation.rs)).
 - The request-building code ([`vcp-models/src/request.rs:254-328`](../src/crates/vcp-models/src/request.rs#L254-L328)).
-- The 21 built-in skills and their descriptors under [`src/skills/builtin`](../src/skills/builtin).
+- The built-in skills (21 at the time of this audit; 29 from catalog 1.10.0) and their descriptors under [`src/skills/builtin`](../src/skills/builtin).
 - [`AGENTS.md`](../AGENTS.md) and [`CLAUDE.md`](../CLAUDE.md), which are byte-identical.
 
 Excluded:
@@ -79,7 +79,7 @@ Confidence in observing duplicated strings or static schemas is high where sourc
 - **Request-allowance countdown (G4).** Showing remaining requests can cause early wrap-up. #129 added it deliberately because of the hard shared-root request cap, and claims no measured improvement. Measure before changing it.
 - **Chat evaluator output limit (G4).** `CONVENTIONAL_OUTPUT_LIMIT = 1024` ([`decision.rs:17`](../src/crates/vcp-models/src/decision.rs#L17)) is pinned at admission and could truncate reasoning models, as #115 saw in review runs. The path is disabled by default.
 - **No explicit cache control in the coding encoder (G4).** Source establishes absence of `cache_control`, not observed zero cache hits on every route. OpenRouter documents automatic and explicit caching with endpoint-specific support; qualify the exact pinned endpoint and accounting path before adding an option behind the provider boundary (AGENTS.md §8). See the caching review below.
-- **Explicit-activation sentences in skill bodies (G2).** The data, infrastructure, shell, sql, jvm, go and dotnet-powershell skills tell an already-active model to "activate explicitly". The pre-declared rubrics in [`coverage.json`](../src/skills/builtin/coverage.json) depend on this wording, so it is left alone.
+- **Explicit-activation sentences in skill bodies (G2).** The data, infrastructure, shell, sql, jvm, go and dotnet-powershell skills tell an already-active model to "activate explicitly". The pre-declared rubrics in [`coverage.json`](../src/skills/builtin/coverage.json) depend on this wording, so it is left alone. (Later state: SH-14 removed these sentences after fixture revision v2 updated the rubrics; see the [skills upgrade plan](research/skills-upgrade-plan.md).)
 - **`javascript-typescript` "Exact numeric contracts" section (G2).** [`SKILL.md:13-17`](../src/skills/builtin/javascript-typescript/SKILL.md#exact-numeric-contracts) is supported by the recorded generation failures and follow-up guidance. The [Qwen 3.8 follow-up](evaluations/p7-qwen38-reasoning-budget-2026-09-22.md) passed 44/44 checks with retained guidance, not in an ablation without it; keep it pending comparative evidence.
 - **AGENTS.md §14 (1c).** The generic Rust list may be padding, but it may equally be the owner's quality bar.
 
