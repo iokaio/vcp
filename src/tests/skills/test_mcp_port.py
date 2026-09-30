@@ -54,9 +54,53 @@ class PaginationPortTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     page(*args)
 
+    def test_max_limit_is_configurable(self):
+        records = [{"id": str(i)} for i in range(250)]
+        result = page(records[:250], 250, 250, 0, max_limit=250)
+        self.assertEqual(result["count"], 250)
+        self.assertFalse(result["has_more"])
+        small = page(records[:5], 250, 5, 0, max_limit=5)
+        self.assertEqual(small["next_offset"], 5)
+        with self.assertRaises(ValueError):
+            page([], 0, 6, 0, max_limit=5)
+        with self.assertRaises(ValueError):
+            page([], 0, 101, 0)
+        self.assertEqual(page([], 0, 100, 0)["count"], 0)
+        self.assertEqual(namespace["DEFAULT_MAX_LIMIT"], 100)
+
+    def test_invalid_max_limit_is_rejected(self):
+        for value in (0, -1, True, False, "100", 100.0, None):
+            with self.subTest(max_limit=value):
+                with self.assertRaises(ValueError):
+                    page([], 0, 1, 0, max_limit=value)
+
     def test_response_is_json_serializable(self):
         result = page([{"id": "alpha", "name": "Snow \u96ea"}], 1)
         self.assertEqual(json.loads(json.dumps(result)), result)
+
+
+class ReferenceGuidanceTests(unittest.TestCase):
+    PACKAGE = ROOT / "mcp-development"
+
+    def test_python_guidance_uses_mcp_2_api(self):
+        text = (self.PACKAGE / "references" / "server-patterns.md").read_text(encoding="utf-8")
+        self.assertIn("from mcp.server import MCPServer", text)
+        self.assertNotIn("from mcp.server.fastmcp import", text)
+        self.assertIn("mcp` 2.2.0", text)
+
+    def test_python_snippets_parse(self):
+        text = (self.PACKAGE / "references" / "server-patterns.md").read_text(encoding="utf-8")
+        blocks = text.split("```python\n")[1:]
+        self.assertGreaterEqual(len(blocks), 2)
+        for block in blocks:
+            ast.parse(block.split("```", 1)[0])
+
+    def test_protocol_revision_and_new_topics_are_named(self):
+        text = (self.PACKAGE / "references" / "server-patterns.md").read_text(encoding="utf-8")
+        for needle in ("2026-07-28", "outputSchema", "structuredContent", "Elicitation",
+                       "Resources", "Prompts", "Authorization", "Inspector", "registerTool"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
 
 
 if __name__ == "__main__":
