@@ -14,6 +14,7 @@
       "upstream-boundaries",
       "cli-trace-fixtures",
       "builtin-skills",
+      "builtin-packages",
       "p6-task-quality",
       "p6-live-runner",
       "p6-profile-qualification",
@@ -145,6 +146,14 @@
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
+    "builtin-packages": {
+      "task_ids": ["SH-06"],
+      "args": ["--test", "src/tests/contracts/builtin-packages.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 60000,
       "max_output_bytes": 2097152
     },
     "builtin-skills": {

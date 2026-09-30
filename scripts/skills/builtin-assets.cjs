@@ -33,7 +33,8 @@ function enumerate(root) {
   const found = [];
   let entries = 0;
   function visit(relative, depth) {
-    if (depth > 5 || ++entries > 256) throw Error('Asset traversal limit exceeded');
+    // 29 packages use about 150 entries; the bound leaves room without being unbounded.
+    if (depth > 5 || ++entries > 1024) throw Error('Asset traversal limit exceeded');
     const absolute = path.join(root, relative), stat = fs.lstatSync(absolute);
     if (stat.isSymbolicLink()) throw Error('Linked asset paths are not allowed');
     if (stat.isDirectory()) {
@@ -125,20 +126,36 @@ function stageAssets(root, destination, expectedCatalog) {
   inspectAssets(destination, captured.get('catalog.json'));
   return inventory;
 }
+function insideSourceCheckout(root) {
+  for (let directory = root; ; directory = path.dirname(directory)) {
+    if (fs.existsSync(path.join(directory, '.git'))) return true;
+    if (path.dirname(directory) === directory) return false;
+  }
+}
 // Authoring aid: recompute content, descriptor and coverage digests after edits.
 // Versions stay explicit author decisions; coverage family versions follow descriptors.
-function rehashAssets(root) {
+// Everything is computed before any write; `check` reports stale files instead.
+function rehashAssets(root, { check = false, requireCheckout = true } = {}) {
   root = path.resolve(root);
+  // An installed tree must keep matching the catalog embedded in its binary.
+  if (!check && requireCheckout && !insideSourceCheckout(root)) throw Error('rehash writes only inside a source checkout');
   const json = value => JSON.stringify(value, null, 2) + '\n';
   const read = relative => bounded(path.join(root, portable(relative)));
   const catalog = JSON.parse(read('catalog.json'));
   const coverage = JSON.parse(read(catalog.coverage.path));
   const writes = new Map();
+  const warnings = [];
   for (const entry of catalog.skills) {
     const descriptor = JSON.parse(read(entry.descriptor));
     if (descriptor.id !== entry.id) throw Error('Descriptor id differs from catalog entry: ' + entry.id);
+    let contentChanged = false;
     for (const content of [descriptor.body, ...descriptor.resources]) {
-      content.sha256 = digest(read(entry.id + '/' + content.path));
+      const sha256 = digest(read(entry.id + '/' + content.path));
+      contentChanged ||= sha256 !== content.sha256;
+      content.sha256 = sha256;
+    }
+    if (contentChanged && descriptor.version === entry.version) {
+      warnings.push(`${entry.id}: content changed but version ${entry.version} was not bumped`);
     }
     const bytes = Buffer.from(json(descriptor));
     writes.set(entry.descriptor, bytes);
@@ -153,19 +170,27 @@ function rehashAssets(root) {
   writes.set(catalog.coverage.path, coverageBytes);
   catalog.coverage.sha256 = digest(coverageBytes);
   writes.set('catalog.json', Buffer.from(json(catalog)));
-  const changed = [];
-  for (const [relative, bytes] of writes) {
-    if (!read(relative).equals(bytes)) { fs.writeFileSync(path.join(root, relative), bytes); changed.push(relative); }
-  }
-  return { changed, inventory: inspectAssets(root, writes.get('catalog.json')).inventory };
+  const changed = [...writes].filter(([relative, bytes]) => !read(relative).equals(bytes)).map(([relative]) => relative);
+  if (check) return { changed, warnings };
+  for (const relative of changed) fs.writeFileSync(path.join(root, relative), writes.get(relative));
+  return { changed, warnings, inventory: inspectAssets(root, writes.get('catalog.json')).inventory };
 }
 if (require.main === module) {
   try {
     const [command, root, destination, ...extra] = process.argv.slice(2);
+    const check = command === 'rehash' && destination === '--check';
     if (extra.length || !root || !['verify', 'stage', 'rehash'].includes(command) ||
-        (command === 'stage') !== Boolean(destination)) throw Error('Use verify <assets>, rehash <assets> or stage <assets> <new-directory>');
-    const result = command === 'verify' ? inspectAssets(root).inventory
-      : command === 'rehash' ? { changed: rehashAssets(root).changed } : stageAssets(root, destination);
+        (command === 'stage' ? !destination : command === 'rehash' ? destination && !check : destination)) {
+      throw Error('Use verify <assets>, rehash <assets> [--check] or stage <assets> <new-directory>');
+    }
+    if (command === 'rehash') {
+      const { changed, warnings } = rehashAssets(root, { check });
+      for (const warning of warnings) console.error('warning: ' + warning);
+      process.stdout.write(JSON.stringify({ changed, warnings }) + '\n');
+      if (check && changed.length) process.exitCode = 1;
+      return;
+    }
+    const result = command === 'verify' ? inspectAssets(root).inventory : stageAssets(root, destination);
     process.stdout.write(JSON.stringify(result) + '\n');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
