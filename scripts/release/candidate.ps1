@@ -45,6 +45,21 @@ function Assert-CandidateOrdinaryPath([string]$Path,[bool]$Directory) {
     }
     return $item.FullName
 }
+function Set-CandidateTemporaryDirectory([string]$Node,$Evidence) {
+    $Evidence.inherited_temp=$env:TEMP; $Evidence.inherited_tmp=$env:TMP
+    $Evidence.requested='not observed'; $Evidence.selected='not observed'
+    # Hosted Windows images may spell TEMP with an 8.3 alias or a junction.
+    # Select its physical directory before fixtures are created; their ordinary
+    # path guards still reject redirected paths supplied to the tested APIs.
+    $resolved=& $Node '-e' "const fs=require('node:fs'),os=require('node:os');const requested=os.tmpdir();console.log(JSON.stringify({requested,selected:fs.realpathSync.native(requested)}))"
+    if ($LASTEXITCODE -ne 0 -or $resolved -isnot [string]) { throw 'Candidate temporary directory resolution failed' }
+    $selection=$resolved | ConvertFrom-Json
+    $Evidence.requested=$selection.requested
+    $selected=Assert-CandidateOrdinaryPath $selection.selected $true
+    $env:TEMP=$selected; $env:TMP=$selected
+    $Evidence.selected=$selected
+    return $selected
+}
 function Remove-CandidateProductionTarget([string]$CandidateRoot,$Run) {
     # Only this invocation's fresh, successfully paired production build is
     # disposable. Copied programs, symbols, receipts, logs and caches are not.
@@ -147,7 +162,6 @@ Save-Run
 if (Test-Path -LiteralPath (Join-Path $repository 'artifacts/beta-gate/delivery.json')) { $run.receipts.delivery=Join-Path $repository 'artifacts/beta-gate/delivery.json' }
 $workspace = Join-Path $repository 'src/third_party/codex/codex-rs'
 $channel = Get-Content -LiteralPath (Join-Path $repository 'release/internal-beta.json') -Raw | ConvertFrom-Json
-$private = Join-Path ([IO.Path]::GetTempPath()) ('vcp-beta-private-' + [guid]::NewGuid())
 try {
     Stage 'source-gate' @('node','scripts/release/provenance.cjs','source',$repository,$ReviewedCommit) 'Clean exact reviewed source and channel versions.' {
         $script:pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
@@ -161,6 +175,10 @@ try {
         if ($LASTEXITCODE -ne 0 -or $nodeVersion -isnot [string] -or $nodeVersion -cnotmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Selected Node version probe failed' }
         $run.environment.node=$nodeVersion
         if ($nodeVersion -cne ('v'+$tools.node)) { throw 'Candidate Node version differs from the reviewed tools pin' }
+        $run.environment.temporary_directory=@{}
+        $temporary=Set-CandidateTemporaryDirectory $node $run.environment.temporary_directory
+        $script:private=Join-Path $temporary ('vcp-beta-private-' + [guid]::NewGuid())
+        $run.environment.qualification_root=$private
         Checked $node @((Join-Path $PSScriptRoot 'provenance.cjs'),'source',$repository,$ReviewedCommit)
     }
     Stage 'provision' @('rustup','toolchain','install','1.95.0','1.98.0','--profile','minimal',';','cargo','+1.95.0','fetch','--locked','--target','x86_64-pc-windows-msvc') 'Explicit locked cache and pinned compiler/editor inputs; no provider or model acquisition.' {
