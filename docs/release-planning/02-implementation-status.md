@@ -60,6 +60,20 @@ Both discovery tests, all three layout tests (including the actual pinned
 archive and nine refusal cases), and eight evidence regressions passed.
 PowerShell parsing, JavaScript syntax and independent re-review passed.
 
+[PR #302](https://github.com/iokaio/vcp/pull/302) delivered those corrections with
+all required checks passing. The [candidate retry](https://github.com/iokaio/vcp/actions/runs/36786623642)
+selects reviewed main `5138f9360359285dee7b534165a7b5d15bcf7ab9`.
+
+The separate BETA-09 editor refusal runner now covers actual restricted mode,
+uninitialized/wrong-data/unselected-root failures and unsaved drafts invalidated
+by typing, undo or close/reopen. It binds the final native/setup/VSIX bytes and
+independent harness hashes, allowing only explicitly observed trust/controller
+records while preserving task/accounting state. Seven editor contracts and a
+real canonical preservation guard passed; both editor targets compiled with
+Rust 1.95. Independent review corrected background-context timing and error
+classification. These are runner checks; final installed observations remain
+unrun, and successful reviewed apply still requires a live task binding.
+
 ## Current environment limitations
 
 The development workstation is Windows `10.0.26300.0` with development tools and
