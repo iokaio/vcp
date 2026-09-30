@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "go",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Respect Go module/workspace boundaries, version declarations, build tags, and focused checks. Use when the project has go.mod or go.work, or when editing Go code or tests.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -17,7 +17,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "6f20f33d2f17b17723f93396c6c18f5480efa2a00d7a85385eb831c654de645d"
+    "sha256": "a7a6dbf23befbad39aa59cf52ad543a97aaca44cbe3a98a3e793fb8edea128d9"
   },
   "resources": []
 }
