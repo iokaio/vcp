@@ -22,6 +22,15 @@ context. Language families match root markers, including `build.gradle.kts`,
 `*.sln`/`*.slnx`/`*.csproj`/`*.fsproj` files. Each description states when to use
 the skill. Listing a skill never activates it or grants tools.
 
+Catalog 1.12.0 (SU-05) declares licenses, notices, provenance records, requirement
+files and helper source as `use: "file"` resources. They stay installed and
+hash-verified, but never become model context, which cuts the eight workflows'
+activation context by about 70%. Bodies tell the model to copy a helper with
+`vcp_skill` `materialize` and run it only through an authorized `vcp_exec` process
+profile. The CLI test `installed_pdf_helper_materializes_and_runs_through_authorized_process`
+exercises that path end to end when `VCP_TEST_PYTHON` names a Python with the
+pdf-workflows requirements; otherwise it reports not run.
+
 The [replacement skills plan](../research/skillsplan-new.md) and
 [ADR-069](../adr/069-practical-skill-ports.md) govern these additions. Development
 uses scoped functional checks, package verification, and ordinary repository

@@ -29,6 +29,14 @@ test('rejects unknown authority, missing metadata and UTF-8 byte overflow',()=>f
   delete d.version; save(); assert.throws(()=>validateSkill(root),/descriptor field/); d.version='1.0.0';
   d.description='é'.repeat(513); save(); assert.throws(()=>validateSkill(root),/metadata text/);
 }));
+test('accepts context/file resource roles and rejects other roles or a file-role body',()=>fixture((root,d,save)=>{
+  fs.writeFileSync(path.join(root,'helper.py'),'print(1)\n');
+  const helper={path:'helper.py',sha256:createHash('sha256').update(fs.readFileSync(path.join(root,'helper.py'))).digest('hex')};
+  d.resources=[{...helper,use:'file'}]; save(); assert.equal(validateSkill(root).files,3);
+  d.resources=[{...helper,use:'context'}]; save(); assert.equal(validateSkill(root).files,3);
+  d.resources=[{...helper,use:'execute'}]; save(); assert.throws(()=>validateSkill(root),/resource role/);
+  d.resources=[]; d.body.use='file'; save(); assert.throws(()=>validateSkill(root),/body must be context/);
+}));
 test('rejects traversal, case aliases and descriptor aliases',()=>fixture((root,d,save)=>{
   for(const p of ['../SKILL.md','/SKILL.md','CON.txt','skill.json','dir/../SKILL.md']) {
     d.body.path=p; save(); assert.throws(()=>validateSkill(root));

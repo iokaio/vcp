@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
-use vcp_extensions::skill_manifest::SkillDescriptor;
+use vcp_extensions::skill_manifest::{ResourceUse, SkillDescriptor};
 
 // SP-12 installation/context smoke. The mock proves delivery of the selected
 // package bytes, not model usefulness or execution of the bundled helpers.
+// ADR-070: only context-role content reaches the provider; file-role bytes
+// (licenses, provenance, helpers) stay installed and verified but unsent.
 // Integrity failure and revocation remain covered by the existing skill tests.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn installed_ported_skills_reach_the_provider_with_complete_resources_without_edits() {
@@ -57,9 +59,10 @@ async fn installed_ported_skills_reach_the_provider_with_complete_resources_with
         assert_eq!(descriptor.body, entry.body);
         assert_eq!(descriptor.resources, entry.resources);
         let package = installed.join(&entry.id);
+        let mut withheld = Vec::new();
         let mut expected: Vec<(String, Vec<u8>)> = std::iter::once(&descriptor.body)
             .chain(&descriptor.resources)
-            .map(|content| {
+            .filter_map(|content| {
                 let bytes = fs::read(package.join(&content.path)).unwrap();
                 assert_eq!(
                     vcp_protocol::digest_bytes(&bytes),
@@ -71,7 +74,11 @@ async fn installed_ported_skills_reach_the_provider_with_complete_resources_with
                 // These ports ship text instructions, code and license notices.
                 // Binary assets require their own explicit conversion contract.
                 std::str::from_utf8(&bytes).unwrap();
-                (content.sha256.clone(), bytes)
+                if content.use_ == ResourceUse::File {
+                    withheld.push(content.sha256.clone());
+                    return None;
+                }
+                Some((content.sha256.clone(), bytes))
             })
             .collect();
 
@@ -134,8 +141,18 @@ async fn installed_ported_skills_reach_the_provider_with_complete_resources_with
         assert_eq!(
             parts.len(),
             expected.len(),
-            "every installed body/resource must reach the provider for {qualified}"
+            "every installed context body/resource must reach the provider for {qualified}"
         );
+        assert!(
+            !withheld.is_empty(),
+            "each ported workflow withholds its license and provenance: {qualified}"
+        );
+        for sha256 in &withheld {
+            assert!(
+                !request.to_string().contains(sha256.as_str()),
+                "file-role content must not reach the provider: {qualified}"
+            );
+        }
         for part in parts {
             assert_eq!(part["trust"], "active_skill", "{qualified}");
             let position = expected
@@ -166,4 +183,100 @@ async fn installed_ported_skills_reach_the_provider_with_complete_resources_with
         );
         assert_eq!(fs::read_dir(&fixture.workspace).unwrap().count(), 1);
     }
+}
+
+fn function_call(index: usize, name: &str, arguments: Value) -> String {
+    let item = if name.is_empty() {
+        json!({"type":"message","id":format!("final-{index}"),"role":"assistant","status":"completed","content":[{"type":"output_text","text":"Reported the helper result.","annotations":[]}]})
+    } else {
+        json!({"type":"function_call","id":format!("item-{index}"),"call_id":format!("call-{index}"),"name":name,"arguments":arguments.to_string(),"status":"completed"})
+    };
+    [json!({"type":"response.output_item.done","output_index":0,"item":item}),json!({"type":"response.completed","response":{"id":format!("response-{index}"),"status":"completed","output":[item],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}})].into_iter().map(|event|format!("data: {event}\n\n")).collect()
+}
+
+// SU-05 acceptance: an installed workflow's file-role helper is withheld from
+// context, materialized byte-exactly through patch authority, and run only
+// through a configured process profile. Requires VCP_TEST_PYTHON naming a
+// Python with the pdf-workflows requirements; otherwise it reports not run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn installed_pdf_helper_materializes_and_runs_through_authorized_process() {
+    let Some(python) = std::env::var_os("VCP_TEST_PYTHON") else {
+        eprintln!("not run: set VCP_TEST_PYTHON to a Python with pdf-workflows requirements");
+        return;
+    };
+    let server = MockServer::start().await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let responses = calls.clone();
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(move |_: &wiremock::Request| {
+            let body = match responses.fetch_add(1, Ordering::SeqCst) {
+                0 => function_call(0, "vcp_skill", json!({"action":"materialize","skill":"pdf-workflows","resource":"scripts/pdf_workflows.py","destination":"pdf_workflows.py"})),
+                1 => function_call(1, "vcp_exec", json!({"profile":"python","arguments":["pdf_workflows.py","--root",".","extract","--input","source.pdf","--output","extracted.json"],"directory":"","timeout_ms":60000,"output_bytes":65536,"input":null})),
+                index => function_call(index, "", json!(null)),
+            };
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(body)
+        })
+        .mount(&server)
+        .await;
+    let mut fixture = Fixture::new(&server.uri(), "complete");
+    let installed = fixture.package(true);
+    for file in ["package.json", "acceptance.cjs", "value.txt"] {
+        fs::remove_file(fixture.workspace.join(file)).unwrap();
+    }
+    let created = std::process::Command::new(&python)
+        .current_dir(&fixture.workspace)
+        .args(["-c", "from reportlab.pdfgen import canvas; c = canvas.Canvas('source.pdf'); c.drawString(72, 720, 'Materialized helper extraction check'); c.save()"])
+        .status()
+        .unwrap();
+    assert!(created.success(), "fixture PDF creation");
+    let mut profile: Value = serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+    profile["processes"] = json!([{"name":"python","executable":python.to_string_lossy(),
+        "environment":{"SystemRoot":std::env::var("SystemRoot").unwrap()},
+        "required_isolation":[],"reduced_isolation":true,"inputs":[]}]);
+    profile["checks"] = json!([]);
+    profile["affected_paths"] = json!(["pdf_workflows.py", "extracted.json"]);
+    profile["max_requests"] = json!(4);
+    profile["max_transport_retries"] = json!(0);
+    fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+    let output = fixture
+        .run(&[
+            "run",
+            "Extract the text of source.pdf with the active PDF skill helper.",
+            "--autonomy",
+            "autonomous",
+            "--skill",
+            "vcp-builtin::pdf-workflows::pdf-workflows",
+        ])
+        .await;
+    let results = records(&output);
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests.len() >= 3,
+        "{} {:?}",
+        String::from_utf8_lossy(&output.stderr),
+        results.last()
+    );
+    let script = fs::read(installed.join("pdf-workflows/scripts/pdf_workflows.py")).unwrap();
+    let first = String::from_utf8_lossy(&requests[0].body).into_owned();
+    assert!(
+        !first.contains("def extract("),
+        "file-role helper source is not sent as context"
+    );
+    assert_eq!(
+        fs::read(fixture.workspace.join("pdf_workflows.py")).unwrap(),
+        script,
+        "materialized helper is the exact installed file"
+    );
+    let extracted: Value =
+        serde_json::from_slice(&fs::read(fixture.workspace.join("extracted.json")).unwrap())
+            .unwrap();
+    assert!(
+        extracted.to_string().contains("Materialized helper extraction check"),
+        "{extracted}"
+    );
+    let materialized = String::from_utf8_lossy(&requests[1].body).into_owned();
+    assert!(materialized.contains(&vcp_protocol::digest_bytes(&script)));
 }

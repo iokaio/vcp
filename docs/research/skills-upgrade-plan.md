@@ -104,9 +104,9 @@ Record actual checks and any unrun checks in the ledger.
 | SU-00 | Owner direction | This plan, ADR-070 and guidance pointers | complete; [PR #212](https://github.com/iokaio/vcp/pull/212) merged |
 | SU-01 | None | Run skill helper tests in CI | complete; [PR #213](https://github.com/iokaio/vcp/pull/213) merged |
 | SU-02 | SU-00 | Resource roles in the loader | complete; [PR #214](https://github.com/iokaio/vcp/pull/214) merged |
-| SU-03 | SU-02 | Helper materialization | in review |
+| SU-03 | SU-02 | Helper materialization | complete; [PR #216](https://github.com/iokaio/vcp/pull/216) merged |
 | SU-04 | SU-00 | Discovery cues, root markers and descriptions | complete; [PR #215](https://github.com/iokaio/vcp/pull/215) merged |
-| SU-05 | SU-02, SU-03 | Package migration to resource roles, and hygiene | planned |
+| SU-05 | SU-02, SU-03 | Package migration to resource roles, and hygiene | in review |
 | SU-06 | SU-02 | skill-authoring validator and guidance | planned |
 | SU-07 | SU-01, SU-05 | spreadsheet-workflows compatibility and operations | planned |
 | SU-08 | SU-01, SU-05 | pdf-workflows robustness and operations | planned |

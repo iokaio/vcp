@@ -21,11 +21,13 @@ tools or broaden the host's filesystem, process or network authority.
 
 ## Read, create and edit
 
+The helper is a hash-verified `file` resource and is not in your context. Copy it with `vcp_skill` (action `materialize`, resource `scripts/spreadsheet_workflows.py`, destination a new file in an existing workspace directory, such as `spreadsheet_workflows.py`). Run the copy with `vcp_exec` only through an authorized Python process profile; otherwise report the helper as not run. Remove the copy with `vcp_patch` afterwards unless the user wants to keep it.
+
 ```text
-python scripts/spreadsheet_workflows.py --root WORKSPACE inspect --input source.xlsx --sheet Data --range A1:D20 --output inspected.json
-python scripts/spreadsheet_workflows.py --root WORKSPACE create --input workbook.json --output created.xlsx
-python scripts/spreadsheet_workflows.py --root WORKSPACE edit --input source.xlsx --changes edits.json --output revised.xlsx
-python scripts/spreadsheet_workflows.py --root WORKSPACE recalculate --input revised.xlsx --output calculated.xlsx
+python spreadsheet_workflows.py --root WORKSPACE inspect --input source.xlsx --sheet Data --range A1:D20 --output inspected.json
+python spreadsheet_workflows.py --root WORKSPACE create --input workbook.json --output created.xlsx
+python spreadsheet_workflows.py --root WORKSPACE edit --input source.xlsx --changes edits.json --output revised.xlsx
+python spreadsheet_workflows.py --root WORKSPACE recalculate --input revised.xlsx --output calculated.xlsx
 ```
 
 Inspection returns source identity, sheet/range, date epoch, cell types, values and
