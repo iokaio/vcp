@@ -79,7 +79,11 @@ function validateMetadata(metadata = {}) {
         result.source.dirty !== false || metadata.release.reviewed_commit !== result.source.git_commit) {
       throw Error('Invalid strict release metadata');
     }
+    if (metadata.notices?.schema !== 'vcp-notice-bundle/1' || metadata.notices.inventory !== 'component-inventory.json' ||
+        !/^[a-f0-9]{64}$/.test(metadata.notices.inventory_sha256 || '') ||
+        metadata.notices.status !== 'complete-with-recorded-provenance-limitations') throw Error('Complete bound release notice inventory required');
     result.release = metadata.release;
+    result.notices = metadata.notices;
     result.artifact = 'unsigned-internal-beta-candidate';
     result.limitations = [
       'Unsigned internal beta candidate; installed-product qualification and owner publication acceptance remain required.',

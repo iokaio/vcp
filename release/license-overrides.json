@@ -1,0 +1,182 @@
+{
+  "schema": "vcp-release-license-overrides/1",
+  "records": [
+    {
+      "repo": "Aleph-Alpha/ts-rs",
+      "commit": "1dce5297090804082e9639d2b7d851ba815aa359",
+      "packages": [
+        "ts-rs@11.1.0",
+        "ts-rs-macros@11.1.0"
+      ],
+      "path": "release/licenses/upstream/Aleph-Alpha-ts-rs-1dce52970908-LICENSE",
+      "url": "https://raw.githubusercontent.com/Aleph-Alpha/ts-rs/1dce5297090804082e9639d2b7d851ba815aa359/LICENSE",
+      "sha256": "db7f7f8e7236a2d0b41b855b2501b7b913caebbcda6ce498637a304ad1706ce1"
+    },
+    {
+      "repo": "Marwes/debugserver-types",
+      "commit": "d444f163123af5b4fbce7375d1afead7e9b8a224",
+      "packages": [
+        "debugserver-types@0.5.0"
+      ],
+      "kind": "published-declaration",
+      "license": "MIT",
+      "package_sha256": "2bf6834a70ed14e8e4e41882df27190bea150f1f6ecf461f1033f8739cd8af4a",
+      "path": "release/licenses/debugserver-types-0.5.0-MIT.txt",
+      "sha256": "237cb86f21bed74a3d10559aff4219e2a4b8dd58244bc25497eb235b7b8b6296",
+      "limitation": "The pinned crate/repository contain an MIT declaration and authors but no standalone license text. Preserve original source and standard grant without inventing copyright information."
+    },
+    {
+      "repo": "whatisinternet/inflector",
+      "commit": "a4a95eac75043f4bffb127c7c8ec886b5b106053",
+      "packages": [
+        "Inflector@0.11.4"
+      ],
+      "path": "release/licenses/upstream/whatisinternet-inflector-a4a95eac7504-LICENSE.md",
+      "url": "https://raw.githubusercontent.com/whatisinternet/inflector/a4a95eac75043f4bffb127c7c8ec886b5b106053/LICENSE.md",
+      "sha256": "03d1bd5bfbee8d44651e7f57faf9e5b4eda4233f0d4eda36a716f2f0533d230b"
+    },
+    {
+      "repo": "Marwes/schemafy",
+      "commit": "5f835025d16d691f168315dda93efc52ae1e4e5e",
+      "packages": [
+        "schemafy_core@0.5.2",
+        "schemafy_lib@0.5.2"
+      ],
+      "path": "release/licenses/upstream/Marwes-schemafy-5f835025d16d-LICENSE",
+      "url": "https://raw.githubusercontent.com/Marwes/schemafy/5f835025d16d691f168315dda93efc52ae1e4e5e/LICENSE",
+      "sha256": "a11232911aa0d746688b560af367728021184084eeb6328a1922d60925c5eda0"
+    },
+    {
+      "repo": "DoumanAsh/clipboard-win",
+      "commit": "3b27cf2bfd1adcfa6e0264eb51c1025ddaf0f342",
+      "packages": [
+        "clipboard-win@5.4.1"
+      ],
+      "path": "release/licenses/upstream/DoumanAsh-clipboard-win-3b27cf2bfd1a-LICENSE",
+      "url": "https://raw.githubusercontent.com/DoumanAsh/clipboard-win/3b27cf2bfd1adcfa6e0264eb51c1025ddaf0f342/LICENSE",
+      "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "repo": "hyperium/tonic",
+      "commit": "ed4bafc35af7a284357cf4e77e26b9c3eb0266ca",
+      "packages": [
+        "tonic-prost@0.14.3",
+        "tonic-prost-build@0.14.3"
+      ],
+      "path": "release/licenses/upstream/hyperium-tonic-ed4bafc35af7-LICENSE",
+      "url": "https://raw.githubusercontent.com/hyperium/tonic/ed4bafc35af7a284357cf4e77e26b9c3eb0266ca/LICENSE",
+      "sha256": "e24a56698aa6feaf3a02272b3624f9dc255d982970c5ed97ac4525a95056a5b3"
+    },
+    {
+      "repo": "rust-bakery/cookie-factory",
+      "commit": "d36b805dbd7dd65f2df947235c5bcc573afe2c76",
+      "packages": [
+        "cookie-factory@0.3.3"
+      ],
+      "path": "release/licenses/upstream/rust-bakery-cookie-factory-d36b805dbd7d-MIT.txt",
+      "url": "https://raw.githubusercontent.com/rust-bakery/cookie-factory/d36b805dbd7dd65f2df947235c5bcc573afe2c76/LICENSES/MIT.txt",
+      "sha256": "d09216dc1ea5f273997667935a8d6514d80f00b89fb6954ecc3a43e0a6e360de"
+    },
+    {
+      "repo": "tree-sitter/tree-sitter",
+      "commit": "da6fe9beb4f7f67beb75914ca8e0d48ae48d6406",
+      "packages": [
+        "tree-sitter@0.25.10"
+      ],
+      "path": "release/licenses/upstream/tree-sitter-tree-sitter-da6fe9beb4f7-LICENSE",
+      "url": "https://raw.githubusercontent.com/tree-sitter/tree-sitter/da6fe9beb4f7f67beb75914ca8e0d48ae48d6406/LICENSE",
+      "sha256": "5f9cf9fb6acb1972b35ae29119ce563bb60ec097656bc4b69b9bac2d04c7a147"
+    },
+    {
+      "repo": "Nugine/simd",
+      "commit": "d74c030d9dc4f3cae02146d1f497ff62726ef09a",
+      "packages": [
+        "base64-simd@0.8.0",
+        "vsimd@0.8.0"
+      ],
+      "path": "release/licenses/upstream/Nugine-simd-d74c030d9dc4-LICENSE",
+      "url": "https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE",
+      "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d"
+    },
+    {
+      "repo": "microsoft/tracelogging",
+      "commit": "4d3c8b02da568d34daf977db7052a819ab4b18ec",
+      "packages": [
+        "tracelogging@1.2.3",
+        "tracelogging_macros@1.2.3"
+      ],
+      "path": "release/licenses/upstream/microsoft-tracelogging-4d3c8b02da56-LICENSE",
+      "url": "https://raw.githubusercontent.com/microsoft/tracelogging/4d3c8b02da568d34daf977db7052a819ab4b18ec/LICENSE",
+      "sha256": "7dc541691bf807a74bf7c1090662712af131571f9be8fb8a6f6c1e6dbfbe2fbb"
+    },
+    {
+      "repo": "stepancheg/rust-protoc-bin-vendored",
+      "commit": "895c0433c3727a552970ce961e398e20e52d6353",
+      "packages": [
+        "protoc-bin-vendored@3.2.0",
+        "protoc-bin-vendored-linux-aarch_64@3.2.0",
+        "protoc-bin-vendored-linux-ppcle_64@3.2.0",
+        "protoc-bin-vendored-linux-s390_64@3.2.0",
+        "protoc-bin-vendored-linux-x86_32@3.2.0",
+        "protoc-bin-vendored-linux-x86_64@3.2.0",
+        "protoc-bin-vendored-macos-aarch_64@3.2.0",
+        "protoc-bin-vendored-macos-x86_64@3.2.0",
+        "protoc-bin-vendored-win32@3.2.0"
+      ],
+      "path": "release/licenses/upstream/stepancheg-rust-protoc-bin-vendored-895c0433c372-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/stepancheg/rust-protoc-bin-vendored/895c0433c3727a552970ce961e398e20e52d6353/LICENSE.txt",
+      "sha256": "97647e63047ef75a82ee2928b335df94f45c87e08777dc033393c73294f3a57a"
+    },
+    {
+      "repo": "Michael-F-Bryan/include_dir",
+      "commit": "d742c6fffce99ee89da91b934e7ce6fb2a82680c",
+      "packages": [
+        "include_dir@0.7.4",
+        "include_dir_macros@0.7.4"
+      ],
+      "path": "release/licenses/upstream/Michael-F-Bryan-include_dir-d742c6fffce9-LICENSE",
+      "url": "https://raw.githubusercontent.com/Michael-F-Bryan/include_dir/d742c6fffce99ee89da91b934e7ce6fb2a82680c/LICENSE",
+      "sha256": "9369f62987b3a116111f2edfdc4cc72633e44ddc94d5d0c68659cf537b76a31f"
+    },
+    {
+      "repo": "microsoft/DiskANN",
+      "commit": "860cf47bc11b6c2b938818773831a9374553d976",
+      "packages": [
+        "diskann@0.56.0",
+        "diskann-utils@0.56.0",
+        "diskann-vector@0.56.0",
+        "diskann-wide@0.56.0"
+      ],
+      "path": "release/licenses/upstream/microsoft-DiskANN-860cf47bc11b-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/microsoft/DiskANN/860cf47bc11b6c2b938818773831a9374553d976/LICENSE.txt",
+      "sha256": "7c77a44a8acd9b41fdc209864a8016b3d430b5d0e09309818d5b7444336df744"
+    },
+    {
+      "repo": "quickwit-oss/tantivy",
+      "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+      "packages": [
+        "tantivy-bitpacker@0.6.0",
+        "tantivy-columnar@0.3.0",
+        "tantivy-common@0.7.0",
+        "ownedbytes@0.7.0",
+        "tantivy-sstable@0.3.0",
+        "tantivy-stacker@0.3.0",
+        "tantivy-query-grammar@0.22.0",
+        "tantivy-tokenizer-api@0.3.0"
+      ],
+      "path": "release/licenses/upstream/quickwit-oss-tantivy-2fb381be70c0-LICENSE",
+      "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/LICENSE",
+      "sha256": "acacd14bebbffdb30d62443c282fb4da3e81915a9f69c63d5d745a029f44de8a"
+    },
+    {
+      "repo": "sarah-quinones/pulp",
+      "commit": "5eb07fd7b68edf0a5e19f71737d315f72a510295",
+      "packages": [
+        "pulp-wasm-simd-flag@0.1.1"
+      ],
+      "path": "release/licenses/upstream/sarah-quinones-pulp-5eb07fd7b68e-LICENSE",
+      "url": "https://raw.githubusercontent.com/sarah-quinones/pulp/5eb07fd7b68edf0a5e19f71737d315f72a510295/LICENSE",
+      "sha256": "d64f878c89bd5f1e5ada7e4aad57690b122727cf5229b7b87ea1980c188da1d9"
+    }
+  ]
+}

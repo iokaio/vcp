@@ -14,7 +14,7 @@ function temporary(t) {
 function fixture() {
   const selected = { channel: 'internal-beta', native_version: '0.2.0-beta.1', sdk_version: '0.2.1', vsix_version: '0.2.1',
     target: 'x86_64-pc-windows-msvc', signing: { status: 'unsigned' }, config_sha256: hash };
-  const source = { commit, content_sha256: hash, files: [{ path: 'Cargo.lock', bytes: 7, sha256: hash },
+  const source = { commit, content_sha256: hash, files: [{ path: 'src/third_party/codex/codex-rs/Cargo.lock', bytes: 7, sha256: hash },
     { path: 'src/third_party/codex/codex-rs/.cargo/config.toml', bytes: 7, sha256: hash }] };
   const release = p.releaseIdentity(selected, source, hash);
   const receipt = { schema: 'vcp-local-build/1', exit_code: 0, cargo_exit_code: 0, source_commit: commit,
@@ -27,7 +27,10 @@ function fixture() {
       '--bin', 'vcp', '--target', selected.target, '--target-dir', '/output/cargo-target', '-j', '2', '--message-format=json-render-diagnostics'],
     rustflags: ['-C', 'link-arg=/STACK:8388608', '-C', 'target-feature=+crt-static'], rustc: ['rustc 1.95.0', 'release: 1.95.0'],
     native_tools: ['cl', 'link', 'lib', 'cmake', 'ninja', 'rustc', 'cargo', 'node'].map(name => ({ name, sha256: hash })),
-    upstream_before_sha256: hash, upstream_after_sha256: hash, log_sha256: hash, cargo_configs: [{ sha256: hash }] };
+    upstream_before_sha256: hash, upstream_after_sha256: hash, log_sha256: hash, cargo_configs: [{ sha256: hash }],
+    dependency_sources_stable: true, dependencies_before_sha256: hash, dependencies_after_sha256: hash,
+    dependency_source: { schema: 'vcp-release-dependencies/1', status: 'verified', target: selected.target,
+      components: 1, workspace_lock_sha256: hash, inventory_sha256: hash } };
   return { selected, source, receipt, release };
 }
 test('strict receipt refuses dirty, stale, unverified, wrong-version and qualification builds', () => {
@@ -45,6 +48,7 @@ test('strict receipt refuses dirty, stale, unverified, wrong-version and qualifi
     r => { r.command.push('--config', 'unreviewed.toml'); }, r => { r.cargo_configs[0].sha256 = 'b'.repeat(64); },
     r => { r.rustflags.push('-C', 'opt-level=0'); }, r => { r.rustc = ['release: 1.94.0']; },
     r => { r.native_tools.pop(); }, r => { delete r.log_sha256; }, r => { r.cargo_configs = []; },
+    r => { r.dependency_sources_stable = false; }, r => { r.dependency_source.workspace_lock_sha256 = 'b'.repeat(64); },
   ];
   for (const mutate of mutations) {
     const changed = structuredClone(receipt); mutate(changed);

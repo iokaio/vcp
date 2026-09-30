@@ -124,6 +124,12 @@ function validateReceipt(receipt, selected, source, executableHash) {
   check(Array.isArray(receipt.cargo_configs) && receipt.cargo_configs.length === 1 && sha(receipt.cargo_configs[0].sha256), 'Missing committed Cargo configuration');
   check(receipt.cargo_configs[0].sha256 === source.files.find(row => row.path === 'src/third_party/codex/codex-rs/.cargo/config.toml')?.sha256,
     'Cargo configuration differs from reviewed source');
+  check(receipt.dependency_sources_stable === true && receipt.dependency_source?.schema === 'vcp-release-dependencies/1' &&
+    receipt.dependency_source.status === 'verified' && receipt.dependency_source.target === selected.target &&
+    receipt.dependency_source.workspace_lock_sha256 === source.files.find(row => row.path === 'src/third_party/codex/codex-rs/Cargo.lock')?.sha256 &&
+    receipt.dependency_source.components > 0 && sha(receipt.dependency_source.inventory_sha256) &&
+    sha(receipt.dependencies_before_sha256) && receipt.dependencies_before_sha256 === receipt.dependencies_after_sha256,
+  'Unverified or changed dependency source inventory');
   return receipt.release;
 }
 function verifyBuild(root, receiptFile, executable, reviewedCommit) {
@@ -145,14 +151,20 @@ function verifyBuild(root, receiptFile, executable, reviewedCommit) {
   for (const file of ['source-before.json', 'source-after.json']) {
     check(JSON.stringify(json(path.join(directory, file))) === JSON.stringify(source), 'Stale build source inventory');
   }
+  for (const [file, key] of [['dependencies-before.json', 'dependencies_before_sha256'], ['dependencies-after.json', 'dependencies_after_sha256']]) {
+    check(fileHash(path.join(directory, file)) === receipt[key] &&
+      JSON.stringify(json(path.join(directory, file))) === JSON.stringify(receipt.dependency_source), 'Dependency verification evidence mismatch');
+  }
   const artifacts = fs.readFileSync(path.join(directory, 'build.log'), 'utf8').split(/\r?\n/)
     .filter(line => line.startsWith('{')).map(line => JSON.parse(line)).filter(row => row.reason === 'compiler-artifact');
   check(artifacts.some(row => JSON.stringify(row) === JSON.stringify(receipt.compiler_artifact)), 'Compiler artifact absent from build log');
   return release;
 }
-function verifyPayloadSources(packageRoot, receipt) {
+function verifyPayloadSources(packageRoot, receipt, expectedNoticeHash) {
   const { enumerate } = require('../package-inventory.cjs');
   const inputs = new Map(receipt.inputs.map(row => [row.path, row.sha256]));
+  if (expectedNoticeHash) require('./notices.cjs').verifyStaged(packageRoot, expectedNoticeHash,
+    inputs.get('src/third_party/codex/codex-rs/Cargo.lock'), receipt.executable_sha256);
   const direct = new Map([
     ['LICENSE', 'LICENSE'], ['NOTICE', 'NOTICE'], ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md'],
     ['tools/package-install.ps1', 'scripts/package-install.ps1'],
@@ -163,6 +175,7 @@ function verifyPayloadSources(packageRoot, receipt) {
   for (const row of enumerate(packageRoot)) {
     if (row.path === 'vcp.exe') { check(row.sha256 === receipt.executable_sha256, 'Staged executable mismatch'); continue; }
     if (row.path === 'build-receipt.json') continue;
+    if (expectedNoticeHash && (row.path === 'component-inventory.json' || row.path === 'PREREQUISITES.md' || row.path.startsWith('licenses/'))) continue;
     const source = row.path.startsWith('skills/builtin/') ? 'src/' + row.path : direct.get(row.path);
     check(source && inputs.get(source) === row.sha256, 'Staged asset differs from build source: ' + row.path);
   }

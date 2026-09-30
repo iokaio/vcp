@@ -61,6 +61,12 @@ if ($ModelManifest) {
         if ($record -is [string] -or $record.digest -notmatch '^[a-f0-9]{64}$' -or -not $record.id) { throw 'Model records require id and SHA-256 digest' }
     }
 }
+$noticeBundle = $null
+if ($Release) {
+    $noticeJson = & $node.Source (Join-Path $PSScriptRoot 'release/notices.cjs') stage $repository $package ([IO.Path]::GetFullPath($BuildReceipt))
+    if ($LASTEXITCODE -ne 0) { throw 'Strict release dependency/license inventory failed' }
+    $noticeBundle = $noticeJson | ConvertFrom-Json
+}
 $gitCommitRaw = & git -c safe.directory=$($repository.Replace('\', '/')) -C $repository rev-parse HEAD 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $gitCommitRaw) { throw 'Cannot identify the package source Git commit' }
 $gitCommit = ([string]$gitCommitRaw).Trim()
@@ -88,11 +94,12 @@ $metadata = [ordered]@{
 }
 if ($Release) {
     $metadata.release = $releaseIdentity
+    $metadata.notices = $noticeBundle
     $metadata.target = [ordered]@{ os = 'Windows'; architecture = 'AMD64'; triple = $releaseIdentity.target }
     $metadata.compatibility.cli = 'vcp-cli/' + $releaseIdentity.native_version
     # Every copied resource must be one of the exact build inputs. This includes
     # catalog bodies/resources and installer helpers, not only the catalog hash.
-    & $node.Source -e "const p=require(process.argv[1]);p.verifyPayloadSources(process.argv[2],p.json(process.argv[3]));" $releaseTool $package $BuildReceipt
+    & $node.Source -e "const p=require(process.argv[1]);p.verifyPayloadSources(process.argv[2],p.json(process.argv[3]),process.argv[4]);" $releaseTool $package $BuildReceipt $noticeBundle.inventory_sha256
     if ($LASTEXITCODE -ne 0) { throw 'Staged release assets differ from reviewed build inputs' }
 }
 $inventoryTool = Join-Path $PSScriptRoot 'package-inventory.cjs'
