@@ -1,14 +1,14 @@
 # VCP — Vibe Code Pro
 
-VCP is an open-source experiment in a local coding agent that combines repository-aware coding, model selection through OpenRouter, persistent memory, and visible delegated work. The first planned release is a native Windows command-line application, licensed under Apache 2.0.
+VCP is an open-source local coding agent that combines repository-aware coding, model selection through OpenRouter, persistent memory, and visible delegated work. It includes a native Windows CLI, a TypeScript SDK and a VS Code extension, licensed under Apache 2.0.
 
-**Status: early implementation.** The repository includes a committed Codex foundation, native feasibility adapters and the [P1 canonical host](docs/development/p1-retained-host.md): typed state, durable commands, full capture, two canonical stores, shared accounting and rebuildable history. The [P0 handoff](docs/development/p0-handoff.md) and [P1 qualification](docs/evaluations/p1-completion.md) record their tested boundaries. VCP's installable application is not implemented. Capabilities below describe the intended product; they are not release claims.
+**Status: internal beta preparation.** The CLI, public API, SDK, editor workflows, configuration imports and governed hooks are implemented. Current work prepares an unsigned Windows x64 installer and matching pre-release VSIX. A qualified downloadable beta is not yet declared. See the [release plan](docs/release-planning/00-release-plan.md) and [implementation status](docs/release-planning/02-implementation-status.md) for completed changes, actual checks and remaining installed-product gates.
 
-## What VCP is intended to do
+## What VCP does
 
-VCP should help a developer understand a repository, review changes, and implement work that fits the existing architecture. A task should retain its history, account for model costs, explain significant decisions, and recover when the terminal closes.
+VCP supports repository analysis, change review and implementation through one engine that owns task history, model accounting, authorization and recovery. The beta qualification matrix checks these integrated behaviors against the final installed artifacts.
 
-| Planned capability | Intended behavior |
+| Capability | Behavior |
 |---|---|
 | Coding and verification | Inspect the workspace, prepare changes, run relevant checks, and report what actually passed |
 | Model routing | Select among model groups through OpenRouter using task needs, capabilities, cost, and project policy |
@@ -21,19 +21,19 @@ VCP should help a developer understand a repository, review changes, and impleme
 | Pause and recovery | Pause root and child work with `/pause` while keeping the CLI open, or on close; reconcile effects and deliberately resume |
 | Portable state | Transfer history, context, memory, and search state using encrypted snapshots and developer-controlled recovery material |
 
-The complete first-release scope includes these capabilities together. A basic coding loop is an engineering milestone, not the release acceptance boundary.
+The first-release scope includes these capabilities together. Implementation and historical qualification records do not replace current beta acceptance.
 
 ## Architecture and data boundaries
 
-The foundation is a Codex-derived Rust engine and CLI with maximum reasonable reuse of a working pinned baseline, selected Gemini behavioral adaptations and Munarium memory code. The [source map and setup](docs/development/p0-handoff.md) record exact imports, retained modules, candidate replacements and native qualification. Production integration and release support require the later task gates.
+The foundation is a Codex-derived Rust engine and CLI, selected Gemini behavioral adaptations and Munarium memory code. The [source map and setup](docs/development/p0-handoff.md) record the initial imports and qualification. Current source inventories and release receipts bind the selected implementations to each candidate.
 
 Selected Codex source is copied into `src/third_party/codex/` as ordinary repository files. The [native baseline build and source records](docs/development/codex-source.md) consume those files directly, without fetching Codex or applying patches. [ADR-013](docs/adr/013-upstream-reuse-and-vendoring.md) defines independent reconstruction and upstream maintenance. The [selected Munarium libraries](docs/development/munarium-source.md) share that Cargo workspace and have native test commands. A private [integration host](docs/development/p0-integration.md) qualifies VCP controls around the retained loop; the ordinary upstream CLI is not the VCP product.
 
-One engine owns task state, authorization, the canonical store, and cost accounting. UI clients and adapters do not create competing schedulers or bypass those controls. SQLite is the proposed default canonical store; a files/journal preference is evaluated against the same durability and portability contracts.
+One engine owns task state, authorization, the canonical store, and cost accounting. UI clients and adapters do not create competing schedulers or bypass those controls. SQLite and Files canonical stores follow the same durability and portability contracts and both require beta qualification.
 
-The engine, memory, indexes, and embeddings are intended to run on the developer's machine without a hosted VCP backend. Coding requests and model-assisted work use OpenRouter, so selected prompt/context content is sent to the configured model service. Local embeddings do not imply that all model activity is offline. External MCP tools have their own declared access requirements.
+The engine, memory, indexes, and embeddings run on the developer's machine without a hosted VCP backend. Coding requests and model-assisted work use OpenRouter, so selected prompt/context content is sent to the configured model service. Local embeddings do not imply that all model activity is offline. External MCP tools have their own declared access requirements.
 
-Active local code, databases, history, and indexes remain plaintext. Every VCP snapshot object and manifest destined for a cloud sync folder must be encrypted locally before publication. Recovery keys remain under developer control and outside that folder. The [storage prototype](docs/development/portable-storage-spike.md) qualifies bounded encrypted handoff; production formats, activation and key UX remain planned.
+Active local code, databases, history, and indexes remain plaintext. VCP encrypts snapshot objects and manifests locally before publishing to a cloud sync folder. Recovery keys remain under developer control and outside that folder. Follow the [recovery instructions](docs/usage/beta-recovery.md); independent-machine recovery remains a current beta qualification gate.
 
 See the [architecture](docs/architecture/vcp-what.md) for contracts, invariants, failure behavior, and open decisions.
 
@@ -54,6 +54,9 @@ scripts/    Build, test, evaluation, and packaging entry points as implemented
 
 | Goal | Document |
 |---|---|
+| Prepare an internal beta installation | [Installation and prerequisites](docs/usage/beta-installation.md) |
+| Set up a provider and run a task | [First task and metadata renewal](docs/usage/beta-onboarding.md) |
+| Check support limits and report a problem | [Known issues and safe support](docs/usage/beta-known-issues.md) |
 | Browse the documentation | [Documentation index](docs/README.md) |
 | Understand the intended product | [Architecture and requirements](docs/architecture/vcp-what.md) |
 | Find the next implementation task | [Plan and execution order](docs/plan/README.md) |
@@ -81,7 +84,7 @@ Read the contribution guide, make a focused change, verify its relative links an
 git diff --check
 ```
 
-With Git, PowerShell 7 and Node.js 24 or later, run `npm ci --prefix src/tests --ignore-scripts --no-audit --no-fund`, then `pwsh -NoProfile -File scripts/test.ps1 -Suite fast`. This checks repository, harness and imported-source contracts. `scripts/build.ps1` builds the selected Codex baseline with the [documented Rust/native prerequisites](docs/development/codex-source.md). Packaging and VCP product runtime suites remain planned.
+With Git, PowerShell 7 and Node.js 24 or later, run `npm ci --prefix src/tests --ignore-scripts --no-audit --no-fund`, then `pwsh -NoProfile -File scripts/test.ps1 -Suite fast`. This checks repository, harness and imported-source contracts. `scripts/build.ps1` builds the selected Codex baseline with the [documented Rust/native prerequisites](docs/development/codex-source.md). VCP's [production build and distribution guide](docs/development/p8-distribution.md) describes the separate product build, package receipts and native qualification runners. A fast-suite pass does not qualify an installed beta.
 
 ## Delivery roadmap
 
@@ -91,7 +94,7 @@ With Git, PowerShell 7 and Node.js 24 or later, run `npm ci --prefix src/tests -
 4. Complete routing, optimization, skills, MCP, and visible delegation.
 5. Pass integrated owner acceptance and package a native Windows release with notices and provenance.
 
-The public API, TypeScript SDK, VS Code extension, executable hooks, foreign configuration import, and additional operating environments are deferred. Follow the [plan](docs/plan/README.md) for exact task dependencies; this roadmap does not promise dates or completed milestones.
+The public API, TypeScript SDK, VS Code extension, governed executable hooks and foreign configuration import are implemented. The [internal beta plan](docs/release-planning/00-release-plan.md) owns current packaging and acceptance work. Non-Windows and remote workspaces remain outside the selected beta scope.
 
 ## Contributing and community
 

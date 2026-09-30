@@ -74,6 +74,10 @@ function validateMetadata(metadata = {}) {
   if (!Array.isArray(result.runtime) || !result.model_provisioning || !Array.isArray(result.model_provisioning.records)) {
     throw Error('Invalid runtime or model provisioning metadata');
   }
+  if (metadata.documentation !== undefined) {
+    if (metadata.documentation !== 'docs/usage/beta-installation.md') throw Error('Invalid packaged documentation entry');
+    result.documentation = metadata.documentation;
+  }
   if (metadata.release) {
     if (metadata.release.schema !== 'vcp-release-identity/1' || result.build.status !== 'verified-release-build' ||
         result.source.dirty !== false || metadata.release.reviewed_commit !== result.source.git_commit) {
@@ -98,6 +102,7 @@ function buildManifest(packageRoot, metadata, excluded = ['manifest.json']) {
   const excludedSet = new Set(excluded);
   manifest.files = enumerate(packageRoot).filter(file => !excludedSet.has(file.path));
   if (!manifest.files.length) throw Error('Distribution must contain at least one payload file');
+  if (manifest.documentation && !manifest.files.some(file => file.path === manifest.documentation)) throw Error('Packaged documentation entry is missing');
   manifest.payload_sha256 = digest(Buffer.from(JSON.stringify(manifest.files)));
   return manifest;
 }
