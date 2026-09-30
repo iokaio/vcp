@@ -1,6 +1,8 @@
 # Skills upgrade: runtime, helpers and content
 
-Status: complete, September 30, 2026 (catalog `1.41.0`). Follows the completed
+Status: SU series complete, September 30, 2026 (catalog `1.41.0`); the
+[post-upgrade review and SH series](#post-upgrade-review-and-hardening-plan-sh-series)
+is planned. Follows the completed
 [skills development plan](skillsplan-new.md) (SP-01 through SP-12, catalog
 `1.10.0`). Decision: [ADR-070](../adr/070-skill-resource-roles-and-discovery.md).
 [ADR-069](../adr/069-practical-skill-ports.md) policy is unchanged: pinned and
@@ -477,3 +479,470 @@ little headroom on this host.
   slower Windows hosts.
 * **Real-tool evidence.** A real Excel-saved workbook fixture and an installed
   axe-core run would give stronger evidence.
+
+# Post-upgrade review and hardening plan (SH series)
+
+Status: planned, September 30, 2026. The owner requested a full review of the
+skills implementation after SU-15; the findings are recorded here, skill by
+skill, together with the work items that address them. Decision:
+[ADR-071](../adr/071-on-demand-skill-references.md). Delivery rules are
+unchanged from the SU series: one PR per item, one PR per skill for package
+changes, merge on green CI, record actual and unrun checks.
+
+Owner choices for this series:
+
+* add an on-demand `reference` resource role, recorded in ADR-071;
+* add an Ubuntu Rust job to routine CI;
+* record the findings and work items in this plan.
+
+Severity: **H** high, **M** medium, **L** low.
+
+## Findings: runtime and tooling
+
+Discovery and resolution (`vcp-extensions`):
+
+* **H: one source can break discovery.** Discovery shares its entry and
+  descriptor budgets across all sources, and any one source's limit or open
+  error fails the whole call (`discovery.rs`). A large workspace source can
+  leave the session with no skills.
+* **M: disabling an override hides the builtin.** Disabling the
+  highest-precedence copy of a bare id errors instead of falling back to the
+  builtin copy.
+* **M: shadowing is silent.** A cross-precedence shadow produces no
+  diagnostic.
+* **L: limits differ between components.** The license length is 128 in the
+  catalog and 256 in the descriptor. The skill count is 128 in Rust and 64 in
+  the stager. Descriptor bytes are 64 KiB in the validator and 16 KiB in
+  discovery.
+* **L: diagnostic paths keep Windows separators.**
+
+Lifecycle and `vcp_skill`:
+
+* **H: `vcp_skill` is offered in child tasks**, where no skill state exists, so
+  it can only fail.
+* **M: the model cannot see what it may copy.** Nothing lists an active skill's
+  `file` resources, so the model must guess helper paths from the body text.
+* **M: large markers are missed.** Marker detection reads up to 64 KiB of each
+  marker file on every turn, and misses a larger `package.json`. It should
+  check existence instead.
+* **M: discovery ordering ignores relevance.** The list is sorted by qualified
+  id and truncated. Cue-matched skills are not listed first, and `total`
+  counts incompatible or disabled skills.
+* **M: repeated work per request.** Each request re-captures the discovery
+  artifact. Skill validation and the tool-ceiling lookup re-read the store
+  every time.
+* **M: incompatibility fails every turn.** An active skill that becomes
+  incompatible makes every later turn fail instead of being reported as
+  unavailable.
+* **M: hooks see materialization inconsistently.** Before-hooks see
+  `vcp_patch`, after-hooks see `vcp_skill`, and neither receives the skill,
+  resource or digest.
+* **M: the CLI and runtime compute compatibility differently.** The CLI's
+  offline compatibility tools differ from the runtime's, so `vcp skills list`
+  can disagree with activation.
+* **L: materialization rough edges.**
+  * The destination's parent must exist, and the tool schema does not say so.
+  * Destination validation is duplicated.
+  * Ambiguous skill ids are not listed.
+  * `/skills list` hides active resources.
+  * Five `LICENSE.txt` files lack a trailing newline, so they cannot be
+    materialized.
+
+Tooling and CI:
+
+* **H: the validator is looser than the runtime.** It accepts descriptors that
+  discovery rejects (64 KiB against 16 KiB). It does not check that the body is
+  UTF-8, that `file` resources can be materialized, that cues can be emitted,
+  that `required_tools` names exist, or links to undeclared files. It is not
+  run against the shipped packages.
+* **M: `rehash` has no safe mode.** It writes before validating, has no check
+  mode, accepts an installed tree, and does not warn when content changes but
+  the version does not.
+* **M: no Rust skill test runs in routine CI.**
+* **M: coverage gaps in tests.** Untested behavior includes discovery-context
+  contents, end-to-end marker detection, missing-parent and CRLF or binary
+  materialization, the path where a hook rewrite fails the exact-bytes check,
+  and child tasks.
+* **L: the asset enumerator cap is near.** It is 256 entries, and the tree
+  already has 147.
+* **L: `plain()` repeats ancestor checks** within a call.
+
+## Findings: workflow skills
+
+Across packages:
+
+* **M: every reference is sent.** Bodies say to read only matching references,
+  but all context references are sent on activation. Context bytes
+  (body plus context resources):
+
+  | Package | Context bytes |
+  |---|---:|
+  | llm-integration | 30,967 |
+  | frontend-design | 20,068 |
+  | mcp-development | 18,651 |
+  | spreadsheet-workflows | 12,976 |
+  | webapp-testing | 11,695 |
+  | document-authoring | 10,404 |
+  | skill-authoring | 9,226 |
+  | pdf-workflows | 7,963 |
+
+* **M: nothing reports or limits context size.**
+* **L: stale version line.** `UPSTREAM.md` line 3 says "VCP 2.0.0" in three
+  packages.
+
+### document-authoring
+
+* **L: missing triggers.** The description omits READMEs, release notes,
+  changelogs and postmortems.
+* **L: routing wording implies selective loading.**
+* **L: no descriptor-and-link test.**
+
+### skill-authoring
+
+* **M: validator drift from the runtime**, as listed under tooling.
+* **M: no context-budget report.**
+* **L: raw error on a missing resource.** The validator throws a raw ENOENT.
+* **L: no exact run command.** The body gives no `node validate.cjs <dir>` step
+  and no note that destinations use forward slashes.
+* **L: untested.** The CLI exit code and size limits have no tests.
+
+### frontend-design
+
+* **M: large context.** 20 KB is sent with "load when" wording, and
+  reduced-motion and contrast guidance repeats across four files.
+* **L: no descriptor-and-link test.**
+
+### mcp-development
+
+* **M: `server-patterns.md` is 14.3 KB of context.** It combines Python,
+  TypeScript, elicitation and authorization.
+* **M: the tests prove little.**
+  * They only parse Python snippets; the TypeScript snippet is unchecked.
+  * The API claims have no in-repository evidence.
+  * The test ignores `VCP_SKILLS_ROOT`.
+* **L: broken license pointer.** The asset's license pointer `../LICENSE.txt`
+  breaks after materialization.
+
+### llm-integration
+
+* **H: the largest context package.** It sends 31 KB although only the
+  selected provider's reference is needed. `assets/tool-schema.json` can be
+  derived from the neutral schema.
+* **M: weak model-ID test.** The pattern misses `claude-sonnet-4-5`, `o3` and
+  similar names.
+* **L: undated claims.** Date-sensitive provider claims lack a re-check date.
+
+### webapp-testing
+
+* **M: raw Playwright error text is printed.** It can include page HTML or
+  text.
+* **M: stale commands.** Reference commands use the package path instead of
+  the materialized copy.
+* **M: blocked requests are not documented or named.** Any blocked request
+  fails the check; the docs do not say so and blocked origins are not listed.
+* **L: outputs are not contained.** Screenshot and ARIA output paths are not
+  checked against the project root.
+* **L: inaccurate body line.** The body says text capture is opt-in, but
+  button labels are always returned.
+* **M: untested entry points.** `main`/`--help`, Playwright resolution,
+  page-error failure and service-worker blocking are untested.
+
+### pdf-workflows
+
+* **M: the install step cannot work as written.** It points at
+  `requirements.txt`, which is a `file` resource the body never materializes.
+* **M: misleading error.** A missing output parent reports "Path must stay
+  inside the existing workspace".
+* **M: `split` reorders pages.** It sorts and de-duplicates the requested
+  pages without saying so.
+* **L: `info` prints up to about 50 KB of metadata by default.**
+* **L: output is validated late.** Output paths are checked after parsing.
+* **L: vague merge error.** The combined-limit error does not name the limit.
+* **L: junction checks need Python 3.12.** Undocumented.
+* **M: duplicated path code.** `local_path` and the I/O helpers duplicate the
+  spreadsheet helper; there is no parity test.
+* **L: untested edge cases.** Links, a missing parent and the AES dependency
+  error.
+
+### spreadsheet-workflows
+
+* **M: `_xHHHH_` text is silently changed (confirmed bug).** `create` and
+  `csv-import` store `_xHHHH_` text unescaped, and Excel decodes it. `edit`
+  refuses the same text.
+* **M: CSV headers are refused.** Header cells beginning with `=`, `+`, `-` or
+  `@` are refused even when the column is text.
+* **M: table refusal depends on the engine.** It relies on matching the
+  engine's error wording.
+* **L: incomplete sheet-name validation.** Leading or trailing `'`, "History"
+  and control characters are accepted.
+* **M: Excel 365 parts rejected.** Common parts (`xl/metadata.xml`,
+  thumbnails, comments) are rejected. No real Excel-saved file has been
+  tested.
+* **L: docs gaps.** They do not say that sheet names are printed on stdout,
+  that ranges must be uppercase and unqualified, or the install and
+  missing-parent notes.
+
+## Findings: baseline families, fixtures and docs
+
+Frozen fixtures and coverage:
+
+* **H: 11 of 42 fixture expectations are stale.** The fixture author still uses
+  the old 12 markers and an explicit-only family list. The python, jvm and
+  dotnet negative cases now emit cues, and shell, sql, data and infrastructure
+  are always listed. The qualification example would fail those cases, but it
+  runs only manually.
+* **M: coverage entries are stale.** Some rubric text is outdated, and the
+  `generic_suggestion` and `description_discovery` labels overlap.
+
+Families:
+
+* **H: python.** `uv run` may lock, sync and download; `hatch run` creates
+  environments.
+* **H: dotnet-powershell.** `build`, `test` and `format` restore implicitly
+  (NuGet network access and possibly private-feed credentials).
+* **M: implicit downloads elsewhere:**
+  * dart: `flutter test` and `analyze` run `pub get`.
+  * rust: rustup auto-installs a pinned toolchain.
+  * go: `GOTOOLCHAIN`, the proxy and read-only module mode are unguarded.
+  * jvm: bare `mvn` contradicts the wrapper rule.
+  * cpp: preset configuration can fetch dependencies.
+  * javascript-typescript: Corepack downloads and Yarn Plug'n'Play are not
+    covered.
+* **M: infrastructure.** It lacks concrete low-effect checks: `fmt`,
+  `validate` after `init -backend=false`, `helm template` or `lint`,
+  `kubectl --dry-run=client`, `compose config`, `actionlint`, and the
+  `pull_request_target` warning.
+* **L/M: sql and data.** `EXPLAIN ANALYZE` executes the statement, and
+  `dbt compile` connects to the warehouse.
+* **M: review-debug.** Bisecting in the current worktree is unsafe.
+* **L/M: git-workflow.** Missing: force-push, `branch -D`,
+  `worktree remove --force`, `--no-verify`, `git config` changes, and the
+  difference between `restore --staged` and `restore <path>`.
+* **M: stale "activate explicitly" sentences** in shell, sql, data,
+  infrastructure, jvm, go and dotnet.
+* **L: vague VCP commands.** memory-hygiene and project-optimize should name
+  the real surfaces (`vcp memory …`, `vcp prune …`, `vcp retention show`,
+  `/optimize …`).
+* **L: duplicated line 3.** The second half of line 3 repeats the Authority
+  line.
+* **M: detection gaps.** `meson.build`, `.vcxproj` and `.vbproj` are
+  undetected. Empty cues stay correct for infrastructure, sql, data and shell:
+  a cue would hide these always-listed skills.
+
+Docs drift:
+
+* `src/evals/skills/builtin/README.md` still describes explicit-only families.
+* `docs/development/p7-builtin-skills.md` stops at catalog 1.12.0 and still
+  says four families need explicit selection.
+* These say "every declared resource is loaded" or "21 skills" with no pointer
+  to the later state:
+  * `docs/development/cs1-authoring-skills.md`
+  * `docs/development/cs2-developer-skills.md`
+  * `docs/plan/24-skills-follow-on.md`
+  * `docs/claude-audit.md`
+* This plan's SU-03 specification still mentions a CLI surface for
+  materialization.
+
+## SH work items
+
+| Item | Dependency | Deliverable | State |
+|---|---|---|---|
+| SH-00 | Owner direction | This review, ADR-071 and the SH ledger | in review |
+| SH-01 | SH-02 | Ubuntu Rust CI job | planned |
+| SH-02 | None | Fixture v2 revision and shared marker source | planned |
+| SH-03 | None | Discovery robustness and resolution fixes | planned |
+| SH-04 | SH-00 | `reference` role, `vcp_skill read`, scoped tool, resource manifest | planned |
+| SH-05 | None | Runtime performance caching | planned |
+| SH-06 | None | Tooling: safe rehash, package contract checks | planned |
+| SH-07 | SH-04 | skill-authoring validator parity | planned |
+| SH-08 | None | pdf-workflows hardening | planned |
+| SH-09 | None | spreadsheet-workflows fixes | planned |
+| SH-10 | None | webapp-testing hardening | planned |
+| SH-11 | SH-04 | llm-integration on-demand references | planned |
+| SH-12 | SH-04 | mcp-development split references and tests | planned |
+| SH-13 | SH-04 | frontend-design and document-authoring | planned |
+| SH-14 | SH-06 | Baseline family safety and accuracy, one PR per family | planned |
+| SH-15 | SH-02 | Detection gaps | planned |
+| SH-16 | All | Docs drift close-out | planned |
+
+### SH-01: Ubuntu Rust CI job
+
+Add a cached job (keyed on `Cargo.lock` and the toolchain) that runs:
+
+* `cargo test -p vcp-extensions`;
+* the lifecycle skills unit tests, if they compile on Linux;
+* the SH-02 fixture qualification test.
+
+Windows-native tests stay in the manual job.
+
+### SH-02: Fixture v2 and marker parity
+
+* **One marker source.** Add `src/skills/builtin/markers.json`, read by
+  `vcp-lifecycle` through `include_str!` and by
+  `src/evals/skills/builtin/author-fixtures.cjs`.
+* **Fixture v2.** Generate a v2 revision with the corrected expectations.
+* **Coverage.** Update the stale rubric text and resolve the overlapping
+  selection labels.
+* **Qualification in CI.** Convert the `builtin_skill_qualification` example
+  into a test that runs in SH-01.
+
+### SH-03: Discovery robustness
+
+* **Per-source limits.** Give each source its own budget, and report its
+  failures as a diagnostic for that source only.
+* **Resolution.** Filter disabled candidates before choosing by precedence,
+  and add a `shadowed` diagnostic.
+* **Shared limits.** Define the limits once for Rust, the stager and the
+  validator.
+* **Markers.** Check marker existence with metadata instead of reading.
+* **Ordering.** List cue-matched skills first, and count compatible skills
+  only.
+* **Incompatibility.** Report an incompatible active skill as unavailable.
+
+**Tests:** one oversized source, a disabled override, and the discovery
+context contents.
+
+### SH-04: References and scoped vcp_skill (ADR-071)
+
+* **Role.** Add `ResourceUse::Reference`, mirrored in the catalog, stager and
+  validator.
+* **`read` action.** Add `vcp_skill read`, re-verified, UTF-8, at most 64 KiB.
+* **Ceiling and scope.** `vcp_skill` is implied by `vcp_read`, `materialize`
+  requires `vcp_patch`, and the tool is not offered in child tasks.
+* **Resource manifest.** Add a per-skill resource manifest part.
+* **Materialization fixes.**
+  * Pre-check the destination's parent and state it in the schema.
+  * Share one destination validator.
+  * List candidates for an ambiguous skill id.
+  * Give hooks a `materialized_from` payload.
+* **CLI.** Share `available_tools` with the runtime, and show resources and
+  shadowing in `/skills list`.
+
+**Tests:** lifecycle cases for `read`, refusals, child scope, the manifest and
+a missing parent, plus the CLI end-to-end test.
+
+### SH-05: Runtime performance
+
+* Reuse the discovery artifact when its bytes are unchanged.
+* Cache skill validation and ceiling lookups by revision.
+
+**Test:** a counter-based test of repeated turns.
+
+### SH-06: Tooling and contract checks
+
+* **`rehash`.** Validate in memory before writing, add a `--check` mode for
+  CI, refuse installed trees, and warn when content changes without a version
+  bump.
+* **Enumerator cap.** Raise it and warn near the limit.
+* **Contract tests:**
+  * validate every shipped package with zero warnings;
+  * enforce a per-package context budget;
+  * lint baseline bodies;
+  * parse every quoted `/…` command through the CLI parser.
+
+### SH-07: skill-authoring
+
+* **Validator parity:**
+  * a 16 KiB descriptor and a UTF-8 body;
+  * `file` materialization rules;
+  * the `reference` role;
+  * emittable cues and known tool names;
+  * undeclared links;
+  * a clear missing-resource error;
+  * a context-bytes report.
+* **Body.** Add the exact run command and the forward-slash note.
+* **Tests** for each.
+
+### SH-08: pdf-workflows
+
+* Materialize `requirements.txt` before installing.
+* Give a precise missing-parent error, and validate output paths early.
+* Name the limit in the combined-merge error.
+* Preserve or document the `split` page order.
+* Bound `info` output on stdout.
+* Document `--root .` and the junction limits before Python 3.12.
+* Add a parity test for the shared path code, and tests for links, a missing
+  parent and AES.
+
+### SH-09: spreadsheet-workflows
+
+* Reject or escape `_xHHHH_` text in `create` and `csv-import`.
+* Treat header cells as explicit text.
+* Detect tables before calling the engine.
+* Tighten sheet-name validation.
+* Decide on the Excel 365 parts.
+* Fix the documentation gaps.
+* Add regression tests for each.
+
+### SH-10: webapp-testing
+
+* Bound Playwright error text.
+* Name blocked origins and document that they fail the check.
+* Contain output paths.
+* Use the materialized copy in reference commands.
+* Correct the body line about text capture.
+* Test `main`, resolution, page errors and service-worker blocking.
+
+### SH-11: llm-integration
+
+* Move the provider references to `reference`.
+* Derive or demote the Anthropic tool-schema asset.
+* Strengthen the model-ID test.
+* Add re-check dates to date-sensitive claims.
+
+### SH-12: mcp-development
+
+* Split the server patterns into Python, TypeScript and protocol references.
+* Honor `VCP_SKILLS_ROOT` and check the TypeScript snippet.
+* Record how the API claims were checked.
+* Fix the asset's license pointer.
+
+### SH-13: frontend-design and document-authoring
+
+This is two PRs, one per skill.
+
+* Move references to `reference` where they are topic-specific.
+* Remove repeated accessibility text.
+* Broaden the document-authoring description triggers.
+* Add descriptor-and-link tests.
+* Fix the stale `UPSTREAM.md` version lines; each rides with its own package's
+  PR.
+
+### SH-14: Baseline family safety and accuracy
+
+One PR per family:
+
+* **Network and install safety.** Add explicit guards against hidden
+  downloads for python, dotnet-powershell, dart, rust, go, jvm, cpp and
+  javascript-typescript.
+* **Effects.** Name the low-effect checks for infrastructure, sql and data.
+* **Safer git guidance.** Bisect in a task-owned worktree (review-debug), and
+  complete the destructive-command list (git-workflow).
+* **Stale sentences.** Replace the "activate explicitly" wording.
+* **Commands.** Name the real VCP commands, verified by the SH-06 command
+  test.
+* **Line 3.** Remove its duplicated half.
+
+### SH-15: Detection gaps
+
+* Add `meson.build`, `*.vcxproj` and `*.vbproj` markers.
+* Add them to the cpp and dotnet-powershell cues.
+* Keep the documented empty cues.
+
+### SH-16: Docs drift close-out
+
+* Update the evals README and the builtin catalog notes.
+* Add later-state pointers to the CS and plan documents and the audit.
+* Correct this plan's SU-03 wording.
+* Close the SH ledger.
+
+**Order:**
+
+1. SH-00, SH-06 and SH-02.
+2. SH-01.
+3. SH-03 and SH-05.
+4. SH-04.
+5. SH-07.
+6. SH-08 to SH-14, as parallel content work; SH-11 to SH-13 need SH-04.
+7. SH-15.
+8. SH-16.
