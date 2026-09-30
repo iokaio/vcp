@@ -80,6 +80,43 @@ qualified transformation receipt is implemented. Pairing records
 `qualification-required`; it does not pass installed-product tests, owner
 acceptance or publication gates.
 
+### BETA-05 dependency, license and prerequisite inventory
+
+Strict builds verify the locked Windows normal/build dependency graph before and
+after compilation. Registry source files must match their checksum-verified
+original `.crate` archives; Git sources must match their pinned clean checkout.
+Only Cargo's documented cache markers are tolerated as extra extracted metadata.
+This validation is offline and does not rebuild dependencies. Its stable
+`vcp-release-dependencies/1` receipt binds the source and license selection to the
+native build; a modified cache fails before compilation or candidate acceptance.
+
+Strict packaging reruns the verification, joins compiler-observed package
+identities to the selected graph and produces `component-inventory.json`,
+`licenses/` and `PREREQUISITES.md`. Full license/notice bytes come from pinned
+Cargo archives, Git commits and the reviewed
+[license overrides](../../release/license-overrides.json). Identical license
+texts share one SHA-256 filename; per-package attributions and original paths
+remain in the inventory. PostgreSQL/Snowball, Munarium, Codex/WezTerm and embedded
+system-skill notices are included alongside the separately hashed VCP skill
+payload. Linux bubblewrap, non-Windows voice binaries, model weights and optional
+helper runtimes are excluded from this Windows payload.
+
+Original source archives for MPL-only components are supplied unchanged in
+`licenses/sources`, under their original terms. Those archives preserve upstream
+tests and documentation as source material, not runnable VCP qualification
+fixtures. The inventory distinguishes normal dependencies from build tools and
+records compiler observations rather than assuming every dependency contributes
+surviving linked code. It also records two precise provenance limits: published
+Apache packages that omit a standalone text receive the full selected standard
+license, and `debugserver-types` publishes an MIT declaration/authors without a
+standalone notice, so its declaration, standard terms and original source are
+all preserved. No missing text is silently marked complete.
+
+The [packaged prerequisite matrix](../../release/package-prerequisites.md) names
+user-provisioned Python/Node/helper/browser/model requirements. Focused inventory
+tests and an offline cache audit do not replace final installed helper smokes,
+clean-machine qualification or the BETA-09 secret/payload review.
+
 ```powershell
 pwsh -File scripts/package.ps1 -Executable artifacts/vcp.exe `
   -BuildReceipt artifacts/build-receipt.json -OutputRoot artifacts/p8-distribution

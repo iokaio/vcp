@@ -4,6 +4,8 @@
 # Preserve imported source bytes independently of a contributor's autocrlf setting.
 /src/third_party/codex/** -text
 /src/third_party/munarium/** -text
+# Pinned upstream license hashes refer to original bytes, including line endings.
+/release/licenses/upstream/** -text whitespace=-blank-at-eof,-blank-at-eol
 # Unified patches use a single space for empty context lines; hashes and
 # independent reconstruction validate their exact contents.
 /src/third_party/patches/**/*.patch whitespace=-blank-at-eol

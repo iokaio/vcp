@@ -76,10 +76,19 @@ $rustflags = @('-C','link-arg=/STACK:8388608','-C','target-feature=+crt-static')
 $env:CARGO_ENCODED_RUSTFLAGS = $rustflags -join [char]31
 $arguments = @('+1.95.0','build','--locked','--offline','--release','--no-default-features','-p','vcp-cli','--bin','vcp','--target','x86_64-pc-windows-msvc','--target-dir',$target,'-j',"$Jobs",'--message-format=json-render-diagnostics')
 $log = Join-Path $out 'build.log'
+$dependenciesBefore = Join-Path $out 'dependencies-before.json'
+$dependenciesAfter = Join-Path $out 'dependencies-after.json'
+$noticesTool = Join-Path $PSScriptRoot 'release/notices.cjs'
+if ($Release) {
+    & node $noticesTool verify-source $repository > $dependenciesBefore
+    if ($LASTEXITCODE -ne 0) { throw 'Pinned dependency source/license verification failed before compilation' }
+}
 $started = [DateTime]::UtcNow
 Write-Output "Production build evidence: $out"
 Push-Location $workspace
 try { & cargo @arguments *> $log; $code = $LASTEXITCODE } finally { Pop-Location }
+$dependenciesCode = 0
+if ($Release) { & node $noticesTool verify-source $repository > $dependenciesAfter; $dependenciesCode = $LASTEXITCODE }
 & node (Join-Path $repository 'scripts/upstream/reconstruct.cjs') verify --component codex *> (Join-Path $out 'upstream-verification-after.log')
 $upstreamCode = $LASTEXITCODE
 $after = Join-Path $out 'source-after.json'
@@ -88,6 +97,13 @@ $source = Get-Content -LiteralPath $before -Raw | ConvertFrom-Json
 $finalSource = Get-Content -LiteralPath $after -Raw | ConvertFrom-Json
 $receipt = [ordered]@{schema='vcp-local-build/1'; exit_code=$code; cargo_exit_code=$code; source_commit=$source.commit; source_dirty=$source.dirty; source_content_sha256=$source.content_sha256; source_stable=($source.content_sha256 -ceq $finalSource.content_sha256 -and $upstreamCode -eq 0); upstream_before_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'upstream-verification.log')).Hash.ToLowerInvariant(); upstream_after_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'upstream-verification-after.log')).Hash.ToLowerInvariant(); cargo_configs=$cargoConfigs; rustflags=$rustflags; command=@('cargo')+$arguments; working_directory=$workspace; rustc=(& rustc +1.95.0 --version --verbose); msvc=$env:VCToolsVersion; started_at=$started.ToString('o'); ended_at=[DateTime]::UtcNow.ToString('o'); qualification_build=$false; profile='release'; target='x86_64-pc-windows-msvc'; inputs=$source.files; log_sha256=(Get-FileHash -LiteralPath $log).Hash.ToLowerInvariant()}
 $receipt.native_tools = @($nativeTools)
+if ($Release) {
+    $receipt.dependency_source = Get-Content -LiteralPath $dependenciesBefore -Raw | ConvertFrom-Json
+    $receipt.dependencies_before_sha256 = (Get-FileHash -LiteralPath $dependenciesBefore).Hash.ToLowerInvariant()
+    $receipt.dependencies_after_sha256 = (Get-FileHash -LiteralPath $dependenciesAfter).Hash.ToLowerInvariant()
+    $receipt.dependency_sources_stable = ($dependenciesCode -eq 0 -and $receipt.dependencies_before_sha256 -ceq $receipt.dependencies_after_sha256)
+    if (-not $receipt.dependency_sources_stable) { $receipt.exit_code = 1; $receipt.failure = 'Pinned dependency source or license inventory changed during compilation' }
+}
 $receipt.toolchain_stable = $true
 foreach ($tool in $nativeTools) {
     if (-not (Test-Path -LiteralPath $tool.path) -or (Get-FileHash -LiteralPath $tool.path).Hash.ToLowerInvariant() -cne $tool.sha256) { $receipt.toolchain_stable = $false }
