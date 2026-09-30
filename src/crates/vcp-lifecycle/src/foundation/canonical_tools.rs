@@ -37,9 +37,22 @@ impl<'de> serde::Deserialize<'de> for CanonicalTools {
         Ok(Self(selected))
     }
 }
+/// Model tools implied by a recorded ceiling name rather than recorded
+/// themselves. `vcp_skill` only produces an ordinary `vcp_patch` file
+/// creation (ADR-070), so it follows the patch ceiling and leaves recorded
+/// ceilings and legacy defaults unchanged.
+const IMPLIED: [(&str, &str); 1] = [("vcp_skill", "vcp_patch")];
+
 impl CanonicalTools {
     pub fn contains(&self, name: &str) -> bool {
         self.0.contains(name)
+    }
+    /// Whether the model may call `name` under this ceiling.
+    pub fn permits(&self, name: &str) -> bool {
+        self.contains(name)
+            || IMPLIED
+                .iter()
+                .any(|(implied, by)| *implied == name && self.contains(by))
     }
     pub fn is_all(&self) -> bool {
         self.0.len() == NAMES.len()
@@ -48,7 +61,17 @@ impl CanonicalTools {
         self.0.iter().map(String::as_str)
     }
     pub fn allowed_tools(&self) -> AllowedTools {
-        AllowedTools(self.names().map(ToolName::plain).collect())
+        AllowedTools(
+            self.names()
+                .chain(
+                    IMPLIED
+                        .iter()
+                        .filter(|(_, by)| self.contains(by))
+                        .map(|(implied, _)| *implied),
+                )
+                .map(ToolName::plain)
+                .collect(),
+        )
     }
     #[cfg(windows)]
     pub fn schemas(&self) -> Value {
@@ -57,7 +80,7 @@ impl CanonicalTools {
             definitions.retain(|value| {
                 value["name"]
                     .as_str()
-                    .is_some_and(|name| self.contains(name))
+                    .is_some_and(|name| self.permits(name))
             });
         }
         definitions
@@ -86,6 +109,13 @@ mod tests {
         assert!(!tools
             .allowed_tools()
             .contains(&ToolName::plain("vcp_verify")));
+        assert!(!tools.permits("vcp_skill"));
+        let patch: CanonicalTools = serde_json::from_value(json!(["vcp_patch"])).unwrap();
+        assert!(patch.permits("vcp_skill"));
+        assert!(patch
+            .allowed_tools()
+            .contains(&ToolName::plain("vcp_skill")));
+        assert!(serde_json::from_value::<CanonicalTools>(json!(["vcp_skill"])).is_err());
         assert_eq!(
             CanonicalTools::default().schemas(),
             crate::foundation::coding::schemas()

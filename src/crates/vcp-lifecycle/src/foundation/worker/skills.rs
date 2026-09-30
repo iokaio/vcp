@@ -57,6 +57,23 @@ struct TaskSkills {
     active: BTreeMap<String, Active>,
     disabled: BTreeSet<String>,
 }
+/// Model-supplied `vcp_skill` materialize arguments.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MaterializeRequest {
+    pub skill: String,
+    pub resource: String,
+    pub destination: String,
+}
+/// Verified resource bytes and the exact patch that creates them.
+pub struct Materialization {
+    pub skill: String,
+    pub resource: String,
+    pub destination: String,
+    pub sha256: String,
+    pub bytes: Vec<u8>,
+    pub patch: String,
+}
 fn name(scope: &Scope) -> Result<String> {
     Ok(format!(
         "skills-task-{}",
@@ -261,11 +278,17 @@ impl Context {
     }
     fn skill_match_task_context(&self, task: &TaskId) -> Result<MatchContext> {
         let ceiling = self.canonical_tools_for(task)?;
-        let mut tools: BTreeSet<String> = ["vcp_read", "vcp_list", "vcp_search", "vcp_patch"]
-            .into_iter()
-            .filter(|name| ceiling.contains(name))
-            .map(str::to_owned)
-            .collect();
+        let mut tools: BTreeSet<String> = [
+            "vcp_read",
+            "vcp_list",
+            "vcp_search",
+            "vcp_patch",
+            "vcp_skill",
+        ]
+        .into_iter()
+        .filter(|name| ceiling.permits(name))
+        .map(str::to_owned)
+        .collect();
         if !self.process_profiles.is_empty() && ceiling.contains("vcp_exec") {
             tools.insert("vcp_exec".into());
             tools.extend(self.process_profiles.keys().cloned());
@@ -563,6 +586,97 @@ impl Context {
             }
         }
         Ok(())
+    }
+    /// ADR-070 helper materialization: one verified `file` resource of an
+    /// active skill becomes an exact `vcp_patch` Add File request. The patch
+    /// then takes the ordinary prepare, policy, approval and receipt path; this
+    /// grants neither write nor execution authority by itself.
+    pub fn skill_materialization(
+        &self,
+        binding: &ThreadBinding,
+        request: &MaterializeRequest,
+    ) -> Result<Materialization> {
+        const MAX_BYTES: usize = 96 * 1024;
+        let destination = request.destination.as_str();
+        if destination.is_empty()
+            || destination.len() > 1024
+            || destination.chars().any(char::is_control)
+            || destination.contains('\\')
+            || vcp_repository::path::relative(std::path::Path::new(destination))? != destination
+        {
+            return Err(
+                "materialize destination must be a normalized workspace-relative path".into(),
+            );
+        }
+        self.validate_skills(binding)?;
+        let state = self.skill_state(&binding.scope)?;
+        let selected: Vec<_> = state
+            .active
+            .values()
+            .filter(|active| {
+                active.qualified_id == request.skill
+                    || active
+                        .qualified_id
+                        .rsplit("::")
+                        .next()
+                        .is_some_and(|id| id == request.skill)
+            })
+            .collect();
+        let [active] = selected.as_slice() else {
+            return Err("materialize requires exactly one matching active skill".into());
+        };
+        let package = std::path::Path::new(&active.descriptor_version.path)
+            .parent()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
+        let wanted = if package.is_empty() {
+            request.resource.clone()
+        } else {
+            format!("{package}/{}", request.resource)
+        };
+        let captured = active
+            .resources
+            .iter()
+            .find(|captured| captured.file.path == wanted)
+            .ok_or("resource is not declared by the active skill")?;
+        if captured.use_ != ResourceUse::File {
+            return Err("only use:file skill resources can be materialized".into());
+        }
+        let mut bytes = Vec::new();
+        vcp_audit::history::History::read_artifact(
+            self.engine.store(),
+            &self.history_access(),
+            &captured.artifact,
+            &mut bytes,
+        )?;
+        if digest_bytes(&bytes) != captured.file.sha256 {
+            return Err("active skill captured source changed".into());
+        }
+        let text = std::str::from_utf8(&bytes)
+            .map_err(|_| "only UTF-8 text resources can be materialized")?;
+        if bytes.is_empty()
+            || bytes.len() > MAX_BYTES
+            || text.contains('\r')
+            || !text.ends_with('\n')
+        {
+            return Err(
+                "materialize supports non-empty LF text up to 96 KiB ending in a newline".into(),
+            );
+        }
+        let mut patch = format!("*** Begin Patch\n*** Add File: {destination}\n");
+        for line in text.split_inclusive('\n') {
+            patch.push('+');
+            patch.push_str(line);
+        }
+        patch.push_str("*** End Patch\n");
+        Ok(Materialization {
+            skill: active.qualified_id.clone(),
+            resource: request.resource.clone(),
+            destination: destination.into(),
+            sha256: captured.file.sha256.clone(),
+            bytes,
+            patch,
+        })
     }
     pub(super) fn validate_skill_plan(
         &self,
