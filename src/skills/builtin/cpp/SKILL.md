@@ -1,6 +1,6 @@
 # C and C++ native builds
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Read the project
 
@@ -23,7 +23,7 @@ Identify architecture, generator, build type, language standard, and the affecte
    - `ctest --test-dir <build-dir> -R <pattern> --output-on-failure` (add `-C <config>` for multi-config generators)
    - `meson test -C <build-dir> <name>`, `bazel test //path:target`, `msbuild <project> /p:Configuration=<config>`
 
-Prefer the declared preset/target and test registration rather than inventing flags. Configure steps and dependency acquisition can execute or download code and need authority.
+Prefer the declared preset/target and test registration rather than inventing flags. Configuring, including `cmake --preset`, can download and build dependencies: vcpkg manifest mode installs `vcpkg.json` packages during configure, `FetchContent` and `ExternalProject` download sources, and Conan integrations fetch or build packages. Meson wraps and Bazel external repositories download similarly. Inspect the presets, toolchain file and `CMakeLists.txt` for these, prefer an existing configured build directory, and treat a fresh configure as a network and code-execution effect needing authority.
 
 ## Toolchain variants
 
