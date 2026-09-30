@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "dart",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Honor Dart/Flutter SDK, package constraints, generated-code, and project test conventions. Use when the project has pubspec.yaml or when editing Dart or Flutter code.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -16,7 +16,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "9f073e5931be433159b7e01c6ae92da1b22102c9908bcad0492ecd602452a12a"
+    "sha256": "600d032223a3b760bf0b5ba45d89dc8c1b86a840b8303d03c5f03b759654edb9"
   },
   "resources": []
 }
