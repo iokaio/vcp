@@ -187,7 +187,7 @@ try {
         Checked $node @('--test','--test-name-pattern','^prepared official archive resolves actual versioned layout',(Join-Path $repository 'src/tests/contracts/editor-layout.test.cjs'))
         Checked 'npm.cmd' @('test','--prefix',(Join-Path $repository 'src/packages/sdk-ts'))
         Checked 'npm.cmd' @('test','--prefix',(Join-Path $repository 'src/packages/vscode'))
-        Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/test.ps1'),'-Suite','fast')
+        Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/test.ps1'),'-Suite','fast','-OutputRoot',(Join-Path $out 'contracts'))
     }
     Stage 'production-build' @('pwsh','-File','scripts/build-production.ps1','-Release','-ReviewedCommit',$ReviewedCommit,'-Jobs',"$Jobs",'-OutputRoot',(Join-Path $out 'build')) 'Fresh offline Rust1.95 release build, no qualification features; source/cache/tool receipts stable.' {
         Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/build-production.ps1'),'-Release','-ReviewedCommit',$ReviewedCommit,'-Jobs',"$Jobs",'-OutputRoot',(Join-Path $out 'build'))

@@ -64,9 +64,14 @@ function packet(runFile, output) {
     if (secrets().some(value => bytes.includes(Buffer.from(value)))) throw Error('Receipt contains an environment credential; retain privately for review');
     save(relative, bytes); return JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, ''));
   }
-  function log(file, relative, expected) {
+  function log(file, relative, expected, structured = false) {
     if (retainedLogs.has(path.resolve(file))) return;
-    const bytes = ordinary(file), sanitized = sanitize(bytes.toString('utf8'));
+    const bytes = ordinary(file);
+    // Redact parsed string values in JSON: text replacement could consume an
+    // escape before a quote and leave a retained manifest unparsable.
+    const sanitized = structured
+      ? JSON.stringify(JSON.parse(bytes.toString('utf8'), (_key, value) => typeof value === 'string' ? sanitize(value) : value), null, 2) + '\n'
+      : sanitize(bytes.toString('utf8'));
     if (expected && hash(bytes) !== expected) validationFailures.push(`Retained log changed: ${relative}`);
     save(relative, sanitized);
     retainedLogs.add(path.resolve(file));
@@ -202,6 +207,49 @@ function packet(runFile, output) {
   for (const name of ['sdk-ts-install.log', 'sdk-ts-compile.log', 'vscode-install.log', 'vscode-compile.log']) {
     const file = path.join(path.dirname(path.resolve(runFile)), 'vsix', name);
     if (fs.existsSync(file)) log(file, `logs/vsix-${name}`);
+  }
+  // The delivery harness writes child diagnostics separately from its summary.
+  // Retain only the manifest and exact attempt stdout/stderr names; never walk
+  // test fixtures, private stores, browser profiles or arbitrary artifact paths.
+  const contracts = path.join(path.dirname(path.resolve(runFile)), 'contracts');
+  if (fs.existsSync(contracts)) {
+    try {
+      const plain = file => {
+        for (let current = file;; current = path.dirname(current)) {
+          if (fs.lstatSync(current).isSymbolicLink()) throw Error('Redirected contract evidence');
+          if (current === path.dirname(current)) break;
+        }
+        return file;
+      };
+      const guid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+      for (const entry of fs.readdirSync(plain(contracts), { withFileTypes: true })) {
+        if (!entry.isDirectory() || !guid.test(entry.name)) continue;
+        const directory = plain(path.join(contracts, entry.name));
+        const manifestFile = plain(path.join(directory, 'manifest.json'));
+        const manifest = JSON.parse(ordinary(manifestFile));
+        if (manifest.schema_version !== 1 || manifest.run_id !== entry.name || manifest.suite !== 'fast' ||
+            !Array.isArray(manifest.attempts)) throw Error('Invalid contract manifest');
+        log(manifestFile, `contracts/${entry.name}/manifest.json`, undefined, true);
+        const seen = new Set();
+        for (const attempt of manifest.attempts) {
+          if (!guid.test(attempt.attempt_id) || seen.has(attempt.attempt_id)) throw Error('Invalid contract attempt identity');
+          seen.add(attempt.attempt_id);
+          for (const stream of ['stdout', 'stderr']) {
+            const name = `${attempt.attempt_id}-${stream}.log`;
+            const file = path.join(directory, name);
+            const artifact = (attempt.artifacts || []).find(row => row.path === name);
+            if (!fs.existsSync(file)) {
+              if (artifact) validationFailures.push(`Missing contract log: ${name}`);
+              continue;
+            }
+            if (artifact && !/^[a-f0-9]{64}$/.test(artifact.sha256 || '')) throw Error('Invalid contract log digest');
+            // Interrupted attempts may have logs before their artifact hashes
+            // are finalized. Keep those diagnostics without claiming success.
+            log(plain(file), `contracts/${entry.name}/${name}`, artifact?.sha256);
+          }
+        }
+      }
+    } catch (error) { validationFailures.push(`contract evidence: ${sanitize(error.message)}`); }
   }
   const allPass = stages.every(id => observations.find(row => row.id === id)?.status === 'pass');
   const rows = matrix.map(([id, area, store, expected]) => ({ id, area, store, expected,

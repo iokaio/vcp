@@ -64,6 +64,19 @@ PowerShell parsing, JavaScript syntax and independent re-review passed.
 all required checks passing. The [candidate retry](https://github.com/iokaio/vcp/actions/runs/36786623642)
 selects reviewed main `5138f9360359285dee7b534165a7b5d15bcf7ab9`.
 
+That retry passed source validation, pinned editor verification, SDK/editor tests
+and most fast cases, but `cs3-webapp` and `p8-distribution` returned failure before
+production compilation. The retained packet contained the harness summary but
+omitted its separate child logs. Candidate execution now writes those logs below
+its own output root; the collector retains only validated manifests and exact
+attempt stdout/stderr names, with hashes and sanitization, excluding private
+fixture trees. Ten evidence regressions passed, including a real failing harness,
+interrupted capture, changed/missing logs and private-file exclusion. Independent
+review found no remaining issue. Both failing groups passed locally through the
+same sanitized harness and physical Node 24.10.0; no speculative test fix or gate
+waiver was applied. All five retained retry files passed checksum verification
+under `artifacts/beta-delivery/candidate-failure-36786623642`.
+
 The separate BETA-09 editor refusal runner now covers actual restricted mode,
 uninitialized/wrong-data/unselected-root failures and unsaved drafts invalidated
 by typing, undo or close/reopen. It binds the final native/setup/VSIX bytes and

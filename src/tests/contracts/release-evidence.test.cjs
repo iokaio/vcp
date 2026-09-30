@@ -149,3 +149,54 @@ if (-not $refused) { throw 'Timeout accepted' }
 `);
   execFileSync('pwsh',['-NoProfile','-File',script,'-Helper',path.resolve(__dirname,'../../../scripts/release/candidate-runtime.ps1'),'-Node',process.execPath,'-Root',f.root],{windowsHide:true,timeout:20000,stdio:'pipe'});
 });
+
+test('failed real harness retains sanitized child diagnostics without copying private fixtures',async t=>{
+  const f=fixture(t);f.run.status='fail';f.run.stages=[];
+  const {runSuite}=require('../support/harness.cjs');
+  const registry={schema_version:1,suites:{fast:['diagnostic']},cases:{diagnostic:{
+    task_ids:['BETA-08'],backends:['none'],requires:[],timeout_ms:10000,max_output_bytes:4096,
+    args:['-e','console.log("synthetic stdout");console.error("Authorization: Bearer synthetic-sensitive-value");process.exitCode=1'],
+  }}};
+  const actual=await runSuite({root:f.root,registry,selection:{suite:'fast',ids:['diagnostic'],backends:['none']},
+    outputRoot:path.join(f.root,'contracts'),source:{commit,dirty:false}});
+  assert.equal(actual.manifest.status,'fail');
+  const directory=path.dirname(actual.manifestPath), attempt=actual.manifest.attempts[0];
+  fs.writeFileSync(path.join(directory,'private-profile.json'),'private contents');
+  fs.mkdirSync(path.join(directory,'private-state'));
+  fs.writeFileSync(path.join(directory,'private-state',attempt.attempt_id+'-stdout.log'),'private nested contents');
+  const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+  assert.equal(result.pipeline_status,'fail');assert.deepEqual(result.validation_failures,[]);
+  assert.equal(result.files.length,3);assert(result.files.every(row=>row.path.startsWith('contracts/'+actual.manifest.run_id+'/')));
+  const retainedManifest=JSON.parse(fs.readFileSync(path.join(f.root,'packet/contracts',actual.manifest.run_id,'manifest.json'),'utf8'));
+  assert.equal(retainedManifest.run_id,actual.manifest.run_id);
+  assert.match(retainedManifest.attempts[0].command.at(-1),/Authorization: Bearer \[REDACTED\]/);
+  assert(!JSON.stringify(retainedManifest).includes('synthetic-sensitive-value'));
+  const retained=fs.readFileSync(path.join(f.root,'packet/contracts',actual.manifest.run_id,attempt.attempt_id+'-stderr.log'),'utf8');
+  assert.match(retained,/Authorization: Bearer \[REDACTED\]/);assert(!retained.includes('synthetic-sensitive-value'));
+  assert(result.log_transformations.some(row=>row.sanitized));
+  fs.appendFileSync(path.join(directory,attempt.attempt_id+'-stdout.log'),'changed after capture');
+  const changed=evidence.packet(f.write(),path.join(f.root,'changed'));
+  assert(changed.validation_failures.some(row=>row.includes('Retained log changed')));
+  fs.unlinkSync(path.join(directory,attempt.attempt_id+'-stderr.log'));
+  const missing=evidence.packet(f.write(),path.join(f.root,'missing'));
+  assert(missing.validation_failures.some(row=>row.includes('Missing contract log')));
+});
+
+test('interrupted harness logs survive while manifest paths cannot select other files',t=>{
+  const f=fixture(t);f.run.status='fail';f.run.stages=[];
+  const id='01234567-89ab-cdef-0123-456789abcdef';
+  const directory=path.join(f.root,'contracts',id);fs.mkdirSync(directory,{recursive:true});
+  const manifest={schema_version:1,run_id:id,suite:'fast',attempts:[{attempt_id:id,status:'running',
+    artifacts:[{path:'../../private-profile.json',sha256:digest}]}]};
+  fs.writeFileSync(path.join(directory,'manifest.json'),JSON.stringify(manifest));
+  fs.writeFileSync(path.join(directory,id+'-stdout.log'),'partial interrupted output');
+  f.file('private-profile.json','must remain private');
+  const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+  assert.equal(result.pipeline_status,'fail');assert.equal(result.files.length,2);
+  assert(result.files.some(row=>row.path.endsWith(id+'-stdout.log')));
+  assert(result.files.every(row=>!row.path.includes('private-profile')));
+  manifest.attempts[0].attempt_id='../invalid';
+  fs.writeFileSync(path.join(directory,'manifest.json'),JSON.stringify(manifest));
+  const invalid=evidence.packet(f.write(),path.join(f.root,'invalid'));
+  assert(invalid.validation_failures.some(row=>row.includes('attempt identity')));
+});
