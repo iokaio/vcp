@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.40.0",
+  "version": "1.41.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "04af8bd130e915289747bf85eed871732fd4998d1345c5c208ff809f89aa877a"
+    "sha256": "57699174ad123594031583afdeea443b27c3990221d3b2738108549b295062c7"
   },
   "skills": [
     {
@@ -550,12 +550,12 @@
     },
     {
       "id": "spreadsheet-workflows",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "descriptor": "spreadsheet-workflows/skill.json",
-      "descriptor_sha256": "4906a2c5898d39878dded98434f7b9aad3b188dbb35794379048d5e238b5686f",
+      "descriptor_sha256": "88d92935d1a855641fc40dd5dfffe8f77b75bfe22430c1d8e5ee371d0cee78e8",
       "body": {
         "path": "SKILL.md",
-        "sha256": "b730270c5a7fb6ebcced468b723670dc74b29425c9d29587c2500c3a5cc70324"
+        "sha256": "4f14555b17aa250ae8fde94cf38689ba1a28d3dbc7313fcc8cde6464a83f49b7"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
@@ -567,21 +567,21 @@
         },
         {
           "path": "NOTICE.md",
-          "sha256": "39caede9752f3864a83a4b7119ccc371f91018f85306ba2184133effbd02fa69",
+          "sha256": "53f205e7fcd218ffffa30068ccd4046589a54ca022c89d2234bd5b4a1d979925",
           "use": "file"
         },
         {
           "path": "references/tooling.md",
-          "sha256": "f946f503b02161d4c82ff7a552d7fdf03f168b8d2506acc79c8e086888acb563"
+          "sha256": "0f2c61de7a595bce6d1dd38d9310c22ff7647ec61f90bc32fbe9417f2d70c088"
         },
         {
           "path": "requirements.txt",
-          "sha256": "1becb09ba2ac7bc4f13ae3ad418952965a18a6dbe35fc8598235d8c6fef4a22d",
+          "sha256": "2b95e7efbc49a9c042c8670f38f4073ea5cefd867d12a5f848ac59d8cd7517a3",
           "use": "file"
         },
         {
           "path": "scripts/spreadsheet_workflows.py",
-          "sha256": "ea7954e515e2f9f787b94d90e3f2cad5bf6e942441b6609e5a85401bd2279f35",
+          "sha256": "e55f55067f189865982263a6df5313c5c1cb6753d698fdd155a77a62fef13f9b",
           "use": "file"
         }
       ]
