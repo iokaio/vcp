@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "memory-hygiene",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Inspect stale or duplicate memory and prepare scoped retention changes with explicit protection and backup limits. Use when asked to review, clean up or reorganize VCP memory.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "04d542849ae152bca4855da811315c4f504ee6a4eab93d29bd9d876a906dc7d0"
+    "sha256": "f534333747f36bf5b66da0181423f6778d557daeda09e1502d48994ea548730f"
   },
   "resources": []
 }
