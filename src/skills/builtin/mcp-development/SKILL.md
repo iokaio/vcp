@@ -8,7 +8,7 @@ A server is useful when its tools let a client accomplish the requested task. In
 
 Balance focused workflow tools with composable service operations. Expose the operations the task needs; do not mirror an entire API by default. Use descriptive, action-oriented names with a service prefix where collisions are likely, such as `issues_search` or `issues_create`. Descriptions should say what a tool does and when to use it.
 
-For a new server or tool surface, read [references/server-patterns.md](references/server-patterns.md), which includes input/output shapes, pagination, transport and error patterns. The optional [assets/paginated_result.py](assets/paginated_result.py) ports the upstream pagination response into a dependency-free bounded helper; use it only when the target project uses Python and offset pagination.
+For a new server or tool surface, read [references/server-patterns.md](references/server-patterns.md), which includes input/output shapes, pagination, transport and error patterns. The optional [assets/paginated_result.py](assets/paginated_result.py) ports the upstream pagination response into a dependency-free bounded helper; use it only when the target project uses Python and offset pagination. It is a `file` resource: copy it into the project with `vcp_skill` (action `materialize`), then adapt it there.
 
 ## Implement the service boundary
 

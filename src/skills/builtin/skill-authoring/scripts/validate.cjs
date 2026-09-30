@@ -28,7 +28,10 @@ function validateSkill(directory) {
   const seen = new Set(['skill.json']);
   let total = 0;
   for (const item of [descriptor.body, ...descriptor.resources]) {
-    if (!item || typeof item.path !== 'string' || !/^[a-f0-9]{64}$/.test(item.sha256) || Object.keys(item).some(k => !['path', 'sha256'].includes(k))) throw Error('Invalid content reference');
+    if (!item || typeof item.path !== 'string' || !/^[a-f0-9]{64}$/.test(item.sha256) || Object.keys(item).some(k => !['path', 'sha256', 'use'].includes(k))) throw Error('Invalid content reference');
+    // ADR-070 roles: omitted means context; file resources are verified but never context.
+    if ('use' in item && !['context', 'file'].includes(item.use)) throw Error('Invalid resource role');
+    if (item === descriptor.body && (item.use ?? 'context') !== 'context') throw Error('Skill body must be context');
     const parts = item.path.split('/');
     if (item.path.length > 512 || parts.some(p => !p || p === '.' || p === '..' || /[<>:"\\|?*\x00-\x1f]/.test(p) || /[. ]$/.test(p) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p))) throw Error('Invalid content path');
     const key = item.path.toLowerCase();

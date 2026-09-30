@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "document-authoring",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Write or revise specs, ADRs, runbooks, project updates and incident reports for their intended readers. Use when asked to draft, edit or restructure a technical or project document.",
   "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/internal-comms",
   "license": "Apache-2.0",
@@ -19,11 +19,13 @@
   "resources": [
     {
       "path": "LICENSE.txt",
-      "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+      "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+      "use": "file"
     },
     {
       "path": "NOTICE.md",
-      "sha256": "503c1f5df592b1fa2cc2744d461edbacb89bbc478b3107de5a89d45cf921f91c"
+      "sha256": "5fab0e05b5c9b5b717fd1c345cdf6ff9490ddf4db2d6f4d9320e6119260e62f9",
+      "use": "file"
     },
     {
       "path": "references/project-updates.md",

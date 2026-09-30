@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "frontend-design",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Design and implement interfaces with a deliberate visual direction, clear copy, responsive layout and complete interaction states in the user's existing stack. Use when building or restyling UI screens, components or pages.",
   "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/frontend-design",
   "license": "Apache-2.0",
@@ -19,11 +19,13 @@
   "resources": [
     {
       "path": "LICENSE.txt",
-      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+      "use": "file"
     },
     {
       "path": "UPSTREAM.md",
-      "sha256": "5a3e967fa7b14c5bdcf4739f7a48cf1c02f0a27354ef2735469c614b65570839"
+      "sha256": "5a3e967fa7b14c5bdcf4739f7a48cf1c02f0a27354ef2735469c614b65570839",
+      "use": "file"
     },
     {
       "path": "references/design-and-copy.md",

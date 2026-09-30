@@ -51,7 +51,8 @@ for ordinary delivery. Preserve old results under their original versions.
 
 ## Package and deliver
 
-Run the included scripts/validate.cjs with the package directory to check native
+The helper is a hash-verified `file` resource and is not in your context. Copy it with `vcp_skill` (action `materialize`, resource `scripts/validate.cjs`, destination a new file in an existing workspace directory, such as `validate.cjs`). Run the copy with `vcp_exec` only through an authorized Node process profile; otherwise report the helper as not run. Remove the copy with `vcp_patch` afterwards unless the user wants to keep it.
+Run it with the package directory to check native
 descriptor identity, paths and hashes. Follow the repository's canonical package
 validator and runtime tests for final acceptance; this helper is a local smoke
 check. Update changed versions, source notes, hashes, catalog and coverage.

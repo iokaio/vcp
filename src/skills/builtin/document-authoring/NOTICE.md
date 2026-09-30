@@ -2,7 +2,7 @@
 
 Adapted from Anthropic, PBC, [internal-comms](https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/internal-comms), Apache-2.0. See LICENSE.txt.
 
-VCP modifications (2026-09-29): native VCP descriptors and tool boundaries; concise authoring workflow; no fixed interview, provider CLI, background benchmark or sending authority. Existing VCP package-format guidance is original Apache-2.0 material.
+VCP modifications (2026-09-29): native VCP descriptors and tool boundaries; audience- and purpose-first guidance for specs, ADRs, runbooks, project updates and incident reports; explicit known/unknown facts; source text treated as data; no sending or publishing authority. references/project-updates.md adapts the upstream 3P update example.
 
 Selected upstream source bytes:
 

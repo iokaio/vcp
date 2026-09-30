@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.11.0",
+  "version": "1.12.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "25361da2762d6042670089ed901a52850686f9a0c2499c9c48e213500173644c"
+    "sha256": "cedd467f946554ca0b6fccec793f16f5eea71b7a8bbbcad1d95b0534f3afadc0"
   },
   "skills": [
     {
@@ -281,9 +281,9 @@
     },
     {
       "id": "document-authoring",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "descriptor": "document-authoring/skill.json",
-      "descriptor_sha256": "54cb8d94ed5ff086c4d76b2184310187f13b2f4b776e81af4246c0bda7017816",
+      "descriptor_sha256": "6eef6d57c3e70f0b9e9eb7483a4e15a6fd09bd892c823d30b6e7e3f301f389cd",
       "body": {
         "path": "SKILL.md",
         "sha256": "2cc4754c31b93945c9bad3af8b0b2285c6f57f33eb54f394280a7bad91e06ec7"
@@ -293,11 +293,13 @@
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+          "use": "file"
         },
         {
           "path": "NOTICE.md",
-          "sha256": "503c1f5df592b1fa2cc2744d461edbacb89bbc478b3107de5a89d45cf921f91c"
+          "sha256": "5fab0e05b5c9b5b717fd1c345cdf6ff9490ddf4db2d6f4d9320e6119260e62f9",
+          "use": "file"
         },
         {
           "path": "references/project-updates.md",
@@ -307,23 +309,25 @@
     },
     {
       "id": "skill-authoring",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "descriptor": "skill-authoring/skill.json",
-      "descriptor_sha256": "a9c273493ec46b303ae2cc34ab393381b33766f1a661a2bde1a47bcc08abff05",
+      "descriptor_sha256": "1e67c2eaf321f1a95b01eb9a626e32b8f82d82a048e037d28febd9b80e76505a",
       "body": {
         "path": "SKILL.md",
-        "sha256": "ce6b7b8582e9bd7f2d45f4cbc8784fdf97d134a97e673c0398448d4cb6518028"
+        "sha256": "2b94bd12475c84983bd633de5e8681b79485f1babe64da9cec180423b707a4dc"
       },
       "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/skill-creator",
       "license": "Apache-2.0",
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+          "use": "file"
         },
         {
           "path": "NOTICE.md",
-          "sha256": "26be9de527675ebd43dac68f0bd172107a53e81a067559cf2a8020ab033cb2c1"
+          "sha256": "26be9de527675ebd43dac68f0bd172107a53e81a067559cf2a8020ab033cb2c1",
+          "use": "file"
         },
         {
           "path": "references/package-format.md",
@@ -331,15 +335,16 @@
         },
         {
           "path": "scripts/validate.cjs",
-          "sha256": "8979bd4bb3eba6391dfd1576dd41dd00f132077b32f82c35cdab9e351dfe096a"
+          "sha256": "4bff7236839276a1ca45dc141b0c19c352d8ad9762ac033f21134ece8bfd23aa",
+          "use": "file"
         }
       ]
     },
     {
       "id": "frontend-design",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "descriptor": "frontend-design/skill.json",
-      "descriptor_sha256": "a3886ea8612fbede165a522762697d5d2cd50b70e1bd3d3680e9f3a39368f43f",
+      "descriptor_sha256": "c53a5d790525e00f82df696e0f94608fc3c4ee64d0f5ba45236f505bb1204a6f",
       "body": {
         "path": "SKILL.md",
         "sha256": "086ee5a7f525dd3e2808de72443df8cc25e709354778df63247d91ec710050b6"
@@ -349,11 +354,13 @@
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+          "use": "file"
         },
         {
           "path": "UPSTREAM.md",
-          "sha256": "5a3e967fa7b14c5bdcf4739f7a48cf1c02f0a27354ef2735469c614b65570839"
+          "sha256": "5a3e967fa7b14c5bdcf4739f7a48cf1c02f0a27354ef2735469c614b65570839",
+          "use": "file"
         },
         {
           "path": "references/design-and-copy.md",
@@ -363,27 +370,30 @@
     },
     {
       "id": "mcp-development",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "descriptor": "mcp-development/skill.json",
-      "descriptor_sha256": "d60e87e96083a4b838f244769efcd9fa3243e4b65e6a58307a98172aba6d6b1c",
+      "descriptor_sha256": "a676684a2a2d34bf33d466eda753ba70247d5614113e7d8f5a8a2df3901c8505",
       "body": {
         "path": "SKILL.md",
-        "sha256": "bc4ced3abaccfea88caea2f3e4a610cffe89166b0224548c856239d3f3f83f0d"
+        "sha256": "555aaca404e09c72d48fabd26d1514817fc1d85175c0ebd3839d3c8f5a50df60"
       },
       "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/mcp-builder",
       "license": "Apache-2.0",
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+          "use": "file"
         },
         {
           "path": "UPSTREAM.md",
-          "sha256": "cc568a7f710c04495520d9d20101371ca5dd371f6ced243292ff8be8f8bf122d"
+          "sha256": "cc568a7f710c04495520d9d20101371ca5dd371f6ced243292ff8be8f8bf122d",
+          "use": "file"
         },
         {
           "path": "assets/paginated_result.py",
-          "sha256": "190f0fd9459e687da9b48526f5f8ad76208300ffdb1a5e58e36e3b7c0853f06a"
+          "sha256": "190f0fd9459e687da9b48526f5f8ad76208300ffdb1a5e58e36e3b7c0853f06a",
+          "use": "file"
         },
         {
           "path": "references/server-patterns.md",
@@ -393,9 +403,9 @@
     },
     {
       "id": "llm-integration",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "descriptor": "llm-integration/skill.json",
-      "descriptor_sha256": "d6517ae874283e6eafc92f41aef958aa85cd01479da45e1f2a8bc8de8d41a951",
+      "descriptor_sha256": "9c4d1c7e13159ee9eadbe0ae55d4fe23a640bc7c2f81d23271262d7f8d69744e",
       "body": {
         "path": "SKILL.md",
         "sha256": "4fb6a7acbd2b2dd46c29d9032a0d82ba47983b91999783cbf05e4839a4ef2e88"
@@ -405,11 +415,13 @@
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+          "use": "file"
         },
         {
           "path": "UPSTREAM.md",
-          "sha256": "8b5e4641bac01109adc9f6e9df11f031d696efb3b3a9bf0c9982e08a37388911"
+          "sha256": "8b5e4641bac01109adc9f6e9df11f031d696efb3b3a9bf0c9982e08a37388911",
+          "use": "file"
         },
         {
           "path": "assets/tool-schema.json",
@@ -427,23 +439,25 @@
     },
     {
       "id": "webapp-testing",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "descriptor": "webapp-testing/skill.json",
-      "descriptor_sha256": "315cfe9c6362c2894420122eb398c51402afc2daa2a9b0ad5d7ac42b183e77f9",
+      "descriptor_sha256": "e82790ead321a7fc1f35f482434e3b49bd6926fa46ad83ef22e5e32fc2636e1f",
       "body": {
         "path": "SKILL.md",
-        "sha256": "aa8a8beba38d381f027085bae88c764672c45ab7c3776e1c81390e6760dde776"
+        "sha256": "b34c0037ee90a4b9569a74df752f663f6281f67c84f812bb59a118dfacf1a2ba"
       },
       "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/webapp-testing",
       "license": "Apache-2.0",
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+          "use": "file"
         },
         {
           "path": "UPSTREAM.md",
-          "sha256": "743c710b5116bece62c9d5c71e4c0cba15de259ad6491421378254f110e51e0b"
+          "sha256": "743c710b5116bece62c9d5c71e4c0cba15de259ad6491421378254f110e51e0b",
+          "use": "file"
         },
         {
           "path": "references/browser-patterns.md",
@@ -451,29 +465,32 @@
         },
         {
           "path": "scripts/check-page.cjs",
-          "sha256": "b3e686e11910ec3f7e83aa35669c0ac40f388e764de35db63d3a669b4cfd80bd"
+          "sha256": "b3e686e11910ec3f7e83aa35669c0ac40f388e764de35db63d3a669b4cfd80bd",
+          "use": "file"
         }
       ]
     },
     {
       "id": "pdf-workflows",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "descriptor": "pdf-workflows/skill.json",
-      "descriptor_sha256": "583ea2dba62c8613f20b0e3a7843e88791fa3353147c0348274b1a2e66e18095",
+      "descriptor_sha256": "20b997811d87fe5bae75f19f88800e42b940ee1a4d5eb39d0c1829ed559dad09",
       "body": {
         "path": "SKILL.md",
-        "sha256": "82afce15b60fdec7467060477eaf4032434eec767e0c2e0efad75d32bad4405e"
+        "sha256": "07ccdf78f89c9935745f15d8c3bac795f1b70a8124ab6459b3fd23e8180e6bd9"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "use": "file"
         },
         {
           "path": "NOTICE.md",
-          "sha256": "c8f64964b38849e84cfe0640c168847cc03de6a1bb9f1124c80136446cb9f514"
+          "sha256": "c8f64964b38849e84cfe0640c168847cc03de6a1bb9f1124c80136446cb9f514",
+          "use": "file"
         },
         {
           "path": "references/tooling.md",
@@ -481,33 +498,37 @@
         },
         {
           "path": "requirements.txt",
-          "sha256": "ccf8572900eb575343c623479bccc6a7ff6ba350b35396cf1ba99e3f95dcc9c5"
+          "sha256": "ccf8572900eb575343c623479bccc6a7ff6ba350b35396cf1ba99e3f95dcc9c5",
+          "use": "file"
         },
         {
           "path": "scripts/pdf_workflows.py",
-          "sha256": "b7b92f30ba685a2416457f1b904d0aafda755460ca1558918c6e269670a7d895"
+          "sha256": "b7b92f30ba685a2416457f1b904d0aafda755460ca1558918c6e269670a7d895",
+          "use": "file"
         }
       ]
     },
     {
       "id": "spreadsheet-workflows",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "descriptor": "spreadsheet-workflows/skill.json",
-      "descriptor_sha256": "2b560490b097dadc060952572cbe7edd141a957cdfbcec37eca55519295802b9",
+      "descriptor_sha256": "4906a2c5898d39878dded98434f7b9aad3b188dbb35794379048d5e238b5686f",
       "body": {
         "path": "SKILL.md",
-        "sha256": "f179c593f12cd5ba2a87eb869cdec33ca7a235ea2eeae344d05476397185070c"
+        "sha256": "b730270c5a7fb6ebcced468b723670dc74b29425c9d29587c2500c3a5cc70324"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "use": "file"
         },
         {
           "path": "NOTICE.md",
-          "sha256": "39caede9752f3864a83a4b7119ccc371f91018f85306ba2184133effbd02fa69"
+          "sha256": "39caede9752f3864a83a4b7119ccc371f91018f85306ba2184133effbd02fa69",
+          "use": "file"
         },
         {
           "path": "references/tooling.md",
@@ -515,11 +536,13 @@
         },
         {
           "path": "requirements.txt",
-          "sha256": "1becb09ba2ac7bc4f13ae3ad418952965a18a6dbe35fc8598235d8c6fef4a22d"
+          "sha256": "1becb09ba2ac7bc4f13ae3ad418952965a18a6dbe35fc8598235d8c6fef4a22d",
+          "use": "file"
         },
         {
           "path": "scripts/spreadsheet_workflows.py",
-          "sha256": "ea7954e515e2f9f787b94d90e3f2cad5bf6e942441b6609e5a85401bd2279f35"
+          "sha256": "ea7954e515e2f9f787b94d90e3f2cad5bf6e942441b6609e5a85401bd2279f35",
+          "use": "file"
         }
       ]
     }
