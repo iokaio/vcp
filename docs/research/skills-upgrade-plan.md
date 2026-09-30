@@ -111,8 +111,8 @@ Record actual checks and any unrun checks in the ledger.
 | SU-07 | SU-01, SU-05 | spreadsheet-workflows compatibility and operations | planned |
 | SU-08 | SU-01, SU-05 | pdf-workflows robustness and operations | planned |
 | SU-09 | SU-01 | webapp-testing fixes and accessibility checks | complete; [PR #221](https://github.com/iokaio/vcp/pull/221) merged |
-| SU-10 | None | mcp-development SDK and protocol refresh | in review |
-| SU-11 | None | llm-integration provider references | planned |
+| SU-10 | None | mcp-development SDK and protocol refresh | complete; [PR #222](https://github.com/iokaio/vcp/pull/222) merged |
+| SU-11 | None | llm-integration provider references | in review |
 | SU-12 | None | document-authoring structures | complete; [PR #218](https://github.com/iokaio/vcp/pull/218) merged |
 | SU-13 | None | frontend-design accessibility and theming | complete; [PR #220](https://github.com/iokaio/vcp/pull/220) merged |
 | SU-14 | SU-04, SU-05 | Deepen the 21 baseline families | planned |
