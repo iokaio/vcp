@@ -57,9 +57,10 @@ async fn executable_terminal_status_and_pause_remain_responsive_during_lifecycle
         Mock::given(method("POST"))
             .and(path("/v1/responses"))
             .respond_with(move |_: &wiremock::Request| {
+                count.fetch_add(1, Ordering::SeqCst);
                 ResponseTemplate::new(200)
                     .insert_header("content-type", "text/event-stream")
-                    .set_body_string(response(count.fetch_add(1, Ordering::SeqCst), "complete"))
+                    .set_body_string(response(2, "complete"))
             })
             .mount(&server)
             .await;
@@ -74,11 +75,15 @@ readline.createInterface({input:process.stdin}).once('line',line=>{
         fs::write(fixture.workspace.join("hook.cjs"), script).unwrap();
         let mut profile: Value =
             serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+        // Exercise the lifecycle gate directly. A separate patch/verification
+        // workflow adds process preparation (including executable hashing) before
+        // this test can observe its hook, without testing terminal responsiveness.
+        profile["checks"] = json!([]);
         profile["processes"][0]["inputs"] = json!(["hook.cjs"]);
         profile["hooks"] = json!([{"id":"slow-terminal-hook","version":1,"source_hash":vcp_protocol::digest_bytes(script),"event":event,"priority":0,"before":[],"after":[],"command":{"profile":"node","arguments":["hook.cjs"],"working_directory":""},"effect_scope":"broker_profile","timeout_ms":60000,"max_output_bytes":65536,"failure_policy":"block"}]);
         fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
         let mut child = fixture
-            .terminal("Change value to 42 and verify the result")
+            .terminal("Report the supplied value without changing files")
             .await;
         let writer = child.session.writer_sender();
         let captured = Arc::new(Mutex::new(Vec::new()));
@@ -111,9 +116,11 @@ readline.createInterface({input:process.stdin}).once('line',line=>{
             let native = NativeProcess::open(started["pid"].as_u64().unwrap() as u32);
             assert!(!native.stopped());
             let request_count = requests.load(Ordering::SeqCst);
-            if event == "session_start" {
-                assert_eq!(request_count, 0, "start hook must gate model transport");
-            }
+            assert_eq!(
+                request_count,
+                usize::from(event == "task_completion"),
+                "start hook must gate transport; completion hook follows one final response"
+            );
             let offset = captured.lock().unwrap().len();
             writer.send(b"/status\r".to_vec()).await.unwrap();
             output_contains(&captured, offset, "\"cost\"").await;
@@ -144,6 +151,16 @@ readline.createInterface({input:process.stdin}).once('line',line=>{
             assert!(
                 matches!(code, 8 | 7),
                 "paused or unresolved-effects exit expected: {code}"
+            );
+            assert_eq!(
+                requests.load(Ordering::SeqCst),
+                request_count,
+                "terminal exit must not release gated model work"
+            );
+            assert_eq!(
+                fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
+                "41\n",
+                "lifecycle control must preserve the supplied source"
             );
         };
         if tokio::time::timeout(Duration::from_secs(75), exercise)

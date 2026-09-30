@@ -4,6 +4,8 @@ Started September 30, 2026 from source `b0d84a2df6e5fa7ed3163a3b1920fcf620623213
 Contract: [release plan](00-release-plan.md). Decisions: [ADR-072](../adr/072-internal-windows-beta.md).
 The owner's request covers implementation through internal-beta readiness and
 manual-test preparation. Publication and paid execution remain separate gates.
+The [FR/I/U acceptance map](03-acceptance-map.md) joins current changes and
+historical dispositions without granting final-artifact or owner acceptance.
 
 | Item | Status | Implementation and evidence |
 | --- | --- | --- |
@@ -89,7 +91,8 @@ unrun, and successful reviewed apply still requires a live task binding.
 
 ## Current environment limitations
 
-The independent installed-helper runner covers exact installed PDF, spreadsheet,
+[PR #304](https://github.com/iokaio/vcp/pull/304) delivered the independent
+installed-helper runner with all required checks passing. It covers exact installed PDF, spreadsheet,
 MCP pagination, catalog authoring and loopback browser helpers while binding the
 native payload and dependency bytes before and after. Four focused contracts
 passed, including changed catalog/resource bytes and redirected dependencies.
@@ -98,6 +101,26 @@ supervision; the final installed test remains ignored until final artifacts exis
 Python and Playwright prerequisite inventories passed without dependency downloads
 or browser/helper execution. This prepares BETA-09 evidence and does not complete
 its final-artifact or clean-host rows.
+
+## Hook responsiveness regression
+
+BETA-09 reproduced the hook test failure retained by the SH close-out. The
+session-start status/pause case passed; the completion case failed before its
+hook began. A bounded diagnostic observed completion-hook start after 41.48
+seconds, beyond the fixture's 35-second readiness limit, following unrelated
+patch and Node verification work. Its status/pause/process-stop assertions passed.
+
+The final test fixture removes that unrelated work and exercises a report task's
+real completion hook. It preserves the original 35-second readiness, 10-second
+control and 75-second outer deadlines, the real 55-second hook, held native
+process handle and paused-state checks. Exact model-request counts and unchanged
+source are additionally checked after terminal exit. The focused Windows test
+passed 1/1 in 40.64 seconds on default SQLite; formatting, diff and independent
+review passed. This is a test-only correction, not evidence for both stores or
+final installed hook behavior. Logs are retained under
+`artifacts/beta-delivery/hooks-responsiveness-{current,readiness-diagnostic,isolated-fixture}.log`.
+
+## Host and remaining external observations
 
 The development workstation is Windows `10.0.26300.0` with development tools and
 caches. Results from it cannot fill the clean-Windows row. GitHub authentication
