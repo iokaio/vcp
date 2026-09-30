@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "data",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Inspect schema, provenance, transformation semantics, and bounded data checks without exposing sensitive rows. Use when building or reviewing data pipelines, transformations, notebooks or dataset checks.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "21ce448ef89fe72a7c05fb48123da78cd24b8d387dfba7ebe24f7f5765355fd2"
+    "sha256": "3f957498879cf5debeb8fbad94e775580fe9177a728456e0edab62b7173f3f49"
   },
   "resources": []
 }
