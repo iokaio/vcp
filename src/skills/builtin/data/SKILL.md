@@ -1,6 +1,6 @@
 # Data files and transformation pipelines
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Inspect first
 
@@ -13,7 +13,7 @@ Original VCP guidance. This package supplies instructions, not a tool executor o
 
 ## Establish data semantics
 
-Read the declared schema, format, encoding, units, provenance, transformation code and tests. Identify keys, null/missing values, ordering, time zones and expected row/count invariants. Explicitly activate this skill for data-only projects until supported project cues exist.
+Read the declared schema, format, encoding, units, provenance, transformation code and tests. Identify keys, null/missing values, ordering, time zones and expected row/count invariants. This skill is always listed by its description rather than detected from root files.
 
 Use bounded authorized samples or synthetic fixtures. Do not load an entire large dataset just to infer a schema, upload rows to external services, or assume de-identification from column names. Separate schema checks from statistical claims that need representative data.
 
@@ -21,8 +21,8 @@ For generation, preserve source data and make transformations reproducible under
 
 ## Proceed and verify
 
-1. Find the project's test, lint and validation commands from instructions, task-runner targets and CI. Candidates to confirm include the unit test runner, schema or data-quality checks, dbt compile/test, and notebook execution checks the project already uses.
-2. Start with a small synthetic or authorized sample, stated by size and source. Prefer dry-run, compile, `EXPLAIN` or limit-bounded modes before full runs.
+1. Find the project's test, lint and validation commands from instructions, task-runner targets and CI. Candidates to confirm include the unit test runner, schema or data-quality checks, dbt checks, and notebook execution checks the project already uses. `dbt parse` works offline, but `dbt compile`, `test`, `run` and `build` connect to the warehouse through `profiles.yml` credentials, `run` and `build` write to it, and `dbt deps` downloads packages.
+2. Start with a small synthetic or authorized sample, stated by size and source. Prefer parse, dry-run, plain `EXPLAIN` or limit-bounded modes before full runs; `EXPLAIN ANALYZE` executes the query.
 3. Check invariants explicitly: row counts in and out, key uniqueness, null rates, value ranges, type and unit consistency, and join fan-out.
 4. Write outputs to a task-owned temporary location unless a destination is authorized. Never overwrite source data, push to shared storage, or trigger scheduled jobs without explicit authority.
 5. Never print, log or report sensitive rows or secrets; summarize with counts, schemas or masked examples.
