@@ -558,8 +558,9 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     None => (vcp_tools::Request::from_call(&self.name, &arguments).map_err(|e| e.to_string())?,
                         serde_json::from_str(&arguments).map_err(|e| e.to_string())?),
                 };
-                let (proposal, before_hooks) = self.host.prepare_gated_tool(self.thread, request,
-                    hook_arguments, format!("before-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes()))).await?;
+                let origin = materialized.as_ref().map(|m| json!({"skill":m.skill,"resource":m.resource,"sha256":m.sha256}));
+                let (proposal, before_hooks) = self.host.prepare_gated_tool_with_origin(self.thread, request,
+                    hook_arguments, format!("before-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes())), origin.clone()).await?;
                 if let Some(m) = &materialized {
                     let changes = proposal.prepared().changes();
                     if changes.len() != 1 || changes[0].path != m.destination || changes[0].before.is_some()
@@ -581,7 +582,8 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 sources.push(outcome.evidence.spec.id.clone());
                 let after_hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterToolCompletion,
                     format!("after-{}", outcome.effect), vec![outcome.evidence.spec.id.clone()],
-                    json!({"tool":self.name,"effect":outcome.effect}), &mut sources).await;
+                    match &origin { Some(origin) => json!({"tool":self.name,"effect":outcome.effect,"materialized_from":origin}),
+                        None => json!({"tool":self.name,"effect":outcome.effect}) }, &mut sources).await;
                 let mut response = json!({"effect":outcome.effect,"evidence":outcome.evidence.spec.id,"result":outcome.result,"before_hooks":before_hooks,"after_hooks":after_hooks});
                 if let Some(m) = materialized {
                     response["materialized"] = json!({"skill":m.skill,"resource":m.resource,"destination":m.destination,"sha256":m.sha256,"executed":false});

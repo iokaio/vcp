@@ -48,6 +48,38 @@ impl CanonicalTools {
     pub fn contains(&self, name: &str) -> bool {
         self.0.contains(name)
     }
+    /// Tool names a skill's `required_tools` may rely on: permitted canonical
+    /// tools, `vcp_exec` and available process profiles when execution is in
+    /// the ceiling, and `vcp_verify` when verification is configured. Shared by
+    /// host activation and offline CLI inspection so the two cannot disagree.
+    pub fn skill_match_tools(
+        &self,
+        process_profiles: impl IntoIterator<Item = String>,
+        verification_configured: bool,
+    ) -> BTreeSet<String> {
+        let mut tools: BTreeSet<String> = [
+            "vcp_read",
+            "vcp_list",
+            "vcp_search",
+            "vcp_patch",
+            "vcp_skill",
+        ]
+        .into_iter()
+        .filter(|name| self.permits(name))
+        .map(str::to_owned)
+        .collect();
+        if self.contains("vcp_exec") {
+            let profiles: Vec<String> = process_profiles.into_iter().collect();
+            if !profiles.is_empty() {
+                tools.insert("vcp_exec".into());
+                tools.extend(profiles);
+            }
+        }
+        if verification_configured && self.contains("vcp_verify") {
+            tools.insert("vcp_verify".into());
+        }
+        tools
+    }
     /// Whether the model may call `name` under this ceiling.
     pub fn permits(&self, name: &str) -> bool {
         self.contains(name)
@@ -117,6 +149,20 @@ mod tests {
         let patch: CanonicalTools = serde_json::from_value(json!(["vcp_patch"])).unwrap();
         assert!(!patch.permits("vcp_skill"));
         assert!(serde_json::from_value::<CanonicalTools>(json!(["vcp_skill"])).is_err());
+        // One rule for skill required_tools at activation and in CLI inspection.
+        let all = CanonicalTools::default();
+        let listed = all.skill_match_tools(["python".to_owned()], false);
+        assert!(
+            listed.contains("vcp_exec")
+                && listed.contains("python")
+                && listed.contains("vcp_skill")
+        );
+        assert!(!listed.contains("vcp_verify"));
+        assert!(all.skill_match_tools([], true).contains("vcp_verify"));
+        assert!(!all.skill_match_tools([], true).contains("vcp_exec"));
+        assert!(!tools
+            .skill_match_tools(["python".to_owned()], true)
+            .contains("vcp_exec"));
         assert_eq!(
             CanonicalTools::default().schemas(),
             crate::foundation::coding::schemas()

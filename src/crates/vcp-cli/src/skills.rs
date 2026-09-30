@@ -103,10 +103,28 @@ pub fn execute(
     {
         for skill in active.values_mut() {
             if let Some(fields) = skill.as_object_mut() {
+                // Show what can be read or copied (ADR-071) without artifact IDs.
+                let resources: Vec<_> = fields
+                    .get("resources")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|resources| {
+                        resources
+                            .iter()
+                            .map(|r| serde_json::json!({"path":r["file"]["path"],"use":r.get("use").cloned().unwrap_or_else(|| "context".into())}))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                fields.insert("resources".into(), serde_json::json!(resources));
                 fields.retain(|key, _| {
                     matches!(
                         key.as_str(),
-                        "qualified_id" | "source_id" | "version" | "reason" | "activation" | "body"
+                        "qualified_id"
+                            | "source_id"
+                            | "version"
+                            | "reason"
+                            | "activation"
+                            | "body"
+                            | "resources"
                     )
                 });
             }
@@ -338,37 +356,17 @@ fn within_workspace(path: &std::path::Path, workspace: &std::path::Path) -> bool
     )
 }
 
+/// The same rule the host uses at activation; CLI runs always configure
+/// verification from the profile's checks.
 pub fn available_tools(profile: &crate::settings::Profile) -> std::collections::BTreeSet<String> {
-    let mut tools = [
-        "vcp_read",
-        "vcp_list",
-        "vcp_search",
-        "vcp_patch",
-        "vcp_skill",
-        "vcp_verify",
-    ]
-    .into_iter()
-    .filter(|name| profile.canonical_tools.permits(name))
-    .map(str::to_owned)
-    .chain(
+    profile.canonical_tools.skill_match_tools(
         profile
             .processes
             .iter()
-            .filter(|process| {
-                profile.canonical_tools.contains("vcp_exec") && process.executable.is_file()
-            })
+            .filter(|process| process.executable.is_file())
             .map(|process| process.name.clone()),
+        true,
     )
-    .collect::<std::collections::BTreeSet<_>>();
-    if profile.canonical_tools.contains("vcp_exec")
-        && profile
-            .processes
-            .iter()
-            .any(|process| process.executable.is_file())
-    {
-        tools.insert("vcp_exec".into());
-    }
-    tools
 }
 
 pub fn inspect(
@@ -465,6 +463,22 @@ pub(super) fn catalog_page(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn active_skills_list_resource_paths_and_roles_without_artifact_ids() {
+        let state = serde_json::json!({"state":{"active":{"s":{
+            "qualified_id":"vcp-builtin::pdf-workflows::pdf-workflows","source_id":"vcp-builtin",
+            "version":"1.0.0","reason":"r","activation":"a","body":"b","source_path":"hidden",
+            "resources":[
+                {"artifact":"artifact-1","file":{"path":"pdf-workflows/scripts/pdf_workflows.py"},"use":"file"},
+                {"artifact":"artifact-2","file":{"path":"pdf-workflows/references/tooling.md"}}
+            ]}},"disabled":[]}});
+        let shown =
+            super::execute(super::Command::List { offset: 0 }, |_| Ok(state.clone())).unwrap();
+        assert!(shown.contains("scripts/pdf_workflows.py"));
+        assert!(shown.contains("\"use\": \"file\""));
+        assert!(shown.contains("\"use\": \"context\""));
+        assert!(!shown.contains("artifact-1") && !shown.contains("hidden"));
+    }
     #[test]
     fn controls_require_explicit_selection_and_preserve_attribution() {
         assert_eq!(parse(&[]).unwrap(), Command::List { offset: 0 });

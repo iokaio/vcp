@@ -74,6 +74,19 @@ pub struct Materialization {
     pub bytes: Vec<u8>,
     pub patch: String,
 }
+/// One validator for materialize destinations, used before a destination can
+/// reach a patch header or instruction selection.
+pub(in crate::foundation) fn checked_skill_destination(destination: &str) -> Result<()> {
+    if destination.is_empty()
+        || destination.len() > 1024
+        || destination.chars().any(char::is_control)
+        || destination.contains('\\')
+        || vcp_repository::path::relative(std::path::Path::new(destination))? != destination
+    {
+        return Err("materialize destination must be a normalized workspace-relative path".into());
+    }
+    Ok(())
+}
 /// Model-supplied `vcp_skill` read arguments.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -152,6 +165,25 @@ fn name(scope: &Scope) -> Result<String> {
 }
 
 impl Context {
+    /// The patch path cannot create directories; say so before selecting or preparing it.
+    pub(in crate::foundation) fn check_skill_destination_parent(
+        &self,
+        binding: &ThreadBinding,
+        destination: &str,
+    ) -> Result<()> {
+        if let Some(parent) = std::path::Path::new(destination)
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            self.task_root(&binding.scope.task)?
+                .hold(Some(parent), true)
+                .map_err(|_| {
+                    "materialize destination parent directory does not exist; create it first"
+                })?;
+        }
+        Ok(())
+    }
+
     fn discover_skills(
         &self,
         registry: &SourceRegistry,
@@ -347,25 +379,10 @@ impl Context {
         self.skill_match_task_context(&binding.scope.task)
     }
     fn skill_match_task_context(&self, task: &TaskId) -> Result<MatchContext> {
-        let ceiling = self.canonical_tools_for(task)?;
-        let mut tools: BTreeSet<String> = [
-            "vcp_read",
-            "vcp_list",
-            "vcp_search",
-            "vcp_patch",
-            "vcp_skill",
-        ]
-        .into_iter()
-        .filter(|name| ceiling.permits(name))
-        .map(str::to_owned)
-        .collect();
-        if !self.process_profiles.is_empty() && ceiling.contains("vcp_exec") {
-            tools.insert("vcp_exec".into());
-            tools.extend(self.process_profiles.keys().cloned());
-        }
-        if self.verification.contains_key(task) && ceiling.contains("vcp_verify") {
-            tools.insert("vcp_verify".into());
-        }
+        let tools = self.canonical_tools_for(task)?.skill_match_tools(
+            self.process_profiles.keys().cloned(),
+            self.verification.contains_key(task),
+        );
         let root = self.task_root(task)?;
         self.tool_read_access(&root.identity.root, "vcp_skill")?;
         crate::foundation::skills::actual_match_context(&root, tools).map_err(|e| e.into())
@@ -668,18 +685,10 @@ impl Context {
     ) -> Result<Materialization> {
         const MAX_BYTES: usize = 96 * 1024;
         let destination = request.destination.as_str();
-        if destination.is_empty()
-            || destination.len() > 1024
-            || destination.chars().any(char::is_control)
-            || destination.contains('\\')
-            || vcp_repository::path::relative(std::path::Path::new(destination))? != destination
-        {
-            return Err(
-                "materialize destination must be a normalized workspace-relative path".into(),
-            );
-        }
+        checked_skill_destination(destination)?;
         // Materialization writes, so it also needs the patch ceiling (ADR-071).
         self.require_coding_tool(binding, "vcp_patch")?;
+        self.check_skill_destination_parent(binding, destination)?;
         self.validate_skills(binding)?;
         let state = self.skill_state(&binding.scope)?;
         let (active, captured) = active_resource(&state, &request.skill, &request.resource)?;

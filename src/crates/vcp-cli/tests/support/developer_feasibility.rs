@@ -139,6 +139,15 @@ async fn scripted(server: &MockServer, opening: (&'static str, Value), cite_read
         .mount(server)
         .await;
 }
+/// ADR-071: the vcp_read ceiling also advertises the implied vcp_skill tool.
+fn advertised(ceiling: &BTreeSet<String>) -> BTreeSet<String> {
+    let mut tools = ceiling.clone();
+    if tools.contains("vcp_read") {
+        tools.insert("vcp_skill".into());
+    }
+    tools
+}
+
 fn tool_names(request: &wiremock::Request) -> BTreeSet<String> {
     let body: Value = serde_json::from_slice(&request.body).unwrap();
     body["tools"]
@@ -250,7 +259,7 @@ async fn executable_developer_write_cases_complete_through_ceiling_arms_and_pinn
         for request in &requests {
             assert_eq!(
                 tool_names(request),
-                ceiling,
+                advertised(&ceiling),
                 "{case}: advertised tools must equal the frozen allowlist"
             );
         }
@@ -449,7 +458,7 @@ async fn executable_developer_report_only_case_completes_by_citing_read_evidence
         BTreeSet::from(["vcp_list", "vcp_read", "vcp_search", "vcp_verify"].map(String::from))
     );
     for request in &requests {
-        assert_eq!(tool_names(request), ceiling);
+        assert_eq!(tool_names(request), advertised(&ceiling));
     }
     let verification = requests
         .iter()

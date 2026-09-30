@@ -693,6 +693,7 @@ async fn skill_materialization_copies_verified_file_resources_through_patch_auth
         "revoked",
         "read-reference",
         "read-file",
+        "missing-parent",
         "tampered",
     ] {
         let temp = tempfile::tempdir().unwrap();
@@ -761,7 +762,7 @@ async fn skill_materialization_copies_verified_file_resources_through_patch_auth
                 "action": "materialize",
                 "skill": "hostile",
                 "resource": if mode == "context-resource" { "guide.md" } else { "helper.py" },
-                "destination": if mode == "traversal" { "../escape.py" } else { "helper.py" },
+                "destination": match mode { "traversal" => "../escape.py", "missing-parent" => "tools/helper.py", _ => "helper.py" },
             }),
         }
         .to_string();
@@ -863,6 +864,14 @@ async fn skill_materialization_copies_verified_file_resources_through_patch_auth
         });
         let helper = std::fs::read(workspace.join("helper.py")).ok();
         match mode {
+            "missing-parent" => {
+                assert!(helper.is_none() && !workspace.join("tools").exists());
+                let result = result.unwrap();
+                assert!(
+                    result.contains("parent directory does not exist"),
+                    "{result}"
+                );
+            }
             "read-reference" => {
                 assert!(helper.is_none(), "read never writes");
                 let result = result.unwrap();
