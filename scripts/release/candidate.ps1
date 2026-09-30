@@ -181,7 +181,10 @@ try {
         $env:VCP_TEST_BETA_EDITOR_ARCHIVE=$editorZip
         $env:VCP_TEST_BETA_EDITOR_CODE=$editorLayout.code
     }
-    Stage 'portable-contracts' @('npm.cmd','test','--prefix','src/packages/sdk-ts',';','npm.cmd','test','--prefix','src/packages/vscode',';','pwsh','-File','scripts/test.ps1','-Suite','fast') 'SDK/editor and fast contracts pass on the current Windows source.' {
+    Stage 'portable-contracts' @('node','--test','--test-name-pattern','^prepared official archive resolves actual versioned layout','src/tests/contracts/editor-layout.test.cjs',';','npm.cmd','test','--prefix','src/packages/sdk-ts',';','npm.cmd','test','--prefix','src/packages/vscode',';','pwsh','-File','scripts/test.ps1','-Suite','fast') 'Pinned editor bytes, SDK/editor and fast contracts pass on the current Windows source.' {
+        # The general harness deliberately strips qualification input variables.
+        # Execute this pinned-byte case directly while its explicit inputs exist.
+        Checked $node @('--test','--test-name-pattern','^prepared official archive resolves actual versioned layout',(Join-Path $repository 'src/tests/contracts/editor-layout.test.cjs'))
         Checked 'npm.cmd' @('test','--prefix',(Join-Path $repository 'src/packages/sdk-ts'))
         Checked 'npm.cmd' @('test','--prefix',(Join-Path $repository 'src/packages/vscode'))
         Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/test.ps1'),'-Suite','fast')
