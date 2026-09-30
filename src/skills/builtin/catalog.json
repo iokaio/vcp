@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.36.0",
+  "version": "1.37.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "2a7a52f3d48a9569030353b649b91273152b3669113deaaa515d48984d6eeb21"
+    "sha256": "1d9eeba5f01f7d3e10f57bc41f0e18f7518c064dddb54aa7ffea952f6dd709d0"
   },
   "skills": [
     {
@@ -47,12 +47,12 @@
     },
     {
       "id": "git-workflow",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "descriptor": "git-workflow/skill.json",
-      "descriptor_sha256": "77b95280c8eec4a88514bbdb92a4504470fb07529e59dd572dc3c4b13993f61e",
+      "descriptor_sha256": "ce953ce5faeec6d01fe3d2a0de824cff88ddc7ef38d851fe22ca95b75f4f6950",
       "body": {
         "path": "SKILL.md",
-        "sha256": "8b890673e7e5ab9f9d2f30e5b987c8484953b30194b6a8c43172ab6022fe96a3"
+        "sha256": "6bc9f535f983c762a8671573bedc508b032bd9444408dcb1cfbc2ffdf367bae2"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
