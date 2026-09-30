@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "testing",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Discover project checks, select meaningful regressions, and bind observed results to current changes. Use when adding or changing tests, choosing which checks to run, or reporting verification evidence.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "5142cdd53df75811e19139ace3508af5ad310bc0492503832bcc1d4f982e32a9"
+    "sha256": "2d73562793ecff1eadc9004e901d6297642894f0b608f6d1acca574d82481851"
   },
   "resources": []
 }

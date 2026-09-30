@@ -79,7 +79,7 @@
     },
     {
       "id": "testing",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
