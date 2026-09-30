@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "review-debug",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Trace concrete defects, reproduce failures where possible, and separate findings from suggestions. Use when reviewing a diff, investigating a bug or failing check, or explaining unexpected behavior.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "05b55222438cd55d364241d7c0a17b99136a6a4dc30064323a520d16c13f0a8d"
+    "sha256": "3b1ea65654b064a469c94f92ddfaa52fbb81604f8b2fdf88d5da53f810a3937f"
   },
   "resources": []
 }
