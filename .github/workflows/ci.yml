@@ -81,6 +81,36 @@ jobs:
         env:
           VCP_SKILL_PLAYWRIGHT: ${{ github.workspace }}/src/tests/skills/browser/node_modules/playwright
         run: node --test src/tests/contracts/ported-skill-authoring.test.cjs src/tests/contracts/ported-webapp.test.cjs
+  skill-runtime:
+    name: Skill runtime (Rust)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: src/third_party/codex/codex-rs
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: '0'
+      RUST_MIN_STACK: '16777216'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src/third_party/codex/codex-rs/target/
+          key: skill-runtime-${{ runner.os }}-${{ hashFiles('src/third_party/codex/codex-rs/rust-toolchain.toml', 'src/third_party/codex/codex-rs/Cargo.lock') }}
+          restore-keys: skill-runtime-${{ runner.os }}-
+      # Platform-independent skill contracts. vcp-lifecycle is Windows-only
+      # (ADR-068), so the frozen fixture contract runs in the Windows job.
+      - name: Test descriptor, discovery and catalog contracts
+        run: cargo test --locked -p vcp-extensions
   windows:
     name: Native Windows qualification
     # Keep expensive qualification opt-in while routine CI runs only fast checks.
@@ -175,6 +205,9 @@ jobs:
           ./scripts/test-embeddings.ps1 -AssetsRoot $modelRoot -Offline -Jobs 2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-local-memory.ps1 -AssetsRoot $modelRoot -TargetRoot artifacts/embedding-target -Scale -Jobs 2
+      - name: Test frozen builtin skill fixtures and the host marker contract
+        working-directory: src/third_party/codex/codex-rs
+        run: cargo test --locked -p vcp-lifecycle --test builtin_skill_qualification
       - name: Build committed native CLI
         run: ./scripts/build.ps1 -Jobs 2
       - name: Test native patch and policy boundaries
