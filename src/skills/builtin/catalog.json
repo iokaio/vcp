@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.72.0",
+  "version": "1.73.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "8ceefb0e57ed350633f2ffab187b37d6d6e29d10becc1e217e8e776c38c077d1"
+    "sha256": "b13cd84cb591ebc7667567ed1c00c75c7e294f4ce36ceaebf2f6510cccfa7d48"
   },
   "skills": [
     {
@@ -138,9 +138,9 @@
     },
     {
       "id": "cpp",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "descriptor": "cpp/skill.json",
-      "descriptor_sha256": "0859682a394ec901908a12a01c7804ff647e1e66a26acf30d0da502f63471ff5",
+      "descriptor_sha256": "74580a1d2f72e8583025fece0c08fddbe6538cc3593dd5387d27c583f7f42370",
       "body": {
         "path": "SKILL.md",
         "sha256": "5f135179f287638743787f714f9832d9f0a656f689887fab97868c8fb370f4f1"
