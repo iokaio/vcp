@@ -110,11 +110,11 @@ Record actual checks and any unrun checks in the ledger.
 | SU-06 | SU-02 | skill-authoring validator and guidance | complete; [PR #219](https://github.com/iokaio/vcp/pull/219) merged |
 | SU-07 | SU-01, SU-05 | spreadsheet-workflows compatibility and operations | planned |
 | SU-08 | SU-01, SU-05 | pdf-workflows robustness and operations | planned |
-| SU-09 | SU-01 | webapp-testing fixes and accessibility checks | planned |
+| SU-09 | SU-01 | webapp-testing fixes and accessibility checks | in review |
 | SU-10 | None | mcp-development SDK and protocol refresh | planned |
 | SU-11 | None | llm-integration provider references | planned |
 | SU-12 | None | document-authoring structures | complete; [PR #218](https://github.com/iokaio/vcp/pull/218) merged |
-| SU-13 | None | frontend-design accessibility and theming | in review |
+| SU-13 | None | frontend-design accessibility and theming | complete; [PR #220](https://github.com/iokaio/vcp/pull/220) merged |
 | SU-14 | SU-04, SU-05 | Deepen the 21 baseline families | planned |
 | SU-15 | None | Stale inventory pointers and Windows `fast` timeouts | planned |
 
