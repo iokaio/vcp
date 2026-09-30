@@ -1,11 +1,11 @@
 # Java and Kotlin build conventions
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Read the project
 
 - `pom.xml` and any parent POM (`<parent>`, `<modules>`): Maven build, module list, plugin and dependency management, profiles.
-- `settings.gradle(.kts)` and `build.gradle(.kts)`: Gradle build, included projects, applied plugins, test task configuration. Kotlin DSL or nested-only projects may need explicit selection with the current descriptor detector.
+- `settings.gradle(.kts)` and `build.gradle(.kts)`: Gradle build, included projects, applied plugins, test task configuration. Root `pom.xml`, `build.gradle(.kts)` and `settings.gradle(.kts)` files are detected; nested-only projects are not, so the user can activate it with `/skills activate <id>` (the ID `/skills list` shows) or `vcp run --skill <id>`.
 - `gradle/libs.versions.toml`: version catalog; change versions there, not inline.
 - `gradlew`/`gradlew.bat` with `gradle/wrapper/gradle-wrapper.properties`, or `mvnw`/`mvnw.cmd` with `.mvn/wrapper/`: the build tool version the project expects.
 - Toolchain declarations (`java { toolchain { ... } }`, `maven-toolchains-plugin`, `.java-version`, `.sdkmanrc`): the JDK the build targets.
@@ -19,10 +19,10 @@ Select the affected module and its existing test task or filter; understand whet
 2. The wrapper. Do not replace a wrapper with a global Maven/Gradle binary without validating equivalence.
 3. Ecosystem defaults, as candidates only when evidence supports them:
    - `./gradlew test`, narrowed with `./gradlew :<module>:test --tests <Class>`
-   - `./mvnw test` or `mvn -pl <module> test` (add `-am` when upstream modules changed), narrowed with `-Dtest=<Class>`
+   - `./mvnw test`, or `./mvnw -pl <module> -am test` to include upstream modules, narrowed with `-Dtest=<Class>`
    - lint/format tasks the build already applies, such as `spotlessCheck`, `checkstyleMain`, `ktlintCheck` or `detekt`
 
-Inspect the wrapper and repository configuration before execution: wrappers can download distributions and build plugins can execute arbitrary tasks. Use only the configured tool and current network/process authority.
+Inspect the wrapper and repository configuration before execution: build plugins can execute arbitrary tasks, and the wrapper scripts themselves download the Gradle or Maven distribution when it is not cached. Use the wrapper consistently rather than mixing it with a global `mvn` or `gradle`. Dependency resolution downloads artifacts and plugins; when the caches are provisioned, add `--offline` (Gradle) or `-o` (Maven) so a missing artifact fails instead of downloading, and otherwise treat the first build as a network effect needing authority.
 
 ## Toolchain variants
 
