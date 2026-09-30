@@ -6,9 +6,10 @@ const os = require('node:os');
 const http = require('node:http');
 const https = require('node:https');
 const crypto = require('node:crypto');
+const {spawnSync} = require('node:child_process');
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const {localOrigin, sameOrigin, parseArgs, projectAxeSource, runCheck} = require('../../skills/builtin/webapp-testing/scripts/check-page.cjs');
+const {localOrigin, sameOrigin, parseArgs, projectAxeSource, runCheck, containedOutput, failureMessage} = require('../../skills/builtin/webapp-testing/scripts/check-page.cjs');
 const playwrightPath = process.env.VCP_SKILL_PLAYWRIGHT;
 const playwright = playwrightPath ? require(playwrightPath) : null;
 const smoke = {skip: playwright ? false : 'Set VCP_SKILL_PLAYWRIGHT to an existing Playwright module path'};
@@ -62,7 +63,7 @@ test('real browser discovers, clicks, waits for observable state, captures logs 
  const output = tempDir('vcp-webapp-smoke-');
  const screenshot = path.join(output, 'screen.png');
  try {
-   const result = await runCheck(playwright, {...options(app.origin), captureConsole:true, screenshot});
+   const result = await runCheck(playwright, {...options(app.origin), captureConsole:true, screenshot}, {outputRoot: output});
    assert.equal(result.assertion, 'passed'); assert.deepEqual(result.buttons,['Save']); assert.equal(result.blocked,0);
    assert(result.console.some(entry=>entry.text==='saved fixture')); assert(fs.statSync(screenshot).size>100);
    assert(fs.readFileSync(screenshot).subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])));
@@ -95,7 +96,7 @@ test('assertion failure disconnects the owned browser and preserves an existing 
  try {
    await assert.rejects(runCheck(tracked,{...options(app.origin),expectText:'Wrong',timeout:600}));
    assert(browser);assert.equal(browser.isConnected(),false);
-   await assert.rejects(runCheck(playwright,{...options(app.origin),screenshot}));
+   await assert.rejects(runCheck(playwright,{...options(app.origin),screenshot},{outputRoot:output}),/exists/);
    assert.equal(fs.readFileSync(screenshot,'utf8'),'USER DATA');
  } finally { await app.close(); }
 });
@@ -151,11 +152,11 @@ test('ARIA snapshot is written with exclusive create', smoke, async () => {
  const output = tempDir('vcp-webapp-aria-');
  const ariaSnapshot = path.join(output, 'page.aria.yml');
  try {
-   const result = await runCheck(playwright, {...options(app.origin), ariaSnapshot});
+   const result = await runCheck(playwright, {...options(app.origin), ariaSnapshot}, {outputRoot: output});
    assert.equal(result.assertion, 'passed');
    const snapshot = fs.readFileSync(ariaSnapshot, 'utf8');
    assert.match(snapshot, /- main:/); assert.match(snapshot, /- button "Save"/); assert.match(snapshot, /- paragraph: Saved/);
-   await assert.rejects(runCheck(playwright, {...options(app.origin), ariaSnapshot}), /exists/);
+   await assert.rejects(runCheck(playwright, {...options(app.origin), ariaSnapshot}, {outputRoot: output}), /exists/);
    assert.equal(fs.readFileSync(ariaSnapshot, 'utf8'), snapshot);
  } finally { await app.close(); }
 });
@@ -175,4 +176,113 @@ test('axe scan reports unavailable without failing, and bounds a provided result
    assert.deepEqual(scanned.axe.violations[0], {id: 'color-contrast', impact: 'serious', count: 2});
    assert.deepEqual(scanned.axe.violations[1], {id: 'x'.repeat(100), impact: null, count: 0});
  } finally { await app.close(); }
+});
+
+const helper = path.resolve(__dirname, '../../skills/builtin/webapp-testing/scripts/check-page.cjs');
+const cliArgs = ['--url', 'http://127.0.0.1:1/', '--ready', '#contact', '--expect-selector', '#status', '--expect-text', 'Saved'];
+// Run the helper as a materialized copy is run: from the project root, without inherited module paths.
+const runCli = (args, cwd) => spawnSync(process.execPath, [helper, ...args],
+ {cwd, encoding: 'utf8', timeout: 30000, env: {...process.env, NODE_PATH: ''}});
+function fakeProject(launchBody) {
+ const project = tempDir('vcp-webapp-project-');
+ const pkg = path.join(project, 'node_modules', 'playwright');
+ fs.mkdirSync(pkg, {recursive: true});
+ fs.writeFileSync(path.join(pkg, 'package.json'), '{"name":"playwright","main":"index.js"}\n');
+ fs.writeFileSync(path.join(pkg, 'index.js'), 'module.exports = {chromium: {async launch() { ' + launchBody + ' }}};\n');
+ return project;
+}
+const notLaunched = {chromium: {async launch() { throw Error('launch reached'); }}};
+
+test('CLI --help prints usage and exits zero; bad arguments exit nonzero', () => {
+ const help = runCli(['--help'], tempDir('vcp-webapp-help-'));
+ assert.equal(help.status, 0); assert.match(help.stdout, /^Usage: node check-page\.cjs --url URL /); assert.equal(help.stderr, '');
+ const bad = runCli(['--bogus'], tempDir('vcp-webapp-help-'));
+ assert.equal(bad.status, 1); assert.equal(bad.stdout, '');
+ assert.equal(bad.stderr, 'Browser check failed or unavailable: Unknown, duplicate or missing argument; run --help\n');
+});
+test('CLI reports a missing project Playwright installation in the current directory', () => {
+ const run = runCli(cliArgs, tempDir('vcp-webapp-noplaywright-'));
+ assert.equal(run.status, 1); assert.equal(run.stdout, '');
+ assert.equal(run.stderr, 'Browser check failed or unavailable: No project Playwright installation found; browser check not run\n');
+});
+test('CLI resolves the project Playwright and prints only a bounded first error line', () => {
+ const multiline = runCli(cliArgs, fakeProject('throw new Error(' + JSON.stringify('launch failed at locator\n<div class="x">PAGE SECRET</div>') + ');'));
+ assert.equal(multiline.status, 1);
+ assert.equal(multiline.stderr, 'Browser check failed or unavailable: launch failed at locator\n');
+ const long = runCli(cliArgs, fakeProject('throw new Error("x".repeat(5000) + "TAIL");'));
+ assert.equal(long.status, 1);
+ assert.equal(long.stderr, 'Browser check failed or unavailable: ' + 'x'.repeat(300) + '...\n');
+ assert.equal(failureMessage(Error('one\r\ntwo')), 'one'); assert.equal(failureMessage('plain'), 'plain');
+ assert.equal(failureMessage(Error('y'.repeat(300))), 'y'.repeat(300));
+});
+test('output paths are contained under the project root before a browser launches', async () => {
+ const root = tempDir('vcp-webapp-root-');
+ const outside = tempDir('vcp-webapp-outside-');
+ fs.mkdirSync(path.join(root, 'shots'));
+ fs.writeFileSync(path.join(root, 'existing.png'), 'USER DATA');
+ fs.symlinkSync(outside, path.join(root, 'linked'), 'junction');
+ const reject = async (value, pattern) => {
+   for (const key of ['screenshot', 'ariaSnapshot']) {
+     await assert.rejects(runCheck(notLaunched, {...options('http://127.0.0.1:1'), [key]: value}, {outputRoot: root}), pattern, key + ' ' + value);
+   }
+ };
+ await reject(path.join(outside, 'screen.png'), /inside the project root/);
+ await reject('../escape.png', /inside the project root/);
+ await reject('shots/../../escape.png', /inside the project root/);
+ await reject('.', /inside the project root/);
+ await reject('linked/screen.png', /inside the project root/);
+ await reject('linked', /exists/);
+ await reject('existing.png', /exists/);
+ await reject('missing/screen.png', /parent directory must already exist/);
+ if (process.platform === 'win32') { await reject('screen.png:stream', /ordinary file name/); await reject('NUL.png', /ordinary file name/); }
+ // A file symlink needs privileges on some Windows hosts; the junction cases above always run.
+ let fileLink = false;
+ try { fs.symlinkSync(path.join(outside, 'target.png'), path.join(root, 'dangling.png'), 'file'); fileLink = true; }
+ catch (error) { if (error.code !== 'EPERM') throw error; }
+ if (fileLink) await reject('dangling.png', /exists/);
+ assert.equal(fs.readFileSync(path.join(root, 'existing.png'), 'utf8'), 'USER DATA');
+ assert.deepEqual(fs.readdirSync(outside), []);
+ await assert.rejects(runCheck(notLaunched, {...options('http://127.0.0.1:1'), screenshot: 'same.png', ariaSnapshot: './same.png'}, {outputRoot: root}), /differ/);
+ // Relative and absolute in-root paths pass validation and reach the browser launch.
+ await assert.rejects(runCheck(notLaunched, {...options('http://127.0.0.1:1'), screenshot: 'shots/new.png',
+   ariaSnapshot: path.join(root, 'page.aria.yml')}, {outputRoot: root}), /launch reached/);
+ assert.equal(containedOutput(root, 'shots/new.png'), path.join(fs.realpathSync(root), 'shots', 'new.png'));
+});
+test('a page error fails the check without echoing the page message', smoke, async () => {
+ const app = await ownedServer((req,res) => { res.writeHead(200, {'Content-Type':'text/html'}); res.end(fixture('<script>throw new Error("PAGE SECRET")</script>')); });
+ try {
+   await assert.rejects(runCheck(playwright, options(app.origin)), error => {
+     assert.equal(error.message, 'Application emitted a page error'); return true;
+   });
+ } finally { await app.close(); }
+});
+test('service-worker registration is blocked and never fetches the worker script', smoke, async () => {
+ let workerRequests = 0;
+ const app = await ownedServer((req,res) => {
+   if (req.url === '/sw.js') { workerRequests++; res.writeHead(200, {'Content-Type':'text/javascript'}); res.end('self.addEventListener("fetch", () => {});'); return; }
+   res.writeHead(200, {'Content-Type':'text/html'});
+   res.end(fixture('<script>navigator.serviceWorker && navigator.serviceWorker.register("/sw.js").catch(() => {})</script>'));
+ });
+ try {
+   const result = await runCheck(playwright, options(app.origin));
+   assert.equal(result.assertion, 'passed'); assert.equal(result.blocked, 0); assert.equal(workerRequests, 0);
+ } finally { await app.close(); }
+});
+test('blocked requests fail the check and name only their origins', smoke, async () => {
+ let canaryRequests = 0;
+ const canary = await ownedServer((req,res) => { canaryRequests++; res.end(); });
+ const app = await ownedServer((req,res) => {
+   res.writeHead(200, {'Content-Type':'text/html'});
+   res.end(fixture('<link rel="stylesheet" href="' + canary.origin + '/fonts/private-path.css?token=QUERYSECRET">' +
+     '<img src="http://localhost:' + canary.port + '/img.png?q=1">'));
+ });
+ try {
+   await assert.rejects(runCheck(playwright, options(app.origin)), error => {
+     assert.match(error.message, /^Request, socket or navigation left the example allowed boundary; blocked origins: /);
+     assert.deepEqual([...error.blockedOrigins].sort(), [canary.origin, 'http://localhost:' + canary.port].sort());
+     assert.doesNotMatch(error.message, /private-path|QUERYSECRET|img\.png/);
+     return true;
+   });
+   assert.equal(canaryRequests, 0);
+ } finally { await app.close(); await canary.close(); }
 });
