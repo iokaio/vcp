@@ -6,12 +6,16 @@ Adapted from Anthropic's Apache-2.0 claude-api skill and references, with provid
 
 Identify the requested behavior, language, provider, endpoint and installed SDK. Keep the user's provider and model choices; do not substitute another because a bundled example names it. For mixed-provider applications, preserve explicit routing and keep provider request/response details in their adapter. Changes to VCP itself must continue through VCP's existing inference boundary.
 
-Use installed SDK types and supported helpers for streaming, retries and tool loops rather than duplicating their functionality. Consult official documentation for changing APIs and verify signatures against the installed version. Read only the references that match the task:
+Use installed SDK types and supported helpers for streaming, retries and tool loops rather than duplicating their functionality. Consult official documentation for changing APIs and verify signatures against the installed version.
 
-- Any provider: [references/integration-patterns.md](references/integration-patterns.md) for tool loops, partial output, caching, reasoning-content round trips, batches, token counting, embeddings/RAG and migrations.
-- Tool definitions: [references/tool-schemas.md](references/tool-schemas.md) with [assets/tool-schema-neutral.json](assets/tool-schema-neutral.json).
-- Anthropic: [references/anthropic.md](references/anthropic.md). OpenAI or an OpenAI-compatible endpoint: [references/openai.md](references/openai.md). Gemini: [references/gemini.md](references/gemini.md).
-- Bedrock, Google Cloud, Azure or another hosted platform: [references/hosting.md](references/hosting.md), plus the model vendor's reference.
+Already in context: [references/integration-patterns.md](references/integration-patterns.md) (tool loops, partial output, caching, reasoning-content round trips, batches, token counting, embeddings/RAG, migrations) and [references/tool-schemas.md](references/tool-schemas.md) with [assets/tool-schema-neutral.json](assets/tool-schema-neutral.json).
+
+Provider notes are not in context. Read only the one for the provider the project actually uses, with `vcp_skill` action `read`, for example `{"action": "read", "skill": "llm-integration", "resource": "references/openai.md"}`:
+
+- `references/anthropic.md`: Anthropic Messages API (the Anthropic-shaped tool example is `assets/tool-schema.json`).
+- `references/openai.md`: OpenAI or an OpenAI-compatible endpoint.
+- `references/gemini.md`: Gemini API or Gemini on Google Cloud.
+- `references/hosting.md`: Bedrock, Google Cloud, Azure or another hosted platform, plus the model vendor's note.
 
 These references carry no model identifiers, prices or default token limits. Take those from the application's configuration and current provider documentation.
 

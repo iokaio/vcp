@@ -1,6 +1,6 @@
 # Wrapping a neutral tool schema
 
-VCP-authored. [../assets/tool-schema-neutral.json](../assets/tool-schema-neutral.json) holds a provider-neutral definition: `name`, `description` and a plain JSON Schema object in `parameters` that rejects additional properties. [../assets/tool-schema.json](../assets/tool-schema.json) is the same tool already wrapped for Anthropic. Keep one neutral source in the application and wrap it inside each provider adapter; do not copy a provider shape into shared code.
+VCP-authored. [../assets/tool-schema-neutral.json](../assets/tool-schema-neutral.json) holds a provider-neutral definition: `name`, `description` and a plain JSON Schema object in `parameters` that rejects additional properties. `assets/tool-schema.json` is the same tool already wrapped for Anthropic; it is an on-demand reference derived from the neutral file, so read it only when needed. Keep one neutral source in the application and wrap it inside each provider adapter; do not copy a provider shape into shared code.
 
 | Target | Wrapping |
 | --- | --- |

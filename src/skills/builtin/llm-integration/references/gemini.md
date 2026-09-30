@@ -2,6 +2,8 @@
 
 VCP-authored. Load only for an application that already uses the Gemini API or Gemini on Google Cloud. This is a checked summary (2026-09-29) of the official function-calling and thinking guides and the `google-genai` Python types, not a model, price or limit table. Confirm names against the installed SDK; REST uses camelCase (`functionDeclarations`) and the Python SDK snake_case (`function_declarations`).
 
+Checked against provider documentation on 2026-09-29; re-check before relying on version-specific details.
+
 ## Identify the API surface
 
 Google documents `generateContent` (contents of `parts`) and a newer Interactions API whose function-call steps use a different shape (`function_call` / `function_result` with `call_id`). The same SDK can target the Gemini API (API key) or Google Cloud (Google Cloud credentials; see [hosting.md](hosting.md)). Keep the surface the application already uses.

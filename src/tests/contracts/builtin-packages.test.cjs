@@ -30,7 +30,7 @@ test('every shipped package passes the authoring validator without warnings', ()
 // Context bytes are sent on every activation; references that are only needed
 // on request belong in a non-context role.
 const CONTEXT_BUDGET = 24 * 1024;
-const CONTEXT_ALLOWANCE = { 'llm-integration': 32 * 1024 }; // until SH-11 moves provider references
+const CONTEXT_ALLOWANCE = {};
 test('activation context stays within the per-package budget', () => {
   for (const entry of catalog.skills) {
     const d = descriptor(entry.id);

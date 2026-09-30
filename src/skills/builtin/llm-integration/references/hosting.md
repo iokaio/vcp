@@ -2,6 +2,8 @@
 
 VCP-authored pointer notes, checked 2026-09-29 against Amazon Bedrock, Anthropic platform, Google Cloud and Microsoft Learn documentation. Load when the application reaches a model through a cloud platform rather than the model vendor's direct API. Availability changes often; everything below is a list of what to check, not a compatibility guarantee.
 
+Checked against provider documentation on 2026-09-29; re-check before relying on version-specific details.
+
 ## What differs from a direct API
 
 - **Authentication:** cloud identity (AWS credential chain and IAM/SigV4, Google Application Default Credentials, Microsoft Entra ID) or a platform-issued key, not the vendor's API key. Use the application's existing credential mechanism; do not add long-lived keys.

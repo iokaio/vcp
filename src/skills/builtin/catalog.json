@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.64.0",
+  "version": "1.65.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "421f72f2f9286e39fe63197186d64391bfa044615cd29fad748025ba8841a27f"
+    "sha256": "de9c13e45909dd98d13fe46965653b82e0665f17e81236b1fcc404f9771d0b38"
   },
   "skills": [
     {
@@ -423,33 +423,35 @@
     },
     {
       "id": "llm-integration",
-      "version": "2.3.0",
+      "version": "2.4.0",
       "descriptor": "llm-integration/skill.json",
-      "descriptor_sha256": "cd58d212a845d137c36a3184b821d1e888f14429b31126d2f1ab5ff76528d1b3",
+      "descriptor_sha256": "c22d5cb98ff54666440b5a74c1d7a9e42229d4950775672f4bb94f3de091e4d5",
       "body": {
         "path": "SKILL.md",
-        "sha256": "e0d29e9041825c993b20723cb24bcc874a3f59c95db3a7197c5230f4705c4139"
+        "sha256": "ba38643016e18c931b8c01ddeff1d00fd2715cdbb61bf855e6d9d475ebc74be0"
       },
       "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/claude-api",
       "license": "Apache-2.0",
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+          "sha256": "14099b9c79d031b9d4b32c736a4e20f2b941f52dd79500532d62d26dd716110c",
           "use": "file"
         },
         {
           "path": "UPSTREAM.md",
-          "sha256": "adbeeba80f7cffc99462491b9502256c20d1548bebe5e900cb4c3539fcfd54a5",
+          "sha256": "7afd678233ec6945a8ec36a09c2570dfc1c69b99ff712e71ba5c1a4b0da5b7af",
           "use": "file"
         },
         {
           "path": "assets/tool-schema.json",
-          "sha256": "0af0456789c640bd88566b4e4368562e99988189c1ac5217387b1a07d09a1f6d"
+          "sha256": "0af0456789c640bd88566b4e4368562e99988189c1ac5217387b1a07d09a1f6d",
+          "use": "reference"
         },
         {
           "path": "references/anthropic.md",
-          "sha256": "5a78b93b047559de2364c9ae8b80f084e05ffda0106c21b52ab122d65ce961de"
+          "sha256": "5a78b93b047559de2364c9ae8b80f084e05ffda0106c21b52ab122d65ce961de",
+          "use": "reference"
         },
         {
           "path": "references/integration-patterns.md",
@@ -461,19 +463,22 @@
         },
         {
           "path": "references/gemini.md",
-          "sha256": "6ad94362751813867b7f34c5f5d467a92bf001010e8ee8f84018f5fd203df12d"
+          "sha256": "b87224007cfafc7f0839187313e4c760fec1bbf1c160c6f7dfcabeb21982f252",
+          "use": "reference"
         },
         {
           "path": "references/hosting.md",
-          "sha256": "9082ec4d5917d0c8fb8a37609e0b1b7bc0c92f973fce5200e16eeb37fde82f04"
+          "sha256": "83124cdb49cff44f4ab1e187d5f1e53356a6d8a217afcf07c135995eca7f49c0",
+          "use": "reference"
         },
         {
           "path": "references/openai.md",
-          "sha256": "106838e1ffb0c67cbd24668083859b519c622f6640432e395ba92d0cc63531e6"
+          "sha256": "8cb1dd25a8d01ba0a86664ed8ab4ad0a67046f8b159fcf8a68990b866405460d",
+          "use": "reference"
         },
         {
           "path": "references/tool-schemas.md",
-          "sha256": "7969c10a47de26ee402998cd355a618558702e443e1b26ad9fed0ff91e7fea83"
+          "sha256": "220ca9aefc15766d4e4cc070bfa5ca68ef70c145c3e690b8498874e6a38f55a6"
         }
       ]
     },
