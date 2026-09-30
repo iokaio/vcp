@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "cpp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Honor configured compiler, generator, build directory, ABI, and native test conventions. Use when the project has CMakeLists.txt or when editing C or C++ code, builds or native tests.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -16,7 +16,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "da88fdc7472c897b36f38c76470e8992485507aacbf14acd6ac8080d86505ceb"
+    "sha256": "191c1c62f71e393e5879d59c3ae329fa4fb0022be9a22543706f99c6fc7d63db"
   },
   "resources": []
 }
