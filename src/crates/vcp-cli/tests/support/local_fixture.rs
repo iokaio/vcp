@@ -154,6 +154,12 @@ impl Fixture {
     pub(crate) fn bootstrap(&self, role: &str) -> Value {
         json!({"schema":"vcp-local-bootstrap/1","workspace":self.workspace,"data":self.data,"role":role})
     }
+    /// Keep private installed-product inputs if setup or its supervisor fails.
+    /// A registered uninstaller can still refer to these paths after a panic.
+    pub(crate) fn preserve_private_root(&mut self) -> PathBuf {
+        self._temporary.disable_cleanup(true);
+        self._temporary.path().to_owned()
+    }
     pub(crate) fn scope(&self) -> Value {
         json!({"workspace":self.config.workspace,"session":self.config.session})
     }

@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Internal beta candidate
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_commit:
+        description: 'Exact reviewed main commit (40 lowercase hex), with successful Delivery checks'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: internal-beta-candidate
+  cancel-in-progress: false
+jobs:
+  candidate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2025
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GIT_CONFIG_COUNT: '2'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+      GIT_CONFIG_KEY_1: core.autocrlf
+      GIT_CONFIG_VALUE_1: 'false'
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: '0'
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require reviewed main selection and successful delivery checks
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:REVIEWED_COMMIT -cnotmatch '^[a-f0-9]{40}$' -or $env:REVIEWED_COMMIT -cne $env:GITHUB_SHA) { throw 'Reviewed selection must be this exact main workflow commit' }
+          $uri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$env:REVIEWED_COMMIT&status=success&per_page=100"
+          $runs = Invoke-RestMethod -Uri $uri -Headers @{Authorization="Bearer $env:GH_READ_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          $passed = @($runs.workflow_runs | Where-Object { $_.head_sha -ceq $env:REVIEWED_COMMIT -and $_.head_branch -ceq 'main' -and $_.event -ceq 'push' -and $_.conclusion -ceq 'success' })
+          if ($passed.Count -eq 0) { throw 'No successful main Delivery check run exists for the exact selected commit' }
+          New-Item -ItemType Directory -Path artifacts/beta-gate -Force | Out-Null
+          @{reviewed_commit=$env:REVIEWED_COMMIT;workflow='ci.yml';successful_run=$passed[0].html_url;run_id=$passed[0].id} | ConvertTo-Json | Set-Content artifacts/beta-gate/delivery.json -Encoding utf8NoBOM
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+      - name: Provision locked packaging and contract tools
+        run: |
+          foreach ($package in @('src/tests','src/packages/sdk-ts','src/packages/vscode')) {
+            npm.cmd ci --prefix $package --ignore-scripts --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Build and exercise exact internal candidate
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2
+      - name: Collect sanitized evidence including failures and unrun cases
+        if: always()
+        run: |
+          $record = 'artifacts/beta-candidate/run.json'
+          if (-not (Test-Path -LiteralPath $record)) {
+            New-Item -ItemType Directory -Path artifacts/beta-failure -Force | Out-Null
+            $record = 'artifacts/beta-failure/run.json'
+            @{schema='vcp-candidate-run/1';status='fail';reviewed_commit=$env:GITHUB_SHA;environment=@{os=[Runtime.InteropServices.RuntimeInformation]::OSDescription;node=(& node --version);runner_image=$env:ImageOS;runner_image_version=$env:ImageVersion};stages=@();receipts=@{}} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $record -Encoding utf8NoBOM
+          }
+          node scripts/release/evidence.cjs $record artifacts/beta-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain complete candidate packet for review
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: internal-beta-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/beta-evidence/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
