@@ -96,7 +96,7 @@ pub fn check_source_read_access(
     check().map_err(|error| error.to_string())
 }
 /// Root files whose presence becomes a cue of the same name.
-pub const ROOT_MARKERS: [&str; 21] = [
+pub const ROOT_MARKERS: [&str; 22] = [
     "Cargo.toml",
     "package.json",
     "pyproject.toml",
@@ -118,9 +118,11 @@ pub const ROOT_MARKERS: [&str; 21] = [
     "deno.json",
     "deno.jsonc",
     "go.work",
+    "meson.build",
 ];
 /// Root project files matched by extension become `*.ext` cues.
-pub const ROOT_PATTERN_EXTENSIONS: [&str; 4] = ["sln", "slnx", "csproj", "fsproj"];
+pub const ROOT_PATTERN_EXTENSIONS: [&str; 6] =
+    ["sln", "slnx", "csproj", "fsproj", "vcxproj", "vbproj"];
 /// Bounded observed setup metadata shared by CLI preview and host activation.
 /// Tool names must come from the caller's actual configured adapters.
 pub fn actual_match_context(
@@ -244,6 +246,9 @@ mod tests {
             "go.work",
             "App.SLN",
             "Tool.csproj",
+            "meson.build",
+            "Native.vcxproj",
+            "Legacy.vbproj",
         ] {
             std::fs::write(temp.path().join(name), b"fixture").unwrap();
         }
@@ -258,9 +263,12 @@ mod tests {
             [
                 "*.csproj",
                 "*.sln",
+                "*.vbproj",
+                "*.vcxproj",
                 "build.gradle.kts",
                 "deno.jsonc",
                 "go.work",
+                "meson.build",
                 "requirements.txt"
             ]
         );

@@ -22,12 +22,15 @@
     "Pipfile",
     "deno.json",
     "deno.jsonc",
-    "go.work"
+    "go.work",
+    "meson.build"
   ],
   "root_pattern_extensions": [
     "sln",
     "slnx",
     "csproj",
-    "fsproj"
+    "fsproj",
+    "vcxproj",
+    "vbproj"
   ]
 }
