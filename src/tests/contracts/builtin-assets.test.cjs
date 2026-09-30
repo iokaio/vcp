@@ -86,10 +86,10 @@ test('rehash is idempotent and refreshes only edited content, descriptor and cat
   try {
     const target = path.join(temp.root, 'assets');
     stageAssets(assets, target);
-    assert.deepEqual(rehashAssets(target).changed, []);
+    assert.deepEqual(rehashAssets(target, { requireCheckout: false }).changed, []);
     fs.appendFileSync(path.join(target, 'rust/SKILL.md'), 'Edited guidance.\n');
     assert.throws(() => inspectAssets(target, fs.readFileSync(path.join(target, 'catalog.json'))), /hash mismatch/);
-    const result = rehashAssets(target);
+    const result = rehashAssets(target, { requireCheckout: false });
     assert.deepEqual(result.changed.sort(), ['catalog.json', 'rust/skill.json']);
     const descriptor = JSON.parse(fs.readFileSync(path.join(target, 'rust/skill.json')));
     assert.equal(descriptor.body.sha256, sha(fs.readFileSync(path.join(target, 'rust/SKILL.md'))));

@@ -121,6 +121,8 @@ function budgetPreflight(profile, allocation) {
 // Campaign runners revalidate the same source scopes before every row. Reuse a
 // file's digest only while its path and nanosecond stat stamp are unchanged, so
 // any edit, replacement or truncation still forces a fresh read and hash.
+// Assumes nanosecond-capable timestamps (NTFS, ext4, APFS); on coarse
+// filesystems a same-size edit within one tick relies on ctime/inode changes.
 const digestCache = new Map();
 function digest(file, stat) {
   const stamp = [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(':');
