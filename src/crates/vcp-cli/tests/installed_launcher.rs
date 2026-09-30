@@ -80,10 +80,24 @@ fn stable_launch_preserves_native_arguments_output_and_exit_code() {
         vec!["--help"],
         vec!["--invalid-β=two words \"quoted\" \\ end"],
     ] {
+        let invalid_argument = args[0].starts_with("--invalid-");
         let direct = Command::new(&fixture.engine).args(&args).output().unwrap();
         let launched = Command::new(&fixture.launcher).args(args).output().unwrap();
         assert_eq!(launched.status.code(), direct.status.code());
-        assert_eq!(launched.stdout, direct.stdout);
+        if invalid_argument {
+            // Each native invocation assigns a fresh command correlation ID.
+            // Validate that field, then compare every stable envelope field.
+            let normalize = |bytes: &[u8]| {
+                let mut envelope: Value = serde_json::from_slice(bytes).unwrap();
+                let _: vcp_domain::ids::CommandId =
+                    serde_json::from_value(envelope["correlation"].clone()).unwrap();
+                envelope["correlation"] = Value::Null;
+                envelope
+            };
+            assert_eq!(normalize(&launched.stdout), normalize(&direct.stdout));
+        } else {
+            assert_eq!(launched.stdout, direct.stdout);
+        }
         assert_eq!(launched.stderr, direct.stderr);
     }
     let refused = Command::new(&fixture.launcher)
