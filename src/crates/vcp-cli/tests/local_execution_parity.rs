@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(all(windows, feature = "qualification"))]
 //! Same synthetic coding scenario through the real CLI and authenticated API.
+#[path = "support/import_execution.rs"]
+mod import_execution;
 #[path = "support/local_fixture.rs"]
 mod wire;
 use serde_json::{json, Value};
@@ -426,6 +428,7 @@ impl Fixture {
         assert!(!ready.to_string().contains(SECRET));
         let methods = [
             "turn/start",
+            "session/resume",
             "task/read",
             "controller/read",
             "controller/acquire",
