@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "ruby",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Follow Ruby version, Bundler lock, framework, and declared test-task conventions. Use when the project has a Gemfile or when editing Ruby or Rails code and tests.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -16,7 +16,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "e89947f425be2bce48a8200ee0a98b90b30be5cd9b5b55252e0a2fe01c3362a4"
+    "sha256": "bca5fa5cda4393f6f956931a8b9f16fa845a70e6732ece609aec917d21d5ec57"
   },
   "resources": []
 }
