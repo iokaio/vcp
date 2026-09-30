@@ -527,6 +527,17 @@ async fn retained_skills_are_lazy_attributed_and_cannot_override_denials_or_stal
                 .filter(|a| a.spec.schema == "canonical-active-skill-body/1")
                 .collect();
             assert_eq!(skill_bodies.len(), usize::from(mode != "discovery"));
+            if mode == "active-denied" {
+                // SH-05: unchanged derived skill parts are captured once, not per request.
+                assert!(observed.lock().unwrap().len() >= 2);
+                for schema in [
+                    "canonical-skill-discovery-context/1",
+                    "canonical-skill-resources/1",
+                ] {
+                    let count = artifacts.iter().filter(|a| a.spec.schema == schema).count();
+                    assert_eq!(count, 1, "{schema}");
+                }
+            }
             if mode != "discovery" {
                 assert_eq!(
                     host.read_artifact(skill_bodies[0].spec.id.clone()).unwrap(),

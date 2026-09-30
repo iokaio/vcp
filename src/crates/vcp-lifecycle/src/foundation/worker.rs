@@ -232,6 +232,10 @@ pub struct Context {
     observer_busy: Arc<std::sync::atomic::AtomicBool>,
     #[cfg(windows)]
     skills: Option<skills::Runtime>,
+    /// Last capture of each derived per-task skill part, reused while its
+    /// bytes are unchanged (SH-05).
+    #[cfg(windows)]
+    skill_part_captures: HashMap<(TaskId, String), ArtifactDescriptor>,
     #[cfg(windows)]
     coding: HashMap<TaskId, coding::Loop>,
     #[cfg(windows)]
@@ -398,6 +402,8 @@ impl Context {
             observer_busy: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             #[cfg(windows)]
             skills: None,
+            #[cfg(windows)]
+            skill_part_captures: HashMap::new(),
             #[cfg(windows)]
             coding: HashMap::new(),
             #[cfg(windows)]
