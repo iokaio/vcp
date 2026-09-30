@@ -2,6 +2,8 @@
 
 VCP-authored. Load only for an application that already uses the OpenAI API or an OpenAI-compatible endpoint. This is a checked summary (2026-09-29) of the official function-calling guide and the `openai-python` types, not a model, price or limit table. Confirm names against the installed SDK.
 
+Checked against provider documentation on 2026-09-29; re-check before relying on version-specific details.
+
 ## Pick the API the application already uses
 
 OpenAI has two request shapes with tool calling: the **Responses API** and **Chat Completions**. Do not migrate between them as a side effect of another change; the current guide notes that some models support tool calling only through Responses, so check current docs when a feature is missing.
