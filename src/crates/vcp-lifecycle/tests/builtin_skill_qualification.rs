@@ -23,3 +23,19 @@ fn frozen_builtin_fixtures_pass_native_contracts() {
         .collect();
     assert!(report["pass"] == true && failed.is_empty(), "{failed:#?}");
 }
+
+#[test]
+fn host_marker_constants_match_the_shared_marker_file() {
+    // src/skills/markers.json also drives the builtin fixture author.
+    let shared: serde_json::Value =
+        serde_json::from_str(include_str!("../../../skills/markers.json")).unwrap();
+    let list = |key: &str| -> Vec<String> { serde_json::from_value(shared[key].clone()).unwrap() };
+    assert_eq!(
+        list("root_markers"),
+        vcp_lifecycle::foundation::skills::ROOT_MARKERS
+    );
+    assert_eq!(
+        list("root_pattern_extensions"),
+        vcp_lifecycle::foundation::skills::ROOT_PATTERN_EXTENSIONS
+    );
+}

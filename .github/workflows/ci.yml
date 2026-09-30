@@ -111,9 +111,9 @@ jobs:
       # manual Native Windows qualification job.
       - name: Test descriptor, discovery and catalog contracts
         run: cargo test --locked -p vcp-extensions
-      - name: Test host markers and shipped cues
-        run: cargo test --locked -p vcp-lifecycle --lib foundation::skills::tests
-      - name: Test frozen builtin fixture contracts
+      # The vcp-lifecycle lib-test target is Windows-only; this integration test
+      # links the ordinary library and also checks the shared marker file.
+      - name: Test frozen builtin fixtures and the host marker contract
         run: cargo test --locked -p vcp-lifecycle --test builtin_skill_qualification
   windows:
     name: Native Windows qualification
