@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "id": "document-authoring",
-  "version": "2.3.0",
-  "description": "Write or revise status and project updates, incident reports, FAQs, leadership updates, ADRs, decision proposals, specs and runbooks for their intended readers. Use when asked to draft, edit or restructure a technical, project or internal-communication document.",
+  "version": "2.4.0",
+  "description": "Write or revise status and project updates, incident reports and postmortems, FAQs, leadership updates, ADRs, decision proposals, specs, runbooks, READMEs, release notes and changelogs for their intended readers. Use when asked to draft, edit or restructure a technical, project or internal-communication document.",
   "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/internal-comms",
   "license": "Apache-2.0",
   "vcp_version": 1,
@@ -14,34 +14,38 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "cc00e22322bbead879c7fd615e4beb6efe43bf47dd1be8fe871d237a1c24a404"
+    "sha256": "d6e217a37bf36d665df7c2b88e442cf2b88a18dc40fbe0bda0092dcf042efff9"
   },
   "resources": [
     {
       "path": "LICENSE.txt",
-      "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+      "sha256": "14099b9c79d031b9d4b32c736a4e20f2b941f52dd79500532d62d26dd716110c",
       "use": "file"
     },
     {
       "path": "NOTICE.md",
-      "sha256": "281b62937be3a115fe9324622189773caa0f6b56d911b437e8e6549bb125b1cf",
+      "sha256": "62a200b3693214d7947655866844ebb893307b8fe669e8b6c8b8d84c17677aac",
       "use": "file"
     },
     {
       "path": "references/project-updates.md",
-      "sha256": "2d5200c0a0bd2ec0008345dd9e8c2516d8a57098513b719fcffdc6cf3274e5fc"
+      "sha256": "2d5200c0a0bd2ec0008345dd9e8c2516d8a57098513b719fcffdc6cf3274e5fc",
+      "use": "reference"
     },
     {
       "path": "references/faq.md",
-      "sha256": "52b2ec3f2791f56196653d2a543bad96accf9473cc88a12ab6704e91fba0ebef"
+      "sha256": "52b2ec3f2791f56196653d2a543bad96accf9473cc88a12ab6704e91fba0ebef",
+      "use": "reference"
     },
     {
       "path": "references/leadership-updates.md",
-      "sha256": "f0db225ef3c8462435836e6dafd711ab3991d69f0fef7e87779432a024481fc4"
+      "sha256": "f0db225ef3c8462435836e6dafd711ab3991d69f0fef7e87779432a024481fc4",
+      "use": "reference"
     },
     {
       "path": "references/decision-records.md",
-      "sha256": "1e35064069e4afe1f1c374140a6e192ee1da1e3625aa31dd2ac25ef72c1c06a8"
+      "sha256": "1e35064069e4afe1f1c374140a6e192ee1da1e3625aa31dd2ac25ef72c1c06a8",
+      "use": "reference"
     }
   ]
 }
