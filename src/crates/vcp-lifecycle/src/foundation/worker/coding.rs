@@ -664,7 +664,14 @@ impl Context {
         parts.extend(self.skill_parts(binding)?);
         // Keep the conversation after current authority-bearing sources.
         parts.sort_by_key(|p| matches!(p.kind, Kind::ToolCall | Kind::ToolResult));
-        let schemas = canonical_tools.schemas();
+        let mut schemas = canonical_tools.schemas();
+        // Skill state is per task: a child has no active skills, so vcp_skill
+        // is not offered there (ADR-071).
+        if self.child_assignment(&binding.scope.task)?.is_some() {
+            if let Some(list) = schemas.as_array_mut() {
+                list.retain(|schema| schema["name"] != "vcp_skill");
+            }
+        }
         // Portable compaction runs before candidate capacity filtering. All
         // qualified candidates use this codec, whose model/provider constants
         // cancel out of the before/after gain calculation.
@@ -1023,6 +1030,10 @@ impl Context {
         )
     }
     pub fn select_coding_paths(&mut self, binding: &ThreadBinding, call: &Call) -> Result<bool> {
+        // vcp_skill read touches no workspace path; only materialize selects one.
+        if call.name == "vcp_skill" && call.arguments["action"] == "read" {
+            return Ok(true);
+        }
         match call.name.as_str() {
             "vcp_read" => self.child_tool_request(
                 binding,

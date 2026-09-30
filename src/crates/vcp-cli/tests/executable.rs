@@ -492,7 +492,8 @@ async fn executable_authoring_report_only_profiles_complete_without_workspace_ed
         let requests = server.received_requests().await.unwrap();
         assert_eq!(requests.len(), 1);
         let request: Value = serde_json::from_slice(&requests[0].body).unwrap();
-        assert_eq!(request["tools"].as_array().unwrap().len(), 3);
+        // vcp_skill is implied by the read ceiling (ADR-071).
+        assert_eq!(request["tools"].as_array().unwrap().len(), 4);
         assert_eq!(
             request["tools"]
                 .as_array()
@@ -500,7 +501,7 @@ async fn executable_authoring_report_only_profiles_complete_without_workspace_ed
                 .iter()
                 .map(|tool| tool["name"].as_str().unwrap())
                 .collect::<BTreeSet<_>>(),
-            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search"])
+            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill"])
         );
         let parts: Vec<Value> = request["input"]
             .as_array()

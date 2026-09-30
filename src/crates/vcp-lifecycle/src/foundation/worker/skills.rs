@@ -74,6 +74,76 @@ pub struct Materialization {
     pub bytes: Vec<u8>,
     pub patch: String,
 }
+/// Model-supplied `vcp_skill` read arguments.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadRequest {
+    pub skill: String,
+    pub resource: String,
+}
+/// One verified on-demand reference.
+pub struct SkillRead {
+    pub skill: String,
+    pub resource: String,
+    pub sha256: String,
+    pub text: String,
+}
+/// Package-relative path of a captured resource.
+fn package_relative<'a>(active: &Active, captured: &'a Captured) -> &'a str {
+    let package = std::path::Path::new(&active.descriptor_version.path)
+        .parent()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    if package.is_empty() {
+        &captured.file.path
+    } else {
+        captured
+            .file
+            .path
+            .strip_prefix(&format!("{package}/"))
+            .unwrap_or(&captured.file.path)
+    }
+}
+/// Resolves one active skill by qualified or bare id and one declared resource.
+fn active_resource<'a>(
+    state: &'a TaskSkills,
+    skill: &str,
+    resource: &str,
+) -> Result<(&'a Active, &'a Captured)> {
+    let selected: Vec<_> = state
+        .active
+        .values()
+        .filter(|active| {
+            active.qualified_id == skill
+                || active
+                    .qualified_id
+                    .rsplit("::")
+                    .next()
+                    .is_some_and(|id| id == skill)
+        })
+        .collect();
+    let active = match selected.as_slice() {
+        [active] => *active,
+        [] => return Err(format!("no active skill matches {skill}").into()),
+        many => {
+            let ids: Vec<_> = many
+                .iter()
+                .map(|active| active.qualified_id.as_str())
+                .collect();
+            return Err(format!(
+                "{skill} matches several active skills; use one of {}",
+                ids.join(", ")
+            )
+            .into());
+        }
+    };
+    let captured = active
+        .resources
+        .iter()
+        .find(|captured| package_relative(active, captured) == resource)
+        .ok_or("resource is not declared by the active skill")?;
+    Ok((active, captured))
+}
 fn name(scope: &Scope) -> Result<String> {
     Ok(format!(
         "skills-task-{}",
@@ -608,50 +678,15 @@ impl Context {
                 "materialize destination must be a normalized workspace-relative path".into(),
             );
         }
+        // Materialization writes, so it also needs the patch ceiling (ADR-071).
+        self.require_coding_tool(binding, "vcp_patch")?;
         self.validate_skills(binding)?;
         let state = self.skill_state(&binding.scope)?;
-        let selected: Vec<_> = state
-            .active
-            .values()
-            .filter(|active| {
-                active.qualified_id == request.skill
-                    || active
-                        .qualified_id
-                        .rsplit("::")
-                        .next()
-                        .is_some_and(|id| id == request.skill)
-            })
-            .collect();
-        let [active] = selected.as_slice() else {
-            return Err("materialize requires exactly one matching active skill".into());
-        };
-        let package = std::path::Path::new(&active.descriptor_version.path)
-            .parent()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_default();
-        let wanted = if package.is_empty() {
-            request.resource.clone()
-        } else {
-            format!("{package}/{}", request.resource)
-        };
-        let captured = active
-            .resources
-            .iter()
-            .find(|captured| captured.file.path == wanted)
-            .ok_or("resource is not declared by the active skill")?;
+        let (active, captured) = active_resource(&state, &request.skill, &request.resource)?;
         if captured.use_ != ResourceUse::File {
             return Err("only use:file skill resources can be materialized".into());
         }
-        let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            &captured.artifact,
-            &mut bytes,
-        )?;
-        if digest_bytes(&bytes) != captured.file.sha256 {
-            return Err("active skill captured source changed".into());
-        }
+        let bytes = self.verified_resource(captured)?;
         let text = std::str::from_utf8(&bytes)
             .map_err(|_| "only UTF-8 text resources can be materialized")?;
         if bytes.is_empty()
@@ -677,6 +712,43 @@ impl Context {
             bytes,
             patch,
         })
+    }
+    /// ADR-071 on-demand reference: the exact verified bytes of one
+    /// `reference` resource of an active skill, returned as a tool result.
+    /// No workspace write and no effect; skill guidance precedence applies.
+    pub fn skill_read(&self, binding: &ThreadBinding, request: &ReadRequest) -> Result<SkillRead> {
+        const MAX_BYTES: usize = 64 * 1024;
+        self.validate_skills(binding)?;
+        let state = self.skill_state(&binding.scope)?;
+        let (active, captured) = active_resource(&state, &request.skill, &request.resource)?;
+        if captured.use_ != ResourceUse::Reference {
+            return Err("only use:reference skill resources can be read".into());
+        }
+        let bytes = self.verified_resource(captured)?;
+        if bytes.len() > MAX_BYTES {
+            return Err("skill reference exceeds 64 KiB".into());
+        }
+        let text = String::from_utf8(bytes).map_err(|_| "skill reference must be UTF-8 text")?;
+        Ok(SkillRead {
+            skill: active.qualified_id.clone(),
+            resource: request.resource.clone(),
+            sha256: captured.file.sha256.clone(),
+            text,
+        })
+    }
+    /// Captured artifact bytes, rechecked against the activation digest.
+    fn verified_resource(&self, captured: &Captured) -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        vcp_audit::history::History::read_artifact(
+            self.engine.store(),
+            &self.history_access(),
+            &captured.artifact,
+            &mut bytes,
+        )?;
+        if digest_bytes(&bytes) != captured.file.sha256 {
+            return Err("active skill captured source changed".into());
+        }
+        Ok(bytes)
     }
     pub(super) fn validate_skill_plan(
         &self,
@@ -761,6 +833,41 @@ impl Context {
                 // external package is not promoted to a writable tool root.
                 part.file = None;
                 parts.push(part);
+            }
+            // ADR-071: list what the model may read or copy on request,
+            // without sending those bytes.
+            let listed: Vec<_> = active
+                .resources
+                .iter()
+                .filter(|captured| !captured.use_.is_context())
+                .map(|captured| {
+                    serde_json::json!({"path":package_relative(active, captured),
+                        "bytes":captured.file.bytes,"use":captured.use_})
+                })
+                .collect();
+            if !listed.is_empty() {
+                let bytes = canonical_bytes(&serde_json::json!({"schema":"skill-resources/1",
+                    "skill":active.qualified_id,"resources":listed,
+                    "access":"vcp_skill read returns a reference; vcp_skill materialize copies a file resource; neither grants authority"}))?;
+                let descriptor = self.capture(
+                    &binding.scope,
+                    Channel::Evidence,
+                    &bytes,
+                    "canonical-skill-resources/1",
+                )?;
+                parts.push(Part::captured_text(
+                    format!(
+                        "skill-resources-{}",
+                        digest_bytes(active.qualified_id.as_bytes())
+                    ),
+                    Kind::Evidence,
+                    ContextTrust::Untrusted,
+                    &descriptor,
+                    &bytes,
+                    false,
+                    40,
+                    "active skill resource manifest".into(),
+                )?);
             }
         }
         if let Some(runtime) = &self.skills {

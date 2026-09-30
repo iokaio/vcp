@@ -194,6 +194,16 @@ impl CanonicalHost {
         self.worker
             .run(move |context| context.skill_control(&binding, request))
     }
+    /// Returns one verified on-demand reference of an active skill (ADR-071).
+    pub(in crate::foundation) fn skill_read(
+        &self,
+        thread: ThreadId,
+        request: super::worker::skills::ReadRequest,
+    ) -> Result<super::worker::skills::SkillRead, String> {
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.skill_read(&binding, &request))
+    }
     /// Resolves an active skill's verified file resource into the exact patch
     /// that creates it; the caller submits that patch through normal authority.
     pub(in crate::foundation) fn skill_materialization(

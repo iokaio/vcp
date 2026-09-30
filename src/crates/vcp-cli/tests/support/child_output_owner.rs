@@ -286,14 +286,23 @@ async fn output_loss_case(backend: BackendKind) {
     for request in server.received_requests().await.unwrap() {
         let outbound: Value = serde_json::from_slice(&request.body).unwrap();
         let tools = outbound["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 3);
-        assert_eq!(
-            tools
-                .iter()
-                .map(|tool| tool["name"].as_str().unwrap())
-                .collect::<BTreeSet<_>>(),
-            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search"])
-        );
+        let names = tools
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect::<BTreeSet<_>>();
+        // Children have no skill state, so vcp_skill is never offered there
+        // (ADR-071); a root request under this ceiling also gets vcp_skill.
+        if outbound.to_string().contains("-child-objective") {
+            assert_eq!(
+                names,
+                BTreeSet::from(["vcp_read", "vcp_list", "vcp_search"])
+            );
+        } else {
+            assert_eq!(
+                names,
+                BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill"])
+            );
+        }
     }
     // These are actual active retained child pumps, not just guard fixtures.
     // A cloned child session must not steal their completion/transcript events.
