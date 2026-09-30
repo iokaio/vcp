@@ -16,6 +16,25 @@ test('production checker guard rejects non-Windows hosts before reading inputs',
   assert.throws(() => unsupported.checkerRuntime({ checker: path.resolve('absent.exe'), build_receipt: path.resolve('absent.json') }, os.tmpdir(), {}), /Explicit absolute Windows/);
 });
 
+test('cached source identity still detects same-size edits, replacement and new files', () => {
+  const { identity } = authoringHost().prep;
+  const temp = ownedRoot(os.tmpdir());
+  try {
+    fs.mkdirSync(path.join(temp.root, 'scope'));
+    const file = path.join(temp.root, 'scope/a.txt');
+    fs.writeFileSync(file, 'alpha\n');
+    const first = identity(temp.root, ['scope']);
+    assert.deepEqual(identity(temp.root, ['scope']), first, 'unchanged scope is stable');
+    fs.writeFileSync(file, 'omega\n');
+    const edited = identity(temp.root, ['scope']);
+    assert.notEqual(edited.content_sha256, first.content_sha256, 'same-size edit detected');
+    fs.rmSync(file); fs.writeFileSync(file, 'alpha\n');
+    assert.equal(identity(temp.root, ['scope']).files[0].sha256, first.files[0].sha256, 'replacement rehashed');
+    fs.writeFileSync(path.join(temp.root, 'scope/b.txt'), 'new\n');
+    assert.equal(identity(temp.root, ['scope']).files.length, 2, 'new file observed');
+  } finally { temp.cleanup(); }
+});
+
 function mockRuntime(root) {
   // Synthetic build-receipt fixture; production validation has no test bypass.
   const prep = require('../../../scripts/evals/authoring-prepare.cjs');

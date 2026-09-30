@@ -13,6 +13,10 @@ The owner approved the earlier non-default disposition on September 25, 2026. Th
 the candidate; the candidates directory has no automatic loader and is excluded
 from builtin staging. Required tools remain compatibility requirements, not grants.
 
+Later state (not a revision of this record): the builtin catalog now ships the
+eight workflow skills as licensed ports alongside the 21 families; see
+[the builtin catalog notes](p7-builtin-skills.md).
+
 The frozen full diagnostic used these exact package bytes alongside
 document-authoring 1.0.1 in development catalog 1.5.0. Its global authority halt
 occurred before revised SKL comparisons ran. A later

@@ -14,6 +14,10 @@ resource bytes are unchanged from the frozen 1.0.1 diagnostic. This directory
 is a repository convention, not an automatic loader. The default catalog retains
 21 skills and 44 packaged files; neither candidate is shipped in its inventory.
 Candidate use requires an explicit existing skill source and explicit selection.
+
+Later state (not a revision of this record): the builtin catalog now ships the
+eight workflow skills as licensed ports alongside the 21 families; see
+[the builtin catalog notes](p7-builtin-skills.md).
 Selection does not grant tools or effects, and integrity tests do not establish
 usefulness.
 
