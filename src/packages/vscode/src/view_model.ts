@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-export type ViewAction = 'connect' | 'control' | 'attach' | 'reconcile' | 'grant' | 'revoke' | 'disconnect' | 'refresh';
+export type ViewAction = 'setup' | 'connect' | 'control' | 'attach' | 'reconcile' | 'grant' | 'revoke' | 'disconnect' | 'refresh';
 export type ViewMessage = ViewAction | 'ready';
 /** Closed messages never carry paths, IDs, commands, credentials or HTML. */
 export function parseViewMessage(value: unknown): ViewMessage | undefined {
@@ -8,7 +8,7 @@ export function parseViewMessage(value: unknown): ViewMessage | undefined {
   const descriptor = Object.getOwnPropertyDescriptor(value, 'action');
   if (!descriptor?.enumerable || !('value' in descriptor)) return undefined;
   const action: unknown = descriptor.value;
-  return action === 'connect' || action === 'control' || action === 'attach' || action === 'reconcile' || action === 'grant' || action === 'revoke' || action === 'disconnect' || action === 'refresh' || action === 'ready' ? action : undefined;
+  return action === 'setup' || action === 'connect' || action === 'control' || action === 'attach' || action === 'reconcile' || action === 'grant' || action === 'revoke' || action === 'disconnect' || action === 'refresh' || action === 'ready' ? action : undefined;
 }
 
 function escape(value: string): string {
@@ -19,7 +19,8 @@ function escape(value: string): string {
 export function connectionHtml(cspSource: string, styleUri: string, scriptUri: string, nonce: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${escape(cspSource)}; script-src 'nonce-${escape(nonce)}';"><link rel="stylesheet" href="${escape(styleUri)}"><title>VCP Workspace</title></head><body>
   <header><h1>Workspace</h1><span id="phase" class="badge">disconnected</span></header>
-  <p id="message" role="status" aria-live="polite">Choose an initialized local workspace to inspect.</p>
+  <p id="message" role="status" aria-live="polite">Choose an initialized local workspace to inspect. For first use, open the setup guide.</p>
+  <button id="setup" type="button">Setup guide…</button>
   <dl id="details"></dl><h2>Connection limits</h2><ul id="limitations"></ul>
   <div class="actions"><button id="connect" type="button">Connect…</button><button id="refresh" type="button" disabled>Refresh</button><button id="disconnect" type="button" disabled>Disconnect</button></div>
   <div class="actions"><button id="control" type="button">Connect as controller…</button><button id="attach" type="button">Observe existing engine…</button><button id="reconcile" type="button">Reconcile moved root…</button></div>

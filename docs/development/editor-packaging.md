@@ -7,6 +7,29 @@ P4-01 through P4-04 editor behavior.
 
 ## Distribution decision
 
+BETA-07 adds strict internal beta construction. From `src/packages/vscode`, use
+`node scripts/package.cjs --engine <absolute-native-package/vcp.exe> --engine-manifest <absolute-native-result.json> --output <fresh-repository-artifacts-directory> --reviewed-commit <40-hex-commit> --build-receipt <absolute-original-build-receipt.json>`.
+The native result must be a verified production release from the same clean
+reviewed source. The packager checks the complete native ZIP and staged payload,
+the original build receipt and its retained compiler/source/dependency logs,
+executable version and shared release identity. The original receipt must match
+the packaged receipt byte for byte; the copied receipt alone is insufficient.
+It restores SDK
+and extension dependencies with offline `npm ci --include=dev --ignore-scripts` using isolated
+npm configuration, then compiles from the reviewed source. Provision the exact
+locked packages in the builder's npm cache first. Node preload/path overrides
+are refused. Node/npm/TypeScript tool hashes and install/compile logs are retained;
+provenance checks repeat before writing the manifest.
+Compiler selection is restricted to each package's freshly installed local tool.
+Existing generated output directories must be ordinary trees without symlinks,
+junctions or hard-linked files before the compiler may write them.
+The VSIX is marked pre-release, uses the channel's version and preserves the
+native release identity. Output replacement and qualification version overrides
+are refused. Bundled `SETUP.md` is available through an explicit editor command
+and explains installer resolution, first-run initialization and User settings.
+Actual installed-pair observations and clean-machine qualification remain
+separate BETA-08/BETA-09 evidence; the P4 records below are historical.
+
 The extension is a Windows VSIX with its exact SDK and generated protocol schema
 bundled. The native engine remains a separately installed Windows package. Configure
 an absolute trusted engine path in VS Code **User settings**. Workspace settings,

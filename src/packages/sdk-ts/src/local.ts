@@ -5,6 +5,7 @@ import type { InitializeParams, Scope, Id } from '@vcp/protocol';
 import { Client, type ClientTransport, type Role } from './client.js';
 import { LineDecoder, encodeFrame } from './codec.js';
 import { SdkError } from './errors.js';
+import { SDK_VERSION } from './version.js';
 import { validateWire } from './validation.js';
 import { RESULT_KINDS, REQUIRED_PROFILES } from './method-results.js';
 
@@ -169,7 +170,7 @@ export function launchLocal(options: LaunchOptions): Promise<Client> {
     try { object(options.publisher, ['profile']); } catch { throw new SdkError('INVALID_ARGUMENT', 'invalid publisher selection'); }
     absolute(options.publisher.profile, 'publisher profile');
     const base = initialize ?? {
-      protocol_version: '1.0', client: { name: '@vcp/sdk', version: '0.1.0' },
+      protocol_version: '1.0', client: { name: '@vcp/sdk', version: SDK_VERSION },
       capabilities: [...new Set([...Object.keys(RESULT_KINDS), ...Object.values(REQUIRED_PROFILES).flat(), 'jsonrpc/2.0', 'durable-command/1', 'approval/source-revisions/1', 'memory/inspection-state/1'])], required_capabilities: [],
     };
     const profiles = ['backup/publisher/1', 'workspace/binding/1'];

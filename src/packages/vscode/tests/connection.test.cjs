@@ -39,6 +39,7 @@ test('observer uses initialized identities, actual trust/pending data and cleans
   assert.deepEqual(state.scope, scope); assert.equal(state.host.id, 'actual-host'); assert.equal(state.engineBuild, 'actual-build'); assert.equal(state.workspaceRoot, root);
   assert.equal(state.engineExecutable, selection.executable); assert.equal(state.bindingRevision, '9007199254740993'); assert.equal(state.rootId, 'actual-root');
   assert.ok(launches[0].initialize.required_capabilities.includes('workspace/binding/1'));
+  assert.equal(launches[0].initialize.client.version, require('../package.json').version);
   assert.equal(launches[0].role, 'observer'); assert.equal(launches[0].transport, 'windows_pipe'); assert.equal(launches[0].execution, undefined);
   for (let i = 0; i < 12; i++) await connection.refresh();
   assert.equal(client.calls.filter(c => c.method === 'events/unsubscribe').length, 13);

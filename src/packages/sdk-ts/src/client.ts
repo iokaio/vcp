@@ -2,6 +2,7 @@
 import type { CommandRead, Id, InitializeParams, InitializeResult, Scope, SessionSnapshotRead } from '@vcp/protocol';
 import { encodeFrame } from './codec.js';
 import { SdkError, RpcFailure } from './errors.js';
+import { SDK_VERSION } from './version.js';
 import { RESULT_KINDS, REQUIRED_PROFILES, type Method, type Params, type Reply } from './method-results.js';
 import { validateWire } from './validation.js';
 import { EventStream, snapshotPages, type StreamOptions } from './subscriptions.js';
@@ -78,7 +79,7 @@ export class Client {
     const client = new Client(transport, scope, role, attachment, observer, observerReference);
     try {
       const request = params ?? {
-        protocol_version: '1.0', client: { name: '@vcp/sdk', version: '0.1.0' },
+        protocol_version: '1.0', client: { name: '@vcp/sdk', version: SDK_VERSION },
         capabilities: [...new Set([...Object.keys(RESULT_KINDS), ...Object.values(REQUIRED_PROFILES).flat(), 'jsonrpc/2.0', 'durable-command/1', 'approval/source-revisions/1', 'memory/inspection-state/1'])], required_capabilities: [],
       };
       validateWire('InitializeParams', request);

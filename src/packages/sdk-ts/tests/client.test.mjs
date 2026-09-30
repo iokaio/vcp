@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import metadata from '../package.json' with { type: 'json' };
 import {connect,scope,session,tick} from './support/fake.mjs';
 
 test('inflight abort retains wire slot; queued abort sends nothing; late response is consumed',async()=>{
- const {client,transport}=await connect();
+ const {client,transport,initialize}=await connect();
  try {
+  assert.deepEqual(initialize.client,{name:'@vcp/sdk',version:metadata.version});
   const abort=new AbortController(); const first=client.call('session/read',{scope},{signal:abort.signal});
   const firstRejected=assert.rejects(first,e=>e.code==='ABORTED');abort.abort();await firstRejected;
   const queuedAbort=new AbortController();const queued=client.call('session/read',{scope},{signal:queuedAbort.signal});const rejected=assert.rejects(queued,e=>e.code==='ABORTED');queuedAbort.abort();await rejected;
